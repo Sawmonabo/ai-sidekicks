@@ -71,9 +71,9 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       const railButtonCount = await consoleWindow.locator(".meridian-rail__button").count();
       expect(railButtonCount).toBeGreaterThan(0);
 
-      // The sessions destination has an owner — the collaboration family's
-      // all-sessions surface, which creates nothing on mount and builds the
-      // absorbed session-bootstrap probe only when a participant presses "Start a
+      // The sessions destination has an owner — the frame's own all-sessions
+      // surface, which creates nothing on mount and builds the absorbed
+      // session-bootstrap probe only when a participant presses "Start a
       // session". The claim is that the OWNER rendered and the frame's
       // reserved-slot arm did not fire: the owner's section is present and the
       // frame's composed absence wrapper is not.
@@ -81,16 +81,29 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       await consoleWindow.locator(".meridian-sessions").waitFor({ state: "visible" });
       expect(await consoleWindow.locator(".meridian-frame__absence").count()).toBe(0);
 
-      // And the surface answered for itself rather than leaving the frame to. A
-      // bare `#/sessions` address names no session, so the frame opens no store
-      // and the honest answer is the `not-checked` kind — "this console is not
-      // holding any sessions", never "there are none", which is a fact no read
-      // established. Waited for rather than counted immediately: the surface's
-      // own reads are asynchronous, and a bare count would race them.
+      // And the directory read has a PRODUCER, which is what this destination
+      // could not have in any build before it: the only session set the renderer
+      // could name was the set this window happened to have opened, and a fresh
+      // window had opened none.
+      //
+      // A launched shell plays the first-run scenario — a fresh install with no
+      // sessions on the node — so the answer here is a served-and-empty directory,
+      // and the surface renders the EMPTY kind of nothing: "no sessions yet", a
+      // stated fact with a next action. The claim is that kind SPECIFICALLY, which
+      // is what separates it from the two absences either side of it: a refused
+      // directory renders `not-checked` ("the console never asked", which is what a
+      // build with no producer shows) and a read still in flight renders
+      // `not-loaded`. Waited for rather than counted immediately, because the read
+      // is asynchronous and a bare count would race it into the `not-loaded` arm.
       await consoleWindow
-        .locator(".meridian-sessions .meridian-nothing--not-checked")
-        .first()
+        .locator(".meridian-sessions .meridian-nothing--empty")
         .waitFor({ state: "visible" });
+      expect(
+        await consoleWindow.locator(".meridian-sessions .meridian-nothing--not-checked").count(),
+      ).toBe(0);
+      expect(
+        await consoleWindow.locator(".meridian-sessions .meridian-nothing--not-loaded").count(),
+      ).toBe(0);
 
       // Reserved, not stubbed, on a destination that genuinely has no owner. This
       // is the half of the pair that makes the other half mean something: without
@@ -98,12 +111,8 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // that had stopped rendering that arm altogether. And the absence must be
       // the COMPOSED one, not a bare line, because a bare line at the top-left of
       // a real window is what a half-painted page looks like.
-      //
-      // `workflows` is that destination: the rail reaches it, and the family that
-      // fills it (T-023p-1C-6) ships on its own branch. `settings` was this half's
-      // subject until the collaboration family claimed that slot.
       await consoleWindow.evaluate(() => {
-        window.location.hash = "#/workflows";
+        window.location.hash = "#/settings";
       });
       await consoleWindow
         .locator(".meridian-frame__absence .meridian-nothing--empty")

@@ -358,6 +358,29 @@ describe("formatMoney — the wire's own precision, and never fewer than two dig
     expect(formatMoney(1.5, "not-a-code", "en-US")).toBe(`1.50${NO_BREAK_SPACE}not-a-code`);
   });
 
+  it("chooses the sub-unit floor by magnitude, so a credit aligns with a charge", () => {
+    // The sub-unit floor asks whether the figure HAS a sub-unit part, which is a
+    // question about magnitude. A bare `amount < 1` answers yes for every negative
+    // amount, so a -123.4567 credit rendered four fractional digits beside a
+    // 123.4567 charge rendering two — the misalignment the floor exists to
+    // prevent, in the one column where a refund and a charge sit on adjacent rows.
+    //
+    // The witness carries sub-cent digits deliberately. The floor raises a CAP and
+    // never pads, so a whole-unit -123 reads "-$123.00" under either comparison
+    // and would witness nothing.
+    expect(formatMoney(-123.4567, "USD", "en-US")).toBe("-$123.46");
+    expect(formatMoney(123.4567, "USD", "en-US")).toBe("$123.46");
+    expect(formatMoney(-123.4567, "USD", "en-US")).not.toBe("-$123.4567");
+    // And the floor still binds on both signs where the magnitude really is
+    // sub-unit, which is what makes the assertions above about the comparison
+    // rather than about the floor having been dropped. The figure carries four
+    // significant sub-unit digits, because the floor raises the CAP and never
+    // pads: a -0.25 credit reads "-$0.25" whichever comparison is in force, so it
+    // would witness nothing.
+    expect(formatMoney(-0.1234, "USD", "en-US")).toBe("-$0.1234");
+    expect(formatMoney(0.1234, "USD", "en-US")).toBe("$0.1234");
+  });
+
   it("renders a dash for an amount that is not a number", () => {
     expect(formatMoney(Number.NaN, "USD", "en-US")).toBe("—");
     expect(formatMoney(Number.POSITIVE_INFINITY, "USD", "en-US")).toBe("—");
