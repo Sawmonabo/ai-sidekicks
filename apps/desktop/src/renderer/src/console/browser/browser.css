@@ -1,0 +1,395 @@
+/*
+ * The browser family's composition sheet.
+ *
+ * Hand-authored like `primitives.css`, and under the same discipline: no literal
+ * colour, every value read back out of a Meridian custom property, and the two
+ * hues spent only on their one meaning each (`Spec-023 §Console Design (Meridian)`
+ * rule 3 — amber where a person is needed, red where something failed). Grep this
+ * file for `amber` and `red` and every hit is one of those.
+ *
+ * The sheet is imported from `console/browser/index.ts` and from nowhere else, so
+ * the bundler sees one edge into it however many surfaces this family grows.
+ *
+ * Three shapes live here and nothing else:
+ *
+ *   • the POLICY ROWS of chapter 13.16 — a switch, a label, and the sentence that
+ *     says what turning it on stops enforcing;
+ *   • the PARTITION TABLE beside them, whose sizes are mono because they are wire
+ *     figures (rule 4) and whose clear control arms through a native disclosure
+ *     rather than through a component that has to remember it was pressed;
+ *   • the CARD, one shell shared by a capture, a download, and a page tool call,
+ *     because all three are "one produced object, collapsed to a line, with the
+ *     detail one click away" (rule 7) and three sheets for one shape is how three
+ *     surfaces drift apart.
+ */
+
+/* ------------------------------------------------------------ settings page */
+
+.meridian-browser-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-6);
+  max-inline-size: 52rem;
+  padding: var(--meridian-space-5);
+  color: var(--meridian-text);
+}
+
+.meridian-browser-settings__title {
+  margin: 0;
+  font-size: var(--meridian-text-lg);
+  font-weight: 600;
+}
+
+.meridian-browser-settings__lede {
+  margin: var(--meridian-space-1) 0 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-browser-settings__section-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}
+
+/* ------------------------------------------------------------- policy rows */
+
+.meridian-browser-policy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * Grid rather than flex: the switch column has to hold one width down the list,
+ * or two rows whose labels differ in length put their switches at two positions
+ * and the eye reads them as two different controls.
+ */
+.meridian-browser-policy__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  align-items: start;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-browser-policy__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+.meridian-browser-policy__label {
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+}
+
+.meridian-browser-policy__consequence {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-policy__default {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-browser-policy__state {
+  grid-column: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/* ----------------------------------------------------------------- switch */
+
+/*
+ * The Base UI switch under Meridian tokens. The track is a boundary rather than a
+ * filled block until it is on, so a page of off switches carries no colour at all
+ * — which is rule 3 applied to a control rather than to a chip.
+ */
+.meridian-browser-switch {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  inline-size: 2.25rem;
+  block-size: 1.25rem;
+  padding: 2px;
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: 999px;
+  background: var(--meridian-surface-sunken);
+  cursor: default;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-browser-switch[data-checked] {
+  border-color: var(--meridian-accent);
+  background: var(--meridian-accent);
+}
+
+.meridian-browser-switch[data-disabled] {
+  opacity: 0.55;
+}
+
+.meridian-browser-switch:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-browser-switch__thumb {
+  display: block;
+  inline-size: 1rem;
+  block-size: 1rem;
+  border-radius: 999px;
+  background: var(--meridian-surface);
+  transition: translate var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-browser-switch[data-checked] .meridian-browser-switch__thumb {
+  translate: 1rem 0;
+  background: var(--meridian-accent-text);
+}
+
+/* -------------------------------------------------------- partition table */
+
+.meridian-browser-partitions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-browser-partitions__row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  align-items: baseline;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-browser-partitions__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.meridian-browser-partitions__title {
+  font-size: var(--meridian-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.meridian-browser-partitions__size {
+  justify-self: end;
+}
+
+.meridian-browser-partitions__control {
+  grid-column: 1 / -1;
+}
+
+/*
+ * The arming disclosure. A native `details` rather than a remembered flag: the
+ * control has to SAY what it clears before it is armed, and a summary that opens
+ * onto the sentence and the confirm button is that requirement expressed as
+ * markup — keyboard-reachable, announced as expandable, and impossible to leave
+ * armed across a re-render because nothing is being remembered.
+ */
+.meridian-browser-arm > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+  cursor: default;
+}
+
+.meridian-browser-arm > summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-browser-arm__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin-block-start: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-browser-arm__scope {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/* ------------------------------------------------------------------ button */
+
+.meridian-browser-action {
+  align-self: flex-start;
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: default;
+}
+
+.meridian-browser-action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-browser-action:disabled {
+  opacity: 0.55;
+}
+
+/* -------------------------------------------------------------------- card */
+
+/*
+ * One shell for a capture, a download, and a tool call. The 2 px inline-start
+ * edge is the ledger's attribution edge width reused as a KIND mark rather than a
+ * participant one — these three rows have no author to attribute to, and a second
+ * edge width beside rule 1's would read as a second vocabulary.
+ */
+.meridian-browser-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-browser-card--refused {
+  border-inline-start-color: var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+}
+
+.meridian-browser-card--waiting {
+  border-inline-start-color: var(--meridian-amber-mark);
+}
+
+.meridian-browser-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-browser-card__name {
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.meridian-browser-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-inline-start: auto;
+}
+
+.meridian-browser-card__note {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-browser-card__footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * The ingest meter. A boundary and a fill, no numerals of its own — the figures
+ * beside it are the wire's and go through `wire-figures.ts`, so a meter that also
+ * printed a percentage would be a second reading of one fact.
+ */
+.meridian-browser-meter {
+  block-size: 4px;
+  border-radius: 999px;
+  background: var(--meridian-surface-sunken);
+  overflow: hidden;
+}
+
+.meridian-browser-meter__fill {
+  block-size: 100%;
+  background: var(--meridian-accent);
+  transition: inline-size var(--meridian-motion-settle) var(--meridian-ease-settle);
+}
+
+/* ---------------------------------------------------------- disclosure body */
+
+.meridian-browser-disclosure > summary {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: default;
+}
+
+.meridian-browser-disclosure > summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-browser-disclosure__body {
+  margin: var(--meridian-space-2) 0 0;
+  padding: var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* --------------------------------------------------------- governance line */
+
+.meridian-browser-governance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}

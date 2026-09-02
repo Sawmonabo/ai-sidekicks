@@ -30,8 +30,12 @@ export {
   formatChordForPlatform,
 } from "./chord-format.js";
 
+export { Chip } from "./Chip.js";
+
+export { WireFigure } from "./Figure.js";
+
 export { Nothing } from "./Nothing.js";
 
-export { RefusalBanner } from "./Refusal.js";
+export { InlineRefusal, RefusalBanner } from "./Refusal.js";
 
-export { formatCount } from "./wire-figures.js";
+export { formatByteQuantity, formatCount } from "./wire-figures.js";

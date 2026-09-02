@@ -16,6 +16,11 @@
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
 
+// The family's stylesheet is imported HERE and nowhere else, which is the rule
+// `primitives/index.ts` and `frame/index.ts` already follow: one edge into the sheet
+// per bundle, and no surface can render a shape whose CSS never arrived.
+import "./browser.css";
+
 import type { ConsolePaneRegistry } from "../workspace/index.js";
 import { BROWSER_PANE_DESCRIPTOR } from "../panes/browser/index.js";
 
