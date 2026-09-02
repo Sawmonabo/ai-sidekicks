@@ -21,12 +21,8 @@
 // The state vocabulary is `artifact-ingest.ts`'s, shared with the capture card,
 // because one pipeline produced both.
 
-import {
-  formatIngestProgress,
-  ingestFillWidth,
-  ingestRemedySentence,
-  type BrowserIngestState,
-} from "./artifact-ingest.js";
+import { ingestRemedySentence, type BrowserIngestState } from "./artifact-ingest.js";
+import { BrowserIngestMeter } from "./IngestMeter.js";
 import {
   Chip,
   InlineRefusal,
@@ -95,36 +91,11 @@ export function BrowserDownloadCard(props: BrowserDownloadCardProps): React.JSX.
       ) : null}
 
       {props.ingest.status === "in-flight" ? (
-        <>
-          <div
-            className="meridian-browser-meter"
-            role="progressbar"
-            aria-label="Download ingest"
-            aria-valuenow={props.ingest.receivedByteLength}
-            aria-valuemin={0}
-            aria-valuemax={props.ingest.declaredByteLength}
-          >
-            <div
-              className="meridian-browser-meter__fill"
-              style={{
-                inlineSize: ingestFillWidth(
-                  props.ingest.receivedByteLength,
-                  props.ingest.declaredByteLength,
-                ),
-              }}
-            />
-          </div>
-          <p className="meridian-browser-card__note">
-            <WireFigure
-              value={formatIngestProgress(
-                props.ingest.receivedByteLength,
-                props.ingest.declaredByteLength,
-              )}
-              title={String(props.ingest.receivedByteLength)}
-            />{" "}
-            received.
-          </p>
-        </>
+        <BrowserIngestMeter
+          label="Download ingest"
+          receivedByteLength={props.ingest.receivedByteLength}
+          declaredByteLength={props.ingest.declaredByteLength}
+        />
       ) : null}
 
       {props.ingest.status === "stored" ? (
