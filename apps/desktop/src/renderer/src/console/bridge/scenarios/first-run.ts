@@ -43,6 +43,10 @@ export const FIRST_RUN_SCENARIO: ConsoleScenario = {
     {
       atMs: 0,
       event: {
+        // The daemon's own opaque row id for this event. Spelled as a UUID v7
+        // like every other identifier in this file, so a rendered id has the
+        // width a real one does.
+        id: "019b78c9-0a80-7ea1-8110-e5e0d1150001",
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",

@@ -34,6 +34,16 @@ import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/s
 /** A UUID the branded id types accept, so a control fails for its own reason. */
 const CONTROL_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 
+/**
+ * The daemon's opaque row id a control beat carries.
+ *
+ * Supplied by the SCENARIO rather than by the predicate. The probe used to mint a
+ * fixed id of its own, which meant the one envelope member a scenario could get
+ * wrong was the one member the check never saw — the last control below is what
+ * that closes.
+ */
+const CONTROL_EVENT_ID = "019b79ee-0280-7ea1-8110-e5e0d1159901";
+
 /** The smallest well-formed scenario, so each control varies exactly one thing. */
 function controlScenario(overrides: Partial<ConsoleScenario>): ConsoleScenario {
   return {
@@ -83,6 +93,7 @@ describe("scenario wire truth — the controls", () => {
           {
             atMs: 0,
             event: {
+              id: CONTROL_EVENT_ID,
               sessionId: CONTROL_SESSION_ID,
               sequence: 1,
               kind: "run.started",
@@ -107,6 +118,7 @@ describe("scenario wire truth — the controls", () => {
           {
             atMs: 0,
             event: {
+              id: CONTROL_EVENT_ID,
               sessionId: CONTROL_SESSION_ID,
               sequence: 1,
               kind: "session.created",
@@ -130,6 +142,7 @@ describe("scenario wire truth — the controls", () => {
           {
             atMs: 0,
             event: {
+              id: CONTROL_EVENT_ID,
               sessionId: "session-flagship",
               sequence: 1,
               kind: "session.created",
@@ -189,6 +202,34 @@ describe("scenario wire truth — the controls", () => {
     expect(defects).toStrictEqual([]);
   });
 
+  it("reports a beat whose envelope id is empty, which the probe used to supply for it", () => {
+    // The leg this file could not have: the wire-truth probe minted its own
+    // envelope id, so a scenario carrying an unusable one was measured against a
+    // good one the predicate had substituted. `EventEnvelope.id` is what every
+    // later read of an event's body is keyed by, and an empty one resolves to
+    // nothing — it is a defect exactly as a bad `sessionId` is.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 0,
+            event: {
+              id: "",
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "session.created",
+              occurredAt: "2026-01-01T00:00:00.000Z",
+              payload: validSessionCreatedPayload(),
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain("rejects this beat");
+  });
+
   it("passes a control that carries no defect at all", () => {
     // The positive control. Every case above asserts that something is REPORTED;
     // this one asserts the predicate can also stay silent, so a function that
@@ -199,6 +240,7 @@ describe("scenario wire truth — the controls", () => {
           {
             atMs: 0,
             event: {
+              id: CONTROL_EVENT_ID,
               sessionId: CONTROL_SESSION_ID,
               sequence: 1,
               kind: "session.created",
@@ -209,6 +251,7 @@ describe("scenario wire truth — the controls", () => {
           {
             atMs: 10,
             event: {
+              id: CONTROL_EVENT_ID,
               sessionId: CONTROL_SESSION_ID,
               sequence: 2,
               // A registered type the strict layer has no payload variant for yet.

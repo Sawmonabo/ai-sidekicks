@@ -37,6 +37,7 @@ function scenarioEngineOf(bridge: ConsoleBridge): ScenarioEngine {
 /** One wire event, shaped as the apply chokepoint consumes it. */
 function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId,
     sequence,
     kind: "run.queued",
@@ -47,6 +48,7 @@ function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEven
 /** One run beat, payload-shaped as `Spec-006 §Run Lifecycle (run_lifecycle)` spells it. */
 function queuedRunEvent(sessionId: string, sequence: number, runId: string): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId,
     sequence,
     kind: "run.queued",

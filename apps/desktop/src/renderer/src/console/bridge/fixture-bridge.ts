@@ -18,15 +18,18 @@
 // Three fixture behaviours are deliberate:
 //
 //   • **Subscriptions come from the scenario engine, routed by the registered
-//     stream table.** `daemon.subscribe` hands the caller beats as they fall due on
-//     the frozen clock, so a fixture session is replayable tick-for-tick and a
-//     screenshot pins an exact frame — and it hands them only to a subscriber the
-//     seam says they reach. A fixture that forwarded the whole script to every
+//     stream table and projected into the registered payload.** `daemon.subscribe`
+//     hands the caller beats as they fall due on the frozen clock, so a fixture
+//     session is replayable tick-for-tick and a screenshot pins an exact frame — and
+//     it hands them only to a subscriber the seam says they reach, in the shape that
+//     subscription registers. A fixture that forwarded the whole script to every
 //     subscriber delivered `session.created` into a handler that had asked for
-//     `run.starting`, which is a frame the live bridge cannot produce; a fixture
-//     that recognised only ONE stream name delivered nothing at all to the two
-//     `run.*` streams the daemon serves, which reads exactly like a quiet session.
-//     `session-event-streams.ts` is the one table both defects are routed by.
+//     `run.starting`; a fixture that recognised only ONE stream name delivered
+//     nothing at all to the two `run.*` streams the daemon serves, which reads
+//     exactly like a quiet session; and a fixture that delivered the ENVELOPE to
+//     those two streams sent a frame with no `currentState` on a wire whose whole
+//     payload is one. `session-event-streams.ts` routes, `run-stream-projection.ts`
+//     projects, and all three defects are gone from one table between them.
 //   • **Native surfaces refuse rather than pretend.** `showOpenDialog` under the
 //     fixture cannot open a dialog, so it rejects with a fixture-scoped error. A
 //     fixture that returned a plausible path would let a surface ship with a code
@@ -46,12 +49,12 @@ import {
   type UpdateState,
 } from "@ai-sidekicks/contracts";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
-import type { ConsoleSessionEvent } from "../store/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import {
   FIXTURE_SERVED_GROWTH_OPERATION_IDS,
   createFixtureGrowthPort,
 } from "./fixture-growth-port.js";
+import { projectRunStreamDelivery } from "./run-stream-projection.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { SCRIPTED_REPLY_REFUSAL_CODES, settleScriptedReply } from "./scripted-reply.js";
@@ -64,12 +67,24 @@ import { subscriptionDeliversEventKind } from "./session-event-streams.js";
  * here: they name a reply the frozen clock never released, which is a fact about the
  * seam both fixture surfaces share, and the growth port's own closed set spreads the
  * same two. Two independent spellings would be a rename waiting to go half-applied.
+ *
+ * `beat-unprojectable` is a SCENARIO authoring error rather than a wire one: the
+ * beat named a kind a narrowed stream carries and then could not supply what that
+ * stream's registered payload requires. It refuses rather than delivering the half
+ * it could build, because a projection missing a required member renders as blank
+ * and reviews as working.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
   "reply-unscripted",
   "capability-absent",
+  "beat-unprojectable",
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
-] = ["reply-unscripted", "capability-absent", ...SCRIPTED_REPLY_REFUSAL_CODES];
+] = [
+  "reply-unscripted",
+  "capability-absent",
+  "beat-unprojectable",
+  ...SCRIPTED_REPLY_REFUSAL_CODES,
+];
 
 /** One fixture refusal code. Derived, so the vocabulary is declared exactly once. */
 export type FixtureBridgeRefusalCode = (typeof FIXTURE_BRIDGE_REFUSAL_CODES)[number];
@@ -207,24 +222,40 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
  * kept a second reading of the seam would answer a `run.*` stream with silence
  * while the binder above it was passing a name the daemon serves.
  *
- * The beat's own envelope is what reaches the handler on EVERY arm, deliberately.
- * `DaemonEventPayload<E>` is a Plan-007 stub that resolves to `unknown`, so there
- * is no registered per-event payload shape to project a beat down to — and a
- * fixture that invented one would be putting a wire fact into the one module that
- * has no contract to check it against. That applies to the run streams as much as
- * to the session one: their registered emissions are projections of the durable
- * row, and projecting a beat into one here would mint a wire shape in the fixture.
+ * WHAT REACHES THE HANDLER depends on which arm the name is, because the corpus
+ * registers two different answers. `session.subscribe` is the replay-then-tail
+ * stream of the whole log and a bare event-type name carries only itself, so both
+ * deliver the beat's own envelope. The two `run.*` streams are registered
+ * PROJECTIONS — `RunStateChangeEvent | RunRolledBackEvent` and `QueueItemSummary` —
+ * and `run-stream-projection.ts` builds one from the beat. Handing those two the
+ * envelope, as this function used to, trained every runs surface on a frame the
+ * live bridge cannot send: no `kind`, no `sequence`, no nested `payload`, and
+ * `currentState` where the envelope has `payload.newState`.
+ *
+ * A beat the projection cannot build REFUSES here rather than delivering a partial
+ * shape, and it refuses by throwing: `core/emitter.ts` runs every sink and re-raises
+ * afterwards, so one scenario's authoring error surfaces to whoever advanced the
+ * clock without silencing the other subscribers on that beat.
  */
 function subscribeToScenario(
   engine: ScenarioEngine,
   subscriptionName: string,
-  deliver: (event: ConsoleSessionEvent) => void,
+  deliver: (delivered: unknown) => void,
 ): Unsubscribe {
   return engine.subscribe((events) => {
     for (const event of events) {
-      if (subscriptionDeliversEventKind(subscriptionName, event.kind)) {
-        deliver(event);
+      if (!subscriptionDeliversEventKind(subscriptionName, event.kind)) {
+        continue;
       }
+      const projection = projectRunStreamDelivery(subscriptionName, event);
+      if (projection === undefined) {
+        deliver(event);
+        continue;
+      }
+      if (projection.status === "unprojectable") {
+        throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
+      }
+      deliver(projection.delivery);
     }
   });
 }

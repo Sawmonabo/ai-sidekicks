@@ -30,6 +30,7 @@ export const projectors: EntityProjectorRegistry = {
 /** One event at `sequence`, carrying the run id the projector reads. */
 export function eventAt(sequence: number, runId: string): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId: "session-1",
     sequence,
     kind: "run.starting",

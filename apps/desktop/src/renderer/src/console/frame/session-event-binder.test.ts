@@ -266,6 +266,71 @@ describe("SessionEventBinder — the console's one subscription to the wire", ()
     binder.dispose();
   });
 
+  it("refuses a delivery that carries every member but the canonical event id", () => {
+    // The id is what a later read of this event's body is keyed by, so a payload
+    // without one is not an envelope the console can hold. Without this case the
+    // boundary could admit it and leave a row in the store that no surface could
+    // ever open — and the alternative fix, composing an id from the members that
+    // ARE present, would look identical from every other assertion in this file.
+    const idless: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "flagship-idless-payload-probe",
+      beats: [
+        {
+          atMs: 0,
+          event: {
+            sessionId: SESSION_ID,
+            sequence: 1,
+            kind: "run.starting",
+            occurredAt: "2026-01-01T14:20:00.400Z",
+          } as unknown as ConsoleSessionEvent,
+        },
+      ],
+    };
+    const { registry, binder, engine } = createHarness(idless);
+    binder.attach();
+    registry.open(SESSION_ID);
+
+    engine.advance(1);
+
+    expect(binder.unreadableDeliveryCount).toBe(1);
+    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
+
+    binder.dispose();
+  });
+
+  it("negative control: the same delivery carrying an id is admitted", () => {
+    // Without it, a boundary that refused every delivery would pass the case
+    // above — and a console that admits nothing looks exactly like a quiet
+    // session.
+    const withId: ConsoleScenario = {
+      ...FLAGSHIP_SCENARIO,
+      id: "flagship-idful-payload-probe",
+      beats: [
+        {
+          atMs: 0,
+          event: {
+            id: "019b79ee-0280-7ea1-8110-e5e0d1150901",
+            sessionId: SESSION_ID,
+            sequence: 1,
+            kind: "run.starting",
+            occurredAt: "2026-01-01T14:20:00.400Z",
+          },
+        },
+      ],
+    };
+    const { registry, binder, engine } = createHarness(withId);
+    binder.attach();
+    registry.open(SESSION_ID);
+
+    engine.advance(1);
+
+    expect(binder.unreadableDeliveryCount).toBe(0);
+    expect(binder.appliedEventCountFor(SESSION_ID)).toBe(1);
+
+    binder.dispose();
+  });
+
   it("exposes the fixture diagnostics while attached, and removes them on dispose", () => {
     // Read before attaching, so the presence assertion below cannot be satisfied
     // by a handle some earlier case left behind.

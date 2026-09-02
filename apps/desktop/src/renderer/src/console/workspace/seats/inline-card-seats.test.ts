@@ -15,6 +15,7 @@ import {
   inlineCardBody,
   inlineCardSeatRegistry,
   registerInlineCardBody,
+  type ArtifactEntityRef,
   type ArtifactInlineCardProps,
   type AttachmentInlineCardProps,
   type DiffInlineCardProps,
@@ -23,7 +24,10 @@ import {
 const DIFF_CARD: DiffInlineCardProps = {
   kind: "diff",
   runId: "run-7",
-  changeSetId: "changeset-3",
+  // The registered diff result's own two identifiers, not an identifier the console
+  // invented: a body handed this arm fetches with exactly these.
+  diffArtifactId: "diff-artifact-3",
+  artifactManifestId: "artifact-manifest-3",
 };
 
 const ATTACHMENT_CARD: AttachmentInlineCardProps = {
@@ -52,7 +56,10 @@ describe("inline card seats — the closed set", () => {
 describe("inline card seats — a body is only ever handed its own arm", () => {
   it("dispatches on the props' own discriminant", () => {
     const registry = new InlineCardSeatRegistry();
-    registry.register("diff", { owner: "repos-family", render: (props) => props.changeSetId });
+    registry.register("diff", {
+      owner: "repos-family",
+      render: (props) => props.diffArtifactId,
+    });
     registry.register("attachment", {
       owner: "repos-family",
       render: (props) => props.attachment.attachmentId,
@@ -61,7 +68,7 @@ describe("inline card seats — a body is only ever handed its own arm", () => {
       owner: "repos-family",
       render: (props) => props.artifact.id,
     });
-    expect(registry.render(DIFF_CARD)).toBe("changeset-3");
+    expect(registry.render(DIFF_CARD)).toBe("diff-artifact-3");
     expect(registry.render(ATTACHMENT_CARD)).toBe("attachment-1");
     expect(registry.render(ARTIFACT_CARD)).toBe("artifact-9");
   });
@@ -69,10 +76,13 @@ describe("inline card seats — a body is only ever handed its own arm", () => {
   it("refuses a body handed another kind's props rather than running it", () => {
     // The mismatch is only reachable through the descriptor door, which hands
     // back a renderer typed over the whole union. Without the guard, a diff body
-    // would run against attachment props and read `changeSetId` off a shape that
+    // would run against attachment props and read `diffArtifactId` off a shape that
     // has none — a silent `undefined` in the rendered card.
     const registry = new InlineCardSeatRegistry();
-    registry.register("diff", { owner: "repos-family", render: (props) => props.changeSetId });
+    registry.register("diff", {
+      owner: "repos-family",
+      render: (props) => props.diffArtifactId,
+    });
     const diffBody = registry.bodyFor("diff");
     expect(diffBody).toBeDefined();
     expect(() => diffBody?.render(ATTACHMENT_CARD)).toThrow(ConsoleRefusalError);
@@ -83,8 +93,11 @@ describe("inline card seats — a body is only ever handed its own arm", () => {
     // The case above would pass over a body that threw on every call, which is
     // the shape a mis-written guard degenerates into.
     const registry = new InlineCardSeatRegistry();
-    registry.register("diff", { owner: "repos-family", render: (props) => props.changeSetId });
-    expect(registry.bodyFor("diff")?.render(DIFF_CARD)).toBe("changeset-3");
+    registry.register("diff", {
+      owner: "repos-family",
+      render: (props) => props.diffArtifactId,
+    });
+    expect(registry.bodyFor("diff")?.render(DIFF_CARD)).toBe("diff-artifact-3");
   });
 });
 
@@ -120,6 +133,65 @@ describe("inline card seats — one owner per card kind", () => {
     // `undefined` rather than a placeholder: the "reserved, not stubbed" rule —
     // the row says the card has not been built rather than drawing an empty one.
     expect(registry.render(DIFF_CARD)).toBeUndefined();
+  });
+});
+
+describe("inline card seats — a diff card carries the registered diff identity", () => {
+  it("hands a body both identifiers the registered diff result names", () => {
+    // Two rows, two ids: a body renders the diff while its provenance and retention
+    // hang off the manifest the diff minted. A card carrying one of them could fetch
+    // only half of what it draws.
+    const registry = new InlineCardSeatRegistry();
+    registry.register("diff", {
+      owner: "repos-family",
+      render: (props) => `${props.diffArtifactId}/${props.artifactManifestId}`,
+    });
+
+    expect(registry.render(DIFF_CARD)).toBe("diff-artifact-3/artifact-manifest-3");
+  });
+
+  it("negative control: the retired identifier is not a member of the arm", () => {
+    // `changeSetId` had no producer, no consumer, and no registration anywhere, so a
+    // body reading it got `undefined` and rendered a card about nothing. Asserted as
+    // a compile error rather than a grep, because a grep goes stale and this does
+    // not: the day the member comes back, this stops building.
+    // @ts-expect-error `changeSetId` names no registered diff identity
+    const retired = DIFF_CARD.changeSetId;
+
+    expect(retired).toBeUndefined();
+  });
+});
+
+describe("inline card seats — an artifact card names an artifact", () => {
+  it("accepts a reference from the artifact partition", () => {
+    // The positive half, and it is what makes the refusal below a NARROWING rather
+    // than a type nothing can satisfy.
+    const artifact: ArtifactEntityRef = { kind: "artifact", id: "artifact-9" };
+    const props: ArtifactInlineCardProps = { kind: "artifact", artifact };
+
+    expect(props.artifact.kind).toBe("artifact");
+  });
+
+  it("negative control: a reference from another partition does not compile", () => {
+    // The defect this closes: the member took an unnarrowed `ConsoleEntityRef`, so
+    // a `run` reference was a legal artifact card. The body would then look the row
+    // up in a partition that has never held it and render as permanently missing —
+    // which reads exactly like an artifact whose fetch has not answered yet.
+    //
+    // A compile-time assertion because the guard IS the type: this arm is built at
+    // typed call sites, so there is no runtime boundary for a check to sit on. The
+    // directive sits on the member rather than the declaration because that is
+    // where the error lands, and it fails the build if the reference ever becomes
+    // legal again.
+    const wrongPartition: ArtifactInlineCardProps = {
+      kind: "artifact",
+      // @ts-expect-error a `run` reference is not an artifact reference
+      artifact: { kind: "run", id: "run-7" },
+    };
+
+    // Read at runtime too, so the case is not purely a compiler directive: the
+    // value is the one the type refuses, and it is exactly a `run` reference.
+    expect(wrongPartition.artifact.id).toBe("run-7");
   });
 });
 

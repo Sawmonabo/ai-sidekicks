@@ -63,11 +63,33 @@ export interface InlineCardAttachmentRef {
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
-/** A diff card, over one run's change set. */
+/**
+ * A diff card, over one computed diff.
+ *
+ * The two identifiers are the ones the registered diff result carries — the
+ * `DiffArtifactCreateResponse` in
+ * `docs/architecture/contracts/api-payload-contracts.md` §Plan-011, whose members
+ * are `diffArtifactId`, `artifactManifestId`, and `createdAt`. They are spelled flat
+ * here because that response is flat, so the arm and the wire it is fetched with
+ * read as one shape.
+ *
+ * This arm used to carry a `changeSetId`, which had no producer, no consumer, and no
+ * registration anywhere in the corpus: a card body handed one had nothing to fetch
+ * with, and the identifier looked exactly like a wire fact while being traceable to
+ * nothing. Both members are needed rather than one — the diff and the artifact
+ * manifest it mints are two rows, and a body renders the diff while its provenance
+ * and retention hang off the manifest.
+ *
+ * `packages/contracts` exports no diff type yet, so these are plain strings, the
+ * same posture (and the same deletion obligation) `InlineCardAttachmentRef` above
+ * takes: when the contracts package registers the response, these members take its
+ * branded ids and this comment goes with the change.
+ */
 export interface DiffInlineCardProps {
   readonly kind: "diff";
   readonly runId: string;
-  readonly changeSetId: string;
+  readonly diffArtifactId: string;
+  readonly artifactManifestId: string;
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
@@ -79,16 +101,37 @@ export interface AttachmentInlineCardProps {
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
 /**
+ * A reference to one entity in the console's `artifact` partition.
+ *
+ * `ConsoleEntityRef` narrowed to the one kind this card can render, EXTENDED from
+ * it rather than restated: `id` keeps its single home, and `kind` is fixed to the
+ * literal. The unnarrowed ref admits all twelve kinds, so a caller could hand the
+ * artifact card a `run` reference and the body would look the row up in a partition
+ * that has never held it — a card that renders as permanently missing, which is
+ * indistinguishable from an artifact the fetch has not answered for yet.
+ *
+ * The narrowing is the whole guard, and deliberately so: this arm is reached from
+ * typed call sites inside the renderer, never from a wire payload, so there is no
+ * boundary at which an untyped `kind` could arrive and nothing for a runtime check
+ * to catch that the compiler has not already refused.
+ */
+export interface ArtifactEntityRef extends ConsoleEntityRef {
+  readonly kind: "artifact";
+}
+
+// Consumed by T-023p-1C-2, T-023p-1C-5
+/**
  * An artifact card, over one published artifact.
  *
- * Carries a `ConsoleEntityRef` because `artifact` is already one of the console's
+ * Carries an entity reference because `artifact` is already one of the console's
  * own entity kinds — the store partitions artifacts, and a second identity
  * vocabulary for the same rows would be the denormalised copy `store/entities.ts`
- * refuses.
+ * refuses. It carries the ARTIFACT-partitioned reference specifically, for the
+ * reason on that type.
  */
 export interface ArtifactInlineCardProps {
   readonly kind: "artifact";
-  readonly artifact: ConsoleEntityRef;
+  readonly artifact: ArtifactEntityRef;
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
