@@ -9,12 +9,16 @@
 //     `agent.subscribe` exists on any transport, and inventing one would be a method
 //     string with nothing behind it, so the signal is taken from the stream the
 //     console already has.
-//   • **The driver catalog has no signal at all, honestly.** Nothing on the wire
-//     announces that a provider's model list moved, so the read is performed once
-//     and its subscription is a stated no-op rather than a timer. A poll here would
-//     be the console inventing a refresh policy for a fact it cannot observe.
-//   • **Child links are per parent run**, so they are built on demand and cached one
-//     at a time — asking for a different run disposes the previous read.
+//   • **The driver catalog and the definition list have no signal at all, honestly.**
+//     Nothing on the wire announces that a provider's model list or the node-local
+//     definition registry moved, so each read is performed once and its subscription
+//     is a stated no-op rather than a timer. A poll there would be the console
+//     inventing a refresh policy for a fact it cannot observe.
+//   • **Child links are per parent run**, and push-driven too. A child created later
+//     and a create the daemon refused both arrive on the same session stream, so the
+//     linkage takes the roster's signal filtered to its own two registered kinds
+//     rather than going stale until the pane remounts. They are built on demand and
+//     cached one at a time — asking for a different run disposes the previous read.
 //
 // A CACHE OF ONE, TWICE OVER. A console shows one session at a time and one run's
 // links at a time, so both caches hold exactly one entry and switching disposes what
@@ -27,6 +31,8 @@
 
 import { useEffect, useState } from "react";
 
+import type { SessionEventType } from "@ai-sidekicks/contracts";
+
 import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { callDaemonMethod } from "../collaboration/wire-access.js";
@@ -38,6 +44,7 @@ import {
   AGENT_DETACH_METHOD,
   AGENT_LIFECYCLE_EVENT_KINDS,
   AGENT_LIST_METHOD,
+  CHILD_RUN_LINKAGE_EVENT_KINDS,
   CHILD_RUN_LINK_READ_METHOD,
   DRIVER_LIST_CAPABILITIES_METHOD,
   DRIVER_LIST_MODELS_METHOD,
@@ -80,12 +87,21 @@ export class AgentConsoleModels {
 
   readonly #bridge: ConsoleBridge;
   readonly #clock: ConsoleClock;
+  /**
+   * The store the linkage read takes its push signal from.
+   *
+   * Held rather than reduced to a `sessionId`: a child link and a refused create
+   * both arrive as session events, so the read that answers for them needs the
+   * stream itself and not the name of the session it belongs to.
+   */
+  readonly #sessionStore: SessionStore;
   #linkage: { readonly parentRunId: string; readonly read: ChildRunLinkageRead } | undefined;
   #disposed = false;
 
   public constructor(bridge: ConsoleBridge, sessionStore: SessionStore) {
     this.#bridge = bridge;
     this.#clock = bridge.scenarioEngine?.clock ?? new RealClock();
+    this.#sessionStore = sessionStore;
     this.sessionId = sessionStore.sessionId;
     this.roster = createAgentRoster(bridge, sessionStore, this.#clock);
     this.driverCatalog = createDriverCatalog(bridge, this.#clock);
@@ -154,7 +170,7 @@ export class AgentConsoleModels {
       return held.read;
     }
     held?.read.dispose();
-    const read = createChildRunLinkage(this.#bridge, parentRunId, this.#clock);
+    const read = createChildRunLinkage(this.#bridge, this.#sessionStore, parentRunId, this.#clock);
     this.#linkage = { parentRunId, read };
     read.start();
     return read;
@@ -234,7 +250,8 @@ export function createAgentRoster(
         AGENT_LIST_METHOD,
         { sessionId: sessionStore.sessionId },
       ),
-    subscribe: (onChangeSignal) => subscribeToAgentLifecycle(sessionStore, onChangeSignal),
+    subscribe: (onChangeSignal) =>
+      subscribeToSessionEventKinds(sessionStore, AGENT_LIFECYCLE_EVENT_KINDS, onChangeSignal),
   });
 }
 
@@ -290,9 +307,19 @@ export function createSidekickDefinitions(
   });
 }
 
-/** One parent run's links and refusal fold. */
+/**
+ * One parent run's links and refusal fold, refreshed by the two kinds that move it.
+ *
+ * A child created after this read settled and a create the daemon refused both
+ * arrive on the session stream, so the linkage takes the same signal the roster does
+ * with its own watched set — a console left open on a parent run shows what happened
+ * to it rather than what had happened by the time it mounted. Coalescing is the
+ * scheduler's, so a burst of queued children costs one read and no timer beyond the
+ * one refresh chokepoint is introduced.
+ */
 export function createChildRunLinkage(
   bridge: ConsoleBridge,
+  sessionStore: SessionStore,
   parentRunId: string,
   clock: ConsoleClock,
 ): ChildRunLinkageRead {
@@ -305,27 +332,29 @@ export function createChildRunLinkage(
         CHILD_RUN_LINK_READ_METHOD,
         { parentRunId },
       ),
-    // Child creations and refusals do arrive as session events, but the two kinds
-    // that carry them — the child-run link row and `orchestration.rejected`'s fold —
-    // reach no store partition this console projects yet, so there is no signal to
-    // key on. The read is performed once and the absence of a refresh is stated
-    // rather than approximated with a timer.
-    subscribe: () => () => undefined,
+    subscribe: (onChangeSignal) =>
+      subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINKAGE_EVENT_KINDS, onChangeSignal),
   });
 }
 
 /**
- * Signal on every store transition that admitted an agent-lifecycle event.
+ * Signal on every store transition that admitted an event of one of these kinds.
  *
  * Keyed on the store's own cursor so one event is never counted twice, and scoped to
- * the three kinds so a busy run does not re-read the roster on every token. A
- * transition that admitted nothing this read cares about produces no signal at all.
+ * the caller's kinds so a busy run does not re-read on every token. A transition that
+ * admitted nothing the caller cares about produces no signal at all.
+ *
+ * One subscriber for two reads: the roster watches the three agent-lifecycle kinds
+ * and the linkage watches the two child-run kinds, and the only thing that differs
+ * between them is the set. A second copy of this filter would drift from the first
+ * the moment either set moved.
  */
-function subscribeToAgentLifecycle(
+function subscribeToSessionEventKinds(
   sessionStore: SessionStore,
+  watchedKinds: readonly SessionEventType[],
   onChangeSignal: () => void,
 ): () => void {
-  const watched = new Set<string>(AGENT_LIFECYCLE_EVENT_KINDS);
+  const watched = new Set<string>(watchedKinds);
   let lastSeenCursor = sessionStore.snapshot().cursor;
   return sessionStore.readable.subscribe((state) => {
     const previousCursor = lastSeenCursor;

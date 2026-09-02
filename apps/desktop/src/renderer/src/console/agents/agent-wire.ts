@@ -70,6 +70,21 @@ export const AGENT_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = [
   "agent.config_updated",
 ];
 
+/**
+ * The two registered kinds that move one parent run's child links.
+ *
+ * A child run reaches the session stream as `run.queued`, and a create the daemon
+ * refused reaches it as `orchestration.rejected` — which is the ONLY record of
+ * refused work, since a refusal is zero-residue and leaves no link row behind. Typed
+ * as `SessionEventType` for the same reason as the roster's set: a kind this
+ * workspace does not register is a compile error rather than a signal that never
+ * fires.
+ */
+export const CHILD_RUN_LINKAGE_EVENT_KINDS: readonly SessionEventType[] = [
+  "run.queued",
+  "orchestration.rejected",
+];
+
 // --- Closed vocabularies --------------------------------------------------
 
 /** An agent's lifecycle state, closed at four (`Spec-016 §Interfaces And Contracts`). */
