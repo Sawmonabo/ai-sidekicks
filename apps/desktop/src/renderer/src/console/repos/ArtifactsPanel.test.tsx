@@ -92,6 +92,71 @@ describe("ArtifactsPanel — the four arms are four different absences", () => {
   });
 });
 
+describe("ArtifactsPanel — a count is a reading, and only a list produces one", () => {
+  const READ_REFUSAL = refuse("artifact-pane-reader", "read-threw", "The artifact read failed.");
+
+  const rowlessArms = [
+    { arm: "not-checked", state: { kind: "not-checked" } as const },
+    { arm: "loading", state: { kind: "loading" } as const },
+    { arm: "refused", state: { kind: "refused", refusal: READ_REFUSAL } as const },
+  ];
+
+  it.each(rowlessArms)(
+    "states no session total on the $arm arm, where no list answered",
+    ({ state }) => {
+      const { container } = render(
+        <ArtifactsPanel state={state} nowMilliseconds={NOW_MILLISECONDS} />,
+      );
+      // The exact sentence the placeholder produced. A head that reports a total
+      // over rows nobody read contradicts the body directly beneath it.
+      expect(container.textContent).not.toContain(`${formatCount(0)} in this session`);
+      expect(container.textContent).not.toContain("in this session");
+    },
+  );
+
+  it.each(rowlessArms)("offers no type filter on the $arm arm", ({ state }) => {
+    const { queryByRole } = render(
+      <ArtifactsPanel state={state} nowMilliseconds={NOW_MILLISECONDS} />,
+    );
+    // Seven buttons all reading zero are seven promises that pressing one narrows
+    // something, made against a list this panel does not have.
+    expect(queryByRole("group", { name: "Filter by artifact type" })).toBeNull();
+  });
+
+  it.each(rowlessArms)("still says which absence the $arm arm is", ({ arm, state }) => {
+    const { container } = render(
+      <ArtifactsPanel state={state} nowMilliseconds={NOW_MILLISECONDS} />,
+    );
+    const sentenceByArm: Readonly<Record<string, string>> = {
+      "not-checked": "have not been read",
+      loading: "Reading this session's artifacts",
+      refused: READ_REFUSAL.detail,
+    };
+    expect(container.textContent).toContain(sentenceByArm[arm]);
+  });
+
+  it("reports the total and every type's count once a list has answered", () => {
+    const { container, getByRole } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow(), artifactRow({ id: "artifact-02" })] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+      />,
+    );
+    expect(container.textContent).toContain(`${formatCount(2)} in this session`);
+    expect(getByRole("group", { name: "Filter by artifact type" })).toBeDefined();
+  });
+
+  it("negative control: a served EMPTY list is a reading, so it keeps both", () => {
+    // The arm that earns a zero. `listed` with no rows is a read that found none,
+    // which is a different claim from the three above and renders its own total.
+    const { container, getByRole } = render(
+      <ArtifactsPanel state={{ kind: "listed", rows: [] }} nowMilliseconds={NOW_MILLISECONDS} />,
+    );
+    expect(container.textContent).toContain(`${formatCount(0)} in this session`);
+    expect(getByRole("group", { name: "Filter by artifact type" })).toBeDefined();
+  });
+});
+
 describe("ArtifactsPanel — the row's face", () => {
   it("carries type, state, visibility, size, producer, and replication status", () => {
     const row = artifactRow({ replicationStatus: "over_cap", visibility: "shared" });

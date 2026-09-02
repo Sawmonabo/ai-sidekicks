@@ -42,6 +42,16 @@
 // body's arms renders. One manifest's face, acts, confirm strip, and disclosure are
 // `ArtifactRow.tsx`, which needs nothing this file knows — the split is that seam
 // and not a line budget, and no class name moved with it.
+//
+// A COUNT IS A READING, SO ONLY A READ MAY PUT ONE ON SCREEN. The head figure and the
+// seven filter counts are derived from the rows a LIST answered with, and on the three
+// arms that carry no rows there is no list: nobody asked, a read is in flight, or one
+// was refused. Substituting an empty array for those made the head say "0 in this
+// session" and every type report zero — a total the console asserted in its own voice
+// while the body directly below it said the list was unknown or had failed. So both
+// derivations render on the `listed` arm alone, and on the other three the head is the
+// heading with no figure beside it: the body's own absence card is the whole reading,
+// and rule 8 forbids a surface answering a question nothing put.
 
 import { useMemo, useState } from "react";
 
@@ -101,7 +111,11 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
     string | undefined
   >(undefined);
 
-  const rows = props.state.kind === "listed" ? props.state.rows : NO_ROWS;
+  // ABSENT on every arm but `listed`, and that absence is what the head and the filter
+  // group are gated on. `NO_ROWS` still backs the two memos so their inputs keep a
+  // stable identity across a re-render that changed nothing — it feeds no figure.
+  const listedRows = props.state.kind === "listed" ? props.state.rows : undefined;
+  const rows = listedRows ?? NO_ROWS;
   const countsByType = useMemo(() => artifactTypeCounts(rows), [rows]);
   const visibleRows = useMemo(() => filterArtifactRows(rows, typeFilter), [rows, typeFilter]);
 
@@ -112,7 +126,9 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
           <Glyph name="artifact" size={PANEL_GLYPH_SIZE} />
           Artifacts
         </h3>
-        <DerivedFigure text={`${formatCount(rows.length)} in this session`} />
+        {listedRows === undefined ? null : (
+          <DerivedFigure text={`${formatCount(listedRows.length)} in this session`} />
+        )}
       </header>
 
       {/*
@@ -120,15 +136,27 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
         over ONE list — the diff pane is a view onto this list rather than a second
         store — so hiding an empty option would hide the vocabulary exactly when
         somebody is looking for something that is not in it.
+
+        The whole group is absent until a list has answered, though: an offered filter
+        is a promise that pressing it narrows something, and seven buttons all reading
+        zero over a body that says the read was refused is that promise made against a
+        list nobody has. Every option comes back, with its true count, the moment one
+        does.
       */}
-      <div className="meridian-artifacts__filter" role="group" aria-label="Filter by artifact type">
-        {renderFilterButtons({
-          countsByType,
-          totalCount: rows.length,
-          selected: typeFilter,
-          onSelect: setTypeFilter,
-        })}
-      </div>
+      {listedRows === undefined ? null : (
+        <div
+          className="meridian-artifacts__filter"
+          role="group"
+          aria-label="Filter by artifact type"
+        >
+          {renderFilterButtons({
+            countsByType,
+            totalCount: listedRows.length,
+            selected: typeFilter,
+            onSelect: setTypeFilter,
+          })}
+        </div>
+      )}
 
       {props.lastDeleteReceipt === undefined ? null : (
         <p className="meridian-artifacts__receipt" role="status">
