@@ -20,6 +20,11 @@
 
 export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
+// The two branded-signature widenings every caller of the daemon namespace needs.
+// They live in this family because it owns the bridge and sits below every view
+// family; `daemon-call.ts` says why they were hoisted out of the first caller.
+export { callDaemon, subscribeDaemon } from "./daemon-call.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,

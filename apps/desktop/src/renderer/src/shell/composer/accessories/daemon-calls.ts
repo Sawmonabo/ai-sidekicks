@@ -16,9 +16,6 @@
 // figure from it. Nothing here invents a method name — each constant below is a row
 // of a registry the corpus already publishes, quoted verbatim.
 
-import type { Unsubscribe } from "../../../console/core/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
-
 /**
  * Participant-triggered context compaction.
  *
@@ -45,33 +42,13 @@ export const QUEUE_CANCEL_METHOD = "run.queueCancel";
 export const QUEUE_SUBSCRIBE_STREAM = "run.subscribeQueue";
 
 /**
- * The daemon call, with the one brand bypass the composer makes.
+ * The two daemon signatures, re-exported from the family that now owns them.
  *
- * Takes the bridge rather than the raw namespace so `window.sidekicks` stays inside
- * `bridge/BridgeProvider.tsx` and every accessory reaches the wire through a value
- * it was handed.
+ * They were defined here while the composer accessories were their only caller.
+ * The approvals pane is the second family to need them, so they were hoisted to
+ * `console/bridge/daemon-call.ts` — the lowest family in the DAG both can reach —
+ * on `apps/desktop/AGENTS.md`'s hoist-on-second-use rule. They are re-exported
+ * rather than deleted so no accessory's import path moves: this module is still
+ * the composer's one seam onto the daemon, and it still owns the method names.
  */
-export function callDaemon(
-  bridge: ConsoleBridge,
-  method: string,
-  params: unknown,
-): Promise<unknown> {
-  const call = bridge.sidekicks.daemon.call as (
-    method: string,
-    params: unknown,
-  ) => Promise<unknown>;
-  return call(method, params);
-}
-
-/** The daemon subscription, widened the same way and for the same reason. */
-export function subscribeDaemon(
-  bridge: ConsoleBridge,
-  streamName: string,
-  handler: (payload: unknown) => void,
-): Unsubscribe {
-  const subscribe = bridge.sidekicks.daemon.subscribe as (
-    event: string,
-    handler: (payload: unknown) => void,
-  ) => Unsubscribe;
-  return subscribe(streamName, handler);
-}
+export { callDaemon, subscribeDaemon } from "../../../console/bridge/index.js";
