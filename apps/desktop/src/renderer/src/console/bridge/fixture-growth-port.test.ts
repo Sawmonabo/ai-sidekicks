@@ -13,6 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { isWireErrorEnvelope, type WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 import type { AttentionItem } from "./attention-projection.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
@@ -62,8 +63,27 @@ async function callOperation(
   sessionId: string = FLAGSHIP_SCENARIO.sessionId,
 ): Promise<GrowthOutcome<unknown>> {
   const call = port[operationId] as (request: unknown) => Promise<GrowthOutcome<unknown>>;
-  return call({ sessionId });
+  return call({ sessionId, ...PROBE_SUBJECTS[operationId] });
 }
+
+/**
+ * The identifiers a probe has to carry beyond a session id, per operation.
+ *
+ * A bare `{sessionId}` is not a valid request for every operation, and the sweep
+ * above was only getting away with it because the workflow handlers discarded what
+ * they were addressed by. Now that they refuse a run or a phase their scenario
+ * projects nothing for, a probe naming neither is a probe asking about `undefined` —
+ * so the sweep supplies the workflows scenario's own identifiers and asks the
+ * question a caller would ask. Operations addressed by a session alone stay absent
+ * from the table rather than carrying an empty entry each.
+ */
+const PROBE_SUBJECTS: Partial<Record<GrowthOperationId, Readonly<Record<string, string>>>> = {
+  workflowRunRead: { workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId },
+  workflowPhaseOutputRead: {
+    workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+    phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+  },
+};
 
 function fixturePort(): GrowthPort {
   const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
@@ -801,6 +821,28 @@ function workflowsPort(): GrowthPort {
   return createFixtureBridge({ scenario: WORKFLOWS_SCENARIO }).growth;
 }
 
+/**
+ * The daemon envelope a read REJECTED with.
+ *
+ * A rejection rather than an outcome arm, because that is what a daemon refusal is
+ * on this seam: the growth outcome union deliberately has no arm for one, so a
+ * scripted refusal and an out-of-scope identifier both travel as the wire's own
+ * `{code, message}` thrown verbatim. A read that answers where a refusal was
+ * expected fails HERE, naming that, rather than leaving an assertion to read a
+ * member off a value that never refused.
+ */
+async function refusalFrom(read: Promise<unknown>): Promise<WireErrorEnvelope> {
+  try {
+    await read;
+  } catch (rejection) {
+    if (isWireErrorEnvelope(rejection)) {
+      return rejection;
+    }
+    throw rejection;
+  }
+  throw new Error("the read answered where a daemon refusal was expected");
+}
+
 describe("the fixture's workflow reads — answered from the script, never invented", () => {
   it("enumerates the definitions the scenario states, and synthesizes no cursor", async () => {
     const outcome = await workflowsPort().workflowDefinitionList({
@@ -910,6 +952,83 @@ describe("the fixture's workflow reads — answered from the script, never inven
         expect(outcome.slateRow).toBe("workflow-run-control");
       }
       expect(outcome).not.toHaveProperty("value");
+    }
+  });
+
+  it("enumerates nothing for a session this scenario is not playing", async () => {
+    // The defect, on the enumerations: a scripted reply is matched by call name, so
+    // both answered ANY session with this scenario's rows — one session's definitions
+    // and runs shown under another session's name, and a list of runs a person cannot
+    // open, cancel or account for. Empty rather than refused, on the rule
+    // `attentionProjectionRead` states one function up: the operation IS served and
+    // what it found for that session here is nothing.
+    const port = workflowsPort();
+    const definitions = await port.workflowDefinitionList({
+      sessionId: FLAGSHIP_SCENARIO.sessionId,
+    });
+    const runs = await port.workflowRunList({ sessionId: FLAGSHIP_SCENARIO.sessionId });
+
+    expect(definitions.status === "served" ? definitions.value : undefined).toStrictEqual({
+      definitions: [],
+    });
+    expect(runs.status === "served" ? runs.value : undefined).toStrictEqual({ runs: [] });
+  });
+
+  it("refuses the run read for a run it projects no snapshot for", async () => {
+    // The defect this closes: the scripted reply is matched by CALL NAME, so the
+    // handler answered any run id at all with the parked run — a run pane opened on
+    // the working run would have shown the parked run's phases, parks and controls
+    // under the working run's name.
+    const working = WORKFLOWS_SCENARIO_RUNS.find(
+      (run) => run.workflowRunId !== WORKFLOWS_PARKED_RUN.workflowRunId,
+    );
+    expect(working).toBeDefined();
+
+    const refusal = await refusalFrom(
+      workflowsPort().workflowRunRead({ workflowRunId: working?.workflowRunId ?? "" }),
+    );
+
+    expect(refusal.code).toBe("workflow.not_found");
+    expect(refusal.message).toContain(working?.workflowRunId ?? "");
+  });
+
+  it("refuses the phase-output read on either identifier it is addressed by", async () => {
+    // Both, because the read is addressed by both: a completed phase's outputs served
+    // under another run would read as that run's work, and another phase's id would
+    // attribute one phase's outputs to a phase that produced none.
+    const port = workflowsPort();
+
+    for (const read of [
+      port.workflowPhaseOutputRead({
+        workflowRunId: "019b7a10-0280-7b33-8100-000000000000",
+        phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+      }),
+      port.workflowPhaseOutputRead({
+        workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+        phaseId: "019b7a10-0280-7e44-8100-000000000000",
+      }),
+    ]) {
+      expect((await refusalFrom(read)).code).toBe("workflow.not_found");
+    }
+  });
+
+  it("negative control: the identifiers the scenario states are still served", async () => {
+    // Without this the four refusals above would pass over a port that refused every
+    // workflow read, and the fixture would answer nothing at all. The three cases at
+    // the head of this suite assert what comes back; this asserts that the scoping
+    // added in front of them refuses none of it.
+    const port = workflowsPort();
+
+    for (const outcome of [
+      await port.workflowDefinitionList({ sessionId: WORKFLOWS_SCENARIO.sessionId }),
+      await port.workflowRunList({ sessionId: WORKFLOWS_SCENARIO.sessionId }),
+      await port.workflowRunRead({ workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId }),
+      await port.workflowPhaseOutputRead({
+        workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+        phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+      }),
+    ]) {
+      expect(outcome.status).toBe("served");
     }
   });
 
