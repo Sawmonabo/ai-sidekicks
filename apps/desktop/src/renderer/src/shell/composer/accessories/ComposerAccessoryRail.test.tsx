@@ -9,14 +9,21 @@
 // The store is the real `SessionStore` with real events applied — a stand-in would
 // let the rail read a shape the store cannot actually produce.
 
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../../console/bridge/index.js";
+import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+
+import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../../console/store/index.js";
+import {
+  SessionStore,
+  type ConsoleEntity,
+  type ConsoleSessionEvent,
+} from "../../../console/store/index.js";
+import type { ConsolePaneAddress } from "../../../console/workspace/index.js";
 import { ComposerAccessoryRail } from "./ComposerAccessoryRail.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "./usage-readings.js";
 
@@ -33,17 +40,28 @@ const EMPTY_SCENARIO: ConsoleScenario = {
   replies: [],
 };
 
-function mountRail(events: readonly ConsoleSessionEvent[]): HTMLElement {
+function mountRail(
+  events: readonly ConsoleSessionEvent[],
+  addressing: {
+    readonly bridge?: ConsoleBridge;
+    readonly entities?: readonly ConsoleEntity[];
+    readonly focusedPane?: ConsolePaneAddress | undefined;
+  } = {},
+): HTMLElement {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
+  sessionStore.initialise({
+    cursor: 0,
+    entities: [...(addressing.entities ?? [])],
+    participantJoinLog: ["participant-you"],
+  });
   sessionStore.applyBatch(events);
   const { container } = render(
     <ComposerAccessoryRail
       sessionStore={sessionStore}
-      bridge={createFixtureBridge({ scenario: EMPTY_SCENARIO })}
+      bridge={addressing.bridge ?? createFixtureBridge({ scenario: EMPTY_SCENARIO })}
       draftStore={new DraftStore()}
       route={DEFAULT_ROUTE}
-      focusedPane={undefined}
+      focusedPane={addressing.focusedPane}
     />,
   );
   return container;
@@ -122,5 +140,198 @@ describe("ComposerAccessoryRail — the reserved seats and the menu", () => {
   it("negative control: the menu's contents are not in the tree while it is closed", () => {
     const container = mountRail([]);
     expect(container.querySelector(".meridian-attachment-seat")).toBeNull();
+  });
+});
+
+describe("ComposerAccessoryRail — the compaction control reaches the addressed run", () => {
+  const AGENT_ID = "agent-implementer";
+  const RUN_ID = "9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a";
+
+  const AGENT: ConsoleEntity = {
+    kind: "agent",
+    id: AGENT_ID,
+    state: "running",
+    body: { name: "Ada", driverName: "claude" },
+  };
+
+  const RUNNING_RUN: ConsoleEntity = {
+    kind: "run",
+    id: RUN_ID,
+    state: "running",
+    touchedAt: "2026-01-01T11:05:00.000Z",
+    body: { agentId: AGENT_ID, runVersion: 4 },
+  };
+
+  /**
+   * The meters row's own unanswered-question badge.
+   *
+   * Scoped rather than global: two other seats on this rail render their own
+   * `not-checked` block, so a document-wide query would pass on either of theirs.
+   */
+  const METERS_NOT_CHECKED = ".meridian-composer__meters .meridian-nothing--not-checked";
+
+  const ON_THE_AGENT: ConsolePaneAddress = {
+    kind: "agent-console",
+    entity: { kind: "agent", id: AGENT_ID },
+  };
+
+  /** One capability report per driver, total over the registered flag set. */
+  function reportFor(driverName: string, declared: readonly DriverCapabilityFlag[]): unknown {
+    return {
+      driverName,
+      capabilities: {
+        flags: Object.fromEntries(
+          DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, declared.includes(flag)]),
+        ),
+        contractVersion: "1",
+      },
+    };
+  }
+
+  /** A bridge answering the capability read and nothing else. */
+  function bridgeDeclaring(reports: readonly unknown[]): ConsoleBridge {
+    return {
+      sidekicks: {
+        daemon: {
+          call: async (method: string) =>
+            method === "driver.listCapabilities" ? { drivers: [...reports] } : undefined,
+          subscribe: () => () => undefined,
+        },
+      },
+      growth: {},
+      growthServedOperations: new Set(),
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+  }
+
+  it("offers Compact for a running run whose bound driver declares the capability", async () => {
+    // The negative control for the shipped constants: with `capability="unknown"`
+    // and `targetRunId={undefined}` hard-coded, no composition could ever reach this
+    // button, so this case fails on the code that shipped before the fix.
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], {
+        bridge: bridgeDeclaring([reportFor("claude", ["context_compaction"])]),
+        entities: [AGENT, RUNNING_RUN],
+        focusedPane: ON_THE_AGENT,
+      });
+    });
+
+    const compact = container.querySelector(".meridian-compaction__action");
+    expect(compact).not.toBeNull();
+    expect(compact?.textContent).toBe("Compact");
+  });
+
+  it("dispatches the compaction for the addressed run and no other", async () => {
+    const compactionCalls: unknown[] = [];
+    const bridge = {
+      sidekicks: {
+        daemon: {
+          call: async (method: string, params: unknown) => {
+            if (method === "driver.listCapabilities") {
+              return { drivers: [reportFor("claude", ["context_compaction"])] };
+            }
+            compactionCalls.push({ method, params });
+            return { status: "applied", boundaryPosition: 12 };
+          },
+          subscribe: () => () => undefined,
+        },
+      },
+      growth: {},
+      growthServedOperations: new Set(),
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], {
+        bridge,
+        entities: [AGENT, RUNNING_RUN],
+        focusedPane: ON_THE_AGENT,
+      });
+    });
+    const compact = container.querySelector(".meridian-compaction__action");
+    if (!(compact instanceof HTMLButtonElement)) {
+      throw new Error("the rail offered no compaction control");
+    }
+    await act(async () => {
+      fireEvent.click(compact);
+    });
+
+    expect(compactionCalls).toStrictEqual([
+      { method: "driver.compactContext", params: { sessionId: SESSION_ID, runId: RUN_ID } },
+    ]);
+  });
+
+  it("is absent, not disabled, when the bound driver does not declare it", async () => {
+    // Scoped to the meters row, and the meter is given a reading so its own
+    // `not-checked` badge is off screen: what is asserted is that the composer
+    // renders NO absence for compaction either — a driver that cannot compact has
+    // nothing to say about compaction, and a line explaining its absence would be
+    // noise on every composer bound to such a driver.
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([contextWindowEvent(1)], {
+        bridge: bridgeDeclaring([reportFor("claude", [])]),
+        entities: [AGENT, RUNNING_RUN],
+        focusedPane: ON_THE_AGENT,
+      });
+    });
+    expect(container.querySelector(".meridian-compaction")).toBeNull();
+    expect(container.querySelector(METERS_NOT_CHECKED)).toBeNull();
+  });
+
+  it("keeps another driver's missing flag off this agent's control", async () => {
+    // The intersection reading would hide Compact here, because one reported driver
+    // lacks the flag. The bound driver is what decides.
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], {
+        bridge: bridgeDeclaring([
+          reportFor("claude", ["context_compaction"]),
+          reportFor("codex", []),
+        ]),
+        entities: [AGENT, RUNNING_RUN],
+        focusedPane: ON_THE_AGENT,
+      });
+    });
+    expect(container.querySelector(".meridian-compaction__action")).not.toBeNull();
+  });
+
+  it("offers nothing at all when no run is addressed", async () => {
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], {
+        bridge: bridgeDeclaring([reportFor("claude", ["context_compaction"])]),
+      });
+    });
+    // A channel-addressed composer has no run to compact, so the seat is empty
+    // rather than carrying a "nobody asked" block on every session composer.
+    expect(container.querySelector(".meridian-compaction")).toBeNull();
+  });
+
+  it("says the question was never put while the capability read is in flight", () => {
+    // Never resolved, so the read is genuinely outstanding at assertion time — the
+    // one state that is neither `declared` nor `undeclared`.
+    const container = mountRail([contextWindowEvent(1)], {
+      bridge: {
+        sidekicks: {
+          daemon: {
+            call: () => new Promise<unknown>(() => undefined),
+            subscribe: () => () => undefined,
+          },
+        },
+        growth: {},
+        growthServedOperations: new Set(),
+        source: "fixture",
+        scenarioEngine: undefined,
+      } as unknown as ConsoleBridge,
+      entities: [AGENT, RUNNING_RUN],
+      focusedPane: ON_THE_AGENT,
+    });
+    expect(container.querySelector(METERS_NOT_CHECKED)).not.toBeNull();
+    expect(container.querySelector(".meridian-compaction__action")).toBeNull();
   });
 });

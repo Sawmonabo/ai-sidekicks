@@ -28,6 +28,7 @@ const RUN_TARGET: ComposerRunTarget = {
   // that read like English would have made the assertion pass on the copy itself.
   agentId: "01J8ZQ4KX2N7V3T5W9",
   agentName: "Ada",
+  driverName: "claude",
   targetRunId: "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
   expectedRunVersion: 1,
   runState: "running",

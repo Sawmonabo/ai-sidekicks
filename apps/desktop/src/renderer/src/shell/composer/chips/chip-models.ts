@@ -57,6 +57,16 @@ export interface ComposerRunTarget {
   readonly agentId: string;
   /** Wire-verbatim display name, absent until the roster read supplies one. */
   readonly agentName: string | undefined;
+  /**
+   * The bound driver's wire-verbatim registry name, absent until the wire says.
+   *
+   * Carried on the target because the accessory rail gates the compaction control
+   * on THIS driver's declaration: the capability reply names one report per driver
+   * and the console holds one binding per agent, so a rail that could not name the
+   * driver would have to intersect every report and hide a capable driver's control
+   * whenever some other driver in the session lacked the flag.
+   */
+  readonly driverName: string | undefined;
   readonly targetRunId: string;
   /**
    * The optimistic-concurrency comparand (`RunStateChangeEvent.runVersion`).
@@ -154,6 +164,7 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
       sessionId: input.sessionId,
       agentId: agentRef.id,
       agentName: readWireString(agent?.body, "name"),
+      driverName: readWireString(agent?.body, "driverName"),
       targetRunId: run.id,
       expectedRunVersion: readWireNumber(run.body, "runVersion"),
       runState: run.state,

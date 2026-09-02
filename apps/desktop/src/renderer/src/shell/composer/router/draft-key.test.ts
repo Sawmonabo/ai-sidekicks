@@ -10,28 +10,41 @@ import { describe, expect, it } from "vitest";
 import type { ComposerChannelTarget, ComposerRunTarget } from "../chips/chip-models.js";
 import { composerDraftKey } from "./draft-key.js";
 
-function channelTarget(overrides: Partial<ComposerChannelTarget> = {}): ComposerChannelTarget {
+/**
+ * The axes a case varies, named one by one.
+ *
+ * Not `Partial<ComposerTarget>` spread over a complete object: under this package's
+ * `exactOptionalPropertyTypes` that turns every required member optional, so the
+ * helper would stop proving it builds a real target at all.
+ */
+interface TargetAxes {
+  readonly sessionId?: string;
+  readonly channelId?: string;
+  readonly agentId?: string;
+  readonly targetRunId?: string;
+}
+
+function channelTarget(axes: TargetAxes = {}): ComposerChannelTarget {
   return {
     path: "channel-message",
-    sessionId: "session-1",
-    channelId: undefined,
+    sessionId: axes.sessionId ?? "session-1",
+    channelId: axes.channelId,
     workspaceId: undefined,
     channelLabel: undefined,
-    ...overrides,
   };
 }
 
-function runTarget(overrides: Partial<ComposerRunTarget> = {}): ComposerRunTarget {
+function runTarget(axes: TargetAxes = {}): ComposerRunTarget {
   return {
     path: "provider-bound",
-    sessionId: "session-1",
-    agentId: "agent-implementer",
+    sessionId: axes.sessionId ?? "session-1",
+    agentId: axes.agentId ?? "agent-implementer",
     agentName: "Ada",
-    targetRunId: "run-01",
+    driverName: "claude",
+    targetRunId: axes.targetRunId ?? "run-01",
     expectedRunVersion: 4,
     runState: "running",
     providerFailureDetail: undefined,
-    ...overrides,
   };
 }
 
