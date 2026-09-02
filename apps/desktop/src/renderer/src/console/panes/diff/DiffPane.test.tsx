@@ -9,7 +9,7 @@
 // identical to a reviewer and would be stating a fact nobody established.
 
 import { fireEvent, render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   RUN_ATTRIBUTION,
@@ -17,6 +17,7 @@ import {
   WORKSPACE_FALLBACK_ATTRIBUTION,
   buildDiffFixture,
 } from "./diff-fixture.js";
+import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
 
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { DiffPane } from "./DiffPane.js";
@@ -33,6 +34,19 @@ function contextFor(entity: ConsolePaneContext["entity"]): ConsolePaneContext {
 }
 
 const WORKSPACE_ENTITY = { kind: "workspace", id: "workspace-sidekicks" } as const;
+
+// The rows are virtualized, so a case that reads one has to say how tall the pane
+// is: happy-dom lays nothing out, and a scroller with no height correctly holds
+// no rows.
+const layout = new DiffLayoutFixture();
+
+beforeEach(() => {
+  layout.install({ viewportHeightPx: DIFF_FIXTURE_VIEWPORT_HEIGHT_PX });
+});
+
+afterEach(() => {
+  layout.restore();
+});
 
 describe("diff pane — chrome", () => {
   it("names itself as a region", () => {

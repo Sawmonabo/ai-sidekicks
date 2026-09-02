@@ -6,7 +6,7 @@
 // family's test is where it belongs.
 
 import { fireEvent, render } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   inlineCardBody,
@@ -15,6 +15,7 @@ import {
 } from "../../workspace/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
 import { SMALL_DIFF_SHAPE, buildDiffFixture } from "./diff-fixture.js";
+import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
 import { InlineDiffCard, registerInlineDiffCardBody } from "./InlineDiffCard.js";
 
 const CARD: DiffInlineCardProps = {
@@ -25,7 +26,17 @@ const CARD: DiffInlineCardProps = {
 
 const DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
+// The card renders the pane's own virtualized rows, so it needs the same stated
+// pane height every diff case does — happy-dom lays nothing out, and a scroller
+// with no height correctly holds no rows.
+const layout = new DiffLayoutFixture();
+
+beforeEach(() => {
+  layout.install({ viewportHeightPx: DIFF_FIXTURE_VIEWPORT_HEIGHT_PX });
+});
+
 afterEach(() => {
+  layout.restore();
   // The seat registry is process-wide, so a case that registers into it puts it
   // back. Leaving a body behind would make a later case pass because of this
   // one.

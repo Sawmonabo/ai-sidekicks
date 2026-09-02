@@ -9,26 +9,26 @@
 //
 // WHY THIS RUNS IN THE NODE PROJECT AND OPENS NO ELECTRON WINDOW
 //
-// The subject is the diff's flattening and its window — `hunk-virtualization.ts`
-// — which is arithmetic over a model and touches no DOM. That separation is
-// deliberate in the module and this file is what cashes it: the endurance claims
-// about a five-thousand-line diff are checkable in milliseconds, deterministically,
-// on any runner, with no bundle to build and no window to launch. The rendering
-// half is checked in `DiffRenderer.test.tsx`, which asserts the DOM row count
-// stays bounded — that is the other side of the same claim and it belongs beside
-// the component.
+// The subject is the diff's flattening — `hunk-virtualization.ts` — which is
+// arithmetic over a model and touches no DOM. That separation is deliberate in
+// the module and this file is what cashes it: the endurance claims about a
+// five-thousand-line diff are checkable in milliseconds, deterministically, on
+// any runner, with no bundle to build and no window to launch. The WINDOW over
+// those rows is `@tanstack/react-virtual`'s and is asserted against the DOM in
+// `DiffRenderer.test.tsx` — at the same five-thousand-line fixture, against a
+// measured viewport, where a wrapped row can have a height at all. Restating it
+// here would be a claim about arithmetic this module no longer performs.
 //
 // So this tier is not "the same cases again with a bigger fixture". It asserts
 // three things the unit tier cannot:
 //
 //   1. COST DOES NOT SCALE WITH THE DIFF. Flattening is paid once per expansion,
-//      and a scroll — the thing a person does thousands of times — costs a window
-//      computation whose work is bounded by the viewport. A `rowAt` that walked
-//      from the top would satisfy every unit case and make a scroll to row 5,000
-//      cost 5,000 steps.
-//   2. SUSTAINED WORK RETAINS NOTHING. Ten thousand scroll positions and a
-//      hundred gap expansions leave no growing structure behind, which is the
-//      leak class a fast tier cannot see.
+//      and a scroll — the thing a person does thousands of times — costs a
+//      handful of `rowAt` reads whose work is bounded by the viewport. A `rowAt`
+//      that walked from the top would satisfy every unit case and make a scroll
+//      to row 5,000 cost 5,000 steps.
+//   2. SUSTAINED WORK RETAINS NOTHING. A hundred gap expansions leave no growing
+//      structure behind, which is the leak class a fast tier cannot see.
 //   3. EVERY ROW IS ADDRESSABLE. Not a sample — every one of the ~6,600 rows
 //      resolves to a row value, and every line row resolves to a line. An
 //      off-by-one in the per-file walk shows up as one unreachable row somewhere
@@ -38,10 +38,6 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  DIFF_ROW_HEIGHT_PX,
-  DIFF_WINDOW_OVERSCAN_ROWS,
-} from "../../../src/renderer/src/console/panes/diff/diff-bounds.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   buildDiffFixture,
@@ -53,28 +49,6 @@ import {
   expandGap,
   type DiffGapExpansion,
 } from "../../../src/renderer/src/console/panes/diff/hunk-virtualization.js";
-
-/** The viewport the run scrolls through, in CSS pixels. A laptop-class pane. */
-const ENDURANCE_VIEWPORT_HEIGHT_PX = 800;
-
-/**
- * Scroll positions the run visits.
- *
- * Large enough that a per-scroll cost linear in the change set would take the run
- * from milliseconds to minutes, which is what makes the timing assertion below a
- * real bound rather than a formality.
- */
-const SCROLL_SAMPLE_COUNT = 10_000;
-
-/**
- * The rendered-row ceiling one window may reach.
- *
- * Derived from the bounds rather than picked: the viewport's own rows plus
- * overscan on both sides, plus the boundary row. A window that returned more than
- * this is a virtualizer that is not virtualizing.
- */
-const MAXIMUM_WINDOW_ROW_COUNT =
-  Math.ceil(ENDURANCE_VIEWPORT_HEIGHT_PX / DIFF_ROW_HEIGHT_PX) + DIFF_WINDOW_OVERSCAN_ROWS * 2 + 2;
 
 const ENDURANCE_DIFF = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
 
@@ -111,28 +85,6 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
       }
     }
     expect(lineRowCount).toBe(fixtureChangedLineCount(ENDURANCE_DIFF_SHAPE));
-  });
-
-  it("keeps a window bounded by the viewport at every scroll position in the diff", () => {
-    const index = new DiffRowIndex(ENDURANCE_DIFF);
-    const totalHeightPx = index.rowCount * DIFF_ROW_HEIGHT_PX;
-    for (let sample = 0; sample < SCROLL_SAMPLE_COUNT; sample += 1) {
-      const scrollTopPx = Math.floor((totalHeightPx * sample) / SCROLL_SAMPLE_COUNT);
-      const rowWindow = index.windowFor({
-        scrollTopPx,
-        viewportHeightPx: ENDURANCE_VIEWPORT_HEIGHT_PX,
-      });
-      const windowRowCount = rowWindow.endIndex - rowWindow.startIndex;
-      if (windowRowCount > MAXIMUM_WINDOW_ROW_COUNT) {
-        throw new Error(
-          `window at ${String(scrollTopPx)} px holds ${String(windowRowCount)} rows, past the ${String(MAXIMUM_WINDOW_ROW_COUNT)}-row ceiling`,
-        );
-      }
-      // The spacer and the content box together are what the scrollbar reports;
-      // if either drifted, the diff would scroll to a position that shows nothing.
-      expect(rowWindow.leadingSpacerPx).toBe(rowWindow.startIndex * DIFF_ROW_HEIGHT_PX);
-      expect(rowWindow.totalHeightPx).toBe(totalHeightPx);
-    }
   });
 
   it("costs no more per scroll at the end of the diff than at its start", () => {
@@ -198,13 +150,12 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
     expect(expanded.rowAt(expanded.rowCount)).toBeUndefined();
   });
 
-  it("negative control: the ceiling is one a naive renderer would breach", () => {
-    // Without this the window bound above would pass over a diff whose row count
-    // was smaller than the ceiling — which is to say, over no virtualization at
-    // all.
-    expect(new DiffRowIndex(ENDURANCE_DIFF).rowCount).toBeGreaterThan(
-      MAXIMUM_WINDOW_ROW_COUNT * 50,
-    );
+  it("negative control: the read band is a fraction of the diff it is read from", () => {
+    // Without this the timing case above would pass over a diff small enough that
+    // a walk from the top costs nothing — which is to say, over no flattening at
+    // all. A hundredth of this change set is still tens of rows.
+    expect(new DiffRowIndex(ENDURANCE_DIFF).rowCount).toBeGreaterThan(5_000);
+    expect(Math.floor(new DiffRowIndex(ENDURANCE_DIFF).rowCount / 100)).toBeGreaterThan(10);
   });
 });
 

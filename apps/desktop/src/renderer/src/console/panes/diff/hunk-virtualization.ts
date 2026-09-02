@@ -1,13 +1,15 @@
-// Which rows of a diff exist, and which of them are on screen.
+// Which rows of a diff exist.
 //
-// `Spec-023 §Console Libraries` adopts a virtualizer for the TIMELINE and makes
-// the diff's row renderer and its virtualization own-build, for a reason this
-// module is the shape of: a diff is not a list of items, it is a nested structure
-// — files hold hunks, hunks hold lines, and gaps between hunks hold lines a
-// reader has not asked for yet — and every virtualizer's contract starts from a
-// flat count. So the flattening IS the work, and it is the part a library would
-// not have done. What is left after it — offset, count, and a spacer — is
-// arithmetic.
+// A diff is not a list of items, it is a nested structure — files hold hunks,
+// hunks hold lines, and gaps between hunks hold lines a reader has not asked for
+// yet — and every virtualizer's contract starts from a flat count. So the
+// flattening IS the work, and it is the part a library cannot do. What is left
+// after it — which of those rows a scroll position needs, at what offset, under
+// what total height — is `@tanstack/react-virtual`'s, which
+// `Spec-023 §Console Libraries` ADOPTs and `DiffRenderer.tsx` is the seam for.
+// This module answers the count and the addressing and computes no window: the
+// one it used to compute assumed every row was exactly one row tall, which is
+// false the moment the wrap toggle is on.
 //
 // WHY THE FLATTENING IS AN INDEX AND NOT AN ARRAY. A forty-file, five-thousand
 // line change set is about five thousand rows; materialising them costs an object
@@ -28,18 +30,14 @@
 // renderer asks; every test of it runs without a DOM, which is what lets the
 // endurance tier measure a five-thousand-line change set at all.
 
-import {
-  DIFF_GAP_EXPANSION_LINE_COUNT,
-  DIFF_ROW_HEIGHT_PX,
-  DIFF_WINDOW_OVERSCAN_ROWS,
-} from "./diff-bounds.js";
+import { DIFF_GAP_EXPANSION_LINE_COUNT } from "./diff-bounds.js";
 import type { ConsoleDiffModel, DiffLine } from "./diff-model.js";
 
 // THE ROW KINDS ARE THE `DiffRow` UNION'S OWN DISCRIMINANT and are declared
 // nowhere else. There are four, and `gap` is one of them rather than an
 // affordance drawn between rows: a gap occupies height and takes focus, and a
-// thing with height and focus that the window computation does not know about is
-// a thing the window computation gets wrong.
+// thing with height and focus that the row count does not know about is a row
+// the window is placed wrong by.
 
 /** A file's own header row. */
 export interface DiffFileHeaderRow {
@@ -81,24 +79,6 @@ export interface DiffLineRow {
 
 /** One addressable row of a rendered diff. Narrow on `kind`. */
 export type DiffRow = DiffFileHeaderRow | DiffGapRow | DiffHunkHeaderRow | DiffLineRow;
-
-/** The rows a viewport needs, and the space that stands in for the rest. */
-export interface DiffRowWindow {
-  /** First row to render, inclusive. */
-  readonly startIndex: number;
-  /** Last row to render, exclusive. Equals `startIndex` on an empty diff. */
-  readonly endIndex: number;
-  /** Height of the rows above `startIndex`, which the scroller holds open. */
-  readonly leadingSpacerPx: number;
-  /** Height of every row, which the scroller's content box takes. */
-  readonly totalHeightPx: number;
-}
-
-/** What the caller measures and hands in. */
-export interface DiffViewportMetrics {
-  readonly scrollTopPx: number;
-  readonly viewportHeightPx: number;
-}
 
 /**
  * How much of each gap has been revealed, keyed by gap.
@@ -288,37 +268,6 @@ export class DiffRowIndex {
   /** The absolute row index a file's header sits at, or `undefined`. */
   public rowIndexOfFile(fileIndex: number): number | undefined {
     return this.#fileSpans[fileIndex]?.startRowIndex;
-  }
-
-  /**
-   * The rows a viewport needs.
-   *
-   * Clamped at both ends rather than trusted: a scroll position past the content
-   * happens on every resize that shortens the diff, and an unclamped start index
-   * would ask for rows that do not exist and render an empty scroller over a
-   * full-height spacer — a blank pane that looks like a crash.
-   */
-  public windowFor(metrics: DiffViewportMetrics): DiffRowWindow {
-    const totalHeightPx = this.#rowCount * DIFF_ROW_HEIGHT_PX;
-    if (this.#rowCount === 0) {
-      return { startIndex: 0, endIndex: 0, leadingSpacerPx: 0, totalHeightPx: 0 };
-    }
-    const firstVisible = Math.floor(Math.max(0, metrics.scrollTopPx) / DIFF_ROW_HEIGHT_PX);
-    const visibleCount = Math.ceil(Math.max(0, metrics.viewportHeightPx) / DIFF_ROW_HEIGHT_PX);
-    const startIndex = Math.max(
-      0,
-      Math.min(this.#rowCount - 1, firstVisible - DIFF_WINDOW_OVERSCAN_ROWS),
-    );
-    const endIndex = Math.min(
-      this.#rowCount,
-      firstVisible + visibleCount + DIFF_WINDOW_OVERSCAN_ROWS + 1,
-    );
-    return {
-      startIndex,
-      endIndex: Math.max(startIndex, endIndex),
-      leadingSpacerPx: startIndex * DIFF_ROW_HEIGHT_PX,
-      totalHeightPx,
-    };
   }
 
   /** How many of a gap's lines are revealed under this expansion. */
