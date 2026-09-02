@@ -406,24 +406,36 @@ jobs:
       # steps below remove.
       #
       # The package scripts are deliberately NOT changed: `pnpm test` in
-      # apps/desktop still runs renderer + smoke, so a developer's local command
-      # keeps its meaning and only CI's scheduling differs. The union of the two
-      # steps is exactly the task set the single step used to run — verified
-      # with `turbo run ... --dry=json`, and note that the two negative filters
-      # below are both applied as exclusions rather than OR'd into a selection.
+      # apps/desktop fans out to `test:renderer test:main-unit test:smoke`, so a
+      # developer's local command keeps its meaning and only CI's scheduling
+      # differs. The two negative filters below are both applied as exclusions
+      # rather than OR'd into a selection.
+      #
+      # The desktop step enumerates that fan-out one task at a time rather than
+      # running the package's own `test`, because that is what makes the
+      # serialisation real. The cost is that a vitest project added to
+      # `apps/desktop/vitest.config.ts` is NOT picked up here by construction:
+      # `main-unit` landed that way and for one push ran in `pnpm test` and in
+      # no required check, so every `src/main/**` and `build/**` unit — protocol
+      # containment, navigation policy, window hardening, startup ordering, load
+      # recovery — was unguarded on merge. A new project is added to the
+      # enumeration below in the PR that introduces it.
       - name: Test (Node 22 tier — excluding control-plane and desktop)
         run: pnpm turbo run test --filter='!@ai-sidekicks/control-plane' --filter='!@ai-sidekicks/desktop' ${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}
 
-      # The desktop package, alone on the runner. The renderer project is
-      # parallel-safe (happy-dom, no subprocess) but runs here anyway so the
-      # whole package lands in one place; `test:smoke` then runs with
-      # `--concurrency=1` so not even its own `build:smoke` dependency overlaps
-      # it. Nothing else is scheduled against either.
-      - name: Test (desktop — renderer, then the Electron smoke project serially)
+      # The desktop package, alone on the runner, one vitest project at a time.
+      # `renderer` (happy-dom) and `main-unit` (node, a stubbed `electron`
+      # module, and one `node`-only spawn in `assert-webprefs.test.ts`) are both
+      # parallel-safe and neither starts a Chromium tree, but they run here
+      # anyway so the whole package lands in one place; `test:smoke` then runs
+      # with `--concurrency=1` so not even its own `build:smoke` dependency
+      # overlaps it. Nothing else is scheduled against any of the three.
+      - name: Test (desktop — renderer, main-unit, then the Electron smoke project serially)
         run: |
           set -euo pipefail
           cache_flag='${{ github.event_name == 'pull_request' && '--cache=local:rw,remote:r' || '' }}'
           pnpm turbo run test:renderer --filter=@ai-sidekicks/desktop ${cache_flag}
+          pnpm turbo run test:main-unit --filter=@ai-sidekicks/desktop ${cache_flag}
           pnpm turbo run test:smoke --filter=@ai-sidekicks/desktop --concurrency=1 ${cache_flag}
 
       # Public-surface validation for the workspace libraries. Two complementary
