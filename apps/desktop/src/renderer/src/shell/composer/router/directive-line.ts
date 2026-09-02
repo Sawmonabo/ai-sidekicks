@@ -118,13 +118,17 @@ export class DirectiveHistory {
    * Recording ends the walk because the walk's anchor — the stashed draft — has just
    * been sent. Keeping the index would leave a later ArrowDown restoring text that is
    * now in the ledger, which reads as the composer duplicating a message.
+   *
+   * What is recorded is the message VERBATIM. Trimming here would be a transform in
+   * the one place it looks harmless: a recalled message is text a person sends
+   * again, so a list that stored a trimmed copy would quietly reintroduce, one
+   * ArrowUp later, exactly the loss of indentation the router refuses to perform.
    */
   public recordSent(text: string): void {
-    const body = text.trim();
-    if (body.length === 0) {
+    if (text.trim().length === 0) {
       return;
     }
-    this.#sentNewestFirst.unshift(body);
+    this.#sentNewestFirst.unshift(text);
     if (this.#sentNewestFirst.length > COMPOSER_HISTORY_RECALL_CAP) {
       this.#sentNewestFirst.length = COMPOSER_HISTORY_RECALL_CAP;
     }

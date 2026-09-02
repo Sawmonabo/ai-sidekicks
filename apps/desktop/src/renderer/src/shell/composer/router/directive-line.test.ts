@@ -125,6 +125,17 @@ describe("recall walks sent messages and gives the draft back", () => {
     history.recordSent("   ");
     expect(history.recallableCount).toBe(0);
   });
+
+  it("recalls the message verbatim, so walking back and sending again sends the same bytes", () => {
+    // The list used to store a trimmed copy, which put the router's own defect one
+    // ArrowUp away: the send went out with the indentation and the recall gave it
+    // back without.
+    const history = new DirectiveHistory();
+    const indented = "  if (ready) {\n    ship();\n  }\n\n";
+    history.recordSent(indented);
+
+    expect(history.recallOlder("")).toBe(indented);
+  });
 });
 
 describe("the edge offsets are what let an arrow recall at all", () => {

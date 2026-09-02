@@ -25,6 +25,16 @@
 //      absent stale-replay guard is to refuse, never to send a zero, which would be
 //      a guard the caller invented rather than one the daemon verified.
 //
+// TRIMMING IS A TEST AND NEVER A TRANSFORM. This module used to resolve against
+// `text.trim()` and hand that trimmed value to both request builders, so the daemon
+// received text the participant did not author: pasted code lost its indentation, an
+// indentation-sensitive instruction lost its shape, and a deliberately separated
+// Markdown block lost its separation. Blankness is still decided by trimming — that
+// is a question about the text, not an edit of it — and everything that reaches the
+// wire is the participant's own bytes. The slash rules read the RAW text through
+// `directive-syntax.ts` for the same reason, which narrows them deliberately: a
+// command opens its line, and indented text beginning with a slash is prose.
+//
 // WHAT THIS MODULE DOES NOT DO. It does not decide whether the person MAY send:
 // eligibility is the daemon's and reaches the surface as a typed refusal, which
 // this module carries through verbatim rather than re-deriving.
@@ -44,7 +54,12 @@ import {
 
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import type { ComposerSendPath, ComposerTarget } from "../chips/chip-models.js";
-import { LITERAL_SLASH_ESCAPE, readDirectiveName } from "../directive-syntax.js";
+import {
+  LITERAL_SLASH_ESCAPE,
+  opensDirectiveLine,
+  readDirectiveName,
+  stripLiteralSlashEscape,
+} from "../directive-syntax.js";
 import type {
   ClientCommandPredicate,
   ComposerRefusedResolution,
@@ -105,19 +120,20 @@ export class ComposerSendRouter {
    * above the input is the decision that will actually run.
    */
   public resolve(text: string, target: ComposerTarget): ComposerSendResolution {
-    const body = text.trim();
-    if (body.length === 0) {
+    // The one place trimming appears, and it decides nothing but blankness: the
+    // value below is never what gets sent.
+    if (text.trim().length === 0) {
       return refused(
         "empty-message",
         "There is nothing to send yet. Type a message, or press Stop to interrupt the running turn.",
       );
     }
-    const slashOutcome = this.#resolveSlashPrefix(body, target);
+    const slashOutcome = this.#resolveSlashPrefix(text, target);
     if (slashOutcome !== undefined) {
       return slashOutcome;
     }
     // The escape's single strip, in one place rather than once per branch below.
-    const sendableBody = body.startsWith(LITERAL_SLASH_ESCAPE) ? body.slice(1) : body;
+    const sendableBody = stripLiteralSlashEscape(text);
     return target.path === "channel-message"
       ? this.#resolveNewTurn(sendableBody, target)
       : this.#resolveSteer(sendableBody, target);
@@ -186,9 +202,15 @@ export class ComposerSendRouter {
    * ordinary case and the only one that continues to a send. Silent fall-through to
    * prose never happens: every leading-slash branch below either intercepts,
    * escapes deliberately, or refuses loudly.
+   *
+   * Both questions — is this line claimed, and what does it name — are asked of
+   * `directive-syntax.ts` rather than answered here with a prefix test of this
+   * module's own. The discovery popover asks the same module, so a line the list
+   * opens on and a line this path acts on are one decision rather than two that
+   * agree until somebody edits one of them.
    */
   #resolveSlashPrefix(body: string, target: ComposerTarget): ComposerSendResolution | undefined {
-    if (!body.startsWith("/")) {
+    if (!opensDirectiveLine(body)) {
       return undefined;
     }
     const commandName = readDirectiveName(body);
