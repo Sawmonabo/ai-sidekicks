@@ -5,8 +5,9 @@
 // program — whose `lib` set has no Node types and whose eslint config bans `node:*`
 // outright. The architecture tier is where a test that reads files belongs.
 //
-// CLAIM 1 — ONE `dangerouslySetInnerHTML` SITE. `Spec-023 §Console Design (Meridian)`
-// §5.14 permits exactly one: the node KaTeX renders into. Every other body on the
+// CLAIM 1 — ONE `dangerouslySetInnerHTML` SITE. `Spec-023 §Console Test Tiers` puts it
+// in this tier by name: "no `dangerouslySetInnerHTML` outside the math-owned node" — the
+// node KaTeX renders into, and no other. Every other body on the
 // markdown path is React elements built from a parsed tree, which is what lets that path
 // carry no sanitizer at all — nothing on it is ever parsed as markup. A second site
 // would silently retire that property, and it would arrive the way the byte formatter

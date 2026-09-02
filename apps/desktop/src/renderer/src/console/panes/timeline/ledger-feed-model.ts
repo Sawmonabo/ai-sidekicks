@@ -524,7 +524,7 @@ export function isReplayEngaged(state: ReplayState): boolean {
  * The rows a replay has reached, in the log's own order.
  *
  * A FILTER over the window's own identity list, never a re-ordering of it. The
- * engine orders by `occurredAt` because that is what §5.5 plays in, and the ledger
+ * engine orders by `occurredAt` because that is what replay plays in, and the ledger
  * renders in wire order; sorting the viewport by the engine's order would make a
  * replay silently rearrange a log wherever the daemon admitted rows out of
  * wall-clock order.

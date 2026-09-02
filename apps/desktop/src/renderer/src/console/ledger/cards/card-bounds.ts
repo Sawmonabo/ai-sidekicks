@@ -12,8 +12,8 @@
 /**
  * Complete blocks held back from the settled set, behind the incomplete tail.
  *
- * `Spec-023 §Console Design (Meridian)` §5.14: "settled blocks parse once with a
- * two-block settle lag". Two, because a block boundary is not final when it is first
+ * `Spec-023 §Console Libraries`, streaming-markdown row: "settled blocks parse once
+ * with a two-block settle lag". Two, because a block boundary is not final when it is first
  * seen — a blank line after a paragraph becomes the inside of a list the moment the
  * next line starts with a marker, and a setext underline turns the paragraph above it
  * into a heading. One block of lag closes the setext case and not the list case; two
@@ -79,8 +79,8 @@ export const CODE_HIGHLIGHT_SOURCE_BYTE_CAP = 262_144;
 /**
  * Footnote definitions one timeline's registry retains.
  *
- * `Spec-023 §Console Design (Meridian)` §5.14 puts "one popover host per timeline with
- * a definition registry keyed by source". Bounded for the reason every cache in the
+ * This console keeps one popover host per timeline with a definition registry keyed by
+ * source — `markdown/footnote-registry.ts` states why. Bounded for the reason every cache in the
  * console is: a definition belongs to the message that carried it, and a log holds
  * `LEDGER_WINDOW_ROW_CAP` rows, so a few definitions per retained row is the whole
  * reachable population and nothing above it can ever be opened.
@@ -90,10 +90,11 @@ export const FOOTNOTE_DEFINITION_CAP = 2048;
 /**
  * Characters of a tool row's one-clause summary before it is elided.
  *
- * `Spec-023 §Console Design (Meridian)` §5.9: "Every tool row is one line until
- * opened: glyph, tool name, a one-clause summary, elapsed, and the result state." One
- * line is the constraint; at the ledger's measure and mono figure column this is what
- * fits beside the name and the elapsed without wrapping.
+ * `Spec-023 §Meridian, the design language` rule 7: "Tool rows render as one line until
+ * opened." What that one line carries — glyph, tool name, a one-clause summary, elapsed,
+ * and the result state — is this console's own composition; the line is the constraint,
+ * and at the ledger's measure and mono figure column this is what fits beside the name
+ * and the elapsed without wrapping.
  */
 export const TOOL_SUMMARY_MAX_CHARACTERS = 96;
 

@@ -1,15 +1,16 @@
 // The tool card — one line until opened.
 //
-// `Spec-023 §Console Design (Meridian)` §5.9: "One line per tool row … Running · Ok ·
-// Error (`tool.error`) · Truncated · Body unavailable", and rule 7's density budget puts
-// the collapse state in the LIST's hands rather than the row's. So this card renders
+// `Spec-023 §Meridian, the design language` rule 7: "Tool rows render as one line until
+// opened." `card-family.ts` owns the five states that one line reports, and the density
+// budget puts the collapse state in the LIST's hands rather than the row's. So this card renders
 // exactly what its `density` prop says and owns no open state: two rows disagreeing
 // about whether they are open is a bug a fixture would never surface and a long session
 // would.
 //
 // THE HEADER IS THE WHOLE ROW WHEN COLLAPSED, and it carries the result state
-// unconditionally. §5.9's "never hide a tool error inside a collapsed row without the
-// red mark on the header" is the reason the state chip is outside the disclosure and not
+// unconditionally. `card-family.ts`'s ranking rule — never hide a tool error inside a
+// collapsed row without the red mark on the header — is the reason the state chip is
+// outside the disclosure and not
 // inside it — a collapsed error is still an error, and a reader scanning a log of forty
 // tool calls sees the failures without opening one.
 //
@@ -131,7 +132,7 @@ function hueStepOf(props: Pick<ToolCardProps, "participantHue">): number {
 /**
  * One clause of the row's own summary.
  *
- * §5.9 asks for "a one-clause summary", and the wire's `summary` is bounded at 4096
+ * One line leaves room for one clause, and the wire's `summary` is bounded at 4096
  * characters — three orders of magnitude past a clause. Truncation is at a word boundary
  * where one is near the cap and at the cap otherwise, with an ellipsis, so the header
  * never reflows the row it is supposed to keep to one line.

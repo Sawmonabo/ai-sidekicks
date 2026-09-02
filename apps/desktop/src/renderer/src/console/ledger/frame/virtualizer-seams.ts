@@ -12,8 +12,8 @@
 // against their identity, so a closure rebuilt per render recomputes every offset in
 // the window on a render that changed nothing. And no member reads an element: the
 // offset and the rect both come from one already-taken geometry sample, which is
-// what lets `Spec-023 §Console Design (Meridian)` §5.8's "no hit test per scroll
-// event while following" hold with no special case.
+// what lets `scroll-chokepoint.ts`'s "no hit test per scroll event while following"
+// hold with no special case.
 
 import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 

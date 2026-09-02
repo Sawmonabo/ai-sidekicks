@@ -1,12 +1,13 @@
 // The provenance rail — the scrollbar replaced by a map of the session's story.
 //
-// `Spec-023 §Console Design (Meridian)` §5.4. Three files, three answers: the
+// `Spec-023 §The four bars`, Richness, names it; `rail-model.ts` says what it is. Three
+// files, three answers: the
 // model next door decides what the marks ARE, `rail-painter.ts` decides where
 // their ink lands, and this file is the control around both — the hit strip, the
 // pointer, and the keyboard walk.
 //
-// WHY A CANVAS AND NOT ELEMENTS. §5.4 fixes it ("Own build on a canvas layer with
-// a ≥32px hit strip and a dead gutter, our values"), and the reason survives
+// WHY A CANVAS AND NOT ELEMENTS. `rail-model.ts` fixes it — an own build on a canvas
+// layer with a ≥32px hit strip and a dead gutter — and the reason survives
 // inspection: a session's loaded window is thousands of rows, and one element per
 // tick is thousands of layout boxes on the console's most-repainted surface. One
 // canvas is one box.
@@ -15,7 +16,7 @@
 // canvas is opaque to assistive technology, so the rail is a `slider` — the ARIA
 // pattern for a scrubber — carrying its own label, its position, and a
 // `aria-valuetext` naming the tick under the cursor. Arrow keys walk ticks,
-// `Home` / `End` reach the ends, and every offer §5.4 names is reachable without a
+// `Home` / `End` reach the ends, and every offer the rail makes is reachable without a
 // pointer. The canvas is decoration under a control, which is what
 // `aria-hidden` on it says.
 //
@@ -61,11 +62,11 @@ export interface ProvenanceRailProps {
    * Optional, because no registered read pages a session's log backwards today: a
    * caller with nothing to call supplies nothing and no button is drawn. The
    * dotted segment does NOT depend on it — the clip is a fact about the window and
-   * §5.4 requires it drawn whether or not anybody can act on it.
+   * clip honesty requires it drawn whether or not anybody can act on it.
    */
   readonly onLoadEarlier?: () => void;
   /**
-   * The session's hue allocation, for the marks §5.4 gives the actor's hue.
+   * The session's hue allocation, for the marks that take the actor's hue.
    *
    * Optional because the rail is mountable over a window that holds no allocation,
    * and every actor tick then takes the neutral tone rather than a colour this
@@ -321,7 +322,7 @@ function previewStyle(offsetFraction: number): React.CSSProperties {
  *
  * A class holding the one armed handle, so a pointer crossing the rail arms and
  * cancels rather than opening a card per tick — and so the component's unmount has
- * exactly one thing to cancel. §5.4's "no debounce on the read" is why the tick is
+ * exactly one thing to cancel. The rail's "no debounce on the read" is why the tick is
  * captured at `open` time and not re-read when the timeout fires.
  */
 class PreviewGrace {

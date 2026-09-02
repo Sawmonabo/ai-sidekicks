@@ -1,5 +1,6 @@
-// The markdown rules — `Spec-023 §Console Design (Meridian)` §5.14 as decisions, not
-// as prose.
+// The markdown rules — `Spec-023 §Console Libraries`' streaming-markdown and
+// math-and-diagrams rows as decisions rather than as prose, plus the two rules this
+// console owns because no committed document states them.
 //
 // The PIPELINE lives under `markdown/`: the segmenter, the parse, the mapper, the
 // footnote registry, the highlighter. This module is the policy that pipeline obeys,
@@ -27,9 +28,9 @@
 //   4. **Path links come only from wire-validated path references.** Today there are
 //      none: `Plan-023 §Console growth slate` carries `timeline-path-reference`
 //      ("validated path-reference member on timeline rows", owned by Spec-013,
-//      `wireRegistered: false`). §5.14's own fallback is then binding — "a surface
-//      with no validated allowlist ships no path links" — so a link renders as its own
-//      text and nothing is clickable.
+//      `wireRegistered: false`). This module's own fallback is then binding — a
+//      surface with no validated allowlist ships no path links — so a link renders as
+//      its own text and nothing is clickable.
 //   5. **Footnotes resolve through one registry keyed by source**, so a definition
 //      line never resolves as its own body.
 
@@ -62,7 +63,7 @@ export const PATH_LINK_SLATE_ROW: GrowthSlateRow = growthSlateRow("timeline-path
  *
  * A function over the ledger rather than a constant `false`, so the day
  * `timeline-path-reference` flips `wireRegistered` the answer changes with it and the
- * per-load nonce and allow-list §5.14 requires become the only remaining work. It is
+ * per-load nonce and allow-list rule 4 requires become the only remaining work. It is
  * fail-closed by construction: a row the ledger does not carry could not make this
  * true, and neither can any value a message body contains.
  */

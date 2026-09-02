@@ -34,8 +34,8 @@
 //     height the virtualizer writes, it names nothing, and left in the tree it
 //     stands between the feed and the rows it is supposed to own.
 //
-// `Spec-023 §Console Design (Meridian)` §5.6: "Attention is steered by luminance,
-// never by motion spikes." A lane taking catch-up rate is marked with a class the
+// `Spec-023 §The four bars`, Elegance: "Attention is steered by luminance and the
+// two-hue rule, never by motion." A lane taking catch-up rate is marked with a class the
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
 import { memo } from "react";
@@ -182,7 +182,7 @@ interface LedgerTailAffordanceProps {
 /**
  * The "N new" pill, and the pin's own notice.
  *
- * `Spec-023 §Console Design (Meridian)` §5.7 gives the reader two facts and one
+ * `reading-anchor.ts`'s promise gives the reader two facts and one
  * act: rows arrived while they were reading, history is pinned, and the way back to
  * the tail. The pill appears only in `reading-with-new-rows`, because a pill
  * offering to jump to rows already on screen is noise; the pin notice appears
@@ -221,7 +221,9 @@ interface LedgerWindowNoticesProps {
 /**
  * The two ways the window degrades, said out loud.
  *
- * Both are `Spec-023 §Console Design (Meridian)` §5.8 residuals, and both are the
+ * Both are residuals of what `Spec-023 §Console Libraries`' timeline-virtualization row
+ * requires of an own-built window — "stable keys", and a ceiling under the 33,554,431 px
+ * Chromium caps an element's height at — and both are the
  * kind of defect that is invisible until somebody scrolls to exactly the wrong
  * place. Rendering them costs two lines and turns a mystery into a report.
  */

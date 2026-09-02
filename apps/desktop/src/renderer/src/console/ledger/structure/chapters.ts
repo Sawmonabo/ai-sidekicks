@@ -1,14 +1,15 @@
 // Run chapters — the fold that makes parallel runs read as parallel stories.
 //
-// `Spec-023 §Console Design (Meridian)` §5.2: "Group a run's rows under one
-// chapter header so parallel runs read as parallel stories." One chapter per run,
-// terminal chapters folded to a header and a past-tense receipt, the live chapter
-// open, and nothing re-ordered.
+// `Spec-023 §Meridian, the design language` rule 7 fixes the collapse behaviour: "run
+// chapters collapse once terminal and the live chapter stays open." THE GROUPING IS THIS
+// MODULE'S, because no committed document states it: a run's rows sit under one chapter
+// header so parallel runs read as parallel stories, one chapter per run, a terminal
+// chapter folded to a header and a past-tense receipt, and nothing re-ordered.
 //
 // THREE RULES THIS MODULE ENCODES STRUCTURALLY, because each of them is a way the
 // fold could quietly lie:
 //
-//   • **`runId` and nothing else.** §5.2's "Never" is explicit: a row joins a
+//   • **`runId` and nothing else.** A row joins a
 //     chapter by its carried `runId` and never by a heuristic. `TimelineRow` makes
 //     that checkable rather than aspirational — three of its four arms carry
 //     `runId` as a required member of the arm, and the fourth (`general`) is the
@@ -22,7 +23,7 @@
 //     reads any stored state at all — so "never collapses the live chapter" is a
 //     branch that cannot be reached rather than a rule a caller has to remember.
 //
-// WHAT THIS MODULE IS NOT. It renders nothing. §5.2's header — the agent's name
+// WHAT THIS MODULE IS NOT. It renders nothing. The header — the agent's name
 // and hue, the run state, the paying account label, the row count — is drawn by
 // the ledger frame from this model, so the fold stays a pure derivation the
 // `console-unit` tier can drive with no DOM at all.
@@ -52,7 +53,7 @@ export type ChapterTerminalEventType = (typeof CHAPTER_TERMINAL_EVENT_TYPES)[num
 /**
  * Whether a chapter is still being written.
  *
- * Two values, and the distinction is the whole of §5.2's collapse behaviour: a
+ * Two values, and the distinction is the whole of rule 7's collapse behaviour: a
  * terminal chapter folds to one line and a live one stays open.
  */
 export const CHAPTER_LIFECYCLES = ["live", "terminal"] as const;
@@ -65,7 +66,7 @@ export interface LedgerChapter {
   readonly runId: string;
   /**
    * The chapter's rows, in the order they arrived. Cached on the chapter rather
-   * than recomputed per read — §5.2's "cached row-id arrays" — so a header that
+   * than recomputed per read — this module's cached row-id arrays — so a header that
    * renders a row count and a body that maps over ids read one array.
    */
   readonly rowIds: readonly string[];
@@ -104,7 +105,7 @@ export interface LedgerChapter {
   readonly lastTimestamp: string;
   /**
    * A child run this chapter summarizes whose expansion is incomplete
-   * (`Spec-023 §Console Design (Meridian)` §5.11's marked state). Read off
+   * — the marked state this console gives a partial expansion. Read off
    * `TimelineRow.childRunSummary`, which is where the wire says so.
    */
   readonly hasIncompleteChildExpand: boolean;
@@ -155,8 +156,8 @@ function chapterRunIdOf(row: TimelineRow): string | undefined {
  *
  * A class rather than a function because the fold is read several times per frame
  * — the header wants counts, the body wants row ids, the collapse state wants
- * lifecycles — and §5.2 asks for it to be "lean by construction: cached row-id
- * arrays, a lazy completion index, memoized fold inputs". The instance IS the
+ * lifecycles — and it is lean by construction: cached row-id
+ * arrays, a lazy completion index, memoised fold inputs. The instance IS the
  * memo: it is built once per loaded-window identity by the caller's `useMemo` and
  * computes nothing until something is read.
  */
@@ -249,8 +250,9 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
   accumulator.rowIds.push(row.id);
   // First actor wins. A chapter is one run and a run has one agent; a later row
   // naming a different actor is a human steering inside the agent's chapter,
-  // which §5.2 keeps on the ROW's own attribution edge rather than moving the
-  // chapter's header onto the person who interrupted it.
+  // which `Spec-023 §Meridian, the design language` rule 1 keeps on the ROW's own
+  // "2 px attribution edge in the author's hue" rather than moving the chapter's
+  // header onto the person who interrupted it.
   accumulator.actorId ??= row.actor;
   if (isTerminalEventType(row.type)) {
     // LAST terminal wins, in the same act for both members so the type and the row
@@ -295,9 +297,9 @@ function sealChapter(accumulator: ChapterAccumulator): LedgerChapter {
  * auto-collapse is considered.
  *
  * Every member is an OBSERVATION the caller made, never something this class
- * derives: §5.2 makes auto-collapse conditional on geometry ("only when the
+ * derives: this module makes auto-collapse conditional on geometry — only when the
  * chapter is off screen and only after one fresh geometry sample since the pane
- * was last hidden") and on engagement, and both live where the DOM is. A class
+ * was last hidden — and on engagement, and both live where the DOM is. A class
  * that guessed either would auto-collapse the chapter somebody was reading.
  */
 export interface ChapterAutoCollapseObservation {
@@ -330,7 +332,7 @@ export class ChapterCollapseState {
    * Whether this chapter renders its body.
    *
    * The live arm answers before any stored state is read, which is what makes
-   * §5.2's "never collapses the live chapter" unreachable rather than remembered.
+   * rule 7's "the live chapter stays open" unreachable rather than remembered.
    */
   public isOpen(chapter: LedgerChapter): boolean {
     if (chapter.lifecycle === "live") {
@@ -359,7 +361,7 @@ export class ChapterCollapseState {
   }
 
   /**
-   * Fold every terminal chapter. §5.2's "collapse all terminal chapters" offer.
+   * Fold every terminal chapter — the console's "collapse all terminal chapters" offer.
    *
    * Returns how many were folded, so the command that invokes it can say what it
    * did rather than reporting success over a no-op.

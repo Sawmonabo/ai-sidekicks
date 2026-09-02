@@ -21,7 +21,8 @@
 //     `<LedgerViewport>`: a second one would leave the rail and the find walk
 //     reading a virtualizer with no element under it, which is a jump that reports
 //     success and scrolls nothing.
-//   • The replay dock's reveal is the caller's, per §5.5: the dock is hidden until
+//   • The replay dock's reveal is the caller's, per
+//     `ledger/structure/ReplayControls.tsx`: the dock is hidden until
 //     the rail is hovered or focused, because both triggers are facts about this
 //     surface rather than about replay. What the dock's POSITION reveals is the
 //     rows: the viewport is given the rows the position has reached, so playing or

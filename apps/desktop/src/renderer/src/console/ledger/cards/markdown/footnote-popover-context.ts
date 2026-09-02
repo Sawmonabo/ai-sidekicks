@@ -27,8 +27,8 @@ export interface FootnoteHostBinding {
    * The one popup this card opens every definition into.
    *
    * Named here rather than minted per reference because a reference has to point at it
-   * with `aria-describedby`, and §5.14 puts ONE host on the surface: a popup per marker
-   * would be a host per marker.
+   * with `aria-describedby`, and this subtree puts ONE host on the surface: a popup per
+   * marker would be a host per marker.
    */
   readonly popupId: string;
   /** The handle the host's popup and every reference in the card share. */

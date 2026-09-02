@@ -226,7 +226,7 @@ describe("rail — clip honesty is rendered, not implied", () => {
   });
 
   it("keeps the dotted segment where the reader cannot page, and drops the button", () => {
-    // §5.4's clip honesty is a fact about the WINDOW, so the segment is drawn
+    // Clip honesty is a fact about the WINDOW, so the segment is drawn
     // whether or not anybody can act on it; the button is a promise, so it is not.
     const { slider } = renderRail({ model: railModel(true), canLoadEarlier: false });
     expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();

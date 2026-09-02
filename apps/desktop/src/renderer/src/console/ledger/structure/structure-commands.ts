@@ -1,9 +1,11 @@
 // What the ledger's structure contributes to the palette.
 //
-// `Spec-023 §Console Design (Meridian)` §5.15 and §5.19 give find, filters, and
-// jumps as renderer-local offers, and this lane's definition of done is explicit
-// that they "register palette commands through `palette/contributions.ts`, never a
-// second command registry".
+// `Spec-023 §Signature Feature Composition Sketches`' Timeline View lists the ledger's
+// interactions — "scroll-to-tail, jump-to-event-by-ID, filter-by-participant /
+// event-type" — and find sits beside them under `find-model.ts`. All of them are
+// renderer-local offers, and this console registers every one of them as a palette
+// command through `palette/contributions.ts` and never through a second command
+// registry.
 //
 // THE VALUES ARE BUILT HERE AND CONTRIBUTED THROUGH THE FRAME'S OWN DOOR.
 // `ConsoleCommand` and `KeyBinding` come from the palette's contribution types, and

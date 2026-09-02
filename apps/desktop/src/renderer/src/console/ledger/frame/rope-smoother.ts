@@ -1,7 +1,7 @@
 // The rope smoother — one lane's text, as parts and a cursor.
 //
-// `Spec-023 §Console Design (Meridian)` §5.6: "A rope smoother: parts array plus a
-// revealed cursor; a growing string is never indexed."
+// THE SHAPE IS THIS MODULE'S, because no committed document states it: a parts array
+// plus a revealed cursor, and a growing string is never indexed.
 //
 // WHY THE ROPE. The obvious implementation holds one accumulating string and a
 // numeric cursor, and it is quadratic twice over: every append re-allocates the
@@ -10,8 +10,8 @@
 // never mutate once pushed, so a slice only ever touches the ONE part the cursor is
 // inside, and the settled prefix is accumulated exactly once as it settles.
 //
-// THE PROVEN-APPEND TOKEN. §5.6: "A proven-append token minted by the single text
-// writer; every consumer threads it and none prefix-inspects the growing source."
+// THE PROVEN-APPEND TOKEN, on the same footing: minted by the single text writer, every
+// consumer threads it, and none prefix-inspects the growing source.
 // `append` is that writer and the token is its receipt: a consumer holding one
 // knows the source it was handed extends the source it had, without re-reading a
 // string that is still growing to prove it. `isPrefixOf` is the same guarantee from

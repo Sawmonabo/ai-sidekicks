@@ -5,7 +5,7 @@
 // "no timer fires" claim is actually checked with, so every arming and every
 // cancellation below is counted rather than assumed.
 //
-// The four §5.5 rules each get a case and a negative control: no wire method, no
+// `replay-model.ts`'s four rules each get a case and a negative control: no wire method, no
 // scrub past the loaded window, no claimed stream granularity, and one armed
 // timeout at a time.
 
@@ -210,7 +210,7 @@ describe("replay — the scrub never leaves the loaded window", () => {
   });
 
   it("reveals the loaded rows and never one row more", () => {
-    // §5.5's "Never" in observable terms: replay reads the window it was handed.
+    // The first rule in observable terms: replay reads the window it was handed.
     // A replay that reached past it would have to produce a row id from
     // somewhere, and playing to the tail is where that would show.
     const clock = new ManualClock();

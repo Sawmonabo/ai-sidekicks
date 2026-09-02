@@ -1,7 +1,7 @@
 // The footnote popover host — one per rendered body, and where a definition is read.
 //
-// `Spec-023 §Console Design (Meridian)` §5.14 puts "one popover host per timeline with a
-// definition registry keyed by source". The registry this shell hands each card is the
+// This console keeps one popover host per timeline over the source-keyed registry
+// `footnote-registry.ts` owns. The registry this shell hands each card is the
 // card's own, so a host per rendered body IS a host per registry: a marker can only ever
 // reach a definition its own message declared, which is the property the composite key
 // exists to give, and a second host would have nothing extra to show.

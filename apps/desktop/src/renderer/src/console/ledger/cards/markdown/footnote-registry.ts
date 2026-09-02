@@ -1,16 +1,16 @@
 // The footnote registry — one per timeline, keyed by source.
 //
-// `Spec-023 §Console Design (Meridian)` §5.14: "Footnotes use one popover host per
-// timeline with a definition registry keyed by source, so a definition line never
-// resolves as its own body; click pins, chained references navigate in place, focus is
-// restored."
+// `Spec-023 §Console Libraries`, streaming-markdown row, OWN-BUILDs "the footnote
+// registry" and says nothing about how it is keyed. THIS MODULE DECIDES THAT, and the
+// rule is: one popover host per timeline over a registry keyed by (source, identifier),
+// so a definition line never resolves as its own body.
 //
 // THE FAILURE THE KEYING PREVENTS. GFM footnotes are `[^1]` for the reference and
 // `[^1]: …` for the definition, and the identifier is scoped to the DOCUMENT. A ledger
 // is not one document — it is hundreds of messages, each parsed separately, and `[^1]`
 // means a different thing in each. A registry keyed by identifier alone would let
-// message 40's definition answer message 3's reference, and — the case the spec names
-// outright — would let a definition line resolve as its own body, because a definition
+// message 40's definition answer message 3's reference, and — the case the rule above
+// names outright — would let a definition line resolve as its own body, because a definition
 // and its reference carry the same identifier inside the same message. Keying by
 // (source, identifier) makes both unrepresentable: the source is the row the definition
 // came from, so a lookup can only find a definition its own message declared.

@@ -1,9 +1,11 @@
 // The replay control, docked over the rail.
 //
-// `Spec-023 §Console Design (Meridian)` §5.5: "A scrub-and-play control docked over
-// the rail: play and pause, speed presets 1×, 8×, 32×, the current position as a
-// timestamp in mono, and jump-to-next-seam." Density: "One docked control; hidden
-// until the rail is hovered or a chord opens it."
+// THE SHAPE IS THIS CONSOLE'S, because no committed document states it: a scrub-and-play
+// control docked over the rail — play and pause, `replay-model.ts`'s three speed presets,
+// the current position as a timestamp in mono, and jump-to-next-seam. Its density budget
+// is one docked control, hidden until the rail is hovered or a chord opens it, which is
+// `Spec-023 §Meridian, the design language` rule 7's "secondary controls live one click
+// away … never as a second visible button" applied to a whole control.
 //
 // THE CONTROL DECIDES NOTHING. Every act goes to `ReplayEngine`, and everything
 // rendered is read off `ReplayPosition`. There is no second copy of the state
@@ -13,7 +15,7 @@
 //
 // THE GRANULARITY LABEL IS PART OF THE CONTROL, not a caption someone might add. A
 // live replay is re-animated at TURN granularity because the deltas between turns
-// were never persisted, and §5.5's "Never" forbids claiming otherwise. Rendering
+// were never persisted, and `replay-model.ts`'s fourth rule forbids claiming otherwise. Rendering
 // the engine's own `granularity` is what makes that structural.
 
 import { WireFigure, formatClockTime } from "../../primitives/index.js";
@@ -25,7 +27,7 @@ export interface ReplayControlsProps {
   /**
    * Whether the control is on screen.
    *
-   * §5.5's density rule: the dock is hidden until the rail is hovered or a chord
+   * The density rule above: the dock is hidden until the rail is hovered or a chord
    * opens it. The caller owns both triggers, because both are facts about the
    * ledger's surface rather than about replay.
    */
@@ -163,7 +165,7 @@ function scrubValueText(position: ReplayPosition): string {
 /**
  * The granularity sentence, composed from the engine's own reading.
  *
- * §5.5 fixes the live wording — "replay, turn granularity" — and a fixture
+ * The live wording is fixed here — "replay, turn granularity" — and a fixture
  * scenario replaying its recorded deltas is the one case that earns the finer
  * claim.
  */

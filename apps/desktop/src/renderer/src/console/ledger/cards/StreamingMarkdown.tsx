@@ -1,8 +1,9 @@
 // Streaming markdown — the committed-and-volatile split, mounted.
 //
-// `Spec-023 §Console Design (Meridian)` §5.14: "Markdown renders through a committed and
-// volatile split: the committed prefix is memoized and stable, the volatile tail is the
-// reveal engine's, and an incomplete construct never mounts."
+// `Spec-023 §Console Libraries`, streaming-markdown row: "settled blocks parse once with
+// a two-block settle lag". `markdown-rules.ts` rule 1 owns the rest of the split — the
+// committed prefix is memoised and stable, the volatile tail is the reveal engine's, and
+// an incomplete construct never mounts.
 //
 // WHAT THIS COMPONENT IS AND IS NOT. It is the mount point for the pipeline under
 // `markdown/`, and it holds exactly three things: the segmenter, whose split has to
@@ -78,7 +79,8 @@ export interface StreamingMarkdownProps {
    * The text the reveal engine has published for this body, cumulative.
    *
    * Never the raw source: what is safe to show is the reveal gate's decision, and a card
-   * that reached past it would mount the incomplete constructs §5.14 forbids.
+   * that reached past it would mount the incomplete constructs `markdown-rules.ts` rule
+   * 1 forbids.
    */
   readonly publishedText: string;
   /** The row this body belongs to — the footnote registry's first key half. */

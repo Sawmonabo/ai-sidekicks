@@ -1,10 +1,10 @@
 // The reveal gate — which characters may be published, and under which commit mode.
 //
-// `Spec-023 §Console Design (Meridian)` §5.6 gives the engine "two closed commit
-// modes, `direct` and `authoritative`" and a "literal-safety predicate: the
-// character class, the predecessor rule, and the carve-outs (digit-period, in-word
-// apostrophe)". §5.14's rule is the reason both exist: the reveal engine "never
-// mounts an incomplete markdown construct".
+// BOTH ARE THIS MODULE'S, because no committed document states them: two closed commit
+// modes, `direct` and `authoritative`, and a literal-safety predicate — the character
+// class, the predecessor rule, and the carve-outs (digit-period, in-word apostrophe).
+// `markdown-rules.ts` rule 1 is the reason both exist: an incomplete construct never
+// mounts.
 //
 // THE PROBLEM THIS SOLVES. A stream arrives one token at a time, so at any moment
 // the revealed tail may end mid-construct: `**bol` is not bold yet, and `[link`
@@ -105,8 +105,8 @@ export function isLiteralSafeAt(text: string, index: number): boolean {
  *
  * Walks back at most `REVEAL_LITERAL_BACKTRACK_CAP` characters. Past that the
  * ceiling stands: withholding more than a construct's worth of text to avoid a
- * marker would stall the lane, and a stalled lane is the failure §5.6 forbids in
- * the same breath as the flicker.
+ * marker would stall the lane, and a stalled lane is the failure `reveal-engine.ts`
+ * forbids in the same breath as the flicker.
  */
 export function safeRevealCeiling(text: string, candidateCeiling: number): number {
   const ceiling = Math.min(Math.max(0, candidateCeiling), text.length);

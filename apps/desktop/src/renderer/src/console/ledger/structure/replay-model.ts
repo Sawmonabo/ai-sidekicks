@@ -1,13 +1,14 @@
 // Session replay — re-watching a session at time scale, from rows already loaded.
 //
-// `Spec-023 §Console Design (Meridian)` §5.5: "Re-watch any session at time scale
-// from the rows already loaded, and make the fixture's scripted scenarios the demo
-// reel." Play, pause, three speeds, scrub, jump-to-seam, and "replay from here" on
-// every row.
+// `Spec-023 §The four bars`, Richness, names "session replay at time scale" among the
+// console's signature surfaces, and `Spec-023 §The fixture bridge` says the scenarios
+// "double as demo reels". THE CONTROL IS THIS MODULE'S, because no committed document
+// states it: re-watch any session at time scale from the rows already loaded — play,
+// pause, three speeds, scrub, jump-to-seam, and "replay from here" on every row.
 //
 // FOUR RULES, AND EACH IS A WAY A REPLAY COULD LIE:
 //
-//   • **It mints no wire method.** §5.5's "Never". Replay reads the loaded window
+//   • **It mints no wire method.** Replay reads the loaded window
 //     and nothing else; a live gap-fill re-subscribes at the last good cursor
 //     through the timeline subscription the ledger already holds, which is a read
 //     the console already performs rather than an operation replay invents.
@@ -31,7 +32,7 @@ import type { LedgerSeam } from "./seams.js";
 
 /**
  * The speeds replay offers. Closed at three, and the tuple is the declaration —
- * §5.5 fixes "speed presets 1×, 8×, 32×", and a control that rendered a fourth
+ * the presets are 1×, 8×, and 32×, and a control that rendered a fourth
  * would be offering a speed the model cannot run.
  */
 export const REPLAY_SPEEDS = [1, 8, 32] as const;
@@ -39,7 +40,7 @@ export const REPLAY_SPEEDS = [1, 8, 32] as const;
 export type ReplaySpeed = (typeof REPLAY_SPEEDS)[number];
 
 /**
- * What the replay is doing. §5.5's four states.
+ * What the replay is doing. Four states, closed.
  *
  * `at-tail` is distinct from `paused` because the two offer different next moves:
  * a paused replay resumes, and a replay at the tail resumes FOLLOWING — the live
@@ -60,7 +61,7 @@ export type ReplayGranularity = (typeof REPLAY_GRANULARITIES)[number];
 /** One row the replay can reveal, reduced to what playback orders by. */
 export interface ReplayRow {
   readonly rowId: string;
-  /** Wire-verbatim ISO instant. Playback orders by this, per §5.5. */
+  /** Wire-verbatim ISO instant. Playback orders by this and by nothing else. */
   readonly occurredAt: string;
 }
 
@@ -85,7 +86,7 @@ export interface ReplayEngineOptions {
   /**
    * `"stream"` only for a fixture scenario replaying its own recorded deltas.
    * A live replay is `"turn"`, and defaults to it: claiming the finer granularity
-   * by omission is exactly the lie §5.5 forbids.
+   * by omission is exactly the lie the header's fourth rule forbids.
    */
   readonly granularity?: ReplayGranularity;
   /** Called whenever the position changes, so a surface can re-render. */
@@ -132,7 +133,7 @@ export class ReplayEngine {
     this.#onPositionChange = options.onPositionChange;
     this.#frameIntervalMs = options.frameIntervalMs ?? REPLAY_FRAME_INTERVAL_MS;
 
-    // Ordered by `occurredAt`, which is what §5.5 says playback reveals in — a
+    // Ordered by `occurredAt`, which is what playback reveals in — a
     // sequence order would be the log's order, and the two differ wherever the
     // daemon admitted rows out of wall-clock order.
     const rowsInOrder = [...options.rows].sort(
@@ -203,7 +204,8 @@ export class ReplayEngine {
   /**
    * Move to a position, clamped to the loaded window.
    *
-   * §5.5's "never scrubs past the loaded window without loading it first": the
+   * The header's second rule — never scrub past the loaded window without loading it
+   * first: the
    * clamp is the enforcement, and a caller that wants more window asks the ledger
    * to load earlier rows first.
    */
@@ -219,7 +221,8 @@ export class ReplayEngine {
   }
 
   /**
-   * Replay from one row. §5.5's "replay from here" on every row.
+   * Replay from one row — the `"replay from here"` interaction
+   * `Spec-023 §Signature Feature Composition Sketches`' Timeline View names.
    *
    * Client-local scrub navigation within the loaded window — deliberately not a
    * deep link and not a new deep-link kind, which is what that offer says in

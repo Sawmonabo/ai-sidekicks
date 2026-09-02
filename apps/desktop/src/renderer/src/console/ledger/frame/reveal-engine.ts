@@ -1,8 +1,11 @@
 // The reveal engine — N lanes streaming at once, none of them teleporting.
 //
-// `Spec-023 §Console Design (Meridian)` §5.6: "Stream N agents at once so every
-// lane moves continuously and no lane teleports, with the visible text never
-// regressing." Four decisions carry that sentence:
+// `Spec-023 §The four bars`, Light on the machine: "streaming paints through a bounded
+// reveal budget so four concurrent lanes cost one frame", and `Spec-023 §Console Test
+// Tiers` puts "reveal monotonicity" in the browser tier. THE SENTENCE THIS MODULE ADDS,
+// because no committed document states it: stream N agents at once so every lane moves
+// continuously and no lane teleports, with the visible text never regressing. Four
+// decisions carry it:
 //
 //   • **One ordered queue, two closed commit modes.** `direct` deltas are appends
 //     and are trusted; `authoritative` deltas carry the producer's whole view of
@@ -12,7 +15,7 @@
 //   • **The budget is allocated across lanes every frame, never spent on one.**
 //     Each lane takes its fair share first; only the remainder is offered to lanes
 //     that are behind, and never more than `REVEAL_CATCH_UP_MULTIPLIER` shares.
-//     That is §5.6's "catch-up raises a lane's rate, never jumps it", and it is why
+//     Catch-up raises a lane's rate and never jumps it, which is why
 //     four lanes all move rather than one finishing while three wait.
 //   • **The frame is the only scheduler.** Work is armed through the clock seam and
 //     re-armed only while a lane has characters left. A settled engine has no timer
@@ -81,7 +84,7 @@ export class RevealEngine {
   readonly #frameCharacterBudget: number;
   readonly #frameEmitter = new Emitter<RevealFrame>("reveal frame");
   readonly #diagnosticEmitter = new Emitter<RevealDiagnostic>("reveal diagnostic");
-  /** Insertion-ordered: the one ordered queue §5.6 names. */
+  /** Insertion-ordered: the one ordered queue the header's first decision names. */
   readonly #lanesById = new Map<string, RevealLane>();
 
   #armedFrame: ScheduledHandle | undefined;
@@ -346,7 +349,7 @@ export class RevealEngine {
   }
 
   /**
-   * §5.6's named invariant: "published text is the smoother's reveal cursor".
+   * This engine's named invariant: published text is the smoother's reveal cursor.
    *
    * Asserted under DEV and test only, because it is a claim about this module's own
    * bookkeeping rather than about anything a user did. `import.meta.env.DEV` is a

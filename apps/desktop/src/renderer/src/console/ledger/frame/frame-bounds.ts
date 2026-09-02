@@ -60,9 +60,9 @@ export const LEDGER_TAIL_TOLERANCE_PX = 24;
 /**
  * The epsilon every geometry comparison uses, in pixels.
  *
- * `Spec-023 §Console Design (Meridian)` §5.8: "never compares measurements without
- * an epsilon". Half a pixel is below anything a display can show and above the
- * error a device-pixel-ratio division introduces.
+ * This console never compares two measurements without one. Half a pixel is below
+ * anything a display can show and above the error a device-pixel-ratio division
+ * introduces.
  */
 export const LEDGER_GEOMETRY_EPSILON_PX = 0.5;
 
@@ -90,8 +90,8 @@ export const REVEAL_FRAME_CHARACTER_BUDGET = 480;
 /**
  * The largest multiple of its fair share a lane behind the others may take.
  *
- * `Spec-023 §Console Design (Meridian)` §5.6: "catch-up raises a lane's rate,
- * never jumps it". Three is a visible catch-up that still leaves two thirds of the
+ * `reveal-engine.ts`'s second decision: catch-up raises a lane's rate and never jumps
+ * it. Three is a visible catch-up that still leaves two thirds of the
  * frame's budget for the lanes that are keeping pace.
  */
 export const REVEAL_CATCH_UP_MULTIPLIER = 3;

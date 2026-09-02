@@ -1,8 +1,10 @@
 // The scroll chokepoint, asserted by reading the tree.
 //
-// `Spec-023 §Console Design (Meridian)` §5.8: "A single scroll controller per
-// timeline pane owns `scrollTop` writes; every caller is a member of a closed caller
-// union and is named in the write; glides replace `scrollIntoView` everywhere." The
+// `Spec-023 §Console Test Tiers` puts two of this tier's tripwires here — "no
+// `scrollTop` write outside the chokepoint, no `scrollIntoView`" — over the rule
+// `ledger/frame/scroll-chokepoint.ts` states: one scroll controller per timeline pane
+// owns `scrollTop` writes, every caller is a member of a closed caller union and is
+// named in the write, and glides replace `scrollIntoView` everywhere. The
 // controller's own behaviour is driven in its co-located unit test; the claim only a
 // tree-wide scan can hold is that no OTHER module writes a scroll offset — and, like
 // every chokepoint, the second implementation is never introduced deliberately. It

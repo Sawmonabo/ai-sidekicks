@@ -90,7 +90,7 @@ describe("the card family classifier", () => {
 
 describe("the tool result state", () => {
   it("ranks a tool error above every body condition", () => {
-    // A truncated error is still an error: §5.9 forbids a collapsed row that hides one.
+    // A truncated error is still an error, and a collapsed row may not hide one.
     expect(toolResultState("tool.error", TRUNCATED_BODY)).toBe("error");
     expect(toolResultState("tool.error", UNREADABLE_BODY)).toBe("error");
     expect(toolResultState("tool.error", undefined)).toBe("error");

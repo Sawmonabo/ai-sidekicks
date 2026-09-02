@@ -1,10 +1,11 @@
 // The console's own shiki theme, and the token families it collapses to.
 //
 // `Spec-023 §Console Libraries`, syntax-highlighting row: "own theme JSON from Meridian
-// tokens … never the preset bundles". `Spec-023 §Console Design (Meridian)` §5.14 adds
-// the property that makes the cache work: "a theme-independent, content-addressed cache
-// bounded in bytes; token families no theme styles are collapsed by a transformer, with
-// a test cross-checking against the theme CSS."
+// tokens … never the preset bundles", with a "byte-bounded token cache". THIS MODULE
+// ADDS THE PROPERTY THAT MAKES THAT CACHE WORK, because no committed document states
+// it: the cache is theme-independent and content-addressed, token families are
+// collapsed inside the theme rather than by a pass after it, and a test cross-checks
+// the families against the theme CSS.
 //
 // HOW BOTH ARE TRUE AT ONCE. A shiki theme maps TextMate scopes to a foreground colour,
 // and a highlighter returns tokens carrying that colour. If the colour were a hex value
@@ -20,7 +21,7 @@
 // its variable names.
 //
 // THE FAMILIES ARE A CLOSED SET, and the architecture tier cross-checks that every
-// member has a declaration in the family stylesheet. That is the test §5.14 asks for:
+// member has a declaration in the family stylesheet. That is the cross-check above:
 // a family added here without a colour there renders as the sheet's fallback and reads
 // as plain text, which is a silent failure a type cannot catch.
 

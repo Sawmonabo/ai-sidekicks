@@ -22,7 +22,7 @@
 import { type RevealCommitMode } from "./reveal-gate.js";
 import { type ProvenAppendToken } from "./rope-smoother.js";
 
-/** The four states §5.6 names. Closed, and derived into a union below. */
+/** The four states the engine reports. Closed, and derived into a union below. */
 export const REVEAL_ENGINE_STATES = ["idle", "streaming", "catching-up", "settled"] as const;
 
 /** One engine state. Derived from the enumeration, never restated. */

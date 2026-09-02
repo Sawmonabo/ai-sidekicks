@@ -1,11 +1,11 @@
 // The delta-fed block segmenter — where the committed prefix ends and the volatile
 // tail begins.
 //
-// `Spec-023 §Console Design (Meridian)` §5.14: "Markdown renders through a committed
-// and volatile split: the committed prefix is memoized and stable, the volatile tail is
-// the reveal engine's, and an incomplete construct never mounts." §5.9's leverage line
-// puts the segmenter on the OWN-BUILD side, and the measurement in
-// `Spec-023 §References` D.2 is why: a whole-message re-parse costs 94.3 ms at 64 KB
+// `Spec-023 §Console Libraries`, streaming-markdown row: "settled blocks parse once
+// with a two-block settle lag", and that same row OWN-BUILDs "the delta-fed block
+// segmenter". `markdown-rules.ts` rule 1 owns the other half of the split — the
+// volatile tail is the reveal engine's and an incomplete construct never mounts. The
+// measurement in `Spec-023 §References` D.2 is why: a whole-message re-parse costs 94.3 ms at 64 KB
 // and is linear in length, so re-parsing per token is quadratic over a stream, while a
 // 256 B–2 KB tail slice costs 0.30–1.31 ms.
 //

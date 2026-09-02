@@ -381,11 +381,11 @@
   outline-offset: 2px;
 }
 
-/* --- The provenance rail (§5.4) ----------------------------------------- */
+/* --- The provenance rail -------------------------------------------------- */
 
 /*
- * The strip is the hit target and the canvas is the ink. §5.4 fixes the strip at
- * ≥32 px with a dead gutter, and the gutter is what the difference between the two
+ * The strip is the hit target and the canvas is the ink. `structure/rail-model.ts`
+ * fixes the strip at ≥32 px with a dead gutter, and the gutter is what the difference between the two
  * widths IS: a pointer aimed a little wide still lands on the rail rather than on
  * the pane behind it, and a pointer aimed at the pane is not stolen by the rail.
  *
@@ -424,7 +424,7 @@
 }
 
 /*
- * The unloaded extent, drawn as a dotted segment at the head of the rail — §5.4's
+ * The unloaded extent, drawn as a dotted segment at the head of the rail — the rail's
  * clip honesty. A gradient rather than a border so the dotting reads at any height
  * without the segment's own box being a second element to keep in step.
  */
@@ -511,10 +511,10 @@
   white-space: nowrap;
 }
 
-/* --- The replay dock (§5.5) --------------------------------------------- */
+/* --- The replay dock ------------------------------------------------------ */
 
 /*
- * Docked over the rail and hidden until reached — §5.5's density rule. `hidden`
+ * Docked over the rail and hidden until reached — the dock's density rule. `hidden`
  * is the mechanism, so the control is inert to the pointer and to assistive
  * technology at once; the base rule below styles it only when it is shown.
  */
@@ -588,7 +588,7 @@
   white-space: nowrap;
 }
 
-/* --- Find in ledger (§5.15) --------------------------------------------- */
+/* --- Find in ledger ------------------------------------------------------- */
 
 .meridian-find {
   display: flex;
@@ -1270,7 +1270,7 @@
 
 /*
  * The empty body of an unreadable turn. It occupies the turn's position — that is the
- * whole of what §5.18 asks for — and carries no text, because the named absence beside
+ * whole of what `cards/MachineBody.tsx` asks for — and carries no text, because the named absence beside
  * it is where the reason is stated.
  */
 .meridian-machine-body__empty {

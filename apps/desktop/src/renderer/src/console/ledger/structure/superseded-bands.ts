@@ -1,7 +1,7 @@
 // Superseded bands — the rows a rewind put behind it, kept and dimmed.
 //
-// `Spec-023 §Console Design (Meridian)` §5.3 ends on the half this module owns:
-// "superseded turns stay present but visibly past". Nothing is ever removed. A
+// `seams.ts`' epoch rule ends on the half this module owns: superseded turns stay
+// present but visibly past. Nothing is ever removed. A
 // band is the group of rows one rollback rewound past, and the ledger dims a band
 // rather than deleting one, so a person can still read what was rewound away.
 //
@@ -12,7 +12,7 @@
 // share the word "rollback" and no table, no reader, and no failure mode — the
 // seam vocabulary can grow by a kind without a line here changing.
 //
-// THE RULES ARE `Spec-013`'s rather than a reading of §5.3: the marker is
+// THE RULES ARE `Spec-013`'s rather than a reading of that rule: the marker is
 // single-field and present exactly when superseded, EXCEEDS is the comparison so a
 // row at the cutoff survives, marks are epoch-scoped because re-execution reuses
 // ordinals, and a `legacy_stub` can never be ranked or marked because it
@@ -39,7 +39,7 @@ export interface SupersededBand {
  *
  * IDEMPOTENCE IS STRUCTURAL. The derivation reads the window and produces a set;
  * running it twice over the same window produces the same set, because nothing is
- * accumulated across calls. §5.3's "Applying the boundary to already-delivered
+ * accumulated across calls. `Spec-013`'s "applying the boundary to already-delivered
  * rows is idempotent" is therefore a property of the shape rather than a
  * discipline, and a row that arrived pre-marked is admitted through the same set.
  */

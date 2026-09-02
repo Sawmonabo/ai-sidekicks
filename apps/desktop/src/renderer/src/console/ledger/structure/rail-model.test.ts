@@ -1,4 +1,4 @@
-// The rail's model — the three §5.4 rules, and the ways each one fails quietly.
+// The rail's model — its three rules, and the ways each one fails quietly.
 //
 // A rail that invented ticks still paints. A rail that spent amber on an ordinary
 // mark still paints. A rail that drew a complete map of a truncated window still

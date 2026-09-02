@@ -1,16 +1,18 @@
 // The one classifier — which card family a row is, decided once.
 //
-// `Spec-023 §Console Design (Meridian)` §5.9: "Render each message and tool activity
-// as a card whose family is decided once, by one classifier feeding icon, label, and
-// layout." One function, one table, and the three things a card renders with come out
+// THIS CONSOLE'S OWN RULE, because no committed document states it: each message and
+// tool activity renders as a card whose family is decided once, by one classifier
+// feeding icon, label, and layout. One function, one table, and the three things a card renders with come out
 // of it together. A second `if (row.type === …)` anywhere under `cards/` is the drift
 // this module exists to prevent: the glyph would agree with the layout until somebody
 // added a family to one of them.
 //
 // WHAT THE CLASSIFIER IS ALLOWED TO READ. The row's `type`, which is a registered
 // `SessionEventType`, and nothing else. Not the actor, not the summary, and above all
-// not the tool NAME — §5.9's "never invents a tool family" is a rule about exactly
-// that temptation. The design's tool families (command output, file edits, read folds,
+// not the tool NAME — never inventing a tool family is a rule about exactly
+// that temptation, and it is `Spec-023 §Rules every console surface obeys`' fail-closed
+// projection ("An unknown enum member renders as the explicit unrecognized row or badge,
+// never as a guess") reached from the other side. The design's tool families (command output, file edits, read folds,
 // MCP tool cards, web-search results, image results) are real distinctions and the
 // wire declares none of them: `ToolActivityPayload` carries `toolName`, `toolCallId`,
 // and `durationMs`, and no member says what KIND of tool ran. Reading the family out
@@ -51,8 +53,9 @@ export type CardFamily = (typeof CARD_FAMILIES)[number];
 /**
  * How much of a family's card is open before anybody touches it.
  *
- * `Spec-023 §Console Design (Meridian)` §5.9's density line, as a value: "One line per
- * tool row; message bodies open; receipts one line."
+ * `Spec-023 §Meridian, the design language` rule 7: "Tool rows render as one line until
+ * opened." The other two are this console's own reading of the same density budget —
+ * message bodies open, receipts one line — stated here as a value.
  */
 export const CARD_LAYOUTS = ["body-open", "one-line"] as const;
 
@@ -144,9 +147,9 @@ export function cardFamilyDescriptor(family: CardFamily): CardFamilyDescriptor {
 }
 
 /**
- * The five states a tool row reports. Closed, and exactly `Spec-023 §Console Design
- * (Meridian)` §5.9's list: "Running · Ok · Error (`tool.error`) · Truncated · Body
- * unavailable (§5.18)".
+ * The five states a tool row reports. Closed, and this console's own set: Running · Ok ·
+ * Error (`tool.error`) · Truncated · Body unavailable. No committed document enumerates
+ * them, so the enumeration lives here, beside the function that decides between them.
  */
 export const TOOL_RESULT_STATES = [
   "running",
@@ -163,11 +166,13 @@ export type ToolResultState = (typeof TOOL_RESULT_STATES)[number];
  * What a tool row's header reports, from its event type and its hydrated body.
  *
  * TWO SOURCES, RANKED, AND THE RANKING IS THE POLICY. `tool.error` outranks every
- * body condition: §5.9 forbids hiding a tool error inside a collapsed row without the
- * red mark on the header, and a truncated error is still an error. Below that the
- * body's own condition decides, because a result whose body could not be read is not
- * the same fact as a result that succeeded — §5.18 is explicit that the second must
- * never be rendered as the first.
+ * body condition: a collapsed row may not hide a tool error from the header, because
+ * `Spec-023 §Meridian, the design language` rule 3 makes red the console's one word for
+ * "something failed" and a failure a reader has to open a row to find was never said.
+ * A truncated error is still an error. Below that the body's own condition decides,
+ * because a result whose body could not be read is not the same fact as a result that
+ * succeeded — rule 8's five kinds of nothing, where "a renderer that collapses two of
+ * these into one is wrong".
  */
 export function toolResultState(
   eventType: string,
