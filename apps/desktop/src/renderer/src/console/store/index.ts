@@ -20,6 +20,15 @@ export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 // and this family deliberately knows none, so the type travels out and the
 // implementation stays where the wire is already understood.
 export type { EntityMutation, EntityProjector, EntityProjectorRegistry } from "./entities.js";
+// The registry that decides WHICH projector claims a kind, beside the table type it
+// hands out. It ships through this door because the composition root registers into
+// it and the session-store plumbing reads a snapshot out of it, and both of those
+// live one family up — a deep import would be the second path this door exists to
+// keep from opening.
+export {
+  ConsoleEntityProjectorRegistry,
+  consoleEntityProjectorRegistry,
+} from "./entity-projector-registry.js";
 
 export { SessionStore } from "./session-store.js";
 // The base state a read establishes. Exported because the composition root now
