@@ -140,7 +140,7 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
       )}
 
       <div className="meridian-artifacts__body">
-        {renderPanelBody(props, visibleRows, {
+        {renderPanelBody(props, visibleRows, typeFilter, {
           artifactIdAwaitingDeleteConfirm,
           setArtifactIdAwaitingDeleteConfirm,
         })}
@@ -155,10 +155,22 @@ interface DeleteConfirmState {
   readonly setArtifactIdAwaitingDeleteConfirm: (artifactId: string | undefined) => void;
 }
 
-/** The panel's four arms. Each absence is its own kind; none stands in for another. */
+/**
+ * The panel's arms. Each absence is its own kind; none stands in for another.
+ *
+ * THE TWO EMPTIES ARE TWO DIFFERENT CLAIMS, AND THE READ DECIDES WHICH. Branching
+ * on the rows the FILTER kept made a session holding six artifacts state, in the
+ * console's own voice, that it has none the moment somebody selected a type with no
+ * matches — misreporting a successful non-empty list and hiding that the filter is
+ * what is empty. So the session-empty copy is gated on what the read RETURNED, and
+ * the filter's own empty is its own arm, naming the type it is set to and the count
+ * it is hiding. The filter buttons stay exactly as they were: every type is offered
+ * including the ones at zero, and `countsByType` already tells a reader which.
+ */
 function renderPanelBody(
   props: ArtifactsPanelProps,
   visibleRows: readonly ArtifactManifestRow[],
+  typeFilter: ArtifactTypeFilter,
   confirmState: DeleteConfirmState,
 ): React.JSX.Element {
   if (props.state.kind === "not-checked") {
@@ -181,13 +193,27 @@ function renderPanelBody(
     // room can do, and rule 9 picks the shape by blast radius.
     return <RefusalCard code={props.state.refusal.code} detail={props.state.refusal.detail} />;
   }
-  if (visibleRows.length === 0) {
+  if (props.state.rows.length === 0) {
     return (
       <Nothing
         kind="empty"
         placement="surface"
         title="No artifacts."
         detail="V1 artifacts are produced by runs and by ingest. There is no renderer control that publishes one."
+      />
+    );
+  }
+  if (visibleRows.length === 0) {
+    return (
+      <Nothing
+        kind="empty"
+        placement="surface"
+        title="No artifacts of the type this filter is set to."
+        detail={`This session holds ${formatCount(props.state.rows.length)} of other types. Every type is on the filter above with its own count.`}
+        // The type is a wire word, so it renders through the figure chokepoint rather
+        // than as prose interpolated into the copy above — and it is the setting the
+        // reader has to change, which is what this slot is for.
+        action={<WireFigure value={typeFilter} />}
       />
     );
   }
