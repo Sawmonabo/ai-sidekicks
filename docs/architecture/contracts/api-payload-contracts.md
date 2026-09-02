@@ -4385,6 +4385,20 @@ Plan-020's health and recovery surface is exposed as five `health.*` methods, re
 
 The four `query` rows are idempotent reads; `health.recoveryActionRequest` is the single mutation — the operator-triggered recovery path whose every action and outcome T2.6 records as a durable audit record. Canonical Zod schemas live in `packages/contracts/src/health/health.ts` (T1.1–T1.3, method-name constants T1.4) per the §Source-of-Truth Policy.
 
+### Shell-Hosted Method Registry (Tier 8, Plan-023 CP-023-9)
+
+Registered 2026-09-01 ([cross-plan-dependencies.md §6](../cross-plan-dependencies.md) node NS-99, Codex round 4). Every other registry in this document names a method the **daemon** answers and a client calls. This one is the reverse leg: the method is hosted by the Electron **main process**, and its only caller is the supervised daemon child. JSON-RPC is symmetric, so nothing in the transport had to change, but the direction had never been used in this corpus and is stated rather than left implicit.
+
+**Transport.** The `MessagePortMain` duplex created at `utilityProcess.fork` and handed to exactly one endpoint — the supervised daemon. It is never exposed on the preload bridge, never on a socket, and never on the control-plane client, so a request from any other origin is unreachable rather than refused; the handler additionally asserts the receiving port's identity and drops anything else, which is a local assertion on a private channel and **not** a wire refusal, so no error code is registered for it.
+
+| Method | Direction | Procedure type | Request schema | Response schema |
+| --- | --- | --- | --- | --- |
+| `shell.deriveKek` | daemon → shell | RPC (request/response) | `ShellDeriveKekRequest` | `ShellDeriveKekResponse` |
+
+The namespace root is `shell` rather than `shellKey` or `daemonKey` because §JSON-RPC Method-Name Registry's canonical `dotted-camelCase` regex allows no uppercase character in the first segment — `/^[a-z][a-z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/` — and the `register()`-time guard enforces it on this surface exactly as on the daemon-hosted ones.
+
+**What it carries.** The request names the PRF salt input for the [Plan-022](../../plans/022-data-retention-and-gdpr.md) daemon-master-key Tier-8 KEK branch (T22.1.3); the response carries the derived key-encryption key. Main answers it with the injected `PrfKeyDerivationService` of [Plan-023](../../plans/023-desktop-shell-and-renderer.md) CP-023-9 (producer task T-023r-4-7), which runs the WebAuthn PRF ceremony through the resolved per-platform binding. The KEK crosses this one channel and no other; it appears in no `SidekicksBridge` type and reaches no renderer. This registry replaces the retired `webAuthn.deriveKeyMaterial` preload-bridge method, which let the untrusted renderer choose the PRF salt and returned derived key material across the bridge.
+
 ---
 
 ## Tier 6 / Tier 8: Plans 016, 017 (Task 4.10)

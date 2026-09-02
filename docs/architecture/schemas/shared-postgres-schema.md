@@ -206,6 +206,46 @@ CREATE INDEX idx_participant_identity_keys_participant ON participant_identity_k
 
 ---
 
+## WebAuthn Ceremony (Plan-018)
+
+Backs the relying party's half of the WebAuthn ceremony [ADR-010](../../decisions/010-paseto-webauthn-mls-auth.md) has required since acceptance and no plan owned until the 2026-09-01 WebAuthn-ceremony amendment (Plan-018 Phase 6, T6.1 — CP-018-14). The Electron main process calls these routes over its own authenticated control-plane channel per [Spec-023 §Main Process Responsibilities](../../specs/023-desktop-shell-and-renderer.md#main-process-responsibilities); no JSON-RPC method string is involved.
+
+```sql
+-- Owner: Plan-018 (T6.1, 2026-09-01 WebAuthn-ceremony amendment)
+CREATE TABLE webauthn_credentials (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  participant_id    UUID NOT NULL REFERENCES participants(id),
+  credential_id     TEXT NOT NULL UNIQUE,   -- base64url; authenticator-minted, unique by construction
+  public_key        BYTEA NOT NULL,         -- COSE public key, as returned by the verification library
+  signature_counter BIGINT NOT NULL DEFAULT 0,
+  uv_mode           TEXT NOT NULL CHECK (uv_mode IN ('uv','no-uv')),  -- the user-verification bit observed at registration
+  transports        TEXT[],                 -- authenticator-reported transport hints, for allowCredentials
+  registered_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_used_at      TIMESTAMPTZ
+);
+
+CREATE INDEX idx_webauthn_credentials_participant ON webauthn_credentials(participant_id);
+
+-- Owner: Plan-018 (T6.1) — the single-use ceremony fence
+CREATE TABLE webauthn_challenges (
+  challenge       TEXT PRIMARY KEY,         -- the challenge IS the selector a verification presents
+  participant_id  UUID REFERENCES participants(id),  -- NULL until a discoverable-credential sign-in is verified
+  ceremony        TEXT NOT NULL CHECK (ceremony IN ('registration','authentication')),
+  expires_at      TIMESTAMPTZ NOT NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_webauthn_challenges_expires ON webauthn_challenges(expires_at);
+```
+
+**`webauthn_challenges` is the single-use fence, and consuming a challenge is deleting its row (Plan-018 T6.4 / I-018-15).** Consumption is one statement — `DELETE FROM webauthn_challenges WHERE challenge = $1 AND expires_at > now() RETURNING *` — so two concurrent verifications of one challenge cannot both find a row, and an expired row is never returned even before the periodic sweep reaches it. The sweep is hygiene, not the correctness mechanism. A sealed stateless challenge was considered and rejected: single-use is the property that matters, and a self-contained token stays replayable until it expires unless a durable fence records its consumption, so the stateless design does not remove the write — it adds a second signing secret to rotate beside a write it still has to perform.
+
+**`webauthn_credentials.uv_mode` is the server-held user-verification mode (Plan-018 I-018-16).** It records the bit the verification library reports on the _verified registration response_, never the `userVerification` preference a request carried — a preference binds no authenticator. The authentication-options reply returns this mode per offered credential, which is what makes [Spec-023 §WebAuthn Platform-Authenticator Native Module](../../specs/023-desktop-shell-and-renderer.md#webauthn-platform-authenticator-native-module)'s guard 4 checkable at all: CTAP 2.1 mints two per-credential secrets and selects between them on that bit, so a client comparing against a locally-remembered mode has nothing after a reinstall and nothing at all on a second desktop using a synced credential.
+
+Both tables carry `REFERENCES participants(id)` for the same reason `participant_identity_keys` does — it places them inside the [Spec-022 §Path 2](../../specs/022-data-retention-and-gdpr.md#shred-fan-out) exhaustive inbound-FK erasure closure, and the closure costs nothing because a WebAuthn credential is verified live and no retained row re-verifies one post-erasure.
+
+---
+
 ## Token Revocation (BL-070 — Auth Infrastructure)
 
 Backs `POST /auth/revoke-all-for-participant` (see [security-architecture.md §Bulk Revoke All For Participant](../security-architecture.md#bulk-revoke-all-for-participant-bl-070)). Cross-plan auth infrastructure, not Plan-018 identity schema.

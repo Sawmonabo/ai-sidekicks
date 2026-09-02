@@ -3879,7 +3879,15 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // that this one is covered). Two more bold resolved references on one
     // existing marker line; no marker line is added or removed, no none-arm row
     // moves, and the legacy compact-inline channel is untouched.
-    bold: { resolved: 1043, noneArm: 158, parentResolved: 0 },
+    // 1043/158 -> 1052/158 (2026-09-01, the same amendment's Codex round-4
+    // fold): Plan-018 gains Phase 6 — the WebAuthn ceremony's relying-party
+    // half — whose four tasks carry four marker lines naming the three new
+    // I-018-15..I-018-17 (T6.1 names two, T6.2 and T6.3 name three each, T6.4
+    // names one), nine more bold resolved references. Every one resolves to an
+    // invariant declared in the same diff's `## Invariants` table, so no
+    // none-arm row is added and the legacy compact-inline channel is untouched;
+    // Plan-023's own marker lines do not move in this fold.
+    bold: { resolved: 1052, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
