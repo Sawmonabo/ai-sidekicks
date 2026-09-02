@@ -1,14 +1,16 @@
 // The runs pane's live spine: `run.subscribeState`, folded into one row per run.
 //
-// `Spec-023 §Console Design (Meridian)` §7.1 gives the stream two arms and this
-// module keeps them apart structurally rather than by convention:
+// The stream has two arms — the registered request's response is
+// `RunStateChangeEvent | RunRolledBackEvent` and nothing else — and this module
+// keeps them apart structurally rather than by convention:
 //
 //   • `RunStateChangeEvent` — a transition, carrying both states, the advanced
 //     `runVersion`, and the stop-condition provenance. Folded into the run's
 //     current reading and appended to its status history.
 //   • `RunRolledBackEvent` — deliberately NOT a transition. It carries no
 //     `previousState` and no `currentState`, because a rollback is not one, and
-//     §7.1's Never list forbids fabricating one. So the fold appends a status row
+//     THIS MODULE'S OWN RULE, because no committed document states it, is that a
+//     transition is never fabricated for one. So the fold appends a status row
 //     carrying NEITHER STATE, advances the run's version and its rewind position,
 //     and reads the run as `paused` — which is where the rollback contract lands a
 //     confirmed rewind, for every run and not only for one this pane has not seen.
@@ -60,7 +62,7 @@ import { useSessionInitialised, type SessionStore } from "../../store/index.js";
 import { PROJECTED_RUN_CAP, RUN_STATUS_ROW_CAP } from "./runs-bounds.js";
 import { runStatusSubtypeFor, type RunStatusSubtype, type RunStopTrigger } from "./run-status.js";
 
-/** One row of a run's status history, as §7.1's subtype table renders it. */
+/** One row of a run's status history, in the subtypes `run-status.ts` declares. */
 export interface RunStatusRow {
   readonly subtype: RunStatusSubtype;
   /** Wire-verbatim, and `undefined` on the rewind arm, which carries no states. */
@@ -212,8 +214,8 @@ export class RunStateProjection {
    * exists at this position, and rendering them beside `paused` would be reporting
    * a stop that has been undone.
    *
-   * Still NO fabricated transition — §7.1: "Never fabricates a transition for a
-   * rewind." The appended row keeps `subtype: "rewound"` with both states
+   * Still NO fabricated transition, per this module's rule above: a rewind never
+   * becomes one. The appended row keeps `subtype: "rewound"` with both states
    * `undefined`, so the history says a rewind happened and never says from what to
    * what. A run this pane meets through a rewind alone still gets a row, because
    * the rewind is real and dropping it would leave a person looking at a run whose

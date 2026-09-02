@@ -1,7 +1,8 @@
 // A browser page's record — the one kind that is deliberately not durable.
 //
-// §4.2 puts a `browser` pane outside the layout snapshot entirely: it opens beside
-// its source, cascades closed with it, and is never written down. So this record
+// THIS CONSOLE'S OWN RULE, because no committed document states it: a `browser`
+// pane sits outside the layout snapshot entirely — it opens beside its source,
+// cascades closed with it, and is never written down. So this record
 // says so, because an operator who does not know that will expect the page back
 // after a restart and find it gone.
 //

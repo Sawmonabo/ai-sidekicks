@@ -1,9 +1,12 @@
 // The approvals surface's closed sets, declared exactly once.
 //
-// `Spec-023 §Console Design (Meridian)` §7.6 fixes four of them verbatim — nine
-// canonical categories, five approval states, two decisions, and (§7.7) two
-// remembered-scope kinds beside four invalidation triggers — and each one is a
-// vocabulary the daemon owns rather than one the console may widen.
+// All six — nine canonical categories, five approval states, two decisions, two
+// remembered-scope kinds, and four invalidation triggers — are vocabularies the
+// daemon owns rather than ones the console may widen. `api-payload-contracts.md
+// §Plan-012 — Approvals Permissions And Trust Boundaries` is where they are
+// written, and `Spec-023 §Signature Feature Composition Sketches`' Approvals View
+// names the scope kinds on the surface itself, as "a `RememberedScope { kind: 'run'
+// | 'session' }` grant with category-derived pattern semantics".
 //
 // WHY THEY ARE DECLARED HERE AND NOT IMPORTED FROM `@ai-sidekicks/contracts`.
 // They are not registered there. `packages/contracts` carries the seven
@@ -48,20 +51,22 @@ export type ApprovalState = (typeof APPROVAL_STATES)[number];
 /**
  * The two-member decision. Two values, no third.
  *
- * There is deliberately no `amend` arm: §7.6's Never list states that
- * `ApprovalResolveRequest` carries nothing that edits the requested action, so an
- * approve-with-amendment control would be a control for a wire that refuses it.
+ * There is deliberately no `amend` arm: the registered `ApprovalResolveRequest`
+ * carries nothing that edits the requested action and the Approvals View sketch
+ * offers approve / deny / remember and no fourth, so an approve-with-amendment
+ * control would be a control for a wire that has no member for it.
  */
 export const APPROVAL_DECISIONS = ["approved", "rejected"] as const;
 
 export type ApprovalDecision = (typeof APPROVAL_DECISIONS)[number];
 
-/** `RememberedScope.kind` — an enum token, never free text (§7.7). */
+/** `RememberedScope.kind` — an enum token, never free text: "explicit enum, not
+ * free-form", per that Plan-012 wire block. */
 export const REMEMBERED_SCOPE_KINDS = ["run", "session"] as const;
 
 export type RememberedScopeKind = (typeof REMEMBERED_SCOPE_KINDS)[number];
 
-/** The four invalidation triggers, verbatim (§7.7). */
+/** The four invalidation triggers, verbatim from that block's `InvalidationTrigger`. */
 export const INVALIDATION_TRIGGERS = [
   "explicit",
   "membership_change",

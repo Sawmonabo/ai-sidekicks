@@ -7,8 +7,9 @@
 /**
  * Allowed domains past which the list is called broad.
  *
- * `Spec-023 §Console Design (Meridian)` §7.9 requires the copy to say that a broad
- * allow-list is domain-fronting-weak, and leaves "broad" to the surface. Eight is
+ * THIS SURFACE'S OWN RULE, because no committed document states it: the copy says
+ * that a broad allow-list is domain-fronting-weak, and what counts as broad is the
+ * one number here. Eight is
  * the point at which the list stops reading as a named set of endpoints and starts
  * reading as a policy nobody audits row by row — which is exactly when the caveat
  * earns its space, and below which it would be noise on a two-domain allow-list.

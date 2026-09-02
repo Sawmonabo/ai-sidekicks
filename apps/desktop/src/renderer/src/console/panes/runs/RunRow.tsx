@@ -1,9 +1,11 @@
 // One run: its status, its elapsed, its controls, and everything else one click
 // away.
 //
-// `Spec-023 §Console Design (Meridian)` §7.1's density rule: "One row per run with
-// status, elapsed, and the posture chip; queue, intervention history, and per-run
-// detail are collapsed and one click away." The posture chip is deliberately absent
+// THIS ROW'S OWN DENSITY RULE, because no committed document states it: one row per
+// run with status, elapsed, and the posture chip, while queue, intervention
+// history, and per-run detail are collapsed and one click away — the shape
+// `Spec-023 §Meridian, the design language` rule 7 gives every console surface,
+// where "secondary controls live one click away". The posture chip is deliberately absent
 // here and not merely unimplemented: `RunStateChangeEvent.executionPosture` is
 // stamped only on `run.running`, so a row for a run in any other state has no
 // posture to show, and rendering the last one seen would claim a posture the run no

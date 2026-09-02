@@ -1,26 +1,29 @@
 // The run-status vocabulary: the nine states, the subtypes derived from a
 // transition, and the words the pane puts beside a wire figure.
 //
-// `Spec-023 §Console Design (Meridian)` §7.1 fixes two rules this module encodes.
+// Two rules this module encodes. The first is the corpus's; the second is this
+// module's own, because no committed document states it.
 //
-//   • **The status vocabulary is `RunState` verbatim.** Nine members, and the
-//     canonical failure terminal is `failed`. `errored` is a gloss the enum does
-//     not carry and no chip here can produce one, because every chip's label is
-//     the wire string itself.
+//   • **The status vocabulary is `RunState` verbatim.** `Spec-023 §Rules every
+//     console surface obeys` names "event and state names" among the byte-for-byte
+//     strings that "render exactly as received, in mono, never re-parsed". Nine
+//     members, and the canonical failure terminal is `failed`. `errored` is a gloss
+//     the enum does not carry and no chip here can produce one, because every
+//     chip's label is the wire string itself.
 //   • **Waiting is not pausing.** `waiting_for_approval` and `waiting_for_input`
 //     are states in themselves and read as blocked-on-someone. That distinction is
 //     the reason `RUN_STATE_TONES` is a total record rather than a two-way split
 //     on "is it running": a table with a fallback would have quietly grouped them
 //     with `paused` the first time somebody added a state.
 //
-// WHY THE SUBTYPE IS DERIVED AND NOT READ. §7.1's table gives seven run-state
-// subtypes with a SOURCE CONDITION for each — "run transitions to `paused`",
-// "run transitions from `paused` to `running`", "run enters `waiting_for_*`". Four
-// of those names (`run.resumed`, `run.blocked`, `run.unblocked`, and the two
-// `agent.provider_switch*` rows) are NOT members of the registered
-// `SessionEventType` census in `packages/contracts/src/event.ts`, so a pane that
-// rendered them as wire kinds would be publishing event-type strings the corpus
-// does not carry. The condition, however, is exactly a `(previousState,
+// WHY THE SUBTYPE IS DERIVED AND NOT READ. The phrases a status history wants —
+// "paused", "resumed", "blocked", "unblocked" — read naturally as event kinds, and
+// `run.resumed`, `run.blocked`, and `run.unblocked` are NOT members of the
+// registered `SessionEventType` census in `packages/contracts/src/event.ts`; nor
+// are `agent.provider_switched` and `agent.provider_switch_failed`, which that
+// file records as a widening not yet landed. A pane that rendered any of them as
+// wire kinds would be publishing event-type strings the corpus does not carry. The
+// condition each phrase describes, however, is exactly a `(previousState,
 // currentState)` pair, which `RunStateChangeEvent` does carry — so the subtype is
 // COMPUTED from the transition and rendered as the console's own derived phrase,
 // with the two wire states shown verbatim beside it.
@@ -29,7 +32,7 @@ import type { RunState, RunStateChangeEvent } from "@ai-sidekicks/contracts";
 import type { ChipTone, GlyphName } from "../../primitives/index.js";
 
 /**
- * What a transition means, as §7.1's table names it.
+ * What a transition means, as the table below names it.
  *
  * Closed, and declared once — the union is derived from the tuple rather than
  * written beside it. `transitioned` is the honest residue: a pair the table names
@@ -55,9 +58,9 @@ const BLOCKED_STATES: ReadonlySet<RunState> = new Set<RunState>([
 ]);
 
 /**
- * The subtype a transition carries, per §7.1's source-condition column.
+ * The subtype a transition carries, per the source condition each name describes.
  *
- * Order matters and is the table's own: a run that leaves `paused` for a blocked
+ * Order matters and is this module's own: a run that leaves `paused` for a blocked
  * state is `unblocked`? No — it is `blocked`, because the destination is what the
  * person is waiting on. So the destination is read first, and only a destination
  * that names no subtype falls through to what the run came FROM.
@@ -126,8 +129,9 @@ export const RUN_STATE_TONES: Readonly<Record<RunState, ChipTone>> = {
  * The states in which a run is still the daemon's to move.
  *
  * Used to decide which controls a row OFFERS, never whether the daemon will admit
- * one: eligibility is the daemon's and reaches the surface as a typed refusal
- * (§7.2). What this answers is the narrower question of whether a control is
+ * one: eligibility is the daemon's and reaches the surface as a typed refusal —
+ * `Spec-023 §Rules every console surface obeys`, "eligibility is never projected by
+ * the renderer". What this answers is the narrower question of whether a control is
  * meaningful at all — a `completed` run has no turn to interrupt.
  */
 const LIVE_STATES: ReadonlySet<RunState> = new Set<RunState>([
@@ -159,11 +163,14 @@ export function isBlockedRunState(state: RunState): boolean {
 export type RunStopTrigger = NonNullable<RunStateChangeEvent["trigger"]>;
 
 /**
- * What a stop-condition trigger says, in the words §7.1 asks for.
+ * What a stop-condition trigger says, in this pane's own words.
  *
- * "A run that stopped because a limit fired says which limit, in those words." A
- * total record over the wire union, so a sixth trigger fails to compile here rather
- * than reaching a person as a bare wire token dropped into an English sentence.
+ * `Spec-023 §Signature Feature Composition Sketches` settles only WHERE these read
+ * — its Multi-Agent Channels View sends run-level stop-condition outcomes to "the
+ * Runs View / timeline, not here". The phrasing rule is this module's: a run that
+ * stopped because a limit fired says which limit, in those words. A total record
+ * over the wire union, so a sixth trigger fails to compile here rather than
+ * reaching a person as a bare wire token dropped into an English sentence.
  */
 export const RUN_TRIGGER_PHRASES: Readonly<Record<RunStopTrigger, string>> = {
   turn_limit: "the run reached its turn limit",

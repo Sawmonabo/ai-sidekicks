@@ -1,9 +1,10 @@
 // The session goal: where the current one comes from, what a valid one is, and the
 // two operations that may change it.
 //
-// `Spec-023 §Console Design (Meridian)` §7.11 makes the goal a PROJECTION of the
-// event log — there is no separate goal store, and the current goal is whatever the
-// latest goal event says. So the fold below reads the store's timeline rather than
+// `Spec-016 §Session Goals` makes the goal a PROJECTION of the event log — an
+// accepted update emits `session.goal_updated` carrying the canonical goal, there is
+// no separate goal store, and the current goal is whatever the latest goal event
+// says. So the fold below reads the store's timeline rather than
 // holding a copy: a card that kept its own last-known goal would be a second source
 // of truth for a value the log already orders, and it would show a goal the daemon
 // never appended.

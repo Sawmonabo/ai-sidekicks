@@ -1,8 +1,10 @@
 // Which daemon-hosted tools an agent can reach, and the difference between "none
 // registered" and "withheld".
 //
-// `Spec-023 §Console Design (Meridian)` §7.10. The three states this surface has to
-// keep apart are the whole job:
+// THIS SURFACE'S OWN THREE-STATE RULE, because no committed document states it —
+// though it is `Spec-023 §Meridian, the design language` rule 8 read for this
+// registry, since "A renderer that collapses two of these into one is wrong".
+// Keeping the three apart is the whole job:
 //
 //   • **Capability undeclared** — the section is ABSENT, not empty. A driver that
 //     does not declare `callback_tools` hosts no registry at all, and an empty list
@@ -44,9 +46,9 @@ export interface CallbackToolsProps {
   /**
    * Whether spawn withheld the registry.
    *
-   * Separate from an empty `tools` list on purpose: withheld and empty are the two
-   * facts §7.10 forbids collapsing, and a component that inferred one from the
-   * other could not tell them apart.
+   * Separate from an empty `tools` list on purpose: withheld and empty are two of
+   * the three facts the header refuses to collapse, and a component that inferred
+   * one from the other could not tell them apart.
    */
   readonly isWithheld: boolean;
   readonly tools: readonly SessionCallbackTool[];

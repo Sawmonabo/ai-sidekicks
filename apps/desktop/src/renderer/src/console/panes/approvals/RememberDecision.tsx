@@ -1,7 +1,7 @@
 // The remembered-grant control: one decision with three parts, and no syntax promised.
 //
-// `Spec-023 §Console Design (Meridian)` §7.7 puts the policy that will remember an
-// answer in front of the person BEFORE they give it. The registered
+// THIS CONTROL'S OWN RULE, because no committed document states it: the policy that
+// will remember an answer is in front of the person BEFORE they give it. The registered
 // `RememberedScope` is `{ kind: "run" | "session"; pattern?: string }`, and the
 // corpus says exactly one thing about the pattern — it matches the resource within
 // the kind boundary, and its absence means the grant is category-wide. So:

@@ -1,6 +1,8 @@
 // Every standing permission: listable, attributable, revocable, and never mysterious.
 //
-// `Spec-023 §Console Design (Meridian)` §7.7. Four properties this list keeps:
+// FOUR PROPERTIES THIS LIST KEEPS, EACH ONE ITS OWN because no committed document
+// states them — the corpus registers the `approval.ruleList` / `approval.ruleRevoke`
+// pair and the `RememberedScope` shape, and settles nothing about how they read:
 //
 //   • **Revoked rules are labelled, not filtered.** The read carries
 //     `includeRevoked: true`, so the audit history IS the default view here, and a

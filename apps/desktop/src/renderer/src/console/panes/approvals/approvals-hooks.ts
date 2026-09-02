@@ -19,10 +19,10 @@
 // The console's rule is that exactly one thing subscribes to the wire — the apply
 // chokepoint — and components subscribe to a STORE. Every admitted event lands in
 // `SessionStoreState.timeline`, so the pane watches that: it reads an entry's
-// wire-verbatim `kind` and its `sequence` and NOTHING else, which is precisely what
-// §7.6's leverage note asks for — the five events are opaque re-read triggers whose
-// payloads are never decoded. No decision is ever taken from a signal; the answer
-// always comes from the projection read.
+// wire-verbatim `kind` and its `sequence` and NOTHING else, which is precisely the
+// never-decoded rule `approvals-wire.ts` states — the five events are opaque re-read
+// triggers whose payloads are never decoded. No decision is ever taken from a
+// signal; the answer always comes from the projection read.
 //
 // WHY THE SCAN IS INCREMENTAL. The timeline is append-only and ordered by sequence,
 // and it grows for the life of the session. A cursor that re-scanned it on every
@@ -243,7 +243,8 @@ function resolveClock(bridge: ConsoleBridge): ConsoleClock {
 /**
  * The one goal mutation a session may have in flight.
  *
- * §7.11: a second mutation is never queued behind the first. The guard is the
+ * THIS HOOK'S OWN RULE, because no committed document states it: a second mutation
+ * is never queued behind the first. The guard is the
  * ref below rather than the disabled attribute, because a disabled button is a
  * rendering and this is a rule about the wire — a keyboard-driven double submit
  * lands between renders and would otherwise send two.

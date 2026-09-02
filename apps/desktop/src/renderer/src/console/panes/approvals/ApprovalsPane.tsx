@@ -1,8 +1,10 @@
 // The approvals pane: what needs a decision, what was decided, and what stands.
 //
-// `Spec-023 §Console Design (Meridian)` §7.6 — §7.11. The pane composes six
-// surfaces over TWO reads, and the composition is where three of the design's
-// rules live rather than in any one card:
+// `Spec-023 §Signature Feature Composition Sketches`' Approvals View names what
+// this pane renders and forwards; how it is composed is this pane's own. It holds
+// six surfaces over TWO reads, and three rules live in the composition rather than
+// in any one card, each of them this pane's own because no committed document
+// states it:
 //
 //   • **The read is unfiltered.** `approval.projectionRead` carries server-side
 //     `state?` and `category?` filters and this pane passes neither, so history

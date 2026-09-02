@@ -23,7 +23,8 @@ export const SIDEBAR_DEFAULT_WIDTH_PX = 288;
 export const SIDEBAR_MIN_WIDTH_PX = 208;
 
 /** The widest. Past this the sidebar is competing with the deck for the window
- *  rather than pointing into it; §4.4's density rule is counts, not lists. */
+ *  rather than pointing into it, and this sidebar's density rule is counts, not
+ *  lists. */
 export const SIDEBAR_MAX_WIDTH_PX = 480;
 
 /** How far one arrow-key press moves the resize separator. Small enough to land

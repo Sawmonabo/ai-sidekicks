@@ -5,10 +5,13 @@
 // screen at all. Keeping them apart is what lets the gate be asserted without a
 // bridge and the dispatch be asserted without a capability read.
 //
-// `Spec-023 §Console Design (Meridian)` §7.2: "Two of the six are capability-gated
-// on the bound driver: `steer` and `rollback`. Pause, resume, interrupt, and cancel
-// are orchestration-layer and are never driver-gated. A gated control whose flag is
-// false is ABSENT, not greyed, on the absent-not-disabled discipline."
+// WHICH TWO ARE GATED IS THIS MODULE'S OWN RULE, because no committed document
+// states it: `steer` and `rollback` are gated on the bound driver's declared flags,
+// while pause, resume, interrupt, and cancel are orchestration-layer and are never
+// driver-gated. What a false flag DOES is the corpus's — `Spec-023 §Rules every
+// console surface obeys`, "Absent, not disabled": such a control is not rendered,
+// because a disabled one asserts the capability exists and is momentarily
+// unavailable, which would be false.
 //
 // ON THE BOUND DRIVER — WHICH IS PER RUN, NOT PER SESSION. `driver.listCapabilities`
 // answers with one report PER DRIVER (`DriverCapabilityReport` is keyed by its own
@@ -104,7 +107,7 @@ export function boundDriverNameForRun(
  * it; `false` — that driver declared it absent; `undefined` — the console cannot
  * say, because the read has not answered, the run's binding is not nameable, or the
  * named driver filed no report. Every caller renders `undefined` as ABSENT, on
- * §7.2's absent-not-disabled discipline, and never as a declared `false`.
+ * the absent-not-disabled rule the header cites, and never as a declared `false`.
  */
 export function driverCapabilityForRun(
   readout: DriverCapabilityReadout | undefined,

@@ -1,10 +1,14 @@
 // The six controls, as a row of buttons that decide nothing.
 //
-// `Spec-023 §Console Design (Meridian)` §7.2 and its density rule: "Pause or resume
-// and Stop are always visible on an active run; steer, cancel, and rollback live
-// one click away in the control row's overflow, each with its keyboard path."
+// THIS COMPONENT'S OWN DENSITY RULE, because no committed document states it:
+// pause or resume and Stop are always visible on an active run, while steer,
+// cancel, and rollback live one click away in the control row's overflow, each with
+// its keyboard path. The one-click-away half is `Spec-023 §Meridian, the design
+// language` rule 7 applied here — "secondary controls live one click away — a row's
+// hover footer or its context menu — never as a second visible button".
 //
-// FOUR THINGS THIS COMPONENT DOES NOT DO, EACH ONE THE DESIGN'S OWN RULE.
+// FOUR THINGS THIS COMPONENT DOES NOT DO, THE FIRST TWO ON THE CORPUS'S RULES AND
+// THE LAST TWO ON ITS OWN.
 //
 //   • It derives no eligibility. Every offered control dispatches, and the daemon's
 //     typed refusal is what renders. There is no role check, no authorship check,

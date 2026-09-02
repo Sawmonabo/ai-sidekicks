@@ -1,9 +1,9 @@
 // The sidebar's DOM-free cursor, as commands and chords rather than a keydown
 // switch.
 //
-// `Spec-023 §Console Design (Meridian)` §4.4 asks for "a DOM-free cursor: `j` /
-// `k` move, `Enter` opens, `Space` expands, with the cursor in store state so a
-// re-render never loses it". Every clause of that is already built:
+// THIS MODULE'S OWN RULE, because no committed document states it: a DOM-free
+// cursor — `j` / `k` move, `Enter` opens, `Space` expands — with the cursor in store
+// state so a re-render never loses it. Every clause of that is already built:
 // `SidebarModel` holds the cursor outside the tree, `CommandRegistry` is the
 // console's one command list, and `KeyBindingTable` is its one dispatch. So this
 // module contributes; it implements no keyboard of its own.
@@ -46,7 +46,7 @@ import { type SidebarModel } from "./sidebar-model.js";
  * one artifact or one worktree — a row's act, reached through the section body's
  * own `openPane` — and a header that opened an entity pane with no entity would
  * be the deck guessing which one. A section with no entry here expands instead,
- * which is the other half of what §4.4's `Enter` means.
+ * which is the other half of what the cursor's `Enter` means.
  */
 const PANE_ADDRESS_BY_SECTION_ID: Partial<Readonly<Record<SidebarSectionId, ConsolePaneAddress>>> =
   {

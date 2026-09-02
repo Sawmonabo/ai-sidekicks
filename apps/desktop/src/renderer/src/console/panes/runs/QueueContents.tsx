@@ -1,10 +1,13 @@
 // What is waiting, in the daemon's order, with a way to take one back.
 //
-// `Spec-023 §Console Design (Meridian)` §7.4's density rule: "One line per item
-// with state and target run; payload preview is one click away and never expanded
-// by default." There is no payload on the registered summary and no run member on
-// it either, so what the line carries is what the wire supplies — id, state,
-// priority, channel, and the two timestamps — and nothing it does not.
+// THIS SURFACE'S OWN DENSITY RULE, because no committed document states it: one
+// line per item, with anything secondary one click away and never expanded by
+// default — the shape `Spec-023 §Meridian, the design language` rule 7 gives every
+// console surface, where "secondary controls live one click away — a row's hover
+// footer or its context menu". Here there is nothing secondary to fold: the
+// registered summary carries no payload and no run member, so the line carries what
+// the wire supplies — id, state, priority, channel, and the two timestamps — and
+// nothing it does not.
 //
 // THE ORDER IS RENDERED, NEVER REORDERED. `bridge/queue-feed.ts` owns the fold that keeps
 // the snapshot's canonical FIFO order; this file maps over it. There is no sort

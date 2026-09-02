@@ -1,10 +1,13 @@
 // Who directed this run, what they asked for, and whether it landed — including
 // the attempts that did not.
 //
-// `Spec-023 §Console Design (Meridian)` §7.5 asks for every intervention in order
-// with its terminal state from the six-member `InterventionState`, the `origin`
-// discriminator, the admitting principal on the participant arm, the rejection
-// reason verbatim on a `rejected` row, and the disposition on a `degraded` rollback.
+// `Spec-023 §Signature Feature Composition Sketches`' Runs View renders
+// "intervention history per Spec-004" and settles nothing further. WHAT THE HISTORY
+// SHOWS IS THIS COMPONENT'S OWN RULE, because no committed document states it:
+// every intervention in order with its terminal state from the six-member
+// `InterventionState`, the `origin` discriminator, the admitting principal on the
+// participant arm, the rejection reason verbatim on a `rejected` row, and the
+// disposition on a `degraded` rollback.
 //
 // WHAT THE WIRE SUPPLIES AND WHAT IT DOES NOT. The rows this surface can honestly
 // render come from `InterventionRequestResponse`, which carries the intervention
@@ -12,9 +15,10 @@
 // rollback result. `interventions.origin` and `interventions.admitting_principal_id`
 // are DURABLE columns with no registered read anywhere in the corpus — no method,
 // no event payload — so this surface renders neither and says so, rather than
-// inferring an origin from an absent field. §7.5's own Never list is explicit that
-// the discriminator is resolved and never inferred, and the honest form of that
-// here is an absence with its reason.
+// inferring an origin from an absent field. `Spec-023 §Rules every console surface
+// obeys` makes the projection fail closed — an unrecognized enum member "renders as
+// the explicit unrecognized row or badge, never as a guess" — and the honest form
+// of that for a member no wire carries at all is an absence with its reason.
 //
 // FAILED ATTEMPTS ARE PART OF THE RECORD. A refused control is a row, not an
 // omission: interventions require durable audit records even when they fail, and a

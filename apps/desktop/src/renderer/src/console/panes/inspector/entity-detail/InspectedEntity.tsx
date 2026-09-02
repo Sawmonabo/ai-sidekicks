@@ -27,9 +27,10 @@ export interface InspectedEntityProps {
   /**
    * The pane this inspector was opened from, when the deck linked the two.
    *
-   * A prop rather than a lookup: §4.2 allows an inspector to be linked to a source
-   * pane and still requires every pane to be independently movable and closable, so
-   * the link is a value passed in and never a handle held.
+   * A prop rather than a lookup. `Spec-023 §Meridian, the design language`'s layout
+   * grammar makes the inspector "a pane kind, not a fixed third column", and this
+   * console's own rule is that a link to a source pane never costs a pane its
+   * independence — so the link is a value passed in and never a handle held.
    */
   readonly linkedSourcePaneId: string | undefined;
 }

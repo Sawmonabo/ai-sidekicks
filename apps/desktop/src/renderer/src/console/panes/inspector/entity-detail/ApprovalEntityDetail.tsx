@@ -1,9 +1,10 @@
 // An approval's record — the one kind whose expiry has three answers.
 //
 // A decision that never lapses is a fact, and it is a different fact from an expiry
-// nobody projected: `Spec-023 §Console Design (Meridian)` §7.6 asks for "a verbatim
-// expiry with an explicit 'no expiry' label", so the expiry facet answers `null`
-// with the label and absence with the absence.
+// nobody projected — `Spec-023 §Meridian, the design language` rule 8's kinds of
+// nothing, which "A renderer that collapses two of these into one" gets wrong. So
+// the expiry facet, whose own header states the three-answer rule, answers `null`
+// with an explicit label and absence with the absence.
 //
 // The record shows what was decided and offers no control that decides. Approvals
 // are granted from the approvals pane against the daemon's own pending set; an

@@ -8,17 +8,18 @@
 //     console's one refresh chokepoint (`Spec-023 §Console Design (Meridian)` §The
 //     eight rules). Nothing here arms a timer of its own and nothing polls.
 //   • **A control is disabled while ITS call is in flight, and only that one.**
-//     §7.6 requires exactly one call per answer; a single global busy flag would
-//     also disable the other cards, and a per-record set is what says which card is
-//     actually waiting.
+//     THIS SURFACE'S OWN RULE, because no committed document states it: exactly one
+//     call per answer. A single global busy flag would also disable the other cards,
+//     and a per-record set is what says which card is actually waiting.
 //   • **Silence never grants.** No arm of this class settles an approval locally.
 //     The only writer of a record's state is the next projection read.
 //   • **Refusals are values, not exceptions.** Every rejection is normalised into
 //     the console's one `ConsoleRefusal` shape and kept beside the record it
 //     belongs to, so `primitives/Refusal` renders it without translating anything.
 //
-// WHAT IT DOES NOT DO. It never filters by state — §7.6's history rule is that the
-// read is unfiltered and the surface drops nothing. It never decodes a lifecycle
+// WHAT IT DOES NOT DO. It never filters by state — the history rule
+// `approvals-wire.ts` states is that the read is unfiltered and the surface drops
+// nothing. It never decodes a lifecycle
 // payload: `noteLifecycleSignal` takes a wire-verbatim kind and asks for a re-read,
 // which is the whole of what those five events are for.
 
@@ -49,9 +50,10 @@ export const APPROVALS_REFUSAL_ORIGIN = "approvals";
 /**
  * Where one read has got to.
  *
- * Four arms because §7.6's states are four different sentences and rule 8 forbids
- * collapsing any two: nobody has asked, a read is in flight, a read answered (with
- * however many rows, including none), and a read was refused.
+ * Four arms because these are four different sentences and `Spec-023 §Meridian, the
+ * design language` rule 8 forbids collapsing any two — "A renderer that collapses
+ * two of these into one is wrong": nobody has asked, a read is in flight, a read
+ * answered (with however many rows, including none), and a read was refused.
  */
 export type ReadPhase<TRow> =
   | { readonly status: "not-checked" }
@@ -152,7 +154,7 @@ export class ApprovalsReader {
    * until it settles.
    *
    * A repeated call for a record already in flight is dropped rather than sent:
-   * §7.6 requires one call per answer, and a double click is the most ordinary way
+   * the one-call-per-answer rule above, and a double click is the most ordinary way
    * to send two.
    */
   public resolve(request: ApprovalResolveRequest): void {

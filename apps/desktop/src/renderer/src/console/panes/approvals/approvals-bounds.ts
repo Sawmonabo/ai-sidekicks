@@ -7,8 +7,9 @@
 /**
  * The shortest a session goal may be.
  *
- * `Spec-023 §Console Design (Meridian)` §7.11 bounds the goal at 1 to 4096
- * characters and non-blank. One rather than zero is what makes "an update with no
+ * `api-payload-contracts.md §Plan-016 — Multi-Agent Channels And Orchestration`
+ * bounds the goal text at "1–4096 chars, non-blank, NUL-rejected". One rather than
+ * zero is what makes "an update with no
  * goal is malformed" true at the type level: clearing is `session.goalClear`, a
  * different operation, and an empty-text update is never treated as one.
  */

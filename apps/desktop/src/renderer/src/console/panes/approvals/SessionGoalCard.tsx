@@ -1,7 +1,10 @@
 // The one structured goal a session may hold, with setting and clearing as two
 // different acts.
 //
-// `Spec-023 §Console Design (Meridian)` §7.11. Five rules, each visible in the code:
+// Five rules, each visible in the code. The first and the fourth are the corpus's —
+// `api-payload-contracts.md §Plan-016 — Multi-Agent Channels And Orchestration`
+// registers the two operations and the field's bounds — and the other three are
+// this card's own, because no committed document states them:
 //
 //   • **Set and clear are two controls.** There is no single control with an empty
 //     value, because an update without a goal is malformed rather than a clear, and

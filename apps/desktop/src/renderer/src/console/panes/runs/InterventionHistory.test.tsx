@@ -82,8 +82,8 @@ describe("what the surface cannot read, it says", () => {
   });
 
   it("never renders an origin or an admitting principal, which no wire supplies", () => {
-    // §7.5: the discriminator is RESOLVED, never inferred. The honest form of that
-    // here is that neither word appears at all.
+    // The discriminator is resolved and never inferred, per this component's own
+    // header. The honest form of that here is that neither word appears at all.
     const container = renderHistory([refusedRecord("three", RUN_ID)]);
     expect(container.textContent).not.toContain("participant arm");
     expect(container.textContent).not.toContain("admitting principal");

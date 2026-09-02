@@ -1,9 +1,10 @@
 // The session's queue read: the canonical snapshot, the tail that keeps it current,
 // and cancel-before-admission — read ONCE for every surface that wants it.
 //
-// `Spec-023 §Console Design (Meridian)` §7.4 asks for "what is waiting, what it is
-// bound to, and let a participant take an item back before it is admitted", in all
-// five states of the closed `QueueItemState`. The composer's queue shelf asks a
+// `Spec-023 §Signature Feature Composition Sketches`' Runs View renders "queue
+// contents" and offers "cancel-before-admission (`run.queueCancel`) on the queue",
+// which this read serves in all five states of the closed `QueueItemState`. The
+// composer's queue shelf asks a
 // narrower question of the same rows — "what have I got waiting" — and it used to
 // ask it down a second module with the same file name, the same exported symbols and
 // its own subscription, so a session view holding the runs pane beside the composer
@@ -15,7 +16,11 @@
 // private map that deleted them. So this module holds the read, keyed by bridge and
 // session, and each surface keeps its own question.
 //
-// THREE RULES §7.4 STATES AND THIS MODULE ENCODES.
+// THREE RULES THIS MODULE ENCODES. The first is the corpus's — that same Runs View
+// strikes queue reorder in terms, "`Spec-004 §Resolved Questions and V1 Scope
+// Decisions` defers queue priority overrides for V1 … the queue's only V1 removal
+// path is `run.queueCancel`" — and the other two are this module's own, because no
+// committed document states them.
 //
 //   • **The order is rendered, never reordered.** `run.queueList` answers in
 //     canonical FIFO order within the target scheduling scope, and the snapshot's
@@ -42,7 +47,7 @@
 // is the difference between a pane that renders a refusal and a window that renders
 // nothing at all.
 //
-// WHAT THE WIRE DOES NOT CARRY. §7.4 asks the row to say which run it is bound to.
+// WHAT THE WIRE DOES NOT CARRY. This console would say which run a row is bound to.
 // The registered `QueueItemSummary` — `{ id, state, priority, channelId?,
 // createdAt, updatedAt }`, parsed `.strict()` — has no run member, so there is
 // nothing here to render it from and this module invents none.

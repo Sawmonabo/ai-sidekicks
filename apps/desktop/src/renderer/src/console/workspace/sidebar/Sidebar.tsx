@@ -1,17 +1,19 @@
 // The session sidebar's frame: the filter, the sections host, the width, and the
 // collapse rule.
 //
-// `Spec-023 §Console Design (Meridian)` §4.4 — "Show what else in the session
-// needs a look, as independently loaded sections that open panes." The sections
-// are four families' bodies and the frame is one; this file is the frame, and it
-// renders whatever the section registry answers with.
+// `Spec-023 §The surface set` describes the session sidebar as showing "the
+// session's other work as independently loaded sections … each a composition of its
+// own read, opening panes". The sections are four families' bodies and the frame is
+// one; this file is the frame, and it renders whatever the section registry answers
+// with.
 //
-// THE FRAME READS NO WIRE. §4.4's own sentence — "the sidebar reads nothing itself
-// beyond `session.read` and `session.subscribe` for the spine" — is why there is
-// no bridge call here. Counts, rollup status, and what a filter matches are each a
-// property of a SECTION's read, so a frame that computed one would be synthesising
-// a badge the daemon has not served, which the same section forbids in as many
-// words. What the frame owns is the SHAPE: which section is open, where the
+// THE FRAME READS NO WIRE. THIS FILE'S OWN RULE, because no committed document
+// states it: the sidebar frame reads nothing itself beyond the session spine. Counts,
+// rollup status, and what a filter matches are each a property of a SECTION's read,
+// so a frame that computed one would be synthesising a badge the daemon has not
+// served — the same posture that section gives the rail's attention count, "taken
+// from the daemon's attention projection, never counted in the renderer". What the
+// frame owns is the SHAPE: which section is open, where the
 // keyboard is, what the filter holds, and how wide the column is.
 //
 // COLLAPSE, THE FILTER, THE CURSOR, AND THE WIDTH ALL LIVE IN `SidebarModel`. The
@@ -123,8 +125,9 @@ export function Sidebar(props: SidebarProps): React.JSX.Element {
           className="meridian-sidebar__filter-field"
           type="search"
           // `search` rather than `text` so the platform's own clear affordance is
-          // there. §4.4 offers no global search here — that is a growth item —
-          // and the placeholder says which of the two this is.
+          // there. This is the sidebar filter `Spec-023 §Console Libraries` names
+          // beside the palette, settings search, and find — not a global search,
+          // which is a growth item — and the placeholder says which of the two it is.
           placeholder="Filter sections"
           value={snapshot.filterQuery}
           onChange={(event) => {
