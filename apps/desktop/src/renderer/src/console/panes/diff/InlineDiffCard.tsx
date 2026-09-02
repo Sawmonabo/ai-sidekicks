@@ -33,7 +33,7 @@
 // renders the honest absence, and the `diff` prop is the seam the fetch lands on
 // the day the wire exists. Nothing here fabricates a method name to call.
 
-import { useCallback, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { Glyph, Nothing } from "../../primitives/index.js";
 import { registerInlineCardBody, type DiffInlineCardProps } from "../../workspace/index.js";
@@ -41,7 +41,7 @@ import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
 import { DiffRenderer } from "./DiffRenderer.js";
 import { useDiffViewControls } from "./DiffToolbar.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
-import { expandGap, type DiffGapExpansion } from "./hunk-virtualization.js";
+import { useDiffModelViewState } from "./diff-view-state.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_DIFF_CARD_OWNER = "repos";
@@ -60,19 +60,14 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   // Marks OFF by default here and ON in the pane — §10.6's density rule. A card
   // is a glance; provenance marks earn their measure in a reading.
   const viewControls = useDiffViewControls({ showAttributionMarks: false });
-  const [expansion, setExpansion] = useState<DiffGapExpansion>(() => new Map());
+  // The gap expansion is the MODEL's, and this card is reused for whichever diff
+  // its ledger row carries, so it comes from the same hook the pane reads —
+  // keyed by the prop reference, dropped when that moves. The card narrows to no
+  // file, so it reads only the expansion half.
+  const { expansion, expandGapAt } = useDiffModelViewState(props.diff);
   const [isCapped, setIsCapped] = useState(true);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const endSentinelRef = useRef<HTMLSpanElement | null>(null);
-
-  const handleExpandGap = useCallback(
-    (fileIndex: number, hunkIndex: number) => {
-      const available =
-        props.diff?.files[fileIndex]?.hunks[hunkIndex]?.precedingContext.length ?? 0;
-      setExpansion((previous) => expandGap(previous, fileIndex, hunkIndex, available));
-    },
-    [props.diff],
-  );
 
   return (
     <section className="meridian-diff-card" aria-labelledby={headingId}>
@@ -116,7 +111,7 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
                 wrapLongLines={viewControls.wrapLongLines}
                 showWhitespaceChanges={viewControls.showWhitespaceChanges}
                 expansion={expansion}
-                onExpandGap={handleExpandGap}
+                onExpandGap={expandGapAt}
                 {...(isCapped ? { heightCapPx: INLINE_DIFF_CARD_HEIGHT_CAP_PX } : {})}
                 label={`Diff, ${props.diff.baseRef} to ${props.diff.headRef}`}
               />

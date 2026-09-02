@@ -143,32 +143,40 @@ export const DiffRowView: React.MemoExoticComponent<
     return <div {...rowProps} className="meridian-diff__row meridian-diff__row--line" />;
   }
 
-  return props.viewMode === "split" ? (
-    <div
-      {...rowProps}
-      className={`meridian-diff__row meridian-diff__row--line meridian-diff__row--${line.kind}`}
-    >
-      <DiffSplitCell
-        line={line}
-        side="base"
-        showAttributionMarks={props.showAttributionMarks}
-        showWhitespaceChanges={props.showWhitespaceChanges}
-      />
-      <DiffSplitCell
-        line={line}
-        side="head"
-        showAttributionMarks={props.showAttributionMarks}
-        showWhitespaceChanges={props.showWhitespaceChanges}
-      />
-    </div>
-  ) : (
-    <div
-      {...rowProps}
-      className={`meridian-diff__row meridian-diff__row--line meridian-diff__row--${line.kind}`}
-    >
+  if (props.viewMode === "split") {
+    // WHICH LINE EACH SIDE HOLDS FOLLOWS FROM THE ROW, and the row was paired by
+    // the flattening. A deletion occupies the base side and carries its paired
+    // insertion — if the index found one — on the head side; an insertion that
+    // paired with nothing occupies the head side alone; a context line occupies
+    // both. So the two cells can carry DIFFERENT text, which is the one thing
+    // split view exists to show.
+    const pairedLine = index.pairedLineFor(row);
+    return (
+      <div {...rowProps} className="meridian-diff__row meridian-diff__row--line">
+        <DiffSplitCell
+          line={line.kind === "insert" ? undefined : line}
+          side="base"
+          showAttributionMarks={props.showAttributionMarks}
+          showWhitespaceChanges={props.showWhitespaceChanges}
+        />
+        <DiffSplitCell
+          line={line.kind === "delete" ? pairedLine : line}
+          side="head"
+          showAttributionMarks={props.showAttributionMarks}
+          showWhitespaceChanges={props.showWhitespaceChanges}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div {...rowProps} className="meridian-diff__row meridian-diff__row--line">
       {/* One cell, not three: `role="row"` admits only cells as children, and the
           gutters are part of the line rather than columns a reader navigates. */}
-      <span className="meridian-diff__side meridian-diff__side--unified" role="cell">
+      <span
+        className={`meridian-diff__side meridian-diff__side--unified meridian-diff__side--${line.kind}`}
+        role="cell"
+      >
         <DiffGutter line={line} side="base" showAttributionMarks={props.showAttributionMarks} />
         <DiffGutter line={line} side="head" showAttributionMarks={false} />
         <DiffLineText line={line} showWhitespaceChanges={props.showWhitespaceChanges} />
@@ -180,33 +188,42 @@ export const DiffRowView: React.MemoExoticComponent<
 /**
  * One side of a split row.
  *
- * A deleted line has no head side and an inserted line has no base side, so the
- * absent side renders an empty cell rather than the line's text. Rendering the
- * text on both sides is the split-view bug that makes a rename read as a
- * duplication.
+ * THE GROUND WEIGHT IS PAINTED HERE AND NOT ON THE ROW. A paired row holds a
+ * deletion and an insertion at once, so a single modifier on the row would have
+ * to name one of two kinds — and would paint the whole width in it. The kind
+ * modifier rides the CELL, in both layouts, so the unified row keeps exactly the
+ * ground it had (its one cell fills the row) and a split row paints each side
+ * its own.
+ *
+ * An absent line renders an empty cell that still occupies its gutter, so the
+ * two sides stay in column even where only one of them has a line.
  */
 function DiffSplitCell(props: {
-  readonly line: DiffLine;
+  readonly line: DiffLine | undefined;
   readonly side: "base" | "head";
   readonly showAttributionMarks: boolean;
   readonly showWhitespaceChanges: boolean;
 }): React.JSX.Element {
-  const occupied =
-    props.line.kind === "context" ||
-    (props.side === "base" && props.line.kind === "delete") ||
-    (props.side === "head" && props.line.kind === "insert");
-  return (
-    <span className={`meridian-diff__side meridian-diff__side--${props.side}`} role="cell">
-      <DiffGutter
-        line={props.line}
-        side={props.side}
-        showAttributionMarks={props.showAttributionMarks && occupied}
-      />
-      {occupied ? (
-        <DiffLineText line={props.line} showWhitespaceChanges={props.showWhitespaceChanges} />
-      ) : (
+  const { line } = props;
+  const className = [
+    "meridian-diff__side",
+    `meridian-diff__side--${props.side}`,
+    line === undefined ? "" : `meridian-diff__side--${line.kind}`,
+  ]
+    .filter((part) => part !== "")
+    .join(" ");
+  if (line === undefined) {
+    return (
+      <span className={className} role="cell">
+        <span className="meridian-diff__gutter" />
         <span className="meridian-diff__text" />
-      )}
+      </span>
+    );
+  }
+  return (
+    <span className={className} role="cell">
+      <DiffGutter line={line} side={props.side} showAttributionMarks={props.showAttributionMarks} />
+      <DiffLineText line={line} showWhitespaceChanges={props.showWhitespaceChanges} />
     </span>
   );
 }

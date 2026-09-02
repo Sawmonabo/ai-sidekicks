@@ -127,12 +127,14 @@ function useMeasurementsScopedToWrap(
 export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
 
-  // Re-flattened only when the diff or its expansion changes, never per scroll
-  // tick: the index is what a scroll READS and a scroll changes neither of its
-  // inputs.
+  // Re-flattened only when the diff, its expansion, or the layout changes, never
+  // per scroll tick: the index is what a scroll READS and a scroll changes none
+  // of its inputs. The view mode is one of them because split view pairs a
+  // deletion with the insertion that follows it into ONE row, so the two layouts
+  // do not agree on how many rows a hunk has.
   const index = useMemo(
-    () => new DiffRowIndex(props.model, props.expansion, props.shownFilePath),
-    [props.model, props.expansion, props.shownFilePath],
+    () => new DiffRowIndex(props.model, props.expansion, props.shownFilePath, props.viewMode),
+    [props.model, props.expansion, props.shownFilePath, props.viewMode],
   );
 
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({

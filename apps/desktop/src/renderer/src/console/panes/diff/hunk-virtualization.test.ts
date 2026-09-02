@@ -20,7 +20,8 @@ import {
   buildDiffFixture,
   fixtureChangedLineCount,
 } from "./diff-fixture.js";
-import { DiffRowIndex, diffGapKey, expandGap } from "./hunk-virtualization.js";
+import { DIFF_VIEW_MODES, type ConsoleDiffModel } from "./diff-model.js";
+import { DiffRowIndex, diffGapKey, expandGap, type DiffRow } from "./hunk-virtualization.js";
 
 const SMALL_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
@@ -196,6 +197,121 @@ describe("hunk virtualization — gap expansion with predecessor retention", () 
     const before: ReadonlyMap<string, number> = new Map();
     expandGap(before, 0, 0, 10);
     expect(before.size).toBe(0);
+  });
+});
+
+describe("hunk virtualization — pairing a modified line in split view", () => {
+  /** A one-file, one-hunk diff whose body is exactly the kinds a case names. */
+  function diffWithHunkBody(kinds: readonly ("context" | "insert" | "delete")[]): ConsoleDiffModel {
+    return {
+      ...SMALL_DIFF,
+      files: [
+        {
+          path: "packages/contracts/src/budget.ts",
+          hunks: [
+            {
+              header: `@@ -1,${String(kinds.length)} +1,${String(kinds.length)} @@`,
+              precedingContext: [],
+              lines: kinds.map((kind, ordinal) => ({
+                kind,
+                ...(kind === "insert" ? {} : { baseLineNumber: ordinal + 1 }),
+                ...(kind === "delete" ? {} : { headLineNumber: ordinal + 1 }),
+                segments: [{ text: `${kind}-${String(ordinal)}`, changed: false }],
+              })),
+            },
+          ],
+        },
+      ],
+    };
+  }
+
+  /** Every row this index holds, so a count and its addressing cannot disagree. */
+  function everyRow(index: DiffRowIndex): readonly DiffRow[] {
+    return Array.from({ length: index.rowCount }, (_unused, rowIndex) =>
+      index.rowAt(rowIndex),
+    ).filter((row): row is DiffRow => row !== undefined);
+  }
+
+  it("pairs a deletion with the insertion that follows it into one row", () => {
+    const modifiedLine = diffWithHunkBody(["delete", "insert"]);
+    const split = new DiffRowIndex(modifiedLine, new Map(), undefined, "split");
+    const bodyRows = everyRow(split).filter((row) => row.kind === "line");
+    expect(bodyRows).toHaveLength(1);
+    expect(split.lineFor(bodyRows[0]!)?.kind).toBe("delete");
+    expect(split.pairedLineFor(bodyRows[0]!)?.kind).toBe("insert");
+  });
+
+  it("negative control: unified spells the same modified line as two rows", () => {
+    // Without this the case above would pass over an index that dropped a line
+    // rather than pairing one, and over a unified layout it had also changed.
+    const modifiedLine = diffWithHunkBody(["delete", "insert"]);
+    const unified = new DiffRowIndex(modifiedLine, new Map(), undefined, "unified");
+    const bodyRows = everyRow(unified).filter((row) => row.kind === "line");
+    expect(bodyRows).toHaveLength(2);
+    expect(unified.pairedLineFor(bodyRows[0]!)).toBeUndefined();
+  });
+
+  it("leaves the longer run's overhang unpaired, one row per line", () => {
+    // Three deletions and one insertion is three rows: the first pairs, and the
+    // two below it have a base line and no head line, which is what makes a
+    // deletion of three lines read as a deletion rather than as three modifications.
+    const uneven = diffWithHunkBody(["delete", "delete", "delete", "insert"]);
+    const split = new DiffRowIndex(uneven, new Map(), undefined, "split");
+    const bodyRows = everyRow(split).filter((row) => row.kind === "line");
+    expect(bodyRows).toHaveLength(3);
+    expect(split.pairedLineFor(bodyRows[0]!)?.kind).toBe("insert");
+    expect(split.pairedLineFor(bodyRows[1]!)).toBeUndefined();
+    expect(split.pairedLineFor(bodyRows[2]!)).toBeUndefined();
+    expect(split.lineFor(bodyRows[2]!)?.kind).toBe("delete");
+  });
+
+  it("pairs the other way round too, and leaves a context line on both sides", () => {
+    const uneven = diffWithHunkBody(["context", "delete", "insert", "insert"]);
+    const split = new DiffRowIndex(uneven, new Map(), undefined, "split");
+    const bodyRows = everyRow(split).filter((row) => row.kind === "line");
+    expect(bodyRows).toHaveLength(3);
+    expect(split.lineFor(bodyRows[0]!)?.kind).toBe("context");
+    expect(split.pairedLineFor(bodyRows[0]!)).toBeUndefined();
+    expect(split.pairedLineFor(bodyRows[1]!)?.kind).toBe("insert");
+    expect(split.lineFor(bodyRows[2]!)?.kind).toBe("insert");
+  });
+
+  it("counts what it addresses, in both modes and every shape", () => {
+    // The count and the addressing come from one walk, and this is the case that
+    // says so: a second implementation of the count would agree on the even
+    // shapes and place every row below the first uneven one at the wrong offset.
+    const shapes = [
+      ["delete", "insert"],
+      ["delete", "delete", "delete", "insert"],
+      ["context", "delete", "insert", "insert"],
+      ["insert", "insert", "delete"],
+      ["context", "context"],
+    ] as const;
+    for (const kinds of shapes) {
+      for (const viewMode of DIFF_VIEW_MODES) {
+        const index = new DiffRowIndex(diffWithHunkBody(kinds), new Map(), undefined, viewMode);
+        expect(everyRow(index)).toHaveLength(index.rowCount);
+        expect(index.rowAt(index.rowCount)).toBeUndefined();
+      }
+    }
+  });
+
+  it("negative control: the two modes really do disagree on those shapes", () => {
+    // Without this, the case above would pass over an index that ignored the view
+    // mode entirely and flattened everything the unified way.
+    const uneven = diffWithHunkBody(["delete", "delete", "delete", "insert"]);
+    expect(new DiffRowIndex(uneven, new Map(), undefined, "split").rowCount).toBeLessThan(
+      new DiffRowIndex(uneven, new Map(), undefined, "unified").rowCount,
+    );
+  });
+
+  it("defaults to the unified flattening when no mode is named", () => {
+    // The existing callers pass three arguments, and a fourth that changed their
+    // row count on arrival would move every offset in the console at once.
+    const modifiedLine = diffWithHunkBody(["delete", "insert"]);
+    expect(new DiffRowIndex(modifiedLine).rowCount).toBe(
+      new DiffRowIndex(modifiedLine, new Map(), undefined, "unified").rowCount,
+    );
   });
 });
 

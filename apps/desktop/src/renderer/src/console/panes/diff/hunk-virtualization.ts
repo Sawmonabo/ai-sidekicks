@@ -31,7 +31,7 @@
 // endurance tier measure a five-thousand-line change set at all.
 
 import { DIFF_GAP_EXPANSION_LINE_COUNT } from "./diff-bounds.js";
-import type { ConsoleDiffModel, DiffLine } from "./diff-model.js";
+import type { ConsoleDiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
 
 // THE ROW KINDS ARE THE `DiffRow` UNION'S OWN DISCRIMINANT and are declared
 // nowhere else. There are four, and `gap` is one of them rather than an
@@ -68,6 +68,15 @@ export interface DiffHunkHeaderRow {
  * from the hunk's `precedingContext`, a body line from its `lines`. Two sequences
  * with one index space would need a sentinel or an offset convention, and both
  * are the kind of encoding that is read wrong once and then silently forever.
+ *
+ * A SPLIT ROW MAY ADDRESS TWO LINES, which is what makes split view a comparison
+ * rather than two stacked lists. A unified patch spells a modified line as a
+ * deletion immediately followed by an insertion, so the pairing is a property of
+ * the flattening: `lineIndex` names the deletion, which occupies the BASE side,
+ * and `pairedLineIndex` names the insertion, which occupies the HEAD side. Every
+ * other row names one line, and which side it occupies follows from that line's
+ * own kind — a deletion is a base line, an insertion a head line, and a context
+ * line is both.
  */
 export interface DiffLineRow {
   readonly kind: "line";
@@ -75,10 +84,83 @@ export interface DiffLineRow {
   readonly hunkIndex: number;
   readonly source: "preceding-context" | "hunk-body";
   readonly lineIndex: number;
+  /**
+   * The head line this row pairs with `lineIndex`'s base line, in the same
+   * sequence `source` names. Present only on a `split` row that paired a
+   * deletion with an insertion; absent everywhere else, including on every
+   * `unified` row.
+   */
+  readonly pairedLineIndex?: number;
 }
 
 /** One addressable row of a rendered diff. Narrow on `kind`. */
 export type DiffRow = DiffFileHeaderRow | DiffGapRow | DiffHunkHeaderRow | DiffLineRow;
+
+/** Which of a hunk body's lines one row addresses. The pairing, without the row. */
+interface HunkBodyRow {
+  readonly lineIndex: number;
+  readonly pairedLineIndex?: number;
+}
+
+/**
+ * How one hunk's body flattens into rows, under one view mode.
+ *
+ * ONE WALK ANSWERS BOTH QUESTIONS. The count a file's span is built from and the
+ * addressing `rowAt` hands back come from this one function — the count being the
+ * length of what it returns — because a hunk whose deletions and insertions are
+ * uneven flattens to a row count that no arithmetic over `lines.length` predicts.
+ * A second implementation for the count would agree with this one on every hunk
+ * until the first uneven one, and then place every row below it at the wrong
+ * offset.
+ *
+ * IN `unified` MODE THE FLATTENING IS THE IDENTITY — one row per line, in order,
+ * which is what a unified patch is. In `split` mode the body is walked as maximal
+ * runs: a run of deletions immediately followed by a run of insertions pairs
+ * positionally into `max(deletions, insertions)` rows, each addressing up to one
+ * base line and up to one head line, and the overhang of the longer run keeps its
+ * lines unpaired. A run with no partner — an insertion block, a deletion block at
+ * the end of a hunk — is one row per line, and so is every context line.
+ */
+function hunkBodyRowLayout(
+  lines: readonly DiffLine[],
+  viewMode: DiffViewMode,
+): readonly HunkBodyRow[] {
+  if (viewMode === "unified") {
+    return lines.map((_line, lineIndex) => ({ lineIndex }));
+  }
+  const rows: HunkBodyRow[] = [];
+  let cursor = 0;
+  while (cursor < lines.length) {
+    if (lines[cursor]?.kind !== "delete") {
+      rows.push({ lineIndex: cursor });
+      cursor += 1;
+      continue;
+    }
+    const firstDeleteIndex = cursor;
+    while (lines[cursor]?.kind === "delete") {
+      cursor += 1;
+    }
+    const deleteCount = cursor - firstDeleteIndex;
+    const firstInsertIndex = cursor;
+    while (lines[cursor]?.kind === "insert") {
+      cursor += 1;
+    }
+    const insertCount = cursor - firstInsertIndex;
+    for (let offset = 0; offset < Math.max(deleteCount, insertCount); offset += 1) {
+      if (offset >= deleteCount) {
+        rows.push({ lineIndex: firstInsertIndex + offset });
+      } else if (offset >= insertCount) {
+        rows.push({ lineIndex: firstDeleteIndex + offset });
+      } else {
+        rows.push({
+          lineIndex: firstDeleteIndex + offset,
+          pairedLineIndex: firstInsertIndex + offset,
+        });
+      }
+    }
+  }
+  return rows;
+}
 
 /**
  * How much of each gap has been revealed, keyed by gap.
@@ -157,6 +239,7 @@ interface FileRowSpan {
 export class DiffRowIndex {
   readonly #model: ConsoleDiffModel;
   readonly #expansion: DiffGapExpansion;
+  readonly #viewMode: DiffViewMode;
   readonly #fileSpans: readonly FileRowSpan[];
   readonly #rowCount: number;
 
@@ -165,9 +248,20 @@ export class DiffRowIndex {
     expansion: DiffGapExpansion = new Map(),
     /** Show only the file at this wire-verbatim path. Absent shows every file. */
     shownFilePath?: string,
+    /**
+     * Which layout these rows are flattened for.
+     *
+     * The view mode is an input to the FLATTENING and not only to the row
+     * renderer, because in split view a modified line is one row addressing two
+     * lines rather than two rows addressing one each. A renderer that paired at
+     * paint time would be pairing rows the count above it had already spaced
+     * apart.
+     */
+    viewMode: DiffViewMode = "unified",
   ) {
     this.#model = model;
     this.#expansion = expansion;
+    this.#viewMode = viewMode;
 
     const fileSpans: FileRowSpan[] = [];
     let rowCursor = 0;
@@ -183,8 +277,9 @@ export class DiffRowIndex {
         // A gap row exists only while the gap still hides something.
         fileRowCount += hidden > 0 ? 1 : 0;
         fileRowCount += this.#revealedLineCountFor(fileIndex, hunkIndex);
-        // The hunk header, then its body.
-        fileRowCount += 1 + hunk.lines.length;
+        // The hunk header, then its body — whose row count is the walk's own
+        // length rather than a second count that could disagree with it.
+        fileRowCount += 1 + hunkBodyRowLayout(hunk.lines, viewMode).length;
       });
       fileSpans.push({ fileIndex, startRowIndex, rowCount: fileRowCount });
       rowCursor += fileRowCount;
@@ -259,32 +354,44 @@ export class DiffRowIndex {
         return { kind: "hunk-header", fileIndex, hunkIndex };
       }
       cursor += 1;
-      if (withinFile < cursor + hunk.lines.length) {
-        return {
-          kind: "line",
-          fileIndex,
-          hunkIndex,
-          source: "hunk-body",
-          lineIndex: withinFile - cursor,
-        };
+      const bodyRows = hunkBodyRowLayout(hunk.lines, this.#viewMode);
+      const bodyRow = bodyRows[withinFile - cursor];
+      if (bodyRow !== undefined) {
+        return { kind: "line", fileIndex, hunkIndex, source: "hunk-body", ...bodyRow };
       }
-      cursor += hunk.lines.length;
+      cursor += bodyRows.length;
     }
     return undefined;
   }
 
   /** The line a `line` row addresses, or `undefined` if the row does not name one. */
   public lineFor(row: DiffRow): DiffLine | undefined {
-    if (row.kind !== "line") {
+    return row.kind === "line" ? this.#lineAt(row, row.lineIndex) : undefined;
+  }
+
+  /**
+   * The head line a paired split row addresses beside `lineFor`'s base line.
+   *
+   * A sibling reader rather than a second index: the pairing is carried on the
+   * row, so both sides resolve through the same addressing and there is no second
+   * structure that could describe a different diff.
+   */
+  public pairedLineFor(row: DiffRow): DiffLine | undefined {
+    if (row.kind !== "line" || row.pairedLineIndex === undefined) {
       return undefined;
     }
+    return this.#lineAt(row, row.pairedLineIndex);
+  }
+
+  /** One line of the sequence a row's `source` names. */
+  #lineAt(row: DiffLineRow, lineIndex: number): DiffLine | undefined {
     const hunk = this.#model.files[row.fileIndex]?.hunks[row.hunkIndex];
     if (hunk === undefined) {
       return undefined;
     }
     return row.source === "preceding-context"
-      ? hunk.precedingContext[row.lineIndex]
-      : hunk.lines[row.lineIndex];
+      ? hunk.precedingContext[lineIndex]
+      : hunk.lines[lineIndex];
   }
 
   /**

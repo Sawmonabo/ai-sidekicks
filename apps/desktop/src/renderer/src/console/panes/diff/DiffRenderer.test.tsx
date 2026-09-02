@@ -157,13 +157,28 @@ describe("diff renderer — the rows", () => {
 describe("diff renderer — the two-hue rule", () => {
   it("paints insert and delete with ground and rule, never with a hue token", () => {
     const container = renderDiff();
-    const insertRow = container.querySelector(".meridian-diff__row--insert");
-    const deleteRow = container.querySelector(".meridian-diff__row--delete");
-    expect(insertRow).not.toBeNull();
-    expect(deleteRow).not.toBeNull();
+    // The modifier rides the CELL, so a split row can paint its two sides in two
+    // kinds. In unified the row's one cell fills it, so the painted ground is the
+    // same rectangle it always was.
+    const insertCell = container.querySelector(".meridian-diff__side--insert");
+    const deleteCell = container.querySelector(".meridian-diff__side--delete");
+    expect(insertCell).not.toBeNull();
+    expect(deleteCell).not.toBeNull();
     // The classes are the whole signal, and they are distinct — which is what the
     // sheet then paints as two ground weights and two rule styles.
-    expect(insertRow?.className).not.toBe(deleteRow?.className);
+    expect(insertCell?.className).not.toBe(deleteCell?.className);
+  });
+
+  it("negative control: no row carries the kind modifier the cell now owns", () => {
+    // Without this, the case above would pass over a renderer that painted the
+    // kind in both places — and a paired split row would then be a whole-width
+    // ground in one of its two kinds.
+    const container = renderDiff();
+    for (const row of container.querySelectorAll(".meridian-diff__row")) {
+      expect(row.className).not.toContain("meridian-diff__row--insert");
+      expect(row.className).not.toContain("meridian-diff__row--delete");
+      expect(row.className).not.toContain("meridian-diff__row--context");
+    }
   });
 
   it("negative control: no diff row reaches for amber or red", () => {
@@ -187,6 +202,65 @@ describe("diff renderer — the view controls it is handed", () => {
     expect(
       renderDiff({ viewMode: "unified" }).querySelectorAll(".meridian-diff__side--base").length,
     ).toBe(0);
+  });
+
+  it("puts a modified line's old text and new text side by side in ONE split row", () => {
+    // The one thing split view exists to do. The fixture's hunks spell a modified
+    // line the way a unified patch does — a deletion immediately followed by an
+    // insertion — and the flattening pairs them, so the two cells of one row
+    // carry different text.
+    const container = renderDiff({ viewMode: "split" });
+    const pairedRow = [...container.querySelectorAll(".meridian-diff__row--line")].find(
+      (row) => row.querySelector(".meridian-diff__side--delete") !== null,
+    );
+    expect(pairedRow).toBeDefined();
+    expect(
+      pairedRow?.querySelector(".meridian-diff__side--base .meridian-diff__code")?.textContent,
+    ).toContain("previousBudget");
+    expect(
+      pairedRow?.querySelector(".meridian-diff__side--head .meridian-diff__code")?.textContent,
+    ).toContain("nextBudget");
+  });
+
+  it("negative control: the pairing is one row, so split reports fewer rows than unified", () => {
+    // Without this the case above would pass over a renderer that painted the new
+    // text into the deletion row's head cell while still emitting the insertion
+    // as a second row below it — two rows claiming the same change.
+    expect(reportedRowCount(renderDiff({ viewMode: "split" }))).toBeLessThan(
+      reportedRowCount(renderDiff({ viewMode: "unified" })),
+    );
+  });
+
+  it("negative control: an unpaired deletion still leaves its head cell empty", () => {
+    // Pairing must not become "show the line on both sides", which is the bug
+    // that makes a deletion read as a modification of itself.
+    const deletionOnly = {
+      ...SMALL_DIFF,
+      files: [
+        {
+          path: "packages/contracts/src/budget.ts",
+          hunks: [
+            {
+              header: "@@ -1,1 +1,0 @@",
+              precedingContext: [],
+              lines: [
+                {
+                  kind: "delete" as const,
+                  baseLineNumber: 1,
+                  segments: [{ text: "const removed = 1;", changed: false }],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const container = renderDiff({ model: deletionOnly, viewMode: "split" });
+    const row = container.querySelector(".meridian-diff__row--line");
+    expect(row?.querySelector(".meridian-diff__side--base .meridian-diff__code")?.textContent).toBe(
+      "const removed = 1;",
+    );
+    expect(row?.querySelector(".meridian-diff__side--head .meridian-diff__code")).toBeNull();
   });
 
   it("marks the intraline change, and stops marking a whitespace-only one on request", () => {
@@ -340,7 +414,11 @@ describe("diff renderer — expansion and emptiness", () => {
     const expanded = renderDiff({
       expansion: expandGap(new Map(), 0, 0, SMALL_DIFF_SHAPE.precedingContextPerHunk),
     });
-    expect(rowClassesAfterFirstFileHeader(expanded)).toContain("meridian-diff__row--context");
+    expect(rowClassesAfterFirstFileHeader(expanded)).not.toContain("meridian-diff__row--gap");
+    expect(
+      expanded.querySelectorAll(".meridian-diff__row")[1]?.querySelector(".meridian-diff__side")
+        ?.className,
+    ).toContain("meridian-diff__side--context");
     // The diff's OTHER gaps are untouched: one control, one gap.
     expect(expanded.querySelectorAll(".meridian-diff__row--gap").length).toBeGreaterThan(0);
   });
