@@ -8,15 +8,18 @@
 // canvas; it does not draw one. THE SHELL DIES IN THE PLAN-017 TASK THAT MOUNTS THE
 // BODY, in the same PR as the mount.
 //
-// THE RENDERING LIBRARY IS THE BODY'S, AND ITS ABSENCE HERE IS ASSERTED. The
-// console's library ruling adopts a graph-rendering library for this canvas under
-// named constraints — controlled mode, a validity predicate evaluated during the
-// drag, its own stylesheet driven from Meridian tokens — and every one of those
-// constraints is a property of the body that draws nodes. A chrome that pulled the
-// dependency in would be paying its bundle cost for a canvas it does not render, so
-// this family imports no graph or form library at all and
-// `test/console/architecture/workflow-no-graph-library.test.ts` fails the build if
-// one appears before the body that needs it.
+// THE RENDERING LIBRARY IS IN THE TREE, AND WHAT IT DRAWS HERE IS STILL NOT THIS
+// CANVAS. The console's library ruling adopts a graph-rendering library under named
+// constraints, and this family now uses it — for the RUN pane's read-only phase
+// sequence, which is a picture of a run the console already reads and owns. The
+// constraints that ruling attaches to the AUTHORING canvas are a different set and
+// all of them are properties of the body that draws editable nodes: controlled mode
+// over an edited definition, a connection-validity predicate evaluated during the
+// drag, a keyboard connect mode, and durable layout. None of that is built here, and
+// a chrome that built it would be authoring the body this slot exists to reserve.
+// The library reaching the run pane changes nothing about that: it arrives on a lazy
+// chunk that no initial bundle path imports, so the cost of the graph is paid by the
+// surface that draws one.
 //
 // WHAT THE MOUNT OWES, AS A TYPE — and each member is something this pane knows and
 // the body must not re-derive:

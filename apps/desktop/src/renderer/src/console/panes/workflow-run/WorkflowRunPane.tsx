@@ -54,6 +54,8 @@ import { phasePark } from "../../workflows/run-list-projection.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { unregisteredRunControl } from "./run-controls.js";
+import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
+import type { PhaseGraphNode } from "./phase-graph/phase-sequence-layout.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 import { ChatStartSlot } from "./slots/ChatStartSlot.js";
 import { HumanFormSlot, type HumanFormMount } from "./slots/HumanFormSlot.js";
@@ -118,8 +120,39 @@ function RunReadState(props: { readonly snapshot: WorkflowRunSnapshotState }): R
     case "unavailable":
       return <RefusalBanner {...snapshot.refusal} />;
     case "served":
-      return <RunParks phases={snapshot.snapshot.phaseStates} />;
+      return (
+        <>
+          <RunPhaseGraph phases={snapshot.snapshot.phaseStates} />
+          <RunParks phases={snapshot.snapshot.phaseStates} />
+        </>
+      );
   }
+}
+
+/**
+ * The run's phases as a picture, in the order the run read carried them.
+ *
+ * THE LABEL IS THE PHASE ID AND NOT A NAME, because no registered read carries a
+ * name: it lives in the definition body one of the workflow methods the growth row
+ * does not carry would serve. A graph that composed a readable label from the id
+ * would be inventing exactly the fact this family renders the absence of, and an
+ * invented name is indistinguishable on screen from an authored one.
+ *
+ * THE PARK IS READ FROM `parkReason` AND NEVER FROM A PHASE'S STATE, the same rule
+ * the park banner beneath obeys: the status union has no suspended arm, and the park
+ * members are live-scoped, so a phase that resumed past its park carries none of them.
+ */
+function RunPhaseGraph(props: {
+  readonly phases: readonly WorkflowPhaseState[];
+}): React.JSX.Element {
+  const nodes: readonly PhaseGraphNode[] = props.phases.map((phase) => ({
+    phaseId: phase.phaseId,
+    label: phase.phaseId,
+    state: phase.state,
+    gateState: phase.gateState,
+    isParked: phase.parkReason !== undefined,
+  }));
+  return <PhaseGraph phases={nodes} label="Phase sequence" />;
 }
 
 /**

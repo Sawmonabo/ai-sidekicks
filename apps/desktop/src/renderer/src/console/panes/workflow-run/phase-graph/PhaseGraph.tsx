@@ -1,0 +1,210 @@
+// The phase graph's mount point: everything between a caller's phase list and a
+// canvas, and nothing else.
+//
+// WHAT THIS COMPONENT OWNS. The caller hands over wire-shaped phases and a name for
+// the region. This file places them, decides whether the sequence can be drawn at
+// all, fetches the renderer's code, and stands an absence in the box until it lands.
+// The drawing itself belongs to `PhaseGraphCanvas.tsx` on the far side of an
+// `import()`, so a surface that mounts this component never names the graph library
+// and never pulls a byte of it into the initial bundle.
+//
+// FOUR ABSENCES, AND THEY ARE FOUR BECAUSE THE OPERATOR'S NEXT MOVE DIFFERS:
+//
+//   • A run with no phases is EMPTY: the read succeeded and found none. Drawing an
+//     empty canvas instead would be a picture asserting a shape the run never had.
+//   • A sequence that repeats a phase id is an ERROR, named. Node identity on the
+//     canvas is the phase id, so drawing one would silently show fewer phases than
+//     the run has — a picture that looks finished and is short. Refusing names which
+//     id repeated, so the next move is to fix the producer rather than to guess.
+//   • A chunk still in flight is NOT-LOADED: the read-in-flight skeleton, which says
+//     nothing because there is nothing yet to say.
+//   • A chunk the browser refused is an ERROR carrying the fetch's own message
+//     verbatim, because what to do next depends on what failed.
+//
+// Collapsing any two would be exactly the conflation the console's absence rule
+// exists to prevent, and the first two are decided before the chunk is asked for.
+//
+// THE WRAPPER IS UNSTYLED UNTIL THE CHUNK LANDS, and that is the arrangement rather
+// than an oversight: this family's sheet rides the lazy chunk, so before it arrives
+// `.meridian-phase-graph` matches no rule. Nothing that renders in that window needs
+// one — the absence primitive brings its own styling from the initial bundle, and the
+// wrapper's only job until then is to be the block the absence stands in.
+//
+// WHY THE LAYOUT LIVES IN A REF AND NOT IN A RENDER BODY. Placing phases is a
+// derivation, and `apps/desktop/AGENTS.md` puts derivations in a class or a hook.
+// The cache is a class with a private memo and one instance per mounted graph, so
+// two graphs on screen never share one and the renderer downstream is handed arrays
+// whose identity holds still while the run does.
+
+import { useEffect, useRef, useState } from "react";
+
+import { Nothing } from "../../../primitives/index.js";
+import {
+  phaseGraphLoader,
+  type PhaseGraphLoader,
+  type PhaseGraphModule,
+} from "./phase-graph-loader.js";
+import {
+  PhaseSequenceLayoutCache,
+  type PhaseGraphNode,
+  type PhaseSequenceLayout,
+} from "./phase-sequence-layout.js";
+
+export interface PhaseGraphProps {
+  /** The run's phases in sequence order. Empty renders nothing rather than an empty canvas. */
+  readonly phases: readonly PhaseGraphNode[];
+  /** The region's accessible name, supplied by the surface that mounts it. */
+  readonly label: string;
+}
+
+/** One run's phase sequence, read-only, drawn once its renderer arrives. */
+export function PhaseGraph(props: PhaseGraphProps): React.JSX.Element {
+  const layout = usePhaseSequenceLayout(props.phases);
+  // The chunk is asked for only when there is a picture to fetch it for. Both of the
+  // conditions are named: an empty run lays out cleanly — a drawable sequence of no
+  // phases — so `drawn` alone would fetch a renderer for a canvas with nothing on it.
+  const isCanvasNeeded = layout.status === "drawn" && props.phases.length > 0;
+  const graphModule = usePhaseGraphModule(phaseGraphLoader, isCanvasNeeded);
+
+  if (props.phases.length === 0) {
+    return (
+      <div className="meridian-phase-graph">
+        <Nothing
+          kind="empty"
+          placement="surface"
+          title="This run has no phases."
+          detail="A run's phase sequence is drawn here once the run reports one."
+        />
+      </div>
+    );
+  }
+
+  if (layout.status === "malformed") {
+    return (
+      <div className="meridian-phase-graph">
+        <Nothing
+          kind="error"
+          placement="surface"
+          title="The phase sequence could not be drawn."
+          detail={repeatedPhaseDetail(layout.repeatedPhaseIds)}
+        />
+      </div>
+    );
+  }
+
+  if (graphModule.status !== "loaded") {
+    return <div className="meridian-phase-graph">{renderModuleAbsence(graphModule)}</div>;
+  }
+
+  // Bound to a capitalised local because JSX reads a lowercase leading identifier as
+  // a tag name; the component itself is the one the loader resolved.
+  const LoadedPhaseGraphCanvas = graphModule.module.PhaseGraphCanvas;
+  return (
+    <div className="meridian-phase-graph">
+      <LoadedPhaseGraphCanvas layout={layout} label={props.label} />
+    </div>
+  );
+}
+
+/**
+ * Why a sequence was refused, in the operator's terms.
+ *
+ * Names the ids rather than counting them: "two phases repeated" tells nobody which
+ * producer to look at, and the ids are the only thing here that does.
+ */
+function repeatedPhaseDetail(repeatedPhaseIds: readonly string[]): string {
+  return `More than one phase arrived under the same identifier: ${repeatedPhaseIds.join(", ")}. Every phase on the canvas is keyed by its identifier, so drawing this run would have shown fewer phases than it has.`;
+}
+
+/** Where the renderer's code is: still coming, here, or refused. */
+type PhaseGraphModuleState =
+  | { readonly status: "loading" }
+  | { readonly status: "loaded"; readonly module: PhaseGraphModule }
+  | { readonly status: "failed"; readonly reason: string };
+
+const LOADING_GRAPH_MODULE: PhaseGraphModuleState = { status: "loading" };
+
+/**
+ * What stands in the canvas box while the renderer's code is not there.
+ *
+ * Two of the absence primitive's five kinds, and the two these states actually are.
+ * Neither is `empty`, which would claim the run has no phases — a claim this arm has
+ * already disproved — and neither is `not-checked`, which would claim nobody asked.
+ */
+function renderModuleAbsence(
+  graphModule: Exclude<PhaseGraphModuleState, { status: "loaded" }>,
+): React.JSX.Element {
+  return graphModule.status === "loading" ? (
+    <Nothing kind="not-loaded" placement="surface" title="Loading the phase graph" />
+  ) : (
+    <Nothing
+      kind="error"
+      placement="surface"
+      title="The phase graph could not be loaded."
+      detail={graphModule.reason}
+    />
+  );
+}
+
+/**
+ * Place the phases, holding the result still while the run does.
+ *
+ * The cache is built once per mount through a ref rather than on each render: a new
+ * cache every render would memoise nothing, and constructing one in a render body is
+ * the construction React may discard.
+ */
+function usePhaseSequenceLayout(phases: readonly PhaseGraphNode[]): PhaseSequenceLayout {
+  const cacheRef = useRef<PhaseSequenceLayoutCache | undefined>(undefined);
+  const cache = (cacheRef.current ??= new PhaseSequenceLayoutCache());
+  return cache.layoutFor(phases);
+}
+
+/**
+ * Fetch the renderer's chunk and say where it got to.
+ *
+ * A hook rather than a call in the render body, on `apps/desktop/AGENTS.md`'s rule
+ * and for a concrete reason: `import()` is a side effect, and a render body that
+ * started one would start a second on every discarded pass.
+ *
+ * UNMOUNT BEFORE THE CHUNK ARRIVES is the arm worth naming. A pane opened and closed
+ * inside one fetch leaves a promise still in flight over a component React has
+ * already dropped, and settling it into state would be a write against a disposed
+ * host. The flag below is read on both arms, so a late resolution and a late
+ * rejection are each ignored rather than one of them handled — and the memo inside
+ * the loader means the fetch itself is not wasted: the next mount gets the chunk
+ * this one paid for.
+ *
+ * `isNeeded` false leaves the state at `loading` and starts nothing. That is not a
+ * fourth state pretending to be a third: the caller reads this value only on the arm
+ * where a sequence is drawable, which is the same condition.
+ */
+function usePhaseGraphModule(loader: PhaseGraphLoader, isNeeded: boolean): PhaseGraphModuleState {
+  const [graphModule, setGraphModule] = useState<PhaseGraphModuleState>(LOADING_GRAPH_MODULE);
+
+  useEffect(() => {
+    if (!isNeeded) {
+      return undefined;
+    }
+    let isMounted = true;
+    loader.load().then(
+      (loaded) => {
+        if (isMounted) {
+          setGraphModule({ status: "loaded", module: loaded });
+        }
+      },
+      (loadError: unknown) => {
+        if (isMounted) {
+          setGraphModule({
+            status: "failed",
+            reason: loadError instanceof Error ? loadError.message : String(loadError),
+          });
+        }
+      },
+    );
+    return () => {
+      isMounted = false;
+    };
+  }, [loader, isNeeded]);
+
+  return graphModule;
+}
