@@ -191,6 +191,97 @@ describe("what a row reads off its parks", () => {
   });
 });
 
+describe("an instant the console cannot read", () => {
+  /**
+   * A resume instant no parser accepts.
+   *
+   * Shaped like a real one on purpose — a daemon that emits a malformed boundary
+   * emits something that LOOKS like a timestamp, and a fixture of obvious rubbish
+   * would prove the projection handles rubbish rather than the case that happens.
+   */
+  const UNREADABLE_INSTANT = "2026-09-01T99:99:99.000Z";
+
+  it("negative control: the fixture really is unparseable", () => {
+    // Every case below rests on this. A fixture that quietly parsed would make them
+    // all pass over a projection that compared it like any other instant.
+    expect(Number.isNaN(Date.parse(UNREADABLE_INSTANT))).toBe(true);
+  });
+
+  it("picks the valid armed resume when another park armed one it cannot read", () => {
+    const projection = new RunListProjection([
+      run({
+        phaseStates: [
+          phase({
+            phaseId: "phase-malformed",
+            parkReason: "provider-usage-limited",
+            parkCause: "Spent.",
+            autoResumeAt: UNREADABLE_INSTANT,
+          }),
+          phase({
+            phaseId: "phase-real",
+            parkReason: "provider-usage-limited",
+            parkCause: "Spent.",
+            autoResumeAt: "2026-09-01T11:30:00.000Z",
+          }),
+        ],
+      }),
+    ]);
+    // The shared floor sentinel this replaces sorted an unreadable instant last in
+    // the DESCENDING run sort and first in this ASCENDING pick, so the row reported
+    // the malformed value as the soonest resume.
+    expect(projection.rows[0]?.earliestAutoResumeAt).toBe("2026-09-01T11:30:00.000Z");
+  });
+
+  it("reports the unreadable park as unscheduled and names its phase", () => {
+    const projection = new RunListProjection([
+      run({
+        phaseStates: [
+          phase({
+            phaseId: "phase-malformed",
+            parkReason: "provider-usage-limited",
+            parkCause: "Spent.",
+            autoResumeAt: UNREADABLE_INSTANT,
+          }),
+        ],
+      }),
+    ]);
+    expect(projection.rows[0]?.earliestAutoResumeAt).toBeUndefined();
+    expect(projection.rows[0]?.hasUnscheduledPark).toBe(true);
+    expect(projection.rows[0]?.unreadableAutoResumePhaseIds).toStrictEqual(["phase-malformed"]);
+  });
+
+  it("negative control: a readable armed resume is neither unscheduled nor named", () => {
+    const projection = new RunListProjection([
+      run({
+        phaseStates: [
+          phase({
+            parkReason: "provider-usage-limited",
+            parkCause: "Spent.",
+            autoResumeAt: "2026-09-01T11:30:00.000Z",
+          }),
+        ],
+      }),
+    ]);
+    expect(projection.rows[0]?.hasUnscheduledPark).toBe(false);
+    expect(projection.rows[0]?.unreadableAutoResumePhaseIds).toStrictEqual([]);
+  });
+
+  it("still sorts a run with an unreadable start last inside its band", () => {
+    // The other direction, and the rule that must not move: descending order puts
+    // the run nothing can be said about under every run with a legible start.
+    const projection = new RunListProjection([
+      run({ workflowRunId: "run-unreadable-start", startedAt: UNREADABLE_INSTANT }),
+      run({ workflowRunId: "run-older", startedAt: "2026-09-01T08:00:00.000Z" }),
+      run({ workflowRunId: "run-newer", startedAt: "2026-09-01T12:00:00.000Z" }),
+    ]);
+    expect(projection.rows.map((row) => row.run.workflowRunId)).toStrictEqual([
+      "run-newer",
+      "run-older",
+      "run-unreadable-start",
+    ]);
+  });
+});
+
 describe("the frozen-definition state", () => {
   it("is true when the run's pin is not the definition's latest", () => {
     const projection = new RunListProjection([

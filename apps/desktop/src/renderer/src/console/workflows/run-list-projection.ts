@@ -29,6 +29,18 @@
 // authority on a question the daemon owns. What it computes is what the operator can
 // SEE: a park, its shape, and a pin that has fallen behind.
 //
+// TWO COMPARISONS, TWO DIRECTIONS, AND NO SHARED SENTINEL. Both orderings below read
+// an RFC 3339 string a daemon sent, and each has to say what an UNPARSEABLE one means
+// — but they mean opposite things, so one sentinel cannot serve both. The run sort is
+// DESCENDING, and an unreadable `startedAt` floors to negative infinity, which puts
+// that run last inside its band. The earliest-resume pick is ASCENDING, and the same
+// floor would have made an unreadable `autoResumeAt` beat every real one, so the row
+// would report a resume nobody can read in place of the one that is actually next. An
+// unreadable resume instant is therefore not compared at all: the park counts as
+// UNSCHEDULED — a person is needed, because nothing legible says otherwise — and its
+// phase is named on the row's own diagnostic, so the malformed value is reported
+// rather than absorbed.
+//
 // THE SHAPES ARE NEXT DOOR AND THE VOCABULARY IS ON THE SUBSTRATE. `run-list-rows.ts`
 // derives the run and phase rows from `bridge/workflow-projection.ts`, which is where
 // the statuses and park reasons are declared; this module holds the reading — bands,
@@ -95,14 +107,33 @@ export interface WorkflowRunListRow {
   /** Every phase parked at the moment the snapshot was built. Empty when none is. */
   readonly parkedPhases: readonly WorkflowParkedPhase[];
   /**
-   * The soonest armed resume across this run's parks, verbatim as the wire sent it.
+   * The soonest READABLE armed resume across this run's parks, verbatim as the wire
+   * sent it.
    *
    * `undefined` when no park armed one — which is the operator-resumable case, not
    * the not-parked case. `parkedPhases` says which of the two.
    */
   readonly earliestAutoResumeAt: string | undefined;
-  /** True when at least one park armed no schedule and so waits on a person. */
+  /**
+   * True when at least one park waits on a person.
+   *
+   * Which is either of two things: a park that armed no schedule, and a park that
+   * armed an instant this console could not read. The second joins the first because
+   * an unreadable boundary is not a boundary a surface can promise anything about,
+   * and the fail-closed reading of "we cannot tell when this resumes" is that
+   * somebody may have to.
+   */
   readonly hasUnscheduledPark: boolean;
+  /**
+   * The parks that armed an instant this console could not parse. Empty on every
+   * well-formed response.
+   *
+   * A diagnostic and not a control: it names the phases whose `autoResumeAt` a
+   * surface must not render as a time, so a malformed value from a daemon is
+   * reportable rather than silently collapsing into the unscheduled case beside a
+   * park that genuinely armed nothing.
+   */
+  readonly unreadableAutoResumePhaseIds: readonly string[];
   /**
    * True when the run's pinned version is not the definition's newest.
    *
@@ -113,10 +144,27 @@ export interface WorkflowRunListRow {
   readonly attentionBand: WorkflowRunAttentionBand;
 }
 
-/** Sorts an unparseable instant last rather than poisoning the comparison with `NaN`. */
-function instantOrder(iso: string): number {
+/**
+ * An instant in milliseconds, or nothing when the string does not parse.
+ *
+ * Deliberately NOT a numeric sentinel. A sentinel is a direction-free answer to a
+ * direction-dependent question, and the two comparisons in this module read it in
+ * opposite directions; each states its own rule against this `undefined` instead.
+ */
+function instantMilliseconds(iso: string): number | undefined {
   const milliseconds = Date.parse(iso);
-  return Number.isNaN(milliseconds) ? Number.NEGATIVE_INFINITY : milliseconds;
+  return Number.isNaN(milliseconds) ? undefined : milliseconds;
+}
+
+/**
+ * The key the run sort orders by, newest first, with an unreadable start LAST.
+ *
+ * The sort is descending, so the floor is what sends an unreadable start to the
+ * bottom of its band — where a run nothing can be said about belongs, under every run
+ * that carries a legible start.
+ */
+function startedAtDescendingKey(run: WorkflowRunSnapshot): number {
+  return instantMilliseconds(run.startedAt) ?? Number.NEGATIVE_INFINITY;
 }
 
 /** The band a run belongs to, decided by its parks first and its status second. */
@@ -127,19 +175,47 @@ function attentionBandFor(
   return parkedPhases.length > 0 ? "parked" : RUN_STATE_ATTENTION_BANDS[run.state];
 }
 
-/** The soonest armed resume among a run's parks, or nothing when none armed one. */
-function earliestArmedResume(parkedPhases: readonly WorkflowParkedPhase[]): string | undefined {
-  let earliest: string | undefined;
+/** What a run's parks say about when, if ever, the engine picks the run back up. */
+type RunResumeReading = Pick<
+  WorkflowRunListRow,
+  "earliestAutoResumeAt" | "hasUnscheduledPark" | "unreadableAutoResumePhaseIds"
+>;
+
+/**
+ * The three resume facts, read off a run's parks in one pass.
+ *
+ * One pass and one function because they are one reading: whether a person is needed
+ * is decided by the same two questions the earliest-resume pick asks of each park —
+ * did it arm anything, and can what it armed be read — and answering them twice is
+ * how a row comes to report an armed resume it also calls unscheduled.
+ *
+ * The ASCENDING comparison never sees an unreadable instant: a park whose
+ * `autoResumeAt` does not parse is skipped for the pick, counted as unscheduled, and
+ * named in the diagnostic.
+ */
+function resumeReadingFor(parkedPhases: readonly WorkflowParkedPhase[]): RunResumeReading {
+  let earliestAutoResumeAt: string | undefined;
+  let earliestMilliseconds = Number.POSITIVE_INFINITY;
+  let hasUnscheduledPark = false;
+  const unreadableAutoResumePhaseIds: string[] = [];
   for (const parked of parkedPhases) {
     const armed = parked.park.autoResumeAt;
     if (armed === undefined) {
+      hasUnscheduledPark = true;
       continue;
     }
-    if (earliest === undefined || instantOrder(armed) < instantOrder(earliest)) {
-      earliest = armed;
+    const milliseconds = instantMilliseconds(armed);
+    if (milliseconds === undefined) {
+      hasUnscheduledPark = true;
+      unreadableAutoResumePhaseIds.push(parked.phaseId);
+      continue;
+    }
+    if (milliseconds < earliestMilliseconds) {
+      earliestMilliseconds = milliseconds;
+      earliestAutoResumeAt = armed;
     }
   }
-  return earliest;
+  return { earliestAutoResumeAt, hasUnscheduledPark, unreadableAutoResumePhaseIds };
 }
 
 /** One run's row, with every derived fact read off the snapshot exactly once. */
@@ -154,8 +230,7 @@ function projectRun(run: WorkflowRunSnapshot): WorkflowRunListRow {
   return {
     run,
     parkedPhases,
-    earliestAutoResumeAt: earliestArmedResume(parkedPhases),
-    hasUnscheduledPark: parkedPhases.some((parked) => parked.park.autoResumeAt === undefined),
+    ...resumeReadingFor(parkedPhases),
     isPinnedBehindLatestVersion:
       run.definitionLatestWorkflowVersionId !== undefined &&
       run.definitionLatestWorkflowVersionId !== run.workflowVersionId,
@@ -191,7 +266,7 @@ export class RunListProjection {
         // two runs from swapping places between renders.
         return bandDelta !== 0
           ? bandDelta
-          : instantOrder(right.run.startedAt) - instantOrder(left.run.startedAt);
+          : startedAtDescendingKey(right.run) - startedAtDescendingKey(left.run);
       });
   }
 
