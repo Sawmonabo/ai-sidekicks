@@ -195,6 +195,9 @@ export default defineConfig({
           // is in a release bundle. Without it the bare identifier is a
           // ReferenceError the moment the ready continuation runs.
           __SIDEKICKS_SMOKE_BUILD__: "false",
+          // `src/main/window-reveal.ts` reads both flags; substituted for the same
+          // reason as the one above.
+          __SIDEKICKS_CONSOLE_FIXTURES__: "false",
         },
         // `src/main/window.ts` imports `SessionIdSchema` from the contracts
         // `./session` subpath as a VALUE, so this project must resolve the
