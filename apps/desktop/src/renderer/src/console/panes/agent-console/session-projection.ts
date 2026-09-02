@@ -25,7 +25,11 @@
 // The reason carried is `"subscribe"`: this read is what a surface performs when it
 // needs the projection it is rendering from, which is the closest thing the closed
 // `RefreshReason` vocabulary has to a person asking. It is a diagnostics label and
-// changes nothing about how the read is performed.
+// changes nothing about how the read is performed — which is why it is the only
+// thing here that is provisional. The vocabulary lives in `store/scheduling.ts`
+// and is that family's to widen; the member this call site takes the moment a
+// participant-request arm is registered there is `"participant-request"`, and the
+// change is this one argument and nothing else.
 
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
@@ -121,6 +125,8 @@ export class SessionProjectionReRead {
 
   /** Ask for a read. Repeated calls inside the coalescing window cost one read. */
   public request(): void {
+    // Takes `"participant-request"` once the scheduling vocabulary registers that
+    // arm; until then this is the nearest true member, never an invented one.
     this.#scheduler.request("subscribe");
   }
 
