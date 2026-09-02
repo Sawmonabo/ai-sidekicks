@@ -49,6 +49,17 @@ const FRAME = `${CONSOLE}/frame/`;
 const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
 const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
 
+/**
+ * Every barrel under `console/` — a family door and a sub-module door alike.
+ *
+ * Two alternatives rather than one `(?:[^/]+/)*` because dependency-cruiser refuses a rule
+ * whose regular expression has a star height above one: a quantified group containing its own
+ * quantifier is the catastrophic-backtracking shape, and the cruise bails on it outright
+ * rather than running slowly. Measured — the nested form fails with "has an unsafe regular
+ * expression. Bailing out."
+ */
+const CONSOLE_BARRELS = [`${CONSOLE}/index\\.ts$`, `${CONSOLE}/.+/index\\.ts$`];
+
 /** Every layer family, low to high — the closed set the DAG orders. */
 const LAYER_FAMILIES = [CORE, TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
 
@@ -196,6 +207,21 @@ export default {
       severity: "error",
       from: { path: LAYER_FAMILIES },
       to: VIEW_FAMILIES,
+    },
+    {
+      name: "console-no-barrel-chain",
+      comment:
+        "A barrel re-exported from another barrel. A family door publishes its own family's " +
+        "modules and a sub-module door (`bridge/growth-values/`, `bridge/scenarios/`) publishes " +
+        "its own directory's; forwarding a symbol through a second `index.ts` makes its home a " +
+        "matter of following two hops, and it lets a family door publish a name it never " +
+        "declared. Re-export from the module that DECLARES the symbol. This matches only the " +
+        "`export … from` dependency type, so a composition site importing a family door for a " +
+        "type it uses in a signature — which `panes/index.ts` does — is not a chain and is not " +
+        "reported.",
+      severity: "error",
+      from: { path: CONSOLE_BARRELS },
+      to: { path: CONSOLE_BARRELS, dependencyTypes: ["export"] },
     },
   ],
   options: {

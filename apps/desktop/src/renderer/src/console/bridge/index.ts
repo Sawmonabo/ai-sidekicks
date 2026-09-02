@@ -57,9 +57,15 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // instead, and the builder that mints one all leave through this door — the same
 // door the bridge itself does, because a growth refusal IS what this bridge
 // answers for a wire the corpus has not registered.
+// `GrowthSessionSummary` leaves through the module that DECLARES it, never through
+// `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
+// reached deep by the three modules inside this family that read several planes at
+// once; forwarding a name through it from here would chain one barrel into another,
+// which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
+// of following two hops instead of reading one specifier.
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
-export type { GrowthSessionSummary } from "./growth-values/index.js";
+export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

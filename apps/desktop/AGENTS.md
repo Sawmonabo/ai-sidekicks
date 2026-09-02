@@ -66,7 +66,8 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 ## Module shape
 
 - Named exports only. `export default` is for tool configuration at the package root only — `*.config.{ts,mjs}` and `.dependency-cruiser.mjs`, which their tools load by default export.
-- Every console family carries exactly one `index.ts`. Cross-family imports go through it; intra-family imports are deep. A barrel re-exports only its own family — no re-export chains.
+- Every console family carries exactly one `index.ts` — its family door. Cross-family imports go through it; intra-family imports are deep. A barrel re-exports only its own family — no re-export chains, enforced by `console-no-barrel-chain` in `.dependency-cruiser.mjs`: an `index.ts` under `console/` that carries an `export … from` reaching another `index.ts` under `console/` fails `structure:layering`.
+  - A sub-module directory inside a family (`bridge/growth-values/`, `bridge/scenarios/`) may carry its own `index.ts`. That is a sub-module door, not a second family door: it publishes to its own family only, it is reached by deep intra-family specifiers, and the family door re-exports a symbol from the module that DECLARES it, never through the inner barrel. A sub-module door that would be reached from outside its family is not a sub-module — promote the directory to a family and give it a place on the DAG.
 - A family's CSS is imported from that family's barrel and from nowhere else.
 - `.tsx` files are PascalCase, one component each; `.ts` modules are kebab-case, named for the noun they own (`-store`, `-registry`, `-adapter`), matching `packages/runtime-daemon/src/`.
 - A file over about 400 lines is doing two jobs. Split it before pushing.
