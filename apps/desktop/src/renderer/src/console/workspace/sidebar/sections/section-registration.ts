@@ -1,12 +1,19 @@
 // Where this family's sidebar sections are filled, and nothing else.
 //
-// ONE SECTION, NOT SIX. The sidebar renders six sections and this family owns
-// exactly one of them: `runs`. `channels`, `agents`, and `members` are the
-// collaboration family's and `repos` and `artifacts` are the repos family's, and
-// each registers its own through the same seat — which is the whole reason the
-// seat exists, because six bodies edited into one component would be five merge
-// conflicts. A section this file does not fill renders the sidebar's own
-// "reserved, not stubbed" answer until its owner lands.
+// ONE BODY, NOT EIGHT. `seats/sidebar-sections.ts` carries all eight sections the
+// spec names and splits them across three families: `channels`, `agents`, and
+// `members` are the collaboration family's, `repos` and `artifacts` the repos
+// family's, and `goal`, `runs`, and `approvals` this one's. Each registers its
+// own through the same seat — which is the whole reason the seat exists, because
+// eight bodies edited into one component would be seven merge conflicts.
+//
+// OF THIS FAMILY'S THREE, ONE HAS A BODY HERE: `runs`. A session's goal and its
+// pending approvals are read on this branch through the approvals pane, which is
+// a whole surface a person navigates to rather than an independently loaded
+// section of the sidebar — the two are not substitutes, and the seat says so. So
+// `goal` and `approvals` render the sidebar's own "reserved, not stubbed" answer,
+// exactly as an unlanded family's sections do, and seating them is a body this
+// list grows rather than a contract anyone has to reopen.
 //
 // A CALL, NOT A MODULE SIDE EFFECT, for `shell/index.ts`'s reason: registering at
 // module top level would fill an owner-scoped seat for anyone who imported this

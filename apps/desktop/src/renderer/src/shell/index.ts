@@ -33,8 +33,9 @@ import "./composer.css";
  */
 export function registerComposerFamily(): void {
   registerComposerSeat("composer", (props) => createElement(MessageComposer, props));
-  // The sidebar frame is this family's too, and so is exactly one of the eight
-  // sections it renders. The other seven are the collaboration and repos
-  // families', registered from their own composition for the same reason.
+  // The sidebar frame is this family's too, and so are three of the eight sections
+  // it renders — `goal`, `runs`, and `approvals`, of which `runs` has a body on
+  // this branch. The other five are the collaboration and repos families',
+  // registered from their own composition for the same reason.
   registerComposerSidebarSections();
 }

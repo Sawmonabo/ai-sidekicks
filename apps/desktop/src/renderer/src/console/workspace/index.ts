@@ -26,8 +26,8 @@ export {
   type SidebarProps,
 } from "./sidebar/Sidebar.js";
 
-// The one sidebar section this family owns, filled through the seat like every
-// other. It ships through this door because the composition root that calls it sits
+// The sidebar sections this family fills, through the seat like every other family.
+// It ships through this door because the composition root that calls it sits
 // outside the console and reaches a family through its barrel — and it is a CALL
 // rather than a module side effect, so importing anything here fills no seat.
 export { registerComposerSidebarSections } from "./sidebar/sections/section-registration.js";

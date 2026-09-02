@@ -3,9 +3,9 @@
 //
 // `Spec-023 §The surface set` describes the session sidebar as showing "the
 // session's other work as independently loaded sections … each a composition of its
-// own read, opening panes". The sections are four families' bodies and the frame is
-// one; this file is the frame, and it renders whatever the section registry answers
-// with.
+// own read, opening panes". The eight sections are three families' bodies and the
+// frame is one; this file is the frame, and it renders whatever the section
+// registry answers with.
 //
 // THE FRAME READS NO WIRE. THIS FILE'S OWN RULE, because no committed document
 // states it: the sidebar frame reads nothing itself beyond the session spine. Counts,
@@ -21,10 +21,10 @@
 // of disclosure elements, which is a DOM handle rather than state — nothing
 // renders from it, and the cursor it serves is the model's.
 //
-// THE REGISTRY IS AN INJECTABLE PROP OVER A PROCESS-WIDE DEFAULT. Four families
+// THE REGISTRY IS AN INJECTABLE PROP OVER A PROCESS-WIDE DEFAULT. Three families
 // fill this sidebar by calling `registerSidebarSection`, which writes into the
 // process-wide registry, so a mount that named no registry would have to read
-// that one or render six empty seats — the default is what the seat contract
+// that one or render eight empty seats — the default is what the seat contract
 // already means. It stays overridable for the two cases where the process-wide
 // one is the wrong answer: a test composes sections into a registry it owns
 // rather than leaking into a shared one, and an auxiliary window composes a

@@ -1,4 +1,4 @@
-// The runs section — the one sidebar section this family owns.
+// The runs section — the one of this family's three sidebar sections with a body.
 //
 // `Spec-023 §The surface set` makes each sidebar section "a composition of its own
 // read, opening panes". THE REST IS THIS SECTION'S OWN, because no committed
