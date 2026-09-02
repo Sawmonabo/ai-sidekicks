@@ -108,20 +108,30 @@
   gap: var(--meridian-space-2);
 }
 
-/* The one interactive thing on this surface, so the one place cyan is spent. */
+/* The one interactive thing on this surface, so the one place cyan is spent — and it
+   is spent on the control's BOUNDARY rather than behind its label.
+   `--meridian-accent` is a NON-TEXT token: `tokens/tokens.ts` holds it to the 3:1
+   control-boundary floor and to nothing more, so a label sitting on it was a text
+   pair no floor in the palette covers, and the accessibility tier measured it as a
+   serious contrast failure in the light scheme. `--meridian-accent-text` is the
+   accent's text-floor sibling, cleared at 4.5:1 against every ground. The control
+   still reads as the primary one — it is the only accent-bordered thing on the line,
+   beside a disclosure carrying the decorative edge. */
 .meridian-lease-line__claim {
   font: inherit;
   padding: var(--meridian-space-1) var(--meridian-space-3);
-  color: var(--meridian-surface);
-  background: var(--meridian-accent);
+  color: var(--meridian-accent-text);
+  background: var(--meridian-surface);
   border: 1px solid var(--meridian-accent);
   border-radius: var(--meridian-radius-sm);
   cursor: pointer;
-  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+  transition:
+    background var(--meridian-motion-quick) var(--meridian-ease-settle),
+    opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
 .meridian-lease-line__claim:hover:enabled {
-  opacity: 0.88;
+  background: var(--meridian-surface-raised);
 }
 
 .meridian-lease-line__claim:disabled {
