@@ -1,25 +1,55 @@
-// The flagship scenario — skeleton.
+// The flagship scenario — four lanes streaming at once.
 //
-// The full four-lane session (four agents streaming at once, an approval landing
-// mid-stream, a cost meter moving, a thread drawn between two runs) is
-// T-023p-1C-2's, because it is only meaningful once the ledger, cast bar, and
-// timeline surfaces exist to render it. What lands here is the SKELETON those
-// surfaces will be built against: the participant roster in join order, one agent
-// per lane, and the opening beats that put a row on screen.
+// The session `budgets.json`'s `frame-time-p95-four-lanes` row names as its subject:
+// "four agent lanes stream concurrently into the ledger". That row is enforced, so
+// this script is what the ceiling is measured against, and the concurrency is the
+// property under measurement rather than a description of it — four runs are
+// mid-turn at the same tick, interleaved beat by beat, and
+// `scenarios/streaming-lanes.ts` reads that back off these beats so the harness
+// asserts it instead of assuming it.
 //
-// The roster is the load-bearing part. `Spec-023 §Console Design (Meridian)` rule 2
-// allocates participant hues by join-log order, so the order of
-// `participantIdsInJoinOrder` below is what the hue allocator consumes and what a
-// screenshot baseline depends on. Reordering it is a visual change, not a cosmetic
-// one — which is why it is stated here once and read everywhere.
+// WHAT THE SESSION DOES, IN THE ORDER IT DOES IT
+//
+//   • Two people, four agents, and the implementer's run opened — the opening this
+//     scenario has always had, and the one every surface built against it expects.
+//   • The other three lanes spin up, and from the architect's `running` transition
+//     onward all four are streaming: thinking, messages, and tool calls interleaved
+//     across four run chapters rather than four runs taken in turn.
+//   • An approval lands MID-STREAM. The implementer's run enters
+//     `waiting_for_approval` while the other three keep talking, and returns through
+//     `running`. That is the whole of the approval story the log can tell — see the
+//     note below on why no `approval.*` beat is scripted.
+//   • The cost meter moves, four times, one per lane.
+//   • A thread is drawn between two runs: the architect's turn spawns a helper run,
+//     whose birth beat carries `parentRunId`. It is queued and starting at the last
+//     tick, so the frame also has the one lane state a four-lane session otherwise
+//     never shows — a run on screen that has produced nothing yet.
 //
 // EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD. The census is
-// `SESSION_EVENT_CATEGORY_BY_TYPE` and the payload shapes are `SessionEventSchema`
-// and `Spec-006`'s per-family rows, both in `packages/contracts/src/event.ts` and
-// `docs/specs/006-session-event-taxonomy-and-audit-log.md`; `scenarios/wire-truth.ts`
-// holds this file to them. That is not tidiness — a fixture that plays a type no
-// daemon emits produces screenshots, geometry readings, and end-to-end results
+// `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer is `SessionEventSchema`,
+// both in `packages/contracts/src/event.ts`; where a type has no strict variant the
+// members come from the per-family and per-type payload rows of
+// `docs/specs/006-session-event-taxonomy-and-audit-log.md`, which is the taxonomy
+// those variants are implemented from. `scenarios/wire-truth.ts` holds this file to
+// the layers that exist in code. That is not tidiness — a fixture that plays a type
+// no daemon emits produces screenshots, geometry readings, and end-to-end results
 // about a wire that does not exist, and every one of them looks like a pass.
+//
+// THREE THINGS THIS SCRIPT DELIBERATELY DOES NOT SAY
+//
+//   • **An approval card.** `approval.requested` is a registered type, but the card
+//     it would draw belongs to the surface that renders approvals, and the run-state
+//     pair below is what the ledger reads: `run.waiting_for_approval` and the
+//     `run.running` that releases it. Scripting both would put two records of one
+//     approval in one session, and the ledger would have to decide which is true.
+//   • **A machine body.** `assistant.*` and `tool.*` payloads carry their body's
+//     DESCRIPTION and never the body, which is sealed in `content_payload` and
+//     served by no bridge namespace. The cards render the named absence, which is
+//     the true state of that wire today.
+//   • **A link TYPE on the run thread.** `linkType` is typed by a Plan-016 symbol no
+//     TypeScript in this workspace declares, so the thread carries the two linkage
+//     members that do have types — `parentRunId` and `internalHelper` — and says
+//     nothing about which kind of link it is.
 //
 // TWO CONSEQUENCES A READER WILL NOTICE FIRST:
 //
@@ -35,6 +65,12 @@
 //     session read, and `session.renamed` is where a later change to it would
 //     arrive — never from the creation event.
 
+import {
+  createLedgerLaneEntries,
+  ledgerOpeningEntries,
+  scriptLedgerBeats,
+  type LedgerScriptEntry,
+} from "./ledger-script.js";
 import type { ConsoleScenario } from "../scenario.js";
 
 export const FLAGSHIP_SCENARIO_ID = "flagship";
@@ -50,7 +86,13 @@ const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
 const AGENT_IMPLEMENTER = "019b79ee-0280-7a6e-8120-d1a4c1150002";
 const AGENT_REVIEWER = "019b79ee-0280-7a6e-8130-d1a4c1150003";
 const AGENT_SCOUT = "019b79ee-0280-7a6e-8140-d1a4c1150004";
-const FIRST_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150011";
+const RUN_IMPLEMENTER = "019b79ee-0280-740e-8110-d1a4c1150011";
+const RUN_REVIEWER = "019b79ee-0280-740e-8120-d1a4c1150012";
+const RUN_SCOUT = "019b79ee-0280-740e-8130-d1a4c1150013";
+const RUN_ARCHITECT = "019b79ee-0280-740e-8140-d1a4c1150014";
+const RUN_ARCHITECT_HELPER = "019b79ee-0280-740e-8150-d1a4c1150015";
+
+const STARTED_AT_ISO = "2026-01-01T14:20:00.000Z";
 
 /**
  * The four lanes, as the `agents` projection carries them.
@@ -71,43 +113,375 @@ const FLAGSHIP_AGENTS = [
     name: "Architect",
     driverName: "claude",
     modelId: "claude-opus-5[1m]",
-    attachedAtMs: 120,
-    attachedAtIso: "2026-01-01T14:20:00.120Z",
+    attachedAtMs: 150,
   },
   {
     agentId: AGENT_IMPLEMENTER,
     name: "Implementer",
     driverName: "claude",
     modelId: "claude-sonnet-5",
-    attachedAtMs: 160,
-    attachedAtIso: "2026-01-01T14:20:00.160Z",
+    attachedAtMs: 200,
   },
   {
     agentId: AGENT_REVIEWER,
     name: "Reviewer",
     driverName: "codex",
     modelId: "gpt-5.6-sol",
-    attachedAtMs: 200,
-    attachedAtIso: "2026-01-01T14:20:00.200Z",
+    attachedAtMs: 250,
   },
   {
     agentId: AGENT_SCOUT,
     name: "Scout",
     driverName: "codex",
     modelId: "gpt-5.4-mini",
-    attachedAtMs: 240,
-    attachedAtIso: "2026-01-01T14:20:00.240Z",
+    attachedAtMs: 300,
   },
 ] as const;
 
-/** The sequence the first `agent.attached` beat takes. Two beats precede it. */
-const FIRST_AGENT_SEQUENCE = 3;
+/**
+ * How many lanes this session streams at once.
+ *
+ * Read off the cast rather than written as a four: the budget row, the scenario's
+ * own label, and the harness assertion all mean "one lane per agent", and a literal
+ * in any of them would let the cast grow while the claim stayed at its old size.
+ */
+export const FLAGSHIP_LANE_COUNT: number = FLAGSHIP_AGENTS.length;
+
+/** The instant one agent was attached, as the `agent.list` reply reports it. */
+function attachedAtIso(attachedAtMs: number): string {
+  return new Date(Date.parse(STARTED_AT_ISO) + attachedAtMs).toISOString();
+}
+
+/** The three entry builders, with this scenario's session bound in. */
+const lane = createLedgerLaneEntries(SESSION_ID);
+
+/**
+ * One cost reading, in the shape `Spec-006 §Usage Telemetry (usage_telemetry)` registers for it.
+ *
+ * A local builder rather than one hoisted into the shared vocabulary: this is the
+ * only scenario that meters a cost today, and `apps/desktop/AGENTS.md` hoists a
+ * helper on its SECOND use. The three required members are carried in full —
+ * `usage.cost_update` MUST set `costStatus` and `costSource`, and post-2026-08-26
+ * emitters MUST set `effectivePrincipal` — because a partial row here would teach a
+ * meter to read a shape no emitter produces.
+ */
+function costUpdateEntry(input: {
+  readonly atMs: number;
+  readonly runId: string;
+  readonly costCents: number;
+  readonly causedBy: string;
+}): LedgerScriptEntry {
+  return {
+    atMs: input.atMs,
+    kind: "usage.cost_update",
+    payload: {
+      sessionId: SESSION_ID,
+      runId: input.runId,
+      costCents: input.costCents,
+      costStatus: "priced",
+      costSource: "provider_reported",
+      effectivePrincipal: { kind: "participant", participantId: input.causedBy },
+    },
+  };
+}
+
+const FLAGSHIP_SCRIPT: readonly LedgerScriptEntry[] = [
+  // The opening, unchanged in shape: the room, the cast in join order, and the
+  // implementer's run opened by the viewer. Every surface built against this
+  // scenario reads these eight beats, so they stay first and stay as they were.
+  ...ledgerOpeningEntries({
+    sessionId: SESSION_ID,
+    openedBy: PARTICIPANT_YOU,
+    joinedBy: PARTICIPANT_PRIYA,
+    membershipId: MEMBERSHIP_PRIYA,
+    joinedAtMs: 50,
+    cast: FLAGSHIP_AGENTS,
+  }),
+  lane.transition(RUN_IMPLEMENTER, {
+    atMs: 400,
+    runVersion: 1,
+    newState: "queued",
+    agentId: AGENT_IMPLEMENTER,
+    actorParticipantId: PARTICIPANT_YOU,
+  }),
+  lane.transition(RUN_IMPLEMENTER, {
+    atMs: 500,
+    runVersion: 2,
+    previousState: "queued",
+    newState: "starting",
+  }),
+
+  // The four lanes spin up, staggered the way a real session's do. Each reaches
+  // `running` before the next is queued, so the ledger draws them arriving rather
+  // than appearing together.
+  lane.transition(RUN_IMPLEMENTER, {
+    atMs: 550,
+    runVersion: 3,
+    previousState: "starting",
+    newState: "running",
+  }),
+  lane.transition(RUN_REVIEWER, {
+    atMs: 600,
+    runVersion: 1,
+    newState: "queued",
+    agentId: AGENT_REVIEWER,
+    actorParticipantId: PARTICIPANT_PRIYA,
+  }),
+  lane.transition(RUN_REVIEWER, {
+    atMs: 650,
+    runVersion: 2,
+    previousState: "queued",
+    newState: "starting",
+  }),
+  lane.transition(RUN_REVIEWER, {
+    atMs: 700,
+    runVersion: 3,
+    previousState: "starting",
+    newState: "running",
+  }),
+  lane.transition(RUN_SCOUT, {
+    atMs: 750,
+    runVersion: 1,
+    newState: "queued",
+    agentId: AGENT_SCOUT,
+    actorParticipantId: PARTICIPANT_YOU,
+  }),
+  lane.transition(RUN_SCOUT, {
+    atMs: 800,
+    runVersion: 2,
+    previousState: "queued",
+    newState: "starting",
+  }),
+  lane.transition(RUN_SCOUT, {
+    atMs: 850,
+    runVersion: 3,
+    previousState: "starting",
+    newState: "running",
+  }),
+  lane.transition(RUN_ARCHITECT, {
+    atMs: 900,
+    runVersion: 1,
+    newState: "queued",
+    agentId: AGENT_ARCHITECT,
+    actorParticipantId: PARTICIPANT_YOU,
+  }),
+  lane.transition(RUN_ARCHITECT, {
+    atMs: 950,
+    runVersion: 2,
+    previousState: "queued",
+    newState: "starting",
+  }),
+  lane.transition(RUN_ARCHITECT, {
+    atMs: 1_000,
+    runVersion: 3,
+    previousState: "starting",
+    newState: "running",
+  }),
+
+  // From here to the last beat, four runs are mid-turn at every tick. The beats
+  // ROTATE through the lanes rather than grouping by lane, because the overlap is
+  // what is being measured: a script that finished one lane before starting the
+  // next would deliver the same beats and prove nothing about four at once.
+  lane.output(RUN_IMPLEMENTER, {
+    atMs: 1_050,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 412,
+  }),
+  lane.output(RUN_REVIEWER, {
+    atMs: 1_100,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 268,
+  }),
+  lane.output(RUN_SCOUT, {
+    atMs: 1_150,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 194,
+  }),
+  lane.output(RUN_ARCHITECT, {
+    atMs: 1_200,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 522,
+  }),
+  lane.output(RUN_IMPLEMENTER, {
+    atMs: 1_250,
+    kind: "assistant.message",
+    contentType: "text/markdown",
+    contentLength: 1_284,
+  }),
+  lane.tool(RUN_REVIEWER, {
+    atMs: 1_300,
+    kind: "tool.invoked",
+    toolName: "run_tests",
+    toolCallId: "call-reviewer-1",
+  }),
+  lane.output(RUN_SCOUT, {
+    atMs: 1_350,
+    kind: "assistant.message",
+    contentType: "text/markdown",
+    contentLength: 640,
+  }),
+  lane.output(RUN_ARCHITECT, {
+    atMs: 1_400,
+    kind: "assistant.message",
+    contentType: "text/markdown",
+    contentLength: 1_960,
+  }),
+  lane.tool(RUN_IMPLEMENTER, {
+    atMs: 1_450,
+    kind: "tool.invoked",
+    toolName: "edit_file",
+    toolCallId: "call-implementer-1",
+  }),
+  costUpdateEntry({
+    atMs: 1_500,
+    runId: RUN_IMPLEMENTER,
+    costCents: 34,
+    causedBy: PARTICIPANT_YOU,
+  }),
+  lane.tool(RUN_REVIEWER, {
+    atMs: 1_550,
+    kind: "tool.result",
+    toolName: "run_tests",
+    toolCallId: "call-reviewer-1",
+    durationMs: 180,
+    contentLength: 244,
+  }),
+
+  // The approval, landing mid-stream: one lane blocks, and the other three carry on
+  // talking through the whole block. That overlap is the point — an approval in a
+  // one-lane session stops the session, and in this one it stops a quarter of it.
+  lane.transition(RUN_IMPLEMENTER, {
+    atMs: 1_600,
+    runVersion: 4,
+    previousState: "running",
+    newState: "waiting_for_approval",
+  }),
+  lane.output(RUN_REVIEWER, {
+    atMs: 1_650,
+    kind: "assistant.message",
+    contentType: "text/markdown",
+    contentLength: 806,
+  }),
+  lane.output(RUN_SCOUT, {
+    atMs: 1_700,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 232,
+  }),
+  lane.output(RUN_ARCHITECT, {
+    atMs: 1_750,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 388,
+  }),
+  costUpdateEntry({
+    atMs: 1_800,
+    runId: RUN_REVIEWER,
+    costCents: 21,
+    causedBy: PARTICIPANT_PRIYA,
+  }),
+  lane.transition(RUN_IMPLEMENTER, {
+    atMs: 1_850,
+    runVersion: 5,
+    previousState: "waiting_for_approval",
+    newState: "running",
+    actorParticipantId: PARTICIPANT_YOU,
+  }),
+  lane.tool(RUN_IMPLEMENTER, {
+    atMs: 1_900,
+    kind: "tool.result",
+    toolName: "edit_file",
+    toolCallId: "call-implementer-1",
+    durationMs: 140,
+    contentLength: 96,
+  }),
+
+  // All four still going, and the meter still moving on two more lanes.
+  lane.output(RUN_ARCHITECT, {
+    atMs: 1_950,
+    kind: "assistant.message",
+    contentType: "text/markdown",
+    contentLength: 1_412,
+  }),
+  costUpdateEntry({ atMs: 2_000, runId: RUN_SCOUT, costCents: 9, causedBy: PARTICIPANT_YOU }),
+  lane.output(RUN_REVIEWER, {
+    atMs: 2_050,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 176,
+  }),
+  lane.tool(RUN_SCOUT, {
+    atMs: 2_100,
+    kind: "tool.invoked",
+    toolName: "read_file",
+    toolCallId: "call-scout-1",
+  }),
+  lane.output(RUN_IMPLEMENTER, {
+    atMs: 2_150,
+    kind: "assistant.message",
+    contentType: "text/markdown",
+    contentLength: 1_012,
+  }),
+  lane.tool(RUN_SCOUT, {
+    atMs: 2_200,
+    kind: "tool.result",
+    toolName: "read_file",
+    toolCallId: "call-scout-1",
+    durationMs: 62,
+    contentLength: 2_048,
+  }),
+  costUpdateEntry({
+    atMs: 2_250,
+    runId: RUN_ARCHITECT,
+    costCents: 57,
+    causedBy: PARTICIPANT_YOU,
+  }),
+  lane.output(RUN_REVIEWER, {
+    atMs: 2_300,
+    kind: "assistant.message",
+    contentType: "text/markdown",
+    contentLength: 742,
+  }),
+  lane.output(RUN_ARCHITECT, {
+    atMs: 2_350,
+    kind: "assistant.thinking_update",
+    contentType: "text/plain",
+    contentLength: 296,
+  }),
+
+  // The thread between two runs. `Spec-006 §Run Lifecycle (run_lifecycle)` puts the linkage members
+  // on the BIRTH beat — `run.queued` — so the parent is named where the child is
+  // created, and nowhere else: a second event announcing the link would be a second
+  // record of one fact, and the projection would have to pick one.
+  {
+    atMs: 2_400,
+    kind: "run.queued",
+    payload: {
+      sessionId: SESSION_ID,
+      runId: RUN_ARCHITECT_HELPER,
+      runVersion: 1,
+      newState: "queued",
+      parentRunId: RUN_ARCHITECT,
+      internalHelper: true,
+    },
+  },
+  lane.transition(RUN_ARCHITECT_HELPER, {
+    atMs: 2_450,
+    runVersion: 2,
+    previousState: "queued",
+    newState: "starting",
+  }),
+];
 
 export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   id: FLAGSHIP_SCENARIO_ID,
   label: "Four lanes",
   purpose:
-    "A live session with four agents working at once. The skeleton lands here; the streaming lanes, the mid-stream approval, and the run thread arrive with the surfaces that render them.",
+    "A live session with four agents streaming at once — interleaved turns on four run chapters, an approval landing mid-stream while the other three carry on, the cost meter moving on every lane, and a helper run threaded to the turn that spawned it.",
   sessionId: SESSION_ID,
   // Join order IS the hue order. Two people first, then the agents in the order
   // they were attached — which is what a real session's join log looks like.
@@ -123,106 +497,12 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   // the join order — that entry is whoever opened the session, on whichever machine,
   // and the two facts coincide here only because this scenario chose to make them.
   viewingParticipantId: PARTICIPANT_YOU,
-  startedAtIso: "2026-01-01T14:20:00.000Z",
-  beats: [
-    {
-      atMs: 0,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 1,
-        kind: "session.created",
-        occurredAt: "2026-01-01T14:20:00.000Z",
-        actorParticipantId: PARTICIPANT_YOU,
-        // The registered shape, verbatim: the new session's id plus the resolved
-        // config and metadata. Both are open records and both are empty here,
-        // because nothing in the corpus names a key inside either — a fixture that
-        // invented one would be teaching a surface to read a member no daemon sets.
-        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
-      },
-    },
-    {
-      atMs: 40,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 2,
-        kind: "membership.created",
-        occurredAt: "2026-01-01T14:20:00.040Z",
-        actorParticipantId: PARTICIPANT_PRIYA,
-        // A person joining a session is a membership event, not a participant one:
-        // `participant.*` is not in the census at all, and this is the type the
-        // owner's own admission rides too.
-        payload: {
-          membershipId: MEMBERSHIP_PRIYA,
-          participantId: PARTICIPANT_PRIYA,
-          role: "collaborator",
-          identityHandle: "priya",
-        },
-      },
-    },
-    ...FLAGSHIP_AGENTS.map((agent, agentIndex) => ({
-      atMs: agent.attachedAtMs,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: FIRST_AGENT_SEQUENCE + agentIndex,
-        kind: "agent.attached",
-        occurredAt: agent.attachedAtIso,
-        // The person who attached the agent, not the agent. An agent does not
-        // attach itself, and the envelope actor is who acted.
-        actorParticipantId: PARTICIPANT_YOU,
-        // `Spec-006 §Channel and Agent Lifecycle (session_lifecycle)`: the full persona plus the
-        // daemon-resolved resulting state, so the `agents` projection rebuilds from
-        // the log alone. `name` is the member — `displayName` is not on this wire.
-        payload: {
-          sessionId: SESSION_ID,
-          agentId: agent.agentId,
-          name: agent.name,
-          driverName: agent.driverName,
-          modelId: agent.modelId,
-          state: "ready",
-          actor: PARTICIPANT_YOU,
-        },
-      },
-    })),
-    {
-      atMs: 320,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 7,
-        kind: "run.queued",
-        occurredAt: "2026-01-01T14:20:00.320Z",
-        actorParticipantId: PARTICIPANT_YOU,
-        // A run-lifecycle payload is a STATE TRANSITION carrying the progression
-        // counter, not a bare id. `previousState` is absent here and only here: a
-        // queued run is being born, and no document names a value for the state it
-        // came from — so none is invented.
-        payload: {
-          sessionId: SESSION_ID,
-          runId: FIRST_RUN_ID,
-          runVersion: 1,
-          newState: "queued",
-          agentId: AGENT_IMPLEMENTER,
-        },
-      },
-    },
-    {
-      atMs: 400,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 8,
-        kind: "run.starting",
-        occurredAt: "2026-01-01T14:20:00.400Z",
-        // No actor. The daemon moves a run from `queued` to `starting`; a
-        // participant id here would attribute a system transition to a person.
-        payload: {
-          sessionId: SESSION_ID,
-          runId: FIRST_RUN_ID,
-          runVersion: 2,
-          previousState: "queued",
-          newState: "starting",
-        },
-      },
-    },
-  ],
+  startedAtIso: STARTED_AT_ISO,
+  beats: scriptLedgerBeats({
+    sessionId: SESSION_ID,
+    startedAtIso: STARTED_AT_ISO,
+    entries: FLAGSHIP_SCRIPT,
+  }),
   replies: [
     {
       // `session.read`, not a `session.list`: the registry carries no list method,
@@ -235,10 +515,10 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
           state: "active",
           config: {},
           metadata: {},
-          createdAt: "2026-01-01T14:20:00.000Z",
-          updatedAt: "2026-01-01T14:20:00.400Z",
+          createdAt: STARTED_AT_ISO,
+          updatedAt: "2026-01-01T14:20:02.450Z",
         },
-        timelineCursors: { latest: "flagship-cursor-8" },
+        timelineCursors: { latest: "flagship-cursor-45" },
       },
     },
     {
@@ -254,7 +534,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
           // `disabled` / `archived`. A run being in flight is a RUN state and is
           // read from the run, never folded into the agent row.
           state: "ready",
-          createdAt: agent.attachedAtIso,
+          createdAt: attachedAtIso(agent.attachedAtMs),
         })),
       },
     },

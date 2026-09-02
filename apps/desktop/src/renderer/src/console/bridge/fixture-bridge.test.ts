@@ -45,8 +45,20 @@ import {
   type WireErrorEnvelope,
 } from "../../../../shared/wire-errors.js";
 
-/** Past the flagship script's last beat, which is at 400 ms. */
-const PAST_EVERY_BEAT_MS = 500;
+/**
+ * Past the flagship script's last beat, read off the script rather than restated.
+ *
+ * A literal here was a copy of the scenario's span, and it went stale silently the
+ * first time the script grew: the advance stopped short, every "every beat" case
+ * below measured a partial delivery, and the exact-set cases passed because the
+ * kinds they were missing had not arrived yet.
+ */
+const PAST_EVERY_BEAT_MS = (FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) + 100;
+
+/** The kinds the flagship plays, in script order, that satisfy a predicate. */
+function flagshipKindsWhere(matches: (kind: string) => boolean): readonly string[] {
+  return FLAGSHIP_SCENARIO.beats.map((beat) => beat.event.kind).filter(matches);
+}
 
 /** The scripted latency the delayed-reply cases spend. Longer than one tick. */
 const SCRIPTED_LATENCY_MS = 120;
@@ -148,10 +160,15 @@ describe("fixture bridge — a subscription delivers only the event it named", (
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    // The flagship script carries five kinds. A subscriber that named one of them
-    // is handed one of them — never `session.created`, which arrives first and is
-    // what an unfiltered fixture delivers into a `run.starting` handler.
-    expect(received.map((event) => event.kind)).toStrictEqual(["run.starting"]);
+    // A subscriber that named one kind is handed that kind and no other — never
+    // `session.created`, which arrives first and is what an unfiltered fixture
+    // delivers into a `run.starting` handler. The expected list is the script's own
+    // `run.starting` beats, so a lane added to the scenario does not need a count
+    // edited here to keep the claim exact.
+    expect(received.map((event) => event.kind)).toStrictEqual(
+      flagshipKindsWhere((kind) => kind === "run.starting"),
+    );
+    expect(received.length).toBeGreaterThan(0);
   });
 
   it("negative control: the session stream still receives every beat", () => {
@@ -184,26 +201,29 @@ describe("fixture bridge — a subscription delivers only the event it named", (
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
     expect(streamed).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
-    expect(attached.map((event) => event.kind)).toStrictEqual([
-      "agent.attached",
-      "agent.attached",
-      "agent.attached",
-      "agent.attached",
-    ]);
+    expect(attached.map((event) => event.kind)).toStrictEqual(
+      flagshipKindsWhere((kind) => kind === "agent.attached"),
+    );
+    expect(attached.length).toBeGreaterThan(0);
   });
 });
 
 describe("fixture bridge — a registered stream delivers the kinds it carries", () => {
   /** The tick the probe's queue beat falls due at. Past the flagship's last. */
-  const QUEUE_BEAT_MS = 440;
+  const QUEUE_BEAT_MS = (FLAGSHIP_SCENARIO.beats.at(-1)?.atMs ?? 0) + 40;
 
   /** The tick the probe's rollback beat falls due at. */
-  const ROLLBACK_BEAT_MS = 460;
+  const ROLLBACK_BEAT_MS = QUEUE_BEAT_MS + 20;
+
+  /** One probe beat's instant, on the same clock the script's own beats are stamped on. */
+  function probeOccurredAt(atMs: number): string {
+    return new Date(Date.parse(FLAGSHIP_SCENARIO.startedAtIso) + atMs).toISOString();
+  }
 
   /**
    * The flagship script plus one queue row and one rollback row.
    *
-   * The flagship alone leaves both narrowed streams half-tested: it plays two run
+   * The flagship alone leaves both narrowed streams half-tested: it plays run
    * transitions and no queue row at all, so a queue subscriber's empty result
    * would be indistinguishable from a filter that drops everything. Both added
    * beats name registered event types and carry the payload members their
@@ -227,7 +247,7 @@ describe("fixture bridge — a registered stream delivers the kinds it carries",
             sessionId,
             sequence: nextSequence,
             kind: "queue_item.created",
-            occurredAt: "2026-01-01T14:20:00.440Z",
+            occurredAt: probeOccurredAt(QUEUE_BEAT_MS),
             payload: {
               sessionId,
               queueItemId: "queue-item-stream-routing-probe",
@@ -241,7 +261,7 @@ describe("fixture bridge — a registered stream delivers the kinds it carries",
             sessionId,
             sequence: nextSequence + 1,
             kind: "run.rolled_back",
-            occurredAt: "2026-01-01T14:20:00.460Z",
+            occurredAt: probeOccurredAt(ROLLBACK_BEAT_MS),
             // The forward, non-state arm the same stream carries: no transition,
             // and the landing position the run came to rest at.
             payload: {
@@ -262,10 +282,14 @@ describe("fixture bridge — a registered stream delivers the kinds it carries",
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    // The flagship plays five kinds and two of them are run transitions. Before
-    // this table the fixture recognised one stream name, so this subscriber — the
-    // one the runs surface makes — received nothing at all.
-    expect(received.map((event) => event.kind)).toStrictEqual(["run.queued", "run.starting"]);
+    // The stream is the census filtered to the `run.` root, so the expected list is
+    // the script's own `run.` beats in script order. Before this table the fixture
+    // recognised one stream name, so this subscriber — the one the runs surface
+    // makes — received nothing at all.
+    expect(received.map((event) => event.kind)).toStrictEqual(
+      flagshipKindsWhere((kind) => kind.startsWith("run.")),
+    );
+    expect(received.length).toBeGreaterThan(0);
   });
 
   it("carries both registered arms of the run-state stream", () => {
@@ -274,9 +298,11 @@ describe("fixture bridge — a registered stream delivers the kinds it carries",
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
+    // Both arms: the script's own state transitions, then the probe's forward
+    // non-state row appended after them. The transition half is read from the
+    // script, so this stays an exact-set claim as the scenario grows lanes.
     expect(received.map((event) => event.kind)).toStrictEqual([
-      "run.queued",
-      "run.starting",
+      ...flagshipKindsWhere((kind) => kind.startsWith("run.")),
       "run.rolled_back",
     ]);
   });

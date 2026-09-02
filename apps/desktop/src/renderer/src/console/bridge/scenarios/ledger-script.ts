@@ -1,12 +1,18 @@
-// The ledger scenarios' shared beat vocabulary.
+// The console scenarios' shared beat vocabulary.
 //
-// Three files script ledger sessions — the family scenario, the first-sixty-seconds
-// session, and the endurance generator — and all three need the same four things:
-// a sequence that never skips, an `occurredAt` that agrees with the beat's own
-// `atMs`, the registered run-lifecycle payload, and the registered assistant / tool
-// payloads. `apps/desktop/AGENTS.md` hoists a helper on its second use, so the
-// vocabulary lives here once rather than three times; the three scenarios are then
-// only their own data, which is what a reader wants to read.
+// Four files script sessions into the ledger — the ledger family scenario, the
+// first-sixty-seconds session, the endurance generator, and the flagship's four-lane
+// session — and all four need the same four things: a sequence that never skips, an
+// `occurredAt` that agrees with the beat's own `atMs`, the registered run-lifecycle
+// payload, and the registered assistant / tool payloads.
+// `apps/desktop/AGENTS.md` hoists a helper on its second use, so the vocabulary
+// lives here once rather than four times; the four scenarios are then only their own
+// data, which is what a reader wants to read.
+//
+// The `Ledger` in the exported names is where the vocabulary was first needed rather
+// than a claim about who may use it; the flagship reaches for exactly the same
+// builders, and a second copy under a second name would be the drift this module
+// exists to prevent.
 //
 // WHAT THE BUILDER GUARANTEES, AND WHY EACH GUARANTEE IS WORTH A FUNCTION CALL
 //
