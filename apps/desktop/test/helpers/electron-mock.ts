@@ -32,7 +32,13 @@
 // the `const` initialises, and the factory would read a binding still in its
 // temporal dead zone. Those suites keep a local factory (see
 // `src/main/protocol.test.ts` and `src/main/navigation.test.ts`, neither of
-// which constructs a window).
+// which constructs a window); the suites over the `electron`-free modules —
+// `src/main/renderer-assets.test.ts`, `src/main/load-failure-document.test.ts`,
+// `src/main/renderer-scheme.test.ts` — need no mock at all.
+//
+// The reading helpers the four window suites share (the `MockBrowserWindow`
+// cast, the listener accessors, the policy-operation prefix) live beside this
+// module in `./window-test-harness.ts`.
 
 import { vi } from "vitest";
 

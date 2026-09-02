@@ -11,9 +11,22 @@
 // security checklist names both halves (limit navigation; limit creation of new
 // windows), and neither is on by default.
 //
-// The policy is one closed classification, applied at two seams:
+// The policy is one closed classification, applied at three seams:
 //
 //   `will-navigate`          — top-level navigation the page initiated.
+//   `will-redirect`          — a server 3xx steering an admitted navigation
+//                              somewhere else. Its own seam because
+//                              `will-navigate` fires on the ORIGINAL target: a
+//                              request to an admitted origin that answers `302
+//                              Location: https://evil.test` was already admitted
+//                              by the time the redirect is known, so without
+//                              this the document swaps to an unadmitted origin
+//                              while keeping the preload, the bridge, and the
+//                              partition. It is the same classification and the
+//                              same `preventDefault`, deliberately — a redirect
+//                              that reaches somewhere a link could not reach
+//                              would be a hole shaped exactly like the one the
+//                              first seam closes.
 //   `setWindowOpenHandler`   — a popup / `window.open` / `target="_blank"`.
 //
 // Popups are denied UNCONDITIONALLY, same origin included. A second window is
@@ -34,7 +47,9 @@
 // Pure classification lives in `classifyNavigation`, which touches no Electron
 // API, so every arm of the matrix is unit-testable without a window.
 
-import { shell } from "electron";
+import { app, shell, type BrowserWindow } from "electron";
+
+import { RENDERER_HOST, RENDERER_SCHEME } from "./renderer-scheme.js";
 
 /**
  * Schemes a refused in-window navigation may be handed to the OS browser under.
@@ -146,5 +161,88 @@ export function openExternalUrl(targetUrl: string): void {
       // remainder, and until then this is the record.
       console.error("[ai-sidekicks/desktop] shell.openExternal failed:", error);
     });
+  });
+}
+
+/**
+ * The origins a window may navigate within, evaluated per navigation.
+ *
+ * Per navigation and not once at construction, because the dev branch reads the
+ * environment and a window outlives the moment it was built. The renderer scheme
+ * is always in the set; the dev-server origin joins it only under the same
+ * two-condition branch that decides what gets LOADED (see
+ * `./window.ts`'s `resolveRendererDocumentUrl`), so the allowed set and the
+ * loaded document can never disagree.
+ */
+export function inWindowOrigins(): readonly InWindowOrigin[] {
+  const origins: InWindowOrigin[] = [{ protocol: `${RENDERER_SCHEME}:`, host: RENDERER_HOST }];
+  const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
+  if (!app.isPackaged && devServerUrl !== undefined && devServerUrl !== "") {
+    try {
+      const parsedDevServerUrl = new URL(devServerUrl);
+      origins.push({ protocol: parsedDevServerUrl.protocol, host: parsedDevServerUrl.host });
+    } catch {
+      // A malformed dev-server URL is not loaded either — the load path builds
+      // its document from the same string and Chromium refuses it there. Adding
+      // nothing here keeps the allowed set narrower than the loaded one, never
+      // wider.
+    }
+  }
+  return origins;
+}
+
+/**
+ * Applies the classification to one navigation attempt.
+ *
+ * Shared verbatim by `will-navigate` and `will-redirect` so the two seams cannot
+ * drift: a redirect target that a link could not reach must not be reachable by
+ * being redirected to. `seam` names which one fired, so a refusal log says
+ * whether the page asked or a server steered.
+ */
+function decideNavigation(event: Electron.Event, targetUrl: string, seam: string): void {
+  const verdict = classifyNavigation(targetUrl, inWindowOrigins());
+  if (verdict.kind === "in-window") {
+    return;
+  }
+
+  // Deliberately first: the navigation is stopped before anything else is
+  // decided, so an exception in the external path cannot leave it running.
+  event.preventDefault();
+
+  if (verdict.kind === "external") {
+    openExternalUrl(targetUrl);
+    return;
+  }
+  console.warn(`[ai-sidekicks/desktop] refused an in-window ${seam}: ${verdict.reason}`);
+}
+
+/**
+ * Installs the navigation policy on one window (Plan-023 I-023-2).
+ *
+ * Called from the locked window factory rather than from each caller, so a
+ * future factory cannot construct a locked window that is nevertheless free to
+ * navigate anywhere — the locked `webPreferences` block and this policy are
+ * installed by the same private function or by neither.
+ */
+export function installNavigationPolicy(browserWindow: BrowserWindow): void {
+  browserWindow.webContents.on("will-navigate", (event: Electron.Event, targetUrl: string) => {
+    decideNavigation(event, targetUrl, "navigation");
+  });
+
+  browserWindow.webContents.on("will-redirect", (event: Electron.Event, targetUrl: string) => {
+    decideNavigation(event, targetUrl, "redirect");
+  });
+
+  browserWindow.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
+    // Every popup is denied. The only second window this process creates is
+    // `createAuxiliaryWindow`'s, which runs the locked factory; a
+    // Chromium-created one would carry options nothing here reviewed.
+    const verdict = classifyNavigation(url, inWindowOrigins());
+    if (verdict.kind === "external") {
+      openExternalUrl(url);
+    } else if (verdict.kind === "refused") {
+      console.warn(`[ai-sidekicks/desktop] refused a popup: ${verdict.reason}`);
+    }
+    return { action: "deny" };
   });
 }

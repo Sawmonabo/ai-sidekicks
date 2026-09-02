@@ -18,7 +18,7 @@
 
 import { app, net, type BrowserWindow } from "electron";
 
-import { RENDERER_INDEX_URL } from "../protocol.js";
+import { RENDERER_INDEX_URL } from "../renderer-scheme.js";
 
 /** The stdout marker `apps/desktop/test/launch.smoke.test.ts` parses. */
 export const SMOKE_PROBE_TAG = "[SIDEKICKS_SMOKE_PROBE]";

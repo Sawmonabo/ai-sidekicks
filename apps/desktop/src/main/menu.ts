@@ -60,7 +60,7 @@ import {
   IMPLEMENTED_AUXILIARY_ROUTES,
   type AuxiliaryRouteName,
 } from "../shared/auxiliary-routes.js";
-import { createAuxiliaryWindow } from "./window.js";
+import { createAuxiliaryWindow } from "./auxiliary-window.js";
 
 const IS_MACOS = process.platform === "darwin";
 
