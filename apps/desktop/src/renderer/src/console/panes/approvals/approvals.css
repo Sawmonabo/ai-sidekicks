@@ -184,7 +184,7 @@
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-sm);
   background: var(--meridian-surface);
-  border: 1px solid var(--meridian-border);
+  border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-sm);
 }
 
@@ -296,8 +296,6 @@
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 1px;
 }
-
-/* --- the permission ask ------------------------------------------------ */
 
 /* --- standing permissions ---------------------------------------------- */
 
