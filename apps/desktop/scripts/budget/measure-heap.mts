@@ -1,245 +1,203 @@
 #!/usr/bin/env node
 // Renderer heap-at-rest budget — Plan-023 Phase 1C (T-023p-1C-1).
 //
-// Reads `process.memoryUsage().heapUsed` with a console-shaped workload
-// retained — a reference entity store standing in for `console/store/` until
-// T-023p-1C-2 lands the real one — and gates it against the
-// `renderer-heap-at-rest` row of `test/console/budget/budgets.json`.
+// This budget is NOT gated at this revision, and this file is where a person who
+// runs `pnpm budget:heap` is told so by name, with the reason and the task that
+// lifts it, rather than being handed a green verdict nobody measured.
 //
-// This is a Node process, not an Electron renderer, so a pass is necessary and
-// not sufficient; every reading prints what it does not prove. Without
-// `--expose-gc` nothing forces a collection and the figure is an UPPER bound,
-// so the CLI re-executes itself with the flag to get a settled one.
+// WHAT THIS FILE USED TO DO, AND WHY IT NO LONGER DOES IT
 //
-//   node --experimental-strip-types scripts/budget/measure-heap.mts [--json] [--entities=<n>]
-// Exit: 0 within budget · 1 over budget · 2 bad usage.
+// It read `process.memoryUsage().heapUsed` in THIS Node process with a stand-in
+// entity map retained, and compared that figure against the 120 MB renderer
+// ceiling. No Chromium, no V8 renderer isolate, no React, no DOM, no console
+// store — so the reading was short of the shipped renderer by everything that
+// makes a renderer, and the gate could report green over a renderer that was
+// well past the limit. A gate that cannot fail for the reason it exists is worse
+// than a recorded absence, so the reading is deleted rather than re-pointed.
+//
+// WHY IT IS RECORDED UNGATED RATHER THAN RE-AIMED AT THE BUILT RENDERER
+//
+// `Spec-023 §Console Design (Meridian)` §Budgets bounds "renderer heap, ONE
+// SESSION OPEN at rest" at 120 MB, and that subject is out of reach here:
+//
+//   • **No session has content.** A session route opens a real `SessionStore`,
+//     and nothing delivers events into it — the session-read wire is a
+//     `Plan-023 §Console growth slate` row the growth port refuses, and the
+//     ledger surface that would render a timeline is T-023p-1C-2's. A reading
+//     over an empty session measures the substrate, not this budget's subject.
+//   • **The flagship scenario has neither a consumer nor a selector.** The
+//     renderer root mounts the console with no scenario, so a fixture build
+//     plays the first-run scenario; a runtime switch is one of the architecture
+//     tier's static tripwires, and the scenario picker is T-023p-1C-8's.
+//
+// So the honest renderer reading is the endurance tier's — taken over CDP
+// against the built console, which is where `Spec-023 §Console Test Tiers` puts
+// heap snapshots — and `budgets.json` records this row against the task that
+// takes it. Every harness prints one line per ungated budget, so the row stays
+// visible instead of vanishing.
+//
+//   node --experimental-strip-types scripts/budget/measure-heap.mts [--json]
+//
+// Exit: 0 when the registry declares this budget ungated and says why · 2 on bad
+// usage, or when the registry claims the budget IS gated, which nothing here can
+// honour. There is deliberately no exit 1 at this revision: no reading is taken,
+// so nothing can be over budget. It returns when the reading does.
 
-import { spawnSync } from "node:child_process";
 import process from "node:process";
 import console from "node:console";
 import { fileURLToPath } from "node:url";
 import { realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { setTimeout as delay } from "node:timers/promises";
 
 import {
+  ConsoleBudgetRegistry,
+  formatUnavailableBudgetReport,
   type ConsoleBudget,
-  type ConsoleBudgetRegistry,
-  type ConsoleBudgetVerdict,
 } from "./budget-registry.mts";
-import { formatBudgetReport, formatBytes, runBudgetHarness } from "./budget-harness.mts";
+import { BudgetSubjectMissingError, formatBytes } from "./budget-harness.mts";
 
 export const HEAP_AT_REST_BUDGET_ID: string = "renderer-heap-at-rest";
 
 /**
- * The closed console entity-kind set the store partitions by — NOT the pane-kind
- * set, which is a different closed set.
- * TODO(T-023p-1C-2): re-export from `console/store/` so there is one declaration.
+ * Thrown when the registry says this budget is gated and this harness has no
+ * reading to gate it with.
+ *
+ * A `BudgetSubjectMissingError`, on the same reasoning its sibling
+ * `RendererBundleOutputMissingError` carries: the subject a verdict would be
+ * about does not exist, and the refusal names what produces it. The day someone
+ * flips the row back to `enforced` — the obvious way to "fix" a budget that
+ * reports nothing — this fires instead of letting the CLI exit 0 over a row that
+ * now claims a gate no code performs.
  */
-export const CONSOLE_ENTITY_KINDS = [
-  "session",
-  "participant",
-  "channel",
-  "run",
-  "agent",
-  "workspace",
-  "worktree",
-  "artifact",
-  "approval",
-  "workflow-run",
-  "browser-page",
-] as const;
-
-export type ConsoleEntityKind = (typeof CONSOLE_ENTITY_KINDS)[number];
-
-/** A deliberately generous session: the budget is a ceiling, so the workload sits high. */
-export const HEAP_AT_REST_ENTITY_COUNT: number = 2000;
-
-/** Stops the `--expose-gc` re-exec from recursing. */
-const GC_REEXEC_SENTINEL = "SIDEKICKS_HEAP_BUDGET_REEXEC";
-
-export interface ConsoleEntity {
-  readonly kind: ConsoleEntityKind;
-  readonly id: string;
-  readonly state: string;
-  readonly touchedAt: string;
-  readonly attributedTo: string;
-  readonly body: Readonly<Record<string, unknown>>;
+export class HeapAtRestMeasurementMissingError extends BudgetSubjectMissingError {
+  public constructor(budget: ConsoleBudget) {
+    super(
+      `The budget registry marks \`${budget.id}\` as \`${budget.status}\`, but nothing measures it ` +
+        "at this revision.\n" +
+        "The reading this budget wants is a renderer heap read over CDP against the built console " +
+        `with one session open, which is ${budget.producedBy}'s. Until it is taken, this row stays ` +
+        "`n/a` with its `notMeasurableReason` — a gate reported green over a renderer nobody read " +
+        "is worse than a recorded absence.\n",
+    );
+    this.name = "HeapAtRestMeasurementMissingError";
+  }
 }
 
-export interface HeapAtRestMeasurement {
-  readonly measuredAt: string;
-  readonly nodeVersion: string;
-  readonly platform: string;
-  readonly entityCount: number;
-  readonly partitionCount: number;
-  /** `false` when the process has no `--expose-gc`; the reading is then an upper bound. */
-  readonly garbageCollectionForced: boolean;
-  readonly baselineHeapUsedBytes: number;
-  /** The figure compared against the budget. */
-  readonly atRestHeapUsedBytes: number;
-  readonly workloadHeapDeltaBytes: number;
-  /** Printed with every reading; never empty. */
-  readonly limitations: readonly string[];
+/** What a `--json` run emits where a measurement and a verdict used to go. */
+export interface HeapAtRestUnenforcedRecord {
+  readonly budgetId: string;
+  /** Literal, so a consumer can discriminate this from a verdict without guessing. */
+  readonly status: "unenforced";
+  /** The registry's own `notMeasurableReason`, verbatim. */
+  readonly reason: string;
+  /** The Plan-023 task that takes the reading. */
+  readonly producedBy: string;
+  readonly limitCanonicalValue: number;
+  readonly canonicalUnit: string;
 }
 
 /**
- * Partitioned entity map standing in for `console/store/`'s `SessionStore`.
- * TODO(T-023p-1C-2): delete in favour of the real `SessionStore`.
+ * The heap budget's row, and the two things this revision can honestly say about
+ * it: that it is ungated, and why.
+ *
+ * The registry is injected rather than loaded at every call site so the refusal
+ * arm above is reachable from a test against a fixture registry. Its default is
+ * the one file every harness reads.
  */
-export class ReferencePartitionedEntityStore {
-  #partitions: Record<string, Record<string, ConsoleEntity>>;
+export class ConsoleHeapAtRestGate {
+  readonly #registry: ConsoleBudgetRegistry;
+  readonly #budget: ConsoleBudget;
 
-  constructor() {
-    this.#partitions = Object.fromEntries(CONSOLE_ENTITY_KINDS.map((kind) => [kind, {}]));
+  public constructor(registry: ConsoleBudgetRegistry = ConsoleBudgetRegistry.load()) {
+    this.#registry = registry;
+    this.#budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);
   }
 
-  /** Immutable, as the real store's reducer will be — the shape being measured. */
-  apply(entity: ConsoleEntity): void {
-    const partition = this.#partitions[entity.kind] ?? {};
-    this.#partitions = {
-      ...this.#partitions,
-      [entity.kind]: { ...partition, [entity.id]: entity },
-    };
+  public get budget(): ConsoleBudget {
+    return this.#budget;
   }
 
-  get entityCount(): number {
-    const partitions = Object.values(this.#partitions);
-    return partitions.reduce((total, partition) => total + Object.keys(partition).length, 0);
-  }
-
-  get partitionCount(): number {
-    return Object.keys(this.#partitions).length;
-  }
-}
-
-/** Deterministic in `ordinal`, so two runs measure the identical object graph. */
-export function buildReferenceConsoleEntity(ordinal: number): ConsoleEntity {
-  const kind = CONSOLE_ENTITY_KINDS[ordinal % CONSOLE_ENTITY_KINDS.length] ?? "session";
-  return {
-    kind,
-    id: `${kind}-${String(ordinal).padStart(6, "0")}`,
-    state: ordinal % 3 === 0 ? "active" : ordinal % 3 === 1 ? "idle" : "terminal",
-    touchedAt: new Date(Date.UTC(2026, 8, 1, 0, 0, ordinal % 60)).toISOString(),
-    attributedTo: `participant-${String(ordinal % 12).padStart(2, "0")}`,
-    body: {
-      label: `Reference console entity ${ordinal}`,
-      sequence: ordinal,
-      digest: `b3:${(ordinal * 2654435761).toString(16).padStart(16, "0")}`,
-    },
-  };
-}
-
-export class ConsoleHeapAtRestMeasurer {
-  readonly #entityCount: number;
-
-  constructor(entityCount: number = HEAP_AT_REST_ENTITY_COUNT) {
-    this.#entityCount = entityCount;
-  }
-
-  async measure(): Promise<HeapAtRestMeasurement> {
-    const collectGarbage = (globalThis as Record<string, unknown>)["gc"] as
-      | (() => void)
-      | undefined;
-    const garbageCollectionForced = typeof collectGarbage === "function";
-    const settle = async (): Promise<void> => {
-      for (let pass = 0; pass < 4; pass += 1) {
-        collectGarbage?.();
-        await delay(10);
-      }
-    };
-
-    await settle();
-    const baselineHeapUsedBytes = process.memoryUsage().heapUsed;
-
-    const store = new ReferencePartitionedEntityStore();
-    for (let ordinal = 0; ordinal < this.#entityCount; ordinal += 1) {
-      store.apply(buildReferenceConsoleEntity(ordinal));
+  /** @throws {HeapAtRestMeasurementMissingError} when the row claims a gate. */
+  #requireRecordedReason(): string {
+    const reason = this.#budget.notMeasurableReason;
+    if (this.#budget.status !== "n/a" || reason === null) {
+      throw new HeapAtRestMeasurementMissingError(this.#budget);
     }
-
-    await settle();
-    const atRestHeapUsedBytes = process.memoryUsage().heapUsed;
-
-    // Read the store AFTER the reading so the graph is provably live across it —
-    // measuring a workload the engine was free to collect measures nothing.
-    const entityCount = store.entityCount;
-    const partitionCount = store.partitionCount;
-
-    const limitations = [
-      "Measured in a Node process, not an Electron renderer: no Chromium, no React reconciler, no DOM, no compositor. The renderer's own floor is higher than this process can observe; that figure is the endurance tier's at T-023p-1C-8.",
-      `Measured against a reference partitioned entity store standing in for the console's \`SessionStore\` (${entityCount} entities across ${partitionCount} partitions). TODO(T-023p-1C-2): re-point at the real store.`,
-      "`heapUsed` excludes external and ArrayBuffer memory, neither of which this budget counts.",
-    ];
-    if (!garbageCollectionForced) {
-      limitations.push(
-        "No `--expose-gc` in this process, so no collection was forced: the reading includes uncollected garbage and is an UPPER bound on retained heap. The gate can therefore fail early but never pass wrongly.",
-      );
-    }
-
-    return {
-      measuredAt: new Date().toISOString(),
-      nodeVersion: process.version,
-      platform: `${process.platform}-${process.arch}`,
-      entityCount,
-      partitionCount,
-      garbageCollectionForced,
-      baselineHeapUsedBytes,
-      atRestHeapUsedBytes,
-      workloadHeapDeltaBytes: atRestHeapUsedBytes - baselineHeapUsedBytes,
-      limitations,
-    };
+    return reason;
   }
-}
 
-export function formatHeapAtRestReport(
-  measurement: HeapAtRestMeasurement,
-  budget: ConsoleBudget,
-  verdict: ConsoleBudgetVerdict,
-  registry: ConsoleBudgetRegistry,
-): string {
-  return formatBudgetReport(
-    {
-      title: "Renderer heap-at-rest budget — Plan-023 T-023p-1C-1",
-      provenance: [
-        `  measured at:   ${measurement.measuredAt}`,
-        `  runtime:       Node ${measurement.nodeVersion} on ${measurement.platform}`,
-        `  workload:      ${measurement.entityCount.toLocaleString("en-US")} entities across ${measurement.partitionCount} partitions`,
-        `  forced GC:     ${measurement.garbageCollectionForced ? "yes (--expose-gc)" : "NO — reading is an upper bound"}`,
-      ],
-      readings: [
-        `Readings — heap ${formatBytes(measurement.baselineHeapUsedBytes)} before the workload, ` +
-          `${formatBytes(measurement.atRestHeapUsedBytes)} at rest ` +
-          `(workload ${formatBytes(measurement.workloadHeapDeltaBytes)})`,
-        "",
-        "What this reading does not prove",
-        ...measurement.limitations.map((limitation) => `  • ${limitation}`),
-      ],
-      measuredDescription: "heapUsed at rest",
-    },
-    budget,
-    verdict,
-    registry,
-  );
+  /** @throws {HeapAtRestMeasurementMissingError} when the row claims a gate. */
+  public record(): HeapAtRestUnenforcedRecord {
+    return Object.freeze({
+      budgetId: this.#budget.id,
+      status: "unenforced",
+      reason: this.#requireRecordedReason(),
+      producedBy: this.#budget.producedBy,
+      limitCanonicalValue: this.#budget.limit.canonicalValue,
+      canonicalUnit: this.#budget.limit.canonicalUnit,
+    });
+  }
+
+  /**
+   * The report a person reads.
+   *
+   * Not composed through `formatBudgetReport`: that skeleton is built around a
+   * verdict over a measured figure, and there is no figure here. The verdict line
+   * keeps its position and its label so a reader's eye lands where it always
+   * does, and reads `UNENFORCED` rather than a comparison of nothing.
+   *
+   * @throws {HeapAtRestMeasurementMissingError} when the row claims a gate.
+   */
+  public report(): string {
+    const budget = this.#budget;
+    return [
+      "Renderer heap-at-rest budget — Plan-023 T-023p-1C-1",
+      `  registry:      ${this.#registry.budgetsFilePath}`,
+      `  spec source:   ${this.#registry.source}`,
+      `  subject:       ${budget.subject}`,
+      "",
+      "Reading — none taken. This harness measures nothing, by design: the figure this",
+      "budget bounds is a renderer heap, and no process here holds one.",
+      "",
+      `Budget — ${budget.label}`,
+      `  spec target:   ${budget.specTarget}`,
+      `  limit:         ${formatBytes(budget.limit.canonicalValue)} (${budget.limit.value} ${budget.limit.unit})`,
+      "  measured:      — nothing measured, so there is no figure to compare",
+      "  verdict:       UNENFORCED",
+      `  produced by:   ${budget.producedBy}`,
+      `  reason:        ${this.#requireRecordedReason()}`,
+      "",
+      formatUnavailableBudgetReport(this.#registry),
+    ].join("\n");
+  }
 }
 
 const USAGE = `measure-heap.mts — renderer heap-at-rest budget (Plan-023 T-023p-1C-1)
 
-  --json             emit the measurement and verdict as JSON on stdout
-  --entities=<n>     workload size (default: ${HEAP_AT_REST_ENTITY_COUNT})
+  --json             emit the budget row and its ungated record as JSON on stdout
   -h, --help         this text
 
-exit 0 within budget · 1 over budget · 2 bad usage`;
+This budget is not gated at this revision; the reading is the endurance tier's.
+exit 0 declared ungated · 2 bad usage, or the registry claims a gate nothing here performs`;
 
-/** CLI entry point; returns the process exit code. */
-export async function runHeapBudgetCommand(argumentList: readonly string[]): Promise<number> {
-  let values: { json?: boolean; help?: boolean; entities?: string };
+/**
+ * CLI entry point; returns the process exit code.
+ *
+ * The registry is a parameter for the same reason the gate takes one: the exit-2
+ * arm is a claim about behaviour, and a claim no test can drive is a claim
+ * rather than evidence.
+ */
+export function runHeapBudgetCommand(
+  argumentList: readonly string[],
+  registry?: ConsoleBudgetRegistry,
+): number {
+  let values: { json?: boolean; help?: boolean };
   try {
     ({ values } = parseArgs({
       args: [...argumentList],
       options: {
         json: { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
-        entities: { type: "string", default: String(HEAP_AT_REST_ENTITY_COUNT) },
       },
       allowPositionals: false,
       strict: true,
@@ -255,47 +213,30 @@ export async function runHeapBudgetCommand(argumentList: readonly string[]): Pro
     return 0;
   }
 
-  const entityCount = Number.parseInt(values.entities ?? "", 10);
-  if (!Number.isInteger(entityCount) || entityCount <= 0) {
-    console.error(`--entities must be a positive integer, got \`${values.entities ?? ""}\`.`);
-    console.error(USAGE);
-    return 2;
+  const resolvedRegistry = registry ?? ConsoleBudgetRegistry.load();
+  const gate = new ConsoleHeapAtRestGate(resolvedRegistry);
+  try {
+    console.log(
+      values.json === true
+        ? JSON.stringify({ budget: gate.budget, unenforced: gate.record() }, null, 2)
+        : gate.report(),
+    );
+  } catch (gateError) {
+    if (gateError instanceof BudgetSubjectMissingError) {
+      // Same shape `runBudgetHarness` gives a missing subject: say what is
+      // absent, then reprint the ungated set so the refusal does not shrink the
+      // report to one line about one row.
+      console.error(gateError.message);
+      console.error(formatUnavailableBudgetReport(resolvedRegistry));
+      return 2;
+    }
+    throw gateError;
   }
-
-  return runBudgetHarness({
-    budgetId: HEAP_AT_REST_BUDGET_ID,
-    measure: () => new ConsoleHeapAtRestMeasurer(entityCount).measure(),
-    compare: (measurement: HeapAtRestMeasurement) => measurement.atRestHeapUsedBytes,
-    format: formatHeapAtRestReport,
-    emitJson: values.json === true,
-  });
+  return 0;
 }
 
-/**
- * Re-runs this file under `--expose-gc` so the reading is settled, returning the
- * child's exit code — or `null` when no re-exec was needed or possible, in which
- * case we measure here and the report says the reading is an upper bound.
- *
- * `--experimental-strip-types` travels with it: this file is TypeScript, and on
- * a Node below 22.18 the flag is what makes it loadable at all.
- */
-function reExecuteWithExposedGarbageCollector(argumentList: readonly string[]): number | null {
-  const selfPath = process.argv[1];
-  if (
-    typeof (globalThis as Record<string, unknown>)["gc"] === "function" ||
-    process.env[GC_REEXEC_SENTINEL] === "1" ||
-    selfPath === undefined
-  ) {
-    return null;
-  }
-  const child = spawnSync(
-    process.execPath,
-    ["--experimental-strip-types", "--expose-gc", selfPath, ...argumentList],
-    { stdio: "inherit", env: { ...process.env, [GC_REEXEC_SENTINEL]: "1" } },
-  );
-  return child.error !== undefined || child.status === null ? null : child.status;
-}
-
+// CLI only when this file is the entry point, so the Vitest project can import
+// it without side effects.
 // Compared through `realpathSync` on BOTH sides, never `import.meta.url ===
 // pathToFileURL(argv[1])`: Node resolves the module URL through symlinks while
 // argv[1] keeps the path as typed, so the naive form silently no-ops through a
@@ -306,8 +247,5 @@ if (
   invokedPath !== undefined &&
   realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url))
 ) {
-  const commandArguments = process.argv.slice(2);
-  const reExecStatus = reExecuteWithExposedGarbageCollector(commandArguments);
-  process.exitCode =
-    reExecStatus !== null ? reExecStatus : await runHeapBudgetCommand(commandArguments);
+  process.exitCode = runHeapBudgetCommand(process.argv.slice(2));
 }
