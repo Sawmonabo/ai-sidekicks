@@ -12,6 +12,10 @@
 //     that carries `agentId`, so a fold that replaced the body wholesale would
 //     lose the agent on the very next transition — visible to nobody, because a
 //     run with no agent renders exactly like a run that never had one.
+//
+// The fourth claim — that the body carries the members the wire shapes register
+// rather than four of them — is its own subject and lives beside this one, in
+// `run-lifecycle-projector.body.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
