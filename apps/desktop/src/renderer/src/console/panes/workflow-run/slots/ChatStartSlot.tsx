@@ -39,7 +39,10 @@ export interface ChatStartMount {
   readonly sessionId: string | undefined;
 }
 
-/** The body Plan-017 authors, and the signature this pane will call it with. */
+/**
+ * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
+ * calls. `owner-slots.ts` states the reason once for all five slots.
+ */
 export type ChatStartBody = (mount: ChatStartMount) => React.ReactNode;
 
 export interface ChatStartSlotProps extends ChatStartMount {
@@ -49,10 +52,14 @@ export interface ChatStartSlotProps extends ChatStartMount {
 
 /** The conversational start, or the honest statement that it is reserved and unbuilt. */
 export function ChatStartSlot(props: ChatStartSlotProps): React.JSX.Element {
-  const { body, ...mount } = props;
+  const { body: ChatStartBodyComponent, ...mount } = props;
   return (
     <WorkflowSlotMount
-      slot={{ contract: WORKFLOW_CHAT_START_SLOT.contract, body: body?.(mount) }}
+      slot={{
+        contract: WORKFLOW_CHAT_START_SLOT.contract,
+        body:
+          ChatStartBodyComponent === undefined ? undefined : <ChatStartBodyComponent {...mount} />,
+      }}
       title="Starting a run by talking to it is not built yet."
       detail="Runs start from a definition in the workflows browser. This area is reserved for the command and the composer's own affordance."
     />

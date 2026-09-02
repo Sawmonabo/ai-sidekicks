@@ -46,7 +46,10 @@ export interface DraftsMount {
   readonly draftStore: DraftStore;
 }
 
-/** The body Plan-017 authors, and the signature this pane will call it with. */
+/**
+ * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
+ * calls. `owner-slots.ts` states the reason once for all five slots.
+ */
 export type DraftsBody = (mount: DraftsMount) => React.ReactNode;
 
 export interface DraftsSlotProps extends DraftsMount {
@@ -56,10 +59,13 @@ export interface DraftsSlotProps extends DraftsMount {
 
 /** The inspector's drafts, or the honest statement that they are reserved and unbuilt. */
 export function DraftsSlot(props: DraftsSlotProps): React.JSX.Element {
-  const { body, ...mount } = props;
+  const { body: DraftsBodyComponent, ...mount } = props;
   return (
     <WorkflowSlotMount
-      slot={{ contract: WORKFLOW_DRAFT_SLOT.contract, body: body?.(mount) }}
+      slot={{
+        contract: WORKFLOW_DRAFT_SLOT.contract,
+        body: DraftsBodyComponent === undefined ? undefined : <DraftsBodyComponent {...mount} />,
+      }}
       title="The phase inspector is not built yet."
       detail="A phase's form configuration, tool binding and gate open here; nothing typed into them is ever written to disk."
     />

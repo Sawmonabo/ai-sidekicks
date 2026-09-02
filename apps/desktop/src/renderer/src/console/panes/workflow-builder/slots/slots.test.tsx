@@ -99,7 +99,13 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
     // every field is private — so a body handed the WRONG store would pass a
     // structural check and fail the only one that matters.
     expect(body.mock.calls[0]?.[0]?.uiStateStore).toBe(uiStateStore);
-    expect(body).toHaveBeenCalledWith({ workflowDefinitionId: DEFINITION_ID, uiStateStore });
+    // The first argument rather than the whole call: React owns the argument list of
+    // a component it renders, and an assertion on its arity would be a claim about
+    // React rather than about this mount.
+    expect(body.mock.calls[0]?.[0]).toStrictEqual({
+      workflowDefinitionId: DEFINITION_ID,
+      uiStateStore,
+    });
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 
@@ -110,7 +116,10 @@ describe("a filled builder slot receives exactly what the mount promised", () =>
     // The durable store is absent by design and not by omission: a draft that
     // survived a restart would be participant prose in a durable home.
     expect(body.mock.calls[0]?.[0]?.draftStore).toBe(draftStore);
-    expect(body).toHaveBeenCalledWith({ workflowDefinitionId: DEFINITION_ID, draftStore });
+    expect(body.mock.calls[0]?.[0]).toStrictEqual({
+      workflowDefinitionId: DEFINITION_ID,
+      draftStore,
+    });
   });
 
   it("negative control: an unfilled slot calls nothing and keeps its shell", () => {
