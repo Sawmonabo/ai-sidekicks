@@ -51,6 +51,27 @@ const CONTROL_EVENT_ID = "019b79ee-0280-7ea1-8110-e5e0d1159901";
 /** A run the transition controls below are about. */
 const CONTROL_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1159901";
 
+/** A queue row the queue-state controls below are about. */
+const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
+
+/** One queue beat, over whatever payload the control under test wants to plant. */
+function queueControlBeat(
+  eventKind: string,
+  payload: Readonly<Record<string, unknown>>,
+): ConsoleScenario["beats"][number] {
+  return {
+    atMs: 0,
+    event: {
+      id: CONTROL_EVENT_ID,
+      sessionId: CONTROL_SESSION_ID,
+      sequence: 1,
+      kind: eventKind,
+      occurredAt: "2026-01-01T00:00:00.000Z",
+      payload,
+    },
+  };
+}
+
 /** The smallest well-formed scenario, so each control varies exactly one thing. */
 function controlScenario(overrides: Partial<ConsoleScenario>): ConsoleScenario {
   return {
@@ -175,6 +196,67 @@ describe("scenario wire truth — the controls", () => {
               },
             },
           },
+        ],
+      }),
+    ]);
+
+    expect(defects).toStrictEqual([]);
+  });
+
+  it("reports a queue beat that names no state", () => {
+    // Every leg above passes this beat: `queue_item.admitted` is a census row, the
+    // canonical envelope carries it, and the strict layer registers no variant for
+    // any of the five queue kinds — so the omission was invisible, and the stream's
+    // projection would have taken the row's state from the KIND alone and built a
+    // valid-looking summary out of half a payload.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          queueControlBeat("queue_item.admitted", {
+            sessionId: CONTROL_SESSION_ID,
+            queueItemId: CONTROL_QUEUE_ITEM_ID,
+          }),
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain("names no `state`");
+  });
+
+  it("reports a queue beat whose kind and payload name different states", () => {
+    // The other half of the same rule, and the one the missing member used to skip
+    // past: `queue_item.admitted` announces `admitted`, so a payload saying `queued`
+    // is a row that moved two ways at once.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          queueControlBeat("queue_item.admitted", {
+            sessionId: CONTROL_SESSION_ID,
+            queueItemId: CONTROL_QUEUE_ITEM_ID,
+            state: "queued",
+          }),
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain("two queue states");
+  });
+
+  it("negative control: the same beat naming the state its kind announces is clean", () => {
+    // Without it, a leg that reported every queue beat would pass both cases above,
+    // and no family could script a queue row at all. `queue_item.created` is the row
+    // that proves the mapping is read and not guessed: its kind says `created` and
+    // the state it announces is `queued`.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          queueControlBeat("queue_item.created", {
+            sessionId: CONTROL_SESSION_ID,
+            queueItemId: CONTROL_QUEUE_ITEM_ID,
+            state: "queued",
+          }),
         ],
       }),
     ]);

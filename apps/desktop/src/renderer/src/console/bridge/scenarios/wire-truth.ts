@@ -40,6 +40,12 @@
 //     above because neither can see it — the census knows kinds, the strict layer
 //     registers no variant for the run-lifecycle kinds at all, and the machine is
 //     prose in `docs/domain/run-state-machine.md`.
+//   • The queue payload's own required member. The five `queue_item.*` kinds are
+//     census-only in the strict layer too, so a beat that omits `state` — which
+//     `Spec-006 §Queue Events` makes required — passes all three legs above. This
+//     is the leg that refuses it, on the same terms as the transition table: a rule
+//     the shipped schemas do not carry, checked against the one module that owns
+//     the mapping rather than against a second reading of it here.
 //
 // WHY THE PROBE IS A WHOLE ENVELOPE, AND WHOSE ENVELOPE IT IS. The strict layer is
 // declared per EVENT, not per payload — there is no exported payload-only schema to
@@ -71,6 +77,7 @@ import {
 
 import { composeScenarioEventEnvelope } from "../scenario-envelope.js";
 import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
+import { runQueueStreamStateFor } from "../session-event-streams.js";
 
 /**
  * One way a scenario contradicts the shipped wire contract.
@@ -131,6 +138,10 @@ function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   if (selfTransition !== undefined) {
     return selfTransition;
   }
+  const queueState = describeQueueStateDefect(beat);
+  if (queueState !== undefined) {
+    return queueState;
+  }
   const envelope = composeScenarioEventEnvelope(beat.event);
   const carried = EventEnvelopeSchema.safeParse(envelope);
   if (!carried.success) {
@@ -186,6 +197,46 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
     "transition this beat means, or, for a run being created, name the state it is in " +
     "and no state it came from."
   );
+}
+
+/**
+ * A queue beat that names no state, or names one its kind contradicts.
+ *
+ * `Spec-006 §Queue Events` fixes the queue payload at
+ * `{sessionId, queueItemId, channelId?, state}`, and `SessionEventSchema`
+ * registers no variant for any of the five `queue_item.*` kinds — so `state` is
+ * required by the corpus and enforced by nothing the contracts package ships. A
+ * beat without it reads as a real queue event, and the queue stream's projection
+ * would then have to take the row's state from the KIND alone, which is a summary
+ * derived from half its own payload.
+ *
+ * The kind-to-state mapping is `session-event-streams.ts`'s, read here rather than
+ * restated: that module is what routes these beats onto the queue stream in the
+ * first place, and a second copy of the table would let a scenario pass this leg
+ * and fail the projection that consumes it. A kind it does not claim is not a queue
+ * beat and is not this leg's business.
+ */
+function describeQueueStateDefect(beat: ScenarioBeat): string | undefined {
+  const announcedState = runQueueStreamStateFor(beat.event.kind);
+  if (announcedState === undefined) {
+    return undefined;
+  }
+  const statedState = beat.event.payload?.["state"];
+  if (statedState === undefined) {
+    return (
+      "this beat names no `state`, which is a required member of every queue payload " +
+      "the daemon emits. Name the state this row moved to — " +
+      `\`"${announcedState}"\`, which is what its kind announces.`
+    );
+  }
+  if (statedState !== announcedState) {
+    return (
+      `this beat announces "${announcedState}" by its kind and ` +
+      `${JSON.stringify(statedState)} in its payload, so it reports two queue states at ` +
+      "once. One of the two is the row this beat means; script that one."
+    );
+  }
+  return undefined;
 }
 
 /** One Zod issue as a sentence fragment: where it is, and what it says. */
