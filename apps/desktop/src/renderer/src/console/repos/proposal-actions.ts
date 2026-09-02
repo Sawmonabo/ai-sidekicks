@@ -177,8 +177,46 @@ export function offeredProposalActions(state: ProposalGateState): readonly Propo
   if (GATE_ARM_ACTION_AVAILABILITY[state.kind] === "no-acts") {
     return [];
   }
-  const hasReviewableProposal = state.kind === "prepared" && state.proposal !== undefined;
+  // PRESENCE IS NOT REVIEWABILITY, AND THE WIRE'S OWN VOCABULARY IS WHY. The
+  // preparation reply answers `draft | ready`, and `draft` is a proposal still being
+  // assembled — so a rule that read presence alone admitted a remote mutation against
+  // a payload the daemon had not finished putting together. `ready` is the one state
+  // that says a person may send this, and it is the one state that offers the send.
+  const hasSendableProposal = state.kind === "prepared" && state.proposal?.state === "ready";
   return PROPOSAL_ACTIONS.filter(
-    (action) => PROPOSAL_ACTION_REACH[action] === "local" || hasReviewableProposal,
+    (action) => PROPOSAL_ACTION_REACH[action] === "local" || hasSendableProposal,
   );
 }
+
+/**
+ * What a proposal that is on screen and cannot be sent says for itself.
+ *
+ * A SENTENCE RATHER THAN A DISABLED CONTROL, on this file's own division of labour:
+ * `ProposalGate.tsx` is handed a list rather than the vocabulary, so it cannot draw a
+ * greyed `Push` without naming the remote act — which is the structural property that
+ * keeps the preparation gate a rule stated once. What it CAN do is say why the row it
+ * is not drawing is absent, which is the console's ordinary treatment of an absence.
+ *
+ * Only the draft case has a sentence. An arm with no proposal at all already renders
+ * one — the empty state above the acts — and printing a second sentence under it would
+ * word one absence twice.
+ */
+export function withheldRemoteActionCopy(state: ProposalGateState): string | undefined {
+  if (GATE_ARM_ACTION_AVAILABILITY[state.kind] === "no-acts" || state.kind !== "prepared") {
+    return undefined;
+  }
+  if (state.proposal === undefined || state.proposal.state === "ready") {
+    return undefined;
+  }
+  return PROPOSAL_NOT_SENDABLE_COPY;
+}
+
+/**
+ * The one sentence the withheld send owes a participant.
+ *
+ * Stated on the condition the rule turns on — being `ready` — rather than on the state
+ * the proposal happens to be in, so a third preparation state added to the wire reads
+ * correctly here without a second sentence being written for it.
+ */
+export const PROPOSAL_NOT_SENDABLE_COPY =
+  "This proposal is not ready to send yet, so the act that reaches the host is not offered. Preparing it again is what moves it on.";

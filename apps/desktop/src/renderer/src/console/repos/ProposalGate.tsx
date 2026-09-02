@@ -82,6 +82,7 @@ import { ONE_CUMULATIVE_PROPOSAL_COPY } from "./prepared-proposal.js";
 import {
   PROPOSAL_ACTION_PRESENTATION,
   offeredProposalActions,
+  withheldRemoteActionCopy,
   type ProposalAction,
 } from "./proposal-actions.js";
 import {
@@ -214,6 +215,7 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
       )}
       <ProposalActions
         actions={offeredProposalActions(state)}
+        withheldReason={withheldRemoteActionCopy(state)}
         onRequestAction={props.onRequestAction}
         actionRefusals={props.actionRefusals}
         isBlocked={props.checkoutConflict !== undefined}
@@ -330,6 +332,12 @@ function CheckoutConflictChoice(props: {
  * group, because the arm above has already said what this gate is looking at and a
  * labelled group holding no control would be a second, wordless answer to that.
  *
+ * A WITHHELD ACT STILL SAYS WHY. Where the model withholds the remote act because the
+ * proposal on screen is not ready to send, its sentence renders at the head of this
+ * group — so the missing row is an absence with a reason rather than a control a
+ * participant hunts for. The sentence is the model's; this file neither composes it nor
+ * knows which act it is about.
+ *
  * `isBlocked` is not an eligibility derivation: it is the presence of an unanswered
  * blocking choice on this very surface, which `Spec-011 §Fallback Behavior` requires
  * to be answered before proceeding. Every other reason an act might fail is the
@@ -337,6 +345,8 @@ function CheckoutConflictChoice(props: {
  */
 function ProposalActions(props: {
   readonly actions: readonly ProposalAction[];
+  /** Why an act the list does not carry is absent. Composed by the model, never here. */
+  readonly withheldReason: string | undefined;
   readonly onRequestAction: ((action: ProposalAction) => void) | undefined;
   readonly actionRefusals: ReadonlyMap<ProposalAction, ConsoleRefusal> | undefined;
   readonly isBlocked: boolean;
@@ -349,6 +359,12 @@ function ProposalActions(props: {
   }
   return (
     <div className="meridian-proposal-gate__acts" role="group" aria-label="Git actions">
+      {props.withheldReason === undefined ? null : (
+        // Static explanatory copy and deliberately NOT a live region: the settled arm
+        // is announced once by the surface that holds the reader, and a second
+        // announcement here would say the same settlement twice.
+        <p className="meridian-proposal-gate__withheld-act">{props.withheldReason}</p>
+      )}
       {props.actions.map((action) => {
         const presentation = PROPOSAL_ACTION_PRESENTATION[action];
         const refusal = props.actionRefusals?.get(action);
