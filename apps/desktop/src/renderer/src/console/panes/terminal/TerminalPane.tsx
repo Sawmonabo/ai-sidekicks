@@ -34,6 +34,15 @@
 // console which participant it is looking through, so `held-by-you` is
 // unreachable here and every held lease reads as somebody else's. That is the
 // safe direction: the surface never tells a person they may type.
+//
+// THE HOST'S REACHABILITY IS PROJECTED, NOT ASSUMED. 8.8's degraded state is a
+// holder whose node has gone offline, and the lease events carry no node — so this
+// pane folds the log's registered `runtime_node.*` presence events beside the lease
+// and hands the result in as the vouching input. It answers only where the session
+// has exactly one attached node, because that is the only case in which the wire
+// leaves no doubt about which host runs the session's single shared shell;
+// `node-presence-model.ts` states the rule and why the payload's `actor` is not a
+// substitute for the link the wire withholds.
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -45,6 +54,7 @@ import type { ConsolePaneContext } from "../../workspace/index.js";
 import { LeaseLine, type TerminalParticipantMark } from "../../terminal/LeaseLine.js";
 import { XtermHost } from "../../terminal/XtermHost.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../../terminal/lease-model.js";
+import { projectNodePresence, resolveSoleHoldingNode } from "../../terminal/node-presence-model.js";
 
 /**
  * What the pane reads off the deck's context, and nothing more.
@@ -102,9 +112,25 @@ function BoundTerminalPane(props: {
   // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
   // identity changes.
-  const lease: TerminalLeaseState = useMemo(
-    () => projectTerminalLease(timeline, { viewerParticipantId: undefined }),
+  //
+  // The host's reported reachability comes off the SAME log, folded separately and
+  // handed to the lease fold as its vouching input. Without it the pane could only
+  // ever pass `not-checked`, and a shell whose machine had gone silent kept showing
+  // the holder from the last take and reading as writable.
+  const holdingNode = useMemo(
+    () => resolveSoleHoldingNode(projectNodePresence(timeline)),
     [timeline],
+  );
+
+  const lease: TerminalLeaseState = useMemo(
+    () =>
+      projectTerminalLease(timeline, {
+        viewerParticipantId: undefined,
+        // Omitted rather than passed as `undefined`, because the member's absence is
+        // what the fold reads as "nothing was checked".
+        ...(holdingNode === undefined ? {} : { holdingNode }),
+      }),
+    [timeline, holdingNode],
   );
 
   const markFor = useMemo(() => {

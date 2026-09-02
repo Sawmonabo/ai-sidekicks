@@ -99,11 +99,11 @@ export type TerminalLeaseHolding = (typeof TERMINAL_LEASE_HOLDINGS)[number];
  *
  * 8.8: "Never shows a holder the control plane cannot vouch for. When the holding
  * node reads offline, `controlHolder` resolves to null and the surface renders
- * unheld." That is a fact about a `runtimenode.roster` read, and the console has
- * no roster read wired — so the honest third value is `not-checked`, and it is the
- * one this revision produces. When the read lands, the caller supplies a vouching
- * and the fold's `unvouched` arm — already written and already tested — starts
- * being reachable.
+ * unheld." The wire answers that on a `runtimenode.roster` read whose carrying
+ * member the shipped schema does not yet have, so the caller supplies the reading
+ * from the log instead — `node-presence-model.ts` folds the registered
+ * `runtime_node.*` events the store already holds. `not-checked` stays the honest
+ * answer wherever that fold cannot name one host for the session's one shell.
  */
 export const TERMINAL_HOLDER_VOUCHINGS = ["not-checked", "vouched", "unvouched"] as const;
 
@@ -156,19 +156,31 @@ export interface TerminalLeaseState {
   readonly transitionCount: number;
 }
 
+/**
+ * A reading of the host the lease holder sits on.
+ *
+ * Declared here, beside the fold that consumes it, and imported by
+ * `node-presence-model.ts`, which produces it — the two sides of one seam share the
+ * declaration rather than each spelling the shape out.
+ */
+export interface TerminalHoldingNodeReading {
+  readonly nodeId: string;
+  readonly isReachable: boolean;
+}
+
 /** What the fold needs beyond the events. */
 export interface TerminalLeaseProjectionInput {
   /** The viewer, so `held-by-you` can be told from `held-by-another`. */
   readonly viewerParticipantId: string | undefined;
   /**
-   * The holding node's reachability, when a roster read supplied one.
+   * The holding node's reachability, when the caller could read one.
    *
-   * Omitted means no read was performed, which is `not-checked` and NOT a claim
-   * that the node is reachable. Passing `{ nodeId, isReachable: false }` is what a
-   * roster read that found the node offline produces, and it collapses the surface
-   * to unheld while keeping the node's identity on screen.
+   * Omitted means nothing was read, which is `not-checked` and NOT a claim that the
+   * node is reachable. Passing `{ nodeId, isReachable: false }` is what a reading
+   * that found the host offline produces, and it collapses the surface to unheld
+   * while keeping the node's identity on screen.
    */
-  readonly holdingNode?: { readonly nodeId: string; readonly isReachable: boolean };
+  readonly holdingNode?: TerminalHoldingNodeReading;
 }
 
 /** The state before any transition has been read. */
