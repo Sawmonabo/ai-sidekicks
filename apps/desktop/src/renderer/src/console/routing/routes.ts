@@ -74,18 +74,59 @@ export type ConsoleRoute =
 export const DEFAULT_ROUTE: ConsoleRoute = { kind: "sessions" };
 
 /**
+ * Decode one path segment, or `undefined` when its percent-escapes are malformed.
+ *
+ * ONE helper rather than a `try` at each decode site. `decodeURIComponent` raises
+ * `URIError` on an escape like `%zz`, and {@link parseRoute}'s contract is that
+ * every input produces a route — a promise that holds only while EVERY decode in
+ * this module answers a malformed escape the same way. A guard pasted per site is
+ * how the next arm to grow a segment ships without one. The auxiliary arm reaches
+ * the same discipline through the shared grammar, which decodes its own segments
+ * and answers `null`, so it needs no third call here.
+ *
+ * `undefined` rather than a raised refusal, because the caller has an answer for
+ * this: a hash anyone can type into the address bar is a probe, not an incident,
+ * and the not-found route says what it could not open.
+ */
+function decodeSegment(segment: string): string | undefined {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Parse a location hash into a route.
  *
  * Total: every input produces a route, because a renderer that throws while
- * deciding what to render has no way to tell anyone why.
+ * deciding what to render has no way to tell anyone why. Totality is a property
+ * of this function and not a hope about its input — the two ways a hash breaks a
+ * parser are both closed below. Every percent-escape goes through
+ * {@link decodeSegment}, and every empty segment is refused before an arm reads
+ * one, so neither a `URIError` nor a silently normalised path leaves here.
  */
 export function parseRoute(hash: string): ConsoleRoute {
-  const trimmed = hash.startsWith("#") ? hash.slice(1) : hash;
-  const segments = trimmed.split("/").filter((segment) => segment.length > 0);
-  const [head, ...rest] = segments;
+  const afterHash = hash.startsWith("#") ? hash.slice(1) : hash;
+  // The LEADING slash is the one optional separator; every other one is grammar.
+  // The filter that used to drop empty segments deleted the evidence the arms
+  // below validate on, so `#/session//foo` resolved to session `foo` — a different
+  // session than the link names — and `#/window/timeline/` opened a bare timeline.
+  const path = afterHash.startsWith("/") ? afterHash.slice(1) : afterHash;
 
-  if (head === undefined) {
+  if (path === "") {
     return DEFAULT_ROUTE;
+  }
+
+  const segments = path.split("/");
+  const [head, ...rest] = segments;
+  // One refusal covering both grammars: the main-window arms below and the
+  // auxiliary fragment re-composed for the shared parser read the same segments,
+  // so an empty one cannot be malformed for one and invisible to the other.
+  // `String.prototype.split` never answers an empty array, so `head` is present —
+  // the `undefined` arm is the compiler's obligation, answered the same way.
+  if (head === undefined || segments.includes("")) {
+    return notFound(hash);
   }
 
   if (head === "sessions") {
@@ -97,7 +138,8 @@ export function parseRoute(hash: string): ConsoleRoute {
     if (sessionId === undefined || rest.length > 1) {
       return notFound(hash);
     }
-    return { kind: "workspace", sessionId: decodeURIComponent(sessionId) };
+    const decoded = decodeSegment(sessionId);
+    return decoded === undefined ? notFound(hash) : { kind: "workspace", sessionId: decoded };
   }
 
   if (head === "settings") {
@@ -105,18 +147,24 @@ export function parseRoute(hash: string): ConsoleRoute {
       return notFound(hash);
     }
     const page = rest[0];
-    return { kind: "settings", page: page === undefined ? undefined : decodeURIComponent(page) };
+    if (page === undefined) {
+      return { kind: "settings", page: undefined };
+    }
+    const decoded = decodeSegment(page);
+    return decoded === undefined ? notFound(hash) : { kind: "settings", page: decoded };
   }
 
   if (head === "window") {
     // Re-composed from the already-split segments rather than passed through as
     // `hash`, so this module keeps its own tolerance for a leading `#` or `#/`
     // while the SEGMENTS are read by the shared grammar: segment-count bounds,
-    // the empty-segment refusal, the closed route-name check, and the per-segment
-    // decode. That decode is the reason to delegate rather than to re-derive —
-    // the arm this replaced called `decodeURIComponent` directly, and a malformed
-    // escape (`#/window/timeline/%zz`) throws `URIError` out of a function whose
-    // own contract is that every input produces a route.
+    // the closed route-name check, and the per-segment decode. That decode is the
+    // reason to delegate rather than to re-derive — the arm this replaced called
+    // `decodeURIComponent` directly, and a malformed escape
+    // (`#/window/timeline/%zz`) throws `URIError` out of a function whose own
+    // contract is that every input produces a route. The empty-segment refusal is
+    // enforced once above for both grammars, and again by the shared parser, which
+    // also serves the main process and cannot rely on this caller.
     const target = parseAuxiliaryFragment(`#/window/${rest.join("/")}`);
     if (target === null) {
       return notFound(hash);
