@@ -8,14 +8,25 @@
 // another never at all. Both halves are asserted below, against the same script, so
 // a fix that only stopped the duplicate would still fail.
 //
+// The second claim in this file is what a LATE subscriber receives. The engine
+// registered a sink for future emissions only, so a store opened after the clock had
+// already delivered beats read the next one as a real sequence gap — the fixture's
+// snapshot answers at cursor zero, so every position in between counts as missing —
+// and a store opened after the script finished stayed empty. Both are asserted here
+// against the REAL store rather than against a count, because the gap is the store's
+// own rule and a test that restated it would be checking its own copy.
+//
 // WHAT IS NOT HERE. Teardown — the disposed engine's dropped ticks and abandoned
 // replies — is `failure-modes.test.ts`'s, and the scripted-latency queue is
 // `fixture-bridge.latency.test.ts`'s. This file owns beat delivery and nothing else.
 
 import { describe, expect, it } from "vitest";
 
+import { BASE_STATE_CURSOR } from "./fixture-session-snapshot.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import type { ConsoleScenario } from "./scenario.js";
+import { SessionStore } from "../store/index.js";
+import type { ConsoleSessionEvent } from "../store/index.js";
 
 const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
 
@@ -117,5 +128,137 @@ describe("ScenarioEngine — the due prefix", () => {
     expect(delivered).toStrictEqual([]);
     expect(engine.progress.deliveredBeatCount).toBe(0);
     expect(engine.progress.isComplete).toBe(false);
+  });
+});
+
+describe("ScenarioEngine — a whole-session subscription that attaches late", () => {
+  /** The eight-beat script both late-attach cases are driven against. */
+  function eightBeatScenario(): ConsoleScenario {
+    return scenarioWithBeatsDueAt([0, 10, 20, 30, 40, 50, 60, 70]);
+  }
+
+  /** Collect what one replay-then-tail subscriber receives, in delivery order. */
+  function collectWithReplay(engine: ScenarioEngine): readonly ConsoleSessionEvent[] {
+    const received: ConsoleSessionEvent[] = [];
+    engine.subscribe(
+      (events) => {
+        received.push(...events);
+      },
+      { replayDeliveredPrefix: true },
+    );
+    return received;
+  }
+
+  /**
+   * A real store opened on the scenario's session, at the base state the fixture
+   * read answers with.
+   *
+   * The real `SessionStore` and the real `BASE_STATE_CURSOR`, because the claim is
+   * about the store's own gap rule: a test that counted sequences itself would be
+   * asserting its own arithmetic rather than the rule a degraded banner comes from.
+   */
+  function storeAtBaseState(scenario: ConsoleScenario): SessionStore {
+    const store = new SessionStore({ sessionId: scenario.sessionId });
+    store.initialise({ cursor: BASE_STATE_CURSOR, entities: [], participantJoinLog: [] });
+    return store;
+  }
+
+  it("hands a subscriber attaching mid-script the delivered prefix, then tails", () => {
+    const scenario = eightBeatScenario();
+    const engine = new ScenarioEngine({ scenario });
+
+    engine.advance(25);
+    const received = collectWithReplay(engine);
+
+    expect(received.map((event) => event.sequence)).toStrictEqual([1, 2, 3]);
+
+    engine.advance(100);
+
+    expect(received.map((event) => event.sequence)).toStrictEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it("leaves a store opened mid-script ungapped and undegraded", () => {
+    // The reason the replay exists, stated in the store's own terms. Before it the
+    // late store's first delivery was sequence 4 against a cursor of zero, which the
+    // reconciler reads as three missing rows: a recorded gap, a sticky
+    // `sequence-gap` degradation, and a repair read the fixture cannot answer.
+    const scenario = eightBeatScenario();
+    const engine = new ScenarioEngine({ scenario });
+    const store = storeAtBaseState(scenario);
+
+    engine.advance(25);
+    engine.subscribe(
+      (events) => {
+        store.applyBatch(events);
+      },
+      { replayDeliveredPrefix: true },
+    );
+    engine.advance(100);
+
+    expect(store.snapshot().gaps).toStrictEqual([]);
+    expect(store.snapshot().degradedCause).toBeUndefined();
+    expect(store.snapshot().cursor).toBe(scenario.beats.length);
+    expect(store.snapshot().timeline).toHaveLength(scenario.beats.length);
+  });
+
+  it("hands a subscriber attaching after completion the whole script", () => {
+    // The other half, and the one that is silent rather than degraded: a scenario
+    // already run to completion emits nothing more, so a store opened afterwards had
+    // no path to any state at all.
+    const scenario = eightBeatScenario();
+    const engine = new ScenarioEngine({ scenario });
+
+    engine.runToCompletion();
+    expect(engine.progress.isComplete).toBe(true);
+
+    const received = collectWithReplay(engine);
+
+    expect(received.map((event) => event.sequence)).toStrictEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it("negative control: an early subscriber's delivery is unchanged, each beat once", () => {
+    // Without this, an engine that replayed on every emission — or one that replayed
+    // to a subscriber that had already received the prefix — would pass every case
+    // above while delivering the opening beats twice to the console's real
+    // subscriber, which is a duplicate the store would silently drop and a timeline
+    // that would read as though the session had happened twice.
+    const scenario = eightBeatScenario();
+    const engine = new ScenarioEngine({ scenario });
+    const received = collectWithReplay(engine);
+
+    engine.advance(25);
+    engine.advance(100);
+
+    expect(received.map((event) => event.sequence)).toStrictEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+  });
+
+  it("negative control: a subscriber that asks for no replay still receives no prefix", () => {
+    // Replay is the whole-session stream's registered behaviour and not the engine's
+    // default: the narrowed run streams and the relay are live, and an engine that
+    // replayed unconditionally would hand a runs surface transitions it never
+    // subscribed in time for.
+    const scenario = eightBeatScenario();
+    const engine = new ScenarioEngine({ scenario });
+
+    engine.advance(25);
+    const tailOnly = collectDeliveredEventIds(engine);
+
+    expect(tailOnly).toStrictEqual([]);
+
+    engine.advance(10);
+
+    expect(tailOnly).toHaveLength(1);
+  });
+
+  it("negative control: a disposed engine replays nothing into a late sink", () => {
+    // A replay is a delivery, and this module's teardown rule is that a delivery
+    // after teardown lands in a store that no longer has a consumer.
+    const scenario = eightBeatScenario();
+    const engine = new ScenarioEngine({ scenario });
+
+    engine.advance(25);
+    engine.dispose();
+
+    expect(collectWithReplay(engine)).toStrictEqual([]);
   });
 });

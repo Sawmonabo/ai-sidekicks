@@ -119,8 +119,15 @@ type RunInitialState = "queued";
  * provider-initialization, turn-start, worker-shutdown — are deliberately absent
  * too, and a table that carried any of these four would train a surface on a frame
  * the daemon does not send here.
+ *
+ * EXPORTED for one reader, and for what its COMPLEMENT is: the four run-lifecycle
+ * kinds this union leaves out are exactly the kinds no narrowed stream projects, and
+ * `scenarios/wire-truth/run-and-queue-semantics.ts` subtracts this union from the
+ * census's `run.` root to hold each of them to its own registered payload. Derived
+ * there rather than listed, so a run kind that joins or leaves this stream moves
+ * across that walk's obligation without anyone editing a second list.
  */
-type RunStateStreamKind = Extract<
+export type RunStateStreamKind = Extract<
   SessionEventType,
   `run.${Exclude<RunState, RunInitialState>}` | "run.rolled_back"
 >;

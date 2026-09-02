@@ -273,3 +273,138 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
     ).toStrictEqual([]);
   });
 });
+
+describe("scenario wire truth — the run kinds no narrowed stream projects", () => {
+  /** The flagship's own creation beat, carrying exactly the payload named. */
+  function scenarioWithQueuedPayload(
+    scenarioId: string,
+    payload: Readonly<Record<string, unknown>>,
+  ): ConsoleScenario {
+    return {
+      ...FLAGSHIP_SCENARIO,
+      id: scenarioId,
+      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
+        beat.event.kind === "run.queued" ? { ...beat, event: { ...beat.event, payload } } : beat,
+      ),
+    };
+  }
+
+  /**
+   * The flagship's `run.starting` beat, re-kinded to a forward, non-state row.
+   *
+   * A replacement payload rather than a spread, because what these cases vary is
+   * which members are PRESENT: a spread would supply the transition members the
+   * shipped beat carries and the case would be about something else.
+   */
+  function scenarioWithForwardRunBeat(
+    scenarioId: string,
+    kind: string,
+    payload: Readonly<Record<string, unknown>>,
+  ): ConsoleScenario {
+    return {
+      ...FLAGSHIP_SCENARIO,
+      id: scenarioId,
+      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
+        beat.event.kind === "run.starting"
+          ? { ...beat, event: { ...beat.event, kind, payload } }
+          : beat,
+      ),
+    };
+  }
+
+  /** The identity every run-lifecycle payload carries, taken off the shipped beat. */
+  const RUN_IDENTITY = {
+    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    runId: "019b79ee-0280-740e-8110-d1a4c1150011",
+    runVersion: 2,
+  };
+
+  it("reports a creation beat carrying neither its progression counter nor its state", () => {
+    // `run.queued` reaches a subscriber only through `session.subscribe`, so the
+    // projection leg claims it and the strict layer registers no variant for it —
+    // which left every member of its payload unchecked. A beat like this passed the
+    // census, the envelope, and the discriminator escape, and the run-lifecycle
+    // projector then folded it into a run with no version and no state.
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithQueuedPayload("creation-names-half-a-payload", {
+        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        runId: RUN_IDENTITY.runId,
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toContain("run.queued");
+    expect(defects[0]?.reason).toContain("runVersion");
+    expect(defects[0]?.reason).toContain("newState");
+  });
+
+  it("reports a provider-initialization beat that names no provider", () => {
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithForwardRunBeat(
+        "init-names-no-provider",
+        "run.provider_initialized",
+        RUN_IDENTITY,
+      ),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toContain("run.provider_initialized");
+    expect(defects[0]?.reason).toContain("provider");
+  });
+
+  it("reports a forward beat that names no run at all, whichever of the three it is", () => {
+    for (const kind of ["run.turn_started", "run.worker_shutdown"]) {
+      const defects = findScenarioWireTruthDefects([
+        scenarioWithForwardRunBeat(`${kind}-names-no-run`, kind, {
+          sessionId: FLAGSHIP_SCENARIO.sessionId,
+        }),
+      ]);
+
+      expect(defects, kind).toHaveLength(1);
+      expect(defects[0]?.reason, kind).toContain("runId");
+      expect(defects[0]?.reason, kind).toContain("runVersion");
+    }
+  });
+
+  it("negative control: a complete payload passes on every one of the four kinds", () => {
+    // Without this the cases above would hold over a leg that reported every beat of
+    // these kinds, which would make the shipped creation row — and every family
+    // scenario that scripts one — unshippable. The optional members are carried too,
+    // because the registered shapes name them and a leg that refused them would be
+    // stricter than the wire.
+    expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+    expect(
+      findScenarioWireTruthDefects([
+        scenarioWithForwardRunBeat("init-is-complete", "run.provider_initialized", {
+          ...RUN_IDENTITY,
+          provider: "claude",
+          model: "claude-opus-4-6",
+        }),
+        scenarioWithForwardRunBeat("turn-is-complete", "run.turn_started", {
+          ...RUN_IDENTITY,
+          position: 3,
+        }),
+        scenarioWithForwardRunBeat("shutdown-is-complete", "run.worker_shutdown", {
+          ...RUN_IDENTITY,
+          reason: "provider worker restarting",
+        }),
+      ]),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: a projected kind is left to the projection leg, not held here", () => {
+    // The two legs partition the `run.` root, so a beat can be reported by one of
+    // them and never by both. A `run.starting` beat missing the same members reports
+    // in the projection's own words, which is how a reader tells which rule it broke.
+    const defects = findScenarioWireTruthDefects([
+      scenarioWithForwardRunBeat("transition-names-half-a-payload", "run.starting", {
+        sessionId: FLAGSHIP_SCENARIO.sessionId,
+        newState: "starting",
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain("run.subscribeState");
+    expect(defects[0]?.reason).not.toContain("no narrowed stream");
+  });
+});

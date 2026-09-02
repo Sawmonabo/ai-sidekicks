@@ -22,11 +22,13 @@
 //   • `wire-truth/beat-shape.ts` — the census, the canonical envelope, and the strict
 //     layer, in that order, for every beat.
 //   • `wire-truth/run-and-queue-semantics.ts` — the run state machine's transition
-//     table, the queue payload's required member, and the registered projection
-//     `run.subscribeState` delivers.
+//     table, the queue payload's required member, the registered payloads of the four
+//     run kinds no narrowed stream projects, and the registered projection
+//     `run.subscribeState` delivers for the nine it does.
 //   • `wire-truth/beat-order.ts` — the tick a beat is due at and the log position it
 //     occupies.
-//   • `wire-truth/reply-uniqueness.ts` — one scripted answer per call.
+//   • `wire-truth/reply-walk.ts` — one scripted answer per call, and one spendable
+//     latency on that answer.
 //   • `wire-truth/membership.ts` — the viewer a scenario states and the roles it
 //     declares.
 //   • `wire-truth/defect.ts` — what a defect is.
@@ -39,7 +41,7 @@ import { describeBeatDefect } from "./wire-truth/beat-shape.js";
 import { findBeatOrderDefects } from "./wire-truth/beat-order.js";
 import type { ScenarioWireTruthDefect } from "./wire-truth/defect.js";
 import { describeViewerDefect, findMembershipRoleDefects } from "./wire-truth/membership.js";
-import { findDuplicateReplyCalls } from "./wire-truth/reply-uniqueness.js";
+import { findReplyDefects } from "./wire-truth/reply-walk.js";
 import type { ConsoleScenario } from "../scenario.js";
 
 export type { ScenarioWireTruthDefect };
@@ -61,7 +63,7 @@ export function findScenarioWireTruthDefects(
       }
     }
     defects.push(...findBeatOrderDefects(scenario));
-    defects.push(...findDuplicateReplyCalls(scenario));
+    defects.push(...findReplyDefects(scenario));
     const viewerDefect = describeViewerDefect(scenario);
     if (viewerDefect !== undefined) {
       defects.push(viewerDefect);

@@ -274,6 +274,15 @@ describe("the boundary parse — what it refuses, and by which name", () => {
   });
 });
 
+/** The five kinds `Spec-023 §The surface set` enumerates as sidebar cards. */
+const SIDEBAR_CARD_ENTITY_KINDS = [
+  "participant",
+  "workspace",
+  "worktree",
+  "repo",
+  "invite",
+] as const;
+
 describe("the inspector, over the entities the spec routes to it", () => {
   it("parses an inspector address for every entity kind the spec names", () => {
     // `Spec-023 §Console Design (Meridian)` §The surface set routes five kinds to the
@@ -281,7 +290,7 @@ describe("the inspector, over the entities the spec routes to it", () => {
     // all, so the address union could not represent them and the runtime scope table
     // rejected them as kind mismatches. The repos and collaboration branches would
     // have had to reopen this shared substrate to open a pane the spec already routes.
-    for (const entityKind of ["participant", "workspace", "worktree", "repo", "invite"] as const) {
+    for (const entityKind of SIDEBAR_CARD_ENTITY_KINDS) {
       const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
 
       expect(parseConsolePaneAddress("inspector", entity)).toStrictEqual({
@@ -315,6 +324,65 @@ describe("the inspector, over the entities the spec routes to it", () => {
     const runInspector: AddressArm<"inspector"> = { kind: "inspector", entity: RUN };
     expect(runInspector.entity.kind).toBe("run");
     expect(refusalFrom(parseConsolePaneAddress("inspector", RUN)).code).toBe(
+      "pane-entity-kind-mismatch",
+    );
+  });
+});
+
+describe("the diff pane, over the entities whose changes the spec routes to it", () => {
+  it("parses a diff address for every entity kind that sentence enumerates", () => {
+    // `Spec-023 §Console Design (Meridian)` §The surface set, one sentence: "a repo,
+    // workspace, worktree, invite, or member entity is a card in its sidebar section
+    // and opens as an `inspector` pane keyed by its entity kind, its changes opening
+    // the `diff` pane". "its changes" has one antecedent, and it is the same
+    // enumerated subject the inspector clause takes — so both clauses distribute over
+    // one list. The row was `worktree | workspace`, which refused a repo's changes
+    // statically and answered `pane-entity-kind-mismatch` at the runtime parse.
+    for (const entityKind of SIDEBAR_CARD_ENTITY_KINDS) {
+      const entity = { kind: entityKind, id: `${entityKind}-1` } satisfies ConsoleEntityRef;
+
+      expect(parseConsolePaneAddress("diff", entity)).toStrictEqual({ kind: "diff", entity });
+    }
+  });
+
+  it("admits the three added refs at a typed call site too", () => {
+    // The compile-time half. All three were unconstructible before, at a type derived
+    // from a narrower list than the sentence its sibling row already reads.
+    const repoDiff: AddressArm<"diff"> = { kind: "diff", entity: { kind: "repo", id: "repo-1" } };
+    const inviteDiff: AddressArm<"diff"> = {
+      kind: "diff",
+      entity: { kind: "invite", id: "invite-1" },
+    };
+    const memberDiff: AddressArm<"diff"> = {
+      kind: "diff",
+      entity: { kind: "participant", id: "participant-1" },
+    };
+
+    expect(repoDiff.entity.kind).toBe("repo");
+    expect(inviteDiff.entity.kind).toBe("invite");
+    expect(memberDiff.entity.kind).toBe("participant");
+  });
+
+  it("reads the same list as the inspector, because it is the same sentence", () => {
+    // The set is declared once and both rows read it, so the two cannot drift into
+    // two readings of one clause.
+    expect(paneEntityScopeFor("diff").entityKinds).toStrictEqual(
+      paneEntityScopeFor("inspector").entityKinds,
+    );
+  });
+
+  it("negative control: the diff still refuses a kind that sentence does not name", () => {
+    // Without this the cases above would hold over a scope that admitted every entity
+    // kind, which is the fix's own failure mode — a diff opened over a run or an
+    // artifact is a pane with nothing to show and a body querying a partition that
+    // has never held the row.
+    // @ts-expect-error the spec routes no run entity to the diff pane
+    const runDiff: AddressArm<"diff"> = { kind: "diff", entity: RUN };
+    expect(runDiff.entity.kind).toBe("run");
+    expect(refusalFrom(parseConsolePaneAddress("diff", RUN)).code).toBe(
+      "pane-entity-kind-mismatch",
+    );
+    expect(refusalFrom(parseConsolePaneAddress("diff", ARTIFACT)).code).toBe(
       "pane-entity-kind-mismatch",
     );
   });
