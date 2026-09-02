@@ -139,3 +139,26 @@
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
 }
+
+/*
+ * THE SLOT'S OPENED PANE. The workflows destination leads to two pane kinds, and on
+ * a bare route there is no deck to put one in — so the pane stands where the lists
+ * were, under one control back to them. A column rather than a deck: one pane at a
+ * time, no layout, nothing beside it.
+ */
+.meridian-workflows-pane-host {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-height: 0;
+}
+
+/*
+ * The one control back. It wears the family's own action treatment — the browser's
+ * primary act and the run controls wear the same one — and this rule adds only where
+ * it sits, because a second button style for one button is the drift that treatment
+ * exists to prevent.
+ */
+.meridian-workflows-pane-host__back {
+  align-self: flex-start;
+}

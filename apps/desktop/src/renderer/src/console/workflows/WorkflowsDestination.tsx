@@ -45,6 +45,13 @@
 // surface it just described. Each read under it announces its OWN settlement, which
 // is a different fact from the scope and is that section's to say.
 //
+// WHAT THE SURFACE OPENS. Two pane kinds, both this family's: a definition name and
+// the "New definition" action open `workflow-builder` — the second with no entity,
+// which is that pane's own new-definition arm — and a run name opens `workflow-run`.
+// The opener is handed down rather than reached for, so the surface that mounts this
+// destination decides where an opened pane lands; `WorkflowsPaneHost.tsx` is that
+// surface today and the deck is that surface later, and neither fact reaches here.
+//
 // WHAT THE SCOPE BUYS, ONCE IT HAS SETTLED. Two reads, not one: the definitions
 // visible from this session, and the runs it holds. They are separate sections
 // because they are separate questions with separate absences — a session can have
@@ -57,6 +64,7 @@ import "./workflows-destination.css";
 import type { GrowthPort } from "../bridge/index.js";
 import { WireFigure, useAnnounce } from "../primitives/index.js";
 import { useFrameStore, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
+import type { ConsolePaneOpener } from "../workspace/index.js";
 import {
   AWAITING_SESSION_CHOICE,
   FOLLOWING_WINDOW_RETENTION,
@@ -83,6 +91,13 @@ export interface WorkflowsDestinationProps {
   readonly frameStore: FrameStore;
   /** This window's open sessions, for the picker's half of what it can offer. */
   readonly sessionStoreRegistry: SessionStoreRegistry;
+  /**
+   * Where an opened pane goes. Required, not optional: this destination's specified
+   * job includes opening the builder, so a mount that supplied no opener would be a
+   * surface that can display definitions and open none of them — which is the state
+   * every definition name rendering as a plain span came from.
+   */
+  readonly openPane: ConsolePaneOpener;
 }
 
 /** The workflows destination, scoped to the session it reads from. */
@@ -126,8 +141,32 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
           Choose a different session
         </button>
       </p>
-      <WorkflowsBrowser growth={props.growth} sessionId={sessionId} />
-      <WorkflowRuns growth={props.growth} sessionId={sessionId} />
+      <WorkflowsBrowser
+        growth={props.growth}
+        sessionId={sessionId}
+        onOpenDefinition={(definition) => {
+          props.openPane({
+            kind: "workflow-builder",
+            entity: { kind: "workflow-definition", id: definition.id },
+          });
+        }}
+        onNewDefinition={() => {
+          // No entity, which is the builder's own new-definition arm: a definition
+          // that does not exist yet has no id to address it by, and minting one here
+          // would be the console deciding an identity the daemon mints on the save.
+          props.openPane({ kind: "workflow-builder", entity: undefined });
+        }}
+      />
+      <WorkflowRuns
+        growth={props.growth}
+        sessionId={sessionId}
+        onOpenRun={(row) => {
+          props.openPane({
+            kind: "workflow-run",
+            entity: { kind: "workflow-run", id: row.run.workflowRunId },
+          });
+        }}
+      />
     </div>
   );
 }

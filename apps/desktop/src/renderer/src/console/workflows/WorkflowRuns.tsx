@@ -14,18 +14,19 @@
 // definitions and no runs. Folding them into one read state would make either
 // absence look like the other's, and the refusal of one would silence the other.
 //
-// THE OPEN CONTROL IS ABSENT, NOT DISABLED. `RunList` takes `onOpenRun` and renders
-// a plain row when a caller supplies none, which is the honest shape while nothing
-// can address a run: the deck's pane kinds are keyed by an entity the rail cannot
-// hand them from here. A row of dead buttons would promise a destination that does
-// not exist yet.
+// THE OPEN CONTROL IS ABSENT, NOT DISABLED, AND THE RAIL NOW SUPPLIES IT. `RunList`
+// takes `onOpenRun` and renders a plain row when a caller supplies none. That was
+// every caller until the destination could address a pane, so a person could read
+// that a run was parked and could not reach the controls that lift it. The action is
+// still the caller's rather than this section's: a runs list mounted somewhere with
+// nowhere to send a row passes none, and gets rows of facts instead of dead buttons.
 
 import { useEffect, useMemo, useRef } from "react";
 
 import type { GrowthPort } from "../bridge/index.js";
 import { Nothing, RefusalBanner, useAnnounce } from "../primitives/index.js";
 import { RunList } from "./RunList.js";
-import { RunListProjection } from "./run-list-projection.js";
+import { RunListProjection, type WorkflowRunListRow } from "./run-list-projection.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
 
 const RUNS_HEADING_ID = "meridian-workflows-runs-heading";
@@ -38,6 +39,8 @@ export interface WorkflowRunsProps {
    * a caller mounting a read it knows cannot be put.
    */
   readonly sessionId: string;
+  /** Opens one run. Absent while the mounting surface cannot address one. */
+  readonly onOpenRun?: ((row: WorkflowRunListRow) => void) | undefined;
 }
 
 /** The session's runs, read once and drawn attention-first. */
@@ -57,7 +60,7 @@ export function WorkflowRuns(props: WorkflowRunsProps): React.JSX.Element {
       <h2 id={RUNS_HEADING_ID} className="meridian-workflows-runs__heading">
         Runs
       </h2>
-      <RunReadState directory={directory} projection={projection} />
+      <RunReadState directory={directory} projection={projection} onOpenRun={props.onOpenRun} />
     </section>
   );
 }
@@ -75,6 +78,7 @@ export function WorkflowRuns(props: WorkflowRunsProps): React.JSX.Element {
 function RunReadState(props: {
   readonly directory: WorkflowRunDirectoryState;
   readonly projection: RunListProjection | undefined;
+  readonly onOpenRun: ((row: WorkflowRunListRow) => void) | undefined;
 }): React.JSX.Element {
   const { directory, projection } = props;
   switch (directory.status) {
@@ -97,7 +101,7 @@ function RunReadState(props: {
       return projection === undefined ? (
         <Nothing kind="not-loaded" placement="surface" title="Reading this session's runs." />
       ) : (
-        <RunList projection={projection} onOpenRun={undefined} />
+        <RunList projection={projection} onOpenRun={props.onOpenRun} />
       );
   }
 }

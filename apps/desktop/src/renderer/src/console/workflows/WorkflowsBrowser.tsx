@@ -43,7 +43,11 @@ import { useMemo } from "react";
 
 import type { GrowthPort } from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
-import { WORKFLOW_DEFINITION_SCOPES, type WorkflowDefinitionScope } from "./DefinitionsBrowser.js";
+import {
+  WORKFLOW_DEFINITION_SCOPES,
+  type WorkflowDefinitionRow,
+  type WorkflowDefinitionScope,
+} from "./DefinitionsBrowser.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { refusedWorkflowChrome, type WorkflowChromeState } from "./chrome-state.js";
 import {
@@ -105,6 +109,17 @@ export interface WorkflowsBrowserProps {
   readonly growth: GrowthPort;
   /** The session the enumeration is scoped to, or nothing where none is in scope. */
   readonly sessionId: string | undefined;
+  /**
+   * Opens one definition in the builder. Absent while nothing can address one.
+   *
+   * Optional on the browser and required on the destination that mounts it, which is
+   * the "absent, not disabled" rule applied to two callers rather than relaxed for
+   * one: the rail destination can address a pane and supplies this, and the builder
+   * pane's own no-subject arm mounts the same browser with nowhere to send a row.
+   */
+  readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
+  /** Opens the builder with no definition. Absent where nothing can author one. */
+  readonly onNewDefinition?: (() => void) | undefined;
 }
 
 /** The definitions browser, reading the definitions it shows. */
@@ -122,6 +137,8 @@ export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Elemen
       onContinueReading={continuationActionFor(state, continueReading)}
       isContinuing={state.status === "served" && state.continuation.status === "reading"}
       continuationRefusal={continuationRefusalFor(state)}
+      onOpenDefinition={props.onOpenDefinition}
+      {...(props.onNewDefinition === undefined ? {} : { onNewDefinition: props.onNewDefinition })}
     />
   );
 }
