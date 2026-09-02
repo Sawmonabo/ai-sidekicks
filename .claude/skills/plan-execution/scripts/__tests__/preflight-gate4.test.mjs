@@ -3907,7 +3907,15 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // a credential's KEK), named on the new task T-023r-4-8 (+1, one added
     // marker line) and on the existing T-023r-4-7 marker (+1). Net +1, with the
     // none-arm, parent-resolved, and legacy compact-inline channels untouched.
-    bold: { resolved: 1064, noneArm: 158, parentResolved: 0 },
+    // 1064/158 -> 1068/158 (2026-09-01, the same amendment's Codex round-7
+    // fold): four more bold resolved references. Plan-018 mints I-018-20 (the
+    // RFC 9449 token-request DPoP proof the verify leg validates) and I-018-21
+    // (a revoked credential completes no ceremony), both named on the existing
+    // T6.3 marker (+2), with I-018-21 also on the new revocation task T6.5
+    // (+1, one added marker line). Plan-023 mints I-023-20 (the DPoP proof key
+    // held outside the custody root) on the existing T-023r-4-3 marker (+1).
+    // No none-arm row moves and the legacy compact-inline channel is untouched.
+    bold: { resolved: 1068, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
