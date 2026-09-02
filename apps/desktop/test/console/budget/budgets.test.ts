@@ -44,11 +44,17 @@ const EXPECTED_BUDGET_IDS: readonly string[] = [
   "time-to-first-ledger-row",
 ];
 
-/** Budgets this revision actually measures. Every other row must be `"n/a"`. */
-const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
-  "renderer-initial-bundle",
-  "renderer-heap-at-rest",
-];
+/**
+ * Budgets this revision actually measures. Every other row must be `"n/a"`.
+ *
+ * `renderer-heap-at-rest` was here until 2026-09-02, gated against a Node
+ * process holding a stand-in entity map. That reading excluded Chromium, the
+ * renderer isolate, React, the DOM, and the console's own store, so the gate
+ * could report green over a renderer well past its ceiling. The row is `"n/a"`
+ * against the task that takes the real CDP reading; re-listing it here without
+ * that measurement restores the false green rather than the gate.
+ */
+const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = ["renderer-initial-bundle"];
 
 /** How each declared unit reduces to its canonical unit. */
 const CANONICAL_UNIT_FACTORS: Readonly<Record<string, { factor: number; canonical: string }>> = {

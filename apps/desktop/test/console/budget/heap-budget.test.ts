@@ -1,39 +1,45 @@
-// The renderer heap-at-rest budget gate — Plan-023 Phase 1C (T-023p-1C-1).
+// The renderer heap-at-rest budget row — Plan-023 Phase 1C (T-023p-1C-1).
 //
-// Gates `Spec-023 §Console Design (Meridian)` §Budgets row 3 (≤ 120 MB with one
-// session open at rest) against a real `heapUsed` reading taken with a
-// console-shaped workload retained. This measures a Node process against a
-// reference store, not an Electron renderer against the console's own, so
-// passing is necessary and not sufficient — the harness prints that limitation
-// with every reading and this file asserts it rather than trusting goodwill.
+// `Spec-023 §Console Design (Meridian)` §Budgets row 3 bounds the renderer heap
+// with ONE SESSION OPEN at 120 MB. This revision measures nothing against it, and
+// this file pins that absence in both directions, because an ungated budget is
+// only safe while it is loud:
 //
-// Two readings are taken, deliberately. In-process, Vitest gives the worker no
-// `--expose-gc`, so nothing forces a collection and the figure is an UPPER
-// bound: sound as a gate, but it cannot show what the workload costs. The
-// harness's own CLI re-executes itself under `--expose-gc`; that reading is
-// settled, and it is the only one where 2,000 retained entities must appear as
-// a positive delta rather than as a coincidence between two unforced readings.
+//   • the registry row says `n/a`, names the task that takes the reading, and
+//     gives a reason — and its CEILING is unchanged, so "ungated" cannot quietly
+//     become "relaxed";
+//   • the CLI prints an `UNENFORCED` verdict and exits 0 rather than printing a
+//     comparison of nothing, and REFUSES with exit 2 if the row is ever flipped
+//     back to `enforced` while no code takes a reading.
+//
+// The second half is the negative control. Until 2026-09-02 this row was
+// `enforced` against `process.memoryUsage().heapUsed` in the budget CLI, with a
+// stand-in entity map retained: no Chromium, no renderer isolate, no React, no
+// DOM, no console store. That gate reported 5 % of budget and would have kept
+// reporting it with the shipped renderer arbitrarily far over the limit, so the
+// one behaviour worth pinning here is that re-declaring the gate without the
+// measurement fails loudly instead of restoring the green.
 
-import { describe, expect, it } from "vitest";
-import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import { describe, expect, it } from "vitest";
 
 import {
   ConsoleBudgetRegistry,
-  evaluateBudget,
-  type ConsoleBudgetVerdict,
+  formatUnavailableBudgetReport,
+  type ConsoleBudget,
 } from "../../../scripts/budget/budget-registry.mjs";
 import {
-  CONSOLE_ENTITY_KINDS,
-  ConsoleHeapAtRestMeasurer,
+  ConsoleHeapAtRestGate,
   HEAP_AT_REST_BUDGET_ID,
-  HEAP_AT_REST_ENTITY_COUNT,
-  ReferencePartitionedEntityStore,
-  buildReferenceConsoleEntity,
-  formatHeapAtRestReport,
-  type HeapAtRestMeasurement,
+  HeapAtRestMeasurementMissingError,
+  runHeapBudgetCommand,
+  type HeapAtRestUnenforcedRecord,
 } from "../../../scripts/budget/measure-heap.mjs";
 
 const registry = ConsoleBudgetRegistry.load();
@@ -43,101 +49,140 @@ const HEAP_HARNESS_PATH = fileURLToPath(
   new URL("../../../scripts/budget/measure-heap.mts", import.meta.url),
 );
 
+/** The spec's own figure, restated so an edit to the ceiling fails here. */
+const SPEC_CEILING_BYTES = 120_000_000;
+
 /**
- * Runs the harness as the CLI does, so the reading comes back GC-settled. The
- * harness re-executes itself under `--expose-gc`; `stdio: "pipe"` chains through
- * that re-exec's inherited stdout, so the child's JSON is what we parse. The
- * `--experimental-strip-types` flag is what makes the TypeScript harness
- * loadable on the 22.14 floor this package declares.
+ * The registry as it would read if someone re-declared this budget gated.
+ *
+ * Built by rewriting the real file rather than by hand-authoring an entry, so the
+ * fixture cannot drift into a shape the loader would reject for an unrelated
+ * reason and pass this test for the wrong one.
  */
-function measureThroughHarnessCli(entityCount: number): {
-  readonly verdict: ConsoleBudgetVerdict;
-  readonly measurement: HeapAtRestMeasurement;
-} {
-  const stdout = execFileSync(
-    process.execPath,
-    ["--experimental-strip-types", HEAP_HARNESS_PATH, "--json", `--entities=${entityCount}`],
-    { encoding: "utf8", cwd: path.dirname(HEAP_HARNESS_PATH), maxBuffer: 8 * 1024 * 1024 },
-  );
-  return JSON.parse(stdout) as {
-    verdict: ConsoleBudgetVerdict;
-    measurement: HeapAtRestMeasurement;
+function registryClaimingTheHeapBudgetIsGated(): ConsoleBudgetRegistry {
+  const document = JSON.parse(readFileSync(registry.budgetsFilePath, "utf8")) as {
+    readonly budgets: readonly Record<string, unknown>[];
   };
+  const budgets = document.budgets.map((entry) =>
+    entry["id"] === HEAP_AT_REST_BUDGET_ID
+      ? {
+          ...entry,
+          status: "enforced",
+          measuredBy: "apps/desktop/scripts/budget/measure-heap.mts",
+          notMeasurableReason: null,
+        }
+      : entry,
+  );
+  const directory = mkdtempSync(path.join(tmpdir(), "console-heap-budget-"));
+  const fixturePath = path.join(directory, "budgets.json");
+  writeFileSync(fixturePath, JSON.stringify({ ...document, budgets }), "utf8");
+  return ConsoleBudgetRegistry.load(fixturePath);
 }
 
-describe("renderer heap-at-rest budget", () => {
-  it(`stays within ${budget.specTarget}`, { timeout: 60_000 }, async () => {
-    const measurement = await new ConsoleHeapAtRestMeasurer().measure();
-    const verdict = evaluateBudget(budget, measurement.atRestHeapUsedBytes);
-
-    console.log(formatHeapAtRestReport(measurement, budget, verdict, registry));
-
-    expect(measurement.entityCount).toBe(HEAP_AT_REST_ENTITY_COUNT);
-    expect(measurement.partitionCount).toBe(CONSOLE_ENTITY_KINDS.length);
-    expect(measurement.atRestHeapUsedBytes).toBeGreaterThan(0);
-    expect(
-      verdict.withinBudget,
-      `Heap at rest is ${verdict.measuredCanonicalValue.toLocaleString("en-US")} B against a ` +
-        `${verdict.limitCanonicalValue.toLocaleString("en-US")} B budget. This process measures a ` +
-        "Node heap against a reference store, so an over-budget reading is a serious signal, not a marginal one.",
-    ).toBe(true);
+describe("the renderer heap-at-rest budget row", () => {
+  it("is recorded ungated, with a reason and the task that lifts it", () => {
+    expect(budget.status).toBe("n/a");
+    expect(budget.measuredBy).toBeNull();
+    expect(budget.producedBy).toBe("T-023p-1C-8");
+    expect(budget.notMeasurableReason ?? "").toContain("session");
+    expect((budget.notMeasurableReason ?? "").length).toBeGreaterThan(40);
   });
 
-  it(
-    "takes a GC-settled reading through the harness CLI, where the workload's cost is visible",
-    { timeout: 120_000 },
-    () => {
-      const { measurement, verdict } = measureThroughHarnessCli(HEAP_AT_REST_ENTITY_COUNT);
+  it("keeps the spec's ceiling, so ungated never quietly becomes relaxed", () => {
+    expect(budget.limit.canonicalValue).toBe(SPEC_CEILING_BYTES);
+    expect(budget.limit.canonicalUnit).toBe("bytes");
+    expect(budget.specTarget).toBe("≤ 120 MB");
+  });
 
-      // If this is false the re-exec silently fell through and the CLI's headline
-      // reading is an upper bound rather than the settled one it advertises.
-      expect(
-        measurement.garbageCollectionForced,
-        "The harness CLI did not obtain `--expose-gc`; its reading is not settled.",
-      ).toBe(true);
-      expect(measurement.limitations.join("\n")).not.toContain("UPPER bound");
-
-      // The claim the in-process reading cannot make: across a forced collection,
-      // a retained workload of this size is visible as growth, not noise.
-      expect(measurement.workloadHeapDeltaBytes).toBeGreaterThan(0);
-      expect(measurement.entityCount).toBe(HEAP_AT_REST_ENTITY_COUNT);
-      expect(verdict.withinBudget).toBe(true);
-    },
-  );
-
-  it("states what the reading does not prove, on every run", async () => {
-    const measurement = await new ConsoleHeapAtRestMeasurer(64).measure();
-
-    expect(measurement.limitations.length).toBeGreaterThanOrEqual(3);
-    expect(measurement.limitations.join("\n")).toContain("not an Electron renderer");
-    expect(measurement.limitations.join("\n")).toContain("T-023p-1C-2");
-
-    // The un-forced-GC arm must announce itself, because that reading is an
-    // upper bound rather than a settled one. Which arm runs depends on whether
-    // the runner exposes `gc`, so both are covered rather than one assumed.
-    const upperBoundNotice = measurement.limitations.some((limitation) =>
-      limitation.includes("UPPER bound"),
-    );
-    expect(upperBoundNotice).toBe(!measurement.garbageCollectionForced);
+  it("appears in the ungated block every harness prints, so it stays visible", () => {
+    const report = formatUnavailableBudgetReport(registry);
+    expect(report).toContain(HEAP_AT_REST_BUDGET_ID);
+    expect(report).toContain(budget.producedBy);
+    expect(report).toContain(budget.notMeasurableReason ?? "");
   });
 });
 
-describe("the reference session workload", () => {
-  it("spreads entities across every partition, retains all of them, and replaces on re-apply", () => {
-    const store = new ReferencePartitionedEntityStore();
-    const entityCount = CONSOLE_ENTITY_KINDS.length * 7;
-    for (let ordinal = 0; ordinal < entityCount; ordinal += 1) {
-      store.apply(buildReferenceConsoleEntity(ordinal));
-    }
-    expect(store.partitionCount).toBe(CONSOLE_ENTITY_KINDS.length);
-    expect(store.entityCount).toBe(entityCount);
+describe("the heap budget gate", () => {
+  it("reports UNENFORCED with the ceiling and the reason, and no verdict over a figure", () => {
+    const report = new ConsoleHeapAtRestGate(registry).report();
+    console.log(report);
 
-    store.apply(buildReferenceConsoleEntity(1));
-    expect(store.entityCount, "a re-applied entity was duplicated").toBe(entityCount);
+    expect(report).toContain("UNENFORCED");
+    expect(report).toContain(budget.notMeasurableReason ?? "");
+    expect(report).toContain(budget.producedBy);
+    expect(report).toContain(SPEC_CEILING_BYTES.toLocaleString("en-US"));
+    // The two verdicts a measured budget prints. Either one here would be a
+    // comparison against a figure nothing produced.
+    expect(report).not.toContain("WITHIN BUDGET");
+    expect(report).not.toContain("OVER BUDGET");
   });
 
-  it("builds a deterministic entity for a given ordinal, so two runs measure the same graph", () => {
-    expect(buildReferenceConsoleEntity(42)).toStrictEqual(buildReferenceConsoleEntity(42));
-    expect(buildReferenceConsoleEntity(42).id).not.toBe(buildReferenceConsoleEntity(43).id);
+  it("emits a discriminable ungated record rather than a verdict", () => {
+    const record = new ConsoleHeapAtRestGate(registry).record();
+    expect(budget.notMeasurableReason).not.toBeNull();
+    expect(record).toStrictEqual({
+      budgetId: HEAP_AT_REST_BUDGET_ID,
+      status: "unenforced",
+      reason: budget.notMeasurableReason ?? "",
+      producedBy: budget.producedBy,
+      limitCanonicalValue: SPEC_CEILING_BYTES,
+      canonicalUnit: "bytes",
+    } satisfies HeapAtRestUnenforcedRecord);
+  });
+
+  // The negative control. Every assertion above rests on the gate distinguishing
+  // "declared ungated" from "gated"; this proves it does, on the one known-bad
+  // input that matters — the row re-declared gated with nothing measuring it.
+  it("refuses a registry that claims this budget is gated", () => {
+    const gatedRegistry = registryClaimingTheHeapBudgetIsGated();
+    const gate = new ConsoleHeapAtRestGate(gatedRegistry);
+
+    expect(gate.budget.status).toBe("enforced");
+    expect(() => gate.report()).toThrow(HeapAtRestMeasurementMissingError);
+    expect(() => gate.record()).toThrow(/nothing measures it/);
+    expect(runHeapBudgetCommand([], gatedRegistry)).toBe(2);
+  });
+});
+
+describe("the heap budget CLI", () => {
+  it("exits 0 on the declared-ungated row and 2 on an unknown flag", () => {
+    expect(runHeapBudgetCommand([], registry)).toBe(0);
+    expect(runHeapBudgetCommand(["--no-such-flag"], registry)).toBe(2);
+    expect(runHeapBudgetCommand(["--help"], registry)).toBe(0);
+  });
+
+  it("prints the UNENFORCED report from a real invocation, and exits 0", () => {
+    const result = spawnSync(process.execPath, ["--experimental-strip-types", HEAP_HARNESS_PATH], {
+      encoding: "utf8",
+      cwd: path.dirname(HEAP_HARNESS_PATH),
+      maxBuffer: 8 * 1024 * 1024,
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain("UNENFORCED");
+    expect(result.stdout).toContain(HEAP_AT_REST_BUDGET_ID);
+    expect(result.stdout).not.toContain("WITHIN BUDGET");
+  });
+
+  it("emits the row and its ungated record as JSON", () => {
+    const result = spawnSync(
+      process.execPath,
+      ["--experimental-strip-types", HEAP_HARNESS_PATH, "--json"],
+      {
+        encoding: "utf8",
+        cwd: path.dirname(HEAP_HARNESS_PATH),
+        maxBuffer: 8 * 1024 * 1024,
+      },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    const emitted = JSON.parse(result.stdout) as {
+      readonly budget: ConsoleBudget;
+      readonly unenforced: HeapAtRestUnenforcedRecord;
+    };
+    expect(emitted.budget.id).toBe(HEAP_AT_REST_BUDGET_ID);
+    expect(emitted.budget.status).toBe("n/a");
+    expect(emitted.unenforced.status).toBe("unenforced");
+    expect(emitted.unenforced.limitCanonicalValue).toBe(SPEC_CEILING_BYTES);
   });
 });
