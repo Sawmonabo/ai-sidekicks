@@ -1,6 +1,6 @@
 // What the all-sessions destination may claim, and the act it must never perform.
 //
-// Three properties here are the destination's whole reason for existing and none of
+// Four properties here are the destination's whole reason for existing and none of
 // them is a type:
 //
 //   1. **Looking at the list creates nothing.** The shipped session probe calls
@@ -16,6 +16,11 @@
 //   3. **A window holding nothing is not a node holding nothing.** The directory is
 //      a node read, so it answers on an address that names no session — which is
 //      exactly the state a person is in when they open the console.
+//   4. **Both session-scoped reads ask about every session, not the route's.** The
+//      attention projection and the invitations list are each scoped to one session
+//      on the wire, and every address that mounts this surface is `kind: "sessions"`
+//      and names none — so a read keyed on the route asks about nothing at all and
+//      reports every session's answer as unasked.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -104,6 +109,10 @@ function contextWith(options: {
   readonly windowSessionIds?: readonly string[];
   /** Attention items the projection serves, per session. Refused unless named. */
   readonly attentionBySessionId?: Readonly<Record<string, readonly unknown[]>>;
+  /** Invitations the port serves, per session. Refused unless a test names them. */
+  readonly invitesBySessionId?: Readonly<Record<string, readonly unknown[]>>;
+  /** The session each `invitesList` call named, appended in call order. */
+  readonly invitesListCalls?: string[];
 }): ConsoleSurfaceContext {
   const directorySessionIds = options.directorySessionIds;
   return {
@@ -111,7 +120,15 @@ function contextWith(options: {
     bridge: {
       source: options.bridgeSource ?? "fixture",
       growth: {
-        invitesList: () => Promise.resolve(refusedRead("invitesList", "invites-list")),
+        invitesList: ({ sessionId }: { readonly sessionId: string }) => {
+          options.invitesListCalls?.push(sessionId);
+          const invites = options.invitesBySessionId?.[sessionId];
+          return Promise.resolve(
+            invites === undefined
+              ? refusedRead("invitesList", "invites-list")
+              : { status: "served", value: invites },
+          );
+        },
         attentionProjectionRead: ({ sessionId }: { readonly sessionId: string }) => {
           const items = options.attentionBySessionId?.[sessionId];
           return Promise.resolve(
@@ -134,7 +151,7 @@ function contextWith(options: {
           ),
       },
     },
-    frameStore: { activeSessionId: undefined, navigate: () => undefined },
+    frameStore: { navigate: () => undefined },
     sessionStore: options.sessionStore,
     sessionStoreRegistry: {
       openSessionIds: options.windowSessionIds ?? [],
@@ -346,5 +363,73 @@ describe("what the destination puts beside the list", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("A tool call is waiting on you.");
     expect(text).not.toContain("The attention projection has not been read.");
+  });
+});
+
+describe("the invitations the destination reads for", () => {
+  /** One invitation as the port serves it. Pending, so the shelf lists it. */
+  function pendingInvite(inviteId: string): unknown {
+    return { inviteId, state: "pending", expiresAt: "2026-02-01T10:00:00.000Z" };
+  }
+
+  it("asks once per session it can name, and names each of them", async () => {
+    // The regression this arm exists for: the read was keyed on the route's
+    // session, every address that mounts this surface names none, and the fan-out
+    // was therefore empty forever. Under that reader this array stays `[]`.
+    const invitesListCalls: string[] = [];
+    render(
+      <SessionsSurface
+        context={contextWith({
+          directorySessionIds: ["session-a", "session-b"],
+          invitesListCalls,
+        })}
+      />,
+    );
+    await settle();
+    expect(invitesListCalls).toStrictEqual(["session-a", "session-b"]);
+  });
+
+  it("lists an invitation for a session this address does not name", async () => {
+    const { container } = render(
+      <SessionsSurface
+        context={contextWith({
+          directorySessionIds: ["session-a"],
+          invitesBySessionId: { "session-a": [pendingInvite("invite-1")] },
+        })}
+      />,
+    );
+    await settle();
+    const text = container.textContent ?? "";
+    expect(text).toContain("invite-1");
+    expect(text).not.toContain("No invitations have been read.");
+  });
+
+  it("does not let one session's refusal hide another session's invitation", async () => {
+    // Each session's outcome travels on its own, so a partial read is a partial
+    // read. A fan-out that collapsed to the first answer would render the refusal
+    // and drop the invitation that did arrive.
+    const { container } = render(
+      <SessionsSurface
+        context={contextWith({
+          directorySessionIds: ["session-refused", "session-served"],
+          invitesBySessionId: { "session-served": [pendingInvite("invite-2")] },
+        })}
+      />,
+    );
+    await settle();
+    const text = container.textContent ?? "";
+    expect(text).toContain("invite-2");
+    expect(text).not.toContain("the invitesList read is not registered yet");
+  });
+
+  it("negative control: asks nothing when it can name no session", async () => {
+    // Without this, the fan-out could pass by asking about a session it invented.
+    // A console holding none has nothing to ask about, and the shelf says exactly
+    // that rather than reporting an empty inbox.
+    const invitesListCalls: string[] = [];
+    const { container } = render(<SessionsSurface context={contextWith({ invitesListCalls })} />);
+    await settle();
+    expect(invitesListCalls).toStrictEqual([]);
+    expect(container.textContent ?? "").toContain("No invitations have been read.");
   });
 });
