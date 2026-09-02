@@ -174,3 +174,18 @@ export function asInvalidationTrigger(value: string): InvalidationTrigger | unde
 export function asRememberedScopeKind(value: string): RememberedScopeKind | undefined {
   return isOwnKey(SCOPE_KIND_PHRASE, value) ? (value as RememberedScopeKind) : undefined;
 }
+
+/**
+ * A remembered scope kind's phrase, or the wire string itself where this build does
+ * not know the kind — the fail-closed projection, never a guess at which boundary
+ * was meant.
+ *
+ * Here rather than beside either caller: the standing-permissions list renders a
+ * granted rule's boundary and the approval card renders the boundary a resolution
+ * minted, and two copies of one fail-closed rule drift the moment one of them gains
+ * a third kind.
+ */
+export function rememberedScopeKindPhrase(kind: string): string {
+  const known = asRememberedScopeKind(kind);
+  return known === undefined ? kind : SCOPE_KIND_PHRASE[known];
+}

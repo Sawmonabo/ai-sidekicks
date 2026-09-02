@@ -11,7 +11,9 @@
 //   • **The opt-in is off, and an untouched control sends nothing.** A remembered
 //     scope is valid only on an `approved` decision, so the disclosure is absent on
 //     the reject path and `rememberedScope` is omitted from the payload entirely
-//     rather than sent as a falsy member.
+//     rather than sent as a falsy member. The control that composes it is
+//     `RememberDecision.tsx`, co-located: it is a second responsibility, and this
+//     file is at the size the package splits at.
 //   • **Scope is never widened.** The effective scope offered is the requested one;
 //     this card renders no control that could broaden it.
 //   • **Expiry is verbatim and arithmetic-free.** `expiryAt` is shown as the daemon
@@ -21,16 +23,21 @@
 //
 // The action row is a `toolbar` walked with arrows and with `h`/`l`, and both
 // suppress the page scroll they would otherwise cause. Base UI supplies the
-// disclosure and the two form controls under Meridian tokens (§14.10); the row
-// itself is two ordinary buttons, because a library button would add weight without
-// adding behaviour a `<button>` does not already have.
+// disclosure under Meridian tokens (§14.10); the row itself is two ordinary buttons,
+// because a library button would add weight without adding behaviour a `<button>`
+// does not already have.
 
 import { useCallback, useId, useRef, useState } from "react";
-import { Checkbox } from "@base-ui/react/checkbox";
 import { Collapsible } from "@base-ui/react/collapsible";
-import { Select } from "@base-ui/react/select";
 
-import { Chip, DerivedFigure, InlineRefusal, WireFigure } from "../../primitives/index.js";
+import {
+  Chip,
+  DerivedFigure,
+  InlineRefusal,
+  WireFigure,
+  formatClockTime,
+  formatWireDescriptor,
+} from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import {
   hasCompleteResolvedQuad,
@@ -39,14 +46,17 @@ import {
 } from "./approval-records.js";
 import {
   CATEGORY_PHRASE,
-  REMEMBERED_SCOPE_KINDS,
-  SCOPE_KIND_PHRASE,
   STATE_PHRASE,
   STATE_TONE,
   asApprovalCategory,
   asApprovalState,
-  type RememberedScopeKind,
+  rememberedScopeKindPhrase,
 } from "./approval-vocabulary.js";
+import {
+  IDLE_REMEMBERED_GRANT_INTENT,
+  RememberDecision,
+  rememberedScopeFor,
+} from "./RememberDecision.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
 
 export interface ApprovalCardProps {
@@ -101,9 +111,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const { record, onResolve } = props;
   const titleId = useId();
   const actionRowRef = useRef<HTMLDivElement>(null);
-  const [isRememberEngaged, setIsRememberEngaged] = useState(false);
-  const [shouldRemember, setShouldRemember] = useState(false);
-  const [rememberedScopeKind, setRememberedScopeKind] = useState<RememberedScopeKind>("run");
+  const [rememberedGrantIntent, setRememberedGrantIntent] = useState(IDLE_REMEMBERED_GRANT_INTENT);
 
   const state = asApprovalState(record.state);
   const category = asApprovalCategory(record.category);
@@ -114,7 +122,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
       // The opt-in rides the approve path only, and an untouched control omits the
       // member rather than sending one the daemon would have to interpret.
       const remembered =
-        decision === "approved" && shouldRemember ? { kind: rememberedScopeKind } : undefined;
+        decision === "approved" ? rememberedScopeFor(rememberedGrantIntent) : undefined;
       onResolve({
         approvalRequestId: record.approvalRequestId,
         decision,
@@ -122,13 +130,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         ...(remembered === undefined ? {} : { rememberedScope: remembered }),
       });
     },
-    [
-      onResolve,
-      record.approvalRequestId,
-      record.requestedScope,
-      rememberedScopeKind,
-      shouldRemember,
-    ],
+    [onResolve, record.approvalRequestId, record.requestedScope, rememberedGrantIntent],
   );
 
   const onActionKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -173,9 +175,29 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
           </dd>
         </div>
         <div className="meridian-approval-card__fact">
+          <dt>Raised by run</dt>
+          <dd>
+            <WireFigure value={record.runId} />
+          </dd>
+        </div>
+        <div className="meridian-approval-card__fact">
           <dt>Requested scope</dt>
           <dd>
             <WireFigure value={record.requestedScope} />
+          </dd>
+        </div>
+        <div className="meridian-approval-card__fact">
+          <dt>Requested</dt>
+          <dd>
+            {/* The clock reading is what a person reads; `title` carries the exact
+                instant the daemon sent, because a formatted figure never hides it. */}
+            <WireFigure value={formatClockTime(record.createdAt)} title={record.createdAt} />
+          </dd>
+        </div>
+        <div className="meridian-approval-card__fact">
+          <dt>Last changed</dt>
+          <dd>
+            <WireFigure value={formatClockTime(record.updatedAt)} title={record.updatedAt} />
           </dd>
         </div>
         <div className="meridian-approval-card__fact">
@@ -192,93 +214,20 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
       {props.children}
 
-      {record.resourceDescriptor === undefined && record.auditMetadata === undefined ? null : (
-        <Collapsible.Root className="meridian-approval-card__disclosure">
-          <Collapsible.Trigger className="meridian-approval-card__disclosure-trigger">
-            What was asked for
-          </Collapsible.Trigger>
-          <Collapsible.Panel className="meridian-approval-card__disclosure-panel">
-            {record.resourceDescriptor === undefined ? null : (
-              <p className="meridian-approval-card__resource">
-                <WireFigure value={record.resourceDescriptor} />
-              </p>
-            )}
-            {record.auditMetadata === undefined
-              ? null
-              : Object.entries(record.auditMetadata).map(([key, value]) => (
-                  <p className="meridian-approval-card__audit" key={key}>
-                    <WireFigure value={key} />
-                    <WireFigure value={value} />
-                  </p>
-                ))}
-          </Collapsible.Panel>
-        </Collapsible.Root>
-      )}
+      <Collapsible.Root className="meridian-approval-card__disclosure">
+        <Collapsible.Trigger className="meridian-approval-card__disclosure-trigger">
+          What was asked for
+        </Collapsible.Trigger>
+        <Collapsible.Panel className="meridian-approval-card__disclosure-panel">
+          <ResourceDescriptor descriptor={record.resourceDescriptor} />
+        </Collapsible.Panel>
+      </Collapsible.Root>
 
       {isResolvedRecord(record) ? <ResolvedQuad record={record} /> : null}
 
       {isPending ? (
         <>
-          <Collapsible.Root
-            className="meridian-approval-card__remember"
-            open={isRememberEngaged}
-            onOpenChange={setIsRememberEngaged}
-          >
-            <Collapsible.Trigger className="meridian-approval-card__disclosure-trigger">
-              Remember this answer
-            </Collapsible.Trigger>
-            <Collapsible.Panel className="meridian-approval-card__disclosure-panel">
-              <p className="meridian-approval-card__remember-note">
-                A remembered rule is an allow-rule, so it is minted only when you approve. It covers
-                this category within the boundary you choose, and it can be revoked from the
-                standing permissions list at any time.
-              </p>
-              <label className="meridian-approval-card__opt-in">
-                <Checkbox.Root
-                  className="meridian-approval-card__checkbox"
-                  checked={shouldRemember}
-                  onCheckedChange={setShouldRemember}
-                >
-                  <Checkbox.Indicator className="meridian-approval-card__checkbox-mark" />
-                </Checkbox.Root>
-                Remember my approval for this category
-              </label>
-              <Select.Root
-                value={rememberedScopeKind}
-                // The library types a clear as `null`; there is no cleared state
-                // here, so a null is the current kind kept rather than a third
-                // value the request would have to represent.
-                onValueChange={(value: RememberedScopeKind | null) => {
-                  if (value !== null) {
-                    setRememberedScopeKind(value);
-                  }
-                }}
-              >
-                <Select.Trigger
-                  className="meridian-approval-card__scope-trigger"
-                  aria-label="Remembered scope"
-                  disabled={!shouldRemember}
-                >
-                  <Select.Value />
-                </Select.Trigger>
-                <Select.Portal>
-                  <Select.Positioner>
-                    <Select.Popup className="meridian-approval-card__scope-popup">
-                      {REMEMBERED_SCOPE_KINDS.map((kind) => (
-                        <Select.Item
-                          className="meridian-approval-card__scope-item"
-                          key={kind}
-                          value={kind}
-                        >
-                          <Select.ItemText>{SCOPE_KIND_PHRASE[kind]}</Select.ItemText>
-                        </Select.Item>
-                      ))}
-                    </Select.Popup>
-                  </Select.Positioner>
-                </Select.Portal>
-              </Select.Root>
-            </Collapsible.Panel>
-          </Collapsible.Root>
+          <RememberDecision intent={rememberedGrantIntent} onChange={setRememberedGrantIntent} />
 
           <div
             className="meridian-approval-card__actions"
@@ -351,10 +300,51 @@ function ResolvedQuad(props: { readonly record: ApprovalRecord }): React.JSX.Ele
         <div className="meridian-approval-card__fact">
           <dt>Remembered scope</dt>
           <dd>
-            <WireFigure value={record.rememberedScope} />
+            <DerivedFigure text={rememberedScopeKindPhrase(record.rememberedScope.kind)} />
+            {record.rememberedScope.pattern === undefined ? (
+              <DerivedFigure text="the whole category inside that boundary" />
+            ) : (
+              <WireFigure value={record.rememberedScope.pattern} />
+            )}
           </dd>
         </div>
       )}
+    </dl>
+  );
+}
+
+/**
+ * The requested resource, as the structured value the reply carries.
+ *
+ * The member is required on the wire, so "no descriptor" is not a state a
+ * conformant row can be in — a row missing it never parses and is counted
+ * unreadable instead. What IS reachable is a descriptor carrying no members at all,
+ * and that is said in as many words rather than rendered as a blank panel.
+ */
+function ResourceDescriptor(props: {
+  readonly descriptor: Readonly<Record<string, unknown>>;
+}): React.JSX.Element {
+  const entries = formatWireDescriptor(props.descriptor);
+  if (entries.length === 0) {
+    return (
+      <p className="meridian-approval-card__resource-empty">
+        The reply carried a descriptor with nothing in it, so what will actually run is not shown
+        here.
+      </p>
+    );
+  }
+  return (
+    <dl className="meridian-approval-card__resource">
+      {entries.map((entry) => (
+        <div className="meridian-approval-card__resource-member" key={entry.key}>
+          <dt>
+            <WireFigure value={entry.key} />
+          </dt>
+          <dd>
+            <WireFigure value={entry.value} />
+          </dd>
+        </div>
+      ))}
     </dl>
   );
 }

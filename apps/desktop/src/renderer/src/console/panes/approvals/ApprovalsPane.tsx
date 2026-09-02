@@ -27,13 +27,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Nothing } from "../../primitives/index.js";
+import { Nothing, formatCount } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
 import { ApprovalCard, findApprovalCardAction } from "./ApprovalCard.js";
-import { DriverAskCard } from "./DriverAskCard.js";
 import { ExecutionPostureChip } from "./ExecutionPosture.js";
 import { CallbackTools } from "./CallbackTools.js";
 import { RememberedGrants } from "./RememberedGrants.js";
@@ -214,7 +213,18 @@ function ApprovalList(props: ApprovalListProps): React.JSX.Element {
     );
   }
   if (props.records.length === 0) {
-    return (
+    // Two independent facts, and the render has to be able to say both. An answered
+    // read whose records this build could not decode is NOT a served empty set, and
+    // reporting it as one tells an operator that nothing needs them while requests
+    // may be waiting — rule 8's conflation rule, applied to one render.
+    return props.phase.unreadableCount > 0 ? (
+      <Nothing
+        kind="error"
+        placement="surface"
+        title="Part of this read could not be decoded."
+        detail={`The daemon answered and ${formatCount(props.phase.unreadableCount)} of the records it returned are shaped in a way this build cannot read, so this list is empty for that reason rather than because nothing is here.`}
+      />
+    ) : (
       <Nothing
         kind="empty"
         placement="surface"
@@ -231,27 +241,15 @@ function ApprovalList(props: ApprovalListProps): React.JSX.Element {
           daemon returned.
         </p>
       ) : null}
-      {props.records.map((record) =>
-        // The `kind` discriminator on the originating ask is what routes a record
-        // to the ask card, so exactly one of the two renders any given record.
-        record.askId === undefined ? (
-          <ApprovalCard
-            key={record.approvalRequestId}
-            record={record}
-            isResolving={props.snapshotResolving.has(record.approvalRequestId)}
-            refusal={props.refusalByApprovalId.get(record.approvalRequestId)}
-            onResolve={props.onResolve}
-          />
-        ) : (
-          <DriverAskCard
-            key={record.approvalRequestId}
-            record={record}
-            isResolving={props.snapshotResolving.has(record.approvalRequestId)}
-            refusal={props.refusalByApprovalId.get(record.approvalRequestId)}
-            onResolve={props.onResolve}
-          />
-        ),
-      )}
+      {props.records.map((record) => (
+        <ApprovalCard
+          key={record.approvalRequestId}
+          record={record}
+          isResolving={props.snapshotResolving.has(record.approvalRequestId)}
+          refusal={props.refusalByApprovalId.get(record.approvalRequestId)}
+          onResolve={props.onResolve}
+        />
+      ))}
     </div>
   );
 }

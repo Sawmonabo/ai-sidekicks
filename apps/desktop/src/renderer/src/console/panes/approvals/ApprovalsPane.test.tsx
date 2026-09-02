@@ -132,13 +132,13 @@ describe("one unfiltered read, rendered in two places", () => {
     expect(within(section("Waiting on a decision")).queryByText("Approved")).toBeNull();
   });
 
-  it("routes a permission-kind ask to the ask card and an ordinary one to the plain card", async () => {
+  it("names the run each waiting request was raised by", async () => {
     const bridge = await mountPane();
     await settle(bridge);
     const waiting = section("Waiting on a decision");
-    // The ask card is the only one that names the expiry outcome, so its presence
-    // is the routing, and exactly one of the two pending records took it.
-    expect(within(waiting).getAllByText(/the run continues/u)).toHaveLength(1);
+    // `runId` is required on every registered row, so every card can say it — and
+    // which run raised a request is the first thing anyone answering one asks.
+    expect(within(waiting).getAllByText("Raised by run")).toHaveLength(2);
   });
 
   it("states the wait-for-all barrier over the group rather than grouping cards", async () => {
@@ -228,7 +228,7 @@ class ScriptedApprovalReads {
 
   public reply(): unknown {
     const shown = this.#admitsThird ? WAITING_APPROVAL_IDS : WAITING_APPROVAL_IDS.slice(0, 2);
-    return { requests: shown.map(waitingRecord) };
+    return { approvals: shown.map(waitingRecord) };
   }
 }
 
@@ -238,17 +238,26 @@ const WAITING_APPROVAL_IDS = [
   "019b7a33-3300-7f01-8230-d1a4c1150603",
 ] as const;
 
-function waitingRecord(approvalRequestId: string): Record<string, string> {
+function waitingRecord(id: string): Record<string, unknown> {
   return {
-    approvalRequestId,
-    category: "file_write",
-    state: "pending",
+    id,
+    runId: "019b7a33-3300-740e-8110-d1a4c1150511",
     requestedBy: "019b7a33-3300-7a6e-8110-d1a4c1150501",
-    requestedScope: "run",
+    category: "file_write",
+    scope: "run",
+    resourceDescriptor: { path: "packages/contracts/src/approval.ts" },
+    state: "pending",
+    createdAt: "2026-01-01T13:30:00.900Z",
+    updatedAt: "2026-01-01T13:30:00.900Z",
   };
 }
 
-function stubApprovalsBridge(reads: ScriptedApprovalReads): ConsoleBridge {
+/** Anything the stub bridge can answer the projection read with. */
+interface ApprovalProjectionSource {
+  readonly reply: () => unknown;
+}
+
+function stubApprovalsBridge(reads: ApprovalProjectionSource): ConsoleBridge {
   const clock = new ManualClock();
   return {
     sidekicks: {
@@ -313,5 +322,43 @@ describe("focus lands in the card that arrived", () => {
       document.activeElement,
     );
     composer.remove();
+  });
+});
+
+// An answered read whose records this build cannot decode. Reachable only against a
+// stub: every shipped scenario answers rows the parser reads, which is what those
+// fixtures are for.
+async function mountOverReply(reply: unknown): Promise<ConsoleBridge> {
+  const bridge = stubApprovalsBridge({ reply: () => reply });
+  await act(async () => {
+    render(<ApprovalsPane {...paneContext(bridge, boundStore())} />);
+  });
+  await settle(bridge);
+  return bridge;
+}
+
+describe("an empty list never hides what could not be read", () => {
+  it("says the read was partial rather than that nothing needs a decision", async () => {
+    await mountOverReply({ approvals: [{}, {}, {}] });
+    const waiting = section("Waiting on a decision");
+    expect(within(waiting).getByText("Part of this read could not be decoded.")).not.toBeNull();
+    expect(within(waiting).getByText(/\b3\b/u)).not.toBeNull();
+    // The negative control on the branch this replaces: the reassuring empty state
+    // used to render here, and it must not, because requests may be waiting.
+    expect(within(waiting).queryByText("Nothing needs a decision.")).toBeNull();
+  });
+
+  it("renders the served empty set unchanged when nothing was unreadable", async () => {
+    await mountOverReply({ approvals: [] });
+    const waiting = section("Waiting on a decision");
+    expect(within(waiting).getByText("Nothing needs a decision.")).not.toBeNull();
+    expect(within(waiting).queryByText("Part of this read could not be decoded.")).toBeNull();
+  });
+
+  it("keeps the list and the warning together when both are true", async () => {
+    await mountOverReply({ approvals: [waitingRecord(WAITING_APPROVAL_IDS[0]), {}] });
+    const waiting = section("Waiting on a decision");
+    expect(within(waiting).getAllByRole("article")).toHaveLength(1);
+    expect(within(waiting).getByText(/could not read/u)).not.toBeNull();
   });
 });
