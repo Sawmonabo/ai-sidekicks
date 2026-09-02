@@ -128,7 +128,7 @@ import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { createRefusingGrowthPort, growthUnavailable, type GrowthPort } from "./growth-port.js";
-import type { ScenarioEngine } from "./scenario.js";
+import type { ScenarioEngine } from "./scenario-engine.js";
 
 /**
  * The operations the fixture answers rather than refuses.

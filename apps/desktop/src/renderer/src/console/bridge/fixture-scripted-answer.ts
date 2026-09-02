@@ -12,7 +12,7 @@
 import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthOutcome } from "./growth-outcome.js";
 import { growthScriptedReplyUnavailable } from "./growth-port.js";
-import type { ScenarioEngine } from "./scenario.js";
+import type { ScenarioEngine } from "./scenario-engine.js";
 import { settleScriptedReply } from "./scripted-reply.js";
 
 /**

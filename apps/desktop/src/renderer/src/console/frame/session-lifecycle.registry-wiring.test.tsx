@@ -1,0 +1,167 @@
+// What the registry this hook mints is WIRED with: a clock, and the projectors.
+//
+// Both are properties of the composition root rather than of the registry class,
+// and both are invisible in a snapshot — a store on the wrong clock still holds
+// events, and a store with no projectors still holds a timeline. So each case
+// drives the registry the hook actually built and carries the same-class control
+// with the one wiring difference removed: a registry left on its own `RealClock`
+// reaches none of the scenario's timers, and a registry built with no projectors
+// folds the same event into an empty partition. That second state is what the
+// console shipped before.
+
+import { act, render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import type { ConsoleBridge } from "../bridge/index.js";
+import type { ScenarioEngine } from "../bridge/scenario-engine.js";
+import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
+import { APPLY_COALESCE_MS, ManualClock } from "../core/index.js";
+import { SessionStoreRegistry, type ConsoleSessionEvent } from "../store/index.js";
+import {
+  SessionProbe,
+  fixtureBridgeHarness,
+  fixtureBridgeWrapper,
+  lastObservation,
+  type Observation,
+} from "./session-lifecycle.test-support.js";
+
+/** The running engine, or a failure that names what was missing rather than `undefined`. */
+function scenarioEngineOf(bridge: ConsoleBridge): ScenarioEngine {
+  const engine = bridge.scenarioEngine;
+  if (engine === undefined) {
+    throw new Error("the fixture bridge exposed no scenario engine");
+  }
+  return engine;
+}
+
+/** One wire event, shaped as the apply chokepoint consumes it. */
+function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEvent {
+  return {
+    sessionId,
+    sequence,
+    kind: "run.queued",
+    occurredAt: new Date(sequence).toISOString(),
+  };
+}
+
+/** One run beat, payload-shaped as `Spec-006 §Run Lifecycle (run_lifecycle)` spells it. */
+function queuedRunEvent(sessionId: string, sequence: number, runId: string): ConsoleSessionEvent {
+  return {
+    sessionId,
+    sequence,
+    kind: "run.queued",
+    occurredAt: new Date(sequence).toISOString(),
+    payload: { sessionId, runId, runVersion: 1, newState: "queued" },
+  };
+}
+
+describe("useSessionStoreRegistry — the clock the window's stores run on", () => {
+  it("drains a queued batch on the scenario's frozen clock rather than on wall time", () => {
+    // The apply queue coalesces on a TIMEOUT of `APPLY_COALESCE_MS`, so which
+    // clock armed it is observable: advancing the scenario is the only thing that
+    // can fire a frozen one, and it fires nothing at all on a wall-clock timer.
+    // Before the registry was handed the bridge's clock, this drain waited on
+    // `setTimeout` while the beats around it moved on frozen time — so a
+    // screenshot or an endurance step taken straight after `advance()` saw either
+    // side of the drain depending on how fast the runner was.
+    const { bridge, wrapper } = fixtureBridgeHarness();
+    const sessionId = FLAGSHIP_SCENARIO.sessionId;
+    const observed: Observation[] = [];
+    render(
+      <SessionProbe
+        sessionId={sessionId}
+        onObserve={(observation) => {
+          observed.push(observation);
+        }}
+      />,
+      { wrapper },
+    );
+    const { registry } = lastObservation(observed);
+    const drainsBefore = registry.applyDrainCountFor(sessionId);
+
+    act(() => {
+      registry.enqueue(sessionId, [deliveredEvent(sessionId, 1)]);
+    });
+    // Still buffered: enqueuing arms the window, it does not spend it.
+    expect(registry.applyDrainCountFor(sessionId)).toBe(drainsBefore);
+
+    act(() => {
+      scenarioEngineOf(bridge).advance(APPLY_COALESCE_MS);
+    });
+
+    expect(registry.applyDrainCountFor(sessionId)).toBeGreaterThan(drainsBefore);
+  });
+
+  it("negative control: a registry left on the real clock does not drain when scenario time moves", () => {
+    // Without this, the case above would pass against a queue that drained on
+    // enqueue, on any advance, or on nothing in particular. This is the SAME
+    // registry class with the one difference under test — no clock supplied, so
+    // it takes its own `RealClock` — and a separate `ManualClock` advanced past
+    // the coalescing window reaches none of its timers.
+    const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
+    const unclockedSessionId = "session-wall-clock";
+    registry.open(unclockedSessionId);
+    const separateClock = new ManualClock();
+
+    registry.enqueue(unclockedSessionId, [deliveredEvent(unclockedSessionId, 1)]);
+    separateClock.advance(APPLY_COALESCE_MS * 4);
+
+    expect(registry.applyDrainCountFor(unclockedSessionId)).toBe(0);
+    // Disposed rather than left armed: its real timeout is still pending, and a
+    // drain landing in a later case's turn is a cross-test coupling.
+    registry.disposeAll();
+  });
+});
+
+describe("useSessionStoreRegistry — the projectors the window's stores fold with", () => {
+  it("registers the run-lifecycle projectors on the stores it opens", () => {
+    // Asserted THROUGH the registry the hook built rather than against a
+    // constructor spy: what matters is that a store this window opens folds a
+    // `run.*` event into the `run` partition, and a mock of the registry would
+    // have passed with the composition root registering nothing at all — which is
+    // exactly the state this replaced.
+    const observed: Observation[] = [];
+    const sessionId = "session-run-projection";
+    render(
+      <SessionProbe
+        sessionId={sessionId}
+        onObserve={(observation) => {
+          observed.push(observation);
+        }}
+      />,
+      { wrapper: fixtureBridgeWrapper() },
+    );
+    const { registry } = lastObservation(observed);
+    const store = registry.peek(sessionId);
+    expect(store).toBeDefined();
+    // The same base state the fixture's own session read establishes, so a read
+    // landing later answers at this cursor and changes nothing.
+    store?.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    act(() => {
+      registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
+      registry.flush(sessionId);
+    });
+
+    const projectedRun = store?.snapshot().partitions.run["run-projection-1"];
+    expect(projectedRun?.state).toBe("queued");
+    expect(projectedRun?.body?.["runVersion"]).toBe(1);
+  });
+
+  it("negative control: a registry built with no projectors folds the same event into nothing", () => {
+    // Without this, the case above would pass on any store that happened to hold
+    // a run row. Same registry class, same event, one difference — no projectors —
+    // and the partition stays empty, which is what the console shipped before.
+    const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
+    const sessionId = "session-unprojected";
+    const store = registry.open(sessionId);
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
+    registry.flush(sessionId);
+
+    expect(store.snapshot().timeline).toHaveLength(1);
+    expect(store.snapshot().partitions.run).toStrictEqual({});
+    registry.disposeAll();
+  });
+});
