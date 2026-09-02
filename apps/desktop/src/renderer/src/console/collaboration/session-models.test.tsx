@@ -72,17 +72,28 @@ interface RenderPhaseReading {
   readonly liveSubscriptionCount: number;
 }
 
+/** Which session a committed frame drew, beside the store that frame was handed. */
+interface FramePairing {
+  readonly modelsSessionId: string | undefined;
+  readonly storeSessionId: string | undefined;
+}
+
 function LeaseProbe(props: {
   readonly holder: CollaborationSessionModelHolder;
   readonly bridge: ConsoleBridge;
   readonly sessionStore: SessionStore;
   readonly onRender?: (reading: RenderPhaseReading) => void;
+  readonly onFrame?: (pairing: FramePairing) => void;
   readonly liveSubscriptionCount?: () => number;
 }): React.JSX.Element {
   const models = useSessionModels(props.holder, props.bridge, props.sessionStore);
   props.onRender?.({
     leaseCount: props.holder.outstandingLeaseCount,
     liveSubscriptionCount: props.liveSubscriptionCount?.() ?? 0,
+  });
+  props.onFrame?.({
+    modelsSessionId: models?.sessionId,
+    storeSessionId: props.sessionStore.sessionId,
   });
   return <p>{models === undefined ? "waiting" : models.sessionId}</p>;
 }
@@ -218,6 +229,66 @@ describe("the sidebar's models — acquisition is an effect and never a render",
     expect(holder.heldSessionId).toBe("session-lease-f");
     expect(holder.outstandingLeaseCount).toBe(1);
     expect(counted.liveSubscriptionCount()).toBe(1);
+  });
+});
+
+describe("the sidebar's models — a set is handed out only under its own session", () => {
+  /** Every frame the probe committed, in order, with the store each one was handed. */
+  function switchBetweenOpenSessions(): readonly FramePairing[] {
+    const counted = countedFixtureBridge("session-switch-a");
+    const holder = new CollaborationSessionModelHolder();
+    const frames: FramePairing[] = [];
+    const record = (pairing: FramePairing): void => {
+      frames.push(pairing);
+    };
+    const view = render(
+      <LeaseProbe
+        holder={holder}
+        bridge={counted.bridge}
+        sessionStore={new SessionStore({ sessionId: "session-switch-a" })}
+        onFrame={record}
+      />,
+    );
+    // Straight from one open session to another, which is the sidebar's own move —
+    // no unmount in between, so the held set is still the first session's on the
+    // render that first names the second.
+    view.rerender(
+      <LeaseProbe
+        holder={holder}
+        bridge={counted.bridge}
+        sessionStore={new SessionStore({ sessionId: "session-switch-b" })}
+        onFrame={record}
+      />,
+    );
+    view.unmount();
+    return frames;
+  }
+
+  it("never draws one session's models under another session's store", () => {
+    const frames = switchBetweenOpenSessions();
+    const disagreeing = frames.filter(
+      (frame) =>
+        frame.modelsSessionId !== undefined && frame.modelsSessionId !== frame.storeSessionId,
+    );
+    expect(disagreeing).toStrictEqual([]);
+  });
+
+  it("renders the switching frame as absent and the next one as the new session's", () => {
+    const frames = switchBetweenOpenSessions();
+    const afterSwitch = frames.filter((frame) => frame.storeSessionId === "session-switch-b");
+    // The frame the store moved on hands out nothing — which the sections already
+    // render as the `not-loaded` absence — and the frame the effect's lease lands
+    // on hands out the new session's set.
+    expect(afterSwitch[0]?.modelsSessionId).toBeUndefined();
+    expect(afterSwitch.at(-1)?.modelsSessionId).toBe("session-switch-b");
+  });
+
+  it("negative control: the frames before the switch DO carry the first session's set", () => {
+    // Without this, the two cases above would pass over a hook that handed out
+    // nothing at all, on every frame, forever.
+    const frames = switchBetweenOpenSessions();
+    const beforeSwitch = frames.filter((frame) => frame.storeSessionId === "session-switch-a");
+    expect(beforeSwitch.at(-1)?.modelsSessionId).toBe("session-switch-a");
   });
 });
 

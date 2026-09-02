@@ -38,7 +38,11 @@
 // which is the row itself, so the ledger consumes that projection rather than
 // re-reading `invitesList`: a row left saying "pending" beside a re-enabled Revoke
 // control would be this surface contradicting the answer it just received.
-// `invite-ledger.ts` owns the fold and says why no second read is put.
+// `invite-ledger.ts` owns the fold and says why no second read is put. One revoke
+// runs at a time, so while one is unsettled EVERY pending row's control is closed
+// rather than only the row being revoked — the coordinator would refuse a second
+// press, and a control that leads only to that refusal is worse than a control
+// that waits.
 //
 // REVOCATION IS SILENT AND THE SENDER IS TOLD SO (`Spec-002 §Invite Revocation`).
 // There is no decline column either — `InviteState` is exactly
@@ -253,6 +257,10 @@ function LedgerBody(props: {
               <InviteLedgerRow
                 invite={invite}
                 isRevoking={props.pendingRevokeKey === invite.inviteId}
+                // Every pending row's control closes while ANY revoke is
+                // unsettled, not only the one being revoked: the coordinator
+                // behind them applies one at a time.
+                isAnyRevoking={props.pendingRevokeKey !== undefined}
                 refusal={props.refusalByInviteId[invite.inviteId]}
                 onRevoke={() => {
                   props.onRevoke(invite.inviteId);
@@ -273,7 +281,12 @@ function LedgerBody(props: {
           <ul className="meridian-invites__rows">
             {ledger.settled.slice(0, SETTLED_INVITE_VISIBLE_CAP).map((invite) => (
               <li key={invite.inviteId}>
-                <InviteLedgerRow invite={invite} isRevoking={false} refusal={undefined} />
+                <InviteLedgerRow
+                  invite={invite}
+                  isRevoking={false}
+                  isAnyRevoking={false}
+                  refusal={undefined}
+                />
               </li>
             ))}
           </ul>
@@ -297,7 +310,10 @@ function LedgerBody(props: {
  */
 function InviteLedgerRow(props: {
   readonly invite: SentInvite;
+  /** This row is the one being revoked. */
   readonly isRevoking: boolean;
+  /** Some row is being revoked — this one, or a neighbour. */
+  readonly isAnyRevoking: boolean;
   readonly refusal: { readonly code: string; readonly detail: string } | undefined;
   readonly onRevoke?: () => void;
   readonly onDismissRefusal?: () => void;
@@ -315,7 +331,7 @@ function InviteLedgerRow(props: {
           type="button"
           className="meridian-invites__row-action"
           onClick={onRevoke}
-          disabled={props.isRevoking}
+          disabled={props.isAnyRevoking}
           aria-label={`Revoke invitation ${invite.inviteId}`}
         >
           {props.isRevoking ? "Revoking…" : "Revoke"}

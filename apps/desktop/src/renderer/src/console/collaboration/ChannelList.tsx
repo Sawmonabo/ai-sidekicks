@@ -28,7 +28,10 @@
 // ARCHIVED ROWS SINK AND COLLAPSE. Archival is terminal, so that region only grows;
 // it lives behind one disclosure, closed by default, and carries no unmute
 // affordance — there is nothing to unmute, and offering it would suggest the row
-// could come back.
+// could come back. The disclosure renders EVERY archived row: its height is bounded
+// by the region's own scroll box, never by a slice, because the summary above it
+// counts what the read carried and a count the list will not show is a lie the
+// person cannot even page past — no channel read carries a cursor.
 
 import { useCallback, useMemo } from "react";
 
@@ -49,7 +52,6 @@ import {
   type ChannelActivityLabels,
 } from "./activity-model.js";
 import { orderChannelRows, type ChannelRow } from "./channel-model.js";
-import { ARCHIVED_CHANNEL_VISIBLE_CAP } from "./constants.js";
 import { CreateChannel } from "./CreateChannel.js";
 import type { PushDrivenReadState } from "./push-driven-read.js";
 import { TypingActivity } from "./TypingActivity.js";
@@ -160,7 +162,7 @@ export function ChannelList(props: ChannelListProps): React.JSX.Element {
             />
           </summary>
           <ul className="meridian-channels__list meridian-channels__list--archived">
-            {rows.archived.slice(0, ARCHIVED_CHANNEL_VISIBLE_CAP).map((row) => (
+            {rows.archived.map((row) => (
               <ChannelListRow
                 key={row.channel.id}
                 row={row}

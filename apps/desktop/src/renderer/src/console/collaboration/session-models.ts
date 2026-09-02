@@ -192,6 +192,18 @@ function buildSessionModels(
  * defect, not the fix: React may abandon a render pass, and an abandoned pass would
  * leave a started subscription with no cleanup to release it.
  *
+ * SWITCHING BETWEEN TWO OPEN SESSIONS HAS THAT SAME FRAME, and it is the one that
+ * matters: the render naming the new store commits before the effect that leases
+ * its models, so the held set is still the PREVIOUS session's. That frame is now
+ * rendered as absent rather than as the previous session's models — the check below
+ * hands out a set only while it belongs to the store it was asked about. Without it
+ * the sections spent a committed frame drawing one session's channels and members
+ * under another session's context, and a control pressed on that frame would have
+ * carried the old session's channel id through the new session's seat.
+ *
+ * It narrows what is HANDED OUT and not what is held: the lease bookkeeping above
+ * is untouched, so the mismatched frame still holds exactly the lease it took.
+ *
  * Strict mode's double mount is idempotent by the lease count rather than by a guard:
  * the second cleanup takes the count to zero and disposes, and the second effect
  * builds a fresh set — so exactly one set is live once the pair has settled.
@@ -210,7 +222,7 @@ export function useSessionModels(
       setModels(undefined);
     };
   }, [holder, bridge, sessionStore]);
-  return models;
+  return models?.sessionId === sessionStore.sessionId ? models : undefined;
 }
 
 /**

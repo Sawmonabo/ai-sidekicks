@@ -84,6 +84,56 @@ describe("channel list — the rows", () => {
     const { container } = renderList(loaded([channel("channel-main", "active", "main")]));
     expect(container.querySelector(".meridian-channels__archive")).toBeNull();
   });
+
+  it("renders one row per archived channel however many the read carried", () => {
+    // Thirteen — one past the twelve-row slice this list used to take. The slice
+    // bounded the DATA while the summary above it kept counting the whole read, so
+    // the thirteenth row was advertised and unreachable: no channel read carries a
+    // cursor, so there was nothing to page to. The scroll box bounds the height.
+    const archived = Array.from({ length: 13 }, (_unused, index) =>
+      channel(`channel-old-${String(index)}`, "archived", `old-${String(index)}`),
+    );
+    const { container } = renderList(
+      loaded([channel("channel-main", "active", "main"), ...archived]),
+    );
+    const archivedRows = container.querySelectorAll(
+      ".meridian-channels__list--archived .meridian-channel-row",
+    );
+    expect(archivedRows).toHaveLength(13);
+  });
+
+  it("shows every row the archived summary counts", () => {
+    // The clean assertion, stated as the equality the old slice broke: the summary
+    // is derived from the same array the list renders, so the two can never
+    // disagree. Pre-fix this read twelve rows against a summary saying thirteen.
+    const archived = Array.from({ length: 13 }, (_unused, index) =>
+      channel(`channel-old-${String(index)}`, "archived", `old-${String(index)}`),
+    );
+    const { container } = renderList(
+      loaded([channel("channel-main", "active", "main"), ...archived]),
+    );
+    const summaryText =
+      container.querySelector(".meridian-channels__archive-summary")?.textContent ?? "";
+    const renderedArchivedRowCount = container.querySelectorAll(
+      ".meridian-channels__list--archived .meridian-channel-row",
+    ).length;
+    expect(summaryText).toContain(`${String(renderedArchivedRowCount)} archived channels`);
+  });
+
+  it("negative control: a small archived set still renders exactly what it was served", () => {
+    const { container } = renderList(
+      loaded([
+        channel("channel-main", "active", "main"),
+        channel("channel-old", "archived", "old"),
+      ]),
+    );
+    expect(
+      container.querySelectorAll(".meridian-channels__list--archived .meridian-channel-row"),
+    ).toHaveLength(1);
+    expect(
+      container.querySelector(".meridian-channels__archive-summary")?.textContent ?? "",
+    ).toContain("1 archived channel");
+  });
 });
 
 describe("channel list — what it offers", () => {

@@ -252,6 +252,66 @@ describe("memberships — a pending confirmation takes the whole surface", () =>
   });
 });
 
+describe("memberships — one change at a time", () => {
+  /** Every row's manage trigger and revoke trigger, read fresh after each render. */
+  function rowControls(container: HTMLElement): readonly HTMLButtonElement[] {
+    return [
+      ...container.querySelectorAll<HTMLButtonElement>(
+        ".meridian-members__manage, .meridian-members__revoke",
+      ),
+    ];
+  }
+
+  /** Open one row's revoke confirmation and press through it. */
+  function confirmRevoke(container: HTMLElement, rowIndex: number): void {
+    act(() => {
+      container.querySelectorAll<HTMLButtonElement>(".meridian-members__revoke")[rowIndex]?.click();
+    });
+    act(() => {
+      document.querySelector<HTMLButtonElement>(".meridian-members__dialog-confirm")?.click();
+    });
+  }
+
+  it("closes every row's controls while one row's change is unsettled", () => {
+    const { container } = render(
+      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
+    );
+    expect(rowControls(container).every((control) => !control.disabled)).toBe(true);
+
+    // Synchronous acts on purpose: the coordinator publishes its pending key
+    // before the call it awaits settles, so this reads the tree at exactly the
+    // moment one membership change is in flight.
+    confirmRevoke(container, 0);
+
+    const controls = rowControls(container);
+    expect(controls).toHaveLength(4);
+    expect(controls.every((control) => control.disabled)).toBe(true);
+    // The row that was pressed says what it is doing; its neighbour is only shut.
+    const manageLabels = [...container.querySelectorAll(".meridian-members__manage")].map(
+      (control) => control.textContent ?? "",
+    );
+    expect(manageLabels).toStrictEqual(["Applying…", "Manage"]);
+  });
+
+  it("negative control: every control opens again once that change settles", async () => {
+    // Without this, the case above would pass over a ledger that disabled every
+    // control permanently.
+    const { container } = render(
+      <Memberships context={contextFor(storeHolding(OWNER_AND_COLLABORATOR))} />,
+    );
+
+    confirmRevoke(container, 0);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // The scenario scripts no `membership.update` reply, so the fixture refuses —
+    // and the refusal renders in place rather than leaving the surface shut.
+    expect(container.textContent ?? "").toContain("The membership change was not applied");
+    expect(rowControls(container).every((control) => !control.disabled)).toBe(true);
+  });
+});
+
 describe("memberships — what a person reads", () => {
   it("names no governance work anywhere", () => {
     const { container } = render(

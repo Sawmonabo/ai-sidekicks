@@ -12,6 +12,17 @@
 // invisible until somebody presses twice. Hoisted on its second use, per
 // `apps/desktop/AGENTS.md`.
 //
+// ONE AT A TIME IS ENFORCED HERE AND NOT ONLY DRAWN
+//
+// A surface disables the controls it knows about, and a surface is not the only
+// caller: a second press that arrived before the first re-render, a second body
+// mounted against the same coordinator, or a control a later change forgets to
+// disable would each start a second call. So `run` refuses rather than calls
+// while one is unsettled. It refuses AUDIBLY, against the key that was attempted,
+// because a press that vanishes is indistinguishable from one the daemon ignored.
+// It does not queue: a membership change held and applied later is a second act
+// nobody re-confirmed, against a row whose state may have moved underneath it.
+//
 // WHY THE REFUSAL IS KEYED
 //
 // A section holds several rows and each can refuse differently: one membership
@@ -32,18 +43,21 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
-import {
-  AttemptGeneration,
-  Emitter,
-  refuse,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../core/index.js";
+import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { callDaemonMethod } from "./wire-access.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
+
+/**
+ * The code a press refused for arriving while another mutation is unsettled.
+ *
+ * Console-local rather than a wire code, and named so it reads as one: nothing was
+ * sent, so no daemon namespace may be quoted here. A refusal wearing
+ * `membership.conflict` would attribute this console's own rule to the daemon.
+ */
+const MUTATION_IN_FLIGHT_CODE = "mutation-in-flight";
 
 /**
  * What one mutation call does.
@@ -81,8 +95,6 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   readonly #describeWhat: string;
   readonly #changes = new Emitter<WireMutationSnapshot>("wire mutation change");
   #snapshot: WireMutationSnapshot = NOTHING_IN_FLIGHT;
-  /** The attempts this coordinator has made. Each supersedes the one before it. */
-  readonly #attempts = new AttemptGeneration();
 
   public constructor(options: {
     readonly perform: WireMutation<TRequest, TResponse>;
@@ -109,9 +121,27 @@ export class WireMutationCoordinator<TRequest, TResponse> {
    * to know whether to move on reads the return value and a caller that renders
    * the reason reads the snapshot. Nothing is applied locally either way: this
    * class holds no copy of the subject it mutated.
+   *
+   * A call arriving while another is unsettled makes NO wire call. It takes the
+   * refused arm, keyed to the subject it was attempted against, so the press is
+   * answered on the row it came from. There is no attempt generation here for that
+   * reason: nothing can supersede a settlement when nothing can start beside one,
+   * and a counter that decides nothing is a mechanism a later reader has to
+   * disprove.
    */
   public async run(key: string, request: TRequest): Promise<TResponse | undefined> {
-    const attempt = this.#attempts.begin();
+    const unsettledKey = this.#snapshot.pendingKey;
+    if (unsettledKey !== undefined) {
+      this.#publish({
+        pendingKey: unsettledKey,
+        refusalByKey: {
+          ...this.#snapshot.refusalByKey,
+          [key]: this.#refuseForUnsettled(unsettledKey),
+        },
+        revision: this.#snapshot.revision + 1,
+      });
+      return undefined;
+    }
     this.#publish({
       pendingKey: key,
       // The prior refusal for THIS subject is dropped on the attempt rather than
@@ -122,25 +152,21 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     });
     try {
       const response = await this.#perform(request);
-      if (this.#attempts.isCurrent(attempt)) {
-        this.#publish({
-          pendingKey: undefined,
-          refusalByKey: this.#snapshot.refusalByKey,
-          revision: this.#snapshot.revision + 1,
-        });
-      }
+      this.#publish({
+        pendingKey: undefined,
+        refusalByKey: this.#snapshot.refusalByKey,
+        revision: this.#snapshot.revision + 1,
+      });
       return response;
     } catch (rejection: unknown) {
-      if (this.#attempts.isCurrent(attempt)) {
-        this.#publish({
-          pendingKey: undefined,
-          refusalByKey: {
-            ...this.#snapshot.refusalByKey,
-            [key]: this.#asRefusal(rejection),
-          },
-          revision: this.#snapshot.revision + 1,
-        });
-      }
+      this.#publish({
+        pendingKey: undefined,
+        refusalByKey: {
+          ...this.#snapshot.refusalByKey,
+          [key]: this.#asRefusal(rejection),
+        },
+        revision: this.#snapshot.revision + 1,
+      });
       return undefined;
     }
   }
@@ -171,6 +197,21 @@ export class WireMutationCoordinator<TRequest, TResponse> {
    * because a rejection crossing the preload boundary is `unknown`, and the
    * surface whose job is to SHOW a refusal must not throw while rendering one.
    */
+  /**
+   * The refusal a press earns for arriving while another one is unsettled.
+   *
+   * It names the subject still running rather than saying "one at a time" and
+   * leaving a person to work out which row is holding the surface — on a ledger of
+   * many rows that is the whole of the answer.
+   */
+  #refuseForUnsettled(unsettledKey: string): ConsoleRefusal {
+    return refuse(
+      COLLABORATION_REFUSAL_ORIGIN,
+      MUTATION_IN_FLIGHT_CODE,
+      `${this.#describeWhat} was not applied. A change to ${unsettledKey} is still being applied, and only one runs at a time — wait for it to settle, then press again.`,
+    );
+  }
+
   #asRefusal(rejection: unknown): ConsoleRefusal {
     const normalized = normalizeWireRejection(rejection, { total: true });
     return refuse(
