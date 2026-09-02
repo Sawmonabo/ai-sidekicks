@@ -34,7 +34,7 @@ import { CAST_BAR_CHIP_CAP } from "../core/index.js";
 import { Chip, Glyph, Nothing, WireFigure } from "../primitives/index.js";
 import { useSessionStore, type SessionStore } from "../store/index.js";
 import { tokenReference } from "../tokens/index.js";
-import { deriveCastBar, type CastMember } from "./cast-bar-model.js";
+import { castChipAccessibleName, deriveCastBar, type CastMember } from "./cast-bar-model.js";
 
 const PRESENCE_GLYPH_SIZE = 10;
 
@@ -163,7 +163,21 @@ interface CastChipProps {
  * A `<button>` because clicking it performs an act — follow — and a `<div>` with a
  * click handler is an act nobody can reach with a keyboard. The accessible name is
  * built from the identifier and the verb, so a screen reader hears "priya, waiting
- * on approval" rather than "button".
+ * on approval" rather than "button" — composed in the model and set as the button's
+ * own label, because the presence glyph is an image with a name and concatenation
+ * would put "Presence has not been read" in front of every person in the session.
+ *
+ * A chip somebody is blocked on carries that on `data-attention`, in the same
+ * attribute idiom as the ring and the stale mark, and says so in its name as well.
+ * The state rides the chip's ground and never its ring: the hue answers "who", and
+ * a ring that changed with state would make two participants who share a wheel step
+ * indistinguishable exactly when one of them needs a person.
+ *
+ * The visible name is the one the WIRE gave this participant — a membership beat's
+ * identity handle, an agent's attached name — and the id when the log named none.
+ * The id stays reachable as the name's tooltip: two participants admitted in the
+ * same millisecond share a UUID prefix long enough that the chip's own ellipsis
+ * truncates both to the same string, so the id alone identifies nobody.
  */
 function CastChip(props: CastChipProps): React.JSX.Element {
   const { member } = props;
@@ -176,6 +190,8 @@ function CastChip(props: CastChipProps): React.JSX.Element {
       style={style}
       data-ring={member.hue.ringTreatment}
       data-shares-step={member.hue.sharesStepWithEarlierParticipant}
+      data-attention={member.needsAttention}
+      aria-label={castChipAccessibleName(member)}
       onClick={() => {
         props.onFollow(member.participantId);
       }}
@@ -184,19 +200,17 @@ function CastChip(props: CastChipProps): React.JSX.Element {
           not-checked treatment rather than as a state, because "we have not asked"
           and "they are online" are different facts. */}
       <Glyph name="dot" size={PRESENCE_GLYPH_SIZE} title="Presence has not been read" />
-      <span className="meridian-cast-chip__name">
-        <WireFigure value={member.participantId} />
+      <span
+        className="meridian-cast-chip__name"
+        title={member.label === undefined ? undefined : member.participantId}
+      >
+        <WireFigure value={member.label ?? member.participantId} />
       </span>
       {member.verb === undefined ? null : (
         <span className="meridian-cast-chip__verb" data-stale={member.isVerbStale}>
           {member.verb}
         </span>
       )}
-      {member.isVerbStale ? (
-        <span className="meridian-visually-hidden">
-          The connection dropped, so this may be out of date.
-        </span>
-      ) : null}
     </button>
   );
 }
