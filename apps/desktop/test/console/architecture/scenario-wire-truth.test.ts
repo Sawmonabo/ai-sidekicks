@@ -382,6 +382,121 @@ describe("scenario wire truth — the controls", () => {
     expect(defects[0]?.reason).toContain("before the beat in front of it");
   });
 
+  it("reports a beat that skips a log position", () => {
+    // Every per-beat parse passes: 1 and 3 are both positions an event can occupy.
+    // What fails is the store, which reconciles `session.subscribe` against the whole
+    // log from cursor zero, reads the jump as a real gap, and enters degradation and
+    // repair — where it can drop later rows — over a script the author meant as an
+    // ordinary session. This suite stayed green through all of it.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 0,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.000Z",
+              payload: { newState: "starting" },
+            },
+          },
+          {
+            atMs: 20,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 3,
+              kind: "run.running",
+              occurredAt: "2026-01-01T00:00:00.020Z",
+              payload: { newState: "running" },
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toBe("beat 1 (run.running)");
+    expect(defects[0]?.reason).toContain("skips a position");
+  });
+
+  it("reports a beat that steps backwards in the log", () => {
+    // The other direction, and the louder one: the reconciler reads it as a
+    // divergence rather than a gap. Reported separately because the two produce
+    // different store behaviour and a scenario author fixes them differently.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 0,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 2,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.000Z",
+              payload: { newState: "starting" },
+            },
+          },
+          {
+            atMs: 20,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.running",
+              occurredAt: "2026-01-01T00:00:00.020Z",
+              payload: { newState: "running" },
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toBe("beat 1 (run.running)");
+    expect(defects[0]?.reason).toContain("steps backwards");
+  });
+
+  it("accepts two beats at one tick that still take two log positions", () => {
+    // The two claims pulled apart. Sharing a tick is ordinary — an event and the
+    // transition it triggers land together — and it does NOT make them share a
+    // position, so a rule that relaxed contiguity for equal ticks would let the gap
+    // above back in through the door this case guards.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 40,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.040Z",
+              payload: { newState: "starting" },
+            },
+          },
+          {
+            atMs: 40,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 2,
+              kind: "run.running",
+              occurredAt: "2026-01-01T00:00:00.040Z",
+              payload: { newState: "running" },
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toStrictEqual([]);
+  });
+
   it("accepts two beats scripted at one tick, which is ordinary rather than a defect", () => {
     // The other arm: nondecreasing, not strictly increasing. Without this the case
     // above could be a blanket refusal of equal ticks, which every scenario that
