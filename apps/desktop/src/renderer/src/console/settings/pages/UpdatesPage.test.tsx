@@ -4,58 +4,66 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { UpdateState } from "@ai-sidekicks/contracts";
+import type { SidekicksBridge, UpdateState } from "@ai-sidekicks/contracts";
 
+import {
+  fixtureBridgeWithGrowth,
+  growthRefusing,
+  unscriptedScenario,
+} from "../../bridge/fixture-bridge-overrides.test-support.js";
 import { UpdatesPage } from "./UpdatesPage.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
 
-const CARRIER_UNAVAILABLE = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  detail: "not registered",
-  origin: "growth-port",
+const SCENARIO = unscriptedScenario("updates-page-test");
+
+/**
+ * The preference carrier nobody has registered.
+ *
+ * The block's automatic-update toggle rides it, so every case here needs it to
+ * answer; the refusal is the shipped port's own, not a literal written out beside a
+ * value nothing checks it against.
+ */
+const REFUSING_CARRIER: Partial<GrowthPort> = {
+  shellConfigRead: growthRefusing("shellConfigRead"),
+  shellConfigWrite: growthRefusing("shellConfigWrite"),
 };
+
+/**
+ * The shipped fixture bridge with its updater namespace replaced.
+ *
+ * The updater is the one seam these cases drive, and it is NOT a growth operation —
+ * it is a registered `SidekicksBridge` namespace, so it is replaced here rather than
+ * through the growth overrides. Everything else is the fixture's, which is what makes
+ * the type annotation load-bearing: an arm added to `UpdateState` upstream fails this
+ * file to compile instead of leaving a case asserting against a shape nobody serves.
+ */
+function bridgeWithUpdater(update: SidekicksBridge["update"]): ConsoleBridge {
+  const fixture = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+  return { ...fixture, sidekicks: { ...fixture.sidekicks, update } };
+}
 
 function bridgeReporting(
   state: UpdateState,
   controls: { requestCheck?: () => Promise<void>; requestRestart?: () => Promise<void> } = {},
 ): ConsoleBridge {
-  return {
-    source: "fixture",
-    growth: {
-      shellConfigRead: () => Promise.resolve(CARRIER_UNAVAILABLE),
-      shellConfigWrite: () => Promise.resolve(CARRIER_UNAVAILABLE),
-    },
-    sidekicks: {
-      update: {
-        getState: () => Promise.resolve(state),
-        subscribe: () => () => undefined,
-        requestCheck: controls.requestCheck ?? (() => Promise.resolve()),
-        requestRestart: controls.requestRestart ?? (() => Promise.resolve()),
-      },
-    },
-  } as unknown as ConsoleBridge;
+  return bridgeWithUpdater({
+    getState: () => Promise.resolve(state),
+    subscribe: () => () => undefined,
+    requestCheck: controls.requestCheck ?? (() => Promise.resolve()),
+    requestRestart: controls.requestRestart ?? (() => Promise.resolve()),
+  });
 }
 
 /** A bridge whose updater cannot be reached at all — the shipped Tier-1 posture. */
 function bridgeWithNoUpdater(): ConsoleBridge {
-  return {
-    source: "fixture",
-    growth: {
-      shellConfigRead: () => Promise.resolve(CARRIER_UNAVAILABLE),
-      shellConfigWrite: () => Promise.resolve(CARRIER_UNAVAILABLE),
+  return bridgeWithUpdater({
+    getState: () => Promise.reject(new Error("update.getState is not implemented")),
+    subscribe: () => {
+      throw new Error("update.subscribe is not implemented");
     },
-    sidekicks: {
-      update: {
-        getState: () => Promise.reject(new Error("update.getState is not implemented")),
-        subscribe: () => {
-          throw new Error("update.subscribe is not implemented");
-        },
-        requestCheck: () => Promise.resolve(),
-        requestRestart: () => Promise.resolve(),
-      },
-    },
-  } as unknown as ConsoleBridge;
+    requestCheck: () => Promise.resolve(),
+    requestRestart: () => Promise.resolve(),
+  });
 }
 
 async function renderSettled(bridge: ConsoleBridge): Promise<HTMLElement> {

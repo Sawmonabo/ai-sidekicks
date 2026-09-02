@@ -4,28 +4,37 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import {
+  fixtureBridgeWithGrowth,
+  growthRefusing,
+  unscriptedScenario,
+} from "../../bridge/fixture-bridge-overrides.test-support.js";
 import { ApplicationPage, registerApplicationPage } from "./ApplicationPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
 
-const CARRIER_UNAVAILABLE = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  detail: "not registered",
-  origin: "growth-port",
-};
+const SCENARIO = unscriptedScenario("application-page-test");
 
+/**
+ * A settings context over the shipped fixture bridge, with three seams replaced.
+ *
+ * The build facts are overridden deliberately and not inherited: the fixture pins
+ * `0.0.0-fixture` so a screenshot baseline does not move with the machine, and the
+ * negative control below reads exactly that string to prove the panel prints what the
+ * bridge said rather than a constant of its own.
+ */
 function contextFor(): SettingsPageContext {
+  const fixture = fixtureBridgeWithGrowth(SCENARIO, {
+    shellConfigRead: growthRefusing("shellConfigRead"),
+    shellConfigWrite: growthRefusing("shellConfigWrite"),
+  });
   return {
     bridge: {
-      source: "fixture",
-      growth: {
-        shellConfigRead: () => Promise.resolve(CARRIER_UNAVAILABLE),
-        shellConfigWrite: () => Promise.resolve(CARRIER_UNAVAILABLE),
-      },
+      ...fixture,
       sidekicks: {
+        ...fixture.sidekicks,
         app: { version: "1.4.0", platform: "darwin", arch: "arm64", locale: "en-GB" },
         update: {
-          getState: () => Promise.resolve({ status: "idle" }),
+          getState: () => Promise.resolve({ status: "idle" as const }),
           subscribe: () => () => undefined,
           requestCheck: () => Promise.resolve(),
           requestRestart: () => Promise.resolve(),
@@ -34,7 +43,7 @@ function contextFor(): SettingsPageContext {
     },
     openSection: () => undefined,
     activeSessionId: undefined,
-  } as unknown as SettingsPageContext;
+  };
 }
 
 async function renderSettled(): Promise<HTMLElement> {
