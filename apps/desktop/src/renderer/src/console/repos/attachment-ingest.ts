@@ -316,9 +316,9 @@ export class AttachmentIngestClient {
     }
     const answer: PortAnswer<{
       readonly artifactId: string;
-      readonly name: string;
-      readonly byteLength: number;
-      readonly contentType: string;
+      readonly normalizedName: string;
+      readonly derivedMediaType: string;
+      readonly derivedSizeBytes: number;
     }> = await this.#bridge.growth.artifactIngestComplete({ ingestId: entry.ingestId });
     if (answer.status !== "served" || answer.value === undefined) {
       this.#refuse(localId, answer);
@@ -329,9 +329,9 @@ export class AttachmentIngestClient {
       state: "complete",
       derived: {
         artifactId: answer.value.artifactId,
-        normalizedName: answer.value.name,
-        derivedMediaType: answer.value.contentType,
-        derivedSizeBytes: answer.value.byteLength,
+        normalizedName: answer.value.normalizedName,
+        derivedMediaType: answer.value.derivedMediaType,
+        derivedSizeBytes: answer.value.derivedSizeBytes,
       },
       lastProgressAtMilliseconds: this.#clock.now(),
     });

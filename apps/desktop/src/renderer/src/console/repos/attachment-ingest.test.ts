@@ -58,9 +58,11 @@ class ScriptedGrowthPort {
               status: "served",
               value: {
                 artifactId: "artifact-9",
-                name: "notes-1.md",
-                byteLength: 300,
-                contentType: "text/markdown",
+                contentHash:
+                  "sha256:9b1f1e9d0c3a4b5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4c5d6",
+                normalizedName: "notes-1.md",
+                derivedMediaType: "text/markdown",
+                derivedSizeBytes: 300,
               },
             }
           : {
