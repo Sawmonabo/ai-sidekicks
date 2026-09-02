@@ -569,8 +569,8 @@ jobs:
       # `ELECTRON_SKIP_BINARY_DOWNLOAD` because this job never launches Electron.
       # `apps/desktop`'s `postinstall` materializes the binary (Electron 44
       # publishes no install script of its own), and a full workspace install
-      # runs that script — so without this every install here would pull ~100 MB
-      # this job has no use for. `electron-vite build` needs only the package's
+      # runs that script — so without this every install here would pull the
+      # 120-160 MB platform archive this job has no use for. `electron-vite build` needs only the package's
       # `version` field, verified 2026-09-01 by building with `dist/` absent.
       # 44.1.0's own `install.js` no longer honours this variable (41.6.1's did);
       # `apps/desktop/scripts/materialize-electron.ts` is what honours it now.
@@ -704,7 +704,8 @@ jobs:
       # the desktop package's `test:coverage` is `vitest run --project=renderer`,
       # a jsdom project, and the `main` (smoke) project — the only one that
       # spawns the binary — is not in the coverage set. Without this the
-      # `apps/desktop` postinstall would pull ~100 MB this job cannot use.
+      # `apps/desktop` postinstall would pull the 120-160 MB platform archive
+      # this job cannot use.
       # 44.1.0's own `install.js` no longer honours this variable (41.6.1's did);
       # `scripts/materialize-electron.ts` is what honours it now.
       - name: Install dependencies
@@ -776,7 +777,7 @@ jobs:
   # alone: `test-node22` is `ubuntu-latest`, `hook-tests-macos` installs nothing,
   # and there is no Windows job at all. A missing or unloadable prebuild on the
   # other four targets would have surfaced first on a developer's machine or in
-  # a release build, as a silent source compile or a `SIGSEGV` at first open.
+  # a release build, as a silent source compile or a crash at first open.
   #
   # Matrix = the five ADR-022 targets, on labels GitHub documents as generally
   # available for public repositories (checked against GitHub's hosted-runner
@@ -829,9 +830,11 @@ jobs:
 
       # 22.14.0 is the tier-1 floor ADR-022 §Decision Log moved to on 2026-09-01,
       # and it is the floor BECAUSE of this binding: the 13.x prebuilds are
-      # Node-API 10, and a Node-API-9 host (22.12, 22.13) dies `SIGSEGV` with no
-      # diagnostic at the first `new Database()`. Asserting the prebuild on any
-      # other version would not be asserting the shipped configuration.
+      # Node-API 10, and a Node-API-9 host (22.12, 22.13) cannot load the binding
+      # at all — observed here as a silent SIGSEGV at the first `new Database()`,
+      # where Node's documented refusal is a load-time throw; Spec-015 §Driver Pin
+      # states both grades. Asserting the prebuild on any other version would not
+      # be asserting the shipped configuration.
       - name: Setup Node.js 22.14
         uses: actions/setup-node@v5
         with:

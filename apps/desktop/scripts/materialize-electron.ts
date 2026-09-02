@@ -11,13 +11,18 @@
 //
 // WHY IT EXISTS
 // -------------
-// Electron 44 publishes NO `scripts` field. Every line through 41.6.1 shipped
-// `"postinstall": "node install.js"`; 44.1.0's registry manifest has no scripts
-// at all, and binary acquisition moved into the package's `index.js`, which
+// Electron 44 publishes NO `scripts` field — and the change is 42.0's, which 44
+// merely inherits: `docs/breaking-changes.md` §Breaking API Changes (42.0)
+// records both that `electron` "no longer downloads itself via `postinstall`
+// script" and that `ELECTRON_SKIP_BINARY_DOWNLOAD` "is no longer supported, as
+// its primary purpose was to prevent the `postinstall` script from running".
+// Every line through 41.6.1 shipped `"postinstall": "node install.js"`; every
+// registry manifest from 42 through 45 has no scripts at all, and binary
+// acquisition moved to module scope in the package's `index.js`, which
 // downloads on the first `require('electron')` if `path.txt` or the executable
 // under `dist/` is missing.
 //
-// Left alone, that pushes a ~100 MB download into whatever first needs
+// Left alone, that pushes a 120-160 MB download into whatever first needs
 // Electron. For CI that is a test's clock; for a developer on a cold cache it
 // is the first `pnpm test`, inside a vitest timeout, where a download reads as
 // a hang and a slow network reads as a broken repo. An install-time download is
