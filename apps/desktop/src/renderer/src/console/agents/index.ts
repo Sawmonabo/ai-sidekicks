@@ -24,6 +24,12 @@ import "./agents.css";
 
 import type { OwnerSlotProps } from "../workspace/index.js";
 
+// The sidekicks page, which the settings surface mounts. It is a page rather than a
+// pane because the design puts a saved sidekick's configuration in settings and
+// reaches it from the in-session attach picker, and it crosses a family boundary, so
+// it leaves this family through the door rather than by a deep import.
+export { SidekickDefinitionsPage } from "./DefinitionsPage.js";
+
 /** What the sidekick-definition editor is handed when its body arrives. */
 export interface SidekickDefinitionEditorProps {
   /** The agent whose definition is being edited, wire-verbatim. */

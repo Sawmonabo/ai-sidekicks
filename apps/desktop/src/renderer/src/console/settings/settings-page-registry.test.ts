@@ -2,7 +2,7 @@
 //
 // The rail is the closed section tuple and the search is one shared matcher. Both
 // are claims about SETS, so the cases drive the sets rather than a hand-listed copy
-// beside them — a test that restated the twelve sections would be a thirteenth
+// beside them — a test that restated the thirteen sections would be a fourteenth
 // place to widen and the first one to go stale.
 
 import { describe, expect, it } from "vitest";
@@ -32,7 +32,7 @@ function pageFor(
 
 describe("settings sections — the closed set the rail renders", () => {
   it("labels every section, and labels nothing else", () => {
-    // A total record is what makes a thirteenth section a compile error rather
+    // A total record is what makes a fourteenth section a compile error rather
     // than a rail entry reading `mcp-servers`. Checked at runtime too, because the
     // record could be widened past the union with a cast.
     expect(Object.keys(SETTINGS_SECTION_LABELS).sort()).toStrictEqual(
@@ -89,9 +89,11 @@ describe("settings pages whose body another plan authors", () => {
     const sections = registry.registeredSections();
     expect(sections.length).toBeGreaterThan(0);
     for (const section of sections) {
-      const rendered = registry
-        .descriptorFor(section)
-        ?.render({ bridge: undefined as never, openSection: () => undefined });
+      const rendered = registry.descriptorFor(section)?.render({
+        bridge: undefined as never,
+        openSection: () => undefined,
+        activeSessionId: undefined,
+      });
       expect(rendered).not.toBeNull();
       expect(rendered).toBeDefined();
     }
