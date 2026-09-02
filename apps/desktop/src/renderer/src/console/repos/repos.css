@@ -20,11 +20,6 @@
  *   • rule 8 — the absences render themselves; nothing here restyles them.
  */
 
-/* The diff surfaces' own sheet. One family, one stylesheet import, one door:
-   `repos/index.ts` imports this file and this file pulls in the third directory's,
-   so `panes/diff/index.ts` imports no stylesheet of its own. */
-@import "../panes/diff/diff.css";
-
 /* ------------------------------------------------------------- pane chrome */
 
 .meridian-repos-pane {

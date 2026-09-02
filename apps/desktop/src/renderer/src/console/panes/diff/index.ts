@@ -7,10 +7,9 @@
 //
 // The stylesheet is NOT imported here. This directory and `panes/artifact/` are two
 // of the three directories `T-023p-1C-5` builds, and the family is reached through
-// one door: `repos/index.ts` imports `repos/repos.css`, which `@import`s this
-// directory's own `diff.css`. A sheet imported from each of three doors would land
-// three times in the graph and its presence would depend on which door the bundler
-// reached first.
+// one door: `repos/index.ts` imports both `repos/repos.css` and this directory's own
+// `diff.css`. A sheet imported from each of three doors would land three times in
+// the graph and its presence would depend on which door the bundler reached first.
 
 export { DiffPane } from "./DiffPane.js";
 

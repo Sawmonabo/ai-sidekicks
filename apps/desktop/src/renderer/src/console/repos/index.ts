@@ -23,6 +23,13 @@
 // suppression that parameter needs would outlive the reason for it.
 
 import "./repos.css";
+// The diff surfaces' own sheet, imported HERE and not from `panes/diff/index.ts`,
+// so this barrel stays the family's only stylesheet importer. A CSS `@import` from
+// `repos.css` would have kept the file count the same and lost the rules: the
+// browser tiers inject a sheet as a `<style>` element, and a relative `@import`
+// inside one resolves against the document rather than against the sheet, so the
+// rules silently do not arrive and the pane is screenshotted unstyled.
+import "../panes/diff/diff.css";
 
 import { createElement } from "react";
 

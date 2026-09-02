@@ -5,11 +5,10 @@
  * A sibling stylesheet rather than a block inside `repos/repos.css`, on the
  * `panes/artifact/artifact.css` precedent: `panes/diff/` is the third of the repos
  * family's three directories, and this file holds everything that belongs to it and
- * to no surface outside it. It reaches the graph through ONE `@import` at the top of
- * `repos/repos.css`, so the family is still reached through one door — `repos/index.ts`
- * — and `panes/diff/index.ts` imports no stylesheet at all. A second importer would
- * land these rules twice and their cascade order would depend on which door the
- * bundler reached first.
+ * to no surface outside it. It is imported by `repos/index.ts` — the family's one
+ * door and its only stylesheet importer — beside `repos.css` itself, and by nothing
+ * else. A second importer would land these rules twice and their cascade order would
+ * depend on which door the bundler reached first.
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
  * scale, and every colour is read back out of a custom property.
