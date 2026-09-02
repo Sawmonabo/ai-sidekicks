@@ -10,7 +10,10 @@
 //    is on `Plan-023 §Console growth slate` with no method string registered
 //    anywhere, so the read is a growth-port call the mounting surface makes and a
 //    refusal is what arrives. A panel that called the port itself would own an
-//    effect to render the one arm it already takes as a prop.
+//    effect to render the one arm it already takes as a prop. Each act is named for
+//    what its registered reply serves and never for what the wire could one day
+//    carry — the manifest re-read is "Read manifest" because that is what comes
+//    back.
 //
 // 2. THE PAYLOAD IS NEVER RENDERED. Not as markup, not as text, not behind a
 //    toggle. Payloads are explicit-fetch downloads with no in-product execution
@@ -71,7 +74,17 @@ export interface ArtifactsPanelProps {
   readonly rowRefusals?: ReadonlyMap<string, ConsoleRefusal> | undefined;
   /** What the most recent delete reported. The result half of the consequence. */
   readonly lastDeleteReceipt?: ArtifactDeleteReceipt | undefined;
-  readonly onFetchPayload?: ((row: ArtifactManifestRow) => void) | undefined;
+  /**
+   * Re-read one row's manifest.
+   *
+   * NAMED FOR WHAT THE READ SERVES. `bridge/growth-signatures.ts` registers
+   * `artifactRead` as answering one manifest summary, with no request member that
+   * asks for a payload and no reply member that carries one — the wire's own
+   * `payloadHandle` / `payload` pair is on no console port. A control called "fetch
+   * payload" over that read is a promise the participant only finds out about by
+   * pressing it.
+   */
+  readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
   readonly onChangeVisibility?: ((row: ArtifactManifestRow) => void) | undefined;
   readonly onDelete?: ((row: ArtifactManifestRow) => void) | undefined;
 }
@@ -225,13 +238,13 @@ function renderArtifactRow(
       <p className="meridian-artifact-row__replication">{replicationPresentation.meaning}</p>
 
       <div className="meridian-artifact-row__acts">
-        {props.onFetchPayload === undefined ? null : (
+        {props.onReadManifest === undefined ? null : (
           <button
             type="button"
             className="meridian-artifact-row__act meridian-artifact-row__act--primary"
-            onClick={() => props.onFetchPayload?.(row)}
+            onClick={() => props.onReadManifest?.(row)}
           >
-            Fetch payload
+            Read manifest
           </button>
         )}
         {props.onChangeVisibility === undefined ? null : (

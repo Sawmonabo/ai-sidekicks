@@ -1,7 +1,7 @@
-// What the artifact pane knows, who asked for it, and what it refuses to invent.
+// Who asks the artifact pane's reads, when they are asked again, and what is refused.
 //
-// `Spec-023 §Console Design (Meridian)` §10.4. Two reads, both on `Plan-023 §Console
-// growth slate` and both refused by name today: `artifactList` and `artifactRead`
+// `Spec-023 §Console Design (Meridian)` §10.4. Three reads, all on `Plan-023 §Console
+// growth slate` and all refused by name today: `artifactList` and `artifactRead`
 // against `artifact-ingest-and-crud`, `artifactAllowlistRead` against
 // `artifact-allowlist-and-abort`.
 //
@@ -26,9 +26,9 @@
 // two legs published independently, so a snapshot could hold a list from one press
 // beside an allow-list from another. The scheduler coalesces a burst of presses into
 // one read and serializes reads so two never overlap; the GENERATION stamp below is
-// what makes the discard explicit — every completion carries the stamp its refresh was
-// issued under, a completion whose stamp is no longer current is dropped, and the two
-// legs of one generation publish as ONE snapshot rather than two.
+// what makes the discard explicit — every completion carries the stamp it was issued
+// under, a completion whose stamp is no longer current is dropped, and the two legs of
+// one generation publish as ONE snapshot rather than two.
 //
 // `Spec-023`'s refresh rule allows focus, reconnect, and a stale frame; a pane that
 // armed an interval would be spending the budget on a wire that refuses.
@@ -39,57 +39,26 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import {
   Emitter,
   RealClock,
-  refuse,
   type ConsoleClock,
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../../core/index.js";
 import {
-  ATTACHMENT_ALLOWLIST_DEFAULT,
-  ATTACHMENT_BYTE_CAP_DEFAULT,
-} from "../../repos/attachment-model.js";
-import {
   artifactManifestRowFromSummary,
   type ArtifactsPanelState,
 } from "../../repos/artifact-model.js";
 import { RefreshScheduler } from "../../store/index.js";
-
-/**
- * The effective allow-list and byte cap, with where they came from.
- *
- * `source` is rendered rather than inferred. An operator override REPLACES the default
- * wholesale — `Spec-014 §Bounds (normative defaults; operator-tunable)` — so a hint that
- * could not say which of the two it is showing would be a hint a participant cannot
- * trust against a deployment they cannot see.
- */
-export interface ArtifactAllowlistReading {
-  readonly source: "effective" | "shipped-default";
-  readonly mediaTypes: readonly string[];
-  readonly maximumByteLength: number;
-  /** Why the effective read did not answer, on the `shipped-default` arm. */
-  readonly refusal: ConsoleRefusal | undefined;
-}
-
-/** Everything the pane renders from, in one immutable value. */
-export interface ArtifactPaneReading {
-  readonly artifacts: ArtifactsPanelState;
-  readonly allowlist: ArtifactAllowlistReading;
-}
-
-const SHIPPED_DEFAULT_ALLOWLIST: ArtifactAllowlistReading = {
-  source: "shipped-default",
-  mediaTypes: ATTACHMENT_ALLOWLIST_DEFAULT,
-  maximumByteLength: ATTACHMENT_BYTE_CAP_DEFAULT,
-  refusal: undefined,
-};
-
-const NOTHING_READ_YET: ArtifactPaneReading = {
-  artifacts: { kind: "not-checked" },
-  allowlist: SHIPPED_DEFAULT_ALLOWLIST,
-};
-
-/** Which subsystem refused, when the refusal is this reader's own and not the port's. */
-const ARTIFACT_READER_ORIGIN = "artifact-pane-reader";
+import {
+  NOTHING_READ_YET,
+  SHIPPED_DEFAULT_ALLOWLIST,
+  readFailureRefusal,
+  withReplacedRow,
+  withRowRefusal,
+  withoutRowRefusal,
+  type ArtifactAllowlistReading,
+  type ArtifactPaneReading,
+  type ArtifactRowActOutcome,
+} from "./artifact-pane-reading.js";
 
 export interface ArtifactPaneReaderOptions {
   readonly bridge: ConsoleBridge;
@@ -132,19 +101,12 @@ export class ArtifactPaneReader {
       },
       // Swallowing is not an option, and re-throwing into a timer callback reaches
       // nobody, so a read that threw past its own refusal handling lands in the
-      // reading as a refusal — the pane then renders it instead of holding stale rows
+      // reading as a refusal — the pane renders it instead of holding stale rows
       // behind a list that never answered.
       onError: (error: unknown) => {
         this.#publish({
           ...this.#reading,
-          artifacts: {
-            kind: "refused",
-            refusal: refuse(
-              ARTIFACT_READER_ORIGIN,
-              "read-threw",
-              `The artifact read failed before it could answer: ${describeFailure(error)}`,
-            ),
-          },
+          artifacts: { kind: "refused", refusal: readFailureRefusal(error) },
         });
       },
     });
@@ -200,6 +162,65 @@ export class ArtifactPaneReader {
     this.#scheduler.request("subscribe");
   }
 
+  /**
+   * Re-read one artifact's manifest, and put what came back on its row.
+   *
+   * THE READ SERVES A MANIFEST AND NOT BYTES, WHICH IS WHY THIS IS NOT A DOWNLOAD.
+   * `bridge/growth-signatures.ts` registers `artifactRead` as answering one
+   * `GrowthArtifactSummary` — the same envelope `artifactList` answers with — with no
+   * request member that could ask for a payload and no reply member that could carry
+   * one. The wire's own read does carry `payloadHandle` / `payload` /
+   * `payloadEncoding` behind an `includePayload` request member
+   * (`api-payload-contracts.md §Plan-014`, `ArtifactReadResponse`); none of those four
+   * is on the console's port, and a port entry is not this family's to add. So the
+   * served answer is used for the only thing it can be: it REPLACES the listed row,
+   * member for member, and any refusal standing against that row clears, because the
+   * read just answered for it.
+   */
+  public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
+    const generation = this.#generation;
+    const answer = await this.#bridge.growth.artifactRead({ artifactId });
+    if (generation !== this.#generation) {
+      return { status: "superseded" };
+    }
+    if (answer.status === "unavailable") {
+      return this.#recordRowRefusal(artifactId, answer);
+    }
+    this.#publish({
+      ...this.#reading,
+      artifacts: withReplacedRow(
+        this.#reading.artifacts,
+        artifactManifestRowFromSummary(answer.value),
+      ),
+      refusalByArtifactId: withoutRowRefusal(this.#reading.refusalByArtifactId, artifactId),
+    });
+    return { status: "settled" };
+  }
+
+  /**
+   * Delete one artifact, after the participant confirmed the consequence.
+   *
+   * ONLY THE REFUSED ARM IS READ HERE. `bridge/growth-signatures.ts` registers
+   * `artifactDelete` as answering `void`, so a served delete carries nothing this
+   * pane could report — the wire's own reply carries `payloadDisposition`,
+   * `rePublishForeclosed`, and `deletedAt` (`api-payload-contracts.md §Plan-014`,
+   * `ArtifactDeleteResponse`) and the port registers none of the three. What a
+   * served delete DOES establish is the removal itself, and consuming that is the
+   * next commit's work rather than this one's, which only moves the refusal off the
+   * pane's own state and onto the reading.
+   */
+  public async deleteArtifact(artifactId: string): Promise<ArtifactRowActOutcome> {
+    const generation = this.#generation;
+    const answer = await this.#bridge.growth.artifactDelete({ artifactId });
+    if (generation !== this.#generation) {
+      return { status: "superseded" };
+    }
+    if (answer.status === "unavailable") {
+      return this.#recordRowRefusal(artifactId, answer);
+    }
+    return { status: "settled" };
+  }
+
   /** Terminal. No later completion can publish behind a pane that unmounted. */
   public dispose(): void {
     this.#disposed = true;
@@ -232,8 +253,14 @@ export class ArtifactPaneReader {
       return;
     }
     // ONE SNAPSHOT, BOTH LEGS. Publishing each leg as it lands would let a snapshot
-    // hold a list from one refresh beside an allow-list from another.
-    this.#publish({ artifacts, allowlist });
+    // hold a list from one refresh beside an allow-list from another. The row
+    // refusals carry forward: a refusal records an ACT that did not happen, and a
+    // read that did not re-attempt the act does not answer for it.
+    this.#publish({
+      artifacts,
+      allowlist,
+      refusalByArtifactId: this.#reading.refusalByArtifactId,
+    });
   }
 
   async #readArtifacts(sessionId: string): Promise<ArtifactsPanelState> {
@@ -260,21 +287,26 @@ export class ArtifactPaneReader {
     };
   }
 
+  #recordRowRefusal(artifactId: string, refusal: ConsoleRefusal): ArtifactRowActOutcome {
+    this.#publish({
+      ...this.#reading,
+      refusalByArtifactId: withRowRefusal(this.#reading.refusalByArtifactId, artifactId, refusal),
+    });
+    return { status: "refused", refusal };
+  }
+
   #publish(reading: ArtifactPaneReading): void {
     this.#reading = reading;
     this.#changes.emit(reading);
   }
 }
 
-/** One sentence about a thrown value, without putting the value itself on screen. */
-function describeFailure(error: unknown): string {
-  return error instanceof Error ? error.message : "the read threw a value that is not an error.";
-}
-
-/** What the hook hands the pane: the reading, and the one act that re-reads. */
+/** What the hook hands the pane: the reading, and the acts it can put to the port. */
 export interface ArtifactPaneBinding {
   readonly reading: ArtifactPaneReading;
   readonly refresh: () => void;
+  readonly readManifest: (artifactId: string) => Promise<ArtifactRowActOutcome>;
+  readonly deleteArtifact: (artifactId: string) => Promise<ArtifactRowActOutcome>;
 }
 
 /**
@@ -303,5 +335,13 @@ export function useArtifactPaneReading(
   const refresh = useCallback(() => {
     reader.refresh();
   }, [reader]);
-  return { reading, refresh };
+  const readManifest = useCallback(
+    (artifactId: string) => reader.readManifest(artifactId),
+    [reader],
+  );
+  const deleteArtifact = useCallback(
+    (artifactId: string) => reader.deleteArtifact(artifactId),
+    [reader],
+  );
+  return { reading, refresh, readManifest, deleteArtifact };
 }

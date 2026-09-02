@@ -177,19 +177,34 @@ describe("ArtifactsPanel — the acts", () => {
     expect(row?.querySelectorAll("button")).toHaveLength(0);
   });
 
-  it("asks for the payload rather than rendering it", () => {
+  it("asks for the manifest rather than rendering a payload", () => {
     // The hard rule: payloads are explicit-fetch downloads with no in-product
-    // execution surface. The affordance is a control that ASKS.
-    const onFetchPayload = vi.fn();
+    // execution surface. The affordance is a control that ASKS — and it asks for
+    // exactly what the registered read answers with, which is the manifest.
+    const onReadManifest = vi.fn();
     const { container } = render(
       <ArtifactsPanel
         state={{ kind: "listed", rows: [artifactRow()] }}
         nowMilliseconds={NOW_MILLISECONDS}
-        onFetchPayload={onFetchPayload}
+        onReadManifest={onReadManifest}
       />,
     );
-    fireEvent.click(within(container).getByRole("button", { name: "Fetch payload" }));
-    expect(onFetchPayload).toHaveBeenCalledTimes(1);
+    fireEvent.click(within(container).getByRole("button", { name: "Read manifest" }));
+    expect(onReadManifest).toHaveBeenCalledTimes(1);
+  });
+
+  it("negative control: no control claims to fetch a payload", () => {
+    // The read serves a manifest summary and no registered reply member carries
+    // bytes or a handle, so a control named for a payload fetch would promise a
+    // download nothing on this port can produce.
+    const { queryByRole } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow()] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        onReadManifest={vi.fn()}
+      />,
+    );
+    expect(queryByRole("button", { name: "Fetch payload" })).toBeNull();
   });
 
   it("names the visibility class the toggle would move to", () => {
