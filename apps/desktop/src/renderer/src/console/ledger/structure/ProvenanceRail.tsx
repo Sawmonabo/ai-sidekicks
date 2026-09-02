@@ -41,7 +41,7 @@ import {
   type RailTick,
   type RailTickKind,
 } from "./rail-model.js";
-import { RailPainter } from "./rail-painter.js";
+import { RailPainter, type RailActorHueLookup } from "./rail-painter.js";
 import { useRailSurfaceRevision } from "./rail-surface.js";
 
 export interface ProvenanceRailProps {
@@ -57,6 +57,16 @@ export interface ProvenanceRailProps {
   readonly onJumpToRow: (rowId: string) => void;
   /** Ask the ledger for rows before the window's head. */
   readonly onLoadEarlier: () => void;
+  /**
+   * The session's hue allocation, for the marks §5.4 gives the actor's hue.
+   *
+   * Optional because the rail is mountable over a window that holds no allocation,
+   * and every actor tick then takes the neutral tone rather than a colour this
+   * component invented. The lookup itself is the store's — `assignmentFor` reads
+   * without allocating, so asking about a participant the wheel has not admitted
+   * cannot mint one.
+   */
+  readonly hueForActor?: RailActorHueLookup;
   /** The clock the preview grace is measured on. The fixture's frozen clock in a story. */
   readonly clock?: ConsoleClock;
 }
@@ -97,9 +107,14 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
     };
   }, [grace]);
 
+  const hueForActor = props.hueForActor;
   useEffect(() => {
-    painter.paint(canvasRef.current, railModel.ticks, pointerFraction);
-  }, [painter, railModel, pointerFraction, surfaceRevision]);
+    painter.paint(canvasRef.current, {
+      ticks: railModel.ticks,
+      pointerFraction,
+      ...(hueForActor === undefined ? {} : { actorHue: hueForActor }),
+    });
+  }, [painter, railModel, pointerFraction, surfaceRevision, hueForActor]);
 
   const focusedTick = useMemo(
     () =>
