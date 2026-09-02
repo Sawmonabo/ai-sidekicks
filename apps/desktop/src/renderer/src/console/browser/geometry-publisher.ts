@@ -5,8 +5,9 @@
 // sources are armed, when a reading is taken, and when it is allowed to be written.
 // Two rules live here and nowhere else:
 //
-//   * ARM ALL FOUR. A resize observer alone misses a pane that MOVES without changing
-//     size, which is most of them.
+//   * ARM EVERY SOURCE. A resize observer alone misses a pane that MOVES without
+//     changing size, which is most of them — so a position observer sits beside it,
+//     and neither of the two replaces the viewport, theme, or overlay sources.
 //   * READ NOW, WRITE NEXT FRAME. Mutating layout from inside resize-observer delivery
 //     drops the remaining notifications on at least one shipped engine.
 //
@@ -24,7 +25,7 @@ import {
   type Unsubscribe,
 } from "../core/index.js";
 import { SCHEME_ATTRIBUTE } from "../tokens/index.js";
-import { observeElementResize } from "./element-motion.js";
+import { observeElementPosition, observeElementResize } from "./element-motion.js";
 import {
   composePaneGeometrySample,
   type GeometryInvalidationReason,
@@ -75,11 +76,16 @@ export class PaneGeometryPublisher {
   /**
    * Arm every invalidation source against one host element, and all of them are
    * required: a resize observer misses a pane that MOVES without changing size — a
-   * rail collapse, a sidebar drag, a sibling pane's width — so window resize and
-   * CAPTURE-PHASE document scroll cover the viewport (a scroll inside a nested
-   * scroller does not bubble, so a bubbling listener would miss most of them), the
-   * app's own layout movers push in through `invalidate`, and a theme change moves the
-   * rectangle because token-driven chrome heights shift it.
+   * rail collapse, a sidebar drag, a sibling pane's width — so a POSITION observer
+   * covers the ways the pane is carried while its own box stays the shape it was,
+   * window resize and CAPTURE-PHASE document scroll cover the viewport (a scroll
+   * inside a nested scroller does not bubble, so a bubbling listener would miss most
+   * of them), an overlay opening or moving makes the view yield, and a theme change
+   * moves the rectangle because token-driven chrome heights shift it.
+   *
+   * Every one of them lands on the same `invalidate`, which reads immediately and
+   * queues ONE write, so three observers firing on a single relayout still cost one
+   * publish.
    *
    * On an unavailable host it arms NOTHING and records why: 12.3's empty state is "no
    * view attached, publishes are suppressed", and rectangles a host cannot take are
@@ -95,6 +101,7 @@ export class PaneGeometryPublisher {
     }
     this.#hostElement = hostElement;
     this.#armResizeObserver(hostElement);
+    this.#armPositionObserver(hostElement);
     this.#armViewportListeners();
     this.#armThemeObserver();
     this.#detachers.push(
@@ -242,6 +249,28 @@ export class PaneGeometryPublisher {
     this.#detachers.push(
       observeElementResize(hostElement, () => {
         this.invalidate("resize-observer");
+      }),
+    );
+  }
+
+  /**
+   * The move source — `layout-mover`'s producer, and the reason that reason exists.
+   *
+   * Until this arm the enumeration named a mover no production path ever raised: a
+   * deck reorder, a sibling pane shrinking, and a rail sliding in all move the pane
+   * without changing its own box, and none of them reaches a size observer, a window
+   * resize, a scroll, a theme attribute, or an overlay registration. The native view
+   * therefore stayed at its old coordinates — painted over whatever chrome the pane
+   * had just moved away from — until something unrelated happened to invalidate.
+   */
+  #armPositionObserver(hostElement: HTMLElement): void {
+    this.#detachers.push(
+      observeElementPosition({
+        element: hostElement,
+        clock: this.#clock,
+        onMove: () => {
+          this.invalidate("layout-mover");
+        },
       }),
     );
   }

@@ -102,3 +102,21 @@ export function installFakeResizeObserver(): FakeResizeObserverControl {
     liveObserverCount: () => records.filter((record) => !record.disconnected).length,
   };
 }
+
+/**
+ * Let queued `MutationObserver` records reach their callback.
+ *
+ * A mutation observer never reports synchronously, so a test that asserted straight
+ * after a DOM edit would read the state before delivery every time. A TASK turn and
+ * not a microtask one — measured rather than assumed: the DOM implementation these
+ * console tiers run on delivers records on a queued task, where the platform
+ * delivers them at the end of the microtask checkpoint, and a microtask-only wait
+ * reports zero deliveries here. The trailing microtask turn then lets whatever the
+ * callback itself scheduled settle before the assertion reads it.
+ */
+export async function settleMutationRecords(): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+  await Promise.resolve();
+}

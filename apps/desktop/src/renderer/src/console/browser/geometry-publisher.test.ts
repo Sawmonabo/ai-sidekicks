@@ -7,10 +7,10 @@
 // case is the control: every claim here about suppression, dedupe, and disposal would
 // hold vacuously against a publisher that never armed or published anything at all.
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock, refuse, type ConsoleRefusal } from "../core/index.js";
-import { installFakeResizeObserver } from "./element-motion.test-support.js";
+import { installFakeResizeObserver, settleMutationRecords } from "./element-motion.test-support.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
 import { PaneOcclusionRegistry } from "./occlusion-registry.js";
 import type { PaneGeometrySample, PaneRect } from "./pane-geometry.js";
@@ -350,5 +350,104 @@ describe("PaneGeometryPublisher — the size source", () => {
 
     expect(publisher.publishCount).toBe(1);
     publisher.dispose();
+  });
+});
+
+// The move source, and the reason that had no producer.
+//
+// `layout-mover` was in the invalidation enumeration and no production path raised
+// it: a repo-wide search found it only in this file. So a pane carried by a deck
+// reorder, a sibling's relayout, or a rail sliding in kept publishing its old
+// rectangle until something unrelated — a scroll, a window resize, a theme flip —
+// happened to invalidate, and the native view sat over whatever chrome the pane had
+// just moved away from.
+describe("PaneGeometryPublisher — the move source", () => {
+  const insertedSiblings: Element[] = [];
+
+  beforeEach(() => {
+    installFakeResizeObserver();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    for (const sibling of insertedSiblings.splice(0)) {
+      sibling.remove();
+    }
+  });
+
+  /** Reorder the pane's parent around it, which is what a deck does to its seats. */
+  function reorderAround(hostElement: HTMLElement): void {
+    const sibling = document.createElement("div");
+    insertedSiblings.push(sibling);
+    document.body.insertBefore(sibling, hostElement);
+  }
+
+  function publishingPublisherOver(hostElement: HTMLElement): {
+    readonly publisher: PaneGeometryPublisher;
+    readonly clock: ManualClock;
+    readonly host: RecordingViewHost;
+  } {
+    const host = new RecordingViewHost();
+    const clock = new ManualClock();
+    const publisher = new PaneGeometryPublisher({
+      host,
+      clock,
+      occlusion: new PaneOcclusionRegistry(),
+    });
+    publisher.observe(hostElement);
+    clock.runFrame();
+    return { publisher, clock, host };
+  }
+
+  it("resamples once when the pane's parent is reordered around it", async () => {
+    const hostElement = elementWithRect(rect(0, 0, 100, 100));
+    const { publisher, clock, host } = publishingPublisherOver(hostElement);
+    expect(publisher.publishCount).toBe(1);
+
+    moveElementRect(hostElement, rect(0, 40, 100, 100));
+    reorderAround(hostElement);
+    await settleMutationRecords();
+
+    expect(clock.pendingFrameCount).toBe(1);
+    clock.runFrame();
+    expect(publisher.publishCount).toBe(2);
+    expect(host.samples.at(-1)?.reason).toBe("layout-mover");
+    expect(host.samples.at(-1)?.rect).toStrictEqual(rect(0, 40, 100, 100));
+    publisher.dispose();
+  });
+
+  it("coalesces a move and a scroll arriving in one relayout into a single write", async () => {
+    // Three observers firing on one relayout must cost one publish, not three:
+    // publishing per source is what makes a pane drag during a rail collapse.
+    const hostElement = elementWithRect(rect(0, 0, 100, 100));
+    const { publisher, clock, host } = publishingPublisherOver(hostElement);
+
+    publisher.invalidate("document-scroll");
+    moveElementRect(hostElement, rect(0, 40, 100, 100));
+    reorderAround(hostElement);
+    await settleMutationRecords();
+
+    expect(clock.pendingFrameCount).toBe(1);
+    clock.runFrame();
+    expect(publisher.publishCount).toBe(2);
+    // The move arrived last, so it is the reading that got written — a second
+    // queued frame would have written the scroll's stale rectangle first.
+    expect(host.samples.at(-1)?.reason).toBe("layout-mover");
+    publisher.dispose();
+  });
+
+  it("negative control: a disposed publisher hears no reorder at all", async () => {
+    // Without the disposer reaching the position sources, a pane that unmounted
+    // would keep sampling for the life of the window, once per deck reorder.
+    const hostElement = elementWithRect(rect(0, 0, 100, 100));
+    const { publisher, clock } = publishingPublisherOver(hostElement);
+    publisher.dispose();
+
+    moveElementRect(hostElement, rect(0, 40, 100, 100));
+    reorderAround(hostElement);
+    await settleMutationRecords();
+
+    expect(clock.pendingCount).toBe(0);
+    expect(publisher.publishCount).toBe(1);
   });
 });

@@ -21,7 +21,9 @@
 //   3. MOTION — while a transition or animation on the element, a descendant, or an
 //      ancestor is running, one sample per animation frame, stopping on the first
 //      frame that finds nothing running. That last frame is the one that publishes
-//      where the overlay came to rest.
+//      where the overlay came to rest. The loop itself is `element-motion.ts`'s
+//      `MotionFrameSampler`, because the pane's own position observer needs the same
+//      one — this registry owns WHICH overlays it runs for and not how it runs.
 //
 // NOTHING SAMPLES AT REST. The console's budgets forbid idle CPU, so there is no
 // standing frame loop: source 3 is armed by a motion START and by a registration that
@@ -37,15 +39,10 @@
 // consumers move with it. It is minted here because this is the surface that reads
 // it, and a registry nobody can reach is a plan rather than a seam.
 
-import {
-  Emitter,
-  RealClock,
-  type ConsoleClock,
-  type ScheduledHandle,
-  type Unsubscribe,
-} from "../core/index.js";
+import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../core/index.js";
 import {
   hasRunningMotion,
+  MotionFrameSampler,
   observeElementResize,
   observeMotionStarts,
   sharesMotionWith,
@@ -101,7 +98,8 @@ interface RegisteredOverlay {
   readonly read: OverlayRectReader;
   readonly element: Element | undefined;
   detachResizeObserver: Unsubscribe | undefined;
-  queuedFrame: ScheduledHandle | undefined;
+  /** Source 3's loop, present only for an overlay that registered an element. */
+  readonly motionSampler: MotionFrameSampler | undefined;
 }
 
 /**
@@ -144,7 +142,16 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
       read,
       element,
       detachResizeObserver: undefined,
-      queuedFrame: undefined,
+      motionSampler:
+        element === undefined
+          ? undefined
+          : new MotionFrameSampler({
+              element,
+              clock: this.#clock,
+              onFrame: () => {
+                this.#changeEmitter.emit();
+              },
+            }),
     };
     this.#overlaysByToken.set(token, overlay);
     if (element !== undefined) {
@@ -155,7 +162,7 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
       if (hasRunningMotion(element)) {
         // Registered mid-animation — the case a start event has already been and gone
         // for, and the one a `transitionrun` listener alone would never sample.
-        this.#sampleUntilStill(token);
+        overlay.motionSampler?.startIfIdle();
       }
     }
     this.#changeEmitter.emit();
@@ -199,7 +206,7 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
   public get samplingOverlayCount(): number {
     let sampling = 0;
     for (const overlay of this.#overlaysByToken.values()) {
-      if (overlay.queuedFrame !== undefined) {
+      if (overlay.motionSampler?.isSampling === true) {
         sampling += 1;
       }
     }
@@ -218,10 +225,7 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
       return;
     }
     overlay.detachResizeObserver?.();
-    if (overlay.queuedFrame !== undefined) {
-      this.#clock.cancel(overlay.queuedFrame);
-      overlay.queuedFrame = undefined;
-    }
+    overlay.motionSampler?.stop();
     this.#overlaysByToken.delete(token);
     this.#disarmMotionStartsWhenNoElementRemains();
     this.#changeEmitter.emit();
@@ -250,34 +254,10 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
   }
 
   #onMotionStart(movingNode: Node): void {
-    for (const [token, overlay] of this.#overlaysByToken) {
+    for (const overlay of this.#overlaysByToken.values()) {
       if (overlay.element !== undefined && sharesMotionWith(overlay.element, movingNode)) {
-        this.#sampleUntilStill(token);
+        overlay.motionSampler?.startIfIdle();
       }
-    }
-  }
-
-  #sampleUntilStill(token: number): void {
-    const overlay = this.#overlaysByToken.get(token);
-    if (overlay === undefined || overlay.queuedFrame !== undefined) {
-      return;
-    }
-    overlay.queuedFrame = this.#clock.scheduleFrame(() => {
-      this.#sampleFrame(token);
-    });
-  }
-
-  #sampleFrame(token: number): void {
-    const overlay = this.#overlaysByToken.get(token);
-    if (overlay === undefined) {
-      return;
-    }
-    overlay.queuedFrame = undefined;
-    // Emit BEFORE re-reading the animation state, so the frame that finds the motion
-    // finished still publishes the rectangle the overlay came to rest at.
-    this.#changeEmitter.emit();
-    if (overlay.element !== undefined && hasRunningMotion(overlay.element)) {
-      this.#sampleUntilStill(token);
     }
   }
 }
