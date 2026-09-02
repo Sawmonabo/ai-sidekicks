@@ -1,15 +1,16 @@
 // The message card — a participant's words, an agent's reply, and an agent's reasoning.
 //
-// `Spec-023 §Console Design (Meridian)` §5.9 puts three of the five card families here
-// and gives them one layout: the body is open, the attribution edge carries the author's
-// hue, and the row's affordances are revealed on hover rather than parked in the log.
+// Three of `card-family.ts`'s five families live here and share one layout: the body is
+// open, the attribution edge carries the author's hue (`Spec-023 §Meridian, the design
+// language` rules 1 and 2), and the row's affordances are revealed on hover rather than
+// parked in the log — rule 7's "secondary controls live one click away".
 //
 // WHERE EACH BODY COMES FROM, which is the one thing about this card that is not
 // obvious:
 //
 //   • An ASSISTANT body is machine-authored, so it arrives through the hydrated
 //     `content` projection and renders through `MachineBody` — including its truncation
-//     and unavailability dispositions, which are §5.18's and not this card's.
+//     and unavailability dispositions, which are `MachineBody`'s and not this card's.
 //   • A LIVE assistant body arrives as `liveText`, published by the reveal engine and
 //     handed down by the viewport. It takes precedence, because a turn still streaming
 //     has no stored body yet.

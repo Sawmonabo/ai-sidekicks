@@ -1,22 +1,27 @@
 // The provenance rail's model — what the minimap knows, with no DOM in it.
 //
-// `Spec-023 §Console Design (Meridian)` §5.4: "Replace the scrollbar with a
-// scrubable minimap of the session's story." The component next door paints it and
+// `Spec-023 §The four bars`, Richness, names "a provenance rail that draws the session's
+// shape" among the console's signature surfaces. WHAT THAT RAIL IS, is this module's
+// decision, because no committed document states it: the scrollbar is replaced by a
+// scrubbable minimap of the session's story. The component next door paints it and
 // handles the pointer; everything a paint or a keypress needs to DECIDE lives here,
 // so the rail's rules are driven by the `console-unit` tier rather than measured
 // through a canvas.
 //
 // THREE RULES THIS MODULE MAKES STRUCTURAL:
 //
-//   • **Clip honesty.** §5.4: "the rail draws only the loaded window and marks the
-//     unloaded extent as a dotted segment". `RailClip` is a required member of the
+//   • **Clip honesty.** The rail draws only the loaded window and marks the
+//     unloaded extent as a dotted segment. `RailClip` is a required member of the
 //     model rather than an optional flag, so a rail cannot be built without
 //     answering whether it is showing everything.
-//   • **Two colours, spent once.** §5.4: "Only pending-human ticks are amber and
-//     only failures are red; every other tick takes the actor's hue at low
-//     chroma." The tone is a property of the KIND, fixed in the table below, so no
-//     call site can spend amber on a tick that needs nobody.
-//   • **No invented ticks.** §5.4's "Never": the rail never invents ticks for rows
+//   • **Two colours, spent once.** `Spec-023 §Meridian, the design language` rule 3:
+//     "Amber means a person is needed. Red means something failed. Nothing else is
+//     colored for attention." On the rail that reads as: only pending-human ticks are
+//     amber and only failures are red, every other tick taking the actor's hue at low
+//     chroma (rule 2's participant hue system). The tone is a property of the KIND,
+//     fixed in the table below, so no call site can spend amber on a tick that needs
+//     nobody.
+//   • **No invented ticks.** The rail never invents ticks for rows
 //     that are not loaded. Every tick here is produced from a row in the window it
 //     was handed; the unloaded extent is drawn as a segment, never as marks.
 
@@ -26,7 +31,7 @@ import { type GlyphName } from "../../tokens/index.js";
 import { LedgerSeamIndex, SEAM_WIRE_BINDINGS, type LedgerSeamKind } from "./seams.js";
 
 /**
- * Every kind of mark the rail draws. Closed; §5.4 enumerates exactly these.
+ * Every kind of mark the rail draws. Closed, and this module's own enumeration.
  *
  * The tuple is the declaration and the union follows from it, so the legend, the
  * keyboard's "next tick of a kind" walk, and the painter all read one list.
@@ -168,7 +173,7 @@ export interface RailTick {
   /**
    * The row's summary, wire-verbatim, for the hover preview card. Carried on the
    * tick rather than looked up at hover time so the read is immediate and the
-   * grace applies only to the card OPENING — §5.4's "no debounce on the read".
+   * grace applies only to the card OPENING: there is no debounce on the read.
    */
   readonly summary: string;
   /** Where along the rail this tick sits, 0 at the window's head and 1 at its tail. */
@@ -178,7 +183,7 @@ export interface RailTick {
 /**
  * What the rail is not showing.
  *
- * §5.4's clip honesty. `hasUnloadedExtent` is the dotted segment's condition, and
+ * The clip honesty above. `hasUnloadedExtent` is the dotted segment's condition, and
  * `earliestLoadedSequence` is what a "load earlier" affordance asks from.
  */
 export interface RailClip {
@@ -249,7 +254,7 @@ export class ProvenanceRailModel {
   /**
    * The next tick of a kind after a sequence, or the previous one before it.
    *
-   * §5.4's keyboard offer. Returns `undefined` at the ends rather than wrapping:
+   * The rail's keyboard offer. Returns `undefined` at the ends rather than wrapping:
    * a rail that wrapped would take a person from the last failure back to the
    * first one with nothing on screen saying it had.
    */

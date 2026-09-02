@@ -1,7 +1,7 @@
 // The rail's painter — where the ink lands, as geometry with no React in it.
 //
-// `Spec-023 §Console Design (Meridian)` §5.4 fixes the surface ("Own build on a
-// canvas layer with a ≥32px hit strip and a dead gutter, our values"), and the
+// `rail-model.ts` fixes the surface — an own build on a canvas layer with a ≥32px hit
+// strip and a dead gutter — and the
 // component next door owns that strip, its pointer, and its keyboard walk. What
 // gets DRAWN on the canvas is decided here.
 //
@@ -29,9 +29,9 @@
 // the palette's value where none is (a DOM shim, a print preview), which is the
 // same table the sheet is GENERATED from and so cannot drift from it.
 //
-// AND AN ACTOR TICK TAKES ITS ACTOR'S HUE. `Spec-023 §Console Design (Meridian)`
-// §5.4: "only failures are red; every other tick takes the actor's hue at low
-// chroma". The hue is the session's own allocation, handed in by the caller that
+// AND AN ACTOR TICK TAKES ITS ACTOR'S HUE. `rail-model.ts`'s second rule: only failures
+// are red, and every other tick takes the actor's hue at low
+// chroma. The hue is the session's own allocation, handed in by the caller that
 // holds it — the painter looks nothing up and invents nothing, so a tick whose
 // participant the wheel has never admitted takes the neutral tone rather than
 // somebody else's colour.
@@ -238,7 +238,7 @@ const TICK_TONE_TOKEN_NAMES: Readonly<Record<RailTickTone, string>> = {
 /**
  * How much of a participant's chroma an actor tick keeps.
  *
- * §5.4's "the actor's hue at low chroma": the rail is a map read at a glance, and
+ * The actor's hue at low chroma: the rail is a map read at a glance, and
  * a column of fully saturated marks beside the two rationed ones would make hue
  * compete with the attention channel rule 3 reserves. Lightness and hue angle are
  * untouched, so the mark stays the participant's colour rather than becoming a

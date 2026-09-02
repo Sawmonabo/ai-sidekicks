@@ -33,8 +33,9 @@ export interface CodeBlockProps {
    * A volatile block is NOT highlighted: its text changes every frame, so each pass
    * would be a cache miss whose tokens are evicted before they are read again, and the
    * colours would ripple as the grammar's interpretation of an unfinished line changed
-   * under the reader. `Spec-023 §Console Design (Meridian)` §5.14's committed-and-
-   * volatile split, applied to the one thing in a card that is expensive.
+   * under the reader. `Spec-023 §Console Libraries`' streaming-markdown row — "settled
+   * blocks parse once with a two-block settle lag" — applied to the one thing in a card
+   * that is expensive.
    */
   readonly isSettled: boolean;
   /** Injected so a test drives its own scheduler rather than the process-wide one. */

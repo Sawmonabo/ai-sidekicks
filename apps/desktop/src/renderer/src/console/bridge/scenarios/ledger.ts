@@ -18,13 +18,16 @@
 // EMPTY state is the one composition no script reaches, and it lives next door in
 // `ledger-quiet.ts` for that reason.
 //
-// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD. The census is
-// `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer is `SessionEventSchema`,
-// both in `packages/contracts/src/event.ts`; `scenarios/wire-truth.ts` holds this
-// file to both, and `scenarios/ledger-script.ts` carries the payload builders so a
+// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD, under the two-leg
+// rule `scenarios/wire-truth.ts` states in its header: the census
+// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`), both in
+// `packages/contracts/src/event.ts`, are the code leg, and the per-type payload rows of
+// `docs/specs/006-session-event-taxonomy-and-audit-log.md` name the members of a
+// registered type whose strict variant has not landed yet. That predicate holds this file
+// to the code leg, and `scenarios/ledger-script.ts` carries the payload builders so a
 // member cannot drift between two beats of one kind.
 //
-// FOUR THINGS THE DESIGN ASKS FOR THAT THIS SCRIPT DELIBERATELY DOES NOT SAY
+// FIVE THINGS THE DESIGN ASKS FOR THAT THIS SCRIPT DELIBERATELY DOES NOT SAY
 //
 //   • **The provider-switch seam.** `agent.provider_switched` and
 //     `agent.provider_switch_failed` are in no shipped `SessionEventType`, so a
@@ -33,11 +36,19 @@
 //   • **A resume and an unblock as their own rows.** `run.resumed` and
 //     `run.unblocked` are likewise unregistered; the registered transition back is
 //     `run.running`, and that is what this script plays.
-//   • **An approval card, and a cost or token reading.** `approval.requested` and
-//     `usage.cost_update` are registered TYPES whose payload members are named
-//     nowhere in `packages/contracts` — so the run reaches `waiting_for_approval`
-//     and returns to `running`, which is the part of that story the log can tell,
-//     and the card itself belongs to the scenario of the surface that renders it.
+//   • **An approval card.** `approval.requested` is a registered type, but the card it
+//     would draw belongs to the surface that renders approvals — so the run reaches
+//     `waiting_for_approval` and returns to `running`, which is the part of that story
+//     the log can tell.
+//   • **A cost or token reading.** Not because the members are unnamed — the taxonomy
+//     leg names them, and `scenarios/flagship.ts` meters a cost against exactly that row
+//     — but because this session's subject is the ledger frame, the chapters, the seams,
+//     the rail, and the replay scrub, and the meter is not on any of them. Flagship is
+//     the scenario that moves the meter; a second one here would be a reading no surface
+//     in this session's frame reads. Scripting one would carry every member
+//     `Spec-006 §Usage Telemetry (usage_telemetry)` makes required of a post-amendment
+//     emitter — `costStatus`, `costSource`, and `effectivePrincipal` — exactly as
+//     flagship's own builder does.
 //   • **A machine body.** `assistant.*` and `tool.*` payloads carry their body's
 //     DESCRIPTION and never the body, which is sealed in `content_payload` and
 //     served by no bridge namespace. The cards render the named absence, which is

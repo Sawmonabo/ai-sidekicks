@@ -1,14 +1,15 @@
 // The ledger's scroll chokepoint — the one module in the console that writes a
 // scroll offset.
 //
-// `Spec-023 §Console Design (Meridian)` §5.8: "A single scroll controller per
-// timeline pane owns `scrollTop` writes; every caller is a member of a closed
-// caller union and is named in the write; glides replace `scrollIntoView`
-// everywhere." `test/console/architecture/scroll-chokepoint.test.ts` is what makes
-// that a fact rather than an intention: it reads every console module and fails on
-// a second writer.
+// `Spec-023 §Console Test Tiers` puts two of the architecture tier's tripwires here —
+// "no `scrollTop` write outside the chokepoint, no `scrollIntoView`" — and
+// `test/console/architecture/scroll-chokepoint.test.ts` is what makes them a fact rather
+// than an intention: it reads every console module and fails on a second writer. THE
+// REST IS THIS MODULE'S, because no committed document states it: one scroll controller
+// per timeline pane, every caller a member of a closed caller union and named in the
+// write, and glides replacing `scrollIntoView` everywhere.
 //
-// FOUR DECISIONS THIS MODULE MAKES, each of which §5.8 forces:
+// FOUR DECISIONS THIS MODULE MAKES, each of which that rule forces:
 //
 //   • **The caller is named in the write.** Not for a log — for arbitration. Four
 //     subsystems want the offset (following, the reading anchor, find, replay), and
@@ -155,8 +156,8 @@ export class LedgerScrollController {
   /**
    * Release the surface.
    *
-   * Every read here is null-safe (`Spec-023 §Console Design (Meridian)` §5.17,
-   * "teardown reads are null-safe"): teardown runs on an unmount that may follow a
+   * Every read here is null-safe (`frame/ErrorSlot.tsx`'s teardown rule): teardown
+   * runs on an unmount that may follow a
    * failed attach, so the listener and everything the batch holds may each be
    * absent independently.
    */
@@ -248,7 +249,7 @@ export class LedgerScrollController {
   /**
    * Whether a prune may land right now.
    *
-   * `Spec-023 §Console Design (Meridian)` §5.16 gives the scroll controller a veto
+   * `window-cap.ts` gives the scroll controller a veto
    * over prune, and this is it: removing rows above the fold while a programmatic
    * write is mid-flight changes the content height under the offset that write
    * just chose.
@@ -309,7 +310,7 @@ export class LedgerScrollController {
    * Read the three numbers, and nothing else.
    *
    * Every derived fact below comes from these three. A row rect read here would be
-   * a hit test on the scroll path, which §5.8 forbids while following.
+   * a hit test on the scroll path, which this module forbids while following.
    */
   #sampleGeometry(cause: LedgerGeometryCause): LedgerGeometry | undefined {
     const surface = this.#surface;

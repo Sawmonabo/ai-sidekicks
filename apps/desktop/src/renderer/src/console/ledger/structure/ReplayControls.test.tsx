@@ -4,8 +4,8 @@
 // There is no local `isPlaying` and no remembered speed in this component, and the
 // way to prove that is to render the same control under different positions and
 // watch what it offers change with the engine's reading rather than with anything
-// it kept. The granularity sentence gets the same treatment, because §5.5's
-// "Never" is precisely a claim the control could make on its own.
+// it kept. The granularity sentence gets the same treatment, because
+// `replay-model.ts`'s fourth rule is precisely a claim the control could make on its own.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

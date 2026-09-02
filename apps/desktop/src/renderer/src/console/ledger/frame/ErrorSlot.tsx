@@ -1,9 +1,12 @@
 // Error slots — ranked, per kind, so one failure never clobbers another's remedy.
 //
-// `Spec-023 §Console Design (Meridian)` §5.17: "Every row group and every pane has
-// an error boundary; errors render in ranked per-kind slots so a transient error
-// never clobbers a live Retry. Teardown reads are null-safe. A row that fails
-// projection renders red with the failure named."
+// `Spec-023 §Meridian, the design language` rule 8 fixes what a failure looks like — an
+// _error_ is "a red-edged row with the code and the daemon's message text" — and rule 9
+// puts a refusal on the control that produced it. THE RANKING IS THIS MODULE'S, because
+// no committed document states it: every row group and every pane has an error boundary,
+// errors render in ranked per-kind slots so a transient error never clobbers a live
+// Retry, teardown reads are null-safe, and a row that fails projection renders red with
+// the failure named.
 //
 // WHY RANKED SLOTS RATHER THAN A LIST. Four things in the ledger can fail
 // independently and at different rates. A geometry read fails once and clears on
@@ -130,7 +133,7 @@ export interface LedgerRowGroupProps {
  * log around it, which is the same reasoning `frame/ErrorBoundary.tsx` gives for
  * one boundary per surface rather than one per window, applied one level down.
  *
- * The failure is rendered RED and NAMED (§5.17) through the console's one refusal
+ * The failure is rendered RED and NAMED (rule 8) through the console's one refusal
  * grammar — the row's own place in the log, holding the reason it could not be
  * drawn, rather than a gap a reader would read as the session having nothing there.
  */

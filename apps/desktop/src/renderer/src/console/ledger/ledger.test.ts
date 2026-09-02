@@ -92,9 +92,9 @@ describe("the ledger — which slots it holds", () => {
 
 describe("the ledger — what it mounts", () => {
   it("mounts the registered timeline pane in the full-screen window, at full width", () => {
-    // `Spec-023 §Console Design (Meridian)` §5.20: the auxiliary window is "the same
-    // pane at full width … and no composer", so this slot mounts the pane ALONE —
-    // no deck around it, since an auxiliary window holds exactly one pane (§4.5).
+    // `Spec-023 §The surface set`: an auxiliary window loads "the same renderer
+    // bundle at a window route" for one moved pane, so this slot mounts the pane
+    // ALONE — no deck around it and no composer.
     consolePaneRegistry.register({
       kind: "timeline",
       owner: PANE_TEST_OWNER,

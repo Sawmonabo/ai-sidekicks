@@ -25,12 +25,13 @@
 //     tick, so the frame also has the one lane state a four-lane session otherwise
 //     never shows — a run on screen that has produced nothing yet.
 //
-// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD. The census is
-// `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer is `SessionEventSchema`,
-// both in `packages/contracts/src/event.ts`; where a type has no strict variant the
-// members come from the per-family and per-type payload rows of
-// `docs/specs/006-session-event-taxonomy-and-audit-log.md`, which is the taxonomy
-// those variants are implemented from. `scenarios/wire-truth.ts` holds this file to
+// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD, under the two-leg
+// rule `scenarios/wire-truth.ts` states in its header: the census
+// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict layer (`SessionEventSchema`), both in
+// `packages/contracts/src/event.ts`, are the code leg, and where a type has no strict
+// variant its members come from the per-type payload rows of
+// `docs/specs/006-session-event-taxonomy-and-audit-log.md`, the taxonomy
+// those variants are implemented from. That predicate holds this file to
 // the layers that exist in code. That is not tidiness — a fixture that plays a type
 // no daemon emits produces screenshots, geometry readings, and end-to-end results
 // about a wire that does not exist, and every one of them looks like a pass.
@@ -163,7 +164,9 @@ const lane = createLedgerLaneEntries(SESSION_ID);
  * helper on its SECOND use. The three required members are carried in full —
  * `usage.cost_update` MUST set `costStatus` and `costSource`, and post-2026-08-26
  * emitters MUST set `effectivePrincipal` — because a partial row here would teach a
- * meter to read a shape no emitter produces.
+ * meter to read a shape no emitter produces, which is the defect
+ * `scenarios/wire-truth.ts`' taxonomy-leg rule exists to prevent and which the code
+ * leg cannot see: no strict variant is registered for this type yet.
  */
 function costUpdateEntry(input: {
   readonly atMs: number;

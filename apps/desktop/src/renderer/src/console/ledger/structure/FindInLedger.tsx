@@ -1,9 +1,7 @@
 // The find field, and the boundary it states.
 //
-// `Spec-023 §Console Design (Meridian)` §5.15: "A find field over the loaded rows
-// with match count, next and previous, and the boundary stated in the field:
-// 'searched loaded rows only' with a 'load earlier' affordance. Global search
-// across sessions is growth (`SessionSearch`)."
+// `find-model.ts` owns the rule this field renders: find runs over the loaded rows with
+// a match count and next and previous, and states its boundary in the field.
 //
 // THE BOUNDARY IS RENDERED, NOT REMEMBERED. `LEDGER_FIND_SCOPE_NOTE` is one string
 // in `find-model.ts` and this is its only renderer, so the field cannot ship

@@ -20,8 +20,8 @@
 //   • **The anchor is captured from the virtualizer, never from the DOM.** The row a
 //     reader is looking at and its offset both fall out of measurements the library
 //     already holds, so holding a reading position costs no element read at all —
-//     which is what lets `Spec-023 §Console Design (Meridian)` §5.8's "no hit test
-//     per scroll event while following" hold without a special case for the anchor.
+//     which is what lets `scroll-chokepoint.ts`'s "no hit test per scroll event while
+//     following" hold without a special case for the anchor.
 //   • **A snapshot is a value, recomputed on change.** `useSyncExternalStore`
 //     demands a stable reference between changes, and recomputing one per render
 //     would tear the tree. Every producer routes through `#publish`, which rebuilds

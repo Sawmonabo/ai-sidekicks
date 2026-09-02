@@ -1,11 +1,14 @@
-// A machine-authored body, rendered honestly — the two dispositions of §5.18.
+// A machine-authored body, rendered honestly — its two dispositions, both here.
 //
-// `Spec-023 §Console Design (Meridian)` §5.18 is short and both halves of it are here:
-// a TRUNCATED body renders its prefix and says "truncated at N of M bytes", naming the
-// declared loss; an UNREADABLE body renders the turn AT ITS POSITION with an empty body
-// and the unavailable marker. Neither disposition is silent, and that is the whole
+// THE RULE IS THIS MODULE'S, because no committed document states it: a TRUNCATED body
+// renders its prefix and says "truncated at N of M bytes", naming the declared loss; an
+// UNREADABLE body renders the turn AT ITS POSITION with an empty body and the
+// unavailable marker. Neither disposition is silent, and that is the whole
 // point — an empty body alone reads as "the author said nothing" and a dropped row
-// reads as "the turn never happened", and both are false.
+// reads as "the turn never happened", and both are false. `Spec-023 §Meridian, the
+// design language` rule 6 is why they are both said out loud ("absences name their kind
+// and their escape hatch") and rule 8 is why they are two and not one ("a renderer that
+// collapses two of these into one is wrong").
 //
 // THE TWO MARKER NAMES ARE WIRE VALUES, so they render as wire figures: mono, verbatim,
 // exactly the string `DeclaredLossKind` carries. They are bound to that union below
@@ -13,7 +16,7 @@
 // leaving the console displaying a token the daemon stopped using.
 //
 // WHY THIS IS ONE COMPONENT AND NOT A BRANCH IN EACH CARD. `MessageCard` and `ToolCard`
-// both render machine-authored bodies, and §5.18 is a rule about the BODY rather than
+// both render machine-authored bodies, and the rule above is about the BODY rather than
 // about either card. Two copies would drift the first time a reason was added to
 // `HydratedContentUnavailableReason` — which is a closed union precisely so a consumer
 // can be made total over it, as `REASON_SENTENCES` below is.
@@ -170,7 +173,7 @@ function UnavailableBody(props: {
       {/* The BLOCK placement, deliberately: the badge form renders `detail` as a
           `title` attribute and nothing else, so both the reason and the disposition
           would be a tooltip — unreachable by touch, by keyboard, and by a reader who
-          never hovers. §5.18's requirement is that the console SAYS what happened,
+          never hovers. The requirement is that the console SAYS what happened,
           and an absence occupying the body's own region is a surface rather than a
           value-adjacent badge. */}
       <Nothing
@@ -200,7 +203,7 @@ function TruncationNotice(props: {
   const storedBytes = formatByteQuantity(measureUtf8ByteLength(props.storedBody));
   // ONE SENTENCE CARRYING BOTH FIGURES, rather than a headline and a `detail`. The
   // badge form renders `detail` as a `title` attribute, so the byte counts — which are
-  // the substance of §5.18's notice, not an elaboration of it — would reach a reader
+  // the substance of the truncation notice, not an elaboration of it — would reach a reader
   // only on hover. The badge is still the right shape here, because unlike an
   // unavailable body this one IS present and the notice qualifies it.
   const title =

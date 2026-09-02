@@ -6,7 +6,7 @@
 // its own class names into a design system that already has some. A mapper is a switch
 // over a node union; owning it costs one file and buys both properties outright.
 //
-// THE THREE RULES THIS FILE ENFORCES, from `Spec-023 §Console Design (Meridian)` §5.14:
+// THE THREE RULES THIS FILE ENFORCES, from `markdown-rules.ts`:
 //
 //   1. **`html` nodes render as literal text**, at block and inline level both. That is
 //      what "Model HTML is never rendered" means concretely, and it is why NO SANITIZER
@@ -188,9 +188,9 @@ function renderNode(
     case "tableCell":
       return <td>{renderChildren(node.children, context)}</td>;
     case "footnoteDefinition":
-      // Registered elsewhere, rendered nowhere here. §5.14 puts footnotes in "one popover
-      // host per timeline", so a definition's body belongs to the popover; rendering it
-      // inline as well would put the same text on the screen twice.
+      // Registered elsewhere, rendered nowhere here. This console puts footnotes in one
+      // popover host per timeline, so a definition's body belongs to the popover;
+      // rendering it inline as well would put the same text on the screen twice.
       return null;
     case "footnoteReference":
       // A component rather than markup inline, because the marker has to find the card's

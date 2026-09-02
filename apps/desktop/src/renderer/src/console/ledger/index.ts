@@ -25,10 +25,11 @@
 // THE TWO SLOTS, AND WHY THEY NO LONGER MOUNT THE SAME THING. `workspace` is the
 // session's own surface: the cast bar, the deck, and the composer's seat, which is
 // `workspace/Workspace.tsx`. `timeline` is the full-screen ledger WINDOW
-// (`Spec-023 §Console Design (Meridian)` §5.20: "the same pane at full width with
-// the rail, replay, and find, and no composer"), so it mounts the pane alone —
-// no deck around it, because an auxiliary window holds one pane by definition
-// (§4.5), and no composer, because that spec sentence says so in terms. The rail,
+// `Spec-023 §The surface set` names — a `timeline` pane "moved into their own
+// hardened `BrowserWindow`", loading "the same renderer bundle at a window route" — so
+// it mounts the pane alone: no deck around it, because an auxiliary window holds one
+// pane, and no composer, because the composer is the session workspace's chrome and this
+// window is not that workspace. The rail,
 // replay, and find arrive with the lanes that author them.
 
 import { createElement, type ReactNode } from "react";
@@ -159,8 +160,9 @@ function mountWorkspace(context: ConsoleSurfaceContext): ReactNode {
  * Mount the ledger's pane alone, through the deck's own door.
  *
  * The pane body is resolved from the pane registry rather than imported, which is
- * `Spec-023 §Console Design (Meridian)` §4.2's "one entity, one pane … a single
- * mount door" applied at the only place a pane is mounted today. Importing
+ * `Spec-023 §The surface set`'s "one entity opens one pane, structurally (a single
+ * mount door and a tripwire that fails on a second)" applied at the only place a pane is
+ * mounted today. Importing
  * `panes/timeline/` here would also close a cycle the moment that body reaches back
  * into this family for the frame, which it will.
  *

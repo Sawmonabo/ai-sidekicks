@@ -1,4 +1,4 @@
-// The chapter fold, held to the three things §5.2 says it must never do.
+// The chapter fold, held to the three things `chapters.ts` says it must never do.
 //
 // Each case below pins a rule whose violation is SILENT: a heuristic grouping
 // still renders chapters, a re-ordered fold still renders rows, and a collapsed
@@ -76,7 +76,7 @@ describe("chapters — rows join a chapter by runId and by nothing else", () => 
       runRow({ id: "a2", sequence: 9, type: "run.running", runId: "run-a", position: 2 }),
       runRow({ id: "a1", sequence: 4, type: "run.queued", runId: "run-a", position: 1 }),
     ]);
-    // Delivery order, not sequence order: §5.2 forbids re-ordering rows, so the
+    // Delivery order, not sequence order: the fold never re-orders rows, so the
     // fold partitions and leaves the ordering to whatever handed it the window.
     expect(chapterFor(fold.chapters, "run-a").rowIds).toStrictEqual(["a2", "a1"]);
     expect(chapterFor(fold.chapters, "run-a").firstSequence).toBe(4);

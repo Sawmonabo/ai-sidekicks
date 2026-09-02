@@ -1,9 +1,11 @@
 // Find in ledger — the matcher behind the field.
 //
-// `Spec-023 §Console Design (Meridian)` §5.15: "A find field over the loaded rows
-// with match count, next and previous, and the boundary stated in the field:
-// 'searched loaded rows only' with a 'load earlier' affordance. Global search
-// across sessions is growth (`SessionSearch`)."
+// `Spec-023 §Console Libraries`, state-and-search row, OWN-BUILDs "the subsequence
+// scorer shared by the palette, settings search, sidebar filter, and find". THE FIELD'S
+// RULE IS THIS MODULE'S, because no committed document states it: find runs over the
+// loaded rows with a match count and next and previous, and states its boundary in the
+// field — "searched loaded rows only", beside a "load earlier" affordance. Search across
+// sessions is growth, not a widening of this.
 //
 // THE BOUNDARY IS THE FEATURE. A find field that searched what it had and said
 // nothing would let a person conclude a session does not contain something it

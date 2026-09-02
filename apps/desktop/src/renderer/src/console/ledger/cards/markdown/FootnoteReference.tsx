@@ -1,10 +1,9 @@
 // A footnote marker — the control that opens its definition, or the marker alone.
 //
-// `Spec-023 §Console Design (Meridian)` §5.14: "Footnotes use one popover host per
-// timeline with a definition registry keyed by source, so a definition line never
-// resolves as its own body; click pins, chained references navigate in place, focus is
-// restored." A marker that could not be pressed made the definition unreachable — the
-// registry recorded every body and nothing ever asked it for one.
+// This console renders footnotes through one popover host per timeline over the
+// source-keyed registry `markdown/footnote-registry.ts` owns, and this is the control
+// that reaches it: a marker that could not be pressed made the definition unreachable —
+// the registry recorded every body and nothing ever asked it for one.
 //
 // TWO ELEMENTS, AND WHICH ONE IS RENDERED IS A FACT ABOUT THE MESSAGE. A reference whose
 // own message declared a definition is a button: there is a body to open. A reference

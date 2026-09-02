@@ -1,8 +1,10 @@
 // Seams — the log's epochs, rendered as geography.
 //
-// `Spec-023 §Console Design (Meridian)` §5.3: "Make the log's epochs geography:
-// provider switches, compactions, and rollbacks render as labeled seams across the
-// ledger, and superseded turns stay present but visibly past."
+// `Spec-023 §The four bars`, Richness, puts "boundary seams for provider switch,
+// compaction, and rollback" in the console's signature set. HOW THEY RENDER IS THIS
+// MODULE'S, because no committed document states it: the log's epochs are geography —
+// switches, compactions, and rollbacks draw as labelled seams across the ledger, and
+// superseded turns stay present but visibly past.
 //
 // A seam is ONE LINE. Never a message row, never a block — that is the whole
 // visual claim, and it is why this module produces a value with named parts rather
@@ -30,7 +32,7 @@
 // by contract — so the console is ready for the registration without pretending it
 // has happened.
 //
-// THE OTHER HALF OF §5.3 — "superseded turns stay present but visibly past" —
+// THE OTHER HALF OF THAT RULE — superseded turns stay present but visibly past —
 // is `superseded-bands.ts`. It asks a different question of a different subject
 // (a whole window, ranked against the rollback cutoffs inside it) and shares no
 // table with the classifier below, so the two grow apart without colliding.
@@ -41,12 +43,12 @@ import { type GlyphName } from "../../tokens/index.js";
 
 /**
  * Every seam the ledger draws. Closed; adding one is a deliberate edit here and a
- * reading of §5.3.
+ * reading of the epoch rule above.
  *
  * The tuple is the declaration and `LedgerSeamKind` is derived from it, so the set
  * a gallery iterates and the set the classifier switches over cannot come apart.
  *
- * Eight, and §5.3 names them as two groups that render the same way: three epoch
+ * Eight, in two groups that render the same way: three epoch
  * seams (switch, compaction, rollback) plus the failed switch, and the four
  * remaining run-state subtype rows. They are one set here because a seam is a
  * one-line row marking a change in the run's condition, and a reader scanning the
@@ -100,7 +102,7 @@ export interface SeamWireBinding {
   /**
    * Whether the seam is the pair's one caution.
    *
-   * §5.3 is explicit that only the FAILED switch is a caution: `'in_place'` and
+   * Only the FAILED switch is a caution: `'in_place'` and
    * `'replayed'` render "without a loss clause and without a warning, because
    * nothing was lost". Amber and red are spent on attention and failure alone
    * (rule 3), so this is the single member that earns one.
@@ -179,8 +181,9 @@ export const SEAM_WIRE_BINDINGS: Readonly<Record<LedgerSeamKind, SeamWireBinding
  * One seam, decomposed into the parts the frame lays on a line.
  *
  * Every wire-sourced member is carried VERBATIM and typed `string`, which is
- * §5.3's "never drops an unrecognized `reason` or `continuity` value; it renders
- * as itself" expressed in the type: a closed union here would have to decide what
+ * `Spec-023 §Rules every console surface obeys`' fail-closed projection ("an unknown
+ * enum member renders as the explicit unrecognized row or badge, never as a guess")
+ * expressed in the type: a closed union here would have to decide what
  * to do with a value it did not know, and the only fail-closed answers are to drop
  * it or to guess.
  */
@@ -205,7 +208,7 @@ export interface LedgerSeam {
   /** The epoch the seam belongs to, where the arm carries one. */
   readonly epoch: number | undefined;
   /**
-   * The switch's continuity value, verbatim. §5.3: a loss clause is rendered ONLY
+   * The switch's continuity value, verbatim. A loss clause is rendered ONLY
    * when this reads `'memo'`; `'in_place'` and `'replayed'` render the same line
    * without one, because nothing was lost.
    */

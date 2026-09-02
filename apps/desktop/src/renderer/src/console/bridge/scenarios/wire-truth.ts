@@ -25,6 +25,22 @@
 //     and a payload the schema rejects outright, and nothing renders differently
 //     until the day the console reads the payload.
 //
+// WHERE A BEAT'S MEMBERS COME FROM WHEN THE STRICT LAYER REGISTERS NO VARIANT. This is
+// the one rule every scenario on the board is written against, and it is stated here
+// because this is the module that holds them all to it. The census and the strict layer
+// are the CODE leg: they are what this predicate can execute, and they are not the whole
+// registry. The per-family and per-type payload rows of
+// `docs/specs/006-session-event-taxonomy-and-audit-log.md` are the TAXONOMY leg — the
+// registry those strict variants are implemented from — and they name a registered
+// type's members whether or not the variant for it has landed in code yet.
+//
+// So "`packages/contracts` names no members for this type" is never a reason for a
+// scenario to decline a beat. A scenario that scripts such a type carries every member
+// that spec's row makes REQUIRED of a post-amendment emitter, because a partial row
+// teaches a surface to read a shape no daemon produces — the same class of defect as an
+// invented member, and one nothing here can catch. A scenario that declines the beat
+// declines it for a reason about the SESSION it is scripting, and says which.
+//
 // WHY THE PROBE IS A WHOLE ENVELOPE. The strict layer is declared per EVENT, not
 // per payload — there is no exported payload-only schema to reach for, and the one
 // place the two are paired is inside the discriminated union. So the check presents

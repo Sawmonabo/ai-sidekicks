@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { LEDGER_FIRST_SIXTY_SCENARIO } from "./ledger-first-sixty.js";
+import { LEDGER_FIRST_SIXTY_SCENARIO, LEDGER_FIRST_SIXTY_SPAN_MS } from "./ledger-first-sixty.js";
 import { LEDGER_QUIET_SCENARIO } from "./ledger-quiet.js";
 import { LEDGER_SCENARIO } from "./ledger.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
@@ -148,8 +148,11 @@ describe("the three-lane ledger scenario", () => {
 
 describe("the first-sixty-seconds scenario", () => {
   it("is paced across a full minute rather than fired at tick zero", () => {
+    // The span is read off the scenario rather than restated here: the number the
+    // claim is about lives beside the script it paces, so a script edit that moved the
+    // last beat fails this rather than quietly disagreeing with a copy.
     const lastBeat = LEDGER_FIRST_SIXTY_SCENARIO.beats.at(-1);
-    expect(lastBeat?.atMs).toBe(60_000);
+    expect(lastBeat?.atMs).toBe(LEDGER_FIRST_SIXTY_SPAN_MS);
     expect(LEDGER_FIRST_SIXTY_SCENARIO.beats[0]?.atMs).toBe(0);
   });
 

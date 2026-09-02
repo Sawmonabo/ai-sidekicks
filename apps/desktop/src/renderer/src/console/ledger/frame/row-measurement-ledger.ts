@@ -112,8 +112,9 @@ export class RowMeasurementLedger {
    *     that has not been laid out reports zero, and taking zero as a row's height
    *     collapses the window onto one screen of rows that are all at the same
    *     offset. The last accepted height stands, or the estimate does.
-   *   • An observation inside the epsilon is the same height. `Spec-023 §Console
-   *     Design (Meridian)` §5.8: "never compares measurements without an epsilon".
+   *   • An observation inside the epsilon is the same height. This console never
+   *     compares two measurements without one: sub-pixel layout noise would otherwise
+   *     read as a resize and re-run the window on every frame.
    *   • Anything else is accepted, and takes the newest slot in the bounded table.
    */
   public acceptedHeight(rowKey: string, observedHeightPx: number): number {

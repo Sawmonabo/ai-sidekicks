@@ -58,6 +58,17 @@ const STARTED_AT_ISO = "2026-01-01T10:00:00.000Z";
 /** One second of scenario time, so the pacing below reads in seconds. */
 const ONE_SECOND_MS = 1_000;
 
+/**
+ * The minute this scenario is paced across, declared once.
+ *
+ * The id, the label, and the purpose sentence all say "sixty seconds", and the script's
+ * last beat has to land on it. Exported so the pacing claim is read from here rather than
+ * restated as a literal in a test — a script edit that moved the last beat off the
+ * declared span is exactly what that claim is for, and a test carrying its own copy of
+ * the number would still be asserting against the old one.
+ */
+export const LEDGER_FIRST_SIXTY_SPAN_MS: number = 60 * ONE_SECOND_MS;
+
 /** The cast, in attach order — one table feeding both the beats and the reply. */
 const FIRST_SIXTY_AGENTS = [
   {

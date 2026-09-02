@@ -11,8 +11,8 @@
 /**
  * Rows a single chapter renders before its body clips.
  *
- * `Spec-023 §Console Design (Meridian)` §5.2 puts "the cap on visible chapter
- * rows" in the truncation module by name. A chapter is a nested scroller, so the
+ * The cap on a chapter's visible rows, held here rather than inside the fold so the
+ * bound sits beside the rest of the structure family's. A chapter is a nested scroller, so the
  * cap is not about what fits on screen — it is about how many rows one run may
  * mount at once while three sibling runs stream beside it. 120 is four screens of
  * ledger at this density: enough that scrolling inside a chapter is reading
@@ -24,8 +24,8 @@ export const CHAPTER_VISIBLE_ROW_CAP = 120;
 /**
  * The rail's pointer strip, in CSS pixels.
  *
- * `Spec-023 §Console Design (Meridian)` §5.4 fixes "a ≥32px hit strip and a dead
- * gutter". The strip is wider than the drawn rail on purpose: a tick is two
+ * `rail-model.ts` fixes the rail's geometry as a ≥32px hit strip and a dead
+ * gutter. The strip is wider than the drawn rail on purpose: a tick is two
  * pixels of ink and a pointer is not, so the strip is what a person aims at and
  * the ink is what they read.
  */
@@ -55,8 +55,8 @@ export const RAIL_FISHEYE_MAX_SCALE = 2.6;
 /**
  * How long the pointer rests on a tick before its preview card opens.
  *
- * `Spec-023 §Console Design (Meridian)` §5.4: the card activates "after a short
- * grace (no debounce on the read)". The grace is what keeps a pointer crossing
+ * `rail-model.ts`'s rule: the card activates after a short
+ * grace, with no debounce on the read. The grace is what keeps a pointer crossing
  * the rail from opening thirty cards; the READ is immediate, so the card that
  * does open is the tick under the pointer now and never one it has left.
  */

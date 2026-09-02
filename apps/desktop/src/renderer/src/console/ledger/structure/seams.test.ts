@@ -197,7 +197,7 @@ describe("seams — one row's classification", () => {
   });
 
   it("negative control: an in-place switch carries no loss clause even when the payload names one", () => {
-    // §5.3 renders the loss clause ONLY for `memo`. A classifier that read the
+    // The loss clause is rendered ONLY for `memo`. A classifier that read the
     // list unconditionally would put "context was lost" under a switch that lost
     // nothing.
     const seam = classifyOne(
