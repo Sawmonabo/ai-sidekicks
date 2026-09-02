@@ -135,12 +135,22 @@ describe("preview is consent", () => {
   });
 });
 
-describe("the two refusals raised before the wire", async () => {
+describe("the refusals raised before the wire", async () => {
   it("refuses a rewind with no target position, and sends nothing", async () => {
     const { container, calls } = renderComposer("rollback");
     await submit(container);
     expect(calls).toHaveLength(0);
     expect(container.textContent).toContain("target-position-unnamed");
+  });
+
+  it("refuses a target that is not a whole position, and sends nothing", async () => {
+    // The prefix parse this replaces read `4oops` as 4 and dispatched a destructive
+    // rewind to a position nobody typed.
+    const { container, calls } = renderComposer("rollback");
+    typeInto(container.querySelector(".meridian-run-composer__position"), "4oops");
+    await submit(container);
+    expect(calls).toHaveLength(0);
+    expect(container.textContent).toContain("target-position-unreadable");
   });
 
   it("refuses a composite whose replacement is only whitespace, and sends nothing", async () => {

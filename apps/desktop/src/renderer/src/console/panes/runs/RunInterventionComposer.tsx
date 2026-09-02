@@ -13,11 +13,16 @@
 // confirmed rewind does: the run lands `paused` at the confirmed position and
 // nothing resumes on its own.
 //
-// TWO REFUSALS THIS SURFACE RAISES BEFORE THE WIRE.
+// THREE REFUSALS THIS SURFACE RAISES BEFORE THE WIRE.
 //
 //   • A rewind with no target position. The cut is daemon-supplied and this pane
 //     computes none — §7.3's Never list forbids deriving one — so an unnamed
 //     position is a refusal here rather than a request the daemon has to reject.
+//   • A rewind whose target is not a position. The field's whole trimmed value is
+//     read through `rewind-position.ts`, so a typed suffix is refused rather than
+//     truncated into the position it happens to start with — a prefix parse turns
+//     `4oops` into a destructive rollback to 4 that the daemon cannot tell from one
+//     somebody meant.
 //   • A composite whose replacement is empty. "Never offers an unchanged resend as
 //     a rewind: a no-op composite is refused at the affordance rather than
 //     destroying a tail for nothing." Empty text is the reachable form of that at a
@@ -32,6 +37,7 @@ import { useCallback, useId, useState } from "react";
 
 import { InlineRefusal } from "../../primitives/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { parseRewindPosition } from "./rewind-position.js";
 import { RUN_CONTROL_REFUSAL_ORIGIN } from "./run-control-dispatch.js";
 import type { RunControlSurface } from "./run-control-surface.js";
 import type { RunProjection } from "./run-state-feed.js";
@@ -77,14 +83,20 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         props.onDismiss();
         return;
       }
-      const position = Number.parseInt(targetPosition, 10);
-      if (!Number.isInteger(position) || position < 0) {
+      const reading = parseRewindPosition(targetPosition);
+      if (reading.status !== "named") {
         setLocalRefusal(
-          refuse(
-            RUN_CONTROL_REFUSAL_ORIGIN,
-            "target-position-unnamed",
-            "A rewind needs the turn-boundary position it should land at. The console does not compute one — the position comes from the run's own recorded boundaries.",
-          ),
+          reading.status === "unnamed"
+            ? refuse(
+                RUN_CONTROL_REFUSAL_ORIGIN,
+                "target-position-unnamed",
+                "A rewind needs the turn-boundary position it should land at. The console does not compute one — the position comes from the run's own recorded boundaries.",
+              )
+            : refuse(
+                RUN_CONTROL_REFUSAL_ORIGIN,
+                "target-position-unreadable",
+                "A turn-boundary position is a whole number, and this field holds something else. Nothing was sent: the run's own recorded boundaries are where the position comes from.",
+              ),
         );
         return;
       }
@@ -104,8 +116,8 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         dispatcher.rollback(
           { runId: run.runId, expectedRunVersion: comparand },
           replacement.length === 0
-            ? { targetPosition: position }
-            : { targetPosition: position, replacementSend: { content: replacement } },
+            ? { targetPosition: reading.position }
+            : { targetPosition: reading.position, replacementSend: { content: replacement } },
         ),
       );
       props.onDismiss();
