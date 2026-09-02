@@ -9,23 +9,38 @@
 //     `agent.subscribe` exists on any transport, and inventing one would be a method
 //     string with nothing behind it, so the signal is taken from the stream the
 //     console already has.
-//   • **The driver catalog has no signal at all, honestly.** Nothing on the wire
-//     announces that a provider's model list moved, so the read is performed once
-//     and its subscription is a stated no-op rather than a timer. A poll here would
-//     be the console inventing a refresh policy for a fact it cannot observe.
-//   • **Child links are per parent run**, so they are built on demand and cached one
-//     at a time — asking for a different run disposes the previous read.
+//   • **The driver catalog and the definition list have no signal at all, honestly.**
+//     Nothing on the wire announces that a provider's model list or the node-local
+//     definition registry moved, so each read is performed once and its subscription
+//     is a stated no-op rather than a timer. A poll there would be the console
+//     inventing a refresh policy for a fact it cannot observe.
+//   • **Child links are per parent run**, and push-driven too. A child created later
+//     and a create the daemon refused both arrive on the same session stream, so the
+//     linkage takes the roster's signal filtered to its own two registered kinds
+//     rather than going stale until the pane remounts. They are built on demand and
+//     cached one at a time — asking for a different run disposes the previous read.
 //
 // A CACHE OF ONE, TWICE OVER. A console shows one session at a time and one run's
 // links at a time, so both caches hold exactly one entry and switching disposes what
 // they held. That is a bound stated by construction rather than a cap with a
 // rationale: neither can grow.
 //
+// ACQUIRING A LINKAGE READ IS NOT STARTING ONE, AND THAT SPLIT IS THE POINT. Starting
+// opens a subscription and arms a scheduler, which React's render phase may abandon
+// or replay — an abandoned pass would leave a live read with no committed cleanup to
+// release it, and a replayed one would dispose a read the committed tree is still
+// showing. So the cache hands out a LEASE, the surface takes one from a mount effect
+// and starts the read there, and the read is disposed when the last lease is given
+// back. `start()` is idempotent, so a second holder joining a live read starts
+// nothing twice.
+//
 // THE CLOCK COMES FROM THE BRIDGE. Under the fixture the scenario's frozen clock is
 // the only clock the renderer reads, so every debounce here advances exactly when a
 // scenario tick says it does.
 
 import { useEffect, useState } from "react";
+
+import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
@@ -38,6 +53,7 @@ import {
   AGENT_DETACH_METHOD,
   AGENT_LIFECYCLE_EVENT_KINDS,
   AGENT_LIST_METHOD,
+  CHILD_RUN_LINKAGE_EVENT_KINDS,
   CHILD_RUN_LINK_READ_METHOD,
   DRIVER_LIST_CAPABILITIES_METHOD,
   DRIVER_LIST_MODELS_METHOD,
@@ -66,6 +82,34 @@ export type ChildRunLinkageRead = PushDrivenRead<ChildRunLinkReading>;
 export type SidekickDefinitionRead = PushDrivenRead<SidekickDefinitionListReading>;
 
 /**
+ * One holder's grant of a parent run's child-link read.
+ *
+ * A value the taker owns rather than a flag on the models, so releasing is something
+ * the effect that acquired it can do without naming the run it acquired for — which
+ * matters exactly when the run has since changed underneath it. The read is handed
+ * over UNSTARTED: whoever takes the lease starts it from its own mount effect, and
+ * `start()` is idempotent, so a second holder joining a live read starts nothing
+ * twice.
+ */
+export interface ChildRunLinkageLease {
+  readonly read: ChildRunLinkageRead;
+  /**
+   * Give this grant back.
+   *
+   * Idempotent, and terminal for this lease alone: a second call does nothing, and a
+   * lease on a read the models have already replaced releases nothing, because the
+   * read it named was disposed with the run it belonged to.
+   */
+  release: () => void;
+}
+
+/** The linkage read the models hold, with the run it answers for. */
+interface HeldChildRunLinkage {
+  readonly parentRunId: string;
+  readonly read: ChildRunLinkageRead;
+}
+
+/**
  * One session's agent-console reads.
  *
  * A class rather than a record: it owns the linkage cache's lifetime and its
@@ -80,12 +124,22 @@ export class AgentConsoleModels {
 
   readonly #bridge: ConsoleBridge;
   readonly #clock: ConsoleClock;
-  #linkage: { readonly parentRunId: string; readonly read: ChildRunLinkageRead } | undefined;
+  /**
+   * The store the linkage read takes its push signal from.
+   *
+   * Held rather than reduced to a `sessionId`: a child link and a refused create
+   * both arrive as session events, so the read that answers for them needs the
+   * stream itself and not the name of the session it belongs to.
+   */
+  readonly #sessionStore: SessionStore;
+  #linkage: HeldChildRunLinkage | undefined;
+  #outstandingLinkageLeaseCount = 0;
   #disposed = false;
 
   public constructor(bridge: ConsoleBridge, sessionStore: SessionStore) {
     this.#bridge = bridge;
     this.#clock = bridge.scenarioEngine?.clock ?? new RealClock();
+    this.#sessionStore = sessionStore;
     this.sessionId = sessionStore.sessionId;
     this.roster = createAgentRoster(bridge, sessionStore, this.#clock);
     this.driverCatalog = createDriverCatalog(bridge, this.#clock);
@@ -142,22 +196,38 @@ export class AgentConsoleModels {
     >(this.#bridge, SIDEKICK_PEER_INVOCATION_SET_METHOD, { sessionId: this.sessionId, enabled });
   }
 
+  /** Which run the held linkage answers for, or `undefined` while none is held. */
+  public get heldLinkageParentRunId(): string | undefined {
+    return this.#linkage?.parentRunId;
+  }
+
+  /** Linkage leases handed out and not given back. The lifetime assertion, counted. */
+  public get outstandingLinkageLeaseCount(): number {
+    return this.#outstandingLinkageLeaseCount;
+  }
+
   /**
-   * The child-link read for one parent run, building it on first ask.
+   * Take a lease on one parent run's child-link read, building it on the first ask.
    *
    * Asking for a different run disposes the previous read, so no scheduler and no
-   * subscription survives a run the console has left.
+   * subscription survives a run the console has left. The read is NOT started here:
+   * starting opens a subscription and arms a scheduler, and the surface that takes
+   * the lease does both from a mount effect, where a cleanup exists to undo them.
    */
-  public linkageFor(parentRunId: string): ChildRunLinkageRead {
+  public acquireLinkage(parentRunId: string): ChildRunLinkageLease {
     const held = this.#linkage;
     if (held !== undefined && held.parentRunId === parentRunId) {
-      return held.read;
+      this.#outstandingLinkageLeaseCount += 1;
+      return this.#leaseOn(held);
     }
-    held?.read.dispose();
-    const read = createChildRunLinkage(this.#bridge, parentRunId, this.#clock);
-    this.#linkage = { parentRunId, read };
-    read.start();
-    return read;
+    this.#releaseLinkage();
+    const linkage: HeldChildRunLinkage = {
+      parentRunId,
+      read: createChildRunLinkage(this.#bridge, this.#sessionStore, parentRunId, this.#clock),
+    };
+    this.#linkage = linkage;
+    this.#outstandingLinkageLeaseCount = 1;
+    return this.#leaseOn(linkage);
   }
 
   /** Release every read. Terminal. */
@@ -169,8 +239,40 @@ export class AgentConsoleModels {
     this.roster.dispose();
     this.driverCatalog.dispose();
     this.definitions.dispose();
-    this.#linkage?.read.dispose();
+    this.#releaseLinkage();
+  }
+
+  /**
+   * One lease over one held read, keyed on that read's own identity.
+   *
+   * The identity check is what makes a stale release harmless: React runs a mount's
+   * cleanup after the effect that re-keyed the run has already replaced the held
+   * read, and a counter decremented by that cleanup would take the NEW run's read
+   * down with it.
+   */
+  #leaseOn(linkage: HeldChildRunLinkage): ChildRunLinkageLease {
+    let isReleased = false;
+    return {
+      read: linkage.read,
+      release: () => {
+        if (isReleased || this.#linkage !== linkage) {
+          return;
+        }
+        isReleased = true;
+        this.#outstandingLinkageLeaseCount -= 1;
+        if (this.#outstandingLinkageLeaseCount <= 0) {
+          this.#releaseLinkage();
+        }
+      },
+    };
+  }
+
+  /** Dispose whatever linkage read is held, at most once. Safe with none. */
+  #releaseLinkage(): void {
+    const held = this.#linkage;
     this.#linkage = undefined;
+    this.#outstandingLinkageLeaseCount = 0;
+    held?.read.dispose();
   }
 }
 
@@ -182,6 +284,17 @@ export class AgentConsoleModels {
  * each leaving a subscription behind it. `undefined` in either argument is a real
  * state — an auxiliary address that named no session — and answers `undefined`, which
  * the surfaces render as the absence it is.
+ *
+ * A MODEL NEVER BELONGS TO A SESSION IT IS NOT FOR. State replaced from an effect
+ * lags its own inputs by one committed frame, so a console moving directly from one
+ * open session to another renders once with the previous session's models under the
+ * new session's store. That frame is not merely a stale roster: the binding column
+ * would dispatch `agent.attach`, `agent.configUpdate`, and `agent.detach` through the
+ * session the console has LEFT while naming the agent of the one it arrived at. So
+ * the held set is answered only while it matches the store it was asked about, and
+ * the mismatched frame answers `undefined` — the absence every consumer already
+ * renders, and the one honest thing to say about a session nothing has been read for
+ * yet.
  */
 export function useAgentConsoleModels(
   bridge: ConsoleBridge | undefined,
@@ -202,7 +315,10 @@ export function useAgentConsoleModels(
     };
   }, [bridge, sessionStore]);
 
-  return models;
+  // Inline rather than hoisted: the collaboration family applies the same rule to
+  // its own holder, and one shared guard would put a single symbol under two
+  // owners for a comparison that is one expression at each site.
+  return models !== undefined && models.sessionId === sessionStore?.sessionId ? models : undefined;
 }
 
 /** The roster read, refreshed by the three registered lifecycle events. */
@@ -220,7 +336,8 @@ export function createAgentRoster(
         AGENT_LIST_METHOD,
         { sessionId: sessionStore.sessionId },
       ),
-    subscribe: (onChangeSignal) => subscribeToAgentLifecycle(sessionStore, onChangeSignal),
+    subscribe: (onChangeSignal) =>
+      subscribeToSessionEventKinds(sessionStore, AGENT_LIFECYCLE_EVENT_KINDS, onChangeSignal),
   });
 }
 
@@ -276,9 +393,19 @@ export function createSidekickDefinitions(
   });
 }
 
-/** One parent run's links and refusal fold. */
+/**
+ * One parent run's links and refusal fold, refreshed by the two kinds that move it.
+ *
+ * A child created after this read settled and a create the daemon refused both
+ * arrive on the session stream, so the linkage takes the same signal the roster does
+ * with its own watched set — a console left open on a parent run shows what happened
+ * to it rather than what had happened by the time it mounted. Coalescing is the
+ * scheduler's, so a burst of queued children costs one read and no timer beyond the
+ * one refresh chokepoint is introduced.
+ */
 export function createChildRunLinkage(
   bridge: ConsoleBridge,
+  sessionStore: SessionStore,
   parentRunId: string,
   clock: ConsoleClock,
 ): ChildRunLinkageRead {
@@ -291,27 +418,29 @@ export function createChildRunLinkage(
         CHILD_RUN_LINK_READ_METHOD,
         { parentRunId },
       ),
-    // Child creations and refusals do arrive as session events, but the two kinds
-    // that carry them — the child-run link row and `orchestration.rejected`'s fold —
-    // reach no store partition this console projects yet, so there is no signal to
-    // key on. The read is performed once and the absence of a refresh is stated
-    // rather than approximated with a timer.
-    subscribe: () => () => undefined,
+    subscribe: (onChangeSignal) =>
+      subscribeToSessionEventKinds(sessionStore, CHILD_RUN_LINKAGE_EVENT_KINDS, onChangeSignal),
   });
 }
 
 /**
- * Signal on every store transition that admitted an agent-lifecycle event.
+ * Signal on every store transition that admitted an event of one of these kinds.
  *
  * Keyed on the store's own cursor so one event is never counted twice, and scoped to
- * the three kinds so a busy run does not re-read the roster on every token. A
- * transition that admitted nothing this read cares about produces no signal at all.
+ * the caller's kinds so a busy run does not re-read on every token. A transition that
+ * admitted nothing the caller cares about produces no signal at all.
+ *
+ * One subscriber for two reads: the roster watches the three agent-lifecycle kinds
+ * and the linkage watches the two child-run kinds, and the only thing that differs
+ * between them is the set. A second copy of this filter would drift from the first
+ * the moment either set moved.
  */
-function subscribeToAgentLifecycle(
+function subscribeToSessionEventKinds(
   sessionStore: SessionStore,
+  watchedKinds: readonly SessionEventType[],
   onChangeSignal: () => void,
 ): () => void {
-  const watched = new Set<string>(AGENT_LIFECYCLE_EVENT_KINDS);
+  const watched = new Set<string>(watchedKinds);
   let lastSeenCursor = sessionStore.snapshot().cursor;
   return sessionStore.readable.subscribe((state) => {
     const previousCursor = lastSeenCursor;

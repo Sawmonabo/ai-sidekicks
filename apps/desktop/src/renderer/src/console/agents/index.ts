@@ -66,6 +66,7 @@ export const SIDEKICK_DEFINITION_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionE
 // one of them would be an export nothing outside can name.
 
 export { AgentConsoleModels, useAgentConsoleModels } from "./agent-console-model.js";
+export type { ChildRunLinkageRead } from "./agent-console-model.js";
 
 // Which run is this agent's newest, for every surface that has to ask. The
 // SUBSCRIPTION is what leaves: the pure selector under it is this family's own and
