@@ -23,7 +23,9 @@
 // figure from it. Nothing here invents a method name — each constant below is a row
 // of a registry the corpus already publishes, quoted verbatim.
 
-import type { Unsubscribe } from "../core/index.js";
+import type { RunQueueSubscribeRequest, RunStateSubscribeRequest } from "@ai-sidekicks/contracts";
+
+import { ConsoleRefusalError, refuse, type Unsubscribe } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
 /**
@@ -107,15 +109,66 @@ export function callDaemon(
   return call(method, params);
 }
 
-/** The daemon subscription, widened the same way and for the same reason. */
+/** The subsystem name the subscription guard's refusal carries. */
+export const DAEMON_STREAM_REFUSAL_ORIGIN = "console-daemon-stream";
+
+/**
+ * One daemon subscription, as the registry declares it: the stream's method name
+ * and the registered request that scopes it.
+ *
+ * Both `run.*` streams are session-scoped — `RunStateSubscribeRequest` and
+ * `RunQueueSubscribeRequest` are each `z.object({ sessionId }).strict()` — so the
+ * request is not optional here and a caller cannot spell an unscoped open.
+ */
+export interface DaemonStreamOpen {
+  /** The registered stream name: one of the two `*_SUBSCRIBE_STREAM` constants. */
+  readonly method: string;
+  /** The registered request, parsed by the caller through its own schema. */
+  readonly request: RunStateSubscribeRequest | RunQueueSubscribeRequest;
+}
+
+/**
+ * The daemon subscription, widened the same way `callDaemon` is and taking the
+ * registered request the wire's own registry pairs with the stream.
+ *
+ * WHAT HAPPENS TO THE REQUEST TODAY, EXACTLY. It is VALIDATED and HELD, and it is
+ * not yet forwarded, because there is nowhere to forward it to:
+ * `SidekicksBridge.daemon.subscribe<E>(event, handler)` carries an event name and a
+ * handler and NO request-parameter channel, and `Spec-023 §Preload Bridge Contract`
+ * pins that signature as a Tier-1 placeholder whose shape — positional parameter,
+ * options bag, or an event-to-params map — is owned by Plan-007 / Plan-008 and is
+ * deliberately not fixed from one caller's vantage. Widening the contract type here
+ * would be that premature narrowing; widening the CONSOLE's own wrapper is not, and
+ * it is what makes the day the channel lands a one-line change inside this function
+ * rather than an audit of every feed. The shipped preload is a Tier-1 stub that
+ * throws on every method, so no live subscription exists to leak across today.
+ *
+ * WHY HOLDING IT IS SAFE UNDER THE ONE BRIDGE THAT ANSWERS. The fixture is the only
+ * bridge that delivers a `run.*` beat, and a fixture scenario declares exactly one
+ * session — its beats are minted against that scenario's single session id — so
+ * there is no second session's projection for an unscoped subscription to consume.
+ * The guard below is therefore about the CALLER, not about the wire: it refuses an
+ * open that names no session so a feed can never reach the day the channel lands
+ * with nothing to put on it.
+ */
 export function subscribeDaemon(
   bridge: ConsoleBridge,
-  streamName: string,
+  stream: DaemonStreamOpen,
   handler: (payload: unknown) => void,
 ): Unsubscribe {
+  const { sessionId } = stream.request;
+  if (typeof sessionId !== "string" || sessionId.length === 0) {
+    throw new ConsoleRefusalError(
+      refuse(
+        DAEMON_STREAM_REFUSAL_ORIGIN,
+        "stream-request-unscoped",
+        `The ${stream.method} stream is session-scoped and was opened with no session, so the console did not open it.`,
+      ),
+    );
+  }
   const subscribe = bridge.sidekicks.daemon.subscribe as (
     event: string,
     handler: (payload: unknown) => void,
   ) => Unsubscribe;
-  return subscribe(streamName, handler);
+  return subscribe(stream.method, handler);
 }

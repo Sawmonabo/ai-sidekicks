@@ -18,7 +18,11 @@
 // and the person would have watched their own message vanish and come back.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
+import {
+  QueueItemSummarySchema,
+  RunQueueSubscribeRequestSchema,
+  type QueueItemSummary,
+} from "@ai-sidekicks/contracts";
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
 import {
@@ -72,15 +76,28 @@ export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFee
 
   useEffect(() => {
     isMounted.current = true;
-    const unsubscribe = subscribeDaemon(bridge, QUEUE_SUBSCRIBE_STREAM, (payload) => {
-      const parsed = QueueItemSummarySchema.safeParse(payload);
-      if (!parsed.success) {
-        return;
-      }
-      const item = parsed.data;
-      setHasRead(true);
-      setItemsById((held) => nextItems(held, item));
-    });
+    // `run.subscribeQueue` is session-scoped by its registered request shape, so the
+    // shelf parses that shape before opening. A session the wire's own brand refuses
+    // leaves the shelf unopened rather than tailing an unscoped stream.
+    const subscribeRequest = RunQueueSubscribeRequestSchema.safeParse({ sessionId });
+    if (!subscribeRequest.success) {
+      return () => {
+        isMounted.current = false;
+      };
+    }
+    const unsubscribe = subscribeDaemon(
+      bridge,
+      { method: QUEUE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
+      (payload) => {
+        const parsed = QueueItemSummarySchema.safeParse(payload);
+        if (!parsed.success) {
+          return;
+        }
+        const item = parsed.data;
+        setHasRead(true);
+        setItemsById((held) => nextItems(held, item));
+      },
+    );
     return () => {
       isMounted.current = false;
       unsubscribe();

@@ -8,7 +8,11 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { RunState } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DriverCapabilityFlag,
+  type RunState,
+} from "@ai-sidekicks/contracts";
 
 import { ConsolePaneRegistry } from "../../workspace/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -20,9 +24,12 @@ import { RunsPane } from "./RunsPane.js";
 import { RunControls } from "./RunControls.js";
 import { RunStateProjection } from "./run-state-feed.js";
 import { useRunControlSurface } from "./run-control-surface.js";
+import type { DriverCapabilityReadout } from "./run-control-gating.js";
 
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
-const SESSION_ID = "session-runs";
+// A canonical UUID: both `run.*` streams parse their registered request through
+// the wire's `SessionId` brand before opening, so a non-UUID id refuses.
+const SESSION_ID = "019b7a22-2200-75e5-8510-ada11a5a44a5";
 
 /** One transition on the wire's own shape. */
 function transition(previousState: RunState, currentState: RunState, runVersion: number): unknown {
@@ -74,8 +81,15 @@ function paneContext(bridge: ConsoleBridge, sessionStore: SessionStore | undefin
   };
 }
 
-async function renderPane(bridge: ConsoleBridge, withSession: boolean): Promise<HTMLElement> {
+async function renderPane(
+  bridge: ConsoleBridge,
+  withSession: boolean,
+  seed?: (store: SessionStore) => void,
+): Promise<HTMLElement> {
   const sessionStore = withSession ? new SessionStore({ sessionId: SESSION_ID }) : undefined;
+  if (sessionStore !== undefined) {
+    seed?.(sessionStore);
+  }
   const { container } = render(<RunsPane {...paneContext(bridge, sessionStore)} />);
   await act(async () => {
     await Promise.resolve();
@@ -89,11 +103,35 @@ describe("the runs pane's three absences", () => {
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
-  it("shows a read in flight before the stream has spoken, never an empty session", async () => {
+  it("shows a read in flight before the session's snapshot has landed, never an empty session", async () => {
     // `not-loaded` and `empty` are different facts: one says the console is
     // asking, the other says there is nothing. Conflating them would report a
-    // session with no runs before the first delivery.
+    // session with no runs before the read that enumerates them completed.
     const container = await renderPane(scriptedBridge([]), true);
+    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
+    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+  });
+
+  it("says the session has no runs once its snapshot lands naming none", async () => {
+    // The arm the old rule could not reach at all: `hasRead` only ever flipped on a
+    // projected run, so a session with no runs read "Reading the runs" forever.
+    const container = await renderPane(scriptedBridge([]), true, (store) => {
+      store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    });
+    expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
+    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+  });
+
+  it("keeps the skeleton while the snapshot names runs the stream has not described", async () => {
+    // Read complete, list still empty, and the session is known to have a run — so
+    // "there are none" would be false. The skeleton is the honest shape.
+    const container = await renderPane(scriptedBridge([]), true, (store) => {
+      store.initialise({
+        cursor: 4,
+        entities: [{ kind: "run", id: RUN_ID, state: "running" }],
+        participantJoinLog: [],
+      });
+    });
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
@@ -173,10 +211,29 @@ describe("the rewind arm never fabricates a transition", () => {
 });
 
 describe("controls are a fail-closed projection, never a local decision", () => {
+  /**
+   * One driver's report, as the only driver in the session.
+   *
+   * A single report is what makes every run in the session resolve to it, which is
+   * the binding the capability reply itself admits — so these cases exercise the
+   * real per-run resolution rather than a stand-in for it.
+   */
+  function soleDriverReadout(
+    declared: Readonly<Partial<Record<DriverCapabilityFlag, boolean>>>,
+  ): DriverCapabilityReadout {
+    const flags = Object.fromEntries(
+      DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, declared[flag] === true]),
+    ) as Readonly<Record<DriverCapabilityFlag, boolean>>;
+    return {
+      flagsByDriverName: new Map([["claude", flags]]),
+      driverNameByRunId: new Map(),
+    };
+  }
+
   /** Render the control row for one run, at one declared capability set. */
   function ControlHarness(props: {
     readonly state: RunState;
-    readonly capabilities: Readonly<Record<string, boolean>> | undefined;
+    readonly driverCapabilities: DriverCapabilityReadout | undefined;
   }): React.JSX.Element {
     const bridge = scriptedBridge([]);
     const surface = useRunControlSurface(bridge);
@@ -191,7 +248,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
         run={run}
         surface={surface}
         bridge={bridge}
-        capabilities={props.capabilities as never}
+        driverCapabilities={props.driverCapabilities}
         onTakeTheFloor={() => undefined}
         onRequestRewind={() => undefined}
         onRequestSteer={() => undefined}
@@ -201,9 +258,11 @@ describe("controls are a fail-closed projection, never a local decision", () => 
 
   function renderControls(
     state: RunState,
-    capabilities: Readonly<Record<string, boolean>> | undefined,
+    driverCapabilities: DriverCapabilityReadout | undefined,
   ): HTMLElement {
-    const { container } = render(<ControlHarness state={state} capabilities={capabilities} />);
+    const { container } = render(
+      <ControlHarness state={state} driverCapabilities={driverCapabilities} />,
+    );
     return container;
   }
 
@@ -228,7 +287,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
   });
 
   it("offers a gated control once the driver declares its flag", () => {
-    const container = renderControls("running", { steer: true, rollback: true });
+    const container = renderControls("running", soleDriverReadout({ steer: true, rollback: true }));
     openOverflow(container);
     expect(container.querySelector(".meridian-run-controls__action--steer")).not.toBeNull();
     expect(container.querySelector(".meridian-run-controls__action--rollback")).not.toBeNull();
@@ -237,7 +296,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
   it("negative control: a declared-false flag leaves the control absent", () => {
     // Proves the case above reads the flag rather than reacting to the object's
     // presence, which would offer every gated control the moment the read answered.
-    const container = renderControls("running", { steer: false, rollback: false });
+    const container = renderControls("running", soleDriverReadout({}));
     openOverflow(container);
     expect(container.querySelector(".meridian-run-controls__action--steer")).toBeNull();
   });
@@ -247,7 +306,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
     // `cancel` is ungated and stays offered wherever the overflow is drawn, and
     // nothing in the renderer refuses on state. The daemon's typed refusal is what
     // a person would see.
-    const container = renderControls("running", { steer: false, rollback: false });
+    const container = renderControls("running", soleDriverReadout({}));
     openOverflow(container);
     expect(container.querySelector(".meridian-run-controls__action--cancel")).not.toBeNull();
   });
