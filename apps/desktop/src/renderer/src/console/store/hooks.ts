@@ -168,15 +168,25 @@ export type CallerMembershipRoleResult =
  * where the role lives and a second copy carried on the identity read would be a
  * second source of truth for it.
  *
- * The read runs once per reader identity — the `not-loaded` arm is entered once and
- * never re-entered — while the ROLE stays subscribed, so a role change arriving on
- * the wire re-renders without the identity being asked again.
+ * The read runs once per (reader, store) pair — the `not-loaded` arm is entered once
+ * for that pair and never re-entered — while the ROLE stays subscribed, so a role
+ * change arriving on the wire re-renders without the identity being asked again.
+ *
+ * A SETTLED IDENTITY BELONGS TO THE INPUTS THAT PRODUCED IT, and that is why the
+ * state below carries them. A mounted pane that switches sessions or bridges hands
+ * this hook a new reader and a new store, and the replacement read does not settle
+ * in the same tick: for that interval a hook that simply kept its previous state
+ * would report the OLD participant as successfully read and look that id up in the
+ * NEW store — and if the id exists there, role-gated controls render on an identity
+ * this session never established. Comparing the stamp during render is what closes
+ * that interval rather than narrowing it: the answer reverts to `not-loaded` on the
+ * pass that first sees the new inputs, before the effect that will replace it runs.
  */
 export function useCallerMembershipRole(
   readCallerParticipant: CallerParticipantReader,
   store: SessionStore,
 ): CallerMembershipRoleResult {
-  const [callerIdentity, setCallerIdentity] = useState<CallerIdentityState>(NOT_LOADED_IDENTITY);
+  const [reading, setReading] = useState<CallerIdentityReading | undefined>(undefined);
 
   useEffect(() => {
     let abandoned = false;
@@ -185,19 +195,26 @@ export function useCallerMembershipRole(
       if (abandoned) {
         return;
       }
-      setCallerIdentity(
-        isConsoleRefusal(answer)
+      setReading({
+        reader: readCallerParticipant,
+        store,
+        identity: isConsoleRefusal(answer)
           ? { status: "refused", refusal: answer }
           : { status: "read", participantId: answer },
-      );
+      });
     })();
     return () => {
-      // The component unmounted, or the reader changed, before the read landed.
+      // The component unmounted, or an input changed, before the read landed.
       // Settling state afterwards would either warn or, worse, publish a stale
       // window's identity into a fresh one.
       abandoned = true;
     };
-  }, [readCallerParticipant]);
+  }, [readCallerParticipant, store]);
+
+  const callerIdentity: CallerIdentityState =
+    reading !== undefined && reading.reader === readCallerParticipant && reading.store === store
+      ? reading.identity
+      : NOT_LOADED_IDENTITY;
 
   const participantId = callerIdentity.status === "read" ? callerIdentity.participantId : undefined;
   const selectRole = useCallback(
@@ -223,9 +240,25 @@ type CallerIdentityState =
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /**
+ * A settled identity together with the inputs it was read against.
+ *
+ * Both inputs, not just the reader. The reader answers WHO this window is and the
+ * store is WHERE that participant's role is looked up, so an identity read against
+ * one store is not an answer about another — and a pane can be handed a new store
+ * with the same reader (a second session on the same bridge) as easily as the
+ * reverse.
+ */
+interface CallerIdentityReading {
+  readonly reader: CallerParticipantReader;
+  readonly store: SessionStore;
+  readonly identity: CallerIdentityState;
+}
+
+/**
  * One frozen initial value rather than a fresh literal per mount, so the identity
  * of the "nothing has been read yet" answer does not change under a consumer's
- * `useMemo` or effect dependency on the result.
+ * `useMemo` or effect dependency on the result — including across the passes where
+ * a stamp mismatch is what produces it.
  */
 const NOT_LOADED_IDENTITY: CallerIdentityState = { status: "not-loaded" };
 

@@ -7,6 +7,13 @@
 // every case below asserts the ARM as well as the role, and the negative controls
 // are the two guesses a convenient hook would make: taking the roster's only
 // entry as the caller, and treating a refusal as an absent role.
+//
+// The fourth guess is holding an answer past the inputs that produced it. A pane
+// that switches sessions or bridges is handed a new reader and a new store, and the
+// replacement read settles a tick later; an answer carried across that interval is
+// the previous window's participant looked up in this window's roster. The
+// input-change cases below are that interval, and they are why the settled identity
+// carries the pair it was read against.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -45,18 +52,40 @@ function Caller(props: {
   return <span data-testid="caller">{`${result.status}|${detail}`}</span>;
 }
 
+/** The props a re-render supplies, when it supplies different ones. */
+interface CallerInputs {
+  readonly read: CallerParticipantReader;
+  readonly store: SessionStore;
+}
+
 async function renderCaller(
   read: CallerParticipantReader,
   store: SessionStore,
-): Promise<{ readonly answer: () => string; readonly rerender: () => void }> {
+): Promise<{
+  readonly answer: () => string;
+  readonly rerender: (next?: CallerInputs) => void;
+}> {
   const view = render(<Caller read={read} store={store} />);
   await act(async () => undefined);
   return {
     answer: () => view.getByTestId("caller").textContent ?? "",
-    rerender: () => {
-      view.rerender(<Caller read={read} store={store} />);
+    rerender: (next) => {
+      view.rerender(<Caller read={next?.read ?? read} store={next?.store ?? store} />);
     },
   };
+}
+
+/** A read the case settles by hand, so the in-flight interval is a place to assert. */
+function deferredRead(): {
+  readonly read: CallerParticipantReader;
+  readonly settle: (participantId: string) => void;
+} {
+  let settle: (participantId: string) => void = () => undefined;
+  const read: CallerParticipantReader = () =>
+    new Promise((resolve) => {
+      settle = resolve;
+    });
+  return { read, settle: (participantId) => settle(participantId) };
 }
 
 describe("useCallerMembershipRole — the caller read chained to the roster", () => {
@@ -110,6 +139,11 @@ describe("useCallerMembershipRole — the caller read chained to the roster", ()
 
     rerender();
     expect(reads).toBe(1);
+    // And the answer survives that re-render. A hook that compared its stored
+    // inputs by anything but identity — or re-stamped them on every pass — would
+    // read as "not loaded" here on every frame, which is the opposite failure to
+    // the one the input-change cases below are about.
+    expect(answer()).toBe("read|participant-1:collaborator");
   });
 
   it("negative control: never takes the roster's only entry as the caller", async () => {
@@ -129,5 +163,69 @@ describe("useCallerMembershipRole — the caller read chained to the roster", ()
     const refusal = refuse("growth-port", "wire-unregistered", "Not checked on this build.");
     const { answer } = await renderCaller(() => Promise.resolve(refusal), store);
     expect(answer()).not.toContain("read|");
+  });
+});
+
+describe("useCallerMembershipRole — an answer belongs to the inputs that produced it", () => {
+  it("reverts to not-loaded when the reader changes, until the replacement lands", async () => {
+    // Both rosters hold `participant-1`, at DIFFERENT roles — which is what makes
+    // the held-over answer dangerous rather than merely stale: the old id resolves
+    // in the new store, so the hook would report a role for a session that never
+    // established this participant.
+    const firstStore = storeWithRoster({ "participant-1": "owner" });
+    const secondStore = storeWithRoster({ "participant-1": "viewer", "participant-2": "owner" });
+    const { answer, rerender } = await renderCaller(
+      () => Promise.resolve("participant-1"),
+      firstStore,
+    );
+    expect(answer()).toBe("read|participant-1:owner");
+
+    const replacement = deferredRead();
+    rerender({ read: replacement.read, store: secondStore });
+    expect(answer()).toBe("not-loaded|");
+
+    await act(async () => {
+      replacement.settle("participant-2");
+    });
+    expect(answer()).toBe("read|participant-2:owner");
+  });
+
+  it("reverts to not-loaded when only the store changes", async () => {
+    // The reader is unchanged and the store is not, which is the shape a second
+    // session on one bridge takes. An identity is an answer about a participant IN
+    // a roster, so it is no more transferable across stores than across readers.
+    const firstStore = storeWithRoster({ "participant-1": "owner" });
+    const secondStore = storeWithRoster({ "participant-1": "viewer" });
+    const read: CallerParticipantReader = () => Promise.resolve("participant-1");
+    const { answer, rerender } = await renderCaller(read, firstStore);
+    expect(answer()).toBe("read|participant-1:owner");
+
+    // The re-render flushes effects but not the microtask the read settles on, so
+    // this is exactly the interval the old hook rendered the previous answer in.
+    rerender({ read, store: secondStore });
+    expect(answer()).toBe("not-loaded|");
+
+    await act(async () => undefined);
+    expect(answer()).toBe("read|participant-1:viewer");
+  });
+
+  it("discards a first read that lands after the inputs moved on", async () => {
+    // The abandonment guard, pinned: a settlement that arrives after the switch
+    // must not overwrite the answer the current inputs produced, and must not
+    // re-enter the loading arm either.
+    const first = deferredRead();
+    const firstStore = storeWithRoster({ "participant-1": "owner" });
+    const secondStore = storeWithRoster({ "participant-1": "viewer", "participant-2": "owner" });
+    const { answer, rerender } = await renderCaller(first.read, firstStore);
+    expect(answer()).toBe("not-loaded|");
+
+    rerender({ read: () => Promise.resolve("participant-2"), store: secondStore });
+    await act(async () => undefined);
+    expect(answer()).toBe("read|participant-2:owner");
+
+    await act(async () => {
+      first.settle("participant-1");
+    });
+    expect(answer()).toBe("read|participant-2:owner");
   });
 });
