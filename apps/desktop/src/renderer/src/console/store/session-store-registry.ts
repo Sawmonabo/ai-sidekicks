@@ -58,6 +58,23 @@ export type SessionSnapshotReader = (
   reasons: readonly RefreshReason[],
 ) => Promise<SessionSnapshot | undefined>;
 
+/**
+ * The `read` a registry takes when NO wire can serve one at all.
+ *
+ * Deliberately a distinct value rather than a reader that resolves `undefined`,
+ * because the two say different things and one caller acts on the difference. A
+ * registered reader resolving `undefined` is a read that happened and found
+ * nothing — transient, and the next refresh may well succeed. This value is the
+ * standing fact that no read exists, which is what lets a caller answer the
+ * question a function-shaped placeholder cannot be asked: can a store this
+ * registry opens ever be initialised? A stream bound to one that cannot is a
+ * stream buffered forever and projected never.
+ */
+export const SESSION_READ_UNREGISTERED = "session-read-unregistered";
+
+/** What a registry does about reads: perform one, or have none to perform. */
+export type SessionSnapshotRead = SessionSnapshotReader | typeof SESSION_READ_UNREGISTERED;
+
 /** What happened to the set of open sessions. */
 export interface SessionRegistryChange {
   readonly sessionId: string;
@@ -68,10 +85,10 @@ export interface SessionStoreRegistryOptions {
   /**
    * The read every session's refresh scheduler performs. REQUIRED, and required
    * on purpose: a refresh path with no read is a timer that fires into nothing,
-   * so a caller with no wire yet passes a reader that resolves `undefined` and
-   * says so at the call site rather than getting that behaviour by default.
+   * so a caller with no wire yet passes `SESSION_READ_UNREGISTERED` and says so at
+   * the call site rather than getting that behaviour by default.
    */
-  readonly read: SessionSnapshotReader;
+  readonly read: SessionSnapshotRead;
   /** Defaults to `RealClock`. Every queue and scheduler this registry makes shares it. */
   readonly clock?: ConsoleClock;
   /** Event-kind projectors handed to each store it opens. */
@@ -110,6 +127,9 @@ class OpenSessionEntry {
     this.refreshScheduler = new RefreshScheduler({
       clock,
       perform: async (reasons) => {
+        if (options.read === SESSION_READ_UNREGISTERED) {
+          return;
+        }
         const snapshot = await options.read(sessionId, reasons);
         if (snapshot !== undefined) {
           // A completed re-pull is the ONE thing that clears the sticky degraded
@@ -283,6 +303,19 @@ export class SessionStoreRegistry {
   /** True once `disposeAll` has run. A disposed registry opens nothing. */
   public get isDisposed(): boolean {
     return this.#disposed;
+  }
+
+  /**
+   * Whether a store this registry opens can ever reach a base state.
+   *
+   * `false` when the caller passed `SESSION_READ_UNREGISTERED`: every refresh
+   * reason a session raises — focus, reconnect, a gap re-pull — resolves nothing,
+   * so `initialise` is never called and the store buffers what it is given and
+   * projects none of it. Read by whatever would otherwise feed it, which is the
+   * one decision this fact exists to inform.
+   */
+  public get canInitialiseSessionStores(): boolean {
+    return this.#options.read !== SESSION_READ_UNREGISTERED;
   }
 
   /** Close every session and drop every listener. The window is going away. */

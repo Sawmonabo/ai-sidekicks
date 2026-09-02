@@ -7,11 +7,14 @@
 // phase either way. So the cases here are about IDENTITY and about TIMING, and each
 // has a control that fails the way a regression would.
 //
-// The last case is about a third thing the earlier shape did not have at all: the
-// window's binder. A registry that nothing subscribes on behalf of is a set of
-// stores nothing writes to, so "the hook mints a registry" is only half a claim —
-// the other half is that it mints the binder beside it, attaches it, and tears the
-// two down in the order that cannot have one call into the other.
+// The last cases are about a third thing the earlier shape did not have at all:
+// the window's binder. "The hook mints a registry" is only half a claim — the
+// other half is that it mints the binder beside it, attaches it, and tears the two
+// down in the order that cannot have one call into the other. What that attached
+// binder BINDS is its own claim, and today it is nothing: no session read is
+// registered on this window's bridge, so no store can reach a base state and a
+// bound stream would be retained forever and projected never. Its negative control
+// is the same binder over a registry that does have a read.
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -169,7 +172,7 @@ describe("useActiveSessionStore — the session store a render resolves", () => 
 });
 
 describe("useSessionStoreRegistry — the window's registry and the binder that feeds it", () => {
-  it("attaches a binder to the registry it mints, bound to the session the frame opens", () => {
+  it("mints a binder beside the registry and binds nothing, no session read being registered", () => {
     const observed: Observation[] = [];
     render(
       <SessionProbe
@@ -188,7 +191,32 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     const diagnostics = readInstalledDiagnostics();
     expect(diagnostics).toBeDefined();
     expect(diagnostics?.openSessionIds()).toEqual(["session-bound"]);
-    expect(diagnostics?.boundSessionIds()).toEqual(["session-bound"]);
+
+    // No read on this window's bridge can give a store a base state, so a bound
+    // stream would fill a pre-initialisation buffer nothing ever drains — the
+    // whole session retained and none of it projected. Zero bound sessions is a
+    // READING here, not an absence: the handle above is installed either way.
+    expect(lastObservation(observed).registry.canInitialiseSessionStores).toBe(false);
+    expect(diagnostics?.boundSessionIds()).toEqual([]);
+    expect(diagnostics?.appliedEventCountFor("session-bound")).toBe(0);
+  });
+
+  it("negative control: the same binder binds an open session when a read IS registered", () => {
+    // Without this, the case above would hold over a binder that binds nothing
+    // ever — including the one this window takes the moment a session read lands
+    // on the bridge, which is the single line that flips it.
+    const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
+    const binder = new SessionEventBinder({
+      registry,
+      bridge: createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }),
+    });
+    registry.open("session-readable");
+    binder.attach();
+
+    expect(registry.canInitialiseSessionStores).toBe(true);
+    expect(binder.boundSessionIds).toEqual(["session-readable"]);
+
+    binder.dispose();
   });
 
   it("disposes the binder in the same cleanup, before the registry", () => {

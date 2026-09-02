@@ -43,12 +43,19 @@
 // first-run scenario, whose script is one beat long by design. And it advances the
 // frozen clock on every churn cycle through the fixture-only handle the bridge
 // provider installs, by a budget derived from the script's own length so the whole
-// run walks it about once. Two counts are then read back and asserted to GROW —
-// the beats the engine delivered, and the events the session store ADMITTED —
-// because they fail apart: a console whose subscription never bound delivers every
-// beat and applies none, and a run that never moved the clock applies nothing while
-// looking exactly as busy. Together they are the evidence that the workload was a
+// run walks it about once. The beats the engine delivered are then read back and
+// asserted to GROW, because a run that never moved the clock looks exactly as busy
+// while delivering nothing — that count is the evidence the workload was a
 // workload.
+//
+// The second reading is the session store's, and it is asserted to stay at ZERO
+// rather than to grow. No session read is registered on the console's bridge, so
+// no store it opens can reach a base state, so the window's binder takes no wire
+// subscription at all rather than feeding a pre-initialisation buffer nothing will
+// ever drain. That distinction is exactly this tier's subject: a console left open
+// for a working day retaining a stream it cannot project is the leak a two-second
+// tier cannot see. Zero is a READING and not an absence — the diagnostics handle is
+// installed on that arm too, and the run fails if it is missing.
 
 import process from "node:process";
 
@@ -191,8 +198,8 @@ async function readPlayingScenarioId(
  *
  * Admitted to the apply chokepoint, which is a different number from the beats
  * the engine delivered and from anything a timeline is long. That is why both are
- * read: a run whose events stopped at the bridge — no subscription, or a binder
- * that never opened the session — still delivers beats and applies none.
+ * read: they answer different questions, and this one answers whether a stream
+ * reached this window's stores at all.
  */
 async function readAppliedEventCount(
   consoleApplication: ConsoleApplication,
@@ -207,6 +214,18 @@ async function readAppliedEventCount(
     },
     [SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, sessionId] as [string, string],
   );
+}
+
+/** Sessions this window holds a wire subscription for, or `null` with no handle. */
+async function readBoundSessionIds(
+  consoleApplication: ConsoleApplication,
+): Promise<readonly string[] | null> {
+  return consoleApplication.window.evaluate((globalName: string) => {
+    const sessions = (
+      globalThis as unknown as Record<string, ConsoleSessionDiagnostics | undefined>
+    )[globalName];
+    return sessions === undefined ? null : [...sessions.boundSessionIds()];
+  }, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL);
 }
 
 /**
@@ -307,17 +326,22 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
 
       expect(growthBytes).toBeLessThanOrEqual(STEADY_HEAP_GROWTH_CEILING_BYTES);
 
-      // Beats delivered by the engine are not the same claim as events reaching
-      // the store, and the second is the one an idle run hides behind: a console
-      // whose subscription never bound churns a projection nothing writes to.
-      // Absence is a failure here for the same reason it is for the tripwire
+      // Beats delivered by the engine are not the same claim as events reaching a
+      // store. Absence is a failure here for the same reason it is for the tripwire
       // registry below — a build without the handle would make this check vacuous.
       expect(
         appliedEventCount,
-        `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so the workload's events cannot be shown to reach the store`,
+        `${SESSION_DIAGNOSTICS_FIXTURE_GLOBAL} is not exposed by this build, so nothing can be shown about where the workload's events went`,
       ).not.toBeNull();
       expect(appliedEventsAfterWarmUp).not.toBeNull();
-      expect(Number(appliedEventCount)).toBeGreaterThan(Number(appliedEventsAfterWarmUp));
+
+      // Zero, and zero is the correct number rather than a disappointing one: no
+      // session read is registered on this bridge, so no store can be initialised,
+      // so the window binds no stream instead of buffering one it will never
+      // project. This pair is what fails the day a console starts retaining a
+      // stream it cannot render — the leak a day-long session would show first.
+      expect(appliedEventCount).toBe(0);
+      expect(await readBoundSessionIds(consoleApplication)).toEqual([]);
     } finally {
       await consoleApplication.close();
     }

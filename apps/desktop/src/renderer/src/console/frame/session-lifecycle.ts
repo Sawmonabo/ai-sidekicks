@@ -14,6 +14,12 @@
 // nowhere to deliver. Holding them in one piece of state makes "one without the
 // other" unrepresentable rather than merely unlikely.
 //
+// WHAT THE BINDER BINDS is a separate question from whether it exists, and today
+// the answer is nothing: no session read is registered on this window's bridge, so
+// no store it opens can reach a base state, and a stream fed into one is retained
+// and never projected. `createWindowSessionPlumbing` below carries that reasoning
+// and the one line that reverses it.
+//
 // Two rules from `Spec-023 §Console Design (Meridian)` decide the shape here, and
 // both are about the render phase:
 //
@@ -44,23 +50,12 @@ import { useEffect, useState } from "react";
 
 import { useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import {
+  SESSION_READ_UNREGISTERED,
   SessionStoreRegistry,
   useOpenSessionStore,
-  type SessionSnapshotReader,
   type SessionStore,
 } from "../store/index.js";
 import { SessionEventBinder } from "./session-event-binder.js";
-
-/**
- * The read every open session's refresh scheduler performs.
- *
- * The console has no session-read wire yet — `Plan-023 §Console growth slate` names
- * the row and the bridge's growth port refuses it — so this resolves `undefined`,
- * which the registry reads as "nothing was read". Deliberately not an empty
- * snapshot: that would tell the store the session is genuinely empty and clear its
- * degraded flag on a read that never happened.
- */
-const READS_NOTHING_YET: SessionSnapshotReader = () => Promise.resolve(undefined);
 
 /** This window's session plumbing: the stores, and the one thing that feeds them. */
 interface WindowSessionPlumbing {
@@ -134,7 +129,27 @@ export function useActiveSessionStore(
   return useOpenSessionStore(registry, activeSessionId);
 }
 
+/**
+ * The registry and its binder, for one window.
+ *
+ * THE READ IS UNREGISTERED, AND THAT IS A WIRE FACT RATHER THAN A PLACEHOLDER.
+ * There is no session read on this window's bridge: `SidekicksBridge` declares no
+ * method that answers one, no growth-slate operation names one, and the growth
+ * port therefore has nothing to refuse. `SESSION_READ_UNREGISTERED` is that
+ * standing absence, and it is deliberately not a reader resolving `undefined`,
+ * which says something different — that one read happened and found nothing, and
+ * the next may not.
+ *
+ * The binder acts on the difference. A store admits nothing until a read gives it
+ * a base state, so a stream bound to a registry that can perform no read fills a
+ * buffer nothing will ever drain: every event retained, none projected, for as
+ * long as the window is open. `attach` reads
+ * `SessionStoreRegistry.canInitialiseSessionStores` and takes no subscription at
+ * all on that arm. The binder is still MINTED and attached — it is what installs
+ * the window's session diagnostics, and the moment a read is registered on the
+ * line below it starts binding again with nothing else moving.
+ */
 function createWindowSessionPlumbing(bridge: ConsoleBridge): WindowSessionPlumbing {
-  const registry = new SessionStoreRegistry({ read: READS_NOTHING_YET });
+  const registry = new SessionStoreRegistry({ read: SESSION_READ_UNREGISTERED });
   return { registry, binder: new SessionEventBinder({ registry, bridge }) };
 }

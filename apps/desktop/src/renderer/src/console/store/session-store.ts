@@ -24,13 +24,24 @@
 //     applying against an empty base renders a session that looks complete and is
 //     not. Events buffer until `initialise()` supplies the read response, then
 //     drain, with anything at or below the snapshot cursor dropped as already
-//     included.
+//     included. That buffer is BOUNDED at `PRE_INITIALISATION_BUFFER_CAP`: a wait
+//     longer than a handful of events is a read that is not coming rather than a
+//     race, and a store that grew for it would hold a whole session's stream in
+//     memory to project none of it. Past the bound the oldest is dropped, counted,
+//     and the store marks itself degraded — and the drain re-derives exactly which
+//     sequences the drop cost, because a hole between the snapshot cursor and the
+//     oldest survivor is an ordinary gap.
 //   • **A duplicate sequence is dropped, silently and countably.** Re-delivery is
 //     ordinary on a resumed subscription.
 //   • **A gap sets a sticky degraded flag.** A skipped sequence means the store's
 //     projection is missing something; the flag clears only when a re-pull
 //     completes, never on the next well-ordered event, because a later event
-//     proves nothing about the one that never arrived.
+//     proves nothing about the one that never arrived. The re-pull that clears it
+//     commonly answers at the cursor the store already reached — admitting event 7
+//     over a cursor of 5 advances the cursor to 7 and leaves 6 missing, and 7 is
+//     still the newest sequence that exists — so an EQUAL-cursor snapshot repairs a
+//     degraded store. A snapshot BEHIND the cursor is still refused, which is the
+//     idempotence the guard exists for.
 //   • **A foreign `sessionId` is refused.** Two sessions never share a store.
 //   • **A re-entrant apply is queued, drained, and reported.** A subscriber that
 //     writes during notification is a defect; losing its event would be a second
@@ -39,7 +50,7 @@
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
 
-import { reportTripwire } from "../core/index.js";
+import { PRE_INITIALISATION_BUFFER_CAP, reportTripwire } from "../core/index.js";
 import { ParticipantHueAllocator } from "../tokens/index.js";
 import type {
   ConsoleEntity,
@@ -101,6 +112,8 @@ export interface ApplyOutcome {
   readonly buffered: number;
   readonly refusedForeignSession: number;
   readonly gapDetected: boolean;
+  /** Buffered events this batch pushed past `PRE_INITIALISATION_BUFFER_CAP`. */
+  readonly droppedBeforeInitialisation: number;
 }
 
 const SITE = "console/store/session-store.ts";
@@ -114,6 +127,7 @@ export class SessionStore {
   readonly #admittedSequences = new Set<number>();
   readonly #preInitialisationBuffer: ConsoleSessionEvent[] = [];
   readonly #reentrantQueue: ConsoleSessionEvent[] = [];
+  #preInitialisationDropCount = 0;
   #applying = false;
 
   public constructor(options: SessionStoreOptions) {
@@ -152,14 +166,42 @@ export class SessionStore {
     return this.#hueAllocator;
   }
 
+  /** Events waiting for a base state. Never more than `PRE_INITIALISATION_BUFFER_CAP`. */
+  public get pendingPreInitialisationCount(): number {
+    return this.#preInitialisationBuffer.length;
+  }
+
+  /**
+   * Events this store dropped from the pre-initialisation buffer at the cap.
+   *
+   * Counted rather than merely dropped, on the posture the queue and the binder
+   * already take one layer up: the drop is the correct response to a read that is
+   * not coming, but a stream still filling a store nothing can project is a fault
+   * upstream, and a count is how it becomes visible before any read lands.
+   */
+  public get preInitialisationDropCount(): number {
+    return this.#preInitialisationDropCount;
+  }
+
   /**
    * Establish the base state from a read response and drain anything that
-   * arrived first. Idempotent by cursor: a second initialise at or below the
-   * current cursor is a no-op, so a racing re-read cannot rewind the store.
+   * arrived first.
+   *
+   * Idempotent against a rewind: a snapshot BEHIND the current cursor is refused,
+   * so a racing re-read that has not seen the newest events cannot undo them. An
+   * EQUAL-cursor snapshot is refused too while the store is healthy — it would
+   * rebuild the whole projection on every ordinary focus refresh — but ADMITTED
+   * while it is degraded, which is the one case where the two cursors agreeing
+   * means the repair arrived rather than nothing changed: a store that admitted
+   * event 7 over a cursor of 5 sits at cursor 7 with sequence 6 missing, and the
+   * authoritative re-pull that carries 6 answers at cursor 7 because 7 is the
+   * newest sequence there is. Refusing it left the projection short a row and the
+   * sticky flag set until unrelated later activity happened to push the session
+   * past 7.
    */
   public initialise(snapshot: SessionSnapshot): void {
     const current = this.#store.getState();
-    if (current.initialised && snapshot.cursor <= current.cursor) {
+    if (current.initialised && !admitsSnapshotAt(snapshot.cursor, current)) {
       return;
     }
 
@@ -227,6 +269,7 @@ export class SessionStore {
         buffered: events.length,
         refusedForeignSession: 0,
         gapDetected: false,
+        droppedBeforeInitialisation: 0,
       };
     }
 
@@ -254,6 +297,7 @@ export class SessionStore {
     let buffered = 0;
     let refusedForeignSession = 0;
     let gapDetected = false;
+    let droppedBeforeInitialisation = 0;
 
     let partitions = current.partitions;
     let timeline = current.timeline;
@@ -271,6 +315,14 @@ export class SessionStore {
       if (!current.initialised) {
         this.#preInitialisationBuffer.push(event);
         buffered += 1;
+        if (this.#preInitialisationBuffer.length > PRE_INITIALISATION_BUFFER_CAP) {
+          // The OLDEST goes, not the newest. The newest rows are the ones a person
+          // is about to look at, and the loss the drop causes is reported either
+          // way — as the gap between the snapshot cursor and the oldest survivor.
+          this.#preInitialisationBuffer.shift();
+          this.#preInitialisationDropCount += 1;
+          droppedBeforeInitialisation += 1;
+        }
         continue;
       }
       if (this.#admittedSequences.has(event.sequence) || event.sequence <= current.cursor) {
@@ -307,8 +359,16 @@ export class SessionStore {
       admitted += 1;
     }
 
-    if (admitted === 0 && !gapDetected) {
-      return { admitted, duplicates, buffered, refusedForeignSession, gapDetected };
+    const outcome: ApplyOutcome = {
+      admitted,
+      duplicates,
+      buffered,
+      refusedForeignSession,
+      gapDetected,
+      droppedBeforeInitialisation,
+    };
+    if (admitted === 0 && !gapDetected && droppedBeforeInitialisation === 0) {
+      return outcome;
     }
 
     if (appended !== undefined) {
@@ -320,13 +380,35 @@ export class SessionStore {
       partitions,
       timeline,
       cursor,
-      degradedCause: gapDetected ? "sequence-gap" : current.degradedCause,
+      // A drop at the cap is a known-incomplete projection for the same reason a
+      // skipped sequence is, so it takes the same cause. The sequences it cost are
+      // deliberately NOT pushed into `gapSequences` here — the drain re-derives
+      // them against the base state, and pushing one row per dropped event would
+      // trade a bounded buffer for an unbounded list.
+      degradedCause:
+        gapDetected || droppedBeforeInitialisation > 0 ? "sequence-gap" : current.degradedCause,
       gapSequences,
       revision: current.revision + 1,
     });
 
-    return { admitted, duplicates, buffered, refusedForeignSession, gapDetected };
+    return outcome;
   }
+}
+
+/**
+ * Whether an initialised store takes a read response answering at this cursor.
+ *
+ * Ahead of the cursor is new state and always admitted. AT the cursor is admitted
+ * only while the store is degraded, which is the repair case — and every cause
+ * qualifies rather than `sequence-gap` alone, because a failed read and a closed
+ * subscription are cleared by exactly the same completed re-pull and each of them
+ * can leave the cursor standing still. Behind the cursor is never admitted.
+ */
+function admitsSnapshotAt(cursor: number, current: SessionStoreState): boolean {
+  if (cursor > current.cursor) {
+    return true;
+  }
+  return cursor === current.cursor && current.degradedCause !== undefined;
 }
 
 /** Every entity of one kind. A narrow pick, never a whole-pane object. */
