@@ -18,6 +18,7 @@
 import { describe, expect, it } from "vitest";
 
 import { isConsoleRefusal } from "../core/index.js";
+import { IDENTIFIER_MAX_LENGTH } from "../persistence/index.js";
 import type { ConsoleEntityRef } from "../store/index.js";
 import {
   paneEntityScopeFor,
@@ -228,6 +229,48 @@ describe("the boundary parse — what it refuses, and by which name", () => {
         "pane-entity-malformed",
       );
     }
+  });
+
+  it.each([
+    ["a space", "artifact 1"],
+    ["a tab", "artifact\t1"],
+    ["a newline", "artifact\n1"],
+    ["a NUL", "artifact 1"],
+    ["a path", "../../etc/passwd"],
+    ["a bare path separator", "artifacts/artifact-1"],
+    ["prose", "the artifact Priya opened this morning"],
+    ["a quote", 'artifact-"1"'],
+    ["an over-length string", `artifact-${"9".repeat(IDENTIFIER_MAX_LENGTH)}`],
+  ])("rejects an id carrying %s", (_class, id) => {
+    // Each is a string the previous `id.length > 0` check admitted, and each then
+    // produced a valid-looking pane address whose body would query a store key that
+    // can never exist. The layout snapshot this parse reads back is written through
+    // the persistence value walk, which refuses every one of them — so before this
+    // the durable boundary and the route boundary disagreed about the same string.
+    const refusal = refusalFrom(parseConsolePaneAddress("artifact", { kind: "artifact", id }));
+
+    expect(refusal.code).toBe("pane-entity-malformed");
+    expect(refusal.origin).toBe("pane-address");
+    // The refused string is never echoed — a refusal that quoted it would carry it
+    // one layer past the boundary that stopped it — but the ceiling is named, so a
+    // person reading the sentence knows what would change the answer.
+    expect(refusal.detail).not.toContain(id);
+    expect(refusal.detail).toContain(String(IDENTIFIER_MAX_LENGTH));
+  });
+
+  it("negative control: the ids this build's own fixtures carry are admitted", () => {
+    // Without this, the sweep above would hold over a parse that refused every id.
+    // Both shapes the corpus actually mints: the scenario's UUID and the seat
+    // fixtures' dashed name.
+    const scenarioId = "019b79ee-0280-7c11-8110-d1a4c1150092";
+
+    expect(parseConsolePaneAddress("artifact", { kind: "artifact", id: scenarioId })).toStrictEqual(
+      { kind: "artifact", entity: { kind: "artifact", id: scenarioId } },
+    );
+    expect(parseConsolePaneAddress("artifact", ARTIFACT)).toStrictEqual({
+      kind: "artifact",
+      entity: ARTIFACT,
+    });
   });
 });
 

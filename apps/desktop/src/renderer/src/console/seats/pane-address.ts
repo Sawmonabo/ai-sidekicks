@@ -52,11 +52,21 @@
 // no entity" a fact the compiler holds.
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
+import { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "../persistence/index.js";
 import { type ConsoleEntityRef } from "../store/index.js";
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
 /** The subsystem a pane-address refusal names as its author. */
 const PANE_ADDRESS_ORIGIN = "pane-address";
+
+/**
+ * The ceiling the entity-id grammar enforces, named for the refusal sentence.
+ *
+ * Read off the grammar rather than restated, so the number a person is told is the
+ * number the predicate applied. It is `persistence/`'s constant because the grammar
+ * is `persistence/`'s — this module applies it, it does not own it.
+ */
+const PANE_ENTITY_ID_MAX_LENGTH = IDENTIFIER_MAX_LENGTH;
 
 /**
  * One console entity kind, read off the reference the store family exports.
@@ -240,13 +250,32 @@ function isEntityOptionalPaneKind(kind: PaneKind): kind is EntityOptionalPaneKin
   return !PANE_ENTITY_SCOPES[kind].entityRequired;
 }
 
-/** The entity reference an untyped boundary supplied, or `undefined` when it supplied none. */
+/**
+ * The entity reference an untyped boundary supplied, or `undefined` when it supplied none.
+ *
+ * The id is held to the console's ONE identifier grammar rather than to `id.length`.
+ * A non-empty check admits whitespace, a NUL, a path, and a string of any length, and
+ * the parse then answered with a valid pane address whose body would query a store key
+ * that can never exist — `Spec-023 §Console Design (Meridian)` §The surface set's "an
+ * entity id that fails validation is rejected", unenforced.
+ *
+ * The grammar is `persistence/identifier-grammar.ts`'s, imported rather than restated:
+ * the layout snapshot this parse reads back is written through that family's value
+ * walk, so the durable boundary already holds this exact string to this exact
+ * predicate. A second grammar here would let route resolution admit an id the layout
+ * path refuses, which is one value with two answers.
+ *
+ * `packages/contracts` settles nothing broader for it. Its id schemas are per-entity
+ * branded UUIDs (`SessionIdSchema` and its siblings), and `ConsoleEntityRef.id` is
+ * deliberately kind-agnostic and wire-verbatim, so no contracts schema covers the
+ * value this boundary holds — and none disagrees with the grammar that does.
+ */
 function readEntityRefCandidate(candidate: unknown): ConsoleEntityRef | undefined {
   if (typeof candidate !== "object" || candidate === null) {
     return undefined;
   }
   const { kind, id } = candidate as { readonly kind?: unknown; readonly id?: unknown };
-  return typeof kind === "string" && typeof id === "string" && id.length > 0
+  return typeof kind === "string" && typeof id === "string" && isSingleNameIdentifierShaped(id)
     ? ({ kind, id } as ConsoleEntityRef)
     : undefined;
 }
@@ -300,7 +329,10 @@ export function parseConsolePaneAddress(
     return refuse(
       PANE_ADDRESS_ORIGIN,
       "pane-entity-malformed",
-      `a "${candidateKind}" pane was opened over a value that is not an entity reference`,
+      // The length is named and the value is not, on the persistence grammar's own
+      // discipline: a refusal that quoted the string it refused would carry that
+      // string one layer past the boundary that stopped it.
+      `a "${candidateKind}" pane was opened over a value that is not an entity reference — an entity reference is a kind and an identifier-shaped id (no whitespace, no path separator, at most ${String(PANE_ENTITY_ID_MAX_LENGTH)} characters)`,
     );
   }
 
