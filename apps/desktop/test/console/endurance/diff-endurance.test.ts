@@ -40,6 +40,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ENDURANCE_DIFF_SHAPE,
+  SINGLE_LARGE_HUNK_DIFF_SHAPE,
   buildDiffFixture,
   fixtureChangedLineCount,
 } from "../../../src/renderer/src/console/panes/diff/diff-fixture.js";
@@ -51,6 +52,18 @@ import {
 } from "../../../src/renderer/src/console/panes/diff/hunk-virtualization.js";
 
 const ENDURANCE_DIFF = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
+
+/**
+ * The same five thousand lines in one hunk of one file.
+ *
+ * A SECOND SHAPE RATHER THAN A WIDER FIRST ONE, because the two measure different
+ * costs and neither substitutes for the other. Forty files of five twenty-five-line
+ * hunks bounds every per-hunk cost at twenty-five, so a per-lookup flattening of a
+ * whole hunk stayed under the noise floor there — while the diff a pane actually meets
+ * on a generated file, a lockfile, or a rewritten module puts the whole change in one
+ * hunk, where that same cost is the change set.
+ */
+const SINGLE_LARGE_HUNK_DIFF = buildDiffFixture(SINGLE_LARGE_HUNK_DIFF_SHAPE);
 
 describe("endurance — a forty-file, five-thousand-line diff", () => {
   it("flattens the whole change set and reports its true row count", () => {
@@ -148,6 +161,49 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
     expect(expanded.rowCount).toBeGreaterThan(new DiffRowIndex(ENDURANCE_DIFF).rowCount);
     expect(expanded.rowAt(expanded.rowCount - 1)).toBeDefined();
     expect(expanded.rowAt(expanded.rowCount)).toBeUndefined();
+  });
+
+  it("flattens one five-thousand-line hunk once, and reads rows out of it for free", () => {
+    // The claim the per-hunk layout cache exists for, stated where the size makes it
+    // observable: `rowAt` used to rebuild the whole body layout of every hunk it
+    // walked past, so a single hunk this size allocated five thousand row objects per
+    // rendered virtual row and again on every scroll render.
+    const index = new DiffRowIndex(SINGLE_LARGE_HUNK_DIFF);
+    expect(fixtureChangedLineCount(SINGLE_LARGE_HUNK_DIFF_SHAPE)).toBe(5000);
+    expect(SINGLE_LARGE_HUNK_DIFF.files).toHaveLength(1);
+    expect(index.bodyLayoutBuildCount).toBe(1);
+
+    const viewportRowCount = 60;
+    for (let scroll = 0; scroll < 50; scroll += 1) {
+      const top = Math.floor((index.rowCount - viewportRowCount) * (scroll / 50));
+      for (let offset = 0; offset < viewportRowCount; offset += 1) {
+        expect(index.rowAt(top + offset)).toBeDefined();
+      }
+    }
+    // Fifty viewports of sixty rows, and not one further flattening.
+    expect(index.bodyLayoutBuildCount).toBe(1);
+    process.stdout.write(
+      `[console-endurance] one hunk: ${String(index.rowCount)} rows, ` +
+        `${String(index.bodyLayoutBuildCount)} body layouts built\n`,
+    );
+  });
+
+  it("costs no more per scroll deep inside one hunk than at its top", () => {
+    // The same ratio claim the forty-file case makes, asked of the addressing INSIDE
+    // a span rather than across spans. A `rowAt` that walked a hunk's body to reach a
+    // row would make the tail of this diff a multiple of its head.
+    const index = new DiffRowIndex(SINGLE_LARGE_HUNK_DIFF);
+    const headMilliseconds = timeRowReads(index, 0, index.rowCount / 100);
+    const tailMilliseconds = timeRowReads(
+      index,
+      Math.floor(index.rowCount * 0.99),
+      index.rowCount / 100,
+    );
+    process.stdout.write(
+      `[console-endurance] one hunk rowAt: head ${headMilliseconds.toFixed(2)} ms, ` +
+        `tail ${tailMilliseconds.toFixed(2)} ms\n`,
+    );
+    expect(tailMilliseconds).toBeLessThan(Math.max(headMilliseconds * 8, 1));
   });
 
   it("negative control: the read band is a fraction of the diff it is read from", () => {

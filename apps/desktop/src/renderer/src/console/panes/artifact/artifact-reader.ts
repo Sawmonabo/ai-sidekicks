@@ -31,9 +31,25 @@
 // under, a completion whose stamp is no longer current is dropped, and the two legs of
 // one generation publish as ONE snapshot rather than two.
 //
-// `Spec-023`'s refresh rule allows focus, reconnect, and a stale frame; a pane that
-// armed an interval would be spending the budget on a wire that refuses.
+// AND ALL FOUR OF THE REFRESH RULE'S REASONS ARE WIRED, not one. `Spec-023 §Rules
+// every console surface obeys` allows subscribe, window focus, reconnect, and the
+// terminal events the owning spec names — and this reader used to have the first and
+// a participant's press and nothing else. A pane left open through a daemon reconnect,
+// or through an `artifact.published` / `artifact.superseded` /
+// `artifact.visibility_updated` frame, held a manifest list and an effective
+// allow-list that were stale indefinitely and looked exactly like fresh ones. The
+// other three reasons now reach the same scheduler through
+// `store/refresh-triggers.ts`, which is the mechanism the repos section's two readers
+// already use; the KINDS are this pane's own, because those three frames are what
+// `Spec-006 §Artifact and Diff Publication (artifact_publication)` names as terminal
+// for an artifact. A `workspace.stale` frame is deliberately not among them: it says a
+// path went stale, which is a fact about a workspace and no evidence at all about this
+// session's artifacts.
+//
+// Still no interval, and still no timer of this reader's own: a pane that armed one
+// would be spending the budget on a wire that refuses.
 
+import type { SessionEventType } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -48,28 +64,55 @@ import {
   artifactManifestRowFromSummary,
   type ArtifactsPanelState,
 } from "../../repos/artifact-model.js";
-import { RefreshScheduler } from "../../store/index.js";
+import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
 import {
   NOTHING_READ_YET,
   SHIPPED_DEFAULT_ALLOWLIST,
+  artifactPayloadReadingFrom,
   readFailureRefusal,
   withReplacedRow,
   withRowRefusal,
   withoutRow,
   withoutRowRefusal,
   type ArtifactAllowlistReading,
+  type ArtifactDeleteOutcome,
   type ArtifactPaneReading,
+  type ArtifactPayloadOutcome,
   type ArtifactRowActOutcome,
 } from "./artifact-pane-reading.js";
+
+/**
+ * The three frames this pane re-reads on.
+ *
+ * `satisfies SessionEventType` rather than bare strings: the type is the contract's
+ * own census (`packages/contracts/src/event.ts`), so a kind renamed on the wire fails
+ * to compile here instead of silently matching nothing for the life of the release.
+ * All three, because each changes what one of this pane's two reads would answer — a
+ * publish or a supersession changes the list, and a visibility update changes a row's
+ * class, which is a member the row draws.
+ */
+const ARTIFACT_TERMINAL_EVENT_KINDS = [
+  "artifact.published",
+  "artifact.superseded",
+  "artifact.visibility_updated",
+] satisfies readonly SessionEventType[];
 
 export interface ArtifactPaneReaderOptions {
   readonly bridge: ConsoleBridge;
   /**
-   * The session to read. ABSENT on a bare route, where the deck has a pane and no
-   * session behind it — and a reader that read anyway would have to invent a session
-   * id, so it reads nothing and the pane renders the absence that says nobody asked.
+   * The session to read, and three of the four reasons to read again.
+   *
+   * The STORE rather than a bare session id, on `repos/repo-mounts-reader.ts`'s
+   * reason: the artifact frames and the repair edge that stands for reconnect are
+   * both transitions of this object, and a reader handed only an id could observe
+   * neither. The id is read off it, so the pane and the store can never name two
+   * sessions.
+   *
+   * ABSENT on a bare route, where the deck has a pane and no session behind it — and
+   * a reader that read anyway would have to invent a session id, so it reads nothing,
+   * listens for nothing, and the pane renders the absence that says nobody asked.
    */
-  readonly sessionId: string | undefined;
+  readonly sessionStore: SessionStore | undefined;
   /** Injected so a test drives every read on frozen time with no real timers. */
   readonly clock?: ConsoleClock;
 }
@@ -78,6 +121,8 @@ export class ArtifactPaneReader {
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string | undefined;
   readonly #scheduler: RefreshScheduler;
+  /** Absent on a bare route: with no session there is nothing to observe. */
+  readonly #triggers: SessionRefreshTriggers | undefined;
   readonly #changes = new Emitter<ArtifactPaneReading>("artifact pane reading");
 
   #reading: ArtifactPaneReading = NOTHING_READ_YET;
@@ -95,7 +140,7 @@ export class ArtifactPaneReader {
 
   public constructor(options: ArtifactPaneReaderOptions) {
     this.#bridge = options.bridge;
-    this.#sessionId = options.sessionId;
+    this.#sessionId = options.sessionStore?.sessionId;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock ?? new RealClock(),
       perform: async () => {
@@ -112,6 +157,16 @@ export class ArtifactPaneReader {
         });
       },
     });
+    // The other three reasons to read again. They reach this reader only through the
+    // scheduler, so a burst of frames still costs one read pair.
+    this.#triggers =
+      options.sessionStore === undefined
+        ? undefined
+        : new SessionRefreshTriggers({
+            scheduler: this.#scheduler,
+            sessionStore: options.sessionStore,
+            terminalEventKinds: ARTIFACT_TERMINAL_EVENT_KINDS,
+          });
   }
 
   /** What the pane renders right now. Stable identity between publishes. */
@@ -129,7 +184,7 @@ export class ArtifactPaneReader {
   }
 
   /**
-   * Read once.
+   * Read once, and keep listening for the reasons to read again.
    *
    * Idempotent for React's development double-mount, which would otherwise double every
    * read in exactly the environment where the budget is being watched.
@@ -140,6 +195,7 @@ export class ArtifactPaneReader {
     }
     this.#started = true;
     this.#scheduler.request("subscribe");
+    this.#triggers?.start();
   }
 
   /**
@@ -170,13 +226,14 @@ export class ArtifactPaneReader {
   /**
    * Re-read one artifact's manifest, and put what came back on its row.
    *
-   * THIS ASKS FOR NO BYTES, WHICH IS WHY IT IS NOT A DOWNLOAD. `artifactRead` now
-   * answers a `GrowthArtifactRead` — the manifest NESTED beside a way to reach the
-   * payload — and takes an `includePayload` request member, so the two halves of
+   * THIS ASKS FOR NO BYTES, WHICH IS WHY IT IS NOT A DOWNLOAD. `artifactRead` answers
+   * a `GrowthArtifactRead` — the manifest NESTED beside a way to reach the payload —
+   * and takes an `includePayload` request member, so the two halves of
    * `api-payload-contracts.md §Plan-014`'s `ArtifactReadResponse` are both on the
    * port. This call omits that member, which lands the reply on the DEFERRED arm: a
-   * handle and no bytes. Fetching them is a second act with its own affordance and
-   * its own bound, and this one is a re-read of what a row SAYS.
+   * handle and no bytes. Fetching them is `fetchPayload` below — a second act, with
+   * its own affordance and its own bound — and this one is a re-read of what a row
+   * SAYS.
    *
    * So the served answer is used for the only thing this surface wants from it: the
    * `manifest` REPLACES the listed row, member for member, and any refusal standing
@@ -213,17 +270,71 @@ export class ArtifactPaneReader {
   }
 
   /**
+   * Ask for one artifact's bytes, because the participant pressed for them.
+   *
+   * THE SAME METHOD AS `readManifest`, TOLD APART BY `includePayload`. That member is
+   * the wire's own discriminator, so this is not a second operation and there is no
+   * second refusal to register: one call, two requests, and the reply's own union says
+   * which of the two served answers came back.
+   *
+   * EXPLICIT, ALWAYS, AND NEVER ON MOUNT. A payload is bounded only by the ingest cap,
+   * so a fetch that ran because a pane opened would spend a hundred megabytes of
+   * somebody's link on a surface they were passing through. It runs when it is asked
+   * for and at no other time, which is why it is a control and not an effect.
+   *
+   * NOT ROUTED THROUGH THE SCHEDULER, and that asymmetry with the pane's two other
+   * reads is the point: the scheduler coalesces the reads that RE-ESTABLISH the pane,
+   * and a payload fetch establishes something the pane did not have. Coalescing it
+   * with a list refresh would mean a refresh silently re-fetched bytes, which is the
+   * automatic download this act exists to avoid.
+   *
+   * ONE AT A TIME, AND A SUPERSEDED ANSWER IS DROPPED. The reading holds one payload,
+   * so a fetch that lands while the participant has asked for another artifact's would
+   * put one artifact's bytes under another's name. The stamp answers that, and it
+   * answers disposal in the same comparison.
+   */
+  public async fetchPayload(artifactId: string): Promise<ArtifactPayloadOutcome> {
+    const generation = this.#generation;
+    this.#publish({ ...this.#reading, payload: { status: "fetching", artifactId } });
+    const answer = await this.#bridge.growth.artifactRead({ artifactId, includePayload: true });
+    if (generation !== this.#generation) {
+      return { status: "superseded" };
+    }
+    if (answer.status === "unavailable") {
+      this.#publish({
+        ...this.#reading,
+        payload: { status: "refused", artifactId, refusal: answer },
+      });
+      return { status: "refused", refusal: answer };
+    }
+    const payload = artifactPayloadReadingFrom(artifactId, answer.value);
+    this.#publish({
+      ...this.#reading,
+      // The reply also carries the manifest, and it is used for what it is: a fresher
+      // reading of the row this fetch was about. Dropping it would leave the row
+      // stating what an older read said while the bytes beside it came from this one.
+      artifacts: withReplacedRow(
+        this.#reading.artifacts,
+        artifactManifestRowFromSummary(answer.value.manifest),
+      ),
+      payload,
+      refusalByArtifactId: withoutRowRefusal(this.#reading.refusalByArtifactId, artifactId),
+    });
+    return { status: "settled", payload };
+  }
+
+  /**
    * Delete one artifact, after the participant confirmed the consequence.
    *
-   * A SERVED DELETE ESTABLISHES ONE FACT, AND THAT FACT IS READ. The reply's own
-   * shape is `void` in `bridge/growth-signatures.ts`, so nothing about the bytes
-   * comes back — the wire's `ArtifactDeleteResponse` carries `payloadDisposition`,
-   * `rePublishForeclosed`, and `deletedAt` (`api-payload-contracts.md §Plan-014`)
-   * and the port registers none of the three, which is why the panel's delete
-   * receipt is left unsupplied rather than filled with a guess. What the answer
-   * DOES say is that the manifest is gone, so the row goes with it and the list is
-   * read again — leaving the row on screen would let a participant keep acting on a
-   * manifest the daemon has already destroyed.
+   * A SERVED DELETE ESTABLISHES THREE FACTS, AND ALL THREE ARE READ. The reply is a
+   * `GrowthArtifactDeleteReceipt` — `payloadDisposition`, `rePublishForeclosed`, and
+   * `deletedAt`, every member required (`api-payload-contracts.md §Plan-014`) — and
+   * this method used to discard it and publish only the removal, which left the
+   * panel's receipt strip permanently unsupplied and its announcement saying the
+   * reply carried no disposition. It carries one. The receipt goes onto the reading,
+   * where the panel draws it and the pane announces it; the row goes off the list,
+   * because leaving it would let a participant keep acting on a manifest the daemon
+   * has already destroyed; and the list is read again.
    *
    * The re-read is `terminal-event` because that is what it is: an act completed
    * and what it changed is what the next read will say. It is the same reason
@@ -243,34 +354,49 @@ export class ArtifactPaneReader {
    * refresh was in flight, and that re-read is the thing that takes the row back
    * off the screen the racing list put it on.
    */
-  public async deleteArtifact(artifactId: string): Promise<ArtifactRowActOutcome> {
+  public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     const generation = this.#generation;
     const answer = await this.#bridge.growth.artifactDelete({ artifactId });
     if (answer.status === "unavailable") {
       // A refusal records an act that did NOT happen, so a stamp that moved under it
       // means the row it was about has since been re-read and the refusal has nothing
       // left to stand beside.
-      return generation === this.#generation
-        ? this.#recordRowRefusal(artifactId, answer)
-        : { status: "superseded" };
+      if (generation !== this.#generation) {
+        return { status: "superseded" };
+      }
+      this.#recordRowRefusal(artifactId, answer);
+      return { status: "refused", refusal: answer };
     }
     if (this.#disposed) {
       return { status: "superseded" };
     }
+    const receipt = answer.value;
     this.#publish({
       ...this.#reading,
       artifacts: withoutRow(this.#reading.artifacts, artifactId),
+      lastDeleteReceipt: receipt,
+      // A payload reading about the artifact just destroyed describes bytes that are
+      // gone, so it goes with the row rather than sitting under a manifest the list
+      // no longer holds.
+      payload:
+        this.#reading.payload.status !== "not-checked" &&
+        this.#reading.payload.artifactId === artifactId
+          ? { status: "not-checked" }
+          : this.#reading.payload,
       refusalByArtifactId: withoutRowRefusal(this.#reading.refusalByArtifactId, artifactId),
     });
     this.#scheduler.request("terminal-event");
-    return generation === this.#generation ? { status: "settled" } : { status: "reconciling" };
+    return generation === this.#generation
+      ? { status: "settled", receipt }
+      : { status: "reconciling", receipt };
   }
 
-  /** Terminal. No later completion can publish behind a pane that unmounted. */
+  /** Terminal. No later completion, frame, or focus can reach a pane that unmounted. */
   public dispose(): void {
     this.#disposed = true;
     this.#generation += 1;
     this.#scheduler.dispose();
+    this.#triggers?.dispose();
     this.#changes.clear();
   }
 
@@ -304,6 +430,13 @@ export class ArtifactPaneReader {
     this.#publish({
       artifacts,
       allowlist,
+      // CLEARED BY THE LIST THAT FOLLOWS IT. The receipt is about a row this read has
+      // just answered for — by not returning it — so a consequence left standing would
+      // read as a fact about the list now on screen.
+      lastDeleteReceipt: undefined,
+      // The payload survives: it is about an artifact this read either returned or did
+      // not, and either way nothing here re-fetched bytes to answer for it.
+      payload: this.#reading.payload,
       refusalByArtifactId: this.#reading.refusalByArtifactId,
     });
   }
@@ -351,7 +484,8 @@ export interface ArtifactPaneBinding {
   readonly reading: ArtifactPaneReading;
   readonly refresh: () => void;
   readonly readManifest: (artifactId: string) => Promise<ArtifactRowActOutcome>;
-  readonly deleteArtifact: (artifactId: string) => Promise<ArtifactRowActOutcome>;
+  readonly fetchPayload: (artifactId: string) => Promise<ArtifactPayloadOutcome>;
+  readonly deleteArtifact: (artifactId: string) => Promise<ArtifactDeleteOutcome>;
 }
 
 /**
@@ -362,9 +496,12 @@ export interface ArtifactPaneBinding {
  */
 export function useArtifactPaneReading(
   bridge: ConsoleBridge,
-  sessionId: string | undefined,
+  sessionStore: SessionStore | undefined,
 ): ArtifactPaneBinding {
-  const reader = useMemo(() => new ArtifactPaneReader({ bridge, sessionId }), [bridge, sessionId]);
+  const reader = useMemo(
+    () => new ArtifactPaneReader({ bridge, sessionStore }),
+    [bridge, sessionStore],
+  );
   useEffect(() => {
     reader.start();
     return () => {
@@ -384,9 +521,13 @@ export function useArtifactPaneReading(
     (artifactId: string) => reader.readManifest(artifactId),
     [reader],
   );
+  const fetchPayload = useCallback(
+    (artifactId: string) => reader.fetchPayload(artifactId),
+    [reader],
+  );
   const deleteArtifact = useCallback(
     (artifactId: string) => reader.deleteArtifact(artifactId),
     [reader],
   );
-  return { reading, refresh, readManifest, deleteArtifact };
+  return { reading, refresh, readManifest, fetchPayload, deleteArtifact };
 }

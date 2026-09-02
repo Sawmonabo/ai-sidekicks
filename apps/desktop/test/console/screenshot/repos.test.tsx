@@ -39,6 +39,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emulateSystemScheme } from "../console-harness.js";
 import {
   mountArtifactPane,
+  mountArtifactPaneDeferredPayload,
+  mountArtifactPaneInlinePayload,
   mountDiffPane,
   mountProposalGate,
   mountRepoSection,
@@ -64,6 +66,11 @@ const PINNED_SURFACES: readonly {
   { referenceName: "repos-section-degraded-mount", mount: mountRepoSection },
   { referenceName: "repos-diff-pane", mount: mountDiffPane },
   { referenceName: "repos-artifact-pane", mount: mountArtifactPane },
+  {
+    referenceName: "repos-artifact-pane-payload-deferred",
+    mount: mountArtifactPaneDeferredPayload,
+  },
+  { referenceName: "repos-artifact-pane-payload-inline", mount: mountArtifactPaneInlinePayload },
   { referenceName: "repos-proposal-gate", mount: mountProposalGate },
   { referenceName: "repos-section-mounted-gate", mount: mountRepoSectionWithOpenGate },
 ];

@@ -40,7 +40,7 @@
 // this tier exists to pin. Building that reading here would pin a state the fixture
 // could stop producing without either tier noticing.
 
-import { waitFor, within } from "@testing-library/react";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 
 import { renderSettled } from "./console-harness.js";
 
@@ -341,6 +341,92 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
   await waitForWithin(region, ".meridian-refusal--card");
   return { element: region, bridge };
 }
+
+/**
+ * The artifact pane after a payload fetch, on each of the two arms a served read has.
+ *
+ * A SECOND AND THIRD SUBJECT rather than a flag on the first, on the proposal gate's
+ * rule: the refusal composition above and the two served ones are different surfaces,
+ * and the first would go on passing if the payload section never rendered at all.
+ *
+ * DRIVEN THROUGH A HAND-SCRIPTED BRIDGE, and that is what a comment has to say out
+ * loud: the fixture growth port serves no `artifact*` operation, so the scenario
+ * cannot produce a served payload and a subject that waited for one would wait
+ * forever. The reply shapes below are `GrowthArtifactRead`'s own two arms — a handle,
+ * or bytes beside the encoding to read them by — so what is pinned is the composition
+ * the registered shape produces, not one this file invented.
+ */
+async function mountArtifactPanePayload(
+  readAnswer: Record<string, unknown>,
+): Promise<MountedFamilySurface> {
+  const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
+  const bridge = {
+    growth: {
+      artifactList: async () => ({ status: "served", value: [] }),
+      artifactAllowlistRead: async () =>
+        refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
+      artifactRead: async () => readAnswer,
+      artifactDelete: async () =>
+        refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
+    },
+  } as unknown as ConsoleBridge;
+  const ArtifactPaneBody = paneBodyComponent("artifact");
+  const { container } = await renderSettled(
+    <LiveAnnouncerProvider clock={new ManualClock()}>
+      {ArtifactPaneBody({
+        kind: "artifact",
+        entity: { kind: "artifact", id: REPOS_PINNED_ARTIFACT_ID },
+        ...paneBinding({ paneId: "pane-artifact-payload", bridge, sessionStore }),
+      })}
+    </LiveAnnouncerProvider>,
+  );
+  const region = requireLabelledRegion(container, "Artifact");
+  fireEvent.click(within(region).getByRole("button", { name: "Fetch payload" }));
+  await waitForWithin(region, ".meridian-artifact-payload");
+  return { element: region, bridge };
+}
+
+/** The sentence a growth-port refusal carries, spelled once for the two mounts above. */
+const ARTIFACT_READ_UNREGISTERED =
+  "Not checked — the artifact CRUD method strings are not registered yet.";
+
+/** The pane on the DEFERRED arm: a content-addressed handle and no bytes. */
+export async function mountArtifactPaneDeferredPayload(): Promise<MountedFamilySurface> {
+  return mountArtifactPanePayload({
+    status: "served",
+    value: {
+      manifest: SERVED_ARTIFACT_MANIFEST,
+      payloadHandle: "sha256:2b4cf0e1a9d84c0b6f2e5a71c3d8b4e90",
+    },
+  });
+}
+
+/** The pane on the INLINE arm: the bytes, and the encoding a reader switches on. */
+export async function mountArtifactPaneInlinePayload(): Promise<MountedFamilySurface> {
+  return mountArtifactPanePayload({
+    status: "served",
+    value: {
+      manifest: SERVED_ARTIFACT_MANIFEST,
+      // "--- a/one\n+++ b/one\n@@ -1 +1 @@ read\n-was\n+is\n" in RFC 4648 base64.
+      payload: "LS0tIGEvb25lCisrKyBiL29uZQpAQCAtMSArMSBAQCByZWFkCi13YXMKK2lzCg==",
+      payloadEncoding: "base64",
+    },
+  });
+}
+
+/** One manifest the payload mounts are read against, as the port serves one. */
+const SERVED_ARTIFACT_MANIFEST = {
+  artifactId: REPOS_PINNED_ARTIFACT_ID,
+  sessionId: REPOS_SCENARIO.sessionId,
+  artifactType: "diff",
+  digest: "sha256:2b4cf0e1a9d84c0b6f2e5a71c3d8b4e90",
+  size: 48,
+  annotations: { "org.opencontainers.image.title": "rate-limit-wiring.patch" },
+  visibility: "shared",
+  state: "published",
+  metadata: { mediaType: "text/x-patch" },
+  createdAt: "2026-01-01T09:05:00.000Z",
+};
 
 /** The branch context the gate is drawn against, on its richest arm. */
 const PREPARED_BRANCH_CONTEXT: BranchContextReading = {

@@ -17,9 +17,15 @@ import { act, fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import {
+  ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
+  ManualClock,
+  REFRESH_DEBOUNCE_MS,
+} from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import { ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "../../repos/artifact-model.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
+import { SessionStore } from "../../store/index.js";
 import { ArtifactPane, type ArtifactPaneProps } from "./ArtifactPane.js";
 
 /** This pane's own address arm, taken from the prop rather than restated. */
@@ -41,7 +47,13 @@ function contextFor(
     entity,
     paneId: "pane-artifact-1",
     bridge: reached.bridge,
-    sessionStore: reached.sessionId === undefined ? undefined : { sessionId: reached.sessionId },
+    // A REAL store rather than a stub carrying an id: the reader now subscribes to it
+    // for three of its four refresh reasons, and a stub with no `readable` would make
+    // every case here fail on the subscription rather than on what it asserts.
+    sessionStore:
+      reached.sessionId === undefined
+        ? undefined
+        : new SessionStore({ sessionId: reached.sessionId }),
   } as unknown as ArtifactPaneContext;
 }
 
@@ -88,6 +100,25 @@ function readAnswering(state: string): Record<string, unknown> {
   return {
     status: "served",
     value: { manifest: summary(state), payloadHandle: `sha256:2b4c/${state}` },
+  };
+}
+
+/** The receipt a served delete answers with. Every member required, so all are here. */
+const DELETE_RECEIPT = {
+  status: "served",
+  value: {
+    artifactId: ARTIFACT_ID,
+    payloadDisposition: "retained_by_references",
+    rePublishForeclosed: true,
+    deletedAt: "2026-09-02T07:05:00.000Z",
+  },
+};
+
+/** A served payload read on the INLINE arm, with the bytes and the encoding to read them by. */
+function inlineReadAnswering(payload: string, encoding: string): Record<string, unknown> {
+  return {
+    status: "served",
+    value: { manifest: summary("published"), payload, payloadEncoding: encoding },
   };
 }
 
@@ -240,13 +271,15 @@ describe("artifact pane — the ingest bounds disclosure", () => {
 });
 
 describe("artifact pane — reading one row's manifest", () => {
-  it("offers the act named for what the read serves", async () => {
-    const { getByRole, queryByRole } = renderPane(
+  it("offers the row's manifest re-read beside the pane's own payload fetch", async () => {
+    // Two acts over one method, told apart by `includePayload`. The row's control is
+    // named for what its read serves; the pane's is named for the bytes it asks for.
+    const { getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, { bridge: bridgeListing({}), sessionId: SESSION_ID }),
     );
     await readThrough();
     expect(getByRole("button", { name: "Read manifest" })).toBeDefined();
-    expect(queryByRole("button", { name: "Fetch payload" })).toBeNull();
+    expect(getByRole("button", { name: "Fetch payload" })).toBeDefined();
   });
 
   it("puts the served manifest on the row it was read for", async () => {
@@ -339,7 +372,7 @@ describe("artifact pane — deleting one row", () => {
       contextFor(ARTIFACT_ENTITY, {
         bridge: bridgeListing({
           artifactList,
-          deleteAnswer: { status: "served", value: undefined },
+          deleteAnswer: DELETE_RECEIPT,
         }),
         sessionId: SESSION_ID,
       }),
@@ -356,10 +389,10 @@ describe("artifact pane — deleting one row", () => {
     expect(artifactList).toHaveBeenCalledTimes(2);
   });
 
-  it("says what the delete reported and what it did not", async () => {
+  it("says what the delete reported, in the daemon's own two facts", async () => {
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
-        bridge: bridgeListing({ deleteAnswer: { status: "served", value: undefined } }),
+        bridge: bridgeListing({ deleteAnswer: DELETE_RECEIPT }),
         sessionId: SESSION_ID,
       }),
     );
@@ -367,9 +400,196 @@ describe("artifact pane — deleting one row", () => {
     confirmDelete(getByRole);
     await settleAct();
 
-    const spoken = container.querySelector('[role="status"]')?.textContent ?? "";
+    const spoken = container.textContent ?? "";
     expect(spoken).toContain("Artifact deleted");
-    expect(spoken).toContain("no payload disposition");
+    // Both members of the receipt, and neither the old sentence's claim that the
+    // reply carried nothing.
+    expect(spoken).toContain(ARTIFACT_PAYLOAD_DISPOSITION_COPY.retained_by_references);
+    expect(spoken).toContain("Re-publishing this artifact is now permanently impossible.");
+    expect(spoken).not.toContain("no payload disposition");
+  });
+
+  it("draws the receipt on the panel as well as announcing it", async () => {
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: bridgeListing({ deleteAnswer: DELETE_RECEIPT }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    confirmDelete(getByRole);
+    await settleAct();
+
+    const receipt = container.querySelector(".meridian-artifacts__receipt");
+    expect(receipt?.textContent).toContain(
+      ARTIFACT_PAYLOAD_DISPOSITION_COPY.retained_by_references,
+    );
+  });
+
+  it("negative control: the receipt is cleared by the list read that follows it", async () => {
+    // A consequence left standing over a re-read would read as a fact about the list
+    // now on screen rather than about the row that is gone.
+    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: bridgeListing({ artifactList, deleteAnswer: DELETE_RECEIPT }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    confirmDelete(getByRole);
+    await settleAct();
+    expect(container.querySelector(".meridian-artifacts__receipt")).not.toBeNull();
+
+    await readThrough();
+    expect(container.querySelector(".meridian-artifacts__receipt")).toBeNull();
+  });
+});
+
+describe("artifact pane — fetching the payload is an act, and both arms are drawn", () => {
+  it("asks for nothing until the control is pressed", async () => {
+    // A payload is bounded only by the ingest cap, so a fetch that ran on mount would
+    // spend a hundred megabytes of somebody's link on a pane they passed through.
+    const artifactRead = vi.fn<() => Promise<unknown>>().mockResolvedValue(PORT_REFUSAL);
+    renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: {
+          growth: {
+            artifactList: async () => LISTED_ONE_ROW,
+            artifactAllowlistRead: async () => PORT_REFUSAL,
+            artifactRead,
+            artifactDelete: async () => PORT_REFUSAL,
+          },
+        } as unknown as ConsoleBridge,
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    expect(artifactRead).not.toHaveBeenCalled();
+  });
+
+  it("asks the read for the bytes, by the member the wire discriminates on", async () => {
+    const artifactRead = vi
+      .fn<(request: { readonly includePayload?: boolean }) => Promise<unknown>>()
+      .mockResolvedValue(readAnswering("published"));
+    const { getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: {
+          growth: {
+            artifactList: async () => LISTED_ONE_ROW,
+            artifactAllowlistRead: async () => PORT_REFUSAL,
+            artifactRead,
+            artifactDelete: async () => PORT_REFUSAL,
+          },
+        } as unknown as ConsoleBridge,
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+
+    expect(artifactRead).toHaveBeenCalledWith({
+      artifactId: ARTIFACT_ENTITY.id,
+      includePayload: true,
+    });
+  });
+
+  it("draws a deferred handle as what it is, and asks nothing further of it", async () => {
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: bridgeListing({ readAnswer: readAnswering("published") }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+
+    const payload = container.querySelector(".meridian-artifact-payload");
+    expect(payload?.textContent).toContain("sha256:2b4c/published");
+    expect(payload?.textContent).toContain("no registered operation anywhere takes one");
+  });
+
+  it("previews inline bytes as text, decoding by the encoding the reply declared", async () => {
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        // "diff --git a/one b/one" in RFC 4648 base64.
+        bridge: bridgeListing({
+          readAnswer: inlineReadAnswering("ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==", "base64"),
+        }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+
+    expect(container.querySelector(".meridian-artifact-payload__preview")?.textContent).toBe(
+      "diff --git a/one b/one",
+    );
+  });
+
+  it("takes a utf8 payload as it stands, and truncates past the preview cap", async () => {
+    const wide = "x".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP + 50);
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: bridgeListing({ readAnswer: inlineReadAnswering(wide, "utf8") }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+
+    const preview = container.querySelector(".meridian-artifact-payload__preview");
+    expect(preview?.textContent).toHaveLength(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP);
+    // Never silently shortened: the truncation is stated beside what was drawn.
+    expect(container.querySelector(".meridian-artifact-payload")?.textContent).toContain(
+      "continues past them",
+    );
+  });
+
+  it("reports bytes that are not text rather than drawing replacement characters", async () => {
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        // Two bytes that are not valid UTF-8.
+        bridge: bridgeListing({ readAnswer: inlineReadAnswering("//8=", "base64") }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+
+    expect(container.querySelector(".meridian-artifact-payload")?.textContent).toContain(
+      "not text",
+    );
+    expect(container.querySelector(".meridian-artifact-payload__preview")).toBeNull();
+  });
+
+  it("renders the daemon's refusal when the fetch is turned down", async () => {
+    const { container, getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, { bridge: bridgeListing({}), sessionId: SESSION_ID }),
+    );
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+
+    expect(container.querySelector(".meridian-artifact-payload")?.textContent).toContain(
+      PORT_REFUSAL.detail,
+    );
+  });
+
+  it("negative control: nothing is drawn before the fetch, and no old copy survives", async () => {
+    const { container } = renderPane(
+      contextFor(ARTIFACT_ENTITY, { bridge: bridgeListing({}), sessionId: SESSION_ID }),
+    );
+    await readThrough();
+    expect(container.querySelector(".meridian-artifact-payload")).toBeNull();
+    // The sentence the pane used to close its header with, which said the members the
+    // port now declares were unavailable.
+    expect(container.textContent).not.toContain("which this console");
   });
 
   it("negative control: a refused delete leaves the row and renders the refusal", async () => {

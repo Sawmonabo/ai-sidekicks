@@ -221,6 +221,28 @@ export const ARTIFACT_PAYLOAD_DISPOSITION_COPY: Readonly<
   retained_by_references: "The bytes stayed: another manifest names them.",
 };
 
+/**
+ * What a delete's own receipt says, in one sentence.
+ *
+ * ONE COMPOSITION FOR BOTH HALVES OF THE REPORT. The panel draws this sentence and
+ * the pane announces it, and until the daemon's receipt reached the console at all
+ * they were two different claims: the strip said the bytes' disposition was
+ * unreported and the announcement said the reply carried none. Both were true of a
+ * reply that carried nothing and neither is true now, and a second spelling of the
+ * consequence would be the copy that drifts.
+ *
+ * Every word is the receipt's own. The disposition comes from the table above, which
+ * is total over the three arms the daemon may settle, and the re-publish clause reads
+ * the boolean rather than inferring anything from the disposition — a payload retained
+ * by another manifest still foreclosed re-publish if this row carried the relay key.
+ */
+export function artifactDeleteReceiptSentence(receipt: ArtifactDeleteReceipt): string {
+  const rePublish = receipt.rePublishForeclosed
+    ? "Re-publishing this artifact is now permanently impossible."
+    : "Re-publishing is still possible.";
+  return `${ARTIFACT_PAYLOAD_DISPOSITION_COPY[receipt.payloadDisposition]} ${rePublish}`;
+}
+
 /** The consequence a delete confirm states BEFORE the act. */
 export const ARTIFACT_DELETE_CONSEQUENCE =
   "Deleting forecloses re-publishing this artifact. A participant who joins later has no way back to it.";
