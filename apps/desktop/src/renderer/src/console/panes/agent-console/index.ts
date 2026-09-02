@@ -42,6 +42,8 @@ export function registerAgentConsolePane(registry: ConsolePaneRegistry): void {
         sessionId: context.sessionStore?.sessionId,
         agentId: context.entity?.kind === "agent" ? context.entity.id : undefined,
         bridgeSource: context.bridge.source,
+        bridge: context.bridge,
+        sessionStore: context.sessionStore,
       }),
   });
 }
@@ -59,6 +61,8 @@ export function registerAgentConsoleSurface(registry: ConsoleSurfaceRegistry): v
             ? context.route.agentId
             : undefined,
         bridgeSource: context.bridge.source,
+        bridge: context.bridge,
+        sessionStore: context.sessionStore,
       }),
   });
 }

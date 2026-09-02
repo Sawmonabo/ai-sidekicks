@@ -1,0 +1,216 @@
+// The card keeps two lines apart, and each of these cases is one way of blurring them.
+//
+// The effective binding moves only when a terminal event lands; the pending line is
+// a promise. And three absences on this card each MEAN something specific, so none
+// of them may render as blank, as "off", or as the value beside it.
+
+import { render } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import { AgentCard, AgentRosterEmpty } from "./AgentCard.js";
+import type { AgentRosterEntry } from "./agent-wire.js";
+
+const RUNNING: AgentRosterEntry = {
+  agentId: "agent-scout",
+  name: "Scout",
+  state: "ready",
+  driverName: "claude",
+  modelId: "claude-sonnet",
+  config: { effort: "high", outputSpeed: "fast" },
+};
+
+function observedTextOf(container: HTMLElement): string {
+  return container.querySelector(".meridian-agent-card__observed")?.textContent ?? "";
+}
+
+describe("agent card — the effective binding", () => {
+  it("names each axis the reply carried", () => {
+    const { container } = render(<AgentCard agent={RUNNING} />);
+    const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
+    expect(effective).toContain("claude-sonnet");
+    expect(effective).toContain("high");
+  });
+
+  it("says what an absent axis MEANS rather than leaving it blank", () => {
+    const { container } = render(
+      <AgentCard agent={{ agentId: "agent-scout", state: "ready", driverName: "claude" }} />,
+    );
+    const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
+    expect(effective).toContain("the provider's registered default");
+    expect(effective).toContain("the driver's default for this model");
+  });
+
+  it("negative control: a carried axis does not print its absence sentence", () => {
+    // Without this, the case above would pass over a card that printed every
+    // absence meaning unconditionally.
+    const { container } = render(<AgentCard agent={RUNNING} />);
+    const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
+    expect(effective).not.toContain("the driver's default for this model");
+  });
+
+  it("names the machine a `configured` agent is waiting on", () => {
+    const { container } = render(
+      <AgentCard agent={{ ...RUNNING, state: "configured", defaultNodeId: "node-2" }} />,
+    );
+    expect(container.textContent ?? "").toContain("waiting on its pinned machine to attach");
+    expect(container.textContent ?? "").toContain("node-2");
+  });
+
+  it("renders a state it does not know as itself", () => {
+    const { container } = render(<AgentCard agent={{ ...RUNNING, state: "quarantined" }} />);
+    expect(container.textContent ?? "").toContain("quarantined");
+  });
+});
+
+describe("agent card — the declared output speed is never the requested one", () => {
+  it("reads NOT YET OBSERVED and names the three causes", () => {
+    const { container } = render(<AgentCard agent={RUNNING} />);
+    expect(observedTextOf(container)).toContain("not yet observed");
+    // The requested value is on the card, and must not be borrowed for this line.
+    expect(observedTextOf(container)).not.toContain("fast");
+  });
+
+  it("negative control: a declared reading does appear on that same line", () => {
+    // Without this, the case above would pass over a card whose observed line was a
+    // fixed sentence that could never carry a provider reading at all.
+    const { container } = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          observedOutputSpeed: { declared: "standard", reason: "account tier" },
+        }}
+      />,
+    );
+    expect(observedTextOf(container)).toContain("standard");
+    expect(observedTextOf(container)).toContain("account tier");
+    expect(observedTextOf(container)).not.toContain("not yet observed");
+  });
+});
+
+describe("agent card — the pending line is separate from the effective one", () => {
+  it("carries the promised axes, the boundary, and the displaced id", () => {
+    const { container } = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          pendingSwitch: {
+            switchId: "switch-8",
+            appliesAt: "run_boundary",
+            interruptRequested: false,
+            pendingAxes: [{ axis: "driverName", value: "codex" }],
+            replacedSwitchId: "switch-7",
+          },
+        }}
+      />,
+    );
+    const pending = container.querySelector(".meridian-agent-card__pending")?.textContent ?? "";
+    expect(pending).toContain("codex");
+    expect(pending).toContain("at the next run boundary");
+    expect(pending).toContain("switch-7");
+    // The promise did not move the binding the agent runs under.
+    const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
+    expect(effective).toContain("claude");
+    expect(effective).not.toContain("codex");
+  });
+
+  it("reads the interrupt from its own field, not from the boundary", () => {
+    const interrupting = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          pendingSwitch: {
+            switchId: "switch-9",
+            appliesAt: "turn_boundary",
+            interruptRequested: true,
+            pendingAxes: [{ axis: "effort", value: "low" }],
+          },
+        }}
+      />,
+    );
+    expect(
+      interrupting.container.querySelector(".meridian-agent-card__pending")?.textContent ?? "",
+    ).toContain("interrupting the run now");
+  });
+
+  it("negative control: the same boundary without the flag says nothing about an interrupt", () => {
+    // A deferred and an interrupted switch both read `turn_boundary`, so a card
+    // deriving one from the other would pass the case above and be wrong here.
+    const { container } = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          pendingSwitch: {
+            switchId: "switch-9",
+            appliesAt: "turn_boundary",
+            interruptRequested: false,
+            pendingAxes: [{ axis: "effort", value: "low" }],
+          },
+        }}
+      />,
+    );
+    expect(
+      container.querySelector(".meridian-agent-card__pending")?.textContent ?? "",
+    ).not.toContain("interrupting the run now");
+  });
+
+  it("carries no pending line at all where nothing is promised", () => {
+    const { container } = render(<AgentCard agent={RUNNING} />);
+    expect(container.querySelector(".meridian-agent-card__pending")).toBeNull();
+  });
+});
+
+describe("agent card — the attach echo", () => {
+  it("renders the snapshot and says it is one", () => {
+    const { container } = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          resolvedFromDefinitionId: "definition-scout",
+          resolvedConfiguration: {
+            executionPostureMode: "worktree",
+            toolAllowlist: ["read", "write"],
+            goal: "Survey the repository",
+          },
+        }}
+      />,
+    );
+    const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
+    expect(resolved).toContain("definition-scout");
+    expect(resolved).toContain("worktree");
+    expect(resolved).toContain("Survey the repository");
+    expect(resolved).toContain("snapshot taken when the agent was attached");
+  });
+
+  it("negative control: an agent attached inline shows no echo", () => {
+    const { container } = render(<AgentCard agent={RUNNING} />);
+    expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
+  });
+});
+
+describe("agent card — actions are offered only where the caller supplied one", () => {
+  it("draws each action it was handed", () => {
+    const { container } = render(
+      <AgentCard agent={RUNNING} onFollow={() => {}} onChangeBinding={() => {}} />,
+    );
+    expect(container.querySelectorAll(".meridian-agent-card__action").length).toBe(2);
+  });
+
+  it("negative control: a card handed none draws none", () => {
+    const { container } = render(<AgentCard agent={RUNNING} />);
+    expect(container.querySelectorAll(".meridian-agent-card__action").length).toBe(0);
+  });
+});
+
+describe("agent roster — the empty state", () => {
+  it("offers the one action there is", () => {
+    const { container } = render(<AgentRosterEmpty onAttach={() => {}} />);
+    expect(container.textContent ?? "").toContain("No agent is attached");
+    expect(container.querySelector(".meridian-agent-card__action")).not.toBeNull();
+  });
+
+  it("negative control: with no handler it states the absence and offers nothing", () => {
+    const { container } = render(<AgentRosterEmpty />);
+    expect(container.textContent ?? "").toContain("No agent is attached");
+    expect(container.querySelector(".meridian-agent-card__action")).toBeNull();
+  });
+});

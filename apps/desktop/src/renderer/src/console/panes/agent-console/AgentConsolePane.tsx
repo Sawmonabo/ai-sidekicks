@@ -1,33 +1,52 @@
 // The agent console: what one agent is running under, in a pane or in a window.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set ships exactly two
-// auxiliary windows, and this is one of them — so this body is mounted twice, by
-// the deck as a pane and by the frame as the `agent-console` surface. It takes
-// plain props rather than either context so neither mount has to translate the
-// other's shape, and so the component can be driven in a test without building a
-// deck or a route.
+// `Spec-023 §Console Design (Meridian)` §The surface set ships exactly two auxiliary
+// windows, and this is one of them — so this body is mounted twice, by the deck as a
+// pane and by the frame as the `agent-console` surface. It takes plain props rather
+// than either context so neither mount has to translate the other's shape, and so the
+// component can be driven in a test without building a deck or a route.
 //
-// WHAT IT SAYS TODAY, AND WHY THAT IS THE HONEST AMOUNT
+// EVERY WIRE-BACKED PROP IS OPTIONAL, AND THAT IS NOT LAZINESS. An auxiliary address
+// resolves to a session and may name no agent; a bare route resolves to no session at
+// all, and both contexts type `sessionStore` as possibly absent for exactly that
+// reason. A pane that demanded them would be unmountable in the states the frame can
+// actually produce, so each column states which half it is missing instead.
 //
-// `Spec-023 §Console Design (Meridian)` §The agent card fixes what the binding
-// read renders: identity and lifecycle, the EFFECTIVE provider axis and never the
-// pending one, the observed output speed beside the requested one, and any pending
-// switch as a line of its own. Every one of those comes from a roster read that is
-// fixture-only, and the card that renders them is the roster lane's. What this file
-// owns is the frame they land in: who this pane is about, the machines the session's
-// agents run on, and the definition editor's seat.
+// WHAT EACH COLUMN IS
 //
-// The machines column is the shipped runtime-node roster, absorbed rather than
-// re-authored — it is the only caller of the node-attach reads that exists, and a
-// second one beside it would be two implementations of one job. It reads the
-// installed bridge directly, so under the fixture the frame says the question was
-// not put rather than answering from the live daemon in a window showing fixture
-// data.
+//   • **Binding** — the roster read, the card for this agent, the provider-axis
+//     switch, and the attach form. Its own component, because every one of those
+//     needs the models and hooks cannot be called conditionally.
+//   • **Machines** — the shipped runtime-node roster, absorbed rather than
+//     re-authored: it is the only caller of the node-attach reads that exists, and a
+//     second one beside it would be two implementations of one job. It reads the
+//     installed bridge directly, so under the fixture the frame says the question was
+//     not put rather than answering from the live daemon in a window showing fixture
+//     data.
+//   • **Definition** — the seat for a body another plan authors.
+//   • **Peers and linkage** — the session-scoped peer-invocation grant, and what this
+//     agent's newest run started or was refused.
 
-import { SIDEKICK_DEFINITION_EDITOR_SLOT } from "../../agents/index.js";
-import type { ConsoleBridgeSource } from "../../bridge/index.js";
+import { useCallback, useMemo, useReducer, useState } from "react";
+
+import {
+  PeerInvocation,
+  RunLinkage,
+  SIDEKICK_DEFINITION_EDITOR_SLOT,
+  newestRunIdForAgent,
+  useAgentConsoleModels,
+  type AgentConsoleModels,
+} from "../../agents/index.js";
+import type { ConsoleBridge, ConsoleBridgeSource } from "../../bridge/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
+import { consoleRefusalFrom, usePushDrivenRead } from "../../collaboration/push-driven-read.js";
 import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
 import { Nothing, WireFigure } from "../../primitives/index.js";
+import type { SessionStore } from "../../store/index.js";
+import { AgentBindingColumn } from "./AgentBindingColumn.js";
+
+/** Names a peer-invocation failure the thrown value carried no refusal for. */
+const PEER_INVOCATION_ORIGIN = "peer-invocation";
 
 export interface AgentConsolePaneProps {
   /** The session this console is scoped to, wire-verbatim. */
@@ -42,9 +61,15 @@ export interface AgentConsolePaneProps {
    */
   readonly agentId: string | undefined;
   readonly bridgeSource: ConsoleBridgeSource;
+  /** Absent where the mount could not resolve one; the binding column says so. */
+  readonly bridge?: ConsoleBridge | undefined;
+  /** Absent on a bare route, which both mount contexts admit. */
+  readonly sessionStore?: SessionStore | undefined;
 }
 
 export function AgentConsolePane(props: AgentConsolePaneProps): React.JSX.Element {
+  const models = useAgentConsoleModels(props.bridge, props.sessionStore);
+
   return (
     <section className="meridian-agent-console" aria-label="Agent console">
       <header className="meridian-agent-console__head">
@@ -61,6 +86,20 @@ export function AgentConsolePane(props: AgentConsolePaneProps): React.JSX.Elemen
       </header>
 
       <div className="meridian-agent-console__columns">
+        <div className="meridian-agent-console__column" aria-label="Binding">
+          <h3 className="meridian-agent-console__column-title">Binding</h3>
+          {models === undefined ? (
+            <Nothing
+              kind="not-checked"
+              placement="surface"
+              title="This console was not handed a session to read agents from."
+              detail="The roster, the binding, and the attach form are all scoped to one session, so nothing was asked of the daemon."
+            />
+          ) : (
+            <AgentBindingColumn models={models} agentId={props.agentId} />
+          )}
+        </div>
+
         <div className="meridian-agent-console__column" aria-label="Machines">
           <h3 className="meridian-agent-console__column-title">Machines</h3>
           {renderAbsorbedNodeRoster(props.bridgeSource, props.sessionId)}
@@ -70,9 +109,113 @@ export function AgentConsolePane(props: AgentConsolePaneProps): React.JSX.Elemen
           <h3 className="meridian-agent-console__column-title">Definition</h3>
           <SidekickDefinitionEditorMount agentId={props.agentId} />
         </div>
+
+        <div className="meridian-agent-console__column" aria-label="Peers and linkage">
+          <h3 className="meridian-agent-console__column-title">Peers and linkage</h3>
+          <PeerInvocationMount models={models} sessionStore={props.sessionStore} />
+          <RunLinkageMount
+            models={models}
+            sessionStore={props.sessionStore}
+            agentId={props.agentId}
+          />
+        </div>
       </div>
     </section>
   );
+}
+
+/**
+ * The peer-invocation grant, projected rather than remembered.
+ *
+ * The value comes from the session's own projection, and its ABSENCE from that
+ * projection is the third state the control renders as unknown — the member is not on
+ * the shipped session read, so a session that has the capability enabled looks
+ * identical here to one that does not, and saying "off" would be the one wrong
+ * answer. The re-read re-derives from the store rather than issuing a second read,
+ * because the store IS the console's copy of that projection.
+ */
+function PeerInvocationMount(props: {
+  readonly models: AgentConsoleModels | undefined;
+  readonly sessionStore: SessionStore | undefined;
+}): React.JSX.Element {
+  const [projectionRevision, noteReRead] = useReducer((reads: number) => reads + 1, 0);
+  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  const [servedEnabled, setServedEnabled] = useState<boolean | undefined>(undefined);
+  const { sessionStore, models } = props;
+
+  const projectedEnabled = useMemo(() => {
+    void projectionRevision;
+    if (sessionStore === undefined) {
+      return undefined;
+    }
+    const projected =
+      sessionStore.snapshot().partitions.session[sessionStore.sessionId]?.body?.[
+        "peerInvocationEnabled"
+      ];
+    return typeof projected === "boolean" ? projected : undefined;
+  }, [sessionStore, projectionRevision]);
+
+  const setEnabled = useCallback(
+    (enabled: boolean): void => {
+      if (models === undefined) {
+        return;
+      }
+      models
+        .setPeerInvocation(enabled)
+        // The REPLY's value, read back from the post-append projection — never the
+        // value that was asked for.
+        .then((reply) => {
+          setServedEnabled(reply.enabled);
+          setRefusal(undefined);
+        })
+        .catch((error: unknown) => {
+          setRefusal(consoleRefusalFrom(error, PEER_INVOCATION_ORIGIN));
+        });
+    },
+    [models],
+  );
+
+  return (
+    <PeerInvocation
+      enabled={servedEnabled ?? projectedEnabled}
+      onSetEnabled={setEnabled}
+      onReRead={noteReRead}
+      refusal={refusal}
+    />
+  );
+}
+
+/**
+ * The child-link read for this agent's newest run.
+ *
+ * The read is keyed by a PARENT RUN and this console is scoped to an agent, so the
+ * two are related through the store's own run projection and through no wire question
+ * the daemon answers. Where no run has been attributed to this agent, the surface
+ * renders that absence rather than an empty result.
+ */
+function RunLinkageMount(props: {
+  readonly models: AgentConsoleModels | undefined;
+  readonly sessionStore: SessionStore | undefined;
+  readonly agentId: string | undefined;
+}): React.JSX.Element {
+  const { models, sessionStore, agentId } = props;
+  const parentRunId =
+    sessionStore === undefined ? undefined : newestRunIdForAgent(sessionStore, agentId);
+  if (models === undefined || parentRunId === undefined) {
+    return <RunLinkage parentRunId={undefined} state={undefined} />;
+  }
+  return <ResolvedRunLinkage models={models} parentRunId={parentRunId} />;
+}
+
+/** The mounted arm, where both halves exist and the read's hook may run. */
+function ResolvedRunLinkage(props: {
+  readonly models: AgentConsoleModels;
+  readonly parentRunId: string;
+}): React.JSX.Element {
+  const { models, parentRunId } = props;
+  const read = useMemo(() => models.linkageFor(parentRunId), [models, parentRunId]);
+  const state = usePushDrivenRead(read);
+  return <RunLinkage parentRunId={parentRunId} state={state} />;
 }
 
 /**
