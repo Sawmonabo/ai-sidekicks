@@ -13,16 +13,21 @@
 
 import { describe, expect, it } from "vitest";
 
-import { declaredEdges, type PhaseGraphNode, type PhaseTopology } from "./phase-topology.js";
+import {
+  declaredEdges,
+  phaseDisplayText,
+  type PhaseGraphNode,
+  type PhaseTopology,
+} from "./phase-topology.js";
 
 /** A phase with everything named, so a case perturbs exactly one member. */
 function phase(phaseId: string): PhaseGraphNode {
   return {
     phaseId,
-    label: `Phase ${phaseId}`,
+    displayName: `Phase ${phaseId}`,
     state: "pending",
     gateState: "closed",
-    isParked: false,
+    parkAttention: undefined,
   };
 }
 
@@ -189,5 +194,29 @@ describe("a topology no graph can be drawn from", () => {
     // Without this the five refusals above would all pass over an implementation
     // that refused every topology, and no run would ever draw an edge.
     expect(declaredEdges(FAN_OUT_PHASES, FAN_OUT_TOPOLOGY)).not.toBeUndefined();
+  });
+});
+
+describe("the words that stand for a phase where only a string will do", () => {
+  it("uses the authored name when the caller has one", () => {
+    expect(phaseDisplayText(phase("plan"))).toBe("Phase plan");
+  });
+
+  it("falls back to the identifier when no name was read", () => {
+    // The case every read reachable today produces. A sentence has no mono face to
+    // lend the identifier, so the fallback is the only honest thing an accessible
+    // name or an edge label can say — which is exactly why the BOX does not use it
+    // and renders the two members apart.
+    expect(phaseDisplayText({ ...phase("plan"), displayName: undefined })).toBe("plan");
+  });
+
+  it("carries the fallback onto an edge, so a nameless run's edges still lead somewhere", () => {
+    const nameless = FAN_OUT_PHASES.map((entry) => ({ ...entry, displayName: undefined }));
+    const edges = declaredEdges(nameless, FAN_OUT_TOPOLOGY) ?? [];
+
+    expect(edges).not.toHaveLength(0);
+    for (const edge of edges) {
+      expect(edge.targetLabel).toBe(edge.targetPhaseId);
+    }
   });
 });

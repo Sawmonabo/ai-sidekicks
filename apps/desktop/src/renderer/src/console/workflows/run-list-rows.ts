@@ -258,6 +258,27 @@ export type WorkflowParkSchedule =
   | { readonly kind: "unscheduled" }
   | { readonly kind: "unreadable"; readonly autoResumeAt: string };
 
+/**
+ * Whether this park is waiting on a PERSON, read off the classified schedule.
+ *
+ * The one place that reading is made, and it is a reading rather than a restatement
+ * of the union: `armed` is a machine waiting for a machine, and the other two arms
+ * both end when somebody ends them — an unreadable boundary is fail-closed into the
+ * second group, because nothing legible says this run resumes itself.
+ *
+ * It exists as a function because two surfaces spend attention on the answer and
+ * neither may spend it differently: the park badge chooses its tone from this, and
+ * the run pane's phase graph chooses a node's border treatment from it. `Spec-023
+ * §Console Design (Meridian)` rule 3 spends amber on "a person is needed" and on
+ * nothing else, so a badge and a node disagreeing about one phase is one of them
+ * telling an operator to look at something the other says needs nobody. Each
+ * deriving `schedule.kind !== "armed"` for itself is exactly how that disagreement
+ * arrives — silently, since both readings are plausible in isolation.
+ */
+export function parkAwaitsPerson(schedule: WorkflowParkSchedule): boolean {
+  return schedule.kind !== "armed";
+}
+
 /** How one park's armed boundary reads. The one place the classification is made. */
 export function parkSchedule(park: WorkflowPhasePark): WorkflowParkSchedule {
   const armed = park.autoResumeAt;

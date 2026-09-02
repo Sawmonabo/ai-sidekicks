@@ -30,6 +30,7 @@
 // renders the daemon's typed refusal when the daemon declines it.
 
 import { Chip, WireFigure, formatClockTime, type ChipTone } from "../primitives/index.js";
+import { parkAwaitsPerson } from "./run-list-projection.js";
 import type {
   WorkflowParkedPhase,
   WorkflowParkReason,
@@ -75,9 +76,14 @@ const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = 
  * console can read. A scheduled park is a machine waiting for a machine and earns no
  * colour; an unreadable boundary earns the amber, because nothing legible says the
  * run will resume itself.
+ *
+ * The reading itself is `parkAwaitsPerson`'s and is not made here. The phase graph
+ * beside this badge draws the SAME phase and spends the same amber on it, and a badge
+ * that decided for itself is how one park came to read as needing nobody in a card
+ * and as needing somebody on the node above it.
  */
 function parkTone(schedule: WorkflowParkSchedule): ChipTone {
-  return schedule.kind === "armed" ? "neutral" : "attention";
+  return parkAwaitsPerson(schedule) ? "attention" : "neutral";
 }
 
 /** What the badge says about the end of the wait, for one classified schedule. */
@@ -141,9 +147,25 @@ export function ParkBadge(props: ParkBadgeProps): React.JSX.Element {
           badge into a row of enum values.
         */}
         <WireFigure value={park.parkReason} />
-        {props.parked.phaseName === undefined ? null : (
-          <span className="meridian-park__phase">{props.parked.phaseName}</span>
-        )}
+        {/*
+          The phase this card is about, on exactly the same terms one line up: the
+          console's prose where a name was authored, and the wire's own identifier
+          always, in the mono signature rule 4 gives a wire-true figure.
+
+          The identifier is unconditional because the name is not. The run READ that
+          feeds the pane's stack of cards carries no phase name at all — the authored
+          name lives on the definition body, which no read reachable from this build
+          serves — so a card that showed only a name showed nothing, and two
+          `waiting-human` parks from one fan-out read identically. The caller used to
+          paper over that by passing the id INTO the name slot, which put an opaque
+          key on screen in the face and weight of something a person had chosen.
+        */}
+        <span className="meridian-park__phase">
+          {props.parked.phaseName === undefined ? null : (
+            <span className="meridian-park__phase-name">{props.parked.phaseName}</span>
+          )}
+          <WireFigure value={props.parked.phaseId} />
+        </span>
       </div>
       <p className="meridian-park__cause">{park.parkCause}</p>
       <ParkSchedule schedule={schedule} parkReason={park.parkReason} />

@@ -29,7 +29,12 @@ import {
   PHASE_NODE_WIDTH_PX,
   type DrawnPhaseSequence,
 } from "./phase-sequence-layout.js";
-import type { PhaseGraphNode, PhaseSequenceEdge } from "./phase-topology.js";
+import {
+  PHASE_PARK_ATTENTION_MARKS,
+  phaseDisplayText,
+  type PhaseGraphNode,
+  type PhaseSequenceEdge,
+} from "./phase-topology.js";
 
 /**
  * What a node carries into its own renderer.
@@ -73,14 +78,25 @@ export interface PhaseGraphElements {
  * What assistive technology is told about one phase.
  *
  * Sentence-shaped and calm: the phase's own name, then what it is doing, then
- * whether its gate is open, then — only when it is true right now — that it is
- * parked. Nothing is inferred from anything else: a parked phase is parked because
- * the caller said so, never because its state looked like waiting.
+ * whether its gate is open, then — only where there is one right now — what its park
+ * is waiting for. Nothing is inferred from anything else: a parked phase is parked
+ * because the caller said so, never because its state looked like waiting, and
+ * whether that park needs a person is the caller's reading rather than a second one
+ * made here.
+ *
+ * The words that open it come from `phaseDisplayText`, which is also what an edge
+ * carries: a sentence has no mono face to lend a wire identifier, so the fallback is
+ * chosen in one place rather than here and there. A reader listening is told the
+ * identifier where the box shows the identifier, and never a different string.
+ *
+ * The park's words come from the same table the box prints, so a reader listening is
+ * told a scheduled park is scheduled — which is the whole of what the neutral
+ * treatment says to a reader looking at it.
  */
 export function phaseNodeAccessibleName(phase: PhaseGraphNode): string {
-  const parts = [`${phase.label}: ${phase.state}`, `gate ${phase.gateState}`];
-  if (phase.isParked) {
-    parts.push("parked");
+  const parts = [`${phaseDisplayText(phase)}: ${phase.state}`, `gate ${phase.gateState}`];
+  if (phase.parkAttention !== undefined) {
+    parts.push(PHASE_PARK_ATTENTION_MARKS[phase.parkAttention]);
   }
   return parts.join(", ");
 }

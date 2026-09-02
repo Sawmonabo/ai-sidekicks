@@ -38,7 +38,17 @@
   align-items: baseline;
 }
 
+/*
+ * The phase's identity: its authored name where there is one, and its wire
+ * identifier always. Baseline-aligned rather than stacked, because the two are one
+ * reading of one phase and the mono figure beside prose is the badge's own
+ * established shape — the park reason one slot to the left does exactly this.
+ */
 .meridian-park__phase {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
 }

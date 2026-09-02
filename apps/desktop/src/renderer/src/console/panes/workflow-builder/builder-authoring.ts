@@ -31,6 +31,7 @@
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import type { ConsoleEntityRef } from "../../store/index.js";
 import type { WorkflowChromeState } from "../../workflows/chrome-state.js";
+import { PANE_ADDRESS_INVALID_CODE, misaddressedPane } from "../../workflows/pane-addressing.js";
 
 /**
  * Every act that writes a definition, and exactly five.
@@ -77,12 +78,14 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
  *   • `pane-address-invalid` — there is no well-formed question. The pane was
  *     handed an entity of a kind it does not author, so it refuses BEFORE composing
  *     a read rather than passing a run id off as a definition id and asking about
- *     something that does not exist.
+ *     something that does not exist. Both panes in this family raise it, so the code
+ *     itself is declared in `workflows/pane-addressing.ts` and this set names it from
+ *     there rather than spelling a second literal.
  */
-export const WORKFLOW_BUILDER_REFUSAL_CODES = [
+export const WORKFLOW_BUILDER_REFUSAL_CODES: readonly [
   "wire-unregistered",
-  "pane-address-invalid",
-] as const;
+  typeof PANE_ADDRESS_INVALID_CODE,
+] = ["wire-unregistered", PANE_ADDRESS_INVALID_CODE] as const;
 
 /** One locally-raised refusal code. Derived from the tuple, never restated. */
 export type WorkflowBuilderRefusalCode = (typeof WORKFLOW_BUILDER_REFUSAL_CODES)[number];
@@ -137,17 +140,13 @@ export const WORKFLOW_BUILDER_SUBJECT_KIND: ConsoleEntityRef["kind"] = "workflow
  * replaces — the pane would compose a read for a definition that does not exist and
  * present whatever came back as the definition a person asked to edit.
  *
- * The kind is named in the detail because it is the whole content of the refusal: a
- * person looking at a pane that will not open needs to know it was pointed at the
- * wrong thing, and the deck's own address is the thing to fix.
+ * The sentence is `workflows/pane-addressing.ts`'s, bound here to this surface's
+ * origin and to the one kind it authors: the run view raises the same refusal about
+ * its own kind, and two copies of one sentence are two sentences the day either is
+ * reworded.
  */
 export function misaddressedBuilderPane(addressedKind: ConsoleEntityRef["kind"]): ConsoleRefusal {
-  const code: WorkflowBuilderRefusalCode = "pane-address-invalid";
-  return refuse(
-    WORKFLOW_BUILDER_ORIGIN,
-    code,
-    `This pane authors a ${WORKFLOW_BUILDER_SUBJECT_KIND} and was opened on a ${addressedKind}. Nothing was read for it.`,
-  );
+  return misaddressedPane(WORKFLOW_BUILDER_ORIGIN, WORKFLOW_BUILDER_SUBJECT_KIND, addressedKind);
 }
 
 /**

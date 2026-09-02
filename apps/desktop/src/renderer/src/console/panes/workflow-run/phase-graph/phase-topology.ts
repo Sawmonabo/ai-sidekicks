@@ -54,22 +54,76 @@ export type PhaseTopology = readonly PhaseDependencyDeclaration[];
 export type PhaseTopologyAbsence = "not-supplied" | "not-drawable";
 
 /**
+ * What a park on this canvas is waiting for, and exactly two answers.
+ *
+ * A BOOLEAN WOULD BE THE DEFECT. The node used to carry `isParked`, so every park
+ * took the same amber border — including a provider-limited phase the engine had
+ * armed a readable resume for, which needs nobody. `Spec-023 §Console Design
+ * (Meridian)` rule 3 spends amber on "a person is needed" and on nothing else, and
+ * the park badge beside the graph had that right while the node beside it did not:
+ * one phase, two attention readings, and nothing failing.
+ *
+ * The caller supplies the answer rather than deriving it here, and derives it
+ * through `workflows/run-list-rows.ts`'s `parkAwaitsPerson` — the same reading the
+ * badge takes its tone from, so the two cannot come apart again.
+ */
+export const PHASE_PARK_ATTENTIONS = ["awaiting-person", "scheduled"] as const;
+
+/** One park's attention reading. Derived from the tuple, never restated. */
+export type PhaseParkAttention = (typeof PHASE_PARK_ATTENTIONS)[number];
+
+/**
+ * What a node prints, and says out loud, for each attention reading.
+ *
+ * Total over the closed set, so a third reading is a compile error here rather than
+ * a park that draws a treatment and names nothing. It lives beside the vocabulary
+ * because both the box and the accessible name read it, and two tables would be two
+ * chances for a reader who is looking and one who is listening to be told different
+ * things about one phase.
+ */
+export const PHASE_PARK_ATTENTION_MARKS: Readonly<Record<PhaseParkAttention, string>> = {
+  "awaiting-person": "parked",
+  scheduled: "parked, resume scheduled",
+};
+
+/**
  * One phase of a RUN, as the caller reports it.
  *
  * The other half of the pair: a declaration above is what the definition says
  * should happen, and this is what the run says did. Every member is the caller's,
- * and in particular the label is supplied rather than composed — a phase's display
+ * and in particular the display name is supplied rather than composed — a phase's
  * name is a fact about the run, and a graph that invented one would be asserting
  * something it never read.
+ *
+ * THE NAME AND THE IDENTIFIER ARE TWO MEMBERS, NOT ONE LABEL. A single `label` let a
+ * caller with no name to give pass the phase id in its place, and the box then drew a
+ * wire identifier in the same face and weight an authored name would have had — so
+ * an opaque key read as something a person had chosen. Keeping them apart means the
+ * absence of a name is representable, and the id can carry rule 4's mono provenance
+ * signature wherever it is drawn.
  */
 export interface PhaseGraphNode {
+  /** The run's own identity for this phase. Wire-verbatim; never parsed, never prettified. */
   readonly phaseId: string;
-  /** What a person reads on the node. The caller decides; this file never invents one. */
-  readonly label: string;
+  /**
+   * The phase's authored name, where the caller holds one.
+   *
+   * `undefined` means no read available to the caller carries a name — not that the
+   * phase has none. Spelled `| undefined` rather than left optional because the
+   * caller builds this shape per node and states the member every time.
+   */
+  readonly displayName: string | undefined;
   readonly state: "pending" | "running" | "completed" | "failed" | "skipped";
   readonly gateState: "closed" | "open" | "bypassed";
-  /** True exactly while the phase is parked right now. */
-  readonly isParked: boolean;
+  /**
+   * How this phase's park reads, or nothing where the phase is not parked.
+   *
+   * Absence is the not-parked case and is spelled `| undefined` rather than left
+   * optional: the caller builds this shape from a wire phase and states the member
+   * on every node, so under `exactOptionalPropertyTypes` an absent key and a key
+   * holding `undefined` would be different types at the one call site there is.
+   */
+  readonly parkAttention: PhaseParkAttention | undefined;
 }
 
 /** One declared dependency, drawn from the phase depended on to the phase that waits. */
@@ -93,8 +147,21 @@ function dependencyEdge(sourcePhaseId: string, target: PhaseGraphNode): PhaseSeq
     edgeId: `${sourcePhaseId}->${target.phaseId}`,
     sourcePhaseId,
     targetPhaseId: target.phaseId,
-    targetLabel: target.label,
+    targetLabel: phaseDisplayText(target),
   };
+}
+
+/**
+ * The words that stand for one phase where only a string will do.
+ *
+ * An accessible name and an edge's label are sentences rather than markup, so
+ * neither can draw the name and the identifier differently — they get the name where
+ * there is one and the identifier where there is not. That fallback is stated once
+ * here because two call sites choosing it separately is how one of them comes to
+ * announce a phase the other calls something else.
+ */
+export function phaseDisplayText(phase: PhaseGraphNode): string {
+  return phase.displayName ?? phase.phaseId;
 }
 
 /**

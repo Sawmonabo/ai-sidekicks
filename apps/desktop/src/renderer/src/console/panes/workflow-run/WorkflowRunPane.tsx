@@ -32,6 +32,18 @@
 // the growth port gives every other surface; hiding it would leave an operator
 // waiting for a button that is never going to appear.
 //
+// AN ADDRESS IS CHECKED BEFORE IT IS USED, AND THE CHECK STAYS WHEN THE TYPE SAYS IT
+// CANNOT FAIL. The pane used to read `entity.id` on any kind at all, so a
+// `workflow-definition` addressed here had its id carried into the run read and
+// whatever came back — the port's refusal, or a snapshot — was shown under an address
+// that never named a run. `ConsolePaneAddress` is becoming a kind-scoped union, which
+// makes that address unconstructible by code in this process; the guard below is the
+// FAIL-CLOSED PROJECTION of that type and does not go away with it, because a pane
+// address is also PARSED — out of a persisted layout an older build wrote, and out of
+// a route — and a parsed value is data rather than a proof. The builder pane holds
+// the same guard for the kind it authors, and both refuse through one sentence
+// (`workflows/pane-addressing.ts`).
+//
 // PARK IS READ FROM THE PARK MEMBERS AND NEVER FROM A PHASE'S STATE. The phase state
 // union carries no suspended arm on purpose, and the park members are live-scoped —
 // present for exactly the phases parked when the response was built. That rule binds
@@ -50,14 +62,16 @@ import type { WorkflowPhaseState } from "../../bridge/index.js";
 import { Nothing, RefusalBanner } from "../../primitives/index.js";
 import { ChatStartSlot } from "../../workflows/ChatStartSlot.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
+import { refusedWorkflowChrome } from "../../workflows/chrome-state.js";
 import { ParkBadge } from "../../workflows/ParkBadge.js";
-import { phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
+import { parkAwaitsPerson, phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
 import type { WorkflowParkedPhase } from "../../workflows/run-list-projection.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
+import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 import { unregisteredRunControl } from "./run-controls.js";
 import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
-import type { PhaseGraphNode } from "./phase-graph/phase-topology.js";
+import type { PhaseGraphNode, PhaseParkAttention } from "./phase-graph/phase-topology.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 import { HumanFormSlot, type HumanFormMount } from "./slots/HumanFormSlot.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
@@ -97,28 +111,24 @@ function openHumanFormFor(phases: readonly WorkflowPhaseState[]): HumanFormMount
 }
 
 /**
- * How one phase is named wherever this pane names one.
+ * The authored name this pane can put beside a phase, which is none of them.
  *
- * ONE DERIVATION FOR TWO SURFACES, which is the point of the function rather than an
- * incidental tidiness: the graph labels a node and the park card names a phase, and
- * an operator reading a card is matching it against a node. Two call sites each
- * reaching for a member would be two chances to disagree, and a disagreement here is
- * invisible — both would render a plausible string.
+ * A CONSTANT, AND `undefined` RATHER THAN THE PHASE ID. Both surfaces below name a
+ * phase — the graph labels a node and the park card captions a card — and both used
+ * to be handed the phase id through a function called a display label. That put an
+ * opaque wire key on screen in the face and weight an authored name would have had,
+ * so a reader could not tell a chosen name from a generated one, which is the single
+ * fact this pane is otherwise scrupulous about rendering the absence of.
  *
- * IT IS THE PHASE ID BECAUSE NOTHING ELSE IS READABLE FROM HERE. The projection
- * carries an optional `phaseName` for surfaces that have one; the run read this pane
- * puts is not such a surface, because the authored name lives on the definition body
- * and no read reachable from this build serves it (the graph's own comment
- * enumerates why). So the id travels, exactly as the wire sent it — composing a
- * prettier label out of it, title-casing it or splitting it on separators, would put
- * an invented name on screen that is indistinguishable from an authored one. The
- * graph renders the same value as a node's label, so a card and a node agree by
- * construction, and the day a definition read lands this function is the single
- * place its `name` replaces the id and both surfaces move together.
+ * Both surfaces now take the name and the identifier as two values: the identifier
+ * always, in the mono provenance signature `Spec-023 §Console Design (Meridian)`
+ * rule 4 gives a wire-true figure, and the name only where there is one. There is
+ * none here because the authored name lives on the definition body and no read
+ * reachable from this build serves it (the graph's own comment enumerates why), and
+ * this is the one place that says so — the day a definition read lands, its `name`
+ * replaces this constant and both surfaces move together.
  */
-function phaseDisplayLabel(phase: WorkflowPhaseState): string {
-  return phase.phaseId;
-}
+const PHASE_DISPLAY_NAME: string | undefined = undefined;
 
 /**
  * What stands above the slots for one read state.
@@ -179,11 +189,11 @@ function RunReadState(props: { readonly snapshot: WorkflowRunSnapshotState }): R
  * The graph draws the states and captions the absence instead; the day a definition
  * read lands on the port, this is the one call site that grows a `topology` prop.
  *
- * THE LABEL IS THE PHASE ID AND NOT A NAME, for the same reason at one remove: the
- * name lives in that same unreachable definition body. A graph that composed a
- * readable label from the id would be inventing exactly the fact this family renders
- * the absence of, and an invented name is indistinguishable on screen from an
- * authored one.
+ * A NODE CARRIES THE NAME AND THE IDENTIFIER SEPARATELY, and this pane supplies no
+ * name: it lives in that same unreachable definition body. Composing a readable
+ * label out of the id would invent exactly the fact this family renders the absence
+ * of, and passing the id AS the name — which this surface did — is the same
+ * invention with the composing step left out.
  *
  * THE PARK IS READ FROM `parkReason` AND NEVER FROM A PHASE'S STATE, the same rule
  * the park banner beneath obeys: the status union has no suspended arm, and the park
@@ -194,12 +204,36 @@ function RunPhaseGraph(props: {
 }): React.JSX.Element {
   const nodes: readonly PhaseGraphNode[] = props.phases.map((phase) => ({
     phaseId: phase.phaseId,
-    label: phaseDisplayLabel(phase),
+    displayName: PHASE_DISPLAY_NAME,
     state: phase.state,
     gateState: phase.gateState,
-    isParked: phase.parkReason !== undefined,
+    parkAttention: phaseParkAttention(phase),
   }));
   return <PhaseGraph phases={nodes} label="Phase sequence" />;
+}
+
+/**
+ * How one phase's park reads on the canvas, or nothing where there is no park.
+ *
+ * THROUGH THE PROJECTION'S OWN TWO READINGS AND NEVER A THIRD MADE HERE. The graph
+ * used to set a parked flag from `parkReason`'s presence, which is the discriminator
+ * — correct about WHETHER there is a park and silent about what it is waiting for —
+ * and the sheet then gave every one of them the amber border rule 3 reserves for a
+ * person being needed. The fixture's own parked run carries the counterexample: a
+ * provider-limited phase with a readable resume instant, which the badge below drew
+ * neutral while the node above it drew amber.
+ *
+ * `phasePark` applies the discriminator and `parkAwaitsPerson` reads the classified
+ * schedule, both in `workflows/`, and the badge takes its tone from the second of
+ * them — so the card and the node now agree by construction rather than by two
+ * surfaces happening to reach the same conclusion.
+ */
+function phaseParkAttention(phase: WorkflowPhaseState): PhaseParkAttention | undefined {
+  const park = phasePark(phase);
+  if (park === undefined) {
+    return undefined;
+  }
+  return parkAwaitsPerson(parkSchedule(park)) ? "awaiting-person" : "scheduled";
 }
 
 /**
@@ -214,12 +248,12 @@ function RunPhaseGraph(props: {
  * A run with nothing parked says so rather than rendering an empty region: "nothing
  * is waiting on anyone" is the answer an operator opened this pane for.
  *
- * EVERY CARD NAMES ITS PHASE. A run that branches parks more than one phase at a
- * time, and a stack of cards carrying only reason, cause and schedule leaves an
+ * EVERY CARD IDENTIFIES ITS PHASE. A run that branches parks more than one phase at
+ * a time, and a stack of cards carrying only reason, cause and schedule leaves an
  * operator unable to tell which branch stopped — the two cards of a fan-out read
- * identically. The identity is the same value the node above the cards is labelled
- * with, so a person reads one key in two places rather than matching a card to a
- * node by position.
+ * identically. The badge draws that identity from `phaseId`, which is the same value
+ * the node above the cards draws, so a person reads one key in two places rather
+ * than matching a card to a node by position.
  */
 function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): React.JSX.Element {
   const parked = props.phases.flatMap<WorkflowParkedPhase>((phase) => {
@@ -229,15 +263,16 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
     // `autoResumeAt`'s presence, and a second derivation of it here would be the
     // second authority the badge stopped being.
     //
-    // `phaseName` is the badge's identity slot, and it is fed rather than left
-    // empty: a badge handed nothing renders nothing for it, which is the stack of
-    // indistinguishable cards this arm exists to fix.
+    // `phaseName` is the badge's slot for an AUTHORED name and is left empty,
+    // because this read carries none. The card is still identified: the badge draws
+    // `phaseId` unconditionally, as a wire figure, which is what keeps a fan-out's
+    // cards distinguishable without any surface inventing a name.
     return park === undefined
       ? []
       : [
           {
             phaseId: phase.phaseId,
-            phaseName: phaseDisplayLabel(phase),
+            phaseName: PHASE_DISPLAY_NAME,
             park,
             schedule: parkSchedule(park),
           },
@@ -256,8 +291,8 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
   return (
     <div className="meridian-workflow__parks">
       {parked.map((entry) => (
-        // Keyed by the phase, which is the run's own identity for it, and named by
-        // the same derivation the graph labels that phase's node with.
+        // Keyed by the phase, which is the run's own identity for it, and the same
+        // value the graph draws on that phase's node.
         <ParkBadge key={entry.phaseId} parked={entry} />
       ))}
     </div>
@@ -267,10 +302,14 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
 /** The run pane's chrome. The run detail and the human form inside it are Plan-017's. */
 export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element {
   const { bridge, entity, sessionStore } = props.context;
-  // Called before the no-run arm returns, because a hook may not sit behind a
+  // The id is taken from the address only where the address names a RUN. An entity
+  // of another kind supplies nothing, so the read below is `unasked` on exactly the
+  // arm that refuses — rather than in flight against an id that names no run.
+  const addressedRunId = entity?.kind === WORKFLOW_RUN_PANE_SUBJECT_KIND ? entity.id : undefined;
+  // Called before the two absent arms return, because a hook may not sit behind a
   // branch. With no run named the read is `unasked`, which is the honest state and
-  // the one the arm below never renders.
-  const snapshot = useWorkflowRunSnapshot(bridge.growth, entity?.id);
+  // the one those arms never render.
+  const snapshot = useWorkflowRunSnapshot(bridge.growth, addressedRunId);
 
   if (entity === undefined) {
     return (
@@ -283,6 +322,22 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
         />
         <ChatStartSlot sessionId={sessionStore?.sessionId} />
       </WorkflowChrome>
+    );
+  }
+
+  if (entity.kind !== WORKFLOW_RUN_PANE_SUBJECT_KIND) {
+    // The chrome's own `refused` arm, which renders the refusal and NOT the children
+    // — so no control, no slot and no start affordance stands beside an address this
+    // surface will not open, and the read above was never composed for it. A banner
+    // across the surface rather than a card, because what changed is what this whole
+    // surface can do, which is nothing.
+    return (
+      <WorkflowChrome
+        glyph="run"
+        heading={HEADING}
+        summary={SUMMARY}
+        state={refusedWorkflowChrome(misaddressedRunPane(entity.kind))}
+      />
     );
   }
 

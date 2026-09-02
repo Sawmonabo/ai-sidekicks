@@ -230,16 +230,49 @@
   font-family: var(--meridian-font-sans);
 }
 
-.meridian-phase-node__label {
+/*
+ * The phase's authored name, drawn only where the caller has one.
+ *
+ * Prose, in the sans face at the box's largest size, because a name is the one thing
+ * on this box a person chose. It is clamped to a single line rather than the two the
+ * old combined label took, since the identifier now sits under it and the box's
+ * block size is fixed — see the layout module for why it is fixed rather than
+ * measured.
+ */
+.meridian-phase-node__name {
   overflow: hidden;
   color: var(--meridian-text);
   font-size: var(--meridian-text-sm);
   font-weight: 600;
-  /* Two lines and then a clip: the box is a fixed size so the layout is
-     deterministic, and a label that grew the box would move every rank below it. */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+}
+
+/*
+ * The phase's wire identifier. Always drawn, and always in the mono signature rule 4
+ * gives a wire-true figure — the `WireFigure` inside carries the face; this span
+ * carries only the size, the colour and the clip.
+ *
+ * Two lines when it stands alone, which is the case every read reachable today
+ * produces: an identifier is long, and one clipped line of it identifies nothing.
+ * One line when a name sits above it, so the box's content stays within the three
+ * lines its fixed height was drawn for.
+ */
+.meridian-phase-node__id {
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  /* Break inside the identifier rather than past the box: a hyphenated wire id has
+     no space to wrap at, so without this it would run under its neighbour. */
+  overflow-wrap: anywhere;
+}
+
+.meridian-phase-node__name + .meridian-phase-node__id {
+  -webkit-line-clamp: 1;
 }
 
 .meridian-phase-node__state {
@@ -255,11 +288,25 @@
   color: var(--meridian-text-muted);
 }
 
+/*
+ * The park mark. Its treatment is the park's ATTENTION reading and not the fact of a
+ * park: rule 3 spends amber on "a person is needed", and a phase the engine armed a
+ * readable resume for needs nobody — so it is marked and not tinted. The two rules
+ * below are the whole of the difference; the mark's text differs with them, so the
+ * distinction survives for a reader who sees no colour at all.
+ */
 .meridian-phase-node__park {
   padding-inline: var(--meridian-space-1);
-  background: var(--meridian-amber-ground);
   border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-phase-node[data-park="awaiting-person"] .meridian-phase-node__park {
+  background: var(--meridian-amber-ground);
   color: var(--meridian-amber-text);
+}
+
+.meridian-phase-node[data-park="scheduled"] .meridian-phase-node__park {
+  color: var(--meridian-text-muted);
 }
 
 /*
@@ -300,7 +347,8 @@
   border-color: var(--meridian-edge);
 }
 
-.meridian-phase-node[data-state="skipped"] .meridian-phase-node__label,
+.meridian-phase-node[data-state="skipped"] .meridian-phase-node__name,
+.meridian-phase-node[data-state="skipped"] .meridian-phase-node__id,
 .meridian-phase-node[data-state="skipped"] .meridian-phase-node__state {
   color: var(--meridian-text-faint);
 }
@@ -310,8 +358,10 @@
   color: var(--meridian-amber-text);
 }
 
-/* A parked phase carries the amber edge as well as the mark, so the box reads as
-   waiting on a person from across the pane. */
-.meridian-phase-node[data-parked="true"] {
+/* A park waiting on a PERSON carries the amber edge as well as the mark, so the box
+   reads as needing somebody from across the pane. A park the engine will lift on its
+   own carries neither: it is a machine waiting for a machine, and an amber border on
+   it is the pane asking for attention nothing is owed. */
+.meridian-phase-node[data-park="awaiting-person"] {
   border-color: var(--meridian-amber-mark);
 }

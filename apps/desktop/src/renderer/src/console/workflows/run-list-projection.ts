@@ -65,7 +65,7 @@ import {
   type WorkflowRunState,
 } from "./run-list-rows.js";
 
-export { parkSchedule, phasePark } from "./run-list-rows.js";
+export { parkAwaitsPerson, parkSchedule, phasePark } from "./run-list-rows.js";
 export type {
   WorkflowParkedPhase,
   WorkflowParkReason,

@@ -49,12 +49,13 @@ import {
  * FIXED rather than measured, and that is the whole determinism argument: a box
  * sized from rendered text is a function of the host's installed faces, so two
  * machines showing one run would disagree about where every phase is. 208 px is
- * 13rem — the label sets at `--meridian-text-sm` over two lines at this measure,
- * with the state line under it.
+ * 13rem — at this measure the name sets on one line at `--meridian-text-sm`, the
+ * wire identifier under it in mono at `--meridian-text-xs`, and the state line under
+ * that.
  */
 export const PHASE_NODE_WIDTH_PX: number = 208;
 
-/** The node box's block size: 4rem at the 16 px root — two label lines plus the state line. */
+/** The node box's block size: 4rem at the 16 px root — three text lines at this measure. */
 export const PHASE_NODE_HEIGHT_PX: number = 64;
 
 /**
@@ -183,10 +184,10 @@ export function phaseSequenceSignature(
   return JSON.stringify([
     phases.map((phase) => [
       phase.phaseId,
-      phase.label,
+      phase.displayName,
       phase.state,
       phase.gateState,
-      phase.isParked,
+      phase.parkAttention,
     ]),
     topology?.map((declaration) => [declaration.phaseId, declaration.dependsOn ?? null]) ?? null,
   ]);

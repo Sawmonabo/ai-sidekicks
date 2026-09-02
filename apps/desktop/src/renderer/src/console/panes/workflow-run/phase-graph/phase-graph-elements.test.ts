@@ -25,17 +25,17 @@ import {
 
 function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
   return {
-    label: `Phase ${overrides.phaseId}`,
+    displayName: `Phase ${overrides.phaseId}`,
     state: "pending",
     gateState: "closed",
-    isParked: false,
+    parkAttention: undefined,
     ...overrides,
   };
 }
 
 const SEQUENCE: readonly PhaseGraphNode[] = [
-  phase({ phaseId: "plan", label: "Plan", state: "completed", gateState: "open" }),
-  phase({ phaseId: "build", label: "Build", state: "running" }),
+  phase({ phaseId: "plan", displayName: "Plan", state: "completed", gateState: "open" }),
+  phase({ phaseId: "build", displayName: "Build", state: "running" }),
 ];
 
 /**
@@ -114,20 +114,62 @@ describe("the renderer's edge array", () => {
 describe("what a phase is called out loud", () => {
   it("names the phase, what it is doing, and its gate", () => {
     const name = phaseNodeAccessibleName(
-      phase({ phaseId: "build", label: "Build", state: "running", gateState: "open" }),
+      phase({ phaseId: "build", displayName: "Build", state: "running", gateState: "open" }),
     );
     expect(name).toBe("Build: running, gate open");
   });
 
+  it("announces the identifier where the caller read no name", () => {
+    // The box draws the name and the identifier as two separate figures, one of them
+    // in mono. A sentence has neither option, so it says the identifier — which is
+    // what the box shows in that case, so a reader listening and a reader looking are
+    // still told the same string.
+    const name = phaseNodeAccessibleName(
+      phase({ phaseId: "build", displayName: undefined, state: "running", gateState: "open" }),
+    );
+    expect(name).toBe("build: running, gate open");
+    // Negative control: a name that IS read is still what gets announced, so this is
+    // a fallback rather than the identifier winning everywhere.
+    expect(
+      phaseNodeAccessibleName(
+        phase({ phaseId: "build", displayName: "Build", state: "running", gateState: "open" }),
+      ),
+    ).not.toContain("build:");
+  });
+
   it("says a phase is parked only while it is parked", () => {
-    const parked = phase({ phaseId: "build", label: "Build", isParked: true });
+    const parked = phase({
+      phaseId: "build",
+      displayName: "Build",
+      parkAttention: "awaiting-person",
+    });
     expect(phaseNodeAccessibleName(parked)).toContain("parked");
     // Negative control: park is read from the park member and never inferred from a
     // state that merely looks like waiting.
-    expect(phaseNodeAccessibleName({ ...parked, isParked: false })).not.toContain("parked");
-    expect(phaseNodeAccessibleName({ ...parked, isParked: false, state: "pending" })).not.toContain(
+    expect(phaseNodeAccessibleName({ ...parked, parkAttention: undefined })).not.toContain(
       "parked",
     );
+    expect(
+      phaseNodeAccessibleName({ ...parked, parkAttention: undefined, state: "pending" }),
+    ).not.toContain("parked");
+  });
+
+  it("says which kind of park it is, so a listener is told what the colour says", () => {
+    // A reader who cannot see the neutral border is told the same thing it says: the
+    // engine will pick this phase back up, and nobody is being asked for anything.
+    // Announcing both kinds as "parked" would give that reader the amber reading of
+    // every park, which is the conflation the two treatments exist to prevent.
+    const scheduled = phase({ phaseId: "build", displayName: "Build", parkAttention: "scheduled" });
+    const awaiting = phase({
+      phaseId: "build",
+      displayName: "Build",
+      parkAttention: "awaiting-person",
+    });
+    expect(phaseNodeAccessibleName(scheduled)).toContain("resume scheduled");
+    expect(phaseNodeAccessibleName(awaiting)).not.toContain("resume scheduled");
+    // Negative control: the words come from the table rather than from one constant,
+    // so the two readings cannot collapse into one sentence.
+    expect(phaseNodeAccessibleName(scheduled)).not.toBe(phaseNodeAccessibleName(awaiting));
   });
 });
 

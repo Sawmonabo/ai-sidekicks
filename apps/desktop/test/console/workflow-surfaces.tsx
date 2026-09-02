@@ -1,10 +1,17 @@
 // The workflows family's surfaces, mounted once for the two tiers that look at them.
 //
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
-// accessibility tier need the same two surfaces this family ships, and a per-tier
-// copy of the mount would be two chances to compose them differently and then read
-// the results as if they were comparable. `console-harness.tsx` owns HOW the console
-// is mounted, one level down; this module owns WHAT of this family is mounted into it.
+// accessibility tier need the surfaces this family ships, and a per-tier copy of the
+// mount would be two chances to compose them differently and then read the results as
+// if they were comparable. `console-harness.tsx` owns HOW the console is mounted, one
+// level down; this module owns WHAT of this family is mounted into it.
+//
+// THREE MOUNTS, AND THE TWO TIERS TAKE DIFFERENT SUBSETS. The family registers one
+// rail destination and TWO pane kinds, so all three are mounted here. The
+// accessibility tier audits every one of them — a family-wide claim that skipped a
+// registered pane could not fail on a regression unique to it. The screenshot tier
+// pins two, which is a separate judgement about which COMPOSITIONS a committed image
+// is worth holding still, made in that tier's own table.
 //
 // THE BODIES COME OUT OF THE FAMILY'S REGISTRIES, NOT OUT OF AN IMPORT, on the
 // browser-terminal tiers' precedent: the run pane is resolved through
@@ -51,6 +58,7 @@ import {
 import { WORKFLOWS_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/workflows.js";
 import {
   WORKFLOWS_PARKED_RUN,
+  WORKFLOWS_SCENARIO_DEFINITIONS,
   WORKFLOWS_SESSION_ID,
 } from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-data.js";
 import {
@@ -258,4 +266,55 @@ export async function mountWorkflowParkedRunPane(): Promise<MountedFamilySurface
     }
   });
   return { element: region, bridge };
+}
+
+/**
+ * The definition the builder pane is opened on: the scenario's own, resolved.
+ *
+ * The row a run started here would actually pick — the same
+ * most-specific-first resolution the browser marks — rather than the first entry in
+ * declaration order, so the pane is addressed at a definition the fixture treats as
+ * real. A throw rather than a fallback id: an address nothing in the scenario
+ * describes would mount a pane whose subject exists nowhere, and a tier would audit
+ * it as if it did.
+ */
+function scenarioDefinitionId(): string {
+  const resolved = WORKFLOWS_SCENARIO_DEFINITIONS.find(
+    (definition) => definition.resolvesAtThisContext,
+  );
+  if (resolved === undefined) {
+    throw new Error("the workflows scenario declares no definition resolving at this context");
+  }
+  return resolved.id;
+}
+
+/**
+ * The builder pane on that definition, which is its one arm that renders a body.
+ *
+ * ADDRESSED RATHER THAN EMPTY, and that is what makes the mount worth auditing: the
+ * unaddressed arm draws a single absence block the frame tier already covers, while
+ * this one composes the three things only this pane has — a header carrying a primary
+ * action whose control is an INLINE refusal, the not-checked absence beneath it, and
+ * the two reserved slot shells the bodies another plan owns will replace.
+ *
+ * No wait, deliberately: this pane puts no read on any arm — every authoring
+ * operation is off the growth port — so there is nothing in flight to settle and a
+ * `waitFor` here would be waiting on a promise that was never made.
+ */
+export async function mountWorkflowBuilderPane(): Promise<MountedFamilySurface> {
+  const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
+  const WorkflowBuilderPaneBody = paneBodyComponent("workflow-builder");
+  const { container } = await renderSettled(
+    <WorkflowBuilderPaneBody
+      context={paneContext(
+        {
+          kind: "workflow-builder",
+          paneId: "pane-workflow-builder-surface",
+          entity: { kind: "workflow-definition", id: scenarioDefinitionId() },
+        },
+        bridge,
+      )}
+    />,
+  );
+  return { element: requireRegionNamed(container, "Workflow builder"), bridge };
 }
