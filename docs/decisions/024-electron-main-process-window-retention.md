@@ -161,18 +161,43 @@ The lifecycle regression test we ship in `apps/desktop/test/lifecycle.gc.test.ts
 
 ### Primary sources (V8 v14.6.202.34-electron.0)
 
-- `src/extensions/gc-extension.cc:336-340` — bare `gc()` → `PreciseCollectAllGarbage` (major collection, synchronous, precise mode — all roots traced).
-- `src/extensions/gc-extension.cc:323-325` — `gc(true)` → `GetDefaultForTruthyWithoutOptionsBag()` → MINOR Scavenger-only collection (the silent footgun: leaves old-generation objects intact).
-- `src/extensions/gc-extension.cc:290-317` — `gc({type, execution, flavor, filename})` structured form (the long-term-stable alternative if V8 ever flips the default).
+The `globalThis.gc()` mode semantics below are read from the V8 source at the upstream tag Electron 41.6.1 builds from — `src/extensions/gc-extension.cc` at tag `14.6.202.34` (<https://chromium.googlesource.com/v8/v8/+/refs/tags/14.6.202.34/src/extensions/gc-extension.cc>, 323 lines, read 2026-09-02). Electron's ten V8 patches at tag `v41.6.1` (`patches/v8/.patches`) touch no line of this file, so the upstream tag is the code that runs; the `-electron.0` suffix marks that patch set, not a fork of this extension. The return value of `gc()` establishes none of this — every mode returns `undefined` — so the empirical rows below cite these lines for the mode claim and their own output only for flag passthrough and the retention count.
+
+- `gc-extension.cc:290-298` — `GCExtension::GC` with zero arguments → `InvokeGC(isolate, GCOptions::GetDefault())`.
+- `gc-extension.cc:32-37` — `GCOptions::GetDefault()` = `{GCType::kMajor, ExecutionType::kSync, Flavor::kRegular}`.
+- `gc-extension.cc:206-212` — `InvokeGC` on `kMajor` / `kRegular` → `heap->PreciseCollectAllGarbage(GCFlag::kNoFlags, GarbageCollectionReason::kTesting, kGCCallbackFlagForced)`: the full-heap collection, run inline on the calling thread under `StackState::kMayContainHeapPointers` (lines 192-199) — the "major, synchronous, precise" reading is the function's own name and the switch it sits in.
+- `gc-extension.cc:38-43` + `182-186` — a truthy non-object argument (`gc(true)`) that carries no options bag → `GetDefaultForTruthyWithoutOptionsBag()` = `{GCType::kMinor, …}`, and `InvokeGC` on `kMinor` (lines 202-204) → `heap->CollectGarbage(NEW_SPACE, …)`: young-generation Scavenger only — the silent footgun that leaves old-generation objects intact.
+- `gc-extension.cc:143-163` — the `gc({type, execution, flavor, filename})` options bag: `type` `minor` / `major` / `major-snapshot`, `execution` `sync` / `async`, `flavor` `regular` / `last-resort` (`CollectAllAvailableGarbage`, lines 213-216) — the long-term-stable structured form if V8 ever flips the default.
 
 ### Empirical research (this investigation)
 
 | Source | Type | Key finding | URL/Location |
 | --- | --- | --- | --- |
 | Step 0a sanity check — `v8.queryObjects(Object)` return shape on host Node 22.9.0 | Primary research | `queryObjects(constructor)` returns a `number` count in both the default and the `{ format: "count" }` forms. Reproduce with `node -e 'const v8 = require("node:v8"); console.log(typeof v8.queryObjects(Object), typeof v8.queryObjects(Object, { format: "count" }))'`, which prints `number number`. | Node.js v22 V8 docs, `v8.queryObjects(ctor[, options])` — `format: 'count'` is documented and the API was added in v22.0.0: <https://nodejs.org/docs/latest-v22.x/api/v8.html> |
-| Step 0b spike — Electron BrowserWindow prototype-chain match | Primary research | Reproduce with `apps/desktop/node_modules/.bin/electron --js-flags=--expose-gc <script>`, where the script creates a `BrowserWindow({ show: false })`, reads `v8.queryObjects(BrowserWindow, { format: "count" })`, then calls `close()`, nulls the reference, calls `gc()` twice synchronously, and re-reads. On Electron 41.6.1 / Node 24.15.0 / V8 14.6.202.34-electron.0 it prints `countWithWindow: 2`, `countAfterClose: 2` — the wrapper does NOT drop to zero, confirming `self_ref_` keeps it alive across the JS `closed` event. | Electron `--js-flags` command-line switch: <https://www.electronjs.org/docs/latest/api/command-line-switches> |
-| Step 0c — `--expose-gc` passthrough + `globalThis.gc()` semantics | Primary research | Reproduce with `apps/desktop/node_modules/.bin/electron --js-flags=--expose-gc <script>` where the script prints `typeof globalThis.gc` then `String(globalThis.gc())`: on Electron 41.6.1 it prints `function` then `undefined`, so the flag reaches the main process and bare `gc()` returns `undefined` after a major+sync+precise collection. `gc({ type: "major", execution: "sync" })` is the structured equivalent; `gc(true)` is the MINOR Scavenger-only form (rejected). | Electron `--js-flags` command-line switch: <https://www.electronjs.org/docs/latest/api/command-line-switches> |
+| Step 0b spike — Electron BrowserWindow prototype-chain match | Primary research | The probe is the script inlined verbatim below this table, run as `apps/desktop/node_modules/.bin/electron --js-flags=--expose-gc window-retention-probe.cjs`: it creates a `BrowserWindow({ show: false })`, reads `v8.queryObjects(BrowserWindow, { format: "count" })`, calls `close()`, waits for the `closed` event, nulls the reference, calls `gc()` twice synchronously, and re-reads. Re-run 2026-09-02 on Electron 41.6.1 / Node 24.15.0 / V8 14.6.202.34-electron.0 it prints `countWithWindow: 2` then `countAfterClose: 2` — the wrapper does NOT drop to zero after a full major collection, confirming `self_ref_` keeps it alive across the JS `closed` event. | Electron `--js-flags` command-line switch: <https://www.electronjs.org/docs/latest/api/command-line-switches>; Node.js v22 `v8.queryObjects`: <https://nodejs.org/docs/latest-v22.x/api/v8.html> |
+| Step 0c — `--expose-gc` passthrough + `globalThis.gc()` semantics | Primary research | The same inlined probe prints `typeof gc: function` and `gc() returned: undefined` on Electron 41.6.1, which establishes exactly one thing — the flag reaches the main process and a bare `gc()` is callable there. Which collection ran is not observable from that return value (it is `undefined` for every mode); the major + synchronous + precise reading, the `gc({ type: "major", execution: "sync" })` structured equivalent, and the rejection of `gc(true)` as the MINOR Scavenger-only form rest on the V8 source lines cited under §Primary sources above. | Electron `--js-flags` command-line switch: <https://www.electronjs.org/docs/latest/api/command-line-switches>; V8 `gc-extension.cc` at tag `14.6.202.34`: <https://chromium.googlesource.com/v8/v8/+/refs/tags/14.6.202.34/src/extensions/gc-extension.cc> |
 | Codex PR #70 P1 verbatim | Primary research | Codex's original mechanism claim retrieved from `gh api repos/SawmonAbo/ai-sidekicks/pulls/70/comments` 2026-05-18. The empirical investigation in this ADR §Antithesis falsifies the named mechanism for Electron 41.6.1. | GitHub PR #70 review comments |
+
+The Step 0b / 0c probe, verbatim — save it anywhere as `window-retention-probe.cjs` and run it from the desktop package's Electron binary with `--js-flags=--expose-gc`; its four output lines on 2026-09-02 are recorded as trailing comments:
+
+```js
+const { app, BrowserWindow } = require("electron");
+const v8 = require("node:v8");
+const count = () => v8.queryObjects(BrowserWindow, { format: "count" });
+app.whenReady().then(() => {
+  console.log("typeof gc:", typeof globalThis.gc); // typeof gc: function
+  let browserWindow = new BrowserWindow({ show: false });
+  console.log("countWithWindow:", count()); // countWithWindow: 2
+  browserWindow.once("closed", () => {
+    browserWindow = null;
+    console.log("gc() returned:", String(globalThis.gc())); // gc() returned: undefined
+    globalThis.gc();
+    console.log("countAfterClose:", count()); // countAfterClose: 2
+    app.exit(0);
+  });
+  browserWindow.close();
+});
+```
 
 ### Related ADRs
 
