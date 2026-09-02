@@ -20,6 +20,7 @@ import type { ConsoleSessionEvent } from "../store/index.js";
 
 /** The members read off a delivered payload, before anything is known about them. */
 interface DeliveredPayloadShape {
+  readonly id?: unknown;
   readonly sessionId?: unknown;
   readonly sequence?: unknown;
   readonly kind?: unknown;
@@ -40,6 +41,13 @@ interface DeliveredPayloadShape {
  * detection all key on it — a fractional sequence would make `cursor + 1` name a
  * position no event can ever occupy, and the session would be permanently
  * degraded by a gap that never closes.
+ *
+ * `id` must be a non-empty string for a different reason: it is `EventEnvelope`'s
+ * own opaque identifier, the handle every later read of this event's body is keyed
+ * by, and an empty one resolves to nothing. A payload without it is not an event
+ * envelope, so admitting it would put a row in the store that no surface could ever
+ * open — and refusing here is what keeps the alternative (composing an id out of
+ * the members that are present) from being reachable at all.
  */
 export function readConsoleSessionEvent(
   deliveredPayload: unknown,
@@ -47,9 +55,11 @@ export function readConsoleSessionEvent(
   if (typeof deliveredPayload !== "object" || deliveredPayload === null) {
     return undefined;
   }
-  const { sessionId, sequence, kind, occurredAt, actorParticipantId, payload } =
+  const { id, sessionId, sequence, kind, occurredAt, actorParticipantId, payload } =
     deliveredPayload as DeliveredPayloadShape;
   if (
+    typeof id !== "string" ||
+    id.length === 0 ||
     typeof sessionId !== "string" ||
     typeof sequence !== "number" ||
     !Number.isInteger(sequence) ||
@@ -71,6 +81,7 @@ export function readConsoleSessionEvent(
     return undefined;
   }
   return {
+    id,
     sessionId,
     sequence,
     kind,

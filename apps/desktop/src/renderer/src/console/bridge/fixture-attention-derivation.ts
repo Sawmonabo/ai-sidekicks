@@ -115,12 +115,15 @@ export function deriveAttentionProjection(
       trigger: classification.trigger,
       severity: classification.severity,
       summary: classification.summary,
-      // The console's event projection keys on `sequence` and carries no opaque
-      // daemon row id (`scenarios/wire-truth.ts` supplies one only to probe the
-      // strict layer), so the reference is composed from the two members that do
-      // identify the event. An invented opaque-looking id would read as a wire
-      // fact and be traceable to nothing.
-      sourceEventId: `${scenario.sessionId}:${String(beat.event.sequence)}`,
+      // The triggering event's OWN opaque id, carried through untouched.
+      //
+      // `AttentionItem.sourceEventId` is specified as the canonical event that
+      // raised the item, and the one thing a holder does with it is open that
+      // event — `hydratedEventRead({sessionId, eventId})` takes exactly this
+      // value. A composed `session:sequence` string identifies the row to a
+      // reader and resolves for no caller, so every surface built against it
+      // would have shipped with a dead handle that looked live.
+      sourceEventId: beat.event.id,
       createdAt: beat.event.occurredAt,
     });
   }

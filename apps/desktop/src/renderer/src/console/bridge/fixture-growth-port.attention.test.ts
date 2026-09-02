@@ -27,6 +27,18 @@ const ATTENTION_PARTICIPANT_ID = "019b7a11-0280-79a4-8110-cca0117a0330";
 const RUN_AWAITING_APPROVAL = "019b7a11-0280-740e-8110-d1a4c1150021";
 const RUN_FINISHED = "019b7a11-0280-740e-8120-d1a4c1150022";
 
+/**
+ * The daemon's opaque row id for the beat at `sequence`.
+ *
+ * A UUID v7 like every identifier the shipped scenarios carry, and deliberately
+ * NOT a function of the session id and the sequence: the assertions below prove
+ * an item's `sourceEventId` is the triggering event's OWN id, and a composed one
+ * would let the derivation keep composing and still pass.
+ */
+function eventIdFor(sequence: number): string {
+  return `019b7a11-0280-7ea1-8110-e5e0d115${String(sequence).padStart(4, "0")}`;
+}
+
 /** One run state transition, in the shape the shipped scenarios script them. */
 function runTransition(
   atMs: number,
@@ -38,6 +50,7 @@ function runTransition(
   return {
     atMs,
     event: {
+      id: eventIdFor(sequence),
       sessionId: ATTENTION_SESSION_ID,
       sequence,
       kind: `run.${newState}`,
@@ -144,9 +157,39 @@ describe("the fixture's attention projection — derived from the scenario, neve
       trigger: "run_completed",
       severity: "informational",
     });
-    // The canonical event each item came from, keyed the way the console keys
-    // events. Asserted against the scenario's own beat rather than a literal.
-    expect(byRunId.get(RUN_AWAITING_APPROVAL)?.sourceEventId).toBe(`${ATTENTION_SESSION_ID}:2`);
+    // The canonical event each item came from — the triggering beat's OWN opaque
+    // id, read off the scenario rather than restated as a literal. This is the
+    // value `hydratedEventRead({sessionId, eventId})` takes, so an item that
+    // named anything else would hand every attention surface a dead handle.
+    const approvalBeat = twoRunAttentionScenario().beats.find(
+      (beat) => beat.event.payload?.["runId"] === RUN_AWAITING_APPROVAL,
+    );
+    expect(approvalBeat).toBeDefined();
+    expect(byRunId.get(RUN_AWAITING_APPROVAL)?.sourceEventId).toBe(approvalBeat?.event.id);
+  });
+
+  it("negative control: the id is the beat's own, not one composed from session and sequence", async () => {
+    // The case above would pass over a derivation that composed
+    // `${sessionId}:${sequence}` if the scenario's ids happened to be spelled
+    // that way. They are not — `eventIdFor` mints a UUID unrelated to both — so
+    // this pins the two apart: a composed id resolves through no read, and the
+    // set of ids the projection carries must be a subset of the ids the script
+    // actually played.
+    const scenario = twoRunAttentionScenario();
+    const { port, advanceToEnd } = playScenario(scenario);
+    advanceToEnd();
+
+    const items = await readAttentionItems(port, ATTENTION_SESSION_ID);
+    const scriptedEventIds = new Set(scenario.beats.map((beat) => beat.event.id));
+    const composedIds = new Set(
+      scenario.beats.map((beat) => `${ATTENTION_SESSION_ID}:${String(beat.event.sequence)}`),
+    );
+
+    expect(items.length).toBeGreaterThan(0);
+    for (const item of items) {
+      expect(scriptedEventIds.has(item.sourceEventId)).toBe(true);
+      expect(composedIds.has(item.sourceEventId)).toBe(false);
+    }
   });
 
   it("carries the session aggregate as the item with no run, actionable while any contributor is", async () => {

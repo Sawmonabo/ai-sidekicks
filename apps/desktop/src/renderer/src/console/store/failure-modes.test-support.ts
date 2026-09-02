@@ -27,6 +27,7 @@ export function eventAt(
   overrides: Partial<ConsoleSessionEvent> = {},
 ): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId: "session-1",
     sequence,
     kind: "run.starting",

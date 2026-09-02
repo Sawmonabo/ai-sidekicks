@@ -121,6 +121,7 @@ describe("fixture bridge — a registered stream delivers the kinds it carries",
         {
           atMs: QUEUE_BEAT_MS,
           event: {
+            id: "019b79ee-0280-7ea1-8110-e5e0d1150009",
             sessionId,
             sequence: nextSequence,
             kind: "queue_item.created",
@@ -135,6 +136,7 @@ describe("fixture bridge — a registered stream delivers the kinds it carries",
         {
           atMs: ROLLBACK_BEAT_MS,
           event: {
+            id: "019b79ee-0280-7ea1-8110-e5e0d1150010",
             sessionId,
             sequence: nextSequence + 1,
             kind: "run.rolled_back",

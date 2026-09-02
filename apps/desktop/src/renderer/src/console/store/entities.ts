@@ -107,6 +107,19 @@ export type EntityMutation = EntityUpsert | EntityRemoval;
  * so exactly one module knows the wire and everything above it reads this.
  */
 export interface ConsoleSessionEvent {
+  /**
+   * The canonical event's own opaque identifier, wire-verbatim.
+   *
+   * `EventEnvelope.id` in `packages/contracts/src/event.ts` — the first of the
+   * canonical eleven, and the only member that names THIS event rather than its
+   * position. It is carried rather than dropped because the console has a reader
+   * for it: the hydrated-event read is keyed `{sessionId, eventId}`, so a ledger
+   * row that wants the machine-authored body of the turn it is rendering has
+   * nothing to ask with unless the projection kept this. A composed
+   * `session:sequence` string names the same row to a human and resolves for no
+   * caller, which is why the member is here instead.
+   */
+  readonly id: string;
   /** The session the event belongs to, wire-verbatim. */
   readonly sessionId: string;
   /** Monotonic position within the session. Dedupe and gap detection key on it. */

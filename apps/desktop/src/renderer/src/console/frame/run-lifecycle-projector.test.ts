@@ -185,6 +185,7 @@ describe("the flagship scenario's run, folded", () => {
 
 describe("the projector on a payload it cannot key on", () => {
   const eventWithoutRunIdentity: ConsoleSessionEvent = {
+    id: "019b79ee-0280-7ea1-8110-e5e0d1150801",
     sessionId: "019b79ee-0280-75e5-8510-ada11a5a11a5",
     sequence: 1,
     kind: "run.starting",

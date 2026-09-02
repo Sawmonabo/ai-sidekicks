@@ -28,13 +28,13 @@
 // WHY THE PROBE IS A WHOLE ENVELOPE. The strict layer is declared per EVENT, not
 // per payload — there is no exported payload-only schema to reach for, and the one
 // place the two are paired is inside the discriminated union. So the check presents
-// each beat as the wire event it claims to be: the scenario's own `sessionId`,
-// `sequence`, `occurredAt`, and actor, the census's own category, and the beat's
-// own payload, with only the opaque envelope `id` and the wire-contract `version`
-// supplied by this module. That makes the leg STRONGER than a payload-only parse
-// rather than weaker — a scenario whose `sessionId` is not the UUID the contract
-// declares is caught here too, and a fabricated probe id would have hidden exactly
-// that.
+// each beat as the wire event it claims to be: the scenario's own `id`,
+// `sessionId`, `sequence`, `occurredAt`, and actor, the census's own category, and
+// the beat's own payload, with only the wire-contract `version` supplied by this
+// module. That makes the leg STRONGER than a payload-only parse rather than weaker
+// — a scenario whose `sessionId` is not the UUID the contract declares is caught
+// here too, and so is one whose envelope `id` is empty, which this module used to
+// hide by supplying a fixed probe id of its own.
 //
 // HOW "NO VARIANT REGISTERED" IS TOLD FROM "VARIANT REJECTED THE BEAT". A Zod
 // discriminated union that matches no branch never enters one: it reports a single
@@ -69,21 +69,14 @@ export interface ScenarioWireTruthDefect {
 }
 
 /**
- * The envelope id the probe supplies.
- *
- * The one member no scenario carries: `ConsoleSessionEvent` is a renderer-local
- * projection keyed on `sequence`, and the daemon's opaque row id is not part of
- * it. The contract accepts any non-empty bounded string here, so a fixed one
- * carries no information and hides none.
- */
-const PROBE_ENVELOPE_ID = "console-scenario-wire-truth-probe";
-
-/**
  * The wire-contract version the probe supplies.
  *
- * `"MAJOR.MINOR"` per ADR-018; the strict layer only checks the shape. Like the id
- * above it is a member the console's projection does not carry, so supplying it is
- * the probe's business rather than a scenario's.
+ * `"MAJOR.MINOR"` per ADR-018; the strict layer only checks the shape. It is the
+ * one canonical member the console's projection does not carry — `ADR-018` binds
+ * it into the signature and no renderer reads it — so supplying it is the probe's
+ * business rather than a scenario's. The envelope `id` is NOT in that position:
+ * every beat carries its own, and the probe presents it rather than standing in
+ * for it.
  */
 const PROBE_ENVELOPE_VERSION = "1.0";
 
@@ -123,7 +116,7 @@ function describeBeatDefect(beat: ScenarioBeat): string | undefined {
     );
   }
   const parsed = SessionEventSchema.safeParse({
-    id: PROBE_ENVELOPE_ID,
+    id: beat.event.id,
     sessionId: beat.event.sessionId,
     sequence: beat.event.sequence,
     occurredAt: beat.event.occurredAt,
