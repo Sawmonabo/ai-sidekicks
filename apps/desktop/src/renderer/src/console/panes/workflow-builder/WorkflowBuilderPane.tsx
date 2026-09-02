@@ -28,10 +28,11 @@
 // here because the chrome is what frames the canvas and would otherwise be the
 // natural place for someone to persist a viewport into the definition it is editing.
 //
-// WIRE STATUS. `packages/contracts` registers no `workflow.*` method and the growth
-// port carries no workflow operation, so the definition read, the version read, the
-// definition list and the submission that saves are all unreachable. The console
-// renders their absence and calls nothing.
+// WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so the whole
+// plane lives on the growth port behind the workflow slate row. The definition
+// ENUMERATION is reachable there and the browser on the no-subject arm puts it; the
+// definition read, the version read and the submission that saves are not on the
+// port at all, so the addressed arm renders their absence and calls nothing.
 
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";

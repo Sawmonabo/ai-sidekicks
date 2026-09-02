@@ -21,10 +21,11 @@
 // boundary — `core/refusal.ts` says why it cannot be one union for the console.
 //
 // WIRE STATUS — READ THIS BEFORE WIRING A CALLER. `packages/contracts` registers no
-// `workflow.*` method and `console/bridge/growth-port.ts` carries no workflow
-// operation, so nothing in this console can submit a definition at all today. The
-// slate's two workflow rows cover the event taxonomy and a definition-scope type
-// meaning, not this operation. `unregisteredAuthoringAct` is what a chrome with no
+// `workflow.*` method, and the five acts below all submit a definition body, which
+// is `workflow.definitionCreate` — deliberately NOT on `console/bridge/growth-port.ts`,
+// which carries the read and control operations and no create. So nothing in this
+// console can submit a definition at all today, and adding one is a growth-row
+// append rather than a redesign. `unregisteredAuthoringAct` is what a chrome with no
 // wire renders instead of a button that would do nothing.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
