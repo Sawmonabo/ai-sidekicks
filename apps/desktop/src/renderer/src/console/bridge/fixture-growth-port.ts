@@ -1,11 +1,13 @@
 // The growth port the fixture bridge actually serves.
 //
 // Every other growth operation refuses under both bridges, which is what makes the
-// "not checked" absence a true statement rather than a placeholder. Four do not:
+// "not checked" absence a true statement rather than a placeholder. Five do not:
 // the two the console cannot function without — a session snapshot read and a
 // session directory read — the attention projection read, which is the only one of
-// them the console must not compute for itself, and the gitflow branch-context
-// read, whose whole answer today is that there is none.
+// them the console must not compute for itself, the gitflow branch-context read,
+// whose whole answer today is that there is none, and the caller-identity read,
+// which is answered from a scenario that states its own viewer and refused from one
+// that does not.
 //
 // WHY THE TWO SESSION READS ARE SERVED AND THE REST ARE NOT
 //
@@ -98,19 +100,28 @@
 // the suite beside this file is what keeps the claim true: the day a scenario does
 // carry a branch, that test fails and this derivation is what has to change.
 //
-// WHY THE IDENTITY AND REGISTRY READS REFUSE HERE TOO, AND WHY THAT IS NOT A GAP
+// WHY THE CALLER-IDENTITY READ IS ANSWERED FROM A FIELD AND NOT FROM JOIN ORDER
 //
-// Three rows landed together whose operations this fixture answers none of, and each
+// `ConsoleScenario` now carries `viewingParticipantId` — which of the roster this
+// window IS — and the read is served from that field and from nothing else. The
+// field exists because the fact had no other honest source: join order is who opened
+// the session and who followed, on any machine, so reading its head as "me" is a
+// fabrication, and a surface handed a fabricated identity renders a role gate as
+// though it had been checked.
+//
+// A scenario that states no viewer is therefore not a gap to fill in with a guess.
+// The operation refuses for it, exactly as it did before the field existed, and the
+// refusal says "not checked" — which is true of a script that has not said. That is
+// why the served set names this operation and the answer is still conditional: the
+// operation IS scripted here, and whether a given scenario scripts the fact is the
+// scenario's business. `wire-truth.ts` holds a stated viewer to the roster, so the
+// served arm can never answer with an identity no surface could resolve a role from.
+//
+// WHY THE REGISTRY READS REFUSE HERE, AND WHY THAT IS NOT A GAP EITHER
+//
+// Two rows land beside it whose operations this fixture answers none of, and each
 // refuses because a scenario states nothing it could answer FROM — not because the
 // script has not caught up.
-//
-//   • The caller's own participant identity. `ConsoleScenario` names a session, a
-//     join order, beats, replies, and a start instant, and nothing anywhere says
-//     which participant the window IS. Join order is not that fact: the first joiner
-//     is whoever opened the session, on any machine. Every available answer is a
-//     fabrication, and a fabricated identity is worse than a refusal, because a
-//     surface that reads one renders a role gate as though it had been checked. So
-//     this is exactly "not checked", which is what the refusal says.
 //
 //   • The session's callback-tool registry. A scenario can play `tool.*` beats, and
 //     folding those into a registry would answer the wrong question — a tool
@@ -128,8 +139,9 @@
 //     either, because a node with no definitions and a node nobody asked are answers
 //     to different questions.
 //
-// `findScenariosNamingAViewer` and `findScenariosNamingACallbackTool` beside this
-// file pin the first two premises the way the branch finder pins its own.
+// `findScenariosNaming` beside this file pins the callback-tool premise the way the
+// branch finder pins its own, and pins the identity premise from the other side: no
+// scenario states a viewer under any name but the one field the port reads.
 
 import type {
   AttentionItem,
@@ -137,9 +149,17 @@ import type {
   AttentionSeverity,
   AttentionTrigger,
 } from "./attention-projection.js";
-import { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
+import type { GrowthOperationId } from "./growth-entry.js";
+import type { GrowthOutcome } from "./growth-outcome.js";
+import {
+  createRefusingGrowthPort,
+  growthScriptedReplyUnavailable,
+  growthUnavailable,
+  type GrowthPort,
+} from "./growth-port.js";
 import type { GrowthSessionSummary } from "./growth-values.js";
 import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
+import { settleScriptedReply } from "./scripted-reply.js";
 
 /**
  * The operations the fixture answers rather than refuses.
@@ -155,6 +175,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   "attentionProjectionRead",
   // gitflow
   "gitflowBranchContextRead",
+  // identity
+  "callerParticipantRead",
 ] as const;
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -210,16 +232,95 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             { items: [] },
     }),
     // gitflow
-    gitflowBranchContextRead: async () => ({
-      status: "served",
-      // No scenario states one, and none can — see the header. Served rather than
-      // refused, because the operation IS answered here and what it found is
-      // nothing; a refusal would say the wire is missing, which under this bridge
-      // is not what happened.
-      value: { branchContext: undefined },
-    }),
+    gitflowBranchContextRead: async () =>
+      // Routed through the scripted-reply seam so a repos scenario that DOES script
+      // `gitflow.branchContextRead` is answered from the script, on the frozen clock,
+      // with the loading window and the two non-arrival refusals a real read has. No
+      // scenario scripts one today, and none can — see the header — so the unscripted
+      // arm is the one that runs, and it answers with the absence rather than a
+      // refusal: the operation IS answered here and what it found is nothing, whereas
+      // a refusal would say the wire is missing, which under this bridge is not what
+      // happened.
+      answerFromScriptedReply(
+        engine,
+        "gitflow.branchContextRead",
+        "gitflowBranchContextRead",
+        () => ({
+          branchContext: undefined,
+        }),
+      ),
+    // identity
+    callerParticipantRead: async (request) => {
+      const { viewingParticipantId } = engine.scenario;
+      // Refused rather than answered with an absence, and the distinction is the
+      // opposite of the branch-context read's above. There, the operation was
+      // answered and what it found was nothing — a state a surface has to draw.
+      // Here there is no such state: a session always HAS a viewer, and a scenario
+      // that has not said which one has left the question unasked rather than
+      // answered it emptily. So this takes the same "not checked" refusal the live
+      // bridge takes, which is the one honest reading.
+      if (viewingParticipantId === undefined) {
+        return growthUnavailable("callerParticipantRead");
+      }
+      // Scoped to the session the scenario is playing, on the `sessionRead` rule
+      // next door: an identity is a fact about one session's roster, and lending
+      // this session's viewer to another would tell a surface it holds a role in a
+      // session it may not even be a member of.
+      if (request.sessionId !== engine.scenario.sessionId) {
+        return growthUnavailable("callerParticipantRead");
+      }
+      return { status: "served", value: { participantId: viewingParticipantId } };
+    },
   };
   return { ...createRefusingGrowthPort(), ...served };
+}
+
+/**
+ * Answer one served operation from the scenario's script, or from its own absence.
+ *
+ * The four settlements `scripted-reply.ts` reports land here as three different kinds
+ * of answer, and the mapping is the whole reason this helper exists rather than four
+ * inline arms per operation:
+ *
+ *   • **Unscripted** is not a failure on this port. Every operation the fixture serves
+ *     has an honest answer of its own for a scenario that scripts nothing — the branch
+ *     read's is that this workspace has no branch context — so the caller supplies it
+ *     and the port serves it. `reply-unscripted` therefore stays what it has always
+ *     been: `fixture-bridge.ts`'s authoring error, raised where a call really has no
+ *     answer at all.
+ *   • **Resolved** is served verbatim. The cast is the seam's own property rather than
+ *     a shortcut: a `ScenarioReply` carries `unknown`, exactly as it does for the
+ *     bridge's `daemon.call`, and there is no registered reply schema to narrow it
+ *     against until the wire lands.
+ *   • **Unanswered** refuses by name. This is the rule the codes exist for: a reply
+ *     the frozen clock never released must never reach a surface as an absent value,
+ *     because an absent value renders as "there is none" — a claim about the session
+ *     that nothing checked.
+ *   • **Refused** is thrown VERBATIM, unwrapped, exactly as the bridge throws it. A
+ *     scripted refusal is the DAEMON's, and this port's outcome union has no arm for
+ *     one; adding a code for it would paraphrase the daemon's own `{code, message}`
+ *     into a growth-scoped vocabulary, which is the one thing a fixture must not do.
+ *     A rejection is also what the caller will get once the wire lands and the
+ *     operation becomes an ordinary bridge call, so the fixture is not teaching a
+ *     shape the real seam will not produce.
+ */
+async function answerFromScriptedReply<TValue>(
+  engine: ScenarioEngine,
+  call: string,
+  operationId: GrowthOperationId,
+  whenUnscripted: () => TValue,
+): Promise<GrowthOutcome<TValue>> {
+  const settlement = await settleScriptedReply(engine, call);
+  switch (settlement.status) {
+    case "unscripted":
+      return { status: "served", value: whenUnscripted() };
+    case "resolved":
+      return { status: "served", value: settlement.value as TValue };
+    case "unanswered":
+      return growthScriptedReplyUnavailable(operationId, settlement.code, settlement.detail);
+    case "refused":
+      throw settlement.refusal;
+  }
 }
 
 /** How one run state reaches a participant, where `Spec-019` classifies it. */

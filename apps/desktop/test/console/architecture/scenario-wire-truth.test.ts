@@ -159,6 +159,36 @@ describe("scenario wire truth — the controls", () => {
     expect(defects[0]?.subject).toBe('reply "agent.list"');
   });
 
+  it("reports a stated viewer who is not in the scenario's own roster", () => {
+    // The identity the fixture answers `callerParticipantRead` from. A viewer
+    // outside the join order resolves to no roster entry, so every surface that
+    // reads a role from it silently gets none — a defect that renders as a member
+    // with no elevated permissions rather than as anything wrong.
+    const stranger = "019b79ee-0280-79a4-8110-cca0117a9999";
+    const member = "019b79ee-0280-79a4-8110-cca0117a0110";
+
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({ participantIdsInJoinOrder: [member], viewingParticipantId: stranger }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toContain(stranger);
+    expect(defects[0]?.reason).toContain("participantIdsInJoinOrder");
+  });
+
+  it("accepts a stated viewer the scenario actually joins", () => {
+    // The other arm, so the case above is a membership check rather than a blanket
+    // refusal of the field — which would have made every scenario that states its
+    // viewer fail and read exactly the same in this file.
+    const member = "019b79ee-0280-79a4-8110-cca0117a0110";
+
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({ participantIdsInJoinOrder: [member], viewingParticipantId: member }),
+    ]);
+
+    expect(defects).toStrictEqual([]);
+  });
+
   it("passes a control that carries no defect at all", () => {
     // The positive control. Every case above asserts that something is REPORTED;
     // this one asserts the predicate can also stay silent, so a function that

@@ -16,6 +16,11 @@
 
 export { CONSOLE_ENTITY_KINDS } from "./entities.js";
 export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
+// The projection contract leaves the family with its first producer: the
+// composition root's run-lifecycle projector. A projector reads WIRE member names
+// and this family deliberately knows none, so the type travels out and the
+// implementation stays where the wire is already understood.
+export type { EntityMutation, EntityProjector, EntityProjectorRegistry } from "./entities.js";
 
 export { SessionStore } from "./session-store.js";
 // The base state a read establishes. Exported because the composition root now

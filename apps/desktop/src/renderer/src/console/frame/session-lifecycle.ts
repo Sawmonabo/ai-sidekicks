@@ -63,6 +63,7 @@ import {
   type SessionSnapshotRead,
   type SessionStore,
 } from "../store/index.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "./run-lifecycle-projector.js";
 import { SessionEventBinder } from "./session-event-binder.js";
 
 /** This window's session plumbing: the stores, and the one thing that feeds them. */
@@ -168,6 +169,15 @@ function createWindowSessionPlumbing(bridge: ConsoleBridge): WindowSessionPlumbi
   const registry = new SessionStoreRegistry({
     read: createSessionSnapshotRead(bridge),
     clock: consoleClockFor(bridge),
+    // THE PROJECTORS ARE PART OF THE PLUMBING, not an optional extra. The registry
+    // has taken them since it was written and this root registered none, so every
+    // store it opened admitted its events into the timeline and projected them
+    // into no partition at all — a runs surface that renders a live session as
+    // having no runs, indistinguishable from one that has none. They are supplied
+    // HERE and only here, so every store this window opens folds the same events
+    // the same way; a surface that registered its own would be a second projection
+    // of one stream.
+    projectors: RUN_LIFECYCLE_PROJECTORS,
   });
   return { registry, binder: new SessionEventBinder({ registry, bridge }) };
 }
