@@ -16,6 +16,16 @@
 // which take a module each on the `attention-projection.ts` precedent and state a
 // deletion obligation there. The line is drawn where it stops being a value and
 // starts being a domain.
+//
+// AND NOT HERE EITHER: A VOCABULARY `@ai-sidekicks/contracts` ALREADY SHIPS. The
+// console's own vocabularies below exist because the corpus registers them in a
+// document and no code package carries them. Where a package DOES carry one, the
+// member below names the package's type and this module declares nothing — a second
+// closed union restating a shipped one compiles for exactly as long as the two agree
+// and then fails silently, because the value that broke it is one the wire may send
+// and this side cannot represent. `billingMode` is that case.
+
+import type { BillingMode } from "@ai-sidekicks/contracts";
 
 export interface GrowthNavigationState {
   readonly url: string;
@@ -283,15 +293,6 @@ export type GrowthPrPreparationState = (typeof GROWTH_PR_PREPARATION_STATES)[num
 export type GrowthCostStatus = "priced" | "unpriced";
 
 /**
- * How a provider account is billed. Labels the figure; never changes how it is derived.
- *
- * `unknown` is a real member rather than an absence: it says the operator has not
- * labelled the account, which is a different fact from "we did not read the account"
- * and must not be presented as billed dollars.
- */
-export type GrowthBillingMode = "subscription" | "metered" | "unknown";
-
-/**
  * The session's limits and its committed spend, mirrored member-for-member from
  * `OrchestrationBudgetState` in
  * `docs/architecture/contracts/api-payload-contracts.md` (the budget read and update
@@ -377,7 +378,19 @@ export interface GrowthCostReceiptCausedByRow {
 export interface GrowthCostReceiptAccountRow {
   readonly providerAccountId: string;
   readonly displayLabel: string;
-  readonly billingMode: GrowthBillingMode;
+  /**
+   * How the account is billed. The CONTRACTS type, imported rather than restated.
+   *
+   * This member used to name a local `GrowthBillingMode` spelling the same three
+   * arms, and a closed set with two homes drifts in exactly one direction: the
+   * package widens its union, the console still compiles, and the new arm arrives
+   * on the wire as a value this surface cannot represent — rendered as whichever
+   * label the fallback happens to be, which is a spend claim nothing supports.
+   * `provider-account.ts` is where the arms and the reason `unknown` is one of them
+   * are stated; there is no second name for them here, because a name here would be
+   * the same defect with an alias in front of it.
+   */
+  readonly billingMode: BillingMode;
   readonly costCents: number;
   readonly costStatus: GrowthCostStatus;
 }
