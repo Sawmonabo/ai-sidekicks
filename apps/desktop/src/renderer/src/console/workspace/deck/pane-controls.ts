@@ -35,6 +35,17 @@ export interface PaneControls {
   /** Move this pane into a window of its own (§4.5). Absent where the kind or the
    * host does not permit it — the kind's `openInWindow` is the deck's own test. */
   readonly onOpenInWindow?: () => void;
+  /**
+   * Make the header the handle that drags this pane to a new position.
+   *
+   * A ref callback rather than a boolean, because the drag adapter binds to an
+   * ELEMENT: the deck knows which pane the header heads and the header knows which
+   * element it rendered, and neither can supply the other's half. Absent where the
+   * host does not reorder panes — the auxiliary window, where there is one pane and
+   * nowhere to drag it — which leaves the header undraggable rather than draggable
+   * into a drop nothing would accept.
+   */
+  readonly registerDragHandle?: (element: HTMLElement | null) => void;
 }
 
 /**

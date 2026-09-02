@@ -31,12 +31,15 @@ import {
   DECK_TOTAL_PERMILLE,
   EPHEMERAL_PANE_KINDS,
   addressesMatch,
+  applyPaneSizePercentages,
   distributeEvenly,
   highestOrdinal,
   reorder,
+  sizesAreEqual,
   type DeckLayoutState,
   type DeckPane,
   type DeckPaneAddress,
+  type PaneSizePercentages,
 } from "./deck-model.js";
 import {
   decodeDeckSnapshot,
@@ -193,36 +196,29 @@ export class DeckLayout {
   }
 
   /**
-   * Take `deltaPermille` from the pane after `paneId` and give it to `paneId`.
+   * Adopt the widths the panel group settled on.
    *
-   * Pairwise rather than global: a separator is between exactly two panes, and
-   * spreading the delta across the whole row would move panes the person is not
-   * touching. `minimumPermille` is the floor both panes are held above — the deck
-   * computes it from the density preset and the measured width, because a floor in
-   * permille depends on how wide the deck actually is.
+   * THE STORE STAYS THE SOURCE OF TRUTH, WHICH IS WHY THIS IS A WRITE-BACK AND NOT
+   * A SUBSCRIPTION. `Spec-023 §Console Libraries` admits `react-resizable-panels`
+   * under one constraint — "store-owned layout" — so the group reports what a drag
+   * or an arrow key settled on and this method decides what the deck keeps: clamped
+   * to the deck's own floor, renormalised to the total, and dropped entirely when
+   * nothing moved.
+   *
+   * The no-op guard is load-bearing rather than an optimisation. The group reports
+   * its layout after every commit, including the ones this method caused; without
+   * the guard each report would raise the revision, the raised revision would
+   * re-render the group, and the deck would settle only because the values stopped
+   * changing rather than because anything stopped it.
    */
-  public resize(paneId: string, deltaPermille: number, minimumPermille: number): void {
-    const position = this.#state.panes.findIndex((pane) => pane.paneId === paneId);
-    const left = this.#state.panes[position];
-    const right = this.#state.panes[position + 1];
-    if (left === undefined || right === undefined) {
+  public applyLayout(percentages: PaneSizePercentages, minimumPermille: number): void {
+    if (this.#state.panes.length === 0) {
       return;
     }
-    const headroom = right.sizePermille - minimumPermille;
-    const legroom = left.sizePermille - minimumPermille;
-    const applied = Math.min(Math.max(deltaPermille, -legroom), headroom);
-    if (applied === 0) {
+    const panes = applyPaneSizePercentages(this.#state.panes, percentages, minimumPermille);
+    if (sizesAreEqual(panes, this.#state.panes)) {
       return;
     }
-    const panes = this.#state.panes.map((pane) => {
-      if (pane.paneId === left.paneId) {
-        return { ...pane, sizePermille: pane.sizePermille + applied };
-      }
-      if (pane.paneId === right.paneId) {
-        return { ...pane, sizePermille: pane.sizePermille - applied };
-      }
-      return pane;
-    });
     this.#commit({ panes });
   }
 

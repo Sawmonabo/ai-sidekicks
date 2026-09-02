@@ -105,6 +105,114 @@ export function distributeEvenly(panes: readonly DeckPane[]): readonly DeckPane[
   }));
 }
 
+/**
+ * Permille per percent — the whole of the translation between the deck's grammar
+ * and `react-resizable-panels`' one.
+ *
+ * The library speaks percentages of the group as floats (0..100); the persisted
+ * grammar speaks integer permille, and stays integer permille, because a float that
+ * round-trips through JSON reintroduces exactly the accumulation error `normalise`
+ * exists to remove. So the conversion is a factor of ten and lives here, beside the
+ * total it is derived from, rather than being written out at each of the three call
+ * sites that need it.
+ */
+export const PERMILLE_PER_PERCENT: number = DECK_TOTAL_PERMILLE / 100;
+
+/** A layout as the panels library states it: panel id to percentage of the group. */
+export type PaneSizePercentages = Readonly<Record<string, number>>;
+
+/** The store's widths, as the percentages the panel group takes as its default. */
+export function toPaneSizePercentages(panes: readonly DeckPane[]): PaneSizePercentages {
+  const percentages: Record<string, number> = {};
+  for (const pane of panes) {
+    percentages[pane.paneId] = pane.sizePermille / PERMILLE_PER_PERCENT;
+  }
+  return percentages;
+}
+
+/**
+ * Adopt a layout the panel group settled on, held above the deck's own floor.
+ *
+ * THE FLOOR IS APPLIED HERE AND NOT LEFT TO THE LIBRARY. The panels library clamps
+ * its own drag against each panel's `minSize`, and the deck hands it the same
+ * number, so in practice the two agree. They are still two clamps: the library's
+ * runs over measured pixels in the DOM, and this one runs over the value that gets
+ * persisted. A width below the floor reaching the store would be written to disk and
+ * restored on the next launch, at which point no drag is happening for the library's
+ * clamp to run in. So the store clamps what it keeps.
+ *
+ * A pane the layout does not name keeps the width it had — the group reports only
+ * the panels it currently holds, and a pane mid-mount is legitimately absent.
+ *
+ * The floor is capped at an equal share, because a floor that cannot be met by
+ * every pane at once has no solution and silently discarding it would leave the
+ * deck summing to something other than a whole.
+ */
+export function applyPaneSizePercentages(
+  panes: readonly DeckPane[],
+  percentages: PaneSizePercentages,
+  minimumPermille: number,
+): readonly DeckPane[] {
+  const floor = Math.max(
+    0,
+    Math.min(minimumPermille, Math.floor(DECK_TOTAL_PERMILLE / panes.length)),
+  );
+  return settleToTotal(
+    panes.map((pane) => {
+      const percentage = percentages[pane.paneId];
+      if (percentage === undefined) {
+        return pane;
+      }
+      return {
+        ...pane,
+        sizePermille: Math.max(floor, Math.round(percentage * PERMILLE_PER_PERCENT)),
+      };
+    }),
+    floor,
+  );
+}
+
+/**
+ * Make a clamped row sum to the whole deck again, without breaking the floor.
+ *
+ * `normalise` cannot do this job: it rescales every pane by one ratio, which pulls
+ * a pane that was just raised to the floor straight back under it. So the drift is
+ * taken from the panes that have room for it, widest headroom first, and a shortfall
+ * is given to the widest pane. Bounded by construction — one pass over a sorted
+ * copy, and the floor's own cap guarantees the headroom exists.
+ */
+function settleToTotal(panes: readonly DeckPane[], floor: number): readonly DeckPane[] {
+  const sizes = panes.map((pane) => pane.sizePermille);
+  let drift = sizes.reduce((sum, size) => sum + size, 0) - DECK_TOTAL_PERMILLE;
+  const byHeadroom = sizes
+    .map((size, position) => ({ position, size }))
+    .sort((left, right) => right.size - left.size);
+
+  for (const candidate of byHeadroom) {
+    if (drift === 0) {
+      break;
+    }
+    const current = sizes[candidate.position] ?? 0;
+    // Widening has no ceiling; narrowing stops at the floor.
+    const adjustment = drift > 0 ? -Math.min(drift, current - floor) : -drift;
+    sizes[candidate.position] = current + adjustment;
+    drift += adjustment;
+  }
+
+  return panes.map((pane, position) => ({
+    ...pane,
+    sizePermille: sizes[position] ?? pane.sizePermille,
+  }));
+}
+
+/** Whether two width sets are the same, so a no-op write-back commits nothing. */
+export function sizesAreEqual(left: readonly DeckPane[], right: readonly DeckPane[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((pane, position) => pane.sizePermille === right[position]?.sizePermille)
+  );
+}
+
 /** Rescale restored sizes so they sum to the total, whatever was on disk. */
 export function normalise(panes: readonly DeckPane[]): readonly DeckPane[] {
   const total = panes.reduce((sum, pane) => sum + pane.sizePermille, 0);

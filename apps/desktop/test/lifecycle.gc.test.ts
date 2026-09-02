@@ -103,6 +103,8 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { UNOBTRUSIVE_WINDOWS_ENV } from "../src/main/window-reveal.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -182,6 +184,8 @@ function spawnElectronGcProbe(): Promise<SpawnResult> {
       env: {
         ...envWithoutSmoke,
         SIDEKICKS_GC_PROBE: "1",
+        // No focus steal on the operator's machine; see `src/main/window-reveal.ts`.
+        [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       },
       stdio: ["ignore", "pipe", "pipe"],
     });

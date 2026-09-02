@@ -38,11 +38,13 @@
   },
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
+    "@atlaskit/pragmatic-drag-and-drop": "3.1.0",
     "@base-ui/react": "1.7.0",
     "@tanstack/react-virtual": "3.14.10",
     "idb": "8.0.3",
     "react": "^19",
     "react-dom": "^19",
+    "react-resizable-panels": "4.12.3",
     "tinykeys": "4.0.0",
     "zod": "^4.3.6",
     "zustand": "5.0.15"
