@@ -67,6 +67,38 @@ export const PROPOSAL_ACTION_REACH: Readonly<Record<ProposalAction, ProposalActi
   push: "remote",
 };
 
+/**
+ * What an accepted act leaves of a proposal prepared before it.
+ *
+ * A SECOND AXIS RATHER THAN A SECOND READING OF THE FIRST, because reach does not
+ * answer this: `commit` and `prepare-proposal` are both local and only one of them
+ * moves the head a proposal was built from. The holder asks this table rather than
+ * naming `commit`, so an act added to the tuple has to say what it does to a standing
+ * proposal before it can be sent from anywhere.
+ */
+export const PROPOSAL_ACTION_HEAD_EFFECTS = ["moves-head", "leaves-head"] as const;
+
+/** One head effect. Derived, so the vocabulary is declared exactly once. */
+export type ProposalActionHeadEffect = (typeof PROPOSAL_ACTION_HEAD_EFFECTS)[number];
+
+/**
+ * Total over `ProposalAction` by construction.
+ *
+ * `commit` records new contents on the head branch, so every proposal prepared
+ * against the old contents describes something that is no longer there — and it does
+ * that WITHOUT moving `branchContextId`, `baseBranch`, or `headBranch`, which is
+ * exactly why the holder cannot detect it by comparing contexts across a re-read.
+ * `push` sends the head branch and changes nothing about what was prepared, so the
+ * summary of what left the machine stays on screen.
+ */
+export const PROPOSAL_ACTION_HEAD_EFFECT: Readonly<
+  Record<ProposalAction, ProposalActionHeadEffect>
+> = {
+  commit: "moves-head",
+  "prepare-proposal": "leaves-head",
+  push: "leaves-head",
+};
+
 /** What each action is called on screen and what pressing it does. */
 export interface ProposalActionPresentation {
   readonly label: string;

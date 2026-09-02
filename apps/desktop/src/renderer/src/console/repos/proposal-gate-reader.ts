@@ -70,7 +70,7 @@ import {
   type PreparedProposal,
   type ProposalContextKey,
 } from "./prepared-proposal.js";
-import type { ProposalAction } from "./proposal-actions.js";
+import { PROPOSAL_ACTION_HEAD_EFFECT, type ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
@@ -302,7 +302,39 @@ export class ProposalGateReader {
       );
       return;
     }
+    if (PROPOSAL_ACTION_HEAD_EFFECT[action] === "moves-head") {
+      // AN ACCEPTED COMMIT MOVES THE HEAD THE PROPOSAL WAS BUILT FROM, AND THE PAIRING
+      // CHECK BELOW CANNOT SEE IT. `proposalContextKeysMatch` compares the context id
+      // and the two branch names, and a commit changes none of the three — so the
+      // refresh this act queues would re-publish the pre-commit proposal and go on
+      // offering the send for a payload that no longer describes the head. Discarded
+      // HERE, before the refresh is asked for, so the new contents have to be prepared
+      // and reviewed again.
+      //
+      // AND REDRAWN IN THE SAME ACT rather than left to the read. The scheduler
+      // debounces, so a discard that only took effect when the answer came back would
+      // leave the remote act offered against the stale proposal for the length of that
+      // wait. The arm keeps the context it last read, which is still the context; what
+      // it loses is the proposal.
+      this.#discardProposal();
+      this.#withdrawPublishedProposal();
+    }
     this.#scheduler.request("terminal-event");
+  }
+
+  /** Redraw the standing arm with the proposal gone, where it was carrying one. */
+  #withdrawPublishedProposal(): void {
+    const { state } = this.#reading;
+    if (state.kind !== "prepared" || state.proposal === undefined) {
+      return;
+    }
+    const { proposal: _withdrawn, ...withoutProposal } = state;
+    this.#publish({
+      ...this.#reading,
+      state: withoutProposal,
+      refusal: undefined,
+      settlement: GATE_SETTLEMENT_COPY.prepared,
+    });
   }
 
   async #performRead(): Promise<void> {

@@ -19,7 +19,7 @@ import {
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
 import { SessionStore } from "../store/index.js";
 import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
-import { offeredProposalActions } from "./proposal-actions.js";
+import { offeredProposalActions, type ProposalAction } from "./proposal-actions.js";
 import type { ProposalContextKey } from "./prepared-proposal.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 
@@ -188,6 +188,15 @@ async function settle(clock: ManualClock, reader: ProposalGateReader): Promise<v
   for (let turn = 0; turn < 5; turn += 1) {
     await Promise.resolve();
   }
+}
+
+/** The proposal the published arm carries, or `undefined` where it carries none. */
+function publishedProposalOf(reader: ProposalGateReader): unknown {
+  const { state } = reader.snapshot;
+  if (state.kind !== "prepared") {
+    throw new Error(`a served context leaves the gate on \`prepared\`, not \`${state.kind}\``);
+  }
+  return state.proposal;
 }
 
 /** Let an act's promise chain and any re-read it queued run out. */
@@ -470,19 +479,10 @@ describe("ProposalGateReader — the proposal and the context it was prepared fo
     return reader;
   }
 
-  /** The proposal the published arm carries, or `undefined` where it carries none. */
-  function publishedProposal(reader: ProposalGateReader): unknown {
-    const { state } = reader.snapshot;
-    if (state.kind !== "prepared") {
-      throw new Error(`a served context leaves the gate on \`prepared\`, not \`${state.kind}\``);
-    }
-    return state.proposal;
-  }
-
   it("keeps the proposal when the refreshed context is the same one", async () => {
     const reader = await prepareThenRefresh(SERVED_CONTEXT);
 
-    expect(publishedProposal(reader)).toBeDefined();
+    expect(publishedProposalOf(reader)).toBeDefined();
     // The whole point of retaining it: the remote act stays offered.
     expect(offeredProposalActions(reader.snapshot.state)).toContain("push");
   });
@@ -492,7 +492,7 @@ describe("ProposalGateReader — the proposal and the context it was prepared fo
       servedContext({ branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2399" }),
     );
 
-    expect(publishedProposal(reader)).toBeUndefined();
+    expect(publishedProposalOf(reader)).toBeUndefined();
     // Push is what a stale proposal would have authorised, so this is the claim.
     expect(offeredProposalActions(reader.snapshot.state)).not.toContain("push");
   });
@@ -502,8 +502,58 @@ describe("ProposalGateReader — the proposal and the context it was prepared fo
     // moved head, and the proposal was built against the branch that is gone.
     const reader = await prepareThenRefresh(servedContext({ headBranch: "feat/something-else" }));
 
-    expect(publishedProposal(reader)).toBeUndefined();
+    expect(publishedProposalOf(reader)).toBeUndefined();
     expect(offeredProposalActions(reader.snapshot.state)).not.toContain("push");
+  });
+});
+
+describe("ProposalGateReader — what an accepted act leaves of the proposal", () => {
+  /** An accepted git action, which is what the daemon answers a taken act with. */
+  const ACCEPTED_ACTION = { status: "served", value: { accepted: true } } as const;
+
+  /** Prepare a proposal, then send `action` against an accepting daemon. */
+  async function prepareThenAct(action: ProposalAction): Promise<ProposalGateReader> {
+    const clock = new ManualClock();
+    const port = bridgeWithMovingAnswers();
+    const reader = openReader(port.bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction("prepare-proposal");
+    await settleAct(clock, reader);
+    if (publishedProposalOf(reader) === undefined) {
+      throw new Error("the preparation has to land before the act that follows it");
+    }
+
+    port.serveGitAction(ACCEPTED_ACTION);
+    await reader.requestAction(action);
+    await settleAct(clock, reader);
+    return reader;
+  }
+
+  it("discards the proposal an accepted commit made obsolete, and withdraws the send", async () => {
+    // The context the re-read serves back is byte-identical — a commit moves neither
+    // the context id nor either branch name — so the pairing check cannot see it and
+    // the proposal has to be dropped by the act itself.
+    const reader = await prepareThenAct("commit");
+
+    expect(reader.snapshot.state.kind).toBe("prepared");
+    expect(publishedProposalOf(reader)).toBeUndefined();
+    // The claim: a payload that no longer describes the head cannot be sent.
+    expect(offeredProposalActions(reader.snapshot.state)).not.toContain("push");
+    expect(reader.snapshot.settlement).toBe(
+      "A branch context was read. No proposal has been prepared yet.",
+    );
+  });
+
+  it("negative control: an accepted push leaves the proposal it sent on screen", async () => {
+    // Without this the case above would pass against a reader that dropped the
+    // proposal on any accepted act, which would erase the summary of what was just
+    // sent the moment it was sent.
+    const reader = await prepareThenAct("push");
+
+    expect(publishedProposalOf(reader)).toBeDefined();
+    expect(offeredProposalActions(reader.snapshot.state)).toContain("push");
   });
 });
 
