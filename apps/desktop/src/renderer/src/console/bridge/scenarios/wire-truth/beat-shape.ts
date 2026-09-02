@@ -47,17 +47,16 @@
 // AND WHAT THAT ESCAPE IS NOW SCOPED TO. It no longer means "held to the census and
 // nothing else": it means "held to whatever OTHER registered shape exists for this
 // kind", and the set of kinds for which there is none is DERIVED rather than listed.
-// A kind reaches the escape and stops there only when `session-event-streams.ts`
-// claims it on neither narrowed stream — `runStateStreamArmFor` and
-// `runQueueStreamStateFor`, which `run-and-queue-semantics.ts` reads, both answering
-// `undefined` for it. Those two tables are declared
-// `satisfies Record<<census-derived union>, …>`, so their key sets are compile-time
-// facts: the run-state arms are the census filtered to the `run.` root, intersected
-// with the registered `RunState` vocabulary, less the initial state, plus the
-// rollback row; the queue states are the census filtered to the `queue_item.` root.
-// A run-lifecycle or queue kind therefore cannot fall into the escape by being
-// forgotten here — it would have to be removed from the stream that carries it, which
-// is a compile error in that module.
+// `run-and-queue-semantics.ts` covers the whole `run.` root and the `queue_item.`
+// root between three of its legs, each keyed off a table declared
+// `satisfies Record<<census-derived union>, …>` so its key set is a compile-time
+// fact. The nine kinds a narrowed stream projects are held to that projection; the
+// four the streams leave out — the creation row and the three forward, non-state rows
+// — are held to their own registered payloads; the five queue kinds are held to the
+// member their payload requires. A run-lifecycle or queue kind therefore cannot fall
+// into the escape by being forgotten there: it would have to leave the stream that
+// carries it AND leave the excluded-payload table, and each is a compile error in its
+// own module.
 
 import {
   EventEnvelopeSchema,
@@ -66,6 +65,7 @@ import {
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
+import { describeSchemaIssue } from "./defect.js";
 import { describeRunAndQueueSemanticsDefect } from "./run-and-queue-semantics.js";
 import { composeScenarioEventEnvelope } from "../../scenario-envelope.js";
 import type { ScenarioBeat } from "../../scenario.js";
@@ -92,7 +92,7 @@ export function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   if (!carried.success) {
     return (
       "the canonical envelope rejects this beat, so the console's decode boundary " +
-      `would count it unreadable and drop it: ${carried.error.issues.map(describeIssue).join("; ")}.`
+      `would count it unreadable and drop it: ${carried.error.issues.map(describeSchemaIssue).join("; ")}.`
     );
   }
   const parsed = SessionEventSchema.safeParse(envelope);
@@ -107,15 +107,6 @@ export function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   }
   return (
     `the registered "${beat.event.kind}" shape rejects this beat: ` +
-    `${parsed.error.issues.map(describeIssue).join("; ")}.`
+    `${parsed.error.issues.map(describeSchemaIssue).join("; ")}.`
   );
-}
-
-/** One Zod issue as a sentence fragment: where it is, and what it says. */
-function describeIssue(issue: {
-  readonly path: readonly PropertyKey[];
-  readonly message: string;
-}): string {
-  const location = issue.path.length === 0 ? "the event" : issue.path.map(String).join(".");
-  return `${location} — ${issue.message}`;
 }

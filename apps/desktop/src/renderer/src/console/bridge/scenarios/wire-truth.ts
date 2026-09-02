@@ -22,8 +22,9 @@
 //   • `wire-truth/beat-shape.ts` — the census, the canonical envelope, and the strict
 //     layer, in that order, for every beat.
 //   • `wire-truth/run-and-queue-semantics.ts` — the run state machine's transition
-//     table, the queue payload's required member, and the registered projection
-//     `run.subscribeState` delivers.
+//     table, the queue payload's required member, the registered payloads of the four
+//     run kinds no narrowed stream projects, and the registered projection
+//     `run.subscribeState` delivers for the nine it does.
 //   • `wire-truth/beat-order.ts` — the tick a beat is due at and the log position it
 //     occupies.
 //   • `wire-truth/reply-walk.ts` — one scripted answer per call, and one spendable
