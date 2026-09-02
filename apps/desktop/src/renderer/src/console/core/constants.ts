@@ -45,6 +45,26 @@ export const APPLY_COALESCE_MS = 16;
 export const PRE_INITIALISATION_BUFFER_CAP = 512;
 
 /**
+ * Sequences a session store will carry as a repairable hole before it calls the
+ * stream diverged.
+ *
+ * A hole is recorded as a RANGE rather than one entry per sequence, so a wide one
+ * costs exactly what a narrow one does; this bound is about REPAIRABILITY, not
+ * about the size of the record. Ordinary loss is small — a delivery dropped on a
+ * resumed subscription, or the oldest rows a full `PRE_INITIALISATION_BUFFER_CAP`
+ * shed — and a re-pull fills it against the cursor the store already reached,
+ * which is why the bound sits above that buffer's whole worth of loss. Past it
+ * the arithmetic stops being a hole and starts being a different stream:
+ * admitting the event would move the cursor to a position an authoritative read
+ * may never answer at, and every later repair would then be refused as a rewind.
+ * So past this bound the event is refused, the store says the stream diverged,
+ * and a snapshot read — not a fill — is the repair. It bounds the ACCUMULATED
+ * loss rather than one jump, which is what keeps the range list bounded too: a
+ * range is at least one sequence wide, so there can never be more of them.
+ */
+export const MAX_REPAIRABLE_SEQUENCE_GAP = 1024;
+
+/**
  * Sessions whose UI state the persistence layer keeps. Past this the least
  * recently touched partition is trimmed, so a long-lived install does not grow
  * an unbounded IndexedDB.
