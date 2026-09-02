@@ -255,11 +255,25 @@
   color: var(--meridian-text-muted);
 }
 
+/*
+ * The park mark. Its treatment is the park's ATTENTION reading and not the fact of a
+ * park: rule 3 spends amber on "a person is needed", and a phase the engine armed a
+ * readable resume for needs nobody — so it is marked and not tinted. The two rules
+ * below are the whole of the difference; the mark's text differs with them, so the
+ * distinction survives for a reader who sees no colour at all.
+ */
 .meridian-phase-node__park {
   padding-inline: var(--meridian-space-1);
-  background: var(--meridian-amber-ground);
   border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-phase-node[data-park="awaiting-person"] .meridian-phase-node__park {
+  background: var(--meridian-amber-ground);
   color: var(--meridian-amber-text);
+}
+
+.meridian-phase-node[data-park="scheduled"] .meridian-phase-node__park {
+  color: var(--meridian-text-muted);
 }
 
 /*
@@ -310,8 +324,10 @@
   color: var(--meridian-amber-text);
 }
 
-/* A parked phase carries the amber edge as well as the mark, so the box reads as
-   waiting on a person from across the pane. */
-.meridian-phase-node[data-parked="true"] {
+/* A park waiting on a PERSON carries the amber edge as well as the mark, so the box
+   reads as needing somebody from across the pane. A park the engine will lift on its
+   own carries neither: it is a machine waiting for a machine, and an amber border on
+   it is the pane asking for attention nothing is owed. */
+.meridian-phase-node[data-park="awaiting-person"] {
   border-color: var(--meridian-amber-mark);
 }

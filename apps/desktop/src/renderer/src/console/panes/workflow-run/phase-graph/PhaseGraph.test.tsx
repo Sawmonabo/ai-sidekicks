@@ -26,14 +26,19 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
     label: `Phase ${overrides.phaseId}`,
     state: "pending",
     gateState: "closed",
-    isParked: false,
+    parkAttention: undefined,
     ...overrides,
   };
 }
 
 const TWO_PHASES: readonly PhaseGraphNode[] = [
   phase({ phaseId: "plan", label: "Plan", state: "completed", gateState: "open" }),
-  phase({ phaseId: "build", label: "Build", state: "running", isParked: true }),
+  phase({
+    phaseId: "build",
+    label: "Build",
+    state: "running",
+    parkAttention: "awaiting-person",
+  }),
 ];
 
 /** The definition those two phases were run from, for the arm that has one. */
@@ -193,13 +198,31 @@ describe("the drawn graph", () => {
   it("prints the same words it announces", async () => {
     const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
     await settleGraphLoad();
-    const parked = container.querySelector('.meridian-phase-node[data-parked="true"]');
+    const parked = container.querySelector('.meridian-phase-node[data-park="awaiting-person"]');
     expect(parked?.textContent).toContain("running");
     expect(parked?.textContent).toContain("gate closed");
     expect(parked?.textContent).toContain("parked");
     // Negative control: park is read from the park member, so the phase that is not
-    // parked does not print the word.
-    const notParked = container.querySelector('.meridian-phase-node[data-parked="false"]');
+    // parked carries no park attribute at all and prints no such word.
+    const notParked = container.querySelector(".meridian-phase-node:not([data-park])");
+    expect(notParked).not.toBeNull();
     expect(notParked?.textContent).not.toContain("parked");
+  });
+
+  it("gives a scheduled park a treatment of its own rather than the amber one", async () => {
+    // Rule 3 spends amber on a person being needed. A phase parked on provider
+    // capacity that the engine armed a readable resume for needs nobody, and drawing
+    // it in the same border as one waiting on a person is the pane asking for
+    // attention nothing is owed.
+    const scheduled: readonly PhaseGraphNode[] = [
+      phase({ phaseId: "plan", label: "Plan", state: "completed", gateState: "open" }),
+      phase({ phaseId: "build", label: "Build", state: "running", parkAttention: "scheduled" }),
+    ];
+    const { container } = render(<PhaseGraph phases={scheduled} label="Phase sequence" />);
+    await settleGraphLoad();
+
+    expect(container.querySelector('.meridian-phase-node[data-park="awaiting-person"]')).toBeNull();
+    const node = container.querySelector('.meridian-phase-node[data-park="scheduled"]');
+    expect(node?.textContent).toContain("resume scheduled");
   });
 });

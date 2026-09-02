@@ -21,10 +21,17 @@
 // arm, and park is live-scoped — true for exactly the phases parked when the caller
 // built this list. A box that inferred park from a state that looked like waiting
 // would be asserting something the run never said.
+//
+// AND THE PARK'S ATTENTION IS THE CALLER'S READING, NOT THIS BOX'S. Amber means a
+// person is needed; a phase parked on provider capacity with a readable resume
+// instant needs nobody, so it takes the neutral scheduled treatment. The two are one
+// attribute rather than a parked flag plus a hue rule, so the sheet cannot paint a
+// treatment the caller never asked for.
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
 import type { PhaseFlowNode } from "./phase-graph-elements.js";
+import { PHASE_PARK_ATTENTION_MARKS } from "./phase-topology.js";
 
 /** One phase's box. Rendered by the library, addressed by `PHASE_NODE_TYPE`. */
 export function PhaseNode(props: NodeProps<PhaseFlowNode>): React.JSX.Element {
@@ -34,7 +41,7 @@ export function PhaseNode(props: NodeProps<PhaseFlowNode>): React.JSX.Element {
       className="meridian-phase-node"
       data-state={phase.state}
       data-gate={phase.gateState}
-      data-parked={phase.isParked ? "true" : "false"}
+      data-park={phase.parkAttention}
     >
       <Handle
         type="target"
@@ -46,7 +53,11 @@ export function PhaseNode(props: NodeProps<PhaseFlowNode>): React.JSX.Element {
       <span className="meridian-phase-node__state">
         {phase.state}
         <span className="meridian-phase-node__gate">{`gate ${phase.gateState}`}</span>
-        {phase.isParked ? <span className="meridian-phase-node__park">parked</span> : null}
+        {phase.parkAttention === undefined ? null : (
+          <span className="meridian-phase-node__park">
+            {PHASE_PARK_ATTENTION_MARKS[phase.parkAttention]}
+          </span>
+        )}
       </span>
       <Handle
         type="source"

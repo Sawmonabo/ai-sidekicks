@@ -22,7 +22,7 @@ function phase(phaseId: string): PhaseGraphNode {
     label: `Phase ${phaseId}`,
     state: "pending",
     gateState: "closed",
-    isParked: false,
+    parkAttention: undefined,
   };
 }
 

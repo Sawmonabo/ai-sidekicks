@@ -30,6 +30,7 @@
 // renders the daemon's typed refusal when the daemon declines it.
 
 import { Chip, WireFigure, formatClockTime, type ChipTone } from "../primitives/index.js";
+import { parkAwaitsPerson } from "./run-list-projection.js";
 import type {
   WorkflowParkedPhase,
   WorkflowParkReason,
@@ -75,9 +76,14 @@ const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = 
  * console can read. A scheduled park is a machine waiting for a machine and earns no
  * colour; an unreadable boundary earns the amber, because nothing legible says the
  * run will resume itself.
+ *
+ * The reading itself is `parkAwaitsPerson`'s and is not made here. The phase graph
+ * beside this badge draws the SAME phase and spends the same amber on it, and a badge
+ * that decided for itself is how one park came to read as needing nobody in a card
+ * and as needing somebody on the node above it.
  */
 function parkTone(schedule: WorkflowParkSchedule): ChipTone {
-  return schedule.kind === "armed" ? "neutral" : "attention";
+  return parkAwaitsPerson(schedule) ? "attention" : "neutral";
 }
 
 /** What the badge says about the end of the wait, for one classified schedule. */

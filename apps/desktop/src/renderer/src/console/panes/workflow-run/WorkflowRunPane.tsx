@@ -64,14 +64,14 @@ import { ChatStartSlot } from "../../workflows/ChatStartSlot.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
 import { refusedWorkflowChrome } from "../../workflows/chrome-state.js";
 import { ParkBadge } from "../../workflows/ParkBadge.js";
-import { phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
+import { parkAwaitsPerson, phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
 import type { WorkflowParkedPhase } from "../../workflows/run-list-projection.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 import { unregisteredRunControl } from "./run-controls.js";
 import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
-import type { PhaseGraphNode } from "./phase-graph/phase-topology.js";
+import type { PhaseGraphNode, PhaseParkAttention } from "./phase-graph/phase-topology.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 import { HumanFormSlot, type HumanFormMount } from "./slots/HumanFormSlot.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
@@ -211,9 +211,33 @@ function RunPhaseGraph(props: {
     label: phaseDisplayLabel(phase),
     state: phase.state,
     gateState: phase.gateState,
-    isParked: phase.parkReason !== undefined,
+    parkAttention: phaseParkAttention(phase),
   }));
   return <PhaseGraph phases={nodes} label="Phase sequence" />;
+}
+
+/**
+ * How one phase's park reads on the canvas, or nothing where there is no park.
+ *
+ * THROUGH THE PROJECTION'S OWN TWO READINGS AND NEVER A THIRD MADE HERE. The graph
+ * used to set a parked flag from `parkReason`'s presence, which is the discriminator
+ * — correct about WHETHER there is a park and silent about what it is waiting for —
+ * and the sheet then gave every one of them the amber border rule 3 reserves for a
+ * person being needed. The fixture's own parked run carries the counterexample: a
+ * provider-limited phase with a readable resume instant, which the badge below drew
+ * neutral while the node above it drew amber.
+ *
+ * `phasePark` applies the discriminator and `parkAwaitsPerson` reads the classified
+ * schedule, both in `workflows/`, and the badge takes its tone from the second of
+ * them — so the card and the node now agree by construction rather than by two
+ * surfaces happening to reach the same conclusion.
+ */
+function phaseParkAttention(phase: WorkflowPhaseState): PhaseParkAttention | undefined {
+  const park = phasePark(phase);
+  if (park === undefined) {
+    return undefined;
+  }
+  return parkAwaitsPerson(parkSchedule(park)) ? "awaiting-person" : "scheduled";
 }
 
 /**

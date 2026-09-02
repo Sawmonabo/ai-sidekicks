@@ -186,7 +186,7 @@ export function phaseSequenceSignature(
       phase.label,
       phase.state,
       phase.gateState,
-      phase.isParked,
+      phase.parkAttention,
     ]),
     topology?.map((declaration) => [declaration.phaseId, declaration.dependsOn ?? null]) ?? null,
   ]);

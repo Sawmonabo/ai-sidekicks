@@ -32,7 +32,7 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
     label: `Phase ${overrides.phaseId}`,
     state: "pending",
     gateState: "closed",
-    isParked: false,
+    parkAttention: undefined,
     ...overrides,
   };
 }
@@ -40,7 +40,7 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
 const THREE_PHASES: readonly PhaseGraphNode[] = [
   phase({ phaseId: "plan", state: "completed", gateState: "open" }),
   phase({ phaseId: "build", state: "running" }),
-  phase({ phaseId: "review", isParked: true }),
+  phase({ phaseId: "review", parkAttention: "awaiting-person" }),
 ];
 
 function drawn(phases: readonly PhaseGraphNode[], topology?: PhaseTopology) {
@@ -212,7 +212,11 @@ describe("the layout memo", () => {
       { ...base, label: "Other words" },
       { ...base, state: "running" },
       { ...base, gateState: "bypassed" },
-      { ...base, isParked: true },
+      { ...base, parkAttention: "awaiting-person" },
+      // Two parked readings differ from each other and not merely from no park: a
+      // signature that folded the attention into a boolean would hold still while
+      // the picture moved from an amber border to a neutral one.
+      { ...base, parkAttention: "scheduled" },
     ];
     const baseline = phaseSequenceSignature([base]);
     for (const perturbed of perturbations) {

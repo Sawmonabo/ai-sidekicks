@@ -28,7 +28,7 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
     label: `Phase ${overrides.phaseId}`,
     state: "pending",
     gateState: "closed",
-    isParked: false,
+    parkAttention: undefined,
     ...overrides,
   };
 }
@@ -120,14 +120,30 @@ describe("what a phase is called out loud", () => {
   });
 
   it("says a phase is parked only while it is parked", () => {
-    const parked = phase({ phaseId: "build", label: "Build", isParked: true });
+    const parked = phase({ phaseId: "build", label: "Build", parkAttention: "awaiting-person" });
     expect(phaseNodeAccessibleName(parked)).toContain("parked");
     // Negative control: park is read from the park member and never inferred from a
     // state that merely looks like waiting.
-    expect(phaseNodeAccessibleName({ ...parked, isParked: false })).not.toContain("parked");
-    expect(phaseNodeAccessibleName({ ...parked, isParked: false, state: "pending" })).not.toContain(
+    expect(phaseNodeAccessibleName({ ...parked, parkAttention: undefined })).not.toContain(
       "parked",
     );
+    expect(
+      phaseNodeAccessibleName({ ...parked, parkAttention: undefined, state: "pending" }),
+    ).not.toContain("parked");
+  });
+
+  it("says which kind of park it is, so a listener is told what the colour says", () => {
+    // A reader who cannot see the neutral border is told the same thing it says: the
+    // engine will pick this phase back up, and nobody is being asked for anything.
+    // Announcing both kinds as "parked" would give that reader the amber reading of
+    // every park, which is the conflation the two treatments exist to prevent.
+    const scheduled = phase({ phaseId: "build", label: "Build", parkAttention: "scheduled" });
+    const awaiting = phase({ phaseId: "build", label: "Build", parkAttention: "awaiting-person" });
+    expect(phaseNodeAccessibleName(scheduled)).toContain("resume scheduled");
+    expect(phaseNodeAccessibleName(awaiting)).not.toContain("resume scheduled");
+    // Negative control: the words come from the table rather than from one constant,
+    // so the two readings cannot collapse into one sentence.
+    expect(phaseNodeAccessibleName(scheduled)).not.toBe(phaseNodeAccessibleName(awaiting));
   });
 });
 
