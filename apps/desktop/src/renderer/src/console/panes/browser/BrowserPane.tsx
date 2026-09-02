@@ -50,23 +50,36 @@ import {
 import { consoleOcclusionRegistry } from "../../browser/occlusion-registry.js";
 import { resolvePaneViewHost } from "../../browser/view-host.js";
 import { ConsoleRefusalError, RealClock, refuse, type ConsoleRefusal } from "../../core/index.js";
-import {
-  Glyph,
-  HOST_CHORD_PLATFORM,
-  Nothing,
-  RefusalBanner,
-  type GlyphName,
-} from "../../primitives/index.js";
+import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { tokenReference } from "../../tokens/index.js";
+import { ChromeControl } from "./ChromeControl.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
 
+/**
+ * What a REJECTED bridge promise renders as.
+ *
+ * Every call this pane makes crosses the preload boundary, and a boundary that fails
+ * — a torn-down transport, a preload that never installed — rejects rather than
+ * answering with a refusal. Left unhandled that is an unhandled rejection in the
+ * renderer and a pane still showing whatever was on screen before the click, which
+ * is the failure mode a refusal exists to replace.
+ *
+ * A refusal the bridge itself raised travels through untouched, because it already
+ * names its own origin and code; anything else becomes this pane's sentence. Hoisted
+ * out of the two call sites that now share it rather than written twice: two
+ * normalizers drift, and the second one to drift is the one nobody reads.
+ */
+function bridgeRejectionRefusal(failure: unknown, code: string, detail: string): ConsoleRefusal {
+  return failure instanceof ConsoleRefusalError
+    ? failure.refusal
+    : refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail);
+}
+
 /** The pane region's accessible name. The tab strip's own labels arrive with it. */
 const BROWSER_PANE_LABEL = "Browser";
-
-const CONTROL_GLYPH_SIZE = 13;
 
 /** Carries this pane's attribution hue into the shell's inline-start edge. */
 interface PaneAttributionStyle extends React.CSSProperties {
@@ -122,9 +135,20 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   }, []);
 
   const dispatch = useCallback((act: () => Promise<NavigationActOutcome>): void => {
-    void act().then((outcome) => {
-      setActRefusal(outcome.status === "unavailable" ? outcome : undefined);
-    });
+    void act().then(
+      (outcome) => {
+        setActRefusal(outcome.status === "unavailable" ? outcome : undefined);
+      },
+      (failure: unknown) => {
+        setActRefusal(
+          bridgeRejectionRefusal(
+            failure,
+            "navigation-call-failed",
+            "The page could not be reached from this window, because the call into the browser never answered.",
+          ),
+        );
+      },
+    );
   }, []);
 
   const onCloseTabChord = useCallback(
@@ -157,13 +181,11 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
       },
       (failure: unknown) => {
         setActRefusal(
-          failure instanceof ConsoleRefusalError
-            ? failure.refusal
-            : refuse(
-                BROWSER_PANE_REFUSAL_ORIGIN,
-                "open-external-failed",
-                "The system browser could not be reached from this window.",
-              ),
+          bridgeRejectionRefusal(
+            failure,
+            "open-external-failed",
+            "The system browser could not be reached from this window.",
+          ),
         );
       },
     );
@@ -322,39 +344,5 @@ function viewportDetail(
   return (
     navigationRefusal?.detail ??
     "This pane has not been told which page it holds, so it reports its rectangle and shows nothing."
-  );
-}
-
-/**
- * One chrome control. `disabled` comes in from the view's REPORTED state and is never
- * computed here — 12.2: "The chrome never derives navigability." Absent state disables
- * the control, which is the fail-closed direction: an enabled control that cannot act
- * is a lie.
- *
- * The label is TEXT rather than an icon for the history controls, because the console's
- * closed glyph family carries no directional arrow and no reload mark, and inventing
- * one at a call site is what `tokens/glyphs.ts` exists to prevent.
- *
- * It wears the family's own `meridian-browser-action`, not a chrome-only button style:
- * three of these sit beside the settings page's and the cards', and a second button
- * shape for the same act is how two surfaces in one family stop looking like one.
- */
-function ChromeControl(props: {
-  readonly label: string;
-  /** `| undefined` explicitly: the reload/stop slot passes one arm without a glyph. */
-  readonly glyph?: GlyphName | undefined;
-  readonly disabled?: boolean;
-  readonly onActivate: () => void;
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      className="meridian-browser-action"
-      disabled={props.disabled === true}
-      onClick={props.onActivate}
-    >
-      {props.glyph === undefined ? null : <Glyph name={props.glyph} size={CONTROL_GLYPH_SIZE} />}
-      {props.label}
-    </button>
   );
 }
