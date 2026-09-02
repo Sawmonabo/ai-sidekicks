@@ -5,7 +5,9 @@
 // interval polling" — so every read this family performs is routed through the
 // console's one `RefreshScheduler` (`console/store/scheduling.ts`). Nothing here
 // arms a timer of its own; the scheduler coalesces a burst of reasons into one read
-// and serializes reads so two never overlap.
+// and serializes reads so two never overlap. All three of that sentence's reasons are
+// wired, by `repo-refresh-triggers.ts` beside this file: this class owns the read and
+// that one owns when.
 //
 // THE ROOTS COME FROM THEIR OWN READ, and it is the only one that names a worktree.
 // A workspace row carries no worktree id, so `repo.worktreeStatusRead` — session
@@ -14,28 +16,25 @@
 // is one call for the whole session rather than one per mount, because the request's
 // mount filter exists for a caller with one mount in view and this section has a list.
 //
-// THE READ ORDER IS FORCED BY THE WIRE, not chosen. There is no `repo.mountList`
-// method anywhere in the corpus, so the session's mounts are learned from its
-// WORKSPACES: `workspaces.repo_mount_id` is NOT NULL under the mount-first funnel
-// (`Spec-009`, D-009-4) and attach always mints a default `read-only` workspace
-// (`Spec-009 §Default Behavior`), so the workspace roster names every mount. Hence
-// list, then one `repo.mountRead` per distinct mount — which is also the only read
-// that carries `health`, and the reason a mount card cannot be drawn from the list
-// alone.
+// THE READ ORDER IS FORCED BY THE WIRE, not chosen. There is no `repo.mountList` in the
+// corpus, so the session's mounts are learned from its WORKSPACES:
+// `workspaces.repo_mount_id` is NOT NULL under the mount-first funnel (`Spec-009`,
+// D-009-4) and attach always mints a default `read-only` workspace (`Spec-009 §Default
+// Behavior`), so the roster names every mount. Hence list, then one `repo.mountRead`
+// per distinct mount — the only read carrying `health`, and the reason a mount card
+// cannot be drawn from the list alone.
 //
-// WHY THIS IS NOT IN THE SESSION STORE. `console/store/entities.ts` partitions by a
-// closed entity-kind set that has `workspace` and `worktree` and no repo mount, and
-// a store rule this substrate states is that a projection never denormalises what
-// another owns. A mount read is not an event projection at all — it is a synchronous
-// probe result whose `checkedAt` is the point of it — so holding it beside the store
-// duplicates nothing. When a `repo-mount` entity kind exists, this class becomes its
-// reader and the state moves; the shape it publishes does not.
+// WHY THIS STATE IS NOT IN THE SESSION STORE, though the store is now OBSERVED for two
+// of the three refresh reasons. `console/store/entities.ts` partitions by a closed
+// entity-kind set with no repo mount, and a mount read is not an event projection at
+// all — it is a synchronous probe whose `checkedAt` is the point of it — so holding it
+// beside the store denormalises nothing. When a `repo-mount` entity kind exists, this
+// class becomes its reader and the state moves; the shape it publishes does not.
 //
 // EVERY FAILURE IS A REFUSAL, NEVER AN EMPTY LIST. A refused list read publishes the
 // refusal with no mounts; a refused mount read publishes the mounts that did answer
-// beside the refusal that explains the gap; a refused capabilities read is scoped to
-// the one workspace it was about. `Spec-023 §Console Design (Meridian)` rule 8 is
-// what forbids collapsing any of those into "there are none".
+// beside the refusal explaining the gap; a refused capabilities read is scoped to the
+// one workspace it was about. Rule 8 forbids collapsing any into "there are none".
 
 import type {
   ExecutionMode,
@@ -53,7 +52,7 @@ import {
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../core/index.js";
-import { RefreshScheduler } from "../store/index.js";
+import { RefreshScheduler, type SessionStore } from "../store/index.js";
 import {
   readExecutionModeCapabilities,
   readRepoMount,
@@ -63,6 +62,7 @@ import {
   selectExecutionMode,
   type RepoCallOutcome,
 } from "./repo-reads.js";
+import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 import type { EphemeralCloneStatusRecord, WorktreeStatusRecord } from "./worktree-model.js";
 
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
@@ -84,27 +84,23 @@ export interface RepoMountsReading {
   /** Every worktree this session holds, in the order the status read returned them. */
   readonly worktrees: readonly WorktreeStatusRecord[];
   /**
-   * Every ephemeral clone this session holds, in the order the same read returned
-   * them.
+   * Every ephemeral clone this session holds, in the order the same read returned them.
    *
-   * ITS OWN FIELD, never folded into `worktrees`. `repo.worktreeStatusRead` answers
-   * with two arrays because the two record kinds are two shapes — one mount-anchored
-   * over ten columns, the other workspace-anchored over nine, with no `updatedAt` —
-   * and `Spec-023 §Console Design (Meridian)` §10.3 draws them as two lists with
-   * different columns. Keeping only `worktrees` would report a session running in the
-   * `ephemeral clone` execution mode as holding no execution root at all, which is
-   * the daemon's answer discarded rather than rendered.
+   * ITS OWN FIELD, never folded into `worktrees`: the two record kinds are two shapes —
+   * one mount-anchored over ten columns, the other workspace-anchored over nine — and
+   * `Spec-023 §Console Design (Meridian)` §10.3 draws them as two lists. Keeping only
+   * `worktrees` reported a session running in the `ephemeral clone` execution mode as
+   * holding no execution root at all: the daemon's answer discarded rather than drawn.
    */
   readonly ephemeralClones: readonly EphemeralCloneStatusRecord[];
   /**
    * The instant this reading was taken, on the reader's own clock.
    *
-   * Carried on the reading rather than read from the wall clock by the cards that
-   * render an age, because `Spec-023 §Console Design (Meridian)` §10.3 forbids polling
-   * on that surface: an age has to move when the surface RE-READS and at no other
-   * time, and a card reading `Date.now()` in its render body would move it on any
-   * unrelated re-render. Zero before the first read, which no card renders against —
-   * every one of them is behind the `read` status.
+   * Carried here rather than read off the wall clock by the cards that render an age,
+   * because `Spec-023 §Console Design (Meridian)` §10.3 forbids polling on that surface:
+   * an age moves when the surface RE-READS and at no other time, where a card reading
+   * `Date.now()` in its render body would move it on any unrelated re-render. Zero
+   * before the first read, which no card renders against — every one is behind `read`.
    */
   readonly readAtMilliseconds: number;
   readonly capabilitiesByWorkspaceId: Readonly<
@@ -140,7 +136,15 @@ const NOTHING_READ_YET: RepoMountsReading = {
 
 export interface RepoMountsReaderOptions {
   readonly bridge: ConsoleBridge;
-  readonly sessionId: string;
+  /**
+   * The session being read, and two of the three reasons to read again.
+   *
+   * The STORE rather than a bare session id: a `workspace.stale` frame and the repair
+   * edge that stands for reconnect are both transitions of this object, and a reader
+   * handed only an id could observe neither. The id is read off it, so the section and
+   * the store can never name two sessions.
+   */
+  readonly sessionStore: SessionStore;
   /** Injected so a test drives every read on frozen time with no real timers. */
   readonly clock?: ConsoleClock;
 }
@@ -150,16 +154,16 @@ export class RepoMountsReader {
   readonly #sessionId: string;
   readonly #clock: ConsoleClock;
   readonly #scheduler: RefreshScheduler;
+  readonly #triggers: RepoRefreshTriggers;
   readonly #changes = new Emitter<RepoMountsReading>("repo mounts reading");
 
   #reading: RepoMountsReading = NOTHING_READ_YET;
   #started = false;
   #disposed = false;
-  #detachWindowFocus: (() => void) | undefined;
 
   public constructor(options: RepoMountsReaderOptions) {
     this.#bridge = options.bridge;
-    this.#sessionId = options.sessionId;
+    this.#sessionId = options.sessionStore.sessionId;
     // Bound once and shared with the scheduler, so the instant a reading is stamped
     // with and the instant a refresh is measured from are the same time base — under
     // the fixture that is the scenario's frozen clock and under the app it is the wall.
@@ -180,6 +184,11 @@ export class RepoMountsReader {
         });
       },
     });
+    // The three reasons to read again. They reach this reader only through the scheduler.
+    this.#triggers = new RepoRefreshTriggers({
+      scheduler: this.#scheduler,
+      sessionStore: options.sessionStore,
+    });
   }
 
   /** What the section renders right now. Stable identity between publishes. */
@@ -199,10 +208,9 @@ export class RepoMountsReader {
   /**
    * Begin reading, and keep listening for the reasons to read again.
    *
-   * Idempotent: a second call adds no second listener and requests no second read,
-   * because React mounts an effect twice in development strict mode and a reader
-   * that armed twice there would double every read in exactly the environment where
-   * the budget is being watched.
+   * Idempotent: a second call adds no listener and asks for no second read. React
+   * mounts an effect twice in development strict mode, and a reader that armed twice
+   * there would double every read in the one environment where the budget is watched.
    */
   public start(): void {
     if (this.#started || this.#disposed) {
@@ -210,16 +218,7 @@ export class RepoMountsReader {
     }
     this.#started = true;
     this.#scheduler.request("subscribe");
-    if (typeof window === "undefined") {
-      return;
-    }
-    const onWindowFocus = (): void => {
-      this.#scheduler.request("window-focus");
-    };
-    window.addEventListener("focus", onWindowFocus);
-    this.#detachWindowFocus = () => {
-      window.removeEventListener("focus", onWindowFocus);
-    };
+    this.#triggers.start();
   }
 
   /**
@@ -256,8 +255,7 @@ export class RepoMountsReader {
   public dispose(): void {
     this.#disposed = true;
     this.#scheduler.dispose();
-    this.#detachWindowFocus?.();
-    this.#detachWindowFocus = undefined;
+    this.#triggers.dispose();
     this.#changes.clear();
   }
 
@@ -371,8 +369,14 @@ export interface RepoMountsBinding {
  * unmount — the three properties `apps/desktop/AGENTS.md` requires of anything that
  * holds state beside a component.
  */
-export function useRepoMounts(bridge: ConsoleBridge, sessionId: string): RepoMountsBinding {
-  const reader = useMemo(() => new RepoMountsReader({ bridge, sessionId }), [bridge, sessionId]);
+export function useRepoMounts(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore,
+): RepoMountsBinding {
+  const reader = useMemo(
+    () => new RepoMountsReader({ bridge, sessionStore }),
+    [bridge, sessionStore],
+  );
   useEffect(() => {
     reader.start();
     return () => {

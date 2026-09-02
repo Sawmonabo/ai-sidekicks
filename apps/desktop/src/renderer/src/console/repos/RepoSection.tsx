@@ -74,7 +74,7 @@ const CLONES_NOT_READ_TITLE = "Execution roots have not been read.";
 
 export function RepoSection(props: RepoSectionProps): React.JSX.Element {
   const { bridge, sessionStore, isOpen } = props.context;
-  const { reading, requestModeSelection } = useRepoMounts(bridge, sessionStore.sessionId);
+  const { reading, requestModeSelection } = useRepoMounts(bridge, sessionStore);
   const [copyRefusal, setCopyRefusal] = useState<ConsoleRefusal | undefined>(undefined);
 
   const copyCanonicalRoot = useCallback(
