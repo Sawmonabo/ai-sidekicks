@@ -2,7 +2,7 @@
 //
 // Vite's optimizer keys its pre-bundle on the exact specifier, so listing
 // `@base-ui/react` covers the package root and NOTHING else: the console imports
-// Base UI through subpath entries (`@base-ui/react/popover`, …), and a subpath the
+// Base UI through subpath entries (`@base-ui/react/combobox`, …), and a subpath the
 // list does not name is discovered lazily — the first time a test renders through
 // it — which starts a second optimizer pass. That second pass emits its own
 // `react` chunk under a new `?v=` hash, two React module instances share no
@@ -30,7 +30,6 @@ export const BASE_UI_ENTRY_POINTS: readonly string[] = [
   BASE_UI_PACKAGE,
   `${BASE_UI_PACKAGE}/combobox`,
   `${BASE_UI_PACKAGE}/dialog`,
-  `${BASE_UI_PACKAGE}/popover`,
 ];
 
 /**
