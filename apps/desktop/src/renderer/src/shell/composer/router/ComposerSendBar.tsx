@@ -14,6 +14,11 @@
 // The component renders and does nothing else — the state, the router, and the
 // history walk are `send-controller.ts`'s, so what is left here is markup, keyboard
 // wiring, and the two absences this surface can honestly show.
+//
+// THE LINE'S TEXT IS THE DRAFT STORE'S. The seat is handed a window-lifetime store
+// and this bar neither owns the body nor copies it; the one thing it owns about the
+// draft is WHEN the store's restart disclosure is acknowledged, which the store
+// documents as the first focus of a composer.
 
 import { useCallback, useId } from "react";
 
@@ -26,7 +31,11 @@ import { useSendController } from "./send-controller.js";
 
 export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
-  const controller = useSendController(props.bridge, address.target);
+  const controller = useSendController({
+    bridge: props.bridge,
+    target: address.target,
+    draftStore: props.draftStore,
+  });
   const pathLabelId = useId();
   const isSending = controller.status === "sending";
   const isProviderBound = address.target.path === "provider-bound";
@@ -78,8 +87,18 @@ export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
         onChange={(event) => {
           controller.changeText(event.currentTarget.value);
         }}
+        // The store arms its restart disclosure at construction and clears it the
+        // first time a composer is focused, so focus is where it is acknowledged —
+        // not a timer, and not the first keystroke, which would clear a sentence
+        // somebody was still reading.
+        onFocus={() => {
+          controller.acknowledgeRestartNotice();
+        }}
         onKeyDown={onKeyDown}
       />
+      {controller.restartNotice === undefined ? null : (
+        <p className="meridian-composer__notice">{controller.restartNotice}</p>
+      )}
       <div className="meridian-composer__send-row">
         {controller.pathLabel === undefined ? (
           <span className="meridian-composer__path" />

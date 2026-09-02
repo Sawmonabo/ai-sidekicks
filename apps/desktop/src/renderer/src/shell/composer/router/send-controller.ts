@@ -10,12 +10,23 @@
 // line and marks the control busy — deliberately, so a second Enter cannot queue a
 // second turn — and Sent is the wire's own row appearing in the ledger rather than
 // a row this hook draws, which is why there is no `sent` member here to render.
+//
+// THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
+// workspace hands the composer seat a window-lifetime store, keyed per address; a
+// `useState` string here would be a second home for the same text, and the two
+// differ exactly where it matters — a remount loses the local copy, and a prop-only
+// address change keeps it, so the person's words reappear under a target they did
+// not write them for. Reading through the store is also what makes the store's own
+// restart disclosure reachable: it is armed at construction and cleared the first
+// time a composer is focused, which is a sentence somebody has to render.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
+import { composerDraftKey } from "./draft-key.js";
 import {
   DirectiveHistory,
   caretAtEnd,
@@ -30,6 +41,14 @@ import { ComposerSendRouter } from "./send-router.js";
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 export type SendControllerStatus = "idle" | "sending";
 
+/** What the composer is built from. One object, so a new dependency is one edit. */
+export interface SendControllerDependencies {
+  readonly bridge: ConsoleBridge;
+  readonly target: ComposerTarget;
+  /** The window-lifetime draft store the composer seat is handed. */
+  readonly draftStore: DraftStore;
+}
+
 /** Everything the send bar renders and every act it offers. */
 export interface SendController {
   readonly text: string;
@@ -41,6 +60,13 @@ export interface SendController {
   readonly refusal: ConsoleRefusal | undefined;
   /** The most recent sent message, so a tripped run can be resent without retyping. */
   readonly resendableText: string | undefined;
+  /**
+   * The store's restart disclosure, until a composer has been focused once.
+   *
+   * The sentence is the store's own — fixed text carrying no participant content —
+   * so the composer renders what the store says rather than a second wording of it.
+   */
+  readonly restartNotice: string | undefined;
   changeText(next: string): void;
   send(): Promise<void>;
   /** Send one exact body again. The tripwire card's offer; never a silent retry. */
@@ -50,26 +76,49 @@ export interface SendController {
   recallOlder(caret: DirectiveCaret): boolean;
   /** Walk one message newer. `false` when the caret is not at the end edge. */
   recallNewer(caret: DirectiveCaret): boolean;
+  /** Called the first time the line takes focus, which is what clears the notice. */
+  acknowledgeRestartNotice(): void;
 }
 
 /** Build the controller for one addressed composer. */
-export function useSendController(bridge: ConsoleBridge, target: ComposerTarget): SendController {
+export function useSendController(dependencies: SendControllerDependencies): SendController {
+  const { bridge, target, draftStore } = dependencies;
   const router = useMemo(() => new ComposerSendRouter({ bridge }), [bridge]);
   // A ref rather than state: the walk's own cursor is not rendered, and putting it
   // in state would re-render the whole bar on a keystroke that changed nothing a
   // person can see.
   const historyRef = useRef<DirectiveHistory>(new DirectiveHistory());
-  const [text, setText] = useState("");
   const [status, setStatus] = useState<SendControllerStatus>("idle");
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const [resendableText, setResendableText] = useState<string | undefined>(undefined);
+  // Mirrors the store's own flag so clearing it re-renders. The store stays the
+  // source: this hook never decides the notice is owed, it only reads and clears.
+  const [isRestartNoticePending, setRestartNoticePending] = useState(
+    () => draftStore.restartNoticePending,
+  );
 
-  const changeText = useCallback((next: string) => {
-    setText(next);
-    // A refusal answers the act that produced it, so the next edit clears it: leaving
-    // it up would make a stale refusal read as a verdict on text nobody has sent.
-    setRefusal(undefined);
-  }, []);
+  const draftKey = composerDraftKey(target);
+  const subscribeToDraft = useCallback(
+    (onDraftChanged: () => void) => draftStore.subscribe(draftKey, onDraftChanged),
+    [draftStore, draftKey],
+  );
+  // Returns a plain string rather than the entry, so the snapshot is value-stable
+  // across renders and `useSyncExternalStore` has nothing to loop on.
+  const readDraftText = useCallback(
+    () => draftStore.read(draftKey)?.text ?? "",
+    [draftStore, draftKey],
+  );
+  const text = useSyncExternalStore(subscribeToDraft, readDraftText, readDraftText);
+
+  const changeText = useCallback(
+    (next: string) => {
+      draftStore.write(draftKey, next);
+      // A refusal answers the act that produced it, so the next edit clears it: leaving
+      // it up would make a stale refusal read as a verdict on text nobody has sent.
+      setRefusal(undefined);
+    },
+    [draftStore, draftKey],
+  );
 
   const dispatch = useCallback(
     async (body: string) => {
@@ -80,13 +129,13 @@ export function useSendController(bridge: ConsoleBridge, target: ComposerTarget)
           case "sent":
             historyRef.current.recordSent(body);
             setResendableText(body);
-            setText("");
+            draftStore.clear(draftKey);
             setRefusal(undefined);
             return;
           case "intercepted":
             // A registered command never composes into a message: the line is
             // cleared because the act happened, and nothing was sent.
-            setText("");
+            draftStore.clear(draftKey);
             setRefusal(undefined);
             return;
           case "refused":
@@ -97,12 +146,12 @@ export function useSendController(bridge: ConsoleBridge, target: ComposerTarget)
         setStatus("idle");
       }
     },
-    [router, target],
+    [router, target, draftStore, draftKey],
   );
 
   const send = useCallback(async () => {
-    await dispatch(text);
-  }, [dispatch, text]);
+    await dispatch(readDraftText());
+  }, [dispatch, readDraftText]);
 
   const resend = useCallback(
     async (body: string) => {
@@ -121,27 +170,35 @@ export function useSendController(bridge: ConsoleBridge, target: ComposerTarget)
       if (!caretAtStart(caret)) {
         return false;
       }
-      const recalled = historyRef.current.recallOlder(text);
+      const recalled = historyRef.current.recallOlder(readDraftText());
       if (recalled === undefined) {
         return false;
       }
-      setText(recalled);
+      draftStore.write(draftKey, recalled);
       return true;
     },
-    [text],
+    [draftStore, draftKey, readDraftText],
   );
 
-  const recallNewer = useCallback((caret: DirectiveCaret) => {
-    if (!caretAtEnd(caret)) {
-      return false;
-    }
-    const recalled = historyRef.current.recallNewer();
-    if (recalled === undefined) {
-      return false;
-    }
-    setText(recalled);
-    return true;
-  }, []);
+  const recallNewer = useCallback(
+    (caret: DirectiveCaret) => {
+      if (!caretAtEnd(caret)) {
+        return false;
+      }
+      const recalled = historyRef.current.recallNewer();
+      if (recalled === undefined) {
+        return false;
+      }
+      draftStore.write(draftKey, recalled);
+      return true;
+    },
+    [draftStore, draftKey],
+  );
+
+  const acknowledgeRestartNotice = useCallback(() => {
+    draftStore.acknowledgeRestartNotice();
+    setRestartNoticePending(false);
+  }, [draftStore]);
 
   const resolution = useMemo(() => router.resolve(text, target), [router, text, target]);
 
@@ -152,11 +209,13 @@ export function useSendController(bridge: ConsoleBridge, target: ComposerTarget)
     status,
     refusal,
     resendableText,
+    restartNotice: isRestartNoticePending ? draftStore.restartNoticeText : undefined,
     changeText,
     send,
     resend,
     stop,
     recallOlder,
     recallNewer,
+    acknowledgeRestartNotice,
   };
 }
