@@ -76,6 +76,7 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { EventCursor } from "@ai-sidekicks/contracts";
 
+import { createSubscriptionAckBarrier } from "../subscription-ack-barrier.js";
 import type { StreamingPrimitive } from "../streaming-primitive.js";
 
 /**
@@ -163,11 +164,16 @@ export interface SessionSubscribeDeps {
  *      The primitive generates a fresh `subscriptionId`, registers the
  *      entry on the per-transport reverse-index, and returns a
  *      `LocalSubscriptionProducer<SessionEvent>`.
- *   3. Wire the upstream event-source callback to the producer handle:
- *      every `onEvent(event)` invocation routes to `sub.next(event)`,
- *      which validates against `SessionEventSchema` (I-007-7 streaming
- *      analog) and emits a `$/subscription/notify` frame on the
- *      transport.
+ *   3. Wire the upstream event-source callback to the producer handle
+ *      through the shared subscribe-init ordering barrier: every
+ *      `onEvent(event)` invocation routes to `barrier.emit(event)`, which
+ *      buffers the value until the init response has been written and
+ *      thereafter forwards it to `sub.next(event)` — validating against
+ *      `SessionEventSchema` (I-007-7 streaming analog) and emitting a
+ *      `$/subscription/notify` frame on the transport. Releasing the
+ *      barrier is step 3.5; it schedules the buffered flush past the
+ *      response, which is what makes I-007-10 hold under a synchronous
+ *      replay.
  *   4. Return `{ subscriptionId }` — the wire client receives only the
  *      opaque id, then routes inbound `$/subscription/notify` frames
  *      keyed by it. Per `streaming-primitive.ts` line 267: "The handler
@@ -199,53 +205,31 @@ export function registerSessionSubscribe(
       SessionEventSchema,
     );
 
-    // Wire upstream → producer. The deps' implementation calls `onEvent`
-    // for every event matching the request; each routes to `sub.next(event)`
-    // which:
-    //   * validates against `SessionEventSchema` per I-007-7 streaming
-    //     analog (validation failure throws StreamingValidationError);
-    //   * emits a `$/subscription/notify` frame on this transport.
+    // Wire upstream → producer through the shared subscribe-init ordering
+    // barrier (`../subscription-ack-barrier.ts`). The deps' implementation
+    // calls `onEvent` for every event matching the request; each routes to
+    // `barrier.emit(event)`, which either buffers the value (before the init
+    // response has been written) or forwards it to `sub.next(event)` — which
+    // validates against `SessionEventSchema` per the I-007-7 streaming analog
+    // and emits a `$/subscription/notify` frame on this transport.
     //
-    // Wire-ordering invariant (I-007-10 — subscribe-init response precedes
-    // the first notification frame) — `{ subscriptionId }` MUST land on the
-    // wire BEFORE any `$/subscription/notify` for that subscription. The SDK
-    // (`packages/client-sdk/src/transport/jsonRpcClient.ts`) registers the
-    // subscription in its inbound dispatcher map only AFTER the init
-    // response settles; any pre-response notify hits the unknown-id
-    // silent-drop branch. Plan-001 Phase 5's projector contract permits
-    // `subscribeToSession` to perform cursor replay SYNCHRONOUSLY (replay-
-    // then-live-tail), so `onEvent` MAY fire during the synchronous body
-    // below. Direct routing to `sub.next(event)` would emit those notify
-    // frames on the wire BEFORE the gateway's dispatch `.then` microtask
-    // resolves the response — the bug.
-    //
-    // Fix — buffer events fired synchronously during the replay window;
-    // flush after the response settles. Why `setImmediate` (not chained
-    // `queueMicrotask`): the gateway's `#sendEnvelope` writes the response
-    // synchronously inside the dispatch promise's `.then` microtask. Any
-    // microtask we queue from the handler's synchronous body drains in the
-    // SAME microtask checkpoint AHEAD of the dispatch resolution `.then`
-    // (FIFO within a checkpoint), so additional `queueMicrotask` layers
-    // cannot cross the response. `setImmediate` schedules into the check
-    // phase, which runs AFTER all microtasks drain — the smallest primitive
-    // that crosses into the next event-loop phase. `process.nextTick` is
-    // wrong (higher priority than promise microtasks); `setTimeout(fn, 0)`
-    // works but the timer-phase has minimum-1ms semantics and is a less-
-    // precise primitive for "after microtasks drain". One `setImmediate`
-    // boundary is sufficient.
-    //
-    // This fix's correctness depends on the dispatch path resolving the
-    // response within microtasks (no `setImmediate` / `process.nextTick`
-    // deferral between handler return and `#sendEnvelope`'s synchronous
-    // `socket.write`). A future refactor that introduces such deferral
-    // would silently re-introduce the bug — the regression test in
-    // session-handlers.test.ts captures wire frame ordering under the
-    // current dispatch path.
+    // The barrier is what upholds I-007-10 (subscribe-init response precedes
+    // the first notification frame): `subscribeToSession` may replay
+    // SYNCHRONOUSLY per the Plan-001 Phase 5 projector contract, so `onEvent`
+    // can fire during the body below, before the gateway's dispatch `.then`
+    // microtask writes the response. The barrier's module header carries the
+    // full rationale — why buffering rather than a convention, why
+    // `setImmediate` and not a microtask, and the failure posture on both
+    // sides of the gate. It was extracted from this handler when
+    // `timeline.subscribe` became its second consumer; the diagnostics it logs
+    // carry this method's name and are byte-identical to the ones this file
+    // emitted inline.
     //
     // Atomicity guard — `subscribeToSession` throws synchronously per its
     // JSDoc contract (session not found, invalid afterCursor, permission
     // denied); without `sub.cancel()` on throw, the streaming-primitive
-    // entry would orphan in both maps until `cleanupTransport`.
+    // entry would orphan in both maps until `cleanupTransport`. An unreleased
+    // barrier schedules nothing, so the throw path leaves no timer behind.
     //
     // Cancel-side cleanup propagation — the unsubscribe handle returned
     // from `subscribeToSession` is registered via `sub.onCancel`. When
@@ -258,47 +242,10 @@ export function registerSessionSubscribe(
     // subscribe/cancel cycle. (The watcher's per-event lambda would
     // continue to fire `sub.next(event)` — a documented silent no-op —
     // but consume CPU / DB resources until transport close.)
-    const replayBuffer: SessionEvent[] = [];
-    let replayDrained = false;
+    const barrier = createSubscriptionAckBarrier(sub, "session.subscribe");
     try {
       const unsubscribe = deps.subscribeToSession(params.sessionId, params.afterCursor, (event) => {
-        if (replayDrained) {
-          // Live-tail path — fires from whatever turn the upstream event-
-          // source triggers (DB tick, event bus, etc.). The outer try/catch
-          // above ONLY catches synchronous throws from
-          // `subscribeToSession(...)` setup; this lambda runs on a later
-          // turn outside that try/catch's reach. Without an inner guard,
-          // a `StreamingValidationError` thrown by `sub.next(event)`
-          // (per `streaming-primitive.ts:346` (throw site; class at :139)
-          // — programmer-error path when the producer returned a value
-          // not matching the registered `SessionEventSchema`) escapes as
-          // an uncaught exception and can terminate the daemon process.
-          //
-          // Posture on catch: cancel the subscription cleanly via
-          // `sub.cancel()` (drains both `#subscriptions` and
-          // `#subscriptionsByTransport`), then surface the error via
-          // `console.error` with a clear tripwire prefix. There is no
-          // structured logger in the daemon today (verified via repo
-          // grep); when one lands (BLOCKED-ON observability framework),
-          // this site flips to it. Swallowing the error keeps the daemon
-          // alive at the cost of dropping the rest of the live-tail —
-          // which is the right trade: a corrupted producer is a daemon-
-          // internal bug, but the wire-side client is innocent and other
-          // subscriptions on this transport must continue to function.
-          // TRIPWIRE: replace `console.error` once a structured logger
-          // surfaces in the runtime-daemon.
-          try {
-            sub.next(event);
-          } catch (err) {
-            sub.cancel();
-            console.error(
-              `[session.subscribe] live-tail event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
-              err,
-            );
-          }
-        } else {
-          replayBuffer.push(event);
-        }
+        barrier.emit(event);
       });
       // Register the upstream-detach callback. If a wire-cancel or
       // transport-disconnect lands AFTER this point, the streaming
@@ -313,44 +260,7 @@ export function registerSessionSubscribe(
       sub.cancel();
       throw err;
     }
-    setImmediate(() => {
-      replayDrained = true;
-      // Replay flush — `sub.next(event)` validates each event against the
-      // per-subscription `SessionEventSchema` and throws
-      // `StreamingValidationError` (`streaming-primitive.ts:346` (throw
-      // site; class at :139)) on validation failure. Because this body
-      // runs on a `setImmediate` boundary (the check phase, AFTER the
-      // dispatch promise's `.then` microtask has already resolved the
-      // response), an uncaught throw here ESCAPES the registry's
-      // `dispatch()` error-mapping wrapper and surfaces as an uncaught
-      // exception capable of terminating the daemon process.
-      //
-      // Posture on catch: cancel the subscription cleanly so both
-      // `#subscriptions` and `#subscriptionsByTransport` are drained,
-      // log a clear tripwire diagnostic, then return (we do NOT
-      // continue draining `replayBuffer` after a failure — once the
-      // subscription is canceled, subsequent `sub.next(...)` calls
-      // become silent no-ops anyway, but stopping the loop reduces
-      // duplicate log spam on a producer that's emitting many bad
-      // events). The bad event does NOT propagate to subsequent
-      // handlers — `sub.cancel()` removes the entry, and the silent-
-      // no-op contract on a drained subscription guarantees nothing
-      // routes downstream from this point.
-      // TRIPWIRE: replace `console.error` once a structured logger
-      // surfaces in the runtime-daemon.
-      try {
-        for (const event of replayBuffer) {
-          sub.next(event);
-        }
-      } catch (err) {
-        sub.cancel();
-        console.error(
-          `[session.subscribe] replay event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
-          err,
-        );
-      }
-      replayBuffer.length = 0;
-    });
+    barrier.release();
 
     return { subscriptionId: sub.subscriptionId };
   };

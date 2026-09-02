@@ -14,11 +14,11 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 
 - **Principal identity.** The Cedar `principal` is the `sub` claim of the caller's PASETO v4.public access token (a `ParticipantId`). This is the only identity Cedar evaluates. See [RFC 9068 §2.2 — `sub` claim](https://datatracker.ietf.org/doc/html/rfc9068#section-2.2) for the `sub`-as-principal pattern and [ADR-010 PASETO + WebAuthn + MLS Auth](../../decisions/010-paseto-webauthn-mls-auth.md) for the V1 PASETO profile.
 - **Proof-of-possession binding.** Each access token carries a DPoP-style confirmation claim (`cnf.jkt`, per [RFC 9449 §3.1 — Public Key Confirmation via Thumbprint](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) whose value is the SHA-256 thumbprint of the caller's bound JWK. A token is valid only when accompanied by a DPoP proof signed by the matching private key. The bound access token is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — never `Bearer`, which a conforming resource server rejects for a DPoP-bound token — and the accompanying proof carries the token's `ath` hash per [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3); see [security-architecture.md §DPoP sender-constraining](../security-architecture.md#control-plane-authentication-task-52) for the canonical statement. `cnf.jkt` is a replay-protection binding — **not** a second principal identity; Cedar never reads it as a `principal` input.
-- **Informational body fields.** Any body field that names a participant — `approver`, `inviter`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body.
+- **Informational body fields.** Any body field that names a participant — `approver`, `inviter`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body. The converse is an application of this same rule rather than an exception to it: a request that needs no participant input declares **no principal member at all**, and `ReasoningSurfaceReadRequest` (§Plan-013, 2026-09-01) is the worked instance — its caller is resolved from the transport and its schema is strict, so a caller-supplied principal is refused rather than ignored. That is a resolution-side application of this bullet and deliberately not a sixth entry in the durable-recording list below, which enumerates only where an already-resolved principal is **retained** on a durable carrier — this read retains nothing.
 - **Run-control resource context (2026-08-03 cross-user run-control authorization amendment).** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions, the orchestration-layer `run.pause` / `run.resume` verbs, and — since 2026-08-29 — participant-triggered `driver.compactContext` identically — the target run's **hosting node** is a controlling request-context input, resolved daemon-side from the target run and never from a client-supplied field (the informational-body-fields rule above applies unchanged; the durable per-run hosting-node carrier this resolution reads is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite — no shipped run accessor or schema column carries the node today, and the one consumer that needs no carrier is `driver.compactContext`, whose target is by construction a provider binding this daemon holds, so its hosting node resolves local without a lookup): authorization evaluates against session membership role, never run authorship, and a non-local hosting node **adds** the target-node-owner approval requirement (an approval in the `tool_execution` category per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md)) rather than substituting for the role check. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)) — the daemon binds the Cedar principal to its **node-owner participant identity** — the daemon's standing control-plane-authentication posture ([component-architecture-local-daemon.md §Responsibilities](../component-architecture-local-daemon.md#responsibilities)) — resolved through the Plan-018-gated credential/identity provider seam the §Signing-Key Registration Method Registry below already rides (the CP-006-13 constructor-injected credential-provider and `resolveCurrentParticipantId` pattern; `runtimenode.attach` is client-driven and hands the daemon no principal, so no attach hook supplies the value), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — the run-control registration of that provider is a named [Plan-004 §Preconditions](../../plans/004-queue-steer-pause-resume.md#preconditions) prerequisite; a cross-user caller reaches run-control only over identity-carrying paths — a cross-node intervention arrives via Spec-024 dispatch, where the target binds the principal to the verified `caller_token.sub` after checking the token's signature and its `req_hash` body binding (the Cross-node dispatch bullet below): the envelope's request-hash-bound signed token is that transport's sender-constraining mechanism, and no separate DPoP proof rides the relay leg. Contract text: [Spec-004 §Interfaces And Contracts](../../specs/004-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior).
-- **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the Desktop Shell or CLI client (per BL-056 reconciliation on 2026-04-18; see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the shell via the preload bridge. When a local-daemon request is later forwarded cross-node via dispatch, the target daemon verifies the dispatch envelope's `caller_token` — signature plus the `req_hash` body binding per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md) — before Cedar runs: the request-hash-bound signed token is that path's sender-constraining, and no separate DPoP proof is carried on the relay leg (the Cross-node dispatch bullet below).
+- **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the Desktop Shell or CLI client (per BL-056 reconciliation on 2026-04-18; see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication-task-51)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the shell via the preload bridge. **Where a local handler reads that identity (2026-09-01):** socket reachability authorizes the _connection_, and a handler adjudicating per-caller policy needs the _principal_ — so the gateway resolves the node-owner participant identity through the same Plan-018-gated credential/identity provider seam the run-control bullet above names and stamps it on the dispatch context every handler already receives ([Plan-007](../../plans/007-local-ipc-and-daemon-control.md) I-007-21, its Phase 2B). It is daemon-resolved and never read from a body actor field, so the informational-body-fields rule applies to local handlers unchanged; while the identity provider is unwired the member is absent and a handler that requires one **refuses**, never substituting a default — a placeholder identity is indistinguishable from a real caller to a policy check, which would turn a fail-closed read into a fail-open one. First consumer: [Plan-013](../../plans/013-live-timeline-visibility-and-reasoning-surfaces.md)'s reasoning-surface read (CP-007-17), whose `policy_redacted` decision is exactly such an adjudication. When a local-daemon request is later forwarded cross-node via dispatch, the target daemon verifies the dispatch envelope's `caller_token` — signature plus the `req_hash` body binding per [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md) — before Cedar runs: the request-hash-bound signed token is that path's sender-constraining, and no separate DPoP proof is carried on the relay leg (the Cross-node dispatch bullet below).
 - **Cross-node dispatch.** Cross-node approval envelopes follow [Spec-024 Cross-Node Dispatch And Approval](../../specs/024-cross-node-dispatch-and-approval.md): the Cedar `principal` on the target side is bound only to `caller_token.sub`; `approver_token.sub` is carried for audit and replay-binding via the shared `bound_jti` + `request_body_hash` and does **not** become a second principal.
-- **Durable principal recording on admitting writes (2026-08-18 admitting-principal carrier amendment).** The four bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces, `caller_token.sub` on the cross-node arm), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-participant path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the participant arm and forbidden on the system arm — enforced by the storage engine wherever the carrier is a table row, and by the recorded value's own closed shape where it is not, so the participant arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances — **(1)**-**(3)** each one column per owning surface under [cross-plan-dependencies.md §2](../cross-plan-dependencies.md#2-package-path-ownership-map) one-writer discipline, **(4)** a payload member for the reason the shape-deviation paragraph below gives: **(1)** `approval_resolutions.approver_id` — the shipped instance ([Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-012 D-012-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened or replacement-send-opened turn executes under ([Spec-004 §Required Behavior](../../specs/004-queue-steer-pause-resume.md#required-behavior), Plan-004 D-004-4; consumed by Plan-012's turn-scoped resolution, CP-004-14 ⇄ CP-012-12); **(3)** the chat-borne workflow start's authoring participant, adjudicated as `Action::"workflow::start"` ([Spec-017 §Start authorization (SA-39)](../../specs/017-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-017](../../plans/017-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column; **(4)** the turn-scoped effective principal on `usage.cost_update`'s payload — the party whose causation a unit of metered spend is attributed to ([Spec-006 §Usage Telemetry](../../specs/006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry), 2026-08-26; produced by [Plan-004](../../plans/004-queue-steer-pause-resume.md) under CP-004-16 and consumed by [Spec-016 §Session Cost Receipt](../../specs/016-multi-agent-channels-and-orchestration.md#session-cost-receipt)).
+- **Durable principal recording on admitting writes (2026-08-18 admitting-principal carrier amendment).** The six bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces, `caller_token.sub` on the cross-node arm), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-participant path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the participant arm and forbidden on the system arm — enforced by the storage engine wherever the carrier is a table row, and by the recorded value's own closed shape where it is not, so the participant arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances — **(1)**-**(3)** each one column per owning surface under [cross-plan-dependencies.md §2](../cross-plan-dependencies.md#2-package-path-ownership-map) one-writer discipline, **(4)** a payload member for the reason the shape-deviation paragraph below gives, and **(5)** a member inside a durable JSON slot rather than a column of its own: **(1)** `approval_resolutions.approver_id` — the shipped instance ([Spec-012 §Required Behavior](../../specs/012-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-012 D-012-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened or replacement-send-opened turn executes under ([Spec-004 §Required Behavior](../../specs/004-queue-steer-pause-resume.md#required-behavior), Plan-004 D-004-4; consumed by Plan-012's turn-scoped resolution, CP-004-14 ⇄ CP-012-12); **(3)** the chat-borne workflow start's authoring participant, adjudicated as `Action::"workflow::start"` ([Spec-017 §Start authorization (SA-39)](../../specs/017-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-017](../../plans/017-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column; **(4)** the turn-scoped effective principal on `usage.cost_update`'s payload — the party whose causation a unit of metered spend is attributed to ([Spec-006 §Usage Telemetry](../../specs/006-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry), 2026-08-26; produced by [Plan-004](../../plans/004-queue-steer-pause-resume.md) under CP-004-16 and consumed by [Spec-016 §Session Cost Receipt](../../specs/016-multi-agent-channels-and-orchestration.md#session-cost-receipt)); **(5)** `agents.pending_switch.admittingPrincipalId` — the participant who admitted a same-agent provider switch whose application can outlive both the request and the daemon that took it ([Spec-016 §Same-Agent Provider Switch](../../specs/016-multi-agent-channels-and-orchestration.md#same-agent-provider-switch), 2026-08-26), **registered in this enumeration 2026-09-01** — its own §Plan-016 slot block has recorded it as held under this rule since it was minted, so this entry closes an enumeration that named four of its five members; it carries no `origin` discriminator because `agent.configUpdate` is its only producer, which that block states as a claim under this rule rather than leaving silent.
 
   Instance (4) differs from the first three in **two** deliberate ways, and neither is an exception to the rule. First, it is not itself an admitting write: it is the **carrier by which an admitting write's principal reaches a downstream fold**, resolved daemon-side from instance (2)'s rows. The retention discipline binds it for the same reason it binds the others — a fold that had to find the principal by ordering a metered row against turn-boundary events would be "deriving it later from event history", which is precisely what this bullet forbids, and that derivation would additionally rest on an event type the corpus types as forward and non-state. Second, its durable home is a **canonical event payload rather than a projection column**, because the unit it must attach to is a metered turn and no per-turn table exists — minting one to hold a single derived identity would add a second record of boundaries the log already orders, which [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rejects on its own terms. The `session_events` row is durable, replay-stable, and integrity-chained, and a typed event's fields live in its payload, so the class's requirement — recorded on the row, never re-derived — is met exactly. The origin discriminator the paragraph above requires is carried by the value's own closed two-arm shape (`EffectivePrincipal`, §Plan-016): the participant reference is required on the participant arm and absent on the system arm, enforced by the union rather than by a table CHECK, since a wire payload has no table to constrain.
 
@@ -411,6 +411,18 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 **Rationale**: This project is an AI-agent IPC running `claude-driver` and `codex-driver` provider processes; the [Model Context Protocol (MCP) §Architecture overview](https://modelcontextprotocol.io/docs/learn/architecture) is the closest-analog 2024-2026 convention from Anthropic, and MCP uses date-string `protocolVersion` (e.g. `"2025-06-18"`) for the same handshake semantics. Date-strings encode release date inherently, dodge the semver "v1.5 with no v1.4" ambiguity, and are immediately readable in logs and error reports without a parser.
 
 **Distinction from `EventEnvelopeVersion`**: `protocolVersion` is the JSON-RPC handshake field on every request — it identifies the wire-protocol revision the client and daemon speak. `EventEnvelopeVersion` (per [ADR-018](../../decisions/018-cross-version-compatibility.md), defined in §Tier 4: Plan-006 below) is a semver `MAJOR.MINOR` brand on event envelopes — it identifies the event-data schema revision. The two surfaces are independent and evolve on independent cadences; conflating them was the failure mode rolled back in commit `735b069` (2026-04-30).
+
+### JSON-RPC Request `id` Bound (Tier 1 Ratified)
+
+**Canonical bound**: a request `id` may not exceed `JSON_RPC_ID_MAX_BYTES` (256) bytes once JSON-encoded. The constant is declared at `packages/contracts/src/jsonrpc.ts` beside the frame's message-size limit and re-exported unchanged by `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`, which enforces it.
+
+**Where it is enforced**: at the **request** boundary, before dispatch — an over-bound id refuses as `-32600 Invalid Request` with `data.type: "invalid_envelope"`, and that refusal carries `id: null` rather than echoing the offending value. Enforcement is two-sited and both sites are required: the envelope's id gate refuses the request, and the gateway's id-extraction helper — through which the `jsonrpc` and `method` gates build their error frames, and which answers _before_ the id gate — falls back to a null id, without which the one frame guaranteed to be small would be the one carrying the oversized echo.
+
+**Why a request-side bound rather than a response-side subtraction**: JSON-RPC requires a response to echo the request's `id`, so the id is the one response member a response schema does not choose. A reply is bounded by the substrate's absolute message-size limit ([Spec-007 §Wire Format](../../specs/007-local-ipc-and-daemon-control.md#wire-format)), and an oversized reply cannot carry its own error — the send path drops the connection instead. Without this bound, a 900 KB id inside an otherwise-valid request makes every reply to it unencodable and the session unrecoverable from contract-valid data alone.
+
+**Why the encoded form**: measuring the JSON encoding rather than the JavaScript string length covers escaping (a control character encodes to six ASCII bytes) and lets one rule read identically for the string, number, and null id forms the envelope admits.
+
+**Consumers**: any page builder sizing a reply against the frame it will become subtracts a framing reserve that includes this bound — see [Plan-013](../../plans/013-live-timeline-visibility-and-reasoning-surfaces.md) T1.5 and its `TIMELINE_PAGE_FRAME_RESERVE_BYTES` derivation. The reserve is therefore derived from an enforced rule rather than an assumed allowance.
 
 ---
 
@@ -3737,7 +3749,8 @@ interface ArtifactVisibilityUpdateResponse {
 // in the common case and carry no untrusted-upload surface. Ingest is a THREE-CALL STREAM, not a
 // single payload-bearing call (2026-08-17, Spec-014 §Ingest Validation And Payload Bounds (V1),
 // transport binding): the local IPC transport enforces a hard 1 MB per-frame ceiling on the declared
-// Content-Length BEFORE buffering the body (MAX_MESSAGE_BYTES in
+// Content-Length BEFORE buffering the body (MAX_MESSAGE_BYTES, declared in
+// packages/contracts/src/jsonrpc.ts and enforced by
 // packages/runtime-daemon/src/ipc/local-ipc-gateway.ts, Spec-007 §Wire Format), so a payload anywhere
 // near max_attachment_ingest_bytes cannot cross one frame and a single-call shape would be
 // un-implementable on this wire. Chunks spool to a daemon-held temporary file OUTSIDE the CAS until
@@ -3971,6 +3984,8 @@ interface RuntimeBindingReadResponse {
 
 ### Plan-013 — Live Timeline Visibility And Reasoning Surfaces
 
+Every paged timeline reply is bounded by the frame it becomes (2026-09-01, Plan-013 Phase 1). A JSON-RPC reply leaves the daemon inside one `Content-Length`-framed body, and a body over `MAX_MESSAGE_BYTES` is not a failed request: the framer refuses to emit it and the **connection closes** (`Spec-007 §Wire Format`, F-007p-2-05). A row-count ceiling does not bound that — a `TimelineRow` carries three free-form fields at `EVENT_FIELD_MAX_LEN` plus a 4 KiB `summary`, and `JSON.stringify` expands a control character to a six-byte escape, so 256 contract-valid rows exceed the cap several times over before `payload`, which this contract does not bound at all. So each of the three paged members — `TimelineReadResponse.entries`, `ChildRunExpandResponse.entries`, and `ReasoningSurfaceReadResponse.reasoningEntries` — carries a byte budget (`TIMELINE_PAGE_MAX_BYTES` = `MAX_MESSAGE_BYTES` less a reserve for the envelope and the reply's non-paged members), a producer stops at whichever of the row limit and the byte budget trips first, and all three replies discriminate on `hasMore` so a caller can always continue. **The row limit that binds is the CALLER'S** (2026-09-01, Plan-013 Phase 1): `TimelineReadRequest.limit` is optional and a response schema never sees the request, so `entries` is schema-bounded only at the global `TIMELINE_READ_LIMIT_MAX` and a read for ten rows answering with two hundred and fifty-six parses — a client sizing a viewport, a budget, or a render pass from the window it asked for is handed a larger one with nothing on the reply saying the request was not honoured. The effective ceiling is therefore resolved per request — the caller's `limit` where it supplied one, the same global constant where it did not, which stays the default and the schema bound — and enforced at the daemon binder beside the request-scope checks, the only layer holding both numbers. `ChildRunExpandRequest` declares no `limit`, so its ceiling is that constant, stated on the same binder so one rule covers both paged reads. **The budget bounds aggregation and never bounds a page below one entry** (2026-09-01, Plan-013 Phase 1): a continuing arm requires at least one entry — a page promising more and delivering none re-offers the same cursor forever while reading like progress — so where the first candidate alone exceeds the budget the producer pages that single entry and the reply is refused **for its size** at the response boundary, naming the member and its measured bytes on an error frame the substrate can deliver, rather than the page-fill helper returning a bare zero whose only representable answer is the empty continuing page the schema now refuses. A **terminal** arm carries no such floor: an empty final page is the honest answer to a continuation whose cursor already sat at the end and to a filtered read that matched nothing. The budget is not bounded for one `timeline.subscribe` emission, which is a single row on its own frame: a row that blows a frame by itself is an oversized projected event payload, which `session.subscribe` has carried since it shipped, and bounding it is an event-envelope and framer decision rather than one a Plan-013 page budget may make on their behalf.
+
 ```ts
 // TimelineRead
 interface TimelineReadRequest {
@@ -3980,17 +3995,26 @@ interface TimelineReadRequest {
   limit?: number;
   channelId?: ChannelId; // filter to specific channel
 }
-interface TimelineReadResponse {
-  entries: TimelineRow[];
-  nextCursor?: EventCursor;
-  hasMore: boolean;
-}
+// hasMore is the discriminant, not a flag beside an optional. The continuing arm REQUIRES nextCursor:
+// a window promising more rows and supplying no way to ask for them leaves the caller re-reading the
+// same window or giving up, and both lose rows the session holds (Spec-013 §Interfaces And Contracts,
+// "cursor-based continuation"). The terminal arm PERMITS one and never requires it — the two members
+// answer different questions, and a client that has just read to the end and now wants TimelineSubscribe
+// to "support live append plus replay recovery" from exactly there needs that position.
+// The continuing arm additionally requires entries to be NON-EMPTY (2026-09-01, Plan-013 Phase 1):
+// a page promising more and delivering none advances no cursor while reading like progress, so the
+// client re-asks from the same position and loops. The terminal arm keeps no floor — an empty final
+// page is the honest answer to an exhausted continuation and to a filtered read that matched nothing.
+// entries is additionally bounded by TIMELINE_PAGE_MAX_BYTES (see this section's opening note).
+type TimelineReadResponse =
+  | { entries: TimelineRow[]; hasMore: true; nextCursor: EventCursor }
+  | { entries: TimelineRow[]; hasMore: false; nextCursor?: EventCursor };
 
 interface TimelineRowBase {
   id: string;
   sessionId: SessionId;
   sequence: number;
-  category: EventCategory;
+  category: EventCategory; // open on three arms; PINNED on the rollback-boundary arm, and refused as "run_lifecycle" on the general arm
   type: string;
   actor?: string;
   summary: string; // human-readable summary
@@ -3999,7 +4023,7 @@ interface TimelineRowBase {
   payload: Record<string, unknown>;
 }
 
-type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm (Codex round 4 on PR #232): carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm
+type TimelineEntry = TimelineRowBase & { kind: "general" }; // the non-run arm (Codex round 4 on PR #232): carries no run attribution structurally — the projector stamps kind from the event family, so a run-scoped family can never arrive on this arm. The arm additionally REFUSES category: "run_lifecycle" (2026-09-01, Plan-013 Phase 1): all-or-none attribution is enforced by arm SELECTION, so a row whose kind was stamped wrong never reaches the run arm and its missing triple is never checked — it would arrive as a legitimately attribution-free general row. Every one of Spec-006 §Run Lifecycle's thirteen types is run-scoped (the nine state transitions share a payload shape carrying a required runId; the four non-state rows each re-list it), so the refusal costs no correct projection. The refusal is THREE-LEGGED, not category alone (2026-09-01, Plan-013 Phase 1): category was only ever decisive for run_lifecycle, so the arm also refuses a canonical type in the derived census of Spec-006 types whose registered payload names a run unconditionally, and — for the types whose run identity is registered OPTIONAL (every artifact_publication type, five usage_telemetry types, user.message), which no type-level test can decide — a payload naming a run under either registered spelling, runId or the intervention family's targetRunId. The census is derived from Plan-006's per-category arrays rather than transcribed, and its size is pinned by a test so a taxonomy growth changes it loudly
 
 type RunScopedTimelineEntry = TimelineRowBase & {
   kind: "run"; // literal discriminator — row.kind narrowing is structural, never a probe of the free-form type: string
@@ -4007,6 +4031,14 @@ type RunScopedTimelineEntry = TimelineRowBase & {
   position: number; // the row's projection-resolved originating run position (Plan-004 T3.14's uniform row-to-turn assignment); the live rule compares it against the run.rolled_back boundary's carried targetPosition (sequence is the session event sequence, never a run position)
   epoch: number; // the row's projection-resolved execution epoch (T3.14's row attribution: the stamped sourceEpoch on late rows, the operation association's epoch on in-time content-asynchronous rows, the run's current epoch at emission otherwise — Codex round 2, PR #232); position alone can never recover the epoch, since re-execution reuses ordinals
   superseded?: { targetPosition: number }; // present exactly when the row's turn is superseded, absence = current (campaign B9 CP-004-13, 2026-07-20) — projection-computed from Plan-004 T3.14's exported supersededTurns(runId); deliberately single-field (Codex round 4, PR #232): the marker's run identity and source epoch ARE the containing row's runId + epoch, so no duplicated fields exist to disagree and live marking (the row plus the boundary cutoff) is identical to replay marking by construction; targetPosition = the superseding rollback's rewind cutoff — the first accepted rollback in the run's lineage, at the row's epoch or later, that rewound the surviving history containing the row (a later rollback below an earlier retained prefix supersedes the inherited rows; a row ranks superseded when position exceeds the run's effective cutoff for its epoch — the minimum cutoff among accepted rollbacks at epoch >= the row's); identical on TimelineRead and TimelineSubscribe replay, rows delivered after a boundary arriving with the marker already projection-computed — per Spec-013 §Required Behavior
+  // Where a projection echoes canonical keys into payload, they must AGREE with the outer triple
+  // (2026-09-01, Plan-013 Phase 1 — I-013-3's no-second-source rule reaching the payload): payload run
+  // identity under either spelling (runId, targetRunId) must equal this row's runId, and payload
+  // sourceEpoch / sourcePosition must equal this row's epoch / position. Echoing stays OPTIONAL and
+  // absence passes; only disagreement is refused, because consumers filter and mark superseded on the
+  // outer triple while the row's detail and provenance read the payload, so a row stating two
+  // attributions is filed under one turn and sourced from another. The run-identity half binds every
+  // arm carrying an outer runId, LegacyStubTimelineEntry included.
 };
 
 type LegacyStubTimelineEntry = TimelineRowBase & {
@@ -4014,14 +4046,15 @@ type LegacyStubTimelineEntry = TimelineRowBase & {
   runId: RunId;
 };
 
-type TimelineRollbackBoundary = TimelineRowBase & {
+type TimelineRollbackBoundary = Omit<TimelineRowBase, "category" | "type" | "payload"> & {
   kind: "rollback_boundary"; // literal discriminator
+  category: "run_lifecycle"; // pinned with `type`, and for the same reason (2026-09-01, Plan-013 Phase 1): run.rolled_back is registered under one category and no other, so leaving this open on the one arm whose event type is closed would leave the half that can still disagree — and a renderer grouping or filtering by category would file the rewind cutoff under the wrong family
   runId: RunId; // the rewound run
   position: number; // the boundary row's own originating position
   epoch: number; // the epoch the rollback rewound
   superseded?: { targetPosition: number }; // an earlier boundary row is itself superseded when a later rollback cuts below it — same single-field marker semantics as the run arm
   type: "run.rolled_back";
-  payload: RunRolledBackEvent; // validated into the typed shape (defined at §Tier 5 run.* above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped (Codex round 2, PR #232). Delivery is visibility-resolved, never keyed on the event's optional channelId: the boundary fans out to every filtered subscription whose filter admits any row of the affected run (Codex round 4, PR #232), so a channel-filtered subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree (Codex round 5, PR #232): the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered
+  payload: RunRolledBackEvent; // validated into the typed shape (defined at §Tier 5 run.* above) at projection, so the live client rule reads a typed targetPosition — never an unsafe cast; an entry failing that validation is a projection defect surfaced at emission, never delivered untyped (Codex round 2, PR #232). Delivery is visibility-resolved, never keyed on the event's optional channelId: the boundary fans out to every filtered subscription whose filter admits any row of the affected run (Codex round 4, PR #232), so a channel-filtered subscriber holding that run's rows always receives the cutoff. Outer attribution and payload cannot disagree (Codex round 5, PR #232): the boundary arm's schema refines runId === payload.runId, sessionId === payload.sessionId, and position === payload.targetPosition (the boundary row ranks at the confirmed rewind floor — which is why a later rollback below it supersedes it), so a conflicting boundary fails parse as a projection defect, never delivered. The `Omit` on the base is load-bearing rather than stylistic (Plan-013 T1.1, PR shipping `packages/contracts/src/timeline/row.ts`): a plain `TimelineRowBase &` intersection would type `payload` as `Record<string, unknown> & RunRolledBackEvent`, which no `RunRolledBackEvent`-typed value satisfies (an interface carries no implicit index signature) and which `RunRolledBackEventSchema` cannot be annotated against — the typed payload this comment promises would be unconstructible. `type` is Omitted for the same reason it is re-declared: this arm narrows the base's free-form string to one literal
 };
 
 type TimelineRow =
@@ -4030,12 +4063,54 @@ type TimelineRow =
   | LegacyStubTimelineEntry
   | TimelineEntry; // the row union every timeline surface returns — TimelineReadResponse.entries, the TimelineSubscribe SSE stream, and ChildRunExpandResponse.entries are all TimelineRow — genuinely discriminated on the literal kind (Codex rounds 3-5, PR #232): the contracts Zod discriminatedUnion selects the arm by kind (rollback_boundary | run | legacy_stub | general), each arm validates strictly, and consumers narrow structurally on row.kind — never probing type: string, never casting
 
+// The incompleteness marker (2026-09-01, Plan-013 T1.2) — the Tier-8 audit residual (§6 node NS-20)
+// shaped. Spec-013 §Fallback Behavior requires that a child run whose detail fetch fails "remains
+// visible and marked incomplete rather than disappearing"; before this, no member carried the mark, so
+// the only signal of incompleteness was a low eventCount, which is indistinguishable from a child run
+// that genuinely did little. The cause vocabulary is CLOSED and every member is a term the corpus
+// already owns — none is minted here:
+type ChildRunIncompleteCause =
+  | "detail_fetch_failed" // this daemon's own expansion read failed — Spec-013 §Fallback Behavior's own
+  //   naming of the condition ("if a child-run detail fetch fails"). Transient: a retry may succeed.
+  | "pending_backfill" // the producing node's rows have not reached this node yet. Spec-008 §Required
+  //   Behavior's coverage-state term, reused verbatim rather than paraphrased — it is the same
+  //   condition at a narrower scope (one child run's rows, not the session's whole history), and that
+  //   section defines the outstanding-source arm as transient, clearing when the peer serves.
+  | "compacted"; // the child's rows were compacted away. Already the shipped vocabulary on this plan's
+//   own sibling surface (ReasoningSurfaceReadResponse's availability arm) and on
+//   HydratedContentUnavailableReason. Terminal: no retry recovers a compacted row.
+// Deliberately NOT reused: session.history_backfill_unavailable (a response-level error code, not a
+// coverage state — Spec-008 rules it out by name), NodeState "offline" (a node lifecycle state, which
+// is the INPUT to pending_backfill rather than a synonym), and RepoMountHealth "unreachable" (scoped to
+// filesystem mounts, whose own contract warns against overloading it across axes).
+type ChildRunCompleteness =
+  | { state: "complete" }
+  | {
+      state: "incomplete";
+      cause: ChildRunIncompleteCause; // required on this arm only
+      observedAt: string; // ISO-8601, daemon clock — when the cause was observed. Required because two
+      //   of the three causes are transient: a consumer deciding whether to retry, and a renderer
+      //   deciding whether to age the notice, both need to know how old the reading is. A cause with no
+      //   time is unactionable.
+    };
+
 interface ChildRunSummary {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
   producingNodeId?: NodeId;
-  eventCount: number;
+  eventCount: number; // on the incomplete arm this is a LOWER BOUND — the count this daemon currently
+  //   holds, not the child run's true total, which by definition it cannot know
+  completeness: ChildRunCompleteness; // REQUIRED, not optional: an absent marker would be a third state
+  //   meaning "probably fine", and Spec-013 §Fallback Behavior's rule is that incompleteness is STATED,
+  //   never inferred from a small count. No compatibility arm — no daemon, SDK, or client ships an
+  //   emitter or parser of this shape (Plan-013 Phase 1 is the first), so ADR-018's rules, which guard
+  //   deployed skew from the first shipped parser onward, impose none.
+  // runId !== parentRunId (2026-09-01, Plan-013 Phase 1): a run that is its own parent makes the
+  //   run-lineage graph cyclic, and every consumer of that graph walks it — the renderer nests a child
+  //   under its parent, Spec-016's one-layer nesting rule is checked against the chain, and cost
+  //   attribution sums along it. Refused once at the parse boundary rather than defended against
+  //   separately at every walk. ChildRunExpandResponse carries the same refusal on the same pair.
 }
 
 // TimelineSubscribe
@@ -4047,8 +4122,21 @@ interface TimelineSubscribeRequest {
 // Response: SSE stream of TimelineRow (the discriminated union above)
 
 // ReasoningSurfaceRead
+// No principal member, by design (2026-09-01, Plan-013 Phase 1) — the Tier-8 audit's "unshaped
+// principal" residual settled as an explicit no-member decision rather than left as an omission.
+// The caller is resolved from the transport per the Authenticated Principal And Authorization Model
+// section above: its opening rule scopes every endpoint in this document to the authenticated caller
+// implicitly, and its informational-body-fields rule makes any participant-naming body field routing
+// and audit metadata that Cedar does not read. A principal member here would therefore be inert at
+// best, and at worst the second source of identity truth that rule exists to forbid. So the request
+// declares none, and its Zod arm is strict: a caller that sends one is refused, not silently stripped.
+// This is deliberately NOT a sixth instance of that section's numbered admitting-write list. Instances
+// (1)-(5) each name where a resolved principal is RETAINED on a durable carrier; this read admits
+// nothing and writes no row, so it has nothing to retain and belongs to the resolution rules, not
+// the retention class.
 interface ReasoningSurfaceReadRequest {
   runId: RunId;
+  afterCursor?: EventCursor; // continuation position, the same opaque cursor the sibling reads take (2026-09-01, Plan-013 Phase 1) — a reasoning entry is projected from the run's events, so its resume position is an event position, and one namespace spelling its cursor two ways would make a client hold two kinds of bookmark for one surface
 }
 type ReasoningSurfaceReadResponse =
   // Closed availability discriminant (Tier-8 audit Codex round, PR #318): the prior shape — available: boolean
@@ -4058,9 +4146,28 @@ type ReasoningSurfaceReadResponse =
   // predates this PR as canonical-doc text only — no daemon, SDK, or driver ships an emitter or parser of it
   // (Plan-013 Phase 1 undispatched; Shipment Manifest empty) — so ADR-018's compatibility rules, which guard
   // deployed skew from the first shipped parser onward, impose no legacy boolean arm here.
+  // The available state is the one that PAGES, so it is the one that splits on hasMore (2026-09-01,
+  // Plan-013 Phase 1) — the same continuation rule TimelineReadResponse carries, nested inside the
+  // availability discriminant so the four states stay four and a paged reply is not a fifth state.
+  // reasoningEntries is non-empty ON THE CONTINUING ARM ONLY (narrowed 2026-09-01, Plan-013 Phase 1).
+  // A zero-entry available page claims a reasoning surface exists and then shows nothing, which renders
+  // identically to unavailable while asserting the opposite — true of a FIRST read, and false of a
+  // continuation whose afterCursor already sat at the end of the surface, which unavailable, compacted,
+  // and policy_redacted would each misstate. The schema cannot separate the two, because only the
+  // request separates them: it carries the half it can see (the continuing arm, which is the arm that
+  // can loop a client on a repeated cursor) and the daemon binder carries the first-page half, beside
+  // the request-scope checks, under Plan-013 I-013-13.
   | {
       availability: "available"; // normalized reasoning present and permitted
-      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>; // required on this arm only
+      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>; // required on this arm only, non-empty (continuing arm), bounded by TIMELINE_PAGE_MAX_BYTES
+      hasMore: true;
+      nextCursor: EventCursor;
+    }
+  | {
+      availability: "available";
+      reasoningEntries: Array<{ sequence: number; content: string; timestamp: string }>; // may be EMPTY on this arm — see the note above; a first read answering empty is refused at the binder
+      hasMore: false;
+      nextCursor?: EventCursor;
     }
   | { availability: "unavailable" } // the run surfaced no reasoning; no entries, no policyReason — the client renders the unavailability placeholder from the state itself (I-013-7: absence never renders as nothing)
   | { availability: "compacted" } // detailed payloads expired or were compacted; no entries — the durable summary and policy marker remain canonical on the summary-first timeline surface (I-013-8), and this state names why expansion is empty
@@ -4072,13 +4179,24 @@ type ReasoningSurfaceReadResponse =
 // ChildRunExpand
 interface ChildRunExpandRequest {
   runId: RunId; // child run to expand
+  afterCursor?: EventCursor; // continuation position (2026-09-01, Plan-013 Phase 1) — named to match the sibling reads rather than a bare `cursor`: one namespace, one name for the position a caller resumes from
 }
-interface ChildRunExpandResponse {
+// Discriminated on hasMore exactly as TimelineReadResponse is, and for the same reason: a child run is
+// not inherently smaller than a session window — a long-running subagent produces more rows than fit one
+// frame — so the expansion needs the same continuation, on the same two arms, with the same rule about
+// which of them may carry a cursor — and the same non-empty floor on the continuing arm, for the same
+// reason: a child run's expansion loops a client on a repeated cursor exactly as a session read does.
+// Two further rules the schema enforces (2026-09-01, Plan-013 Phase 1):
+// every entry that carries a run identity must carry THIS run's (the general arm is exempt, having none —
+// a session-scoped row inside a child's window is context, not misattribution), and runId !== parentRunId,
+// since a run that is its own parent makes the lineage graph cyclic and every walk of it — nesting,
+// one-layer-depth checking, cost attribution — non-terminating.
+type ChildRunExpandResponse = {
   runId: RunId;
   parentRunId: RunId;
   state: RunState;
-  entries: TimelineRow[];
-}
+  entries: TimelineRow[]; // bounded by TIMELINE_PAGE_MAX_BYTES as well as by the row cap
+} & ({ hasMore: true; nextCursor: EventCursor } | { hasMore: false; nextCursor?: EventCursor });
 ```
 
 ### Timeline Method-Name Registry (Tier 8, Plan-013 T1.4)

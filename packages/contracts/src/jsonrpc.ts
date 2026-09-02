@@ -61,6 +61,132 @@ export const JSONRPC_VERSION = "2.0" as const;
 export type JsonRpcVersion = typeof JSONRPC_VERSION;
 
 /**
+ * The maximum size, in bytes, of ONE framed JSON-RPC message body.
+ *
+ * `Spec-007 §Wire Format` ("Maximum message size: 1 MB"); "1 MB" is decimal,
+ * 1,000,000 bytes, following that section's wording. The bound is on the BODY
+ * the `Content-Length` header declares — the header bytes are not counted
+ * against it. An oversized body closes the connection with an error frame
+ * (F-007p-2-05), so exceeding this is not a recoverable per-request failure.
+ * Changing the value requires a Plan-007 Phase 2 amendment plus a Spec-007
+ * update, per F-007p-2-11.
+ *
+ * DECLARED HERE, ENFORCED IN THE SUBSTRATE. The framing parser and encoder
+ * live daemon-side in `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`,
+ * which re-exports this constant so the substrate keeps its single name for
+ * it. It was hoisted into this package because it acquired a SECOND consumer
+ * that is not the framer: a producer that must size a paged reply so the
+ * frame it will become cannot be refused. A response schema deriving its own
+ * page budget from a private copy of the number would drift from the framer
+ * the day the framer moved, and the drift would surface as closed connections
+ * rather than as a failing test.
+ */
+export const MAX_MESSAGE_BYTES = 1_000_000;
+
+/**
+ * The UTF-8 byte length of `value` once serialized as JSON — the quantity
+ * {@link MAX_MESSAGE_BYTES} bounds — or `Number.POSITIVE_INFINITY` when
+ * `value` cannot be serialized at all.
+ *
+ * WHY A PRODUCER NEEDS THIS. A reply is refused by the framer AFTER it has
+ * been built, and the refusal closes the connection rather than failing one
+ * request (F-007p-2-05). A producer that pages its output therefore has to
+ * decide where to stop BEFORE it hands the page over, and the only honest
+ * comparand is the same number the framer will compute. Estimating from
+ * field-length caps does not substitute: a bound derived from caps is either
+ * so conservative that ordinary pages split needlessly, or it silently omits
+ * an unbounded member and stops being a bound at all.
+ *
+ * WHY NOT `Buffer.byteLength`. This package declares no Node dependency (see
+ * this file's header), and the loop below is exact on every runtime. Lone
+ * surrogates cannot reach it: `JSON.stringify` has been well-formed since
+ * ES2019 and escapes them to ASCII, so the `0xd800`-`0xdbff` branch always
+ * has its low surrogate. The unpaired-low-surrogate fall-through is charged
+ * three bytes anyway rather than trusted, because a wrong answer here is a
+ * closed connection.
+ *
+ * `POSITIVE_INFINITY` rather than a throw on an unserializable value (a
+ * cycle, a `BigInt`): the callers are Zod refinements on a parse path, where
+ * a throw escapes `.parse()` as an exception instead of a validation issue.
+ * Infinity fails every comparison against a finite budget, which is the
+ * correct verdict — a value the framer cannot serialize cannot be sent.
+ */
+export function jsonUtf8ByteLength(value: unknown): number {
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(value) ?? "";
+  } catch {
+    return Number.POSITIVE_INFINITY;
+  }
+  let byteLength = 0;
+  for (let index = 0; index < serialized.length; index += 1) {
+    const codeUnit = serialized.charCodeAt(index);
+    if (codeUnit < 0x80) {
+      byteLength += 1;
+    } else if (codeUnit < 0x800) {
+      byteLength += 2;
+    } else if (codeUnit >= 0xd800 && codeUnit <= 0xdbff && index + 1 < serialized.length) {
+      byteLength += 4;
+      index += 1;
+    } else {
+      byteLength += 3;
+    }
+  }
+  return byteLength;
+}
+
+/**
+ * The maximum size, in bytes, of a JSON-RPC `id` once JSON-encoded.
+ *
+ * WHY A BOUND EXISTS AT ALL. The `id` is opaque to the substrate and echoed
+ * back verbatim (see {@link JsonRpcId}), so a caller chooses how many bytes of
+ * every response it authors. Without a bound that choice is only limited by
+ * the inbound frame: a 900 KB id inside a well-formed 950 KB request is a
+ * valid request today, and the reply echoing it exceeds
+ * {@link MAX_MESSAGE_BYTES} no matter how small the result is. That failure
+ * lands on the SEND side, where the reply that cannot be encoded is the very
+ * thing that would have carried the error — so the substrate closes the
+ * connection instead of answering (F-007p-2-05). A caller could therefore
+ * drop its own session with a request the substrate accepted.
+ *
+ * WHY IT IS ENFORCED ON THE REQUEST, NOT SUBTRACTED FROM THE REPLY. No
+ * response schema can bound a member the response does not choose. Sizing
+ * replies around an unenforced allowance would leave the guarantee resting on
+ * a caller's restraint. Bounding the id where it arrives makes the reserve a
+ * paged reply subtracts a derivation from an enforced rule.
+ *
+ * WHY 256. It is the same ceiling this package puts on every other opaque
+ * correlation string on the wire, and it is far above what any client in this
+ * repo mints: the SDK's ids are monotonic integers, and a UUID id encodes to
+ * 38 bytes. A caller needing more than 256 bytes of correlation state is
+ * carrying state the substrate should not be storing in an echo field.
+ *
+ * The bound is on the JSON-ENCODED form, which is what rides the frame, so it
+ * covers escaping rather than counting characters and applies uniformly to
+ * the string, number, and null arms.
+ *
+ * DECLARED HERE, ENFORCED IN THE SUBSTRATE — the same split
+ * {@link MAX_MESSAGE_BYTES} takes, and for the same reason: the gateway
+ * refuses an over-bound id before dispatch, and this package's page budgets
+ * subtract it. Changing the value requires a Plan-007 amendment, since it is
+ * an accept/refuse rule on the wire.
+ */
+export const JSON_RPC_ID_MAX_BYTES = 256;
+
+/**
+ * Whether `candidate` encodes within {@link JSON_RPC_ID_MAX_BYTES}.
+ *
+ * Shape-blind on purpose: it answers only the size question, so a caller that
+ * has already established the id is a string, number, or null gets one rule
+ * rather than three. A value that cannot be serialized measures
+ * `POSITIVE_INFINITY` and is therefore out of bound, which is the correct
+ * verdict for the same reason {@link jsonUtf8ByteLength} gives.
+ */
+export function isJsonRpcIdWithinBound(candidate: unknown): boolean {
+  return jsonUtf8ByteLength(candidate) <= JSON_RPC_ID_MAX_BYTES;
+}
+
+/**
  * Methods exempt from the substrate's envelope-level `protocolVersion`
  * gate. `Spec-007 §Wire Format` mandates that every request carries an ISO 8601
  * `YYYY-MM-DD` `protocolVersion` field on the JSON-RPC envelope; the
@@ -100,6 +226,11 @@ export const ENVELOPE_PROTOCOL_VERSION_EXEMPT_METHODS: ReadonlySet<string> = new
  * The ID is opaque to the substrate: it is echoed back in the response
  * verbatim. Its only contract is round-trip equality between request and
  * response. The registry (T-3) and dispatcher (T-2) do not interpret it.
+ *
+ * Opaque is not unbounded. Because the substrate echoes it, the id is the
+ * one response member the CALLER sizes, so it is bounded at the request
+ * boundary by {@link JSON_RPC_ID_MAX_BYTES} — see that constant for why an
+ * unbounded id is a self-inflicted disconnect rather than a large reply.
  */
 export type JsonRpcId = string | number | null;
 

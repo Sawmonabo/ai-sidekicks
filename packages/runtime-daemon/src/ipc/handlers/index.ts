@@ -16,6 +16,18 @@
 //     operations are deliberately absent from both: they are
 //     orchestration-owned and registered nowhere, so a client cannot reach them
 //     (Plan-005 §Phase 4 decision #2).
+//   * `timeline.*` (four read verbs) — Plan-013. Phase 1 (T1.4) ships the
+//     BINDERS only: `registerTimelineMethod` for the three queries and
+//     `registerTimelineSubscription` for `timeline.subscribe`. BOTH are
+//     exported, because the query binder is TYPED to refuse the subscription
+//     and the subscription's per-emission schema is consumed nowhere else — a
+//     bootstrap that could reach only the query binder could register three of
+//     the four methods and would have to bypass this barrel for the fourth,
+//     which is the convention this file exists to state. Each carries the
+//     canonical method-to-schema descriptor so a later phase cannot bind a name
+//     to the wrong shapes. The handlers themselves arrive with the daemon
+//     services they dispatch to, in Plan-013 Phases 2 and 3, so nothing calls
+//     either binder at bootstrap yet and no `timeline.*` method is on the wire.
 //
 // Each handler is registered separately (no aggregated `registerAll`)
 // so the bootstrap orchestrator retains explicit control over which
@@ -56,3 +68,12 @@ export {
   registerDriverSubscribeEvents,
   type DriverSubscribeEventsDeps,
 } from "./driver-subscribe.js";
+
+export {
+  registerTimelineMethod,
+  registerTimelineSubscription,
+  TimelineSubscriptionScopeError,
+  type TimelineMethodRegistration,
+  type TimelineSubscriptionFactory,
+  type TimelineSubscriptionRegistration,
+} from "./timeline-methods.js";

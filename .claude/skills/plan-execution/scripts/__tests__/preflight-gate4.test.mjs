@@ -3792,7 +3792,70 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // and Phase 1C (T-023p-1C-1..8), whose `Verifies invariant:` rows carry 27
     // resolved references to I-023-2 and the four new I-023-11..14; no none-arm
     // row is added and the legacy channel is untouched.
-    bold: { resolved: 1022, noneArm: 161, parentResolved: 0 },
+    // 1022/161 -> 1023/160 (2026-09-01, NS-98 child-run incompleteness marker —
+    // PR #410): Plan-013's T1.2 row moves OFF the none arm. It read `Verifies
+    // invariant: none` because the `Spec-013 §Fallback Behavior` incompleteness
+    // marker was an unshaped Tier-8 residual, so the task had no rule to verify;
+    // that residual is settled here and the row now names the newly-minted
+    // I-013-10 — one more bold resolved reference and one fewer bold none-arm,
+    // a single row moving between the two channels rather than a new task. The
+    // `-1` none-arm is therefore expected and is NOT a screen that stopped
+    // running. Nothing else in the diff touches a `Verifies invariant:` row —
+    // Spec-013, Spec-008, and api-payload-contracts.md carry no marker blocks,
+    // and Plan-013's other task rows are untouched. The legacy compact-inline
+    // channel is unchanged.
+    // 1023/160 -> 1025/159 (2026-09-01, NS-98 Codex round-2 fold — PR #410):
+    // I-013-10 is assigned to its PRODUCER and its RENDERER, not only to the
+    // shape task that mints it. Plan-013's T3.1 (the child-run summary service
+    // that stamps the marker after a failed expansion and keeps `eventCount` a
+    // lower bound) moves OFF the none arm and names I-013-10, and T4.1 (the
+    // renderer that must show the incomplete state rather than let a low count
+    // read as completed work) gains I-013-10 beside its existing I-013-1 — two
+    // more bold resolved references, and one fewer none-arm from T3.1's move.
+    // T4.1 was already resolved, so its added id moves no none-arm. Nothing
+    // else in the fold touches a `Verifies invariant:` row; the legacy channel
+    // is unchanged.
+    // 1025/159 -> 1033/159 (2026-09-01, NS-98 Codex round-3 fold — PR #410):
+    // the page-framing leg mints I-013-11 (one reply, one frame — the bound
+    // stated on encoded size and continuation on every read) and I-013-12
+    // (page integrity: nondecreasing sequence, expansion entries bound to the
+    // response's own run, no self-parenting summary), and assigns them across
+    // the shape task, the new contract task, and the three producers rather
+    // than only where they are minted: T1.3 +I-013-11, the NEW T1.5
+    // +I-013-11 +I-013-12, T2.4 +I-013-11 +I-013-12, T3.1 +I-013-11
+    // +I-013-12, T3.2 +I-013-11 — eight more bold resolved references.
+    // The none arm does NOT move: T1.5 is born resolved, every other row
+    // named here was already resolved, and T1.4 stays on `none` (registering
+    // method strings verifies no invariant of this plan). Plan-007 takes a
+    // recorded no-flip whose only edits are a `### CP-007-16` section and a
+    // Target-Areas line, neither a marker block; Spec-013 and
+    // cross-plan-dependencies.md carry no marker blocks. The legacy
+    // compact-inline channel is unchanged.
+    // 1033/159 -> 1034/159 (2026-09-01, NS-98 Codex round-4 fold — PR #410):
+    // the fold's only marker-block change is Plan-007's new `### Phase 2B`
+    // explicit-label supplement, whose single task T-007p-2B-1 (the
+    // daemon-resolved calling principal stamped on `HandlerContext`) is born
+    // with `Verifies invariant: I-007-21` — one more bold resolved reference,
+    // and none-arm-neutral because the task is born resolved rather than
+    // moved off `none`. The round's other three legs move no marker: the
+    // request-id bound mints I-007-22 but is verified by shipped gateway
+    // tests rather than by a task row on an unmerged phase, the barrier
+    // extraction is CP-007-16 prose, and Plan-013's growth is a CP row, a
+    // born-unchecked Preconditions box, and body text on T1.5 / T3.2 —
+    // none of which is a `Verifies invariant:` row. Spec-007, Spec-013,
+    // api-payload-contracts.md, and cross-plan-dependencies.md carry no
+    // marker blocks. The legacy compact-inline channel is unchanged.
+    // 1034/159 -> 1035/158 (2026-09-01, NS-98 Codex round-5 fold — PR #410):
+    // request scope mints Plan-013's I-013-13 and assigns it to T1.4, which
+    // was the plan's one `none`-arm task (registering method strings verifies
+    // no invariant — until those registrations began enforcing one). So the
+    // bold count rises by one and the none arm falls by one in the same
+    // motion: this is a MOVE off `none`, not a birth. The round's other legs
+    // move no marker — I-013-1 and I-013-3 have their statements extended in
+    // place, which changes no `Verifies invariant:` row, and T1.1 already
+    // named both. Spec-013 and cross-plan-dependencies.md carry no marker
+    // blocks, and Plan-007 is not edited in this round at all.
+    bold: { resolved: 1035, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });

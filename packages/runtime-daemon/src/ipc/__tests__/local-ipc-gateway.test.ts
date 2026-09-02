@@ -55,6 +55,7 @@ import type {
   HandlerContext,
   JsonRpcErrorResponse,
   JsonRpcId,
+  JsonRpcRequest,
   JsonRpcResponse,
 } from "@ai-sidekicks/contracts";
 import { JSONRPC_VERSION } from "@ai-sidekicks/contracts";
@@ -66,6 +67,7 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 import {
   encodeFrame,
   FramingError,
+  JSON_RPC_ID_MAX_BYTES,
   LocalIpcGateway,
   MAX_MESSAGE_BYTES,
   parseFrame,
@@ -926,6 +928,171 @@ describe("RT-codex-1 finding #2 — malformed request id rejected before dispatc
       }
     });
   }
+});
+
+// ----------------------------------------------------------------------------
+//
+// Codex round-4 P2: the `id` is echoed verbatim, so it is the one response
+// member the CALLER sizes. An id that fits the inbound frame can still make
+// every reply to it un-encodable — and the send path cannot transmit the reply
+// that failed to encode, so it destroys the socket. Left unbounded, a caller
+// could drop its own session with a request the substrate accepted, and no
+// response schema could stop it: a schema bounds what the RESPONSE chooses,
+// and the response does not choose its own id. `JSON_RPC_ID_MAX_BYTES` is
+// therefore enforced at the request boundary, in two places — the id-bound
+// refusal in `#dispatchFrame`, and `extractIdSafely`'s drop-to-Null, which
+// covers the earlier envelope gates that answer before that refusal runs.
+
+describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never echoed", () => {
+  const oversizedId = "z".repeat(100_000);
+
+  it("refuses a 100 KB id as -32600 without invoking the handler, and echoes null", async () => {
+    const socketPath = ephemeralSocketPath("oversized-id");
+    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    const registry = new MethodRegistryImpl();
+    const handlerSpy = vi.fn(async () => ({ ok: true }));
+    const handler: Handler<unknown, { ok: boolean }> = handlerSpy;
+    registry.register(
+      "x.y",
+      passthroughSchema<unknown>(),
+      passthroughSchema<{ ok: boolean }>(),
+      handler,
+    );
+    const gateway = new LocalIpcGateway({ registry });
+    try {
+      await gateway.start();
+      const client = await makeClient(socketPath);
+      try {
+        const bodyText = JSON.stringify({
+          jsonrpc: JSONRPC_VERSION,
+          id: oversizedId,
+          method: "x.y",
+          protocolVersion: "2026-05-01",
+          params: {},
+        });
+        const bodyBytes = Buffer.from(bodyText, "utf8");
+        // The request itself is well under the frame cap — this is not the
+        // oversized-BODY path. It is a legal frame whose reply would not be.
+        expect(bodyBytes.byteLength).toBeLessThan(MAX_MESSAGE_BYTES);
+        const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
+        client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
+        const acc = await client.waitForBytes((b) => {
+          try {
+            return parseFrame(b).frame !== null;
+          } catch {
+            return false;
+          }
+        });
+        const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
+        expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+        expect(response.error.data).toMatchObject({ type: "invalid_envelope" });
+        // The assertion the whole gate exists for: the oversized value is NOT
+        // echoed. A response carrying it back would be the very write the gate
+        // prevents — the encoder would refuse it and the socket would close.
+        expect(response.id).toBeNull();
+        expect(JSON.stringify(response)).not.toContain(oversizedId);
+        expect(handlerSpy).not.toHaveBeenCalled();
+        // And the connection is still live: the refusal is a per-request
+        // answer, not a disconnect.
+        expect(client.socket.destroyed).toBe(false);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+
+  it("drops an oversized id to null on an EARLIER envelope gate rather than echoing it", async () => {
+    // `method` is validated before the id-bound refusal runs, and that gate
+    // builds its error frame through `extractIdSafely`. Without the bound
+    // check inside that helper, the one frame guaranteed to be small would be
+    // the one carrying a 100 KB echo — the connection would close on a
+    // malformed request instead of the client being told it sent one.
+    const socketPath = ephemeralSocketPath("oversized-id-early-gate");
+    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    const gateway = new LocalIpcGateway({ registry: new MethodRegistryImpl() });
+    try {
+      await gateway.start();
+      const client = await makeClient(socketPath);
+      try {
+        const bodyText = JSON.stringify({
+          jsonrpc: JSONRPC_VERSION,
+          id: oversizedId,
+          method: 42,
+          params: {},
+        });
+        const bodyBytes = Buffer.from(bodyText, "utf8");
+        const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
+        client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
+        const acc = await client.waitForBytes((b) => {
+          try {
+            return parseFrame(b).frame !== null;
+          } catch {
+            return false;
+          }
+        });
+        const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
+        expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+        expect(response.id).toBeNull();
+        expect(JSON.stringify(response)).not.toContain(oversizedId);
+        expect(client.socket.destroyed).toBe(false);
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
+  });
+
+  it("NEGATIVE CONTROL: an id at the bound is accepted and echoed verbatim", async () => {
+    // Without this the first two tests would still pass if the gate refused
+    // every string id. The bound is on the JSON-ENCODED form, so a 254-char
+    // ASCII id encodes to exactly 256 bytes with its two quotes.
+    const atBoundId = "a".repeat(JSON_RPC_ID_MAX_BYTES - 2);
+    const socketPath = ephemeralSocketPath("at-bound-id");
+    bootstrap({ bindAddress: "127.0.0.1", localIpcPath: socketPath, bannerFormat: "text" });
+    const registry = new MethodRegistryImpl();
+    const handler: Handler<unknown, { ok: boolean }> = async () => ({ ok: true });
+    registry.register(
+      "x.y",
+      passthroughSchema<unknown>(),
+      passthroughSchema<{ ok: boolean }>(),
+      handler,
+    );
+    const gateway = new LocalIpcGateway({ registry });
+    try {
+      await gateway.start();
+      const client = await makeClient(socketPath);
+      try {
+        const frame = encodeFrame({
+          jsonrpc: JSONRPC_VERSION,
+          id: atBoundId,
+          method: "x.y",
+          protocolVersion: "2026-05-01",
+          params: {},
+        } as JsonRpcRequest);
+        client.socket.write(frame);
+        const acc = await client.waitForBytes((b) => {
+          try {
+            return parseFrame(b).frame !== null;
+          } catch {
+            return false;
+          }
+        });
+        const response = decodeOneFrame(acc) as JsonRpcResponse;
+        expect(response.id).toBe(atBoundId);
+        expect(response.result).toEqual({ ok: true });
+      } finally {
+        await client.close();
+      }
+    } finally {
+      await gateway.stop();
+      await fs.rm(socketPath, { force: true });
+    }
+  });
 });
 
 // ----------------------------------------------------------------------------

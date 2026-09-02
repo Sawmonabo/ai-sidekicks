@@ -33,8 +33,11 @@
 // here: it IS exported (Plan-005 owns it in `./provider-driver.js`), so this
 // module imports it and pins the payload union against it in the test suite.
 //
-// IMPORT DIRECTION. Nothing in this package imports this module, so no cycle
-// is reachable through it today. Keep it that way: the shapes below compose
+// IMPORT DIRECTION. This module imports downward only, so no cycle is
+// reachable through it today. Its one in-package consumer is the
+// `./timeline/` subdirectory (Plan-013 T1.1/T1.2 take `RunState` and
+// `RunRolledBackEventSchema` from here), which nothing below imports back.
+// Keep it that way: the shapes below compose
 // `./provider-driver.js`, `./session.js`, `./repo.js`, and the `./node-id.js`
 // leaf, and every one of those is an eager module-scope Zod initializer, so a
 // back-import from any of them would throw `ReferenceError` at import time
