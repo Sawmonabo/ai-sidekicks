@@ -5,33 +5,34 @@
 // that they "register palette commands through `palette/contributions.ts`, never a
 // second command registry".
 //
-// SO THIS MODULE BUILDS VALUES AND REGISTERS NOTHING. `ConsoleCommand` and
-// `KeyBinding` come from the palette's own contribution types; the ledger's frame
-// registers them in the effect that owns this window's lifetime, exactly as
-// `frame/frame-commands.ts` does for the frame's own. A module-scope registration
-// here would run at import time, before any window exists, and could not be
-// removed when one closes.
+// THE VALUES ARE BUILT HERE AND CONTRIBUTED THROUGH THE FRAME'S OWN DOOR.
+// `ConsoleCommand` and `KeyBinding` come from the palette's contribution types, and
+// `registerLedgerCommands` hands both to `frame/command-surface.ts` — the same door
+// the frame's own commands go through, and the same shape as this family's surface
+// and pane claims: the family registers itself, and the frame names no family.
+// Building the list and contributing it stay separate functions, because a caller
+// that holds one window's acts (a test, a story) wants the values without the
+// registration.
+//
+// WHY THE CONTRIBUTION IS COMPOSITION-TIME AND THE TARGET IS NOT. The commands are
+// contributed when the console composes, so they are in the palette and their
+// chords are in the binding table from the first frame. What they ACT on is
+// whichever ledger is mounted when the key is pressed, resolved through
+// `mounted-ledger.ts`; with none mounted the act states its refusal on the frame's
+// banner rather than doing nothing.
 //
 // EVERY COMMAND CLOSES OVER AN ACT THE CALLER SUPPLIES. None of them reaches a
 // store, a bridge, or the DOM — which is what makes the whole contribution
 // testable by invoking `run` and watching the act fire.
 
+import { raiseConsoleActRefusal, type ConsoleCommandSurface } from "../../frame/command-surface.js";
 import type { ConsoleCommand, KeyBinding } from "../../palette/index.js";
-
-/**
- * The acts the ledger's structure offers. One function per command, named for the
- * act rather than for the control that triggers it.
- */
-export interface LedgerStructureActs {
-  readonly openFind: () => void;
-  readonly stepFindNext: () => void;
-  readonly stepFindPrevious: () => void;
-  readonly clearFilters: () => void;
-  readonly scrollToTail: () => void;
-  readonly collapseAllTerminalChapters: () => void;
-  readonly toggleReplay: () => void;
-  readonly jumpToNextSeam: () => void;
-}
+import {
+  mountedLedger,
+  type LedgerActName,
+  type LedgerStructureActs,
+  type MountedLedgerSeat,
+} from "./mounted-ledger.js";
 
 /**
  * The palette group every one of these rows sits under.
@@ -139,4 +140,84 @@ export function ledgerStructureCommands(acts: LedgerStructureActs): readonly Con
       run: acts.jumpToNextSeam,
     },
   ];
+}
+
+/**
+ * The owner string this family's command contribution carries.
+ *
+ * The same string its surface and pane claims carry, and for the same reason: the
+ * contribution door is owner-scoped, so composing twice — a hot reload, a second
+ * test — replaces this family's rows instead of raising on their ids.
+ */
+export const LEDGER_COMMAND_OWNER = "ledger";
+
+/**
+ * Contribute the ledger's commands and chords to a window.
+ *
+ * Takes the surface rather than reaching for the module-scope door, for
+ * `registerLedger`'s reason: a test contributes into a surface it owns, and an
+ * auxiliary window could contribute a subset without a second code path.
+ */
+export function registerLedgerCommands(
+  surface: ConsoleCommandSurface,
+  seat: MountedLedgerSeat = mountedLedger,
+): void {
+  surface.contribute({
+    owner: LEDGER_COMMAND_OWNER,
+    commands: ledgerStructureCommands(actsOnTheMountedLedger(seat)),
+    keyBindings: LEDGER_KEY_BINDINGS,
+  });
+}
+
+/**
+ * The act set every contributed command runs through.
+ *
+ * Written out rather than derived from a name list, so a ninth act added to
+ * `LedgerStructureActs` fails to compile here instead of being contributed as a
+ * command that reaches the mounted ledger through nothing.
+ */
+function actsOnTheMountedLedger(seat: MountedLedgerSeat): LedgerStructureActs {
+  const perform = (act: LedgerActName): void => {
+    performOnMountedLedger(seat, act);
+  };
+  return {
+    openFind: () => {
+      perform("openFind");
+    },
+    stepFindNext: () => {
+      perform("stepFindNext");
+    },
+    stepFindPrevious: () => {
+      perform("stepFindPrevious");
+    },
+    clearFilters: () => {
+      perform("clearFilters");
+    },
+    scrollToTail: () => {
+      perform("scrollToTail");
+    },
+    collapseAllTerminalChapters: () => {
+      perform("collapseAllTerminalChapters");
+    },
+    toggleReplay: () => {
+      perform("toggleReplay");
+    },
+    jumpToNextSeam: () => {
+      perform("jumpToNextSeam");
+    },
+  };
+}
+
+/**
+ * Perform one act, and state the refusal where a person can see it.
+ *
+ * The banner is rule 9's third rendering and the only one available to an act with
+ * no surface of its own — which is exactly what a ledger command pressed from a
+ * window with no ledger is.
+ */
+function performOnMountedLedger(seat: MountedLedgerSeat, act: LedgerActName): void {
+  const outcome = seat.perform(act);
+  if (outcome.status === "refused") {
+    raiseConsoleActRefusal(outcome.refusal);
+  }
 }

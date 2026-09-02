@@ -32,9 +32,10 @@ import {
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
 import {
-  FRAME_KEY_BINDINGS,
   RAIL_NAVIGATION_DETAILS,
   consoleCommands,
+  consoleKeyBindings,
+  publishConsoleActRefusalSink,
   registerConsoleCommands,
   type FrameCommand,
   type FrameWhenClauseContext,
@@ -139,16 +140,24 @@ export function useFrameCommandSurface(input: FrameCommandSurfaceInput): FrameCo
     // is atomic, so a duplicate anywhere in the list adds none of it and the
     // cleanup below cannot unregister a command another mount owns.
     registerConsoleCommands(windowCommands);
-    keyBindings.setBindings(FRAME_KEY_BINDINGS);
+    // The frame's own chords AND the families'. The frame names no family — the
+    // list is read from the door they contributed through, exactly as the surface
+    // registry hands it the routes it renders.
+    keyBindings.setBindings(consoleKeyBindings());
     const uninstall = keyBindings.install(window);
+    // And the banner a family's composition-time act states its refusal on. It is
+    // published for this window's lifetime because that is how long the banner
+    // exists: an act contributed at module scope cannot close over one.
+    const withdrawRefusalSink = publishConsoleActRefusalSink(raiseRefusalBanner);
     setCommandRevision((revision) => revision + 1);
     return () => {
       uninstall();
+      withdrawRefusalSink();
       for (const command of windowCommands) {
         consoleCommands.unregister(command.id);
       }
     };
-  }, [bridgeCommands, chooseScheme, frameStore, keyBindings]);
+  }, [bridgeCommands, chooseScheme, frameStore, keyBindings, raiseRefusalBanner]);
 
   const changePaletteOpen = useCallback((open: boolean) => {
     setPaletteOpen(open);

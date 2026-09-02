@@ -19,6 +19,12 @@
 // pointer. The canvas is decoration under a control, which is what
 // `aria-hidden` on it says.
 //
+// THE CANVAS IS SIZED BY ITS OWN BOX, NOT BY ITS DEFAULT. `rail-surface.ts` watches
+// the rendered box and the host's device pixel ratio and publishes a revision the
+// paint effect depends on, so the backing store follows the strip through a window
+// resize and a move to a second display — event-driven both times, because a rail
+// that is static at rest must not hold a frame loop open to notice.
+//
 // THE FISHEYE AND THE PREVIEW are pointer affordances and cost nothing when there
 // is no pointer: the fisheye is a paint-time transform over the pointer offset the
 // component already tracks, and the preview card is one nullable node, opened
@@ -35,7 +41,8 @@ import {
   type RailTick,
   type RailTickKind,
 } from "./rail-model.js";
-import { RailPainter } from "./rail-painter.js";
+import { RailPainter, type RailActorHueLookup } from "./rail-painter.js";
+import { useRailSurfaceRevision } from "./rail-surface.js";
 
 export interface ProvenanceRailProps {
   /** The derivation. Built once per loaded window by the caller's `useMemo`. */
@@ -48,8 +55,25 @@ export interface ProvenanceRailProps {
   readonly isFollowing: boolean;
   /** Jump through the ledger's scroll chokepoint. The rail never scrolls anything itself. */
   readonly onJumpToRow: (rowId: string) => void;
-  /** Ask the ledger for rows before the window's head. */
-  readonly onLoadEarlier: () => void;
+  /**
+   * Ask the ledger for rows before the window's head.
+   *
+   * Optional, because no registered read pages a session's log backwards today: a
+   * caller with nothing to call supplies nothing and no button is drawn. The
+   * dotted segment does NOT depend on it — the clip is a fact about the window and
+   * §5.4 requires it drawn whether or not anybody can act on it.
+   */
+  readonly onLoadEarlier?: () => void;
+  /**
+   * The session's hue allocation, for the marks §5.4 gives the actor's hue.
+   *
+   * Optional because the rail is mountable over a window that holds no allocation,
+   * and every actor tick then takes the neutral tone rather than a colour this
+   * component invented. The lookup itself is the store's — `assignmentFor` reads
+   * without allocating, so asking about a participant the wheel has not admitted
+   * cannot mint one.
+   */
+  readonly hueForActor?: RailActorHueLookup;
   /** The clock the preview grace is measured on. The fixture's frozen clock in a story. */
   readonly clock?: ConsoleClock;
 }
@@ -75,6 +99,11 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
   const clock = props.clock ?? fallbackClock;
 
   const painter = useMemo(() => new RailPainter(), []);
+  // The canvas's backing store follows its RENDERED box, and the box changes with
+  // the window, the deck, and the display the window sits on. The revision is what
+  // carries those two events into the paint effect below; the measurement itself is
+  // the painter's, off the canvas it was handed, so there is only ever one.
+  const surfaceRevision = useRailSurfaceRevision(canvasRef);
   const graceRef = useRef<PreviewGrace | undefined>(undefined);
   graceRef.current ??= new PreviewGrace(clock);
   const grace = graceRef.current;
@@ -85,9 +114,14 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
     };
   }, [grace]);
 
+  const hueForActor = props.hueForActor;
   useEffect(() => {
-    painter.paint(canvasRef.current, railModel.ticks, pointerFraction);
-  }, [painter, railModel, pointerFraction]);
+    painter.paint(canvasRef.current, {
+      ticks: railModel.ticks,
+      pointerFraction,
+      ...(hueForActor === undefined ? {} : { actorHue: hueForActor }),
+    });
+  }, [painter, railModel, pointerFraction, surfaceRevision, hueForActor]);
 
   const focusedTick = useMemo(
     () =>
@@ -205,7 +239,7 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
         />
         {props.isFollowing ? <span className="meridian-rail__live" aria-hidden="true" /> : null}
       </div>
-      {railModel.clip.hasUnloadedExtent ? (
+      {railModel.clip.hasUnloadedExtent && onLoadEarlier !== undefined ? (
         <button type="button" className="meridian-rail__load-earlier" onClick={onLoadEarlier}>
           Load earlier
         </button>

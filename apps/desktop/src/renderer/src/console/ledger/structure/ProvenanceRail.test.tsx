@@ -79,10 +79,15 @@ function renderRail(
   options: {
     readonly model?: ProvenanceRailModel;
     readonly clock?: ManualClock;
+    /** Whether a caller can page earlier rows at all. Absent, no affordance is drawn. */
+    readonly canLoadEarlier?: boolean;
   } = {},
 ): RailHarness {
   const jumps: string[] = [];
   let loadEarlierCount = 0;
+  const loadEarlier = (): void => {
+    loadEarlierCount += 1;
+  };
   render(
     <ProvenanceRail
       model={options.model ?? railModel()}
@@ -90,9 +95,7 @@ function renderRail(
       viewportExtent={0.25}
       isFollowing={false}
       onJumpToRow={(rowId) => jumps.push(rowId)}
-      onLoadEarlier={() => {
-        loadEarlierCount += 1;
-      }}
+      {...(options.canLoadEarlier === false ? {} : { onLoadEarlier: loadEarlier })}
       clock={options.clock ?? new ManualClock()}
     />,
   );
@@ -194,6 +197,14 @@ describe("rail — clip honesty is rendered, not implied", () => {
     // deliver.
     renderRail({ model: railModel(false) });
     expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+  });
+
+  it("keeps the dotted segment where the reader cannot page, and drops the button", () => {
+    // §5.4's clip honesty is a fact about the WINDOW, so the segment is drawn
+    // whether or not anybody can act on it; the button is a promise, so it is not.
+    const { slider } = renderRail({ model: railModel(true), canLoadEarlier: false });
+    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+    expect(slider.querySelector(".meridian-rail__unloaded")).not.toBeNull();
   });
 });
 

@@ -123,12 +123,30 @@ function matchFieldOf(row: TimelineRow, needle: string): LedgerFindMatch["matche
 }
 
 /**
+ * Where the walk sits before anything has been selected.
+ *
+ * Negative rather than `undefined` because the field renders "n of m" from the
+ * same number, and a sentinel one comparison recognises is what keeps the two
+ * readings — "nothing is selected" and "the first match is selected" — from
+ * collapsing into index 0.
+ */
+const UNSELECTED_FIND_INDEX = -1;
+
+/**
  * Where the next or previous match sits, given where the walk is now.
  *
  * Wraps, unlike the rail's tick walk, and the difference is deliberate: a find
  * field shows "3 of 17", so a wrap is visible in the counter and a person always
  * knows they came round. The rail shows no counter, so a silent wrap there would
  * be a jump with nothing on screen explaining it.
+ *
+ * THE UNSELECTED STATE IS AN ENTRY, NOT A STEP. With nothing selected there is no
+ * position to step FROM, so both directions ENTER the list rather than move
+ * through it: forward lands on the first match and backward on the last. Applying
+ * the ±1 arithmetic to the sentinel instead read the walk as standing one place
+ * before the first match, which is true going forward and false going back — a
+ * backward entry then landed on the second-to-last match and the last one was
+ * unreachable until the walk had wrapped all the way round to it.
  *
  * Returns `undefined` only when there is nothing to walk.
  */
@@ -141,10 +159,27 @@ export function stepFindMatch(
   if (count === 0) {
     return undefined;
   }
+  const index =
+    currentIndex <= UNSELECTED_FIND_INDEX
+      ? entryIndexFor(direction, count)
+      : steppedIndexFrom(currentIndex, direction, count);
+  const match = result.matches[index];
+  return match === undefined ? undefined : { index, match };
+}
+
+/** Where a walk that has not started enters the list from. */
+function entryIndexFor(direction: "next" | "previous", count: number): number {
+  return direction === "next" ? 0 : count - 1;
+}
+
+/** The next position along, wrapping in both directions. */
+function steppedIndexFrom(
+  currentIndex: number,
+  direction: "next" | "previous",
+  count: number,
+): number {
   const step = direction === "next" ? 1 : -1;
   // `+ count` before the modulus: JavaScript's `%` keeps the sign of the dividend,
   // so stepping back from index 0 would land on -1 rather than on the last match.
-  const index = (((currentIndex + step) % count) + count) % count;
-  const match = result.matches[index];
-  return match === undefined ? undefined : { index, match };
+  return (((currentIndex + step) % count) + count) % count;
 }

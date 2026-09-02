@@ -193,3 +193,59 @@ describe("find — stepping the walk", () => {
     expect(stepFindMatch(empty, 0, "next")).toBeUndefined();
   });
 });
+
+describe("find — the first step, before anything is selected", () => {
+  /** A window whose every row matches `hit`, so the match list is exactly `count` long. */
+  function windowOfMatches(count: number): readonly TimelineRow[] {
+    return Array.from({ length: count }, (_unused, index) =>
+      runRow({
+        id: `hit-${String(index + 1)}`,
+        sequence: index + 1,
+        type: "run.running",
+        runId: "run-a",
+        position: index + 1,
+        summary: "hit",
+      }),
+    );
+  }
+
+  function resultOver(count: number): ReturnType<typeof findInLedger> {
+    return findInLedger(windowOfMatches(count), "hit", false);
+  }
+
+  /** Every match count a walk can be entered over, and where each direction lands. */
+  const entries: readonly {
+    readonly matchCount: number;
+    readonly forwardRowId: string | undefined;
+    readonly backwardRowId: string | undefined;
+  }[] = [
+    { matchCount: 0, forwardRowId: undefined, backwardRowId: undefined },
+    { matchCount: 1, forwardRowId: "hit-1", backwardRowId: "hit-1" },
+    { matchCount: 2, forwardRowId: "hit-1", backwardRowId: "hit-2" },
+    { matchCount: 7, forwardRowId: "hit-1", backwardRowId: "hit-7" },
+  ];
+
+  it("enters the list at the first match going forward and the last going back", () => {
+    for (const entry of entries) {
+      const result = resultOver(entry.matchCount);
+      expect(stepFindMatch(result, -1, "next")?.match.rowId).toBe(entry.forwardRowId);
+      expect(stepFindMatch(result, -1, "previous")?.match.rowId).toBe(entry.backwardRowId);
+    }
+  });
+
+  it("reports the entry position as an index the counter can render", () => {
+    // "1 of 7" and "7 of 7" — the index is what the field counts from, so an entry
+    // that landed on the right ROW under the wrong index would still read wrong.
+    const result = resultOver(7);
+    expect(stepFindMatch(result, -1, "next")?.index).toBe(0);
+    expect(stepFindMatch(result, -1, "previous")?.index).toBe(6);
+  });
+
+  it("negative control: entering is not stepping — a selected walk still moves by one", () => {
+    // Fails if the unselected arm were applied to every index: a backward step
+    // from match 3 of 7 would then land on the last match rather than on match 2.
+    const result = resultOver(7);
+    expect(stepFindMatch(result, 2, "previous")?.index).toBe(1);
+    expect(stepFindMatch(result, 2, "next")?.index).toBe(3);
+  });
+});

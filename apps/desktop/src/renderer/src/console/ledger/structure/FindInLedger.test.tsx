@@ -65,10 +65,15 @@ function renderField(
     readonly result?: LedgerFindResult;
     readonly query?: string;
     readonly currentMatchIndex?: number;
+    /** Whether a caller can page earlier rows at all. Absent, no affordance is drawn. */
+    readonly canLoadEarlier?: boolean;
   } = {},
 ): FindHarness {
   const acts: string[] = [];
   const result = options.result ?? matchingResult();
+  const loadEarlier = (): void => {
+    acts.push("load-earlier");
+  };
   render(
     <FindInLedger
       query={options.query ?? result.query}
@@ -76,7 +81,7 @@ function renderField(
       currentMatchIndex={options.currentMatchIndex ?? -1}
       onQueryChange={(query) => acts.push(`query:${query}`)}
       onStep={(direction) => acts.push(`step:${direction}`)}
-      onLoadEarlier={() => acts.push("load-earlier")}
+      {...(options.canLoadEarlier === false ? {} : { onLoadEarlier: loadEarlier })}
       onClose={() => acts.push("close")}
     />,
   );
@@ -105,6 +110,15 @@ describe("find field — the boundary is rendered, never remembered", () => {
     // there.
     renderField({ result: matchingResult(false) });
     expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+  });
+
+  it("draws no affordance where the reader cannot page, and still states the boundary", () => {
+    // The window IS partial and no registered read fetches what is missing. The
+    // sentence is the honest half and survives; the button is the half that would
+    // be a promise, and it is absent rather than drawn dead.
+    const { field } = renderField({ result: matchingResult(true), canLoadEarlier: false });
+    expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
+    expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
   });
 });
 
