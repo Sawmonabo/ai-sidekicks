@@ -28,6 +28,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emulateSystemScheme } from "../console-harness.js";
 import {
   mountArtifactPane,
+  mountArtifactPaneDeferredPayload,
+  mountArtifactPaneInlinePayload,
   mountDiffPane,
   mountProposalGate,
   mountRepoSection,
@@ -52,6 +54,14 @@ const AUDITED_SURFACES: readonly {
   { label: "the repos section with a degraded mount", mount: mountRepoSection },
   { label: "the diff pane over a parsed change set", mount: mountDiffPane },
   { label: "the artifact pane carrying a refusal", mount: mountArtifactPane },
+  {
+    label: "the artifact pane on a deferred payload handle",
+    mount: mountArtifactPaneDeferredPayload,
+  },
+  {
+    label: "the artifact pane previewing inline payload bytes",
+    mount: mountArtifactPaneInlinePayload,
+  },
   { label: "the proposal gate on a prepared proposal", mount: mountProposalGate },
   {
     label: "the repos section with a root's gate disclosed",

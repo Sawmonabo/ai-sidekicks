@@ -66,9 +66,9 @@ import {
 } from "../primitives/index.js";
 import { ArtifactRow, type DeleteConfirmState } from "./ArtifactRow.js";
 import {
-  ARTIFACT_PAYLOAD_DISPOSITION_COPY,
   ARTIFACT_TYPES,
   ARTIFACT_TYPE_FILTER_ALL,
+  artifactDeleteReceiptSentence,
   artifactTypeCounts,
   filterArtifactRows,
   type ArtifactDeleteReceipt,
@@ -161,10 +161,7 @@ export function ArtifactsPanel(props: ArtifactsPanelProps): React.JSX.Element {
       {props.lastDeleteReceipt === undefined ? null : (
         <p className="meridian-artifacts__receipt" role="status">
           <Glyph name="check" size={PANEL_GLYPH_SIZE} />
-          {ARTIFACT_PAYLOAD_DISPOSITION_COPY[props.lastDeleteReceipt.payloadDisposition]}{" "}
-          {props.lastDeleteReceipt.rePublishForeclosed
-            ? "Re-publishing this artifact is now permanently impossible."
-            : "Re-publishing is still possible."}
+          {artifactDeleteReceiptSentence(props.lastDeleteReceipt)}
         </p>
       )}
 

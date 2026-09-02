@@ -72,6 +72,13 @@ export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 // the structure rules exist to prevent. It leaves through `artifacts.js` — the
 // module that DECLARES it — on the rule the paragraph above states.
 export type { GrowthArtifactSummary } from "./growth-values/artifacts.js";
+// The read's own reply union and the encoding a reader switches on, for the same
+// reason and through the same module: the artifact pane consumes both arms of a
+// served payload read, and the arm it lands on is what it draws.
+export type {
+  GrowthArtifactPayloadEncoding,
+  GrowthArtifactRead,
+} from "./growth-values/artifacts.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

@@ -23,14 +23,73 @@
   text-align: end;
 }
 
-/* What the read does NOT serve, stated where the control is.
+/* The two acts, side by side above the line that says what each asks for.
 
-   The row's act is named for what it does; this line names the reply members that
-   would have to be registered before bytes could be fetched, so a participant is
-   not left waiting for a download that nothing on this port could produce. */
+   Their own row inside the column group: a control with a neighbour has to be at
+   least a 24px target and separated from it, which a lone text button never had to
+   be. The size is given here rather than on the shared control class, because every
+   other pane draws exactly one of those and would gain the padding for nothing. */
+.meridian-artifact-pane__read-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-artifact-pane__read-actions .meridian-repos-pane__control {
+  min-block-size: 24px;
+  min-inline-size: 24px;
+  margin-inline-start: 0;
+  padding-inline: var(--meridian-space-1);
+}
+
+/* What the two controls ask for, stated where they are.
+
+   The row's act is named for what its read serves and the pane's for the bytes it
+   asks for; this line says which reply arm a payload of either size comes back on,
+   so a handle is met as an answer rather than as a failure. */
 .meridian-artifact-pane__read-scope-note {
   max-inline-size: 44ch;
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
+}
+
+/* What a payload fetch established, above the list it was fetched from.
+
+   Above rather than below: the fetch is the act the participant just performed, and
+   its answer belongs where their attention already is. It is present only after a
+   fetch — there is no empty frame holding a place for one. */
+.meridian-artifact-payload {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin-block-end: var(--meridian-space-3);
+}
+
+/* The one line that says which arm came back, and what it means. */
+.meridian-artifact-payload__note {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The bounded text preview.
+
+   A `pre` because a payload's own line breaks and indentation are part of what it
+   is, and `overflow` rather than wrapping because a diff or a log read wrapped is a
+   different document. The block scrolls; the page never does. */
+.meridian-artifact-payload__preview {
+  max-block-size: 18rem;
+  margin: 0;
+  padding: var(--meridian-space-2);
+  overflow: auto;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.45;
+  white-space: pre;
+  tab-size: 2;
 }

@@ -54,6 +54,16 @@ const SERVED_SUMMARY = {
   createdAt: "2026-09-02T07:00:00.000Z",
 };
 
+/** The receipt a served delete answers with. Every member required, so all are here. */
+const DELETE_RECEIPT = {
+  artifactId: SERVED_SUMMARY.artifactId,
+  payloadDisposition: "reclaimed",
+  rePublishForeclosed: false,
+  deletedAt: "2026-09-02T07:05:00.000Z",
+} as const;
+
+const SERVED_DELETE = { status: "served", value: DELETE_RECEIPT };
+
 const REFUSAL = {
   status: "unavailable",
   code: "wire-unregistered",
@@ -160,7 +170,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
     reader.start();
     await readThrough(clock);
 
-    sessionStore.markDegraded("stream_failed");
+    sessionStore.markDegraded("subscription-closed");
     sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
     await readThrough(clock);
 
@@ -515,9 +525,9 @@ describe("artifact pane reader — a served delete reconciles, superseded or not
 
     const deletion = reader.deleteArtifact(SERVED_SUMMARY.artifactId);
     stopListingTheArtifact();
-    releaseDelete({ status: "served", value: undefined });
+    releaseDelete(SERVED_DELETE);
 
-    expect(await deletion).toStrictEqual({ status: "settled" });
+    expect(await deletion).toStrictEqual({ status: "settled", receipt: DELETE_RECEIPT });
     expect(listedRowIds(reader)).toStrictEqual([]);
     await readThrough(clock);
     expect(reader.performCount).toBe(2);
@@ -540,11 +550,11 @@ describe("artifact pane reader — a served delete reconciles, superseded or not
     expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
 
     stopListingTheArtifact();
-    releaseDelete({ status: "served", value: undefined });
+    releaseDelete(SERVED_DELETE);
 
     // Not `settled`: the reader applied the removal and asked for the read that
     // re-establishes the rest, and it cannot vouch for a screen it does not yet own.
-    expect(await deletion).toStrictEqual({ status: "reconciling" });
+    expect(await deletion).toStrictEqual({ status: "reconciling", receipt: DELETE_RECEIPT });
     expect(listedRowIds(reader)).toStrictEqual([]);
 
     await readThrough(clock);
@@ -565,7 +575,7 @@ describe("artifact pane reader — a served delete reconciles, superseded or not
     const deletion = reader.deleteArtifact(SERVED_SUMMARY.artifactId);
     reader.dispose();
     stopListingTheArtifact();
-    releaseDelete({ status: "served", value: undefined });
+    releaseDelete(SERVED_DELETE);
 
     expect(await deletion).toStrictEqual({ status: "superseded" });
     expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
