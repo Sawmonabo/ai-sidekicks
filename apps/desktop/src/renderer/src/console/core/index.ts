@@ -8,6 +8,7 @@
 // above it. No store, no bridge, no React, no DOM beyond what the clock needs. If
 // a symbol here ever needs a type from `store/` or `bridge/`, it is not core.
 
+export { encodeBase64 } from "./base64.js";
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 export {
   APPLY_COALESCE_MS,

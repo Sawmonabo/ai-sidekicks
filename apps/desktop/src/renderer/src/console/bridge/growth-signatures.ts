@@ -124,8 +124,18 @@ export interface GrowthOperationSignatures {
     request: { readonly sessionId: string; readonly name: string; readonly byteLength: number };
     value: { readonly ingestId: string };
   };
+  // The three members `AttachmentIngestChunkRequest` registers, spelled the way it
+  // spells them. `sequenceNumber` is 0-based and strictly consecutive, and `chunk` is
+  // the RFC 4648 §4 base64 of at most one chunk cap of RAW bytes — the wire is JSON
+  // with no binary serialization, so a payload byte reaches the daemon encoded or it
+  // does not reach it at all. An offset is not among them: the daemon appends in
+  // sequence order and keeps the spooled count itself.
   artifactIngestWriteChunk: {
-    request: { readonly ingestId: string; readonly offset: number; readonly byteLength: number };
+    request: {
+      readonly ingestId: string;
+      readonly sequenceNumber: number;
+      readonly chunk: string;
+    };
     value: void;
   };
   artifactIngestComplete: {

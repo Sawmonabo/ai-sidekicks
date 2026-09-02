@@ -238,3 +238,14 @@ export const INGEST_STREAM_LIFETIME_CEILING_MS: number = 6 * 60 * 60 * 1000;
  * time to act on it, which is why it has to sit far inside the ceiling itself.
  */
 export const INGEST_STALL_DISCLOSURE_MS = 60_000;
+
+/**
+ * Bytes one `String.fromCharCode` call converts on the way to base64.
+ *
+ * Not a policy bound — a call-stack one. That function takes its bytes as
+ * ARGUMENTS, so a spread of a whole chunk-capped slice overflows the stack on
+ * every engine; eight kilobytes is comfortably inside the limit every one of
+ * them documents while keeping the loop short enough that the rope it builds
+ * costs nothing measurable.
+ */
+export const BASE64_ENCODE_STRIDE_BYTES: number = 8 * 1024;

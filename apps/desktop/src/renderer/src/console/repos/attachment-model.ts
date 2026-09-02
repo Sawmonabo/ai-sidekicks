@@ -26,8 +26,12 @@
 // caller's claim as the server's finding.
 //
 // WHAT THIS MODULE REFUSES TO MODEL, from §10.8's own Never list:
-//   • No payload bytes, in any field. An attachment reference is a typed, ordered list
-//     of artifact ids and never bytes.
+//   • No payload bytes, in any field. An attachment REFERENCE is a typed, ordered list
+//     of artifact ids and never bytes, and no shape here carries a manifest's content.
+//     The source below holds the participant's own `Blob` — a handle the browser owns,
+//     which the ingest client reads one bounded slice at a time — because a stream with
+//     no byte source can only describe a file it never sends. A handle is not a copy:
+//     nothing in this module reads it, and no field anywhere holds a whole payload.
 //   • No client-side type gate. The allow-list below is a HINT for the picker and the
 //     default stated where the effective list cannot be read; a hard block here would
 //     make the console wrong about an operator-widened deployment it cannot see.
@@ -237,10 +241,52 @@ export interface AttachmentSource {
   readonly localId: string;
   /** The caller's filename. Metadata only — never a path component, never rebuilt. */
   readonly declaredName: string;
-  /** Decoded bytes. Every bound in this file counts these and never an encoded length. */
+  /**
+   * The bytes themselves, by reference.
+   *
+   * A `Blob` — which a `File` off a picker or a drop already is — so the payload
+   * stays wherever the browser is keeping it and the ingest client reads one
+   * chunk-capped slice at a time. Nothing copies it, and nothing here reads it.
+   */
+  readonly payload: Blob;
+  /**
+   * Decoded bytes. Every bound in this file counts these and never an encoded length.
+   *
+   * Always the payload's own size, because `attachmentSourceFrom` is what mints a
+   * source and takes it from there — a separately-supplied length could disagree
+   * with the bytes the stream actually sends, and every progress figure, every
+   * bound, and the daemon's own spool reservation are all counted against it.
+   */
   readonly byteLength: number;
   /** The caller's claim about the type. Advisory input, never a trusted fact. */
   readonly declaredMediaType?: string | undefined;
+}
+
+/** What a picker, a drop, or a paste hands over. The length is not among it. */
+export interface AttachmentSourceInput {
+  readonly localId: string;
+  readonly declaredName: string;
+  readonly payload: Blob;
+  readonly declaredMediaType?: string | undefined;
+}
+
+/**
+ * Mint one source from the payload a participant chose.
+ *
+ * The only way to make an `AttachmentSource`, so the declared length and the bytes
+ * cannot come from two places. `Spec-014 §Required Behavior` makes the declared size
+ * advisory to the daemon, which derives its own at completion — but it is also the
+ * stream's spool RESERVATION, so a console that declared one number and sent another
+ * would have the daemon refuse a stream it had already admitted.
+ */
+export function attachmentSourceFrom(input: AttachmentSourceInput): AttachmentSource {
+  return {
+    localId: input.localId,
+    declaredName: input.declaredName,
+    payload: input.payload,
+    byteLength: input.payload.size,
+    declaredMediaType: input.declaredMediaType,
+  };
 }
 
 /** What the daemon found once it had the bytes. This replaces the declaration. */
