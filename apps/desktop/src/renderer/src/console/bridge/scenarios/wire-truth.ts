@@ -93,6 +93,7 @@ export function findScenarioWireTruthDefects(
         });
       }
     }
+    defects.push(...findBeatOrderDefects(scenario));
     defects.push(...findDuplicateReplyCalls(scenario));
     const viewerDefect = describeViewerDefect(scenario);
     if (viewerDefect !== undefined) {
@@ -177,6 +178,43 @@ function describeViewerDefect(scenario: ConsoleScenario): ScenarioWireTruthDefec
       "scenario actually joins, or leave the field absent and let the caller-identity " +
       "read refuse.",
   };
+}
+
+/**
+ * Beats scripted out of the order the clock reaches them in.
+ *
+ * `beats` is an ORDERED script, not a set: the engine advances a frozen clock and
+ * consumes the contiguous prefix that has fallen due, so an entry whose `atMs` is
+ * earlier than the entry in front of it is a beat the author wrote in one order
+ * and the clock delivers in another. Nondecreasing rather than strictly
+ * increasing, because beats sharing a tick are ordinary — a session event and the
+ * run transition it triggers land together, and their array order is the order
+ * they reach a subscriber in.
+ *
+ * The engine no longer duplicates or drops a beat over this, so the defect costs a
+ * late delivery rather than a corrupted stream; it is still reported, because a
+ * scenario whose beats arrive in an order the author did not write is a fixture
+ * that rehearses a sequence no session produces, and the screenshot and endurance
+ * tiers pin frames by advancing to an exact tick.
+ */
+function findBeatOrderDefects(scenario: ConsoleScenario): readonly ScenarioWireTruthDefect[] {
+  const defects: ScenarioWireTruthDefect[] = [];
+  for (const [beatIndex, beat] of scenario.beats.entries()) {
+    const previousBeat = scenario.beats[beatIndex - 1];
+    if (previousBeat === undefined || previousBeat.atMs <= beat.atMs) {
+      continue;
+    }
+    defects.push({
+      scenarioId: scenario.id,
+      subject: `beat ${String(beatIndex)} (${beat.event.kind})`,
+      reason:
+        `it is due at ${String(beat.atMs)}ms, before the beat in front of it at ` +
+        `${String(previousBeat.atMs)}ms. The engine consumes beats in array order as the ` +
+        "frozen clock reaches them, so this one is delivered later than it is scripted for. " +
+        "Order the beats by `atMs`, or change the tick this beat is due at.",
+    });
+  }
+  return defects;
 }
 
 /**

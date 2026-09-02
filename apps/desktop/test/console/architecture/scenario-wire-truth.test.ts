@@ -241,6 +241,81 @@ describe("scenario wire truth — the controls", () => {
     expect(defects[0]?.reason).toContain("the canonical envelope rejects this beat");
   });
 
+  it("reports a beat due before the beat in front of it", () => {
+    // `beats` is an ordered script, and the engine consumes the contiguous prefix
+    // that has fallen due — so an entry written behind a later-due one is
+    // delivered later than the tick it names. It used to pass silently, and the
+    // screenshot and endurance tiers pin frames by advancing to an exact tick.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 200,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.200Z",
+              payload: {},
+            },
+          },
+          {
+            atMs: 20,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 2,
+              kind: "run.running",
+              occurredAt: "2026-01-01T00:00:00.020Z",
+              payload: {},
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toBe("beat 1 (run.running)");
+    expect(defects[0]?.reason).toContain("before the beat in front of it");
+  });
+
+  it("accepts two beats scripted at one tick, which is ordinary rather than a defect", () => {
+    // The other arm: nondecreasing, not strictly increasing. Without this the case
+    // above could be a blanket refusal of equal ticks, which every scenario that
+    // scripts an event and the transition it triggers would then fail.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 40,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.040Z",
+              payload: {},
+            },
+          },
+          {
+            atMs: 40,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 2,
+              kind: "run.running",
+              occurredAt: "2026-01-01T00:00:00.040Z",
+              payload: {},
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toStrictEqual([]);
+  });
+
   it("reports a second reply for a call another reply already claims", () => {
     const defects = findScenarioWireTruthDefects([
       controlScenario({
