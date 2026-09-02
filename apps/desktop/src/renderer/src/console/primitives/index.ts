@@ -23,6 +23,11 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
+// Rule 4's mono provenance signature. Through the door because the frame renders
+// session ids with it, and a surface that reached for its own mono span would be
+// the second rendering of the one claim this primitive exists to make.
+export { WireFigure } from "./Figure.js";
+
 export type { ChordPlatform } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,

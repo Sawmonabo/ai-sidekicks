@@ -10,7 +10,9 @@
 //
 //   • **Not-found** — the address names nothing. The way back is the sessions list.
 //   • **A bare auxiliary route** — a WORKING window that has not been given a
-//     subject. It gets the picker, not an error.
+//     subject. It gets the picker, not an error. The picker offers this window's
+//     open sessions and owns its own absence — see `ContextPicker.tsx` for why
+//     that source, and why it is not the route's session store.
 //   • **A session still opening** — the route named a session and its store is not
 //     open yet, which is a read in flight and renders as one.
 //   • **A slot with no renderer** — reserved, not stubbed. The console says the
@@ -20,7 +22,7 @@
 import { COMMAND_PALETTE_OPEN_CHORD } from "../palette/index.js";
 import { ChordHint, Nothing } from "../primitives/index.js";
 import { isAuxiliaryRoute, needsContextPicker } from "../routing/index.js";
-import { ContextPicker, type ContextCandidate } from "./ContextPicker.js";
+import { ContextPicker } from "./ContextPicker.js";
 import {
   consoleSurfaceRegistry,
   surfaceSlotFor,
@@ -56,7 +58,7 @@ export function RouteSurface(props: RouteSurfaceProps): React.JSX.Element {
     return (
       <ContextPicker
         route={route.route}
-        candidates={readContextCandidates(context)}
+        registry={context.sessionStoreRegistry}
         onChoose={(sessionId) => {
           context.frameStore.navigate({ ...route, sessionId });
         }}
@@ -122,31 +124,4 @@ export function SurfaceAbsence(props: { readonly children: React.ReactNode }): R
       </p>
     </div>
   );
-}
-
-/**
- * Sessions the picker can offer.
- *
- * `undefined` until the session store has been initialised, so the picker renders
- * "not loaded" rather than "none" — the distinction the five kinds of nothing exist
- * for. An auxiliary window has no session store until a session is chosen, which is
- * exactly the not-loaded case.
- */
-function readContextCandidates(
-  context: ConsoleSurfaceContext,
-): readonly ContextCandidate[] | undefined {
-  const { sessionStore } = context;
-  if (sessionStore === undefined) {
-    return undefined;
-  }
-  const state = sessionStore.snapshot();
-  if (!state.initialised) {
-    return undefined;
-  }
-  return Object.values(state.partitions.session).map((entity) => ({
-    sessionId: entity.id,
-    title:
-      typeof entity.body?.["title"] === "string" ? (entity.body["title"] as string) : entity.id,
-    detail: entity.state ?? "",
-  }));
 }

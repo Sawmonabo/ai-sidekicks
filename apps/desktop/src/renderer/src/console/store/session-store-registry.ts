@@ -139,6 +139,14 @@ export class SessionStoreRegistry {
   readonly #options: SessionStoreRegistryOptions;
   readonly #entriesBySessionId = new Map<string, OpenSessionEntry>();
   readonly #changes = new Emitter<SessionRegistryChange>("session registry change");
+  // The open set as an array, rebuilt only when the set itself changes.
+  //
+  // Load-bearing rather than a micro-optimisation: `useSyncExternalStore` compares
+  // consecutive reads with `Object.is` and re-renders while they differ, so a getter
+  // that spread the map on every call would hand React a fresh array every pass and
+  // spin forever. Every mutation below is paired with `#forgetOpenSessionIds`, so the
+  // cache cannot outlive the set it describes.
+  #openSessionIdsSnapshot: readonly string[] | undefined = undefined;
   #disposed = false;
 
   public constructor(options: SessionStoreRegistryOptions) {
@@ -170,6 +178,7 @@ export class SessionStoreRegistry {
     }
     const entry = new OpenSessionEntry(sessionId, this.#options);
     this.#entriesBySessionId.set(sessionId, entry);
+    this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "opened" });
     return entry.store;
   }
@@ -187,9 +196,15 @@ export class SessionStoreRegistry {
     return this.#entriesBySessionId.size;
   }
 
-  /** Open sessions in the order they were opened. */
+  /**
+   * Open sessions in the order they were opened.
+   *
+   * A STABLE reference between changes: the same array comes back until a session
+   * opens or closes, which is what lets a React subscription read this directly.
+   */
   public get openSessionIds(): readonly string[] {
-    return [...this.#entriesBySessionId.keys()];
+    this.#openSessionIdsSnapshot ??= [...this.#entriesBySessionId.keys()];
+    return this.#openSessionIdsSnapshot;
   }
 
   /**
@@ -203,6 +218,7 @@ export class SessionStoreRegistry {
     }
     entry.dispose();
     this.#entriesBySessionId.delete(sessionId);
+    this.#forgetOpenSessionIds();
     this.#changes.emit({ sessionId, change: "closed" });
     return true;
   }
@@ -292,6 +308,11 @@ export class SessionStoreRegistry {
     }
     this.#changes.clear();
     this.#disposed = true;
+  }
+
+  /** Drop the cached open set. Called from the two places that change it. */
+  #forgetOpenSessionIds(): void {
+    this.#openSessionIdsSnapshot = undefined;
   }
 
   #sessionNotOpen(sessionId: string, attempted: string): ConsoleRefusal {

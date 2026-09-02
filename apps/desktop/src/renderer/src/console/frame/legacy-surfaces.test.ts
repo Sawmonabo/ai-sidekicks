@@ -17,6 +17,7 @@ import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import { ParticipantRoster } from "../../session-members/participant-roster.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
+import { SessionsSurface } from "./SessionsSurface.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 
 /**
@@ -84,12 +85,28 @@ describe("legacy surfaces — which family holds which slot", () => {
 });
 
 describe("legacy surfaces — under a live bridge, the family mounts", () => {
-  it("mounts the session probe with no props to give it", () => {
+  it("holds the sessions slot with a surface, not with the probe itself", () => {
+    // The probe creates a session from its mount effect, and a route lifecycle
+    // remounts a slot on every visit. Mounting it here would make navigating back
+    // to the sessions list create a session — see `SessionsSurface.test.tsx`,
+    // which drives this same descriptor and counts the bridge calls.
     const registry = registeredLegacySurfaces();
     const element = renderedElement(
       registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "live")),
     );
-    expect(element.type).toBe(SessionBootstrap);
+    expect(element.type).toBe(SessionsSurface);
+    expect(element.type).not.toBe(SessionBootstrap);
+  });
+
+  it("hands that surface the probe to build on the participant's act", () => {
+    // The bridge-source guard stays here rather than moving into the surface, so
+    // what a start request builds is decided once, beside the other two mounts.
+    const registry = registeredLegacySurfaces();
+    const element = renderedElement(
+      registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "live")),
+    );
+    const startSession = element.props["startSession"] as () => ReactNode;
+    expect(renderedElement(startSession()).type).toBe(SessionBootstrap);
   });
 
   it("hands the roster the session the workspace address names", () => {
@@ -128,10 +145,14 @@ describe("legacy surfaces — under the fixture, the console says it did not ask
     // These components read the installed bridge directly, so the fixture cannot
     // stand in for it. Mounting them anyway would either throw into the surface
     // boundary or answer from the live daemon beside fixture data in one window.
+    // Read through the sessions surface's own start-request builder, which is
+    // where that slot's probe is now built.
     const registry = registeredLegacySurfaces();
-    const element = centredAbsence(
+    const sessionsSurface = renderedElement(
       registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "fixture")),
     );
+    const startSession = sessionsSurface.props["startSession"] as () => ReactNode;
+    const element = centredAbsence(startSession());
     expect(element.type).not.toBe(SessionBootstrap);
     expect(element.props["kind"]).toBe("not-checked");
   });

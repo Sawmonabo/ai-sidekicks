@@ -23,4 +23,4 @@ export { FrameStore } from "./frame-store.js";
 
 export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
 
-export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";
+export { useFrameStore, useLocationHash, useOpenSessionIds, useOpenSessionStore } from "./hooks.js";
