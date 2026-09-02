@@ -19,6 +19,16 @@
 // cannot name what it holds would have to restate the shape to read it.
 export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 
+// The entity vocabulary itself joins the door with its first consumer outside this
+// family: the inspector keys one record body per kind and its table is total over
+// this set by type, so a twelfth kind fails to compile at the table rather than
+// reaching a deck that renders it blank. The enumeration ships beside the union
+// because a claim about a CLOSED SET has to be countable at runtime for a test to
+// hold it — deriving a second union here instead would be the mirrored closed set
+// `apps/desktop/AGENTS.md` rejects.
+export { CONSOLE_ENTITY_KINDS } from "./entities.js";
+export type { ConsoleEntityKind } from "./entities.js";
+
 export { SessionStore, type SessionStoreState } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";

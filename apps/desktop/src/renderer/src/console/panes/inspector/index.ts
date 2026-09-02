@@ -11,6 +11,10 @@
 
 import { createElement } from "react";
 
+// The sheet, imported from this subtree's door and from nowhere else — the runs
+// pane's rule, for the runs pane's reason.
+import "./inspector.css";
+
 import { type ConsolePaneRegistry } from "../../workspace/index.js";
 import { InspectorPane } from "./InspectorPane.js";
 
