@@ -15,6 +15,7 @@ import {
   inlineCardBody,
   inlineCardSeatRegistry,
   registerInlineCardBody,
+  type ArtifactEntityRef,
   type ArtifactInlineCardProps,
   type AttachmentInlineCardProps,
   type DiffInlineCardProps,
@@ -120,6 +121,39 @@ describe("inline card seats — one owner per card kind", () => {
     // `undefined` rather than a placeholder: the "reserved, not stubbed" rule —
     // the row says the card has not been built rather than drawing an empty one.
     expect(registry.render(DIFF_CARD)).toBeUndefined();
+  });
+});
+
+describe("inline card seats — an artifact card names an artifact", () => {
+  it("accepts a reference from the artifact partition", () => {
+    // The positive half, and it is what makes the refusal below a NARROWING rather
+    // than a type nothing can satisfy.
+    const artifact: ArtifactEntityRef = { kind: "artifact", id: "artifact-9" };
+    const props: ArtifactInlineCardProps = { kind: "artifact", artifact };
+
+    expect(props.artifact.kind).toBe("artifact");
+  });
+
+  it("negative control: a reference from another partition does not compile", () => {
+    // The defect this closes: the member took an unnarrowed `ConsoleEntityRef`, so
+    // a `run` reference was a legal artifact card. The body would then look the row
+    // up in a partition that has never held it and render as permanently missing —
+    // which reads exactly like an artifact whose fetch has not answered yet.
+    //
+    // A compile-time assertion because the guard IS the type: this arm is built at
+    // typed call sites, so there is no runtime boundary for a check to sit on. The
+    // directive sits on the member rather than the declaration because that is
+    // where the error lands, and it fails the build if the reference ever becomes
+    // legal again.
+    const wrongPartition: ArtifactInlineCardProps = {
+      kind: "artifact",
+      // @ts-expect-error a `run` reference is not an artifact reference
+      artifact: { kind: "run", id: "run-7" },
+    };
+
+    // Read at runtime too, so the case is not purely a compiler directive: the
+    // value is the one the type refuses, and it is exactly a `run` reference.
+    expect(wrongPartition.artifact.id).toBe("run-7");
   });
 });
 

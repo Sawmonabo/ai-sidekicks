@@ -79,16 +79,37 @@ export interface AttachmentInlineCardProps {
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
 /**
+ * A reference to one entity in the console's `artifact` partition.
+ *
+ * `ConsoleEntityRef` narrowed to the one kind this card can render, EXTENDED from
+ * it rather than restated: `id` keeps its single home, and `kind` is fixed to the
+ * literal. The unnarrowed ref admits all twelve kinds, so a caller could hand the
+ * artifact card a `run` reference and the body would look the row up in a partition
+ * that has never held it — a card that renders as permanently missing, which is
+ * indistinguishable from an artifact the fetch has not answered for yet.
+ *
+ * The narrowing is the whole guard, and deliberately so: this arm is reached from
+ * typed call sites inside the renderer, never from a wire payload, so there is no
+ * boundary at which an untyped `kind` could arrive and nothing for a runtime check
+ * to catch that the compiler has not already refused.
+ */
+export interface ArtifactEntityRef extends ConsoleEntityRef {
+  readonly kind: "artifact";
+}
+
+// Consumed by T-023p-1C-2, T-023p-1C-5
+/**
  * An artifact card, over one published artifact.
  *
- * Carries a `ConsoleEntityRef` because `artifact` is already one of the console's
+ * Carries an entity reference because `artifact` is already one of the console's
  * own entity kinds — the store partitions artifacts, and a second identity
  * vocabulary for the same rows would be the denormalised copy `store/entities.ts`
- * refuses.
+ * refuses. It carries the ARTIFACT-partitioned reference specifically, for the
+ * reason on that type.
  */
 export interface ArtifactInlineCardProps {
   readonly kind: "artifact";
-  readonly artifact: ConsoleEntityRef;
+  readonly artifact: ArtifactEntityRef;
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-5
