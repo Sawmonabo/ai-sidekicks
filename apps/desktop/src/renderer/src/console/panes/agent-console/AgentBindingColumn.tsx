@@ -40,7 +40,7 @@ import {
   type AgentSwitchSettlement,
   type ProviderAxis,
 } from "../../agents/index.js";
-import { usePushDrivenRead } from "../../collaboration/push-driven-read.js";
+import { usePushDrivenRead } from "../../seats/index.js";
 import { Nothing, RefusalCard } from "../../primitives/index.js";
 import { IDLE_MUTATION_ATTEMPT, MutationAttempt, useMutationAttempt } from "./mutation-attempt.js";
 

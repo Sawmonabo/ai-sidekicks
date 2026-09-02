@@ -26,8 +26,7 @@ import type { ConsoleClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { SessionStore } from "../store/index.js";
 import { MAIN_CHANNEL_NAME } from "./constants.js";
-import { PushDrivenRead } from "./push-driven-read.js";
-import { callDaemonMethod } from "./wire-access.js";
+import { PushDrivenRead, callDaemonMethod } from "../seats/index.js";
 
 /** The daemon method the directory reads. Named once; the family's only speller. */
 const CHANNEL_LIST_METHOD = "channel.list";

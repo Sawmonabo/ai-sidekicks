@@ -34,7 +34,7 @@
 import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
-import { consoleRefusalFrom } from "../../collaboration/push-driven-read.js";
+import { consoleRefusalFrom } from "../../seats/index.js";
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import {
   RefreshScheduler,

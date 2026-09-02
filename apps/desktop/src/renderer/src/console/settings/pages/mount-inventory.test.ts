@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { MOUNT_INVENTORY_READ_CAP } from "../../collaboration/constants.js";
+import { MOUNT_INVENTORY_READ_CAP } from "../constants.js";
 import { createMountInventoryRead, distinctMountIds } from "./mount-inventory.js";
 
 /**

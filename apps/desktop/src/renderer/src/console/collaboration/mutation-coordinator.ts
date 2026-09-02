@@ -35,7 +35,7 @@
 //
 // `daemon.call<M extends DaemonMethod>` takes a Plan-007 brand no string literal
 // is assignable to, so every caller in this repository casts — and this family
-// already keeps that cast in one place, `wire-access.ts`. This module reaches the
+// already keeps that cast in one place, `seats/wire-access.ts`. This module reaches the
 // wire through it rather than repeating it: a second copy would be a second thing
 // to change when the brand narrows, and the module whose whole subject is the cast
 // would no longer be the only one that knows about it.
@@ -45,7 +45,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
-import { callDaemonMethod } from "./wire-access.js";
+import { callDaemonMethod } from "../seats/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const COLLABORATION_REFUSAL_ORIGIN = "collaboration";
@@ -246,7 +246,7 @@ export function useWireMutation<TRequest, TResponse>(
  * The method name stays a `string` because `DaemonMethod` is a Plan-007 brand
  * that no literal satisfies yet; the REQUEST and RESPONSE are pinned to the
  * contract types, so a caller passing the wrong payload still fails to compile.
- * Both facts belong to `wire-access.ts`, which this delegates to — what is added
+ * Both facts belong to `seats/wire-access.ts`, which this delegates to — what is added
  * here is only the shape the coordinator consumes, a request-to-response function
  * with the bridge and the method already bound.
  */

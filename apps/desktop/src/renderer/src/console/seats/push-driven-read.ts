@@ -1,8 +1,11 @@
 // A read that a push signal refreshes, and never a poll.
 //
-// Both live reads this family makes have the same five-part discipline, which
-// `Spec-023 §Console Design (Meridian)`'s collaboration sections state as rules
-// about the roster and which the channel list needs identically:
+// A SEAT rather than one family's module: the channel directory, the roster, the
+// agent console, the mount inventory, and the attention plane each make a live read,
+// and every one of them has the same five-part discipline — which
+// `Spec-023 §Console Design (Meridian)`'s collaboration sections state as rules about
+// the roster and which the others need identically. It renders nothing, which is what
+// lets it sit below the view families that spend it:
 //
 //   1. **Subscribe before reading.** The subscription is opened first, so no update
 //      can land in the gap between a read returning and a handler attaching. A

@@ -10,16 +10,16 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { registerSidekicksPage } from "./sidekicks-page.js";
+import { registerSidekicksPage } from "./sidekicks-settings-page.js";
 import {
   SETTINGS_SECTION_IDS,
   SettingsPageRegistry,
   matchSettingsEntries,
   type SettingsPageContext,
-} from "../settings-page-registry.js";
-import { createFixtureBridge } from "../../bridge/index.js";
-import { ManualClock } from "../../core/index.js";
-import { LiveAnnouncerProvider } from "../../primitives/index.js";
+} from "./settings/settings-page-registry.js";
+import { createFixtureBridge } from "./bridge/index.js";
+import { ManualClock } from "./core/index.js";
+import { LiveAnnouncerProvider } from "./primitives/index.js";
 
 /**
  * A real context, because the body now reads through the bridge on it.

@@ -33,7 +33,7 @@ import {
 } from "../primitives/index.js";
 import { participantHueTokenName, tokenReference } from "../tokens/index.js";
 import type { ChannelActivityLabels } from "./activity-model.js";
-import type { PushDrivenReadState } from "./push-driven-read.js";
+import type { PushDrivenReadState } from "../seats/index.js";
 import type { RosterRow } from "./presence-model.js";
 
 export interface RosterProps {

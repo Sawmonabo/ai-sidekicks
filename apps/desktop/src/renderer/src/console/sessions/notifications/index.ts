@@ -5,11 +5,13 @@
 // else, so a surface can never render the center without it and the bundler sees
 // one edge into the sheet.
 //
-// This subtree belongs to the collaboration family (T-023p-1C-4) and sits beside
-// `sessions/` rather than inside it, because the plane is not a property of the
-// all-sessions list: the same projection answers the list's per-row severity and
-// the center's own grouping, and a vocabulary owned by one of its two consumers is
-// a vocabulary the other reaches around.
+// A SUB-MODULE of the sessions family rather than a family of its own. Both of the
+// plane's consumers are that family's — the all-sessions list reads it for a row's
+// severity, and the center it mounts reads it for the grouping — so the two sit in
+// one family and this door publishes to it. It sat beside `sessions/` until the
+// layering gate said what that was: view families are siblings, and one importing
+// another is an edge no ordering untangles. A second consumer in another family
+// hoists the vocabulary into `seats/` rather than moving this door back out.
 //
 // What is deliberately NOT here: any emission path. `attention.notificationEmit`
 // is a control-plane mutation the daemon calls and never a client method, and

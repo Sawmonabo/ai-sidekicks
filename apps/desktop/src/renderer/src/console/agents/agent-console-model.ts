@@ -44,8 +44,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
-import { callDaemonMethod } from "../collaboration/wire-access.js";
-import { PushDrivenRead } from "../collaboration/push-driven-read.js";
+import { PushDrivenRead, callDaemonMethod } from "../seats/index.js";
 import type { SessionStore } from "../store/index.js";
 import {
   AGENT_ATTACH_METHOD,

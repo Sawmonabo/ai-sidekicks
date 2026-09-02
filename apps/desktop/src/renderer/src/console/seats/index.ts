@@ -116,14 +116,12 @@ export {
   /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
   registerSidebarSection,
-  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
   type SidebarSectionContext,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
@@ -178,3 +176,25 @@ export type {
   OwnerSlotContract,
   OwnerSlotProps,
 } from "./owner-slot.js";
+
+// The read discipline every live wire read in this console follows — subscribe
+// first, answer a push with a fresh read, one read per burst through the refresh
+// chokepoint, never a flicker. It sits here rather than in the family that wrote it
+// because four view families now hold one, and a second copy would be a second set
+// of answers to when a surface re-reads.
+// The failure-code vocabulary, the options shape, and the codes' derived union stay
+// inside this family: their readers are the module itself and the suite beside it,
+// and a barrel specifier no cross-family import uses is a dead export rather than a
+// convenience.
+export {
+  PushDrivenRead,
+  consoleRefusalFrom,
+  usePushDrivenRead,
+  type PushDrivenReadState,
+} from "./push-driven-read.js";
+
+// The console's single copy of the daemon-method cast, for the same reason: the
+// brand `SidekicksBridge.daemon.call` takes is `never`-shaped until Plan-007 narrows
+// it, and every caller casts. One module casts, and the day the brand narrows one
+// file changes.
+export { callDaemonMethod, subscribeDaemonEvent } from "./wire-access.js";

@@ -26,7 +26,7 @@ import { Dialog } from "@base-ui/react/dialog";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import { Chip, Nothing, RefusalCard, WireFigure } from "../primitives/index.js";
-import type { PushDrivenReadState } from "../collaboration/push-driven-read.js";
+import type { PushDrivenReadState } from "../seats/index.js";
 import { AxisCombobox } from "./AxisCombobox.js";
 import { ATTACH_ARMS, type AttachArm, type AttachSidekickForm } from "./attach-model.js";
 import {

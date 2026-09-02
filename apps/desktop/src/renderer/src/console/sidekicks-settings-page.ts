@@ -17,17 +17,28 @@
 // element through `createElement` rather than growing a JSX body that would make it
 // look like a second page.
 //
-// THE IMPORT CROSSES A FAMILY BOUNDARY THROUGH THE DOOR
+// WHY IT SITS AT THE CONSOLE ROOT
 //
-// `../../agents/index.js`, never `../../agents/DefinitionsPage.js`: settings and
-// agents are sibling view families, and a cross-family import goes through the
-// other family's single barrel. A deep import would work and would also be the
-// first one, which is how a barrel stops being the boundary it exists to be.
+// It names TWO view families — the settings page registry it registers into, and
+// the agents page body it registers — and a view family may name no other:
+// `console-view-family-isolation` in `.dependency-cruiser.mjs` fails that edge. The
+// gate subtracts the console's COMPOSITION SITES from both ends of that rule, and a
+// file directly under `console/` is one, which is exactly what a file whose whole
+// body is one registration is. It lived in `settings/pages/` while the rule did not
+// exist yet; nothing about what it does has changed.
+//
+// EACH FAMILY IS STILL REACHED THROUGH ITS DOOR
+//
+// `./agents/index.js`, never `./agents/DefinitionsPage.js`. A deep import would work
+// and would also be the first one, which is how a barrel stops being the boundary it
+// exists to be. The settings registry is reached deep because the section vocabulary
+// and the descriptor shape are that family's intra-family contract, which its own
+// door deliberately does not publish.
 
 import { createElement } from "react";
 
-import { SidekickDefinitionsPage } from "../../agents/index.js";
-import type { SettingsPageRegistry } from "../settings-page-registry.js";
+import { SidekickDefinitionsPage } from "./agents/index.js";
+import type { SettingsPageRegistry } from "./settings/settings-page-registry.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-sidekicks";

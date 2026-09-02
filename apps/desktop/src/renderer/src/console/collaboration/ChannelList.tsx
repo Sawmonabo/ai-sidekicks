@@ -45,7 +45,7 @@ import {
   WireFigure,
   formatCount,
 } from "../primitives/index.js";
-import type { SidebarSectionContext } from "../seats/index.js";
+import type { PushDrivenReadState, SidebarSectionContext } from "../seats/index.js";
 import {
   useChannelActivity,
   type ActivityIndicatorRegistry,
@@ -53,7 +53,6 @@ import {
 } from "./activity-model.js";
 import { orderChannelRows, type ChannelRow } from "./channel-model.js";
 import { CreateChannel } from "./CreateChannel.js";
-import type { PushDrivenReadState } from "./push-driven-read.js";
 import { TypingActivity } from "./TypingActivity.js";
 
 export interface ChannelListProps {

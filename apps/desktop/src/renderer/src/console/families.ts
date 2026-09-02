@@ -37,7 +37,7 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
-import { registerCollaborationFamily } from "./collaboration/index.js";
+import { registerCollaborationFamily } from "./collaboration-family.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";

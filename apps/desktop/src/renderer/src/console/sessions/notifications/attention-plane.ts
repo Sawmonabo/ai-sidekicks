@@ -34,7 +34,7 @@
 // coerced, because an unknown trigger rendered as a known one is the console
 // asserting a fact the daemon never sent.
 
-import type { ConsoleRefusal } from "../core/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
 import {
   ATTENTION_SEVERITIES,
   ATTENTION_TRIGGERS,
@@ -42,7 +42,7 @@ import {
   type AttentionSeverity,
   type AttentionTrigger,
   type GrowthPort,
-} from "../bridge/index.js";
+} from "../../bridge/index.js";
 
 /**
  * The read the notification center performs.

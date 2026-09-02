@@ -46,10 +46,7 @@ import {
   formatCount,
   useSettlementAnnouncement,
 } from "../../primitives/index.js";
-import {
-  usePushDrivenRead,
-  type PushDrivenReadState,
-} from "../../collaboration/push-driven-read.js";
+import { usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
 import {
   createMountInventoryRead,
   type MountInventory,

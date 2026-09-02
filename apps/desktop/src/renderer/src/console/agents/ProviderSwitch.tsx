@@ -39,7 +39,7 @@ import { useReducer } from "react";
 
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
-import type { PushDrivenReadState } from "../collaboration/push-driven-read.js";
+import type { PushDrivenReadState } from "../seats/index.js";
 import { AxisCombobox } from "./AxisCombobox.js";
 import {
   capabilityFlagFor,

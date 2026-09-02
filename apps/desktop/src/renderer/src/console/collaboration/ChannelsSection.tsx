@@ -12,10 +12,9 @@
 // between the first render and that effect is a read in flight, and it renders as
 // the `not-loaded` kind of nothing rather than as an empty channel list.
 
-import type { SidebarSectionContext } from "../seats/index.js";
+import { usePushDrivenRead, type SidebarSectionContext } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
 import { ChannelList } from "./ChannelList.js";
-import { usePushDrivenRead } from "./push-driven-read.js";
 import {
   useSessionModels,
   type CollaborationSessionModelHolder,

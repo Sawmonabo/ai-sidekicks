@@ -58,7 +58,6 @@ export const SIDEBAR_SECTION_IDS = [
   "members",
 ] as const;
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** One sidebar section. Derived from the enumeration, never restated. */
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 
@@ -122,7 +121,6 @@ export class SidebarSectionRegistry {
   }
 }
 
-// Consumed by T-023p-1C-3
 /** The process-wide registry the three contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
 

@@ -86,7 +86,7 @@ function bridgeCalling(daemon: ScriptedDaemon): ConsoleBridge {
       daemon: {
         ...fixture.sidekicks.daemon,
         // The `DaemonMethod` brand no string literal satisfies, cast once here for
-        // `collaboration/wire-access.ts`' reason. The method NAME is the only
+        // `seats/wire-access.ts`' reason. The method NAME is the only
         // untyped thing; what this daemon answers with is the test's own claim.
         call: daemon.call as unknown as DaemonCall,
       },

@@ -61,7 +61,7 @@ import {
   attentionProjectionReaderFor,
   useAttentionProjection,
   type AttentionReading,
-} from "../notifications/index.js";
+} from "./notifications/index.js";
 import { DerivedFigure, InlineRefusal, Nothing, formatCount } from "../primitives/index.js";
 import { useOpenSessionIds, useSessionPartition, type SessionStore } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./InviteShelf.js";

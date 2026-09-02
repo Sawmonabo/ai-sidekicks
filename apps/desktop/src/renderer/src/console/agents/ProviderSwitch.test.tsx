@@ -12,7 +12,7 @@ import { ProviderSwitch } from "./ProviderSwitch.js";
 import { DRIVER_CATALOG_FIXTURE } from "./driver-catalog-fixtures.js";
 import type { AgentRosterEntry } from "./agent-wire.js";
 import type { DriverCatalogReading } from "./driver-catalog.js";
-import type { PushDrivenReadState } from "../collaboration/push-driven-read.js";
+import type { PushDrivenReadState } from "../seats/index.js";
 
 const LOADED: PushDrivenReadState<DriverCatalogReading> = {
   kind: "loaded",

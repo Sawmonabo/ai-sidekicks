@@ -10,8 +10,11 @@
 //
 //   1. **Attention severity.** A session that needs a person outranks one that
 //      does not. The severity is READ from the attention projection and never
-//      counted here (§3.11); a row the projection did not mention carries none,
-//      which is not the same as carrying "clear".
+//      counted here: `notifications/attention-plane.ts` is its one source, and a
+//      list that recounted it would be a second verdict about the same session,
+//      free to disagree with the one the notification center renders. A row the
+//      projection did not mention carries none, which is not the same as carrying
+//      "clear".
 //   2. **Lifecycle rank.** Live work outranks settled work outranks an audit stub.
 //      A closed session that saw activity a minute ago is still less interesting
 //      than an active one that has been quiet for an hour, which is why this sits

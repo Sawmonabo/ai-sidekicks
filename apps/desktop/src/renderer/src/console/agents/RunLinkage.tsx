@@ -29,7 +29,7 @@
 // child runs are created by the SDK, the CLI, workflows, and peer invocation.
 
 import { Chip, Nothing, RefusalCard, WireFigure, formatCount } from "../primitives/index.js";
-import type { PushDrivenReadState } from "../collaboration/push-driven-read.js";
+import type { PushDrivenReadState } from "../seats/index.js";
 import { CHILD_RUN_REFUSAL_VISIBLE_CAP } from "./constants.js";
 import {
   CHILD_RUN_LINK_TYPES,

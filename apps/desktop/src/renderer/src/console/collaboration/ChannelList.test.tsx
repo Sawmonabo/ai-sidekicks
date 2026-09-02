@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ManualClock, refuse } from "../core/index.js";
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activity-model.js";
 import { ChannelList } from "./ChannelList.js";
-import type { PushDrivenReadState } from "./push-driven-read.js";
+import type { PushDrivenReadState } from "../seats/index.js";
 
 const LABELS: ChannelActivityLabels = {
   participantLabel: (participantId) => participantId,

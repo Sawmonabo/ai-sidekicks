@@ -36,7 +36,7 @@
 // control-plane procedures the console cannot reach, so the center says where mute
 // lives rather than drawing a switch that would write nowhere.
 
-import type { AttentionItem, AttentionTrigger } from "../bridge/index.js";
+import type { AttentionItem, AttentionTrigger } from "../../bridge/index.js";
 import {
   Chip,
   Nothing,
@@ -44,7 +44,7 @@ import {
   WireFigure,
   formatClockTime,
   formatCount,
-} from "../primitives/index.js";
+} from "../../primitives/index.js";
 import type { AttentionReading, AttentionSessionGroup } from "./attention-plane.js";
 
 /**

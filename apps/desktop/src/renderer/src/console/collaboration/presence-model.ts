@@ -3,7 +3,7 @@
 // THE READ IS THE TRUTH AND THE PUSH IS ONLY A SIGNAL. `presence.read` returns
 // `{participantId, state, lastSeen}` per participant; `presence.subscribe` delivers
 // a change notification whose payload this module never opens. That is the whole
-// discipline, and it lives in `push-driven-read.ts` because the channel directory
+// discipline, and it lives in `seats/push-driven-read.ts` because the channel directory
 // needs it identically — subscribe first, answer the signal with a fresh read, one
 // read per burst through the refresh chokepoint, never a second copy of the
 // publisher's state, and never a flicker back to the loading shape.
@@ -38,8 +38,7 @@ import type { ConsoleClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { ParticipantHueAssignment } from "../tokens/index.js";
 import type { SessionStore } from "../store/index.js";
-import { PushDrivenRead } from "./push-driven-read.js";
-import { callDaemonMethod, subscribeDaemonEvent } from "./wire-access.js";
+import { PushDrivenRead, callDaemonMethod, subscribeDaemonEvent } from "../seats/index.js";
 
 const PRESENCE_READ_METHOD = "presence.read";
 const PRESENCE_SUBSCRIBE_EVENT = "presence.subscribe";

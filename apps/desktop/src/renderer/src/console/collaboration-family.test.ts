@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { registerCollaborationFamily } from "./index.js";
-import { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
+import { registerCollaborationFamily } from "./collaboration-family.js";
+import { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 
 describe("collaboration family — composition", () => {
   it("claims the three slots this family owns", () => {

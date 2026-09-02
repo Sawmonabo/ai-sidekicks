@@ -8,7 +8,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ATTENTION_SEVERITIES, ATTENTION_TRIGGERS, type AttentionItem } from "../bridge/index.js";
+import {
+  ATTENTION_SEVERITIES,
+  ATTENTION_TRIGGERS,
+  type AttentionItem,
+} from "../../bridge/index.js";
 import {
   AttentionPlane,
   READS_NO_ATTENTION_PROJECTION,

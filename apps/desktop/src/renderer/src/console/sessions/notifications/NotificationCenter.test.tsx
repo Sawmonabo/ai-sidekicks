@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { AttentionItem } from "../bridge/index.js";
+import type { AttentionItem } from "../../bridge/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
 import { AttentionPlane, type AttentionReading } from "./attention-plane.js";
 

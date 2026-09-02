@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { refuse } from "../core/index.js";
 import { RunLinkage } from "./RunLinkage.js";
 import type { ChildRunLinkReading } from "./agent-wire.js";
-import type { PushDrivenReadState } from "../collaboration/push-driven-read.js";
+import type { PushDrivenReadState } from "../seats/index.js";
 
 function loaded(value: ChildRunLinkReading): PushDrivenReadState<ChildRunLinkReading> {
   return { kind: "loaded", value };

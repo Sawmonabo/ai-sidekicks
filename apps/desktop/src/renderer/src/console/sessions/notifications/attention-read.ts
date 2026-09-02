@@ -33,13 +33,9 @@ import { useEffect, useMemo } from "react";
 
 import type { Unsubscribe } from "@ai-sidekicks/contracts";
 
-import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
-import {
-  PushDrivenRead,
-  usePushDrivenRead,
-  type PushDrivenReadState,
-} from "../collaboration/push-driven-read.js";
-import type { SessionStoreRegistry } from "../store/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
+import type { SessionStoreRegistry } from "../../store/index.js";
 import {
   AttentionPlane,
   narrowAttentionProjection,

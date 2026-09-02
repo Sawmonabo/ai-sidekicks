@@ -40,7 +40,7 @@ import {
 } from "../../agents/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
-import { consoleRefusalFrom, usePushDrivenRead } from "../../collaboration/push-driven-read.js";
+import { consoleRefusalFrom, usePushDrivenRead } from "../../seats/index.js";
 import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
 import { Nothing, WireFigure } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";

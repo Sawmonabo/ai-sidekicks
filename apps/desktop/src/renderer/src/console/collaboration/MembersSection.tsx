@@ -19,10 +19,9 @@
 
 import { useMemo } from "react";
 
-import type { SidebarSectionContext } from "../seats/index.js";
+import { usePushDrivenRead, type SidebarSectionContext } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
 import { Memberships } from "./Memberships.js";
-import { usePushDrivenRead } from "./push-driven-read.js";
 import { rosterRowsFrom } from "./presence-model.js";
 import { Roster } from "./Roster.js";
 import {

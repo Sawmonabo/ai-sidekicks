@@ -14,9 +14,9 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../bridge/index.js";
-import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
-import { SessionStoreRegistry } from "../store/index.js";
+import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../../bridge/index.js";
+import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { SessionStoreRegistry } from "../../store/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
 import type { AttentionProjectionReader } from "./attention-plane.js";
 import { useAttentionProjection } from "./attention-read.js";

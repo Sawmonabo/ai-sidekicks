@@ -35,7 +35,7 @@ import { registerMcpServersPage } from "./pages/McpServersPage.js";
 import { registerNotificationsPage } from "./pages/NotificationsPage.js";
 import { registerProviderAccountsPage } from "./pages/ProviderAccountsPage.js";
 import { registerRuntimeNodesPage } from "./pages/RuntimeNodesPage.js";
-import { registerSidekicksPage } from "./pages/sidekicks-page.js";
+import { registerSidekicksPage } from "../sidekicks-settings-page.js";
 import { registerWorkspaceMountsPage } from "./pages/WorkspaceMountsPage.js";
 import { SettingsPageRegistry } from "./settings-page-registry.js";
 import { SettingsSurface } from "./SettingsSurface.js";
@@ -52,7 +52,9 @@ export function registerSettingsPages(registry: SettingsPageRegistry): void {
   registerRuntimeNodesPage(registry);
   registerNotificationsPage(registry);
   registerApplicationPage(registry);
-  // The sidekicks page: this seam's entry, the agents family's body.
+  // The sidekicks page: the console root's one-line seam, the agents family's body.
+  // It is registered from here and composed there, because naming two view families
+  // is a composition site's job and this door names only its own.
   registerSidekicksPage(registry);
   // T-023p-1C-4 L4.7 mounts, diagnostics, data, appearance, keyboard
   registerWorkspaceMountsPage(registry);

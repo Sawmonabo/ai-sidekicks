@@ -22,7 +22,7 @@
 // And it holds no copy of any read — an attached agent reaches the surface through
 // the roster read's own push signal, exactly as it did before.
 //
-// The refusal translation is `collaboration/push-driven-read.ts`'s
+// The refusal translation is `seats/push-driven-read.ts`'s
 // `consoleRefusalFrom`, which is the family's one converter: a daemon refusal
 // travels through verbatim and anything else becomes a refusal naming the caller.
 // The origin is a constructor argument because this object does not know which
@@ -31,7 +31,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { consoleRefusalFrom } from "../../collaboration/push-driven-read.js";
+import { consoleRefusalFrom } from "../../seats/index.js";
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 
 /**

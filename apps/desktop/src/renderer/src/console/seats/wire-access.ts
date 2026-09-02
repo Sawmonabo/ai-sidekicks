@@ -1,4 +1,4 @@
-// The one place this family names a daemon method or a daemon event.
+// The one place the console names a daemon method or a daemon event.
 //
 // `SidekicksBridge.daemon.call` is declared `call<M extends DaemonMethod>(method: M,
 // params: DaemonParams<M>): Promise<DaemonResult<M>>`, where `DaemonMethod` is a
@@ -8,10 +8,11 @@
 // components each carry their own copy of the cast and their own paragraph
 // explaining it.
 //
-// This module is the family's single copy. Two surfaces here reach the wire
-// (`channel.list` and `presence.read` / `presence.subscribe`), which is the second
-// use, and `apps/desktop/AGENTS.md` hoists on the second use. When the brand
-// narrows, exactly one file changes and the models above it do not.
+// This module is the console's single copy. Several view families reach the wire
+// through it — the channel directory, the roster, the agent console, the mount
+// inventory — which is well past the second use `apps/desktop/AGENTS.md` hoists on,
+// and it is a seat rather than any one family's module for that reason. When the
+// brand narrows, exactly one file changes and the models above it do not.
 //
 // THE CAST NARROWS RATHER THAN ERASES. Params and result are pinned to the
 // contracts package's own request and response types at each call site, so the only
