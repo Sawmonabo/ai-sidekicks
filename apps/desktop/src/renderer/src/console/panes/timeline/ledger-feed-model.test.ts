@@ -6,7 +6,7 @@
 // rail are asked about the window the VIEWPORT is showing, and that what falls
 // outside it is counted rather than walked into.
 
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ProvenanceRailModel } from "../../ledger/structure/index.js";
@@ -14,9 +14,10 @@ import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   useLedgerFind,
   useVisibleLedgerWindow,
+  type LedgerFindState,
   type VisibleLedgerWindow,
 } from "./ledger-feed-model.js";
-import { deriveLedgerWindow } from "./ledger-window.js";
+import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 const SESSION_ID = "session-visible-window";
 const LOG_EVENT_COUNT = 10;
@@ -84,6 +85,7 @@ describe("the visible ledger window", () => {
     const wholeLogWindow: VisibleLedgerWindow = {
       rows: ledgerWindow.rows,
       prunedAwayRows: [],
+      hasEarlierRows: false,
       railModel: new ProvenanceRailModel({ rows: ledgerWindow.rows, hasEarlierRows: false }),
     };
     const { result } = renderHook(() => useLedgerFind(wholeLogWindow));
@@ -94,5 +96,99 @@ describe("the visible ledger window", () => {
     expect(result.current.beyondWindowMatchCount).toBe(0);
     const walked = result.current.step("next");
     expect(retainedKeys.has(walked?.match.rowId ?? "")).toBe(false);
+  });
+});
+
+describe("the clip the window states", () => {
+  /** One loaded log, from which a case keeps the whole window or only its tail. */
+  function loadedWindow(): LedgerWindowModel {
+    return deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+  }
+
+  it("says earlier rows exist exactly when the cap took some", () => {
+    const ledgerWindow = loadedWindow();
+    const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
+    const { result } = renderHook(() => useVisibleLedgerWindow(ledgerWindow, retained));
+    expect(result.current.hasEarlierRows).toBe(true);
+    // The rail's dotted segment reads this, and it was drawn on no window at all
+    // while the clip was a constant `false`.
+    expect(result.current.railModel.model().clip.hasUnloadedExtent).toBe(true);
+  });
+
+  it("carries that clip into the find result's stated boundary", () => {
+    const ledgerWindow = loadedWindow();
+    const retained = ledgerWindow.viewportRows.slice(-RETAINED_ROW_COUNT);
+    const { result } = renderHook(() => {
+      const visible = useVisibleLedgerWindow(ledgerWindow, retained);
+      return useLedgerFind(visible);
+    });
+    expect(result.current.result.hasEarlierRows).toBe(true);
+    act(() => {
+      result.current.setQuery(EVERY_ROW_QUERY);
+    });
+    // Both arms of the matcher, because the empty-query result is its own value and
+    // a boundary stated on one and not the other is a boundary that comes and goes
+    // as somebody types.
+    expect(result.current.result.hasEarlierRows).toBe(true);
+  });
+
+  it("negative control: a window holding its whole log claims nothing before it", () => {
+    // Without this the two cases above would pass over a clip hard-coded the other
+    // way round, which would draw a dotted segment on every complete session.
+    const ledgerWindow = loadedWindow();
+    const { result } = renderHook(() => {
+      const visible = useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows);
+      return { visible, find: useLedgerFind(visible) };
+    });
+    expect(result.current.visible.prunedAwayRows).toHaveLength(0);
+    expect(result.current.visible.hasEarlierRows).toBe(false);
+    expect(result.current.visible.railModel.model().clip.hasUnloadedExtent).toBe(false);
+    expect(result.current.find.result.hasEarlierRows).toBe(false);
+  });
+});
+
+describe("the find field's own open act", () => {
+  /** The find state over one whole window, with nothing pruned. */
+  function findOverWholeLog(): RenderHookResult<LedgerFindState, void> {
+    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
+    return renderHook(() =>
+      useLedgerFind(useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows)),
+    );
+  }
+
+  it("reveals the field", () => {
+    const { result } = findOverWholeLog();
+    expect(result.current.isOpen).toBe(false);
+    act(() => {
+      result.current.open();
+    });
+    expect(result.current.isOpen).toBe(true);
+  });
+
+  it("leaves the query and the walk exactly where they were", () => {
+    // Which is why it is not `setQuery("")`: the palette row opens a field somebody
+    // is about to type into, and resetting a walk they were in the middle of is a
+    // different act wearing the same name.
+    const { result } = findOverWholeLog();
+    act(() => {
+      result.current.setQuery(EVERY_ROW_QUERY);
+    });
+    act(() => {
+      result.current.step("next");
+    });
+    const walkedIndex = result.current.currentMatchIndex;
+    act(() => {
+      result.current.open();
+    });
+    expect(result.current.query).toBe(EVERY_ROW_QUERY);
+    expect(result.current.currentMatchIndex).toBe(walkedIndex);
+  });
+
+  it("negative control: a field nobody opened stays closed", () => {
+    // Without this the case above would pass over a hook that reported `isOpen`
+    // true from its first render, which is a find field nobody asked for.
+    const { result, rerender } = findOverWholeLog();
+    rerender();
+    expect(result.current.isOpen).toBe(false);
   });
 });

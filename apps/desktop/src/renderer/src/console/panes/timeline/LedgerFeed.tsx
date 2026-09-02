@@ -34,6 +34,20 @@
 //     rather than walked into and lost.
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
+//
+// AND TWO SEATS THIS MOUNT CLAIMS, both for callers composed before it existed: the
+// palette's, so a ledger chord acts on the feed that is up when it fires, and the
+// workspace's follow seat, so a cast chip scrolls this ledger through this ledger's
+// own chokepoint. Every act behind both is built in `ledger-feed-acts.ts`.
+//
+// NEITHER STRUCTURAL CONTROL IS GIVEN AN `onLoadEarlier` HANDLER, and the omission
+// is the offer being absent rather than the boundary being denied. The two rows the
+// growth slate carries for this read — `timeline-epoch-attestation` and
+// `timeline-path-reference`, both Spec-013 — grow MEMBERS of a timeline read, and
+// neither is a backward-paging one; no slate row registers a read that returns rows
+// before the window's head, so there is nothing for a press to call. The clip
+// itself is passed truthfully, so the rail still draws its dotted segment and the
+// find result still carries its boundary over a window the cap has truncated.
 
 import { useCallback } from "react";
 
@@ -47,6 +61,7 @@ import { FindInLedger, ProvenanceRail, ReplayControls } from "../../ledger/struc
 import { Nothing } from "../../primitives/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../workspace/index.js";
+import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
 import {
   useLedgerFind,
   useLedgerReplay,
@@ -84,6 +99,19 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const visible = useVisibleLedgerWindow(ledgerWindow, viewport.snapshot.rows);
   const find = useLedgerFind(visible);
 
+  // The STORE's wheel, which is the one the cast bar reads, handed to both surfaces
+  // that colour by actor — the rows and the rail's marks — so one person wears one
+  // colour everywhere. A surface asks the session who somebody is rather than
+  // deciding it again from the order this window happened to meet them in.
+  // `assignmentFor` never allocates, so an actor the wheel has never admitted
+  // answers `undefined`: the row renders its unattributed shape and the rail its
+  // neutral tone, rather than either being handed a colour nobody else would agree
+  // with.
+  const hueForActor = useCallback(
+    (participantId: string) => props.sessionStore.hueAllocator.assignmentFor(participantId),
+    [props.sessionStore],
+  );
+
   const renderRow = useCallback(
     (row: LedgerViewportRow) => {
       const projected = ledgerWindow.rowsByKey.get(row.key);
@@ -97,20 +125,12 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       }
       return props.renderTimelineRow({
         row: projected,
-        // The STORE's wheel, which is the one the cast bar reads. A row asks the
-        // session who somebody is rather than deciding it again from the order this
-        // window happened to meet them in. `undefined` for an actor the wheel has
-        // never admitted is the honest answer: the seat renders the unattributed
-        // shape rather than being handed a colour nobody else would agree with.
-        participantHue:
-          projected.actor === undefined
-            ? undefined
-            : props.sessionStore.hueAllocator.assignmentFor(projected.actor),
+        participantHue: projected.actor === undefined ? undefined : hueForActor(projected.actor),
         isSuperseded: ledgerWindow.supersededRowIds.has(projected.id),
         density: densityFor(projected.id, ledgerWindow.collapsedRowIds),
       });
     },
-    [ledgerWindow, props],
+    [hueForActor, ledgerWindow, props],
   );
 
   const geometry = useRailGeometry(viewport.virtualItems, viewport.snapshot.rows.length);
@@ -125,6 +145,12 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     [find, jumpToRow],
   );
 
+  // The palette's chords and the cast bar's chips both act on whichever ledger is
+  // mounted when they fire, and neither can import this component. Both seats are
+  // claimed here for the mount's lifetime; what each act does is `ledger-feed-acts.ts`'.
+  useLedgerStructureActs({ find, replay, jumpToRow, jumpToTail: viewport.jumpToTail });
+  useActorFollowSeat({ visibleRows: visible.rows, jumpToRow });
+
   return (
     <div className="meridian-ledger">
       {find.isOpen ? (
@@ -134,7 +160,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           currentMatchIndex={find.currentMatchIndex}
           onQueryChange={find.setQuery}
           onStep={onStepFind}
-          onLoadEarlier={NO_EARLIER_ROWS_TO_LOAD}
           onClose={find.close}
         />
       ) : null}
@@ -159,7 +184,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
             viewportExtent={geometry.extent}
             isFollowing={viewport.snapshot.reading.mode === "following"}
             onJumpToRow={jumpToRow}
-            onLoadEarlier={NO_EARLIER_ROWS_TO_LOAD}
+            hueForActor={hueForActor}
             clock={clock}
           />
           <ReplayControls
@@ -180,23 +205,6 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       />
     </div>
   );
-}
-
-/**
- * The "load earlier" handler both controls require, and neither can reach.
- *
- * The control it belongs to is not rendered: `NO_HISTORY_READ_EXISTS` in
- * `ledger-feed-model.ts` is what both the rail's clip and the find result carry, and
- * both draw their button only when that is true. So this is the argument a required
- * prop demands rather than a control's behaviour, and the case in this component's
- * test file is what keeps that true — it asserts neither button is in the document
- * over a log the cap has already pruned.
- *
- * It stays a no-op rather than becoming a refusal for the same reason: a refusal is
- * something a person is shown, and there is nothing here for them to press.
- */
-function NO_EARLIER_ROWS_TO_LOAD(): void {
-  // Intentionally empty; see this function's own contract above.
 }
 
 /** Matches the query found in rows the cap has taken out of this window. */

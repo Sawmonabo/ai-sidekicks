@@ -13,15 +13,32 @@
 // needs the virtualizer to have a range stubs the two reads the chokepoint makes —
 // `LedgerViewport.test.tsx`' stub, for its reason.
 
-import { fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { type ConsoleRefusal } from "../../core/index.js";
+import {
+  consoleCommandSurface,
+  consoleCommands,
+  publishConsoleActRefusalSink,
+} from "../../frame/command-surface.js";
+import { projectFixtureShellRows } from "../../ledger/cards/index.js";
 import { LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
+import {
+  LEDGER_COMMAND_OWNER,
+  ProvenanceRail,
+  ProvenanceRailModel,
+  registerLedgerCommands,
+} from "../../ledger/structure/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { SessionStore } from "../../store/index.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
-import { type TimelineRowSlotProps } from "../../workspace/index.js";
+import {
+  actorFollowHandler,
+  unregisterActorFollowHandler,
+  type TimelineRowSlotProps,
+} from "../../workspace/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 
 const SESSION_ID = "session-ledger-feed";
@@ -310,5 +327,208 @@ describe("the ledger feed — what it does not hold", () => {
     const feed = renderFeed(openSessionStoreWithGeneralLog(5));
     expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
     expect(feed.textContent).not.toContain("Some entries never arrived.");
+  });
+});
+
+/**
+ * Contribute the ledger's palette rows into this window's real command surface.
+ *
+ * The real one rather than a private registry, because the seam under test is
+ * exactly that a command contributed at COMPOSITION time reaches a feed mounted
+ * later. A test-owned surface would prove the acts fire and nothing about that.
+ */
+function contributeLedgerCommands(): void {
+  registerLedgerCommands(consoleCommandSurface);
+}
+
+/** Leave the window with none of this family's rows, so cases do not leak into each other. */
+function withdrawLedgerCommands(): void {
+  consoleCommandSurface.contribute({
+    owner: LEDGER_COMMAND_OWNER,
+    commands: [],
+    keyBindings: [],
+  });
+}
+
+/** Run one contributed command by id, the way the palette does. */
+function dispatchConsoleCommand(commandId: string): void {
+  const command = consoleCommands
+    .commandsFor({ sessionActive: true })
+    .find((candidate) => candidate.id === commandId);
+  if (command === undefined) {
+    throw new Error(`no command named ${commandId} is contributed to this window`);
+  }
+  act(() => {
+    void command.run();
+  });
+}
+
+describe("the ledger feed — the palette acts on the mounted feed", () => {
+  afterEach(() => {
+    withdrawLedgerCommands();
+  });
+
+  it("opens this feed's find field when the palette's find row is run", () => {
+    withLaidOutViewport();
+    contributeLedgerCommands();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    expect(feed.querySelector(".meridian-find")).toBeNull();
+    dispatchConsoleCommand("ledger.find");
+    expect(feed.querySelector(".meridian-find")).not.toBeNull();
+  });
+
+  it("states the seat's refusal when the same row is run with no ledger up", () => {
+    // Which is the other half of the seam: the command is contributed for the
+    // window's whole life and the feed is not, so the press has to say so rather
+    // than doing nothing.
+    contributeLedgerCommands();
+    const raised: ConsoleRefusal[] = [];
+    const withdrawSink = publishConsoleActRefusalSink((refusal) => {
+      raised.push(refusal);
+    });
+    dispatchConsoleCommand("ledger.find");
+    expect(raised.map((refusal) => refusal.code)).toStrictEqual(["ledger.no_mounted_ledger"]);
+    withdrawSink();
+  });
+
+  it("negative control: an unmounted feed releases the seat it held", () => {
+    // Without this the case above would pass over a feed that never took the seat
+    // at all, which is exactly the state this lane found the ledger in.
+    withLaidOutViewport();
+    contributeLedgerCommands();
+    const raisedWhileMounted: ConsoleRefusal[] = [];
+    const withdrawSink = publishConsoleActRefusalSink((refusal) => {
+      raisedWhileMounted.push(refusal);
+    });
+    const mounted = render(
+      <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO })}>
+        <LedgerFeed
+          sessionStore={openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT)}
+          renderTimelineRow={(mount) => <p>{mount.row.summary}</p>}
+          feedLabel="Session timeline"
+        />
+      </SidekicksBridgeProvider>,
+    );
+    dispatchConsoleCommand("ledger.find");
+    expect(raisedWhileMounted).toStrictEqual([]);
+    mounted.unmount();
+    dispatchConsoleCommand("ledger.find");
+    expect(raisedWhileMounted.map((refusal) => refusal.code)).toStrictEqual([
+      "ledger.no_mounted_ledger",
+    ]);
+    withdrawSink();
+  });
+});
+
+/** A laid-out rail box. Any non-zero extent will do; the painter needs one to size its store. */
+const LAID_OUT_RAIL_BOX = { width: 20, height: 800 };
+
+/**
+ * Record the ink every rail mark is painted with, for the length of one case.
+ *
+ * `happy-dom` answers `null` from `getContext` and zeroes from every rect, and the
+ * painter treats both as "this host cannot paint" — correctly, which is why a case
+ * about WHICH colour a mark takes has to supply both.
+ */
+function recordRailInk(): string[] {
+  const inkPerMark: string[] = [];
+  const recordingContext = {
+    fillStyle: "",
+    clearRect: () => undefined,
+    fillRect: () => {
+      inkPerMark.push(String(recordingContext.fillStyle));
+    },
+    setTransform: () => undefined,
+  };
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(
+    recordingContext as unknown as CanvasRenderingContext2D,
+  );
+  vi.spyOn(HTMLCanvasElement.prototype, "getBoundingClientRect").mockReturnValue(
+    LAID_OUT_RAIL_BOX as DOMRect,
+  );
+  return inkPerMark;
+}
+
+describe("the ledger feed — the rail wears the session's own hues", () => {
+  it("paints each actor's marks in that actor's allocated hue", () => {
+    withLaidOutViewport();
+    const inkPerMark = recordRailInk();
+    renderFeed(openStoreWhereJoinOrderIsNotEventOrder());
+    // Two speakers, two hues. While the rail was handed no lookup at all, both
+    // marks took the one neutral tone and the map said nothing about who acted.
+    expect(new Set(inkPerMark).size).toBe(2);
+  });
+
+  it("negative control: a rail handed no allocation paints one neutral tone", () => {
+    // The rail as this feed mounted it before this change, over the same two rows:
+    // the marks are still drawn, and they are all the same colour.
+    const inkPerMark = recordRailInk();
+    const sessionStore = openStoreWhereJoinOrderIsNotEventOrder();
+    const { rows } = projectFixtureShellRows(sessionStore.snapshot().timeline);
+    render(
+      <ProvenanceRail
+        model={new ProvenanceRailModel({ rows, hasEarlierRows: false })}
+        viewportPosition={0}
+        viewportExtent={1}
+        isFollowing={false}
+        onJumpToRow={() => undefined}
+      />,
+    );
+    expect(inkPerMark.length).toBeGreaterThan(1);
+    expect(new Set(inkPerMark).size).toBe(1);
+  });
+});
+
+describe("the ledger feed — the clip it draws is the clip that is true", () => {
+  it("draws the unloaded segment once the cap has taken rows", () => {
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithGeneralLog(OVER_CAP_EVENT_COUNT));
+    expect(feed.querySelector(".meridian-rail__unloaded")).not.toBeNull();
+    expect(feed.textContent).toContain("Older entries are no longer in this window.");
+    // And still no control, because no registered read returns rows before the head.
+    expect(feed.querySelector(".meridian-rail__load-earlier")).toBeNull();
+    expect(feed.querySelector(".meridian-find__load-earlier")).toBeNull();
+  });
+
+  it("negative control: a whole log under the cap draws no segment", () => {
+    // Without this the case above would pass over a clip hard-coded true, which
+    // would mark every complete session as truncated.
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithGeneralLog(5));
+    expect(feed.querySelector(".meridian-rail__unloaded")).toBeNull();
+    expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
+  });
+});
+
+describe("the ledger feed — the cast bar's follow seat", () => {
+  afterEach(() => {
+    unregisterActorFollowHandler();
+  });
+
+  it("reveals the row a chip's sequence names while the feed is mounted", () => {
+    withLaidOutViewport();
+    renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const follow = actorFollowHandler();
+    expect(follow).toBeDefined();
+    expect(
+      follow?.({ participantId: "participant-alba", newestSequence: REPLAY_LOG_EVENT_COUNT - 1 }),
+    ).toBe("revealed");
+  });
+
+  it("answers row-not-in-view for a sequence this window does not hold", () => {
+    withLaidOutViewport();
+    renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    expect(
+      actorFollowHandler()?.({
+        participantId: "participant-alba",
+        newestSequence: REPLAY_LOG_EVENT_COUNT + 100,
+      }),
+    ).toBe("row-not-in-view");
+  });
+
+  it("negative control: the seat is empty until a ledger fills it", () => {
+    // Which is the state the workspace announces "the session log is not open in
+    // this window" from — and the state the ledger was permanently in before.
+    expect(actorFollowHandler()).toBeUndefined();
   });
 });

@@ -47,11 +47,8 @@ export {
   actorFollowHandler,
   registerActorFollowHandler,
   unregisterActorFollowHandler,
-  /** @consumedBy T-023p-1C-2 */
   type ActorFollowHandler,
-  /** @consumedBy T-023p-1C-2 */
   type ActorFollowOutcome,
-  /** @consumedBy T-023p-1C-2 */
   type ActorFollowRequest,
 } from "./actor-follow-seat.js";
 
