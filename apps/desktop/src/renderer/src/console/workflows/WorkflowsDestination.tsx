@@ -54,12 +54,20 @@
 // surface it just described. Each read under it announces its OWN settlement, which
 // is a different fact from the scope and is that section's to say.
 //
-// WHAT THE SURFACE OPENS. Two pane kinds, both this family's: a definition name and
-// the "New definition" action open `workflow-builder` — the second with no entity,
-// which is that pane's own new-definition arm — and a run name opens `workflow-run`.
-// The opener is handed down rather than reached for, so the surface that mounts this
-// destination decides where an opened pane lands; `WorkflowsPaneHost.tsx` is that
-// surface today and the deck is that surface later, and neither fact reaches here.
+// WHAT THE SURFACE OPENS. Two pane kinds, both this family's: a definition name opens
+// `workflow-builder` and a run name opens `workflow-run`. The opener is handed down
+// rather than reached for, so the surface that mounts this destination decides where
+// an opened pane lands; `WorkflowsPaneHost.tsx` is that surface today and the deck is
+// that surface later, and neither fact reaches here.
+//
+// WHAT IT DELIBERATELY DOES NOT OPEN. It supplies no new-definition action, and that
+// is this family's own absence rule rather than an omission: `DefinitionsBrowser.tsx`
+// writes it out — an entry point appears when its caller supplies the action and not
+// before — and the wire says this caller cannot. Ten workflow operations sit on the
+// growth port and not one of them writes a definition, so a "New definition" control
+// here could only open a pane with nothing to author, which is a control that leads
+// nowhere. The browser's prop stays optional and unfilled: it is the mechanism, and
+// the day an authoring operation is registered, filling it is that wire's act.
 //
 // WHAT THE SCOPE BUYS, ONCE IT HAS SETTLED. Two reads, not one: the definitions
 // visible from this session, and the runs it holds. They are separate sections
@@ -162,12 +170,6 @@ export function WorkflowsDestination(props: WorkflowsDestinationProps): React.JS
             kind: "workflow-builder",
             entity: { kind: "workflow-definition", id: definition.id },
           });
-        }}
-        onNewDefinition={() => {
-          // No entity, which is the builder's own new-definition arm: a definition
-          // that does not exist yet has no id to address it by, and minting one here
-          // would be the console deciding an identity the daemon mints on the save.
-          props.openPane({ kind: "workflow-builder", entity: undefined });
         }}
       />
       <WorkflowRuns

@@ -297,25 +297,25 @@ describe("the workflows destination — what its lists open", () => {
     ]);
   });
 
-  it("opens the builder with no entity for a definition that does not exist yet", async () => {
-    // The pane's own new-definition arm. No id is minted here: a definition the
-    // daemon has not saved has none, and inventing one would be the console deciding
-    // an identity the save decides.
-    const { container, openedAddresses } = renderDestination(
+  it("draws no new-definition control, because nothing in this build authors one", async () => {
+    // Absent, not disabled, and not dead: the growth port's ten workflow operations
+    // include no write of a definition, so this control used to open a pane with
+    // nothing to author. The browser's prop stays optional and unfilled — it is the
+    // mechanism a later authoring wire fills, and an entry point appears when its
+    // caller supplies the action and not before.
+    const { container } = renderDestination(
       fixtureGrowthPort(),
       frameStoreRetaining(WORKFLOWS_SESSION_ID),
     );
     await settle();
-    const action = [...container.querySelectorAll(".meridian-workflow__action")].find(
-      (button) => button.textContent === "New definition",
+
+    const actionLabels = [...container.querySelectorAll(".meridian-workflow__action")].map(
+      (control) => control.textContent,
     );
-    if (!(action instanceof HTMLElement)) {
-      throw new Error("the browser offered no way to author a definition");
-    }
-
-    fireEvent.click(action);
-
-    expect(openedAddresses).toStrictEqual([{ kind: "workflow-builder", entity: undefined }]);
+    expect(actionLabels).not.toContain("New definition");
+    // The rows themselves still open, so this is a withheld control and not a
+    // browser that lost its actions.
+    expect(container.querySelector(".meridian-definition-row__open")).not.toBeNull();
   });
 
   it("opens the run pane on the run a person pressed", async () => {

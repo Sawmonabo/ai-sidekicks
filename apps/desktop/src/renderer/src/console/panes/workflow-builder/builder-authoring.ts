@@ -30,6 +30,7 @@
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import type { ConsoleEntityRef } from "../../store/index.js";
+import type { WorkflowChromeState } from "../../workflows/chrome-state.js";
 
 /**
  * Every act that writes a definition, and exactly five.
@@ -147,4 +148,27 @@ export function misaddressedBuilderPane(addressedKind: ConsoleEntityRef["kind"])
     code,
     `This pane authors a ${WORKFLOW_BUILDER_SUBJECT_KIND} and was opened on a ${addressedKind}. Nothing was read for it.`,
   );
+}
+
+/**
+ * The state of a pane opened with no definition to author.
+ *
+ * `empty` and not `not-checked`: nothing was left unasked here, because there is no
+ * subject to ask about. `chrome-state.ts` reserves this arm for exactly that — a
+ * surface whose address names no subject at all — and the two absences point at
+ * different next moves, which is why they are different arms.
+ *
+ * WHY THIS IS AN ABSENCE AND NOT AN AUTHORING CANVAS. Every act that writes a
+ * definition submits a definition body, and no such operation is on the bridge; the
+ * pane can therefore be opened with no subject and can do nothing with one. The
+ * surface that would have opened it withholds the control, and this arm is what a
+ * pane addressed that way anyway says about itself, rather than a list from which
+ * nothing can advance.
+ */
+export function unaddressedBuilderPane(): WorkflowChromeState {
+  return {
+    kind: "empty",
+    title: "This pane was opened without a definition to author.",
+    detail: `${ACT_PROSE[WORKFLOW_BUILDER_PRIMARY_ACT]} is not reachable from this build, so nothing here can start one. Open a definition from the workflows destination to edit an existing one.`,
+  };
 }
