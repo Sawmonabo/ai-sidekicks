@@ -25,9 +25,19 @@
 // every group rendering the refusal AND `No <scope> definitions` underneath it,
 // which turns one failed read into three asserted empty results about a daemon that
 // answered none of them. The refusal is the whole surface's, so it reaches the chrome
-// as the `refused` state and the groups are not rendered at all. The per-scope
-// channel stays for the refusal that really is one scope's — a `shared`-target
-// authoring denial changes nothing about what is readable elsewhere.
+// as the `refused` state and the groups are not rendered at all.
+//
+// AND THERE IS NO PER-SCOPE REFUSAL BESIDE IT, because no registered reply carries
+// one. The enumeration's reply is a single envelope — the rows and a cursor — so a
+// refusal of it is the call's and not a scope's, and this hook puts ONE unscoped read
+// for the resolved union rather than three scoped ones. The refusal that would really
+// have belonged to a single scope is an authoring denial at `shared`, and the growth
+// port declares no authoring operation at all: its workflow half is the enumeration,
+// the run start, read, cancel and resume, the phase-output read, the gate resolve,
+// the human-form submit, the gate-chain verify and the run enumeration — ten
+// operations, none of which writes a definition. A prop for a refusal nothing in this
+// console can raise is a seam that reads as coverage and has no producer, so the
+// browser passes none and the surface below declares none.
 
 import { useMemo } from "react";
 
