@@ -38,18 +38,25 @@
 // the body this pane mounts; it is stated here because this chrome frames the park
 // banner and would otherwise be the natural place for someone to derive one.
 //
-// WIRE STATUS. `packages/contracts` registers no `workflow.*` method and the growth
-// port carries no workflow operation, so the run read, the run controls, the gate
-// resolution and the phase-output read are all unreachable. The console renders
-// their absence and calls nothing.
+// WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so every one
+// of these operations lives on the growth port behind the workflow slate row rather
+// than on a bridge namespace. The READ is reachable there and this pane puts it: the
+// fixture answers it from the running scenario, and a build with no answer gets the
+// port's own typed refusal naming who owes the wire. The controls, the gate
+// resolution and the phase-output read are not: no scenario settles a workflow
+// mutation, so those still render a refusal and call nothing.
 
-import { Nothing } from "../../primitives/index.js";
+import type { WorkflowPhaseState } from "../../bridge/index.js";
+import { Nothing, RefusalBanner } from "../../primitives/index.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
+import { ParkBadge } from "../../workflows/ParkBadge.js";
+import { phasePark } from "../../workflows/run-list-projection.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { unregisteredRunControl } from "./run-controls.js";
+import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 import { ChatStartSlot } from "./slots/ChatStartSlot.js";
-import { HumanFormSlot } from "./slots/HumanFormSlot.js";
+import { HumanFormSlot, type HumanFormMount } from "./slots/HumanFormSlot.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 
 /** The surface's name and its one-line purpose, written once for both arms. */
@@ -60,9 +67,107 @@ export interface WorkflowRunPaneProps {
   readonly context: ConsolePaneContext;
 }
 
+/**
+ * The phase whose form is open, resolved from a snapshot.
+ *
+ * The FIRST phase parked on a person, and only where the wire carried both members
+ * the mount needs. `phaseRunId` and `formRevision` are additive-optional on an
+ * already-published shape, so their absence means an older daemon rather than a
+ * phase without a form — and a mount composed with either one guessed would be
+ * answerable in appearance and unsubmittable in fact.
+ */
+function openHumanFormFor(phases: readonly WorkflowPhaseState[]): HumanFormMount | undefined {
+  for (const phase of phases) {
+    if (phase.parkReason !== "waiting-human") {
+      continue;
+    }
+    const { phaseRunId, formRevision } = phase;
+    if (phaseRunId === undefined || formRevision === undefined) {
+      // The park is real and the form is not addressable from what arrived. The
+      // park banner still says the run is waiting on a person; what is missing is
+      // the handle to answer it, which is the daemon's revision to supply.
+      return undefined;
+    }
+    return { phaseRunId, phaseId: phase.phaseId, formRevision };
+  }
+  return undefined;
+}
+
+/**
+ * What stands above the slots for one read state.
+ *
+ * Every arm is a different fact and none of them is the others: nobody asked, the
+ * read is in flight, the port refused by name, or a snapshot arrived and the parks
+ * on it are what an operator came for. Collapsing any two is the conflation the five
+ * kinds of nothing exist to prevent.
+ */
+function RunReadState(props: { readonly snapshot: WorkflowRunSnapshotState }): React.JSX.Element {
+  const { snapshot } = props;
+  switch (snapshot.status) {
+    case "unasked":
+      return (
+        <Nothing
+          kind="not-checked"
+          placement="surface"
+          title="This run has not been read in this window."
+          detail="The run snapshot arrives from the daemon; nothing was asked of it here."
+        />
+      );
+    case "reading":
+      return <Nothing kind="not-loaded" placement="surface" title="Reading this run." />;
+    case "unavailable":
+      return <RefusalBanner {...snapshot.refusal} />;
+    case "served":
+      return <RunParks phases={snapshot.snapshot.phaseStates} />;
+  }
+}
+
+/**
+ * Every phase parked at the moment the snapshot was built, and nothing else.
+ *
+ * A park is read from `parkReason` and never from a phase's `state` — the status
+ * union has no suspended arm and the park members are live-scoped, so a phase that
+ * has resumed past its park carries none of them and must not be shown as waiting.
+ * `phasePark` applies that discriminator once, in the projection, and this surface
+ * never re-derives it.
+ *
+ * A run with nothing parked says so rather than rendering an empty region: "nothing
+ * is waiting on anyone" is the answer an operator opened this pane for.
+ */
+function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): React.JSX.Element {
+  const parked = props.phases.flatMap((phase) => {
+    const park = phasePark(phase);
+    return park === undefined ? [] : [{ phaseId: phase.phaseId, park }];
+  });
+  if (parked.length === 0) {
+    return (
+      <Nothing
+        kind="empty"
+        placement="inline"
+        title="Nothing in this run is parked."
+        detail="No phase is waiting on a person or on provider capacity right now."
+      />
+    );
+  }
+  return (
+    <div className="meridian-workflow__parks">
+      {parked.map((entry) => (
+        // Keyed by the phase, which is the run's own identity for it. No phase name
+        // reaches the console from any registered read, so the badge is given none
+        // rather than one composed here.
+        <ParkBadge key={entry.phaseId} park={entry.park} />
+      ))}
+    </div>
+  );
+}
+
 /** The run pane's chrome. The run detail and the human form inside it are Plan-017's. */
 export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element {
-  const { entity, sessionStore } = props.context;
+  const { bridge, entity, sessionStore } = props.context;
+  // Called before the no-run arm returns, because a hook may not sit behind a
+  // branch. With no run named the read is `unasked`, which is the honest state and
+  // the one the arm below never renders.
+  const snapshot = useWorkflowRunSnapshot(bridge.growth, entity?.id);
 
   if (entity === undefined) {
     return (
@@ -80,24 +185,17 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
 
   return (
     <WorkflowChrome glyph="run" heading={HEADING} summary={SUMMARY} state={{ kind: "ready" }}>
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="This run has not been read in this window."
-        detail="The run snapshot and its live updates arrive from the daemon; nothing was asked of it here."
-      />
+      <RunReadState snapshot={snapshot} />
       <OperatorControls
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />
       <RunDetailSlot workflowRunId={entity.id} />
-      {/*
-        `phase={undefined}` is the honest state and not an oversight: which phase is
-        waiting is a fact about the run, no run read is reachable from this build,
-        and a pane that named one anyway would be inventing the answer it is here to
-        report the absence of.
-      */}
-      <HumanFormSlot phase={undefined} />
+      <HumanFormSlot
+        phase={
+          snapshot.status === "served" ? openHumanFormFor(snapshot.snapshot.phaseStates) : undefined
+        }
+      />
     </WorkflowChrome>
   );
 }
