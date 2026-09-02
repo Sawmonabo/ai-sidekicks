@@ -98,10 +98,11 @@ export function registerConsoleFamilies(
   // `register<Family>` entry point, never by editing a shared spine.
   // T-023p-1C-2 ledger
   // The composer family claims no surface slot: its body is the composer SEAT under
-  // the deck, and its panes are claimed through `panes/index.ts` above. It is
-  // composed here for the same reason the others are — so exactly one call reaches
-  // the whole console — and it takes no registry because it claims nothing in one.
-  registerComposerFamily();
+  // the deck, and its panes are claimed through `panes/index.ts` above. What it does
+  // claim is a fold — the approval-flow kinds the approvals pane reads entities from
+  // — so it takes the projector board this function was handed and no other registry,
+  // because those are the only claims it makes.
+  registerComposerFamily(projectorRegistry);
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
