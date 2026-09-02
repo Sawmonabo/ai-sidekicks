@@ -1,38 +1,51 @@
-// The workspace family's door — and the one place view families reach each other.
+// The seats family's door — and the one place view families reach each other.
 //
 // The family holds the session workspace's shared vocabulary: the seats through
-// which the six view families hand each other panes, a composer, sidebar sections,
-// timeline rows, and inline cards. It sits above `bridge/` and below the view
-// families in the console's DAG, and it imports nothing from `frame/` or
-// `palette/` — a seat that needed the frame would be a mount rather than a seam.
+// which the view families hand each other panes, a composer, sidebar sections,
+// timeline rows, and inline cards. It sits directly above `bridge/` and below
+// `palette/` and `frame/` in the console's DAG.
 //
-// ONE BARREL, AND WHY THE SEAT MODULES ARE RE-EXPORTED FROM HERE RATHER THAN FROM
-// A SECOND ONE INSIDE `seats/`. `apps/desktop/AGENTS.md` §Module shape: "Every
-// console family carries exactly one `index.ts`. Cross-family imports go through
-// it; intra-family imports are deep. A barrel re-exports only its own family — no
-// re-export chains." `workspace/` is the family; `seats/` is a directory inside
-// it, so a barrel there was a second index in one family AND a barrel-to-barrel
-// forward from this one — which is the ownership and dead-code boundary the rule
-// exists to keep sharp, since a chain means neither file is the answer to "what
-// does this family publish".
+// WHY THAT POSITION, AND NOT INSIDE A VIEW FAMILY. These contracts used to live at
+// `workspace/seats/` and were published by `workspace/index.ts`. `workspace/` is a
+// VIEW FAMILY — the ledger and the composer author bodies in it — and a view family
+// sits at the TOP of the DAG, above the frame. But the frame composes the pane
+// registry singleton, so the frame imported the family, and the family is documented
+// to import the frame: an upward edge that either closes a cycle the moment the
+// workspace body lands, or forces a view family to stop using its own lower layers.
+// The layering gate stayed green on it because its ladders stopped at `frame/` and
+// no rule named the view families at all. Both halves are fixed together — this
+// family is the hoist, and `.dependency-cruiser.mjs` now forbids any layer family,
+// the frame included, from importing a view family.
+//
+// The position is read off the imports rather than chosen: the seats import `core/`,
+// `tokens/`, `routing/`, `store/`, `persistence/`, `bridge/`, and `src/shared/`, and
+// nothing higher, so the lowest home above all of them is the slot immediately above
+// `bridge/`. Lower is also the more permissive choice for the two families that sit
+// between here and the view families — the palette may open a pane, and the frame may
+// hold the board — while neither can be reached from a seat.
+//
+// ONE BARREL. `apps/desktop/AGENTS.md` §Module shape: "Every console family carries
+// exactly one `index.ts`. Cross-family imports go through it; intra-family imports
+// are deep. A barrel re-exports only its own family — no re-export chains." This file
+// is that one barrel, and the seat modules beside it are the family.
 //
 // WHY EVERY OTHER CROSS-FAMILY EDGE STILL RUNS DOWNWARD. A view family imports
 // `core/`, `tokens/`, `routing/`, `primitives/`, `store/`, `persistence/`,
-// `bridge/`, `palette/`, and `frame/`, and none of those imports it back. The six
-// view families are SIBLINGS, and siblings have no edge at all — which is what
+// `bridge/`, `seats/`, `palette/`, and `frame/`, and none of those imports it back.
+// The view families are SIBLINGS, and siblings have no edge at all — which is what
 // keeps six concurrent branches from serializing behind each other.
 //
 // But siblings still hand each other things: the deck mounts panes six families
 // build, the workspace mounts a composer the composer family fills, one sidebar
 // carries sections four families own, and the ledger renders cards the repos
 // family authors. Every one of those is a CONTRACT rather than an import — a type
-// plus a registry, minted once in `seats/` so no branch invents its own.
+// plus a registry, minted once here so no branch invents its own.
 //
 // So the rule is: a view family imports this door and nothing else of a sibling's.
 // A family reaching past it into another family's subtree is reaching for a body,
 // and a body is exactly what a seat exists to keep it from holding.
 //
-// NOTHING IN `seats/` RENDERS. No component, no CSS, no store, no scenario. A seat
+// NOTHING HERE RENDERS. No component, no CSS, no store, no scenario. A seat
 // that rendered would be a body, and the family that owns the body would then have
 // two.
 //
@@ -54,7 +67,7 @@ export {
   isPaneKind,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type PaneKind,
-} from "./seats/pane-kinds.js";
+} from "./pane-kinds.js";
 
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
@@ -65,7 +78,7 @@ export {
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
-} from "./seats/pane-address.js";
+} from "./pane-address.js";
 
 export {
   ConsolePaneRegistry,
@@ -82,7 +95,7 @@ export {
   type ConsolePaneLink,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneOpener,
-} from "./seats/pane-registry.js";
+} from "./pane-registry.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -95,7 +108,7 @@ export {
   type ComposerSeatProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ComposerSeatRenderer,
-} from "./seats/composer-seat.js";
+} from "./composer-seat.js";
 
 export {
   /** @consumedBy T-023p-1C-3 */
@@ -114,7 +127,7 @@ export {
   type SidebarSectionDescriptor,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionId,
-} from "./seats/sidebar-sections.js";
+} from "./sidebar-sections.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -131,7 +144,7 @@ export {
   type TimelineRowRenderer,
   /** @consumedBy T-023p-1C-2 */
   type TimelineRowSlotProps,
-} from "./seats/timeline-row-slot.js";
+} from "./timeline-row-slot.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -160,11 +173,11 @@ export {
   type InlineCardPropsByKind,
   /** @consumedBy T-023p-1C-2 */
   type InlineCardSeatProps,
-} from "./seats/inline-card-seats.js";
+} from "./inline-card-seats.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   OwnerSlotContract,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   OwnerSlotProps,
-} from "./seats/owner-slot.js";
+} from "./owner-slot.js";

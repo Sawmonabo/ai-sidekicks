@@ -36,7 +36,7 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { type ParticipantHueAssignment } from "../../tokens/index.js";
+import { type ParticipantHueAssignment } from "../tokens/index.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
 
 // Consumed by T-023p-1C-2

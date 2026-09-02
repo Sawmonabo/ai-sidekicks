@@ -40,7 +40,7 @@ import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
 import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
-import type { ConsolePaneRegistry } from "./workspace/index.js";
+import type { ConsolePaneRegistry } from "./seats/index.js";
 
 /**
  * Register every shipped view family against the three registries a composition owns.

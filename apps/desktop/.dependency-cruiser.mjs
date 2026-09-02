@@ -29,16 +29,52 @@ const ROUTING = `${CONSOLE}/routing/`;
 const PRIMITIVES = `${CONSOLE}/primitives/`;
 const STATE = `${CONSOLE}/(store|persistence)/`;
 const BRIDGE = `${CONSOLE}/bridge/`;
+// `seats/` holds the contracts through which view families hand each other bodies — the
+// pane registry and its kinds and addresses, the composer seat, sidebar sections, the
+// timeline row slot, the inline-card seats. It sits HERE, directly above `bridge/`,
+// because that is the highest family a seat imports; and below `palette/` and `frame/`
+// because the frame composes the pane-registry singleton and a seat reaches for neither.
+// It lived at `workspace/seats/` until this position was named, which made the frame
+// import a VIEW family — the edge the `console-layering-view-families` rule below now
+// forbids outright.
+const SEATS = `${CONSOLE}/seats/`;
 const PALETTE = `${CONSOLE}/palette/`;
 const FRAME = `${CONSOLE}/frame/`;
 
+// The composition sites. `families.ts` and `panes/index.ts` are the two files whose whole
+// job is to name every view family, so they are the one place a downward-only ladder
+// cannot apply: they sit above every family by construction. They are named here so the
+// view-family rule below can subtract them rather than report the console's own entry
+// wiring as a violation.
+const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
+const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
+
+/** Every layer family, low to high — the closed set the DAG orders. */
+const LAYER_FAMILIES = [CORE, TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
+
+/**
+ * A VIEW family is any console home that is not a layer family and not a composition site.
+ *
+ * Stated as the COMPLEMENT rather than as a list of directory names, because a list is the
+ * exact thing that failed here: the ladders below stopped at `frame/`, so no rule named the
+ * view families and `frame/` → `workspace/` passed a gate whose own standard forbids it. A
+ * list would have to be extended by each of the seven family branches, and the one that
+ * forgot would reopen the same hole silently. The complement needs no line at all when a
+ * family lands, and it cannot be forgotten.
+ */
+const VIEW_FAMILIES = {
+  path: `${CONSOLE}/`,
+  pathNot: [...LAYER_FAMILIES, COMPOSITION_PANE_BOARD, COMPOSITION_ROOT_FILES],
+};
+
 /** Everything strictly above each family, as one alternation. */
-const ABOVE_CORE = [TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, PALETTE, FRAME];
-const ABOVE_TOKENS = [ROUTING, PRIMITIVES, STATE, BRIDGE, PALETTE, FRAME];
-const ABOVE_ROUTING = [PRIMITIVES, STATE, BRIDGE, PALETTE, FRAME];
-const ABOVE_PRIMITIVES = [STATE, BRIDGE, PALETTE, FRAME];
-const ABOVE_STATE = [BRIDGE, PALETTE, FRAME];
-const ABOVE_BRIDGE = [PALETTE, FRAME];
+const ABOVE_CORE = [TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
+const ABOVE_TOKENS = [ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
+const ABOVE_ROUTING = [PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
+const ABOVE_PRIMITIVES = [STATE, BRIDGE, SEATS, PALETTE, FRAME];
+const ABOVE_STATE = [BRIDGE, SEATS, PALETTE, FRAME];
+const ABOVE_BRIDGE = [SEATS, PALETTE, FRAME];
+const ABOVE_SEATS = [PALETTE, FRAME];
 const ABOVE_PALETTE = [FRAME];
 
 /** One forbidden rule per family: an edge from that family to anything above it. */
@@ -144,7 +180,23 @@ export default {
     upwardEdge("primitives", PRIMITIVES, ABOVE_PRIMITIVES),
     upwardEdge("store-persistence", STATE, ABOVE_STATE),
     upwardEdge("bridge", BRIDGE, ABOVE_BRIDGE),
+    upwardEdge("seats", SEATS, ABOVE_SEATS),
     upwardEdge("palette", PALETTE, ABOVE_PALETTE),
+    {
+      name: "console-layering-view-families",
+      comment:
+        "A layer family imported a VIEW family. The view families sit at the top of the DAG " +
+        "and import the layers below them; an edge back down means the layer is reaching for " +
+        "a body. Hoist the contract into the lowest layer that needs it — `seats/` is where " +
+        "the pane, composer, sidebar, timeline-row, and inline-card contracts live for exactly " +
+        "this reason — and never deep-import around it. This rule is stated once for all nine " +
+        "layer families rather than per family, because its target set is everything in the " +
+        "console that is NOT a layer family or a composition site: a new view family is covered " +
+        "the moment its directory exists, with no line to remember.",
+      severity: "error",
+      from: { path: LAYER_FAMILIES },
+      to: VIEW_FAMILIES,
+    },
   ],
   options: {
     doNotFollow: { path: "node_modules" },

@@ -28,7 +28,7 @@
 // `src/shared/auxiliary-routes.ts` already declares it for the main process's menu
 // and the renderer's route table.
 
-import { AUXILIARY_ROUTE_NAMES } from "../../../../../shared/auxiliary-routes.js";
+import { AUXILIARY_ROUTE_NAMES } from "../../../../shared/auxiliary-routes.js";
 
 // Consumed by T-023p-1C-2
 /**

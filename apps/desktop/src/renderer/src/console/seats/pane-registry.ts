@@ -32,10 +32,10 @@
 // detached, and closed on its own, because the only thing it has of its source is a
 // string, and a string cannot be dereferenced into a body.
 
-import { KeyedRegistry } from "../../core/index.js";
-import { type ConsoleBridge } from "../../bridge/index.js";
-import { type FrameStore, type SessionStore } from "../../store/index.js";
-import { type DraftStore, type UiStateStore } from "../../persistence/index.js";
+import { KeyedRegistry } from "../core/index.js";
+import { type ConsoleBridge } from "../bridge/index.js";
+import { type FrameStore, type SessionStore } from "../store/index.js";
+import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
 import { PANE_KINDS, type PaneKind } from "./pane-kinds.js";
 

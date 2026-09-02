@@ -13,7 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DuplicateRegistrationError } from "../../core/index.js";
+import { DuplicateRegistrationError } from "../core/index.js";
 import {
   SIDEBAR_SECTION_IDS,
   SidebarSectionRegistry,

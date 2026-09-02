@@ -9,7 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DuplicateRegistrationError } from "../../core/index.js";
+import { DuplicateRegistrationError } from "../core/index.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
 import { PANE_KINDS, isDetachablePaneKind } from "./pane-kinds.js";
 import {

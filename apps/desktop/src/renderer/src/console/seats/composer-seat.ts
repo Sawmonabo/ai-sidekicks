@@ -15,10 +15,10 @@
 // body agreed on that shape by convention rather than by type, the two branches
 // would agree until one of them shipped.
 
-import { type ConsoleBridge } from "../../bridge/index.js";
-import { type SessionStore } from "../../store/index.js";
-import { type DraftStore } from "../../persistence/index.js";
-import { type ConsoleRoute } from "../../routing/index.js";
+import { type ConsoleBridge } from "../bridge/index.js";
+import { type SessionStore } from "../store/index.js";
+import { type DraftStore } from "../persistence/index.js";
+import { type ConsoleRoute } from "../routing/index.js";
 import { type ConsolePaneAddress } from "./pane-address.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
 

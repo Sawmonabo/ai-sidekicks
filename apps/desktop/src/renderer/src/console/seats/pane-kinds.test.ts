@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { AUXILIARY_ROUTE_NAMES } from "../../../../../shared/auxiliary-routes.js";
+import { AUXILIARY_ROUTE_NAMES } from "../../../../shared/auxiliary-routes.js";
 import {
   DETACHABLE_PANE_KINDS,
   PANE_KINDS,
