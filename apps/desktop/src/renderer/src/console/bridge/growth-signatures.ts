@@ -41,6 +41,7 @@ import type { AttentionProjection } from "./attention-projection.js";
 import type { GrowthStream } from "./growth-outcome.js";
 import type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
 import type {
+  GrowthArtifactDeleteReceipt,
   GrowthArtifactRead,
   GrowthArtifactSummary,
   GrowthAttachmentIngestCompletion,
@@ -158,7 +159,14 @@ export interface GrowthOperationSignatures {
     request: { readonly artifactId: string; readonly includePayload?: boolean };
     value: GrowthArtifactRead;
   };
-  artifactDelete: { request: { readonly artifactId: string }; value: void };
+  // The receipt, not `void`. A delete settles two facts nothing can recover afterwards
+  // — where the payload's bytes went, and whether destroying the retained relay key has
+  // foreclosed re-publish — and a `void` reply left a surface able to say only that the
+  // call returned.
+  artifactDelete: {
+    request: { readonly artifactId: string };
+    value: GrowthArtifactDeleteReceipt;
+  };
   artifactAllowlistRead: {
     request: { readonly sessionId: string };
     value: { readonly contentTypes: readonly string[]; readonly maximumByteLength: number };

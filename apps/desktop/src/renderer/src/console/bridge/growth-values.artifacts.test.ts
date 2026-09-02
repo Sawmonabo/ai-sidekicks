@@ -1,4 +1,5 @@
-// The artifact read's two arms, and the two members the manifest does NOT carry.
+// The artifact plane's registered replies: the read's two arms, the delete's receipt,
+// and the two members the manifest does NOT carry.
 //
 // `artifactRead` answered with the bare manifest, which made the artifact pane's two
 // reads one read: a metadata read and a payload fetch differ only by `includePayload`,
@@ -12,7 +13,10 @@
 // file is what holds the mirror to the two arms a caller actually builds. The negative
 // controls are therefore the load-bearing half: each plants a shape that was reachable
 // before the registration — the bare manifest as the whole reply, an encoding outside
-// the wire's closed pair — and proves the type rejects it now.
+// the wire's closed pair, a receipt with no disposition on it — and proves the type
+// rejects it now. That last one is the one a fixture would otherwise DEFAULT: a reply
+// missing `payloadDisposition` has to be refused, because rendering it as "reclaimed"
+// is a claim about the operator's disk that nothing checked.
 //
 // AND THE ABSENCES ARE ASSERTED TOO. The manifest carries no content-type member and
 // no expiry member, which is a fact about the registered envelope rather than an
@@ -23,7 +27,12 @@
 import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { GrowthOperationSignatures } from "./growth-signatures.js";
-import type { GrowthArtifactRead, GrowthArtifactSummary } from "./growth-values.js";
+import type {
+  GrowthArtifactDeleteReceipt,
+  GrowthArtifactPayloadDisposition,
+  GrowthArtifactRead,
+  GrowthArtifactSummary,
+} from "./growth-values.js";
 
 /** The manifest every case here reads through. Fixed; nothing below is about its values. */
 const MANIFEST: GrowthArtifactSummary = {
@@ -151,5 +160,68 @@ describe("the manifest's absences — checked, not assumed", () => {
     const expiring: GrowthArtifactSummary = { ...MANIFEST, replicationStatus: "expired" };
 
     expect(expiring.replicationStatus).toBe("expired");
+  });
+});
+
+describe("the artifact delete — a receipt, where the reply used to be nothing", () => {
+  it("answers with the receipt rather than nothing at all", () => {
+    expectTypeOf<
+      GrowthOperationSignatures["artifactDelete"]["value"]
+    >().toEqualTypeOf<GrowthArtifactDeleteReceipt>();
+  });
+
+  it("reports each disposition the contract registers, so none is unrenderable", () => {
+    // Built from the vocabulary rather than from three hand-written literals: a
+    // disposition the type admits and this case did not name would go unnoticed, and
+    // an arm no surface can be handed is an arm no surface will be built to draw.
+    const dispositions: readonly GrowthArtifactPayloadDisposition[] = [
+      "reclaimed",
+      "reclaim_pending",
+      "retained_by_references",
+    ];
+    const receipts = dispositions.map(
+      (payloadDisposition): GrowthArtifactDeleteReceipt => ({
+        artifactId: "artifact-1",
+        payloadDisposition,
+        rePublishForeclosed: false,
+        deletedAt: "2026-01-01T14:21:00.000Z",
+      }),
+    );
+
+    expect(receipts.map((receipt) => receipt.payloadDisposition)).toStrictEqual(dispositions);
+  });
+
+  it("carries the foreclosure fact a confirmation exists for", () => {
+    const foreclosed: GrowthArtifactDeleteReceipt = {
+      artifactId: "artifact-1",
+      payloadDisposition: "reclaimed",
+      rePublishForeclosed: true,
+      deletedAt: "2026-01-01T14:21:00.000Z",
+    };
+
+    expect(foreclosed.rePublishForeclosed).toBe(true);
+  });
+
+  it("negative control: a reply missing the disposition is refused, never defaulted", () => {
+    // The defect this registration exists to make unreachable. A fixture or a daemon
+    // answering without the member cannot be read as "reclaimed" — that is a statement
+    // about whether the bytes are gone, and the reply did not make it.
+    // @ts-expect-error — `payloadDisposition` is required; there is no default for it.
+    const undisposed: GrowthArtifactDeleteReceipt = {
+      artifactId: "artifact-1",
+      rePublishForeclosed: false,
+      deletedAt: "2026-01-01T14:21:00.000Z",
+    };
+
+    expect(undisposed.payloadDisposition).toBeUndefined();
+  });
+
+  it("negative control: the empty reply is refused, which is what it used to be", () => {
+    // Exactly the old value type. Without this line the cases above would hold over a
+    // port that still answered with nothing, since nothing is assignable to nothing.
+    // @ts-expect-error — every member of the receipt is missing.
+    const stale: GrowthArtifactDeleteReceipt = undefined;
+
+    expect(stale).toBeUndefined();
   });
 });

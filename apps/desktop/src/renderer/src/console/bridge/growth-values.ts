@@ -226,6 +226,56 @@ export interface GrowthArtifactRead {
   readonly payloadEncoding?: GrowthArtifactPayloadEncoding;
 }
 
+/**
+ * What became of the payload behind a deleted manifest.
+ *
+ * Three arms and no boolean, on the contract's own reasoning: the bytes were unlinked,
+ * another manifest still names the shared payload so they deliberately stay, or the
+ * post-commit unlink failed and the orphan sweep owns the retry. A boolean could not
+ * report the third truthfully — it would have to answer "not reclaimed", which is what
+ * the second arm also says and means something entirely different about the operator's
+ * disk.
+ *
+ * A type alias rather than a value list, on the `GrowthCostStatus` rule below: nothing
+ * here enumerates the arms, the daemon settles the disposition and the surface renders
+ * the one it was handed.
+ */
+export type GrowthArtifactPayloadDisposition =
+  | "reclaimed"
+  | "reclaim_pending"
+  | "retained_by_references";
+
+/**
+ * The receipt a delete answers with.
+ *
+ * Mirrored member-for-member from the registered `ArtifactDeleteResponse` in
+ * `docs/architecture/contracts/api-payload-contracts.md`. The operation used to answer
+ * with nothing, and a delete that answers with nothing is a delete a surface can only
+ * report as "done": the daemon settles two facts at that moment which no later read can
+ * recover, and both are things a person acts on.
+ *
+ * `payloadDisposition` is the first — whether the bytes went, stayed for another
+ * manifest, or are owed to a sweep. `rePublishForeclosed` is the second, and it is the
+ * one a confirmation dialogue exists for: deleting a manifest that carried the
+ * publisher-retained relay key destroys that key with the row, so re-publish becomes
+ * permanently impossible and the late-join remedy is gone. Grounded in the destroyed
+ * LOCAL key alone — never a claim about what the relay still holds, which nothing here
+ * has asked and nothing here could answer.
+ *
+ * Every member is REQUIRED, and that is the load-bearing part rather than a default
+ * choice: an absent disposition would be indistinguishable from a served one, so a
+ * surface would render "reclaimed" for a reply that said nothing, and a missing
+ * foreclosure flag read as `false` would tell a person a re-publish is still available
+ * on exactly the artifact where it no longer is.
+ */
+export interface GrowthArtifactDeleteReceipt {
+  readonly artifactId: string;
+  readonly payloadDisposition: GrowthArtifactPayloadDisposition;
+  /** True when the delete destroyed the retained relay key, foreclosing re-publish. */
+  readonly rePublishForeclosed: boolean;
+  readonly deletedAt: string;
+}
+
 export interface GrowthSessionSummary {
   readonly sessionId: string;
   /**
