@@ -2,16 +2,15 @@
 // from.
 //
 // `Spec-023 §Console Libraries` ADOPTS `@xterm/xterm` 6.0.0 with the WebGL, fit,
-// search, unicode11, and serialize addons and OWN-BUILDS the React wrapper and the
-// renderer pool, under five constraints. Each one is a decision this module makes
-// rather than a note a reviewer has to remember.
+// search, unicode11, serialize, and web-links addons and OWN-BUILDS the React
+// wrapper, the renderer pool, and the link scheme guard, under five constraints.
+// Each one is a decision this module makes rather than a note a reviewer has to
+// remember.
 //
-// A SIXTH ADDON FROM THE SAME PROJECT is loaded below — `@xterm/addon-web-links`,
-// pinned exactly, MIT, no dependencies — under constraint 4, which is where the
-// reasoning for it is. It is the ADOPT-over-OWN-BUILD side of the same axis: the
-// alternative is this module reimplementing the library's own buffer index
-// back-mapping, and the guard the constraint is about runs on the activation path
-// either way.
+// The web-links addon is the ADOPT-over-OWN-BUILD side of constraint 4, which is
+// where the reasoning for it is: the alternative is this module reimplementing the
+// library's own buffer index back-mapping, and the guard the constraint is about
+// runs on the activation path either way.
 //
 //   1. **Bound the CONTEXTS this page creates, not the terminals drawing on one.**
 //      `WebglAddon.dispose()` does not release its WebGL2 context — the addon
