@@ -6,27 +6,60 @@
 // and never implies one exists. Never suppresses actionable attention when OS
 // notifications are denied; in-app badges and summaries still render."
 //
-// THE PREFERENCE SET IS NOT REACHABLE, AND THE PAGE SAYS SO RATHER THAN INVENTING IT
+// THE PREFERENCE SET IS READ, AND THE CHAIN STARTS WITH WHO YOU ARE
 //
-// That section names `attention.preferenceRead` and `attention.preferenceUpdate`.
-// Neither is registered: `packages/contracts` exports no attention type, no
-// `SidekicksBridge` namespace names one, and the growth port carries no attention
-// operation on any slate row — the same finding `notifications/attention-plane.ts`
-// records for the projection read next door. So this page renders the preference
-// set as the "not checked" kind of nothing, which is the honest fact, rather than
-// drawing toggles that would write nowhere. A console that composed the method
-// string anyway would be wiring a surface live against an unregistered wire.
+// The stored set is keyed by PARTICIPANT, so the read cannot be made until this
+// window knows which participant it is — and no read hands it that directly. What
+// does is the caller-identity read, scoped to the session the console has open. So
+// the page performs two calls in order: which participant this window is, then the
+// preferences stored for that participant. A refusal on the first is rendered as
+// the answer to the second, because it IS the answer: nothing was asked of the
+// preference store, and guessing a participant would attach one person's answers to
+// another person's screen.
 //
-// WHAT IS REACHABLE IS THE MUTE, AND IT IS GLOBAL
+// The set is GLOBAL to the participant. The session is how the identity is resolved
+// and never a scope for the preferences themselves — there is no per-session tier
+// anywhere on this page, including in its copy.
+//
+// ONE RULE DECIDES HOW A STORED PREFERENCE IS SHOWN
+//
+// No key is named here, because the corpus names none: the stored value is an opaque
+// record "until a document names the keys". So the rule is structural and lives in
+// `attention-preference-model.ts` — a value whose members are all booleans is drawn
+// as one switch per member, labelled with that member's own name; anything else is
+// shown read-only exactly as it arrived. No default is ever drawn, because a default
+// on this screen would look like the person's own answer.
+//
+// A SWITCH WRITES THE WHOLE VALUE BACK
+//
+// The update carries a record rather than a patch, so a toggle sends the whole value
+// with one member flipped. On a served write the set is RE-READ rather than patched
+// locally: the daemon owns the record, and a page holding its own edited copy is a
+// second version of it that nothing can reconcile. The reply's timestamp is not
+// rendered for the same reason — it would be a second truth about a record this page
+// is about to read again.
+//
+// WHAT IS REACHABLE WITHOUT THE DAEMON IS THE MUTE, AND IT IS GLOBAL
 //
 // The OS-toast mute is shell-local, so it rides the shell-config preference carrier
-// every settings toggle shares (`shell-preferences.ts`). It is offered once, for
-// this machine, with no per-session tier anywhere on the page — including in the
-// copy, which never suggests one could exist.
+// every settings toggle shares (`shell-preferences.ts`). It is offered once, for this
+// machine.
 
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { Nothing } from "../../primitives/index.js";
+import "./notifications.css";
+
+import type { ConsoleRefusal } from "../../core/index.js";
+import { InlineRefusal, Nothing, WireFigure, useAnnounce } from "../../primitives/index.js";
+import {
+  announcementFor,
+  flipMember,
+  projectPreferenceRows,
+  type AttentionPreferenceReadOutcome,
+  type CallerParticipantOutcome,
+  type PreferenceRow,
+  type PreferenceToggleMember,
+} from "./attention-preference-model.js";
 import { PreferenceToggleRow } from "./PreferenceToggleRow.js";
 import { useShellPreferences } from "./shell-preferences.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page-registry.js";
@@ -37,9 +70,29 @@ const OWNER = "collaboration-settings-notifications";
 /** The one key this page spends. Named once so the row and its note cannot drift. */
 const OS_TOAST_MUTE_KEY = "notifications.osToastsMuted";
 
+/**
+ * What every stored switch says about itself.
+ *
+ * The same sentence under every member because it is the same fact about every one
+ * of them: this console was told the member exists and was not told what it governs.
+ * A per-member sentence would be copy invented for a key nothing has named.
+ */
+const STORED_MEMBER_DESCRIPTION =
+  "Shown exactly as the daemon stores it. Nothing here says what it governs.";
+
+/** What one preference edit is doing right now, per switch rather than per key. */
+interface StoredPreferenceBinding {
+  readonly participantOutcome: CallerParticipantOutcome | undefined;
+  readonly readOutcome: AttentionPreferenceReadOutcome | undefined;
+  readonly pendingMemberKey: string | undefined;
+  readonly refusalByMemberKey: Readonly<Record<string, ConsoleRefusal>>;
+  readonly toggleMember: (row: PreferenceRow, member: PreferenceToggleMember) => void;
+}
+
 export function NotificationsPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const preferences = useShellPreferences(props.context.bridge);
-  const isMuted = preferences.isEnabled(OS_TOAST_MUTE_KEY);
+  const shellPreferences = useShellPreferences(props.context.bridge);
+  const stored = useStoredAttentionPreferences(props.context);
+  const isMuted = shellPreferences.isEnabled(OS_TOAST_MUTE_KEY);
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
@@ -56,15 +109,15 @@ export function NotificationsPage(props: { readonly context: SettingsPageContext
           label="Mute system notifications on this machine"
           description="Stops this computer raising desktop notifications. It is a setting for this machine and travels nowhere."
           checked={isMuted}
-          isPending={preferences.isPending(OS_TOAST_MUTE_KEY)}
+          isPending={shellPreferences.isPending(OS_TOAST_MUTE_KEY)}
           note={
-            preferences.isHeldLocally(OS_TOAST_MUTE_KEY)
+            shellPreferences.isHeldLocally(OS_TOAST_MUTE_KEY)
               ? "Held in this window. The shell preference store has not been built yet, so the choice lasts until this window closes."
               : undefined
           }
-          refusal={preferences.refusalFor(OS_TOAST_MUTE_KEY)}
+          refusal={shellPreferences.refusalFor(OS_TOAST_MUTE_KEY)}
           onCheckedChange={(checked) => {
-            preferences.choose(OS_TOAST_MUTE_KEY, checked);
+            shellPreferences.choose(OS_TOAST_MUTE_KEY, checked);
           }}
         />
         <p className="meridian-settings-page__aside">
@@ -76,14 +129,237 @@ export function NotificationsPage(props: { readonly context: SettingsPageContext
 
       <section className="meridian-settings-page__block" aria-label="What earns an interruption">
         <h3 className="meridian-settings-page__block-title">What earns an interruption</h3>
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title="The stored preference set has not been read."
-          detail="Which events are allowed to interrupt you is the daemon's record, and this console has no registered read for it yet. Nothing was asked, so nothing is shown — including a default that would look like your answer."
+        <p className="meridian-settings-page__aside">
+          These are the daemon&rsquo;s own records, shown under their own names. Where a stored
+          value is a set of switches it is offered as switches; anything else is shown as it arrived
+          and cannot be edited here. Changing one writes the whole value back.
+        </p>
+        <StoredPreferences
+          binding={stored}
+          hasSession={props.context.activeSessionId !== undefined}
         />
       </section>
     </div>
+  );
+}
+
+/**
+ * The two reads, in order, and the write that re-reads.
+ *
+ * A hook rather than a render body: it owns two effects, a write, and the staleness
+ * guards that keep a reply from a session nobody is looking at any more from landing
+ * on this one.
+ */
+function useStoredAttentionPreferences(context: SettingsPageContext): StoredPreferenceBinding {
+  const { bridge, activeSessionId } = context;
+  const announce = useAnnounce();
+  const [participantOutcome, setParticipantOutcome] = useState<
+    CallerParticipantOutcome | undefined
+  >(undefined);
+  const [readOutcome, setReadOutcome] = useState<AttentionPreferenceReadOutcome | undefined>(
+    undefined,
+  );
+  const [pendingMemberKey, setPendingMemberKey] = useState<string | undefined>(undefined);
+  const [refusalByMemberKey, setRefusalByMemberKey] = useState<
+    Readonly<Record<string, ConsoleRefusal>>
+  >({});
+  const [readGeneration, setReadGeneration] = useState(0);
+  // The chain settles once and says so once. Held in a ref rather than in state so
+  // announcing never causes the render that would announce again.
+  const hasAnnouncedRef = useRef(false);
+  const participantIdRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (activeSessionId === undefined) {
+      return undefined;
+    }
+    let isAttached = true;
+    // Cleared first: a session change resolves a different participant, and the
+    // standing answers belong to one nobody is asking about any more.
+    setParticipantOutcome(undefined);
+    setReadOutcome(undefined);
+    hasAnnouncedRef.current = false;
+    void bridge.growth.callerParticipantRead({ sessionId: activeSessionId }).then((result) => {
+      if (!isAttached) {
+        return;
+      }
+      setParticipantOutcome(result);
+      if (result.status === "unavailable" && !hasAnnouncedRef.current) {
+        // The chain stopped here, so this refusal IS the settlement — said in the
+        // daemon's own words rather than in a sentence about a read never made.
+        hasAnnouncedRef.current = true;
+        announce(result.detail);
+      }
+    });
+    return () => {
+      isAttached = false;
+    };
+  }, [bridge, activeSessionId, announce]);
+
+  const participantId =
+    participantOutcome?.status === "served" ? participantOutcome.value.participantId : undefined;
+
+  useEffect(() => {
+    participantIdRef.current = participantId;
+  }, [participantId]);
+
+  useEffect(() => {
+    if (participantId === undefined) {
+      return undefined;
+    }
+    let isAttached = true;
+    void bridge.growth.attentionPreferenceRead({ participantId }).then((result) => {
+      if (!isAttached) {
+        return;
+      }
+      // Replaced in place and never cleared first, so the re-read a write triggers
+      // does not return the section to its loading shape.
+      setReadOutcome(result);
+      if (!hasAnnouncedRef.current) {
+        hasAnnouncedRef.current = true;
+        announce(announcementFor(result));
+      }
+    });
+    return () => {
+      isAttached = false;
+    };
+  }, [bridge, participantId, readGeneration, announce]);
+
+  const toggleMember = useCallback(
+    (row: PreferenceRow, member: PreferenceToggleMember) => {
+      if (participantId === undefined || row.kind !== "toggles") {
+        return;
+      }
+      setPendingMemberKey(member.memberKey);
+      // Last time's reason is dropped on the attempt rather than on its settlement,
+      // so a person pressing again does not read it beside this time's spinner.
+      setRefusalByMemberKey((held) =>
+        Object.fromEntries(
+          Object.entries(held).filter(([heldKey]) => heldKey !== member.memberKey),
+        ),
+      );
+      void bridge.growth
+        .attentionPreferenceUpdate({
+          participantId,
+          key: row.key,
+          value: flipMember(row.value, member.name),
+        })
+        .then((result) => {
+          if (participantIdRef.current !== participantId) {
+            return;
+          }
+          setPendingMemberKey(undefined);
+          if (result.status === "unavailable") {
+            setRefusalByMemberKey((held) => ({ ...held, [member.memberKey]: result }));
+            return;
+          }
+          // Re-read rather than patched, so this page never holds a second copy of a
+          // record the daemon owns. The reply's timestamp is not rendered for the
+          // same reason.
+          setReadGeneration((generation) => generation + 1);
+        });
+    },
+    [bridge, participantId],
+  );
+
+  return {
+    participantOutcome,
+    readOutcome,
+    pendingMemberKey,
+    refusalByMemberKey,
+    toggleMember,
+  };
+}
+
+/** Every state the two-read chain can be in, and what each one renders. */
+function StoredPreferences(props: {
+  readonly binding: StoredPreferenceBinding;
+  readonly hasSession: boolean;
+}): ReactNode {
+  const { binding } = props;
+  if (!props.hasSession) {
+    return (
+      <Nothing
+        kind="not-checked"
+        placement="surface"
+        title="Your preferences have not been read yet."
+        detail="Reading them starts with knowing which participant you are, and this address does not name one. Nothing was asked — so nothing here is a reading, and a default would look like your answer."
+      />
+    );
+  }
+  if (binding.participantOutcome === undefined) {
+    return <Nothing kind="not-loaded" placement="surface" title="Finding out who you are." />;
+  }
+  if (binding.participantOutcome.status === "unavailable") {
+    // The chain's own refusal, rendered where the set would have been: nothing was
+    // asked of the preference store, and no participant was guessed to ask with.
+    return (
+      <InlineRefusal
+        code={binding.participantOutcome.code}
+        detail={binding.participantOutcome.detail}
+      />
+    );
+  }
+  if (binding.readOutcome === undefined) {
+    return <Nothing kind="not-loaded" placement="surface" title="Reading your preferences." />;
+  }
+  if (binding.readOutcome.status === "unavailable") {
+    return <InlineRefusal code={binding.readOutcome.code} detail={binding.readOutcome.detail} />;
+  }
+  const rows = projectPreferenceRows(binding.readOutcome.value.preferences);
+  if (rows.length === 0) {
+    return (
+      <Nothing
+        kind="empty"
+        placement="surface"
+        title="The daemon holds no preference for you yet."
+        detail="Nothing is stored under your name, and nothing is assumed in its place."
+      />
+    );
+  }
+  return (
+    <ul className="meridian-attention-preferences">
+      {rows.map((row) => (
+        <li className="meridian-attention-preferences__row" key={row.key}>
+          <p className="meridian-attention-preferences__key">
+            <WireFigure value={row.key} />
+          </p>
+          <StoredPreferenceValue row={row} binding={binding} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** One stored value: switches where the rule allows it, and reading where it does not. */
+function StoredPreferenceValue(props: {
+  readonly row: PreferenceRow;
+  readonly binding: StoredPreferenceBinding;
+}): ReactNode {
+  const { row, binding } = props;
+  if (row.kind === "opaque") {
+    return (
+      <p className="meridian-attention-preferences__opaque">
+        <WireFigure value={row.rendering} />
+      </p>
+    );
+  }
+  return (
+    <>
+      {row.members.map((member) => (
+        <PreferenceToggleRow
+          key={member.memberKey}
+          label={member.name}
+          description={STORED_MEMBER_DESCRIPTION}
+          checked={member.isEnabled}
+          isPending={binding.pendingMemberKey === member.memberKey}
+          refusal={binding.refusalByMemberKey[member.memberKey]}
+          onCheckedChange={() => {
+            binding.toggleMember(row, member);
+          }}
+        />
+      ))}
+    </>
   );
 }
 
