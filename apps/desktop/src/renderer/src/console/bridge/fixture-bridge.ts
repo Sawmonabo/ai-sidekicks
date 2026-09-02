@@ -43,11 +43,13 @@
 //     screenshot baseline does not shift when the developer's machine does.
 
 import {
+  type CpInput,
   type CpOutput,
   type CpProcedure,
   type DaemonEvent,
   type DaemonEventPayload,
   type DaemonMethod,
+  type DaemonParams,
   type DaemonResult,
   type SidekicksBridge,
   type Unsubscribe,
@@ -147,8 +149,9 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       // has to prove its scripted replies match the wire.
       call: async <MethodName extends DaemonMethod>(
         method: MethodName,
+        params: DaemonParams<MethodName>,
       ): Promise<DaemonResult<MethodName>> =>
-        (await resolveScriptedReply(scenarioEngine, method)) as DaemonResult<MethodName>,
+        (await resolveScriptedReply(scenarioEngine, method, params)) as DaemonResult<MethodName>,
       subscribe: <EventName extends DaemonEvent>(
         event: EventName,
         handler: (payload: DaemonEventPayload<EventName>) => void,
@@ -160,8 +163,9 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     controlPlane: {
       call: async <ProcedureName extends CpProcedure>(
         procedure: ProcedureName,
+        input: CpInput<ProcedureName>,
       ): Promise<CpOutput<ProcedureName>> =>
-        (await resolveScriptedReply(scenarioEngine, procedure)) as CpOutput<ProcedureName>,
+        (await resolveScriptedReply(scenarioEngine, procedure, input)) as CpOutput<ProcedureName>,
       // Unfiltered, and not by omission: `subscribeRelay` names a SESSION rather
       // than an event, and a scenario scripts exactly one session — so every beat
       // it plays belongs to the session any caller could be asking for. The
@@ -294,6 +298,12 @@ function subscribeToScenario(
  * AUTHORING error, a reply the clock never released is a fixture failure carrying the
  * shared code, and a scripted daemon refusal is thrown VERBATIM and unwrapped.
  *
+ * The REQUEST travels through rather than being dropped, on both sides of the bridge.
+ * A scenario answering an entity-scoped call — `repo.mountRead` names the mount it
+ * wants — has to see which entity was asked for, and a seam that forwarded the daemon
+ * request while dropping the control-plane one would be the same defect waiting on
+ * the other half.
+ *
  * That last one is the whole point of the refusal arm: it is the daemon's refusal,
  * not the fixture's, and `src/shared/wire-errors.ts` records that a wire refusal
  * reaches a renderer either as this plain object or as an `Error` carrying the same
@@ -302,8 +312,12 @@ function subscribeToScenario(
  * fixture-scoped one and make the rendered refusal a thing the live bridge never
  * produces.
  */
-async function resolveScriptedReply(engine: ScenarioEngine, call: string): Promise<unknown> {
-  const settlement = await settleScriptedReply(engine, call);
+async function resolveScriptedReply(
+  engine: ScenarioEngine,
+  call: string,
+  request: unknown,
+): Promise<unknown> {
+  const settlement = await settleScriptedReply(engine, call, request);
   switch (settlement.status) {
     case "unscripted":
       throw new FixtureBridgeError(
