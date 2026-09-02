@@ -22,15 +22,18 @@
 // would be the place a second grouping quietly appeared beside the first.
 //
 // WHAT IS RESERVED HERE. Starting a run by talking to it is Plan-017's body, mounted
-// through `owner-slots.ts` and standing empty until that plan fills it. The version
-// chain, the content hash, the schema marker and the parent hash are one click away
-// in the detail pane by design (rule 7's density budget), so none of them appears in
-// this list.
+// through `ChatStartSlot` — the family's own typed wrapper, and the same one the run
+// pane mounts — and standing empty until that plan fills it. The wrapper rather than
+// the raw slot mount, because the slot's obligation is that every mount supplies the
+// session a start binds to: a mount that carried no payload could only ever be an
+// unfillable shell, and a second one worded here would say the reservation twice. The
+// version chain, the content hash, the schema marker and the parent hash are one
+// click away in the detail pane by design (rule 7's density budget), so none of them
+// appears in this list.
 
 import type { ConsoleRefusal } from "../core/index.js";
+import { ChatStartSlot } from "./ChatStartSlot.js";
 import { WorkflowChrome } from "./WorkflowChrome.js";
-import { WorkflowSlotMount } from "./WorkflowSlotMount.js";
-import { WORKFLOW_CHAT_START_SLOT } from "./owner-slots.js";
 import type { WorkflowChromeState } from "./chrome-state.js";
 import {
   DefinitionsBrowser,
@@ -40,6 +43,16 @@ import {
 
 export interface WorkflowsSurfaceProps {
   readonly state: WorkflowChromeState;
+  /**
+   * The session a run started from here would bind to, or nothing where none is in
+   * scope.
+   *
+   * Required-carrying-undefined, which is `ChatStartMount`'s own rule carried up one
+   * level rather than restated: a surface mounted on a bare rail address has no
+   * session to hand over and has to say so, and an absent key would read identically
+   * to one that simply forgot to look.
+   */
+  readonly sessionId: string | undefined;
   /** Every definition this context can see. Empty until a read supplies some. */
   readonly definitions?: readonly WorkflowDefinitionRow[] | undefined;
   /** Scopes whose page is still in flight, so their absence reads as a wait. */
@@ -88,11 +101,7 @@ export function WorkflowsSurface(props: WorkflowsSurfaceProps): React.JSX.Elemen
         isContinuing={props.isContinuing}
         continuationRefusal={props.continuationRefusal}
       />
-      <WorkflowSlotMount
-        slot={WORKFLOW_CHAT_START_SLOT}
-        title="Starting a workflow by talking to it is not built yet."
-        detail="Runs start from a definition in the list above. This area is reserved for the conversational start."
-      />
+      <ChatStartSlot sessionId={props.sessionId} />
     </WorkflowChrome>
   );
 }

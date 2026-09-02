@@ -132,6 +132,11 @@ export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Elemen
   return (
     <WorkflowsSurface
       state={chromeStateFor(state)}
+      // The same session the enumeration above was read under, threaded rather than
+      // dropped: the surface mounts the conversational start, and a start binds to a
+      // session. A browser that read one session's definitions and handed the mount
+      // nothing would leave the body with no subject on the very arm that has one.
+      sessionId={props.sessionId}
       definitions={state.status === "served" ? state.definitions : undefined}
       pendingScopes={pendingScopes}
       onContinueReading={continuationActionFor(state, continueReading)}

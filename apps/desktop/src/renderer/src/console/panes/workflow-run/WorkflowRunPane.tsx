@@ -48,6 +48,7 @@
 
 import type { WorkflowPhaseState } from "../../bridge/index.js";
 import { Nothing, RefusalBanner } from "../../primitives/index.js";
+import { ChatStartSlot } from "../../workflows/ChatStartSlot.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
 import { ParkBadge } from "../../workflows/ParkBadge.js";
 import { phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
@@ -58,7 +59,6 @@ import { unregisteredRunControl } from "./run-controls.js";
 import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
 import type { PhaseGraphNode } from "./phase-graph/phase-topology.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
-import { ChatStartSlot } from "./slots/ChatStartSlot.js";
 import { HumanFormSlot, type HumanFormMount } from "./slots/HumanFormSlot.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 
@@ -293,7 +293,14 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
         cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
         resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
       />
-      <RunDetailSlot workflowRunId={entity.id} />
+      <RunDetailSlot
+        workflowRunId={entity.id}
+        // Spread on the served arm and omitted on every other, rather than passed as
+        // an explicit `undefined`: the mount's own rule is that the key's PRESENCE is
+        // the arm the pane was on, and a key carrying nothing would be the null the
+        // type refuses. The same narrowing the human-form mount below performs.
+        {...(snapshot.status === "served" ? { snapshot: snapshot.snapshot } : {})}
+      />
       <HumanFormSlot
         phase={
           snapshot.status === "served" ? openHumanFormFor(snapshot.snapshot.phaseStates) : undefined

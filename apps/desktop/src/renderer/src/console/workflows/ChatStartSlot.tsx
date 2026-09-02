@@ -6,11 +6,16 @@
 // leg's withheld callback tool. The console authors none of them. THE SHELL DIES IN
 // THE PLAN-017 TASK THAT MOUNTS THE BODY, in the same PR as the mount.
 //
-// WHY THE RUN PANE MOUNTS IT AT ALL, and only on its empty arm. A run view with no
-// run "offers the start affordance and a route into the definitions browser" — that
-// is the empty state as designed, and the start affordance is precisely this body.
-// On every other arm the pane already names a run, and offering to start one there
-// would be a second entry point competing with the run in front of the operator.
+// WHO MOUNTS IT, AND WHY IT SITS AT THE FAMILY ROOT RATHER THAN INSIDE A PANE. Two
+// surfaces mount it, which is exactly what `owner-slots.ts` says of this slot and of
+// no other. The definitions browser offers it beneath the scope groups, where a
+// person who has just read the list may start one by describing it. The run pane
+// offers it on its empty arm and on no other: a run view with no run "offers the
+// start affordance and a route into the definitions browser" — that is the empty
+// state as designed — while on every other arm the pane already names a run, and
+// offering to start one there would be a second entry point competing with the run in
+// front of the operator. Two mounts of one slot must word the reservation once, which
+// is what this wrapper is: the copy below is what both of them show.
 //
 // WHAT THE MOUNT OWES, AS A TYPE — AND THE ONE THING IT REFUSES TO. The session is
 // supplied because a start binds to one. The originating channel is NOT: it is
@@ -24,10 +29,10 @@
 // daemon's own message when a start is denied, not consulted by this mount to
 // decide whether to offer the control.
 
-import { WorkflowSlotMount } from "../../../workflows/WorkflowSlotMount.js";
-import { WORKFLOW_CHAT_START_SLOT } from "../../../workflows/owner-slots.js";
+import { WorkflowSlotMount } from "./WorkflowSlotMount.js";
+import { WORKFLOW_CHAT_START_SLOT } from "./owner-slots.js";
 
-/** What the run pane hands the conversational-start body. */
+/** What either mounting surface hands the conversational-start body. */
 export interface ChatStartMount {
   /**
    * The session a started run binds to, or `undefined` on a route with none.
@@ -40,7 +45,7 @@ export interface ChatStartMount {
 }
 
 /**
- * The body Plan-017 authors: a COMPONENT this pane renders, never a function it
+ * The body Plan-017 authors: a COMPONENT the mount renders, never a function it
  * calls. `owner-slots.ts` states the reason once for all five slots.
  */
 export type ChatStartBody = (mount: ChatStartMount) => React.ReactNode;

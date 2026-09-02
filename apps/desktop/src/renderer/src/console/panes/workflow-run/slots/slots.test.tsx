@@ -1,4 +1,5 @@
-// The three Plan-017 slots, checked on the two things a slot owes.
+// The two Plan-017 slots this pane's own directory owns, checked on the two things
+// a slot owes.
 //
 //   1. **The shell stands while nobody has filled it**, and says the feature has
 //      not been built — never a shape that reads as a broken one, and never a word
@@ -12,19 +13,22 @@
 // conditional transition where a called body's hooks would first join the wrapper's
 // list, with the call shape the wrappers no longer use as its control.
 //
-// One file for the three because they are one claim asserted three times; three
-// files would be the same imports and the same two cases copied twice.
+// One file for the two because they are one claim asserted twice; two files would be
+// the same imports and the same two cases copied once. The family's third wrapper,
+// the conversational start, is mounted by this pane AND by the definitions browser,
+// so it lives at the family root and is checked in `workflows/ChatStartSlot.test.tsx`
+// — the assertions are there and not also here, because a mount obligation stated in
+// two places is two chances to state it differently.
 
 import { render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
-  WORKFLOW_CHAT_START_SLOT,
   WORKFLOW_HUMAN_FORM_SLOT,
   WORKFLOW_RUN_DETAIL_SLOT,
 } from "../../../workflows/owner-slots.js";
-import { ChatStartSlot, type ChatStartMount } from "./ChatStartSlot.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-data.js";
 import { HumanFormSlot, type HumanFormMount } from "./HumanFormSlot.js";
 import { RunDetailSlot, type RunDetailMount } from "./RunDetailSlot.js";
 
@@ -36,11 +40,10 @@ const OPEN_PHASE: HumanFormMount = {
   formRevision: 0,
 };
 
-/** Every slot's unfilled rendering, as one table so a fourth cannot skip a case. */
+/** Each slot's unfilled rendering, as one table so a third cannot skip a case. */
 const UNFILLED_SLOTS: readonly (readonly [string, React.JSX.Element])[] = [
   ["run detail", <RunDetailSlot key="run-detail" workflowRunId="wfr-01" />],
   ["human form", <HumanFormSlot key="human-form" phase={undefined} />],
-  ["chat start", <ChatStartSlot key="chat-start" sessionId="session-01" />],
 ];
 
 describe("an unfilled slot is reserved, not stubbed", () => {
@@ -61,11 +64,7 @@ describe("an unfilled slot is reserved, not stubbed", () => {
   it("negative control: the contracts really do carry that prose, so the case is not vacuous", () => {
     // Every contract names its owning task. If none did, the assertion above would
     // hold over a component that rendered the whole contract verbatim.
-    for (const slot of [
-      WORKFLOW_RUN_DETAIL_SLOT,
-      WORKFLOW_HUMAN_FORM_SLOT,
-      WORKFLOW_CHAT_START_SLOT,
-    ]) {
+    for (const slot of [WORKFLOW_RUN_DETAIL_SLOT, WORKFLOW_HUMAN_FORM_SLOT]) {
       expect(slot.contract.owningTask).toContain("Plan-017");
       expect(slot.body).toBeUndefined();
     }
@@ -77,11 +76,37 @@ describe("a filled slot receives exactly what the mount promised", () => {
   // `toHaveBeenCalledWith`: React owns the argument list of a component it renders,
   // and an assertion on its ARITY would be a claim about React rather than about the
   // mount this file is checking.
-  it("hands the run detail the run and nothing else", () => {
+  it("hands the run detail the run and, on an unserved read, no snapshot key at all", () => {
+    // Absent rather than present-and-empty: the key's PRESENCE is the arm the pane
+    // was on, so a body reading it can never be shown a run the daemon never
+    // described. `toStrictEqual` is what makes that bite — it separates an absent
+    // key from one carrying `undefined`.
     const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
     const { container } = render(<RunDetailSlot workflowRunId="wfr-01" body={body} />);
     expect(body.mock.calls[0]?.[0]).toStrictEqual({ workflowRunId: "wfr-01" });
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+  });
+
+  it("hands the run detail the served snapshot beside the run", () => {
+    // The obligation this slot is under is that the run pane supplies the run
+    // snapshot. Handed over rather than left for the body to re-read: a body that
+    // issued its own run read would put one question twice and hold two answers to
+    // it on one screen.
+    const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
+    render(
+      <RunDetailSlot
+        workflowRunId={WORKFLOWS_PARKED_RUN.workflowRunId}
+        snapshot={WORKFLOWS_PARKED_RUN}
+        body={body}
+      />,
+    );
+    expect(body.mock.calls[0]?.[0]).toStrictEqual({
+      workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+      snapshot: WORKFLOWS_PARKED_RUN,
+    });
+    // The same object and not a copy of it: the phases, retries and outputs a body
+    // renders are the ones the pane is rendering its parks from.
+    expect(body.mock.calls[0]?.[0].snapshot).toBe(WORKFLOWS_PARKED_RUN);
   });
 
   it("hands the human form the open phase, revision included", () => {
@@ -98,15 +123,6 @@ describe("a filled slot receives exactly what the mount promised", () => {
     const { container } = render(<HumanFormSlot phase={undefined} body={body} />);
     expect(body).not.toHaveBeenCalled();
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
-  });
-
-  it("hands the conversational start the session and no channel", () => {
-    const body = vi.fn((_mount: ChatStartMount) => <p>start body</p>);
-    render(<ChatStartSlot sessionId="session-01" body={body} />);
-    // The originating channel is provenance the client derives from where the
-    // conversation is — never typed by a person and never supplied by a tool — so
-    // it is absent from this mount by design rather than by omission.
-    expect(body.mock.calls[0]?.[0]).toStrictEqual({ sessionId: "session-01" });
   });
 
   it("negative control: an unfilled slot calls nothing and keeps its shell", () => {
