@@ -16,17 +16,30 @@ import { registerBrowserPanes } from "./index.js";
 /**
  * Event kinds and call names this fixture is allowed to script.
  *
- * Every entry is registered somewhere in the corpus today: the four session and run
- * lifecycle types in `Spec-006`'s taxonomy, and the two opening reads `first-run.ts`
- * already scripts. The browser namespace is on `Plan-023 §Console growth slate` and
- * is deliberately absent, which is what this list exists to hold it to.
+ * Every entry is registered somewhere in the corpus today: the session, membership,
+ * agent, run, and artifact types in `Spec-006`'s taxonomy, and the two opening reads
+ * `first-run.ts` already scripts. The browser namespace is on
+ * `Plan-023 §Console growth slate` and is deliberately absent, which is what this
+ * list exists to hold it to.
+ *
+ * The list is a hand copy, and a hand copy is only as fresh as its last editor — it
+ * carried `participant.joined`, which the taxonomy does not register at all (the
+ * canonical first-joined event is `membership.created`). The stronger check now runs
+ * beside the scenario in `bridge/scenarios/scenarios.test.ts`, against the compiled
+ * `SESSION_EVENT_CATEGORY_BY_TYPE` map rather than against a copy of it; this list
+ * survives as the browser family's own statement of what its fixture may script.
  */
 const REGISTERED_EVENT_KINDS: readonly string[] = [
   "session.created",
-  "participant.joined",
+  "session.activated",
+  "membership.created",
   "agent.attached",
   "run.queued",
+  "run.starting",
   "run.running",
+  "run.completed",
+  "artifact.published",
+  "artifact.superseded",
 ];
 
 const REGISTERED_CALL_NAMES: readonly string[] = ["session.list", "agent.list"];
