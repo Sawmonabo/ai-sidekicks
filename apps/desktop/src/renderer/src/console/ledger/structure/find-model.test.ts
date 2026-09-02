@@ -11,9 +11,11 @@ import { describe, expect, it } from "vitest";
 
 import { FIND_MATCH_CAP } from "./constants.js";
 import {
+  LEDGER_FIND_CAP_NOTE,
   LEDGER_FIND_SCOPE_NOTE,
   emptyFindResult,
   findInLedger,
+  isFindWalkCapped,
   stepFindMatch,
 } from "./find-model.js";
 import { generalRow, runRow } from "./row-fixtures.js";
@@ -133,11 +135,20 @@ describe("find — the cap bounds the walk and never the count", () => {
     expect(result.searchedRowCount).toBe(FIND_MATCH_CAP + 5);
   });
 
+  it("names the capped walk through one predicate both surfaces read", () => {
+    // The counter draws its second figure and the field draws its cap sentence off
+    // this one answer, so the two can never disagree about whether a walk is
+    // bounded.
+    expect(isFindWalkCapped(findInLedger(oversizedWindow(), "recurring", false))).toBe(true);
+    expect(LEDGER_FIND_CAP_NOTE).toContain(String(FIND_MATCH_CAP));
+  });
+
   it("negative control: under the cap the two numbers agree", () => {
     // Which is what shows the divergence above is the cap reporting itself rather
     // than the counter being wrong.
     const result = findInLedger(searchWindow(), "e", false);
     expect(result.totalMatchCount).toBe(result.matches.length);
+    expect(isFindWalkCapped(result)).toBe(false);
   });
 });
 

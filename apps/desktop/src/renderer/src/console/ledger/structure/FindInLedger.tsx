@@ -14,12 +14,23 @@
 // not deliver. Absent rather than disabled, which is this console's rule for a
 // control whose act nobody can perform.
 //
+// TWO BOUNDARIES, NOT ONE. `LEDGER_FIND_SCOPE_NOTE` bounds what was SEARCHED; the
+// cap sentence beside it bounds what can be STEPPED THROUGH, and appears only when
+// the query found more matches than the walk holds. Collapsing them would leave the
+// second boundary unstated, which is exactly what let the counter advertise a total
+// containing matches no press could reach.
+//
 // COUNTS ARE THE CONSOLE'S OWN READING, not wire figures: "3 of 17" is derived by
 // this console from rows it holds, so it renders proportionally through
 // `DerivedFigure` rather than in the mono the daemon's own figures wear (rule 4).
 
 import { DerivedFigure, Glyph } from "../../primitives/index.js";
-import { LEDGER_FIND_SCOPE_NOTE, type LedgerFindResult } from "./find-model.js";
+import {
+  LEDGER_FIND_CAP_NOTE,
+  LEDGER_FIND_SCOPE_NOTE,
+  isFindWalkCapped,
+  type LedgerFindResult,
+} from "./find-model.js";
 
 export interface FindInLedgerProps {
   readonly query: string;
@@ -102,6 +113,10 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
 
       <p className="meridian-find__scope">
         <span>{LEDGER_FIND_SCOPE_NOTE}</span>
+        {/* Two boundaries, two sentences: the note above bounds what was searched
+            and this bounds what can be stepped through, and only the second one
+            depends on how many matches this particular query found. */}
+        {isFindWalkCapped(result) ? <span>{LEDGER_FIND_CAP_NOTE}</span> : null}
         {result.hasEarlierRows && onLoadEarlier !== undefined ? (
           <button type="button" className="meridian-find__load-earlier" onClick={onLoadEarlier}>
             Load earlier
@@ -129,10 +144,16 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
  * The counter, in the console's own words.
  *
  * Three readings, and each is a different fact: nothing typed, nothing found, and
- * a position within a total. The total is `totalMatchCount` — the honest number —
- * while the walk is over the capped `matches`, so a query with more matches than
- * the walk holds says so by the two numbers differing rather than by a silent
- * truncation.
+ * a position within a total.
+ *
+ * THE DENOMINATOR IS THE SET THE WALK CAN REACH. It used to be `totalMatchCount`,
+ * on the reasoning that a capped walk "says so by the two numbers differing" —
+ * which it cannot, because only one number was ever rendered. The field read
+ * "500 of 700", the next step wrapped to "1 of 700", and matches 501–700 were
+ * unreachable with nothing on screen saying the walk was bounded. So the position
+ * is of the walkable count, which is this module's own doctrine that a boundary is
+ * a member of the result, and the honest uncapped total rides beside it as a
+ * second figure exactly when the two differ.
  */
 function matchCountText(result: LedgerFindResult, currentMatchIndex: number): string {
   if (result.query.length === 0) {
@@ -142,5 +163,8 @@ function matchCountText(result: LedgerFindResult, currentMatchIndex: number): st
     return "No matches";
   }
   const position = currentMatchIndex < 0 ? 1 : currentMatchIndex + 1;
-  return `${String(position)} of ${String(result.totalMatchCount)}`;
+  const walkable = `${String(position)} of ${String(result.matches.length)}`;
+  return isFindWalkCapped(result)
+    ? `${walkable} (${String(result.totalMatchCount)} matched)`
+    : walkable;
 }

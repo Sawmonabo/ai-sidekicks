@@ -10,14 +10,19 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { FIND_MATCH_CAP } from "./constants.js";
 import { FindInLedger } from "./FindInLedger.js";
 import {
+  LEDGER_FIND_CAP_NOTE,
   LEDGER_FIND_SCOPE_NOTE,
   emptyFindResult,
   findInLedger,
   type LedgerFindResult,
 } from "./find-model.js";
 import { runRow } from "./row-fixtures.js";
+
+/** More matches than the three-row window below can walk, so the cap arm is real. */
+const UNCAPPED_TOTAL = 940;
 
 /** Three rows, all matching "hit", so a query produces a walkable list. */
 function matchingResult(hasEarlierRows = false): LedgerFindResult {
@@ -133,13 +138,33 @@ describe("find field — the counter is the console's own reading", () => {
     expect(field.textContent).toContain("2 of 3");
   });
 
-  it("shows the true total even when the walk is capped", () => {
-    // A counter that silently equalled the cap would tell a person their query is
-    // narrower than it is.
-    const capped: LedgerFindResult = { ...matchingResult(), totalMatchCount: 940 };
+  it("names the walkable set, and the true total beside it, when the walk is capped", () => {
+    // The denominator is the set the next/previous walk can actually reach. It read
+    // "1 of 940" over a three-match walk, so the walk wrapped at three while the
+    // field advertised 940 and matches 4-940 were unreachable in silence.
+    const capped: LedgerFindResult = { ...matchingResult(), totalMatchCount: UNCAPPED_TOTAL };
     const { field } = renderField({ result: capped, currentMatchIndex: 0 });
-    expect(field.textContent).toContain("1 of 940");
-    expect(field.textContent).not.toContain("1 of 3");
+    expect(field.textContent).toContain("1 of 3");
+    expect(field.textContent).toContain(`(${String(UNCAPPED_TOTAL)} matched)`);
+    expect(field.textContent).not.toContain(`1 of ${String(UNCAPPED_TOTAL)}`);
+  });
+
+  it("states the cap as its own sentence, beside the scope note", () => {
+    const capped: LedgerFindResult = { ...matchingResult(), totalMatchCount: UNCAPPED_TOTAL };
+    const { field } = renderField({ result: capped, currentMatchIndex: 0 });
+    expect(field.textContent).toContain(LEDGER_FIND_CAP_NOTE);
+    expect(field.textContent).toContain(LEDGER_FIND_SCOPE_NOTE);
+    expect(LEDGER_FIND_CAP_NOTE).toContain(String(FIND_MATCH_CAP));
+  });
+
+  it("negative control: an uncapped result shows one figure and no cap sentence", () => {
+    // Without this the two cases above would pass over a field that always drew the
+    // second figure and the cap sentence, which would report every ordinary query
+    // as truncated.
+    const { field } = renderField({ currentMatchIndex: 0 });
+    expect(field.textContent).toContain("1 of 3");
+    expect(field.textContent).not.toContain("matched)");
+    expect(field.textContent).not.toContain(LEDGER_FIND_CAP_NOTE);
   });
 
   it("negative control: with nothing found it says so, and says it once", () => {

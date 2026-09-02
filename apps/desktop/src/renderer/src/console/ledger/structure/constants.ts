@@ -85,7 +85,9 @@ export const REPLAY_FRAME_INTERVAL_MS = 50;
  *
  * The field searches the loaded window, and a query of one character matches most
  * of it; past this the count stops being a number a person acts on and the
- * next/previous walk stops terminating in a session. The count reported is the
- * true match count — the cap bounds the walkable set, and the field says so.
+ * next/previous walk stops terminating in a session. The cap bounds the walkable
+ * set, so the counter's denominator is that set and the true match count rides
+ * beside it as a second figure — a denominator naming matches no press can reach
+ * is a promise the walk cannot keep.
  */
 export const FIND_MATCH_CAP = 500;
