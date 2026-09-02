@@ -229,12 +229,55 @@ describe("replay — jump to the next seam", () => {
     rollbackBoundaryRow({ id: "r3", sequence: 3, runId: "run-a", position: 3, targetPosition: 1 }),
   ]);
 
-  it("moves to the first seam after the current position", () => {
+  it("moves to the nearest seam after the current position", () => {
     const engine = engineOver(new ManualClock());
     expect(engine.jumpToNextSeam(seams)?.rowId).toBe("r2");
     expect(engine.position().elapsedMs).toBe(10_000);
     expect(engine.jumpToNextSeam(seams)?.rowId).toBe("r3");
     expect(engine.position().elapsedMs).toBe(WINDOW_SPAN_MS);
+  });
+
+  it("takes the chronologically nearest seam, not the first the log recorded", () => {
+    // The daemon can admit rows out of wall-clock order, and `seams()` sorts
+    // nothing. Taking the first in log order jumps PAST the nearer seam — and
+    // because the jump scrubs, that seam is then behind the position for good.
+    const outOfClockOrder = new ReplayEngine({
+      clock: new ManualClock(),
+      rows: [
+        { rowId: "r1", occurredAt: "2026-01-01T09:00:00.000Z" },
+        { rowId: "r2", occurredAt: "2026-01-01T09:00:20.000Z" },
+        { rowId: "r3", occurredAt: "2026-01-01T09:00:10.000Z" },
+      ],
+    });
+    expect(outOfClockOrder.jumpToNextSeam(seams)?.rowId).toBe("r3");
+    expect(outOfClockOrder.position().elapsedMs).toBe(10_000);
+    // And the seam log order would have taken first is still ahead, so a second
+    // press reaches it rather than finding it stranded behind the position.
+    expect(outOfClockOrder.jumpToNextSeam(seams)?.rowId).toBe("r2");
+    expect(outOfClockOrder.position().elapsedMs).toBe(WINDOW_SPAN_MS);
+  });
+
+  it("keeps the log's order between seams that share an instant", () => {
+    // The comparison is strict for this: two seams at one instant are not a
+    // question the clock can answer, so the log answers it.
+    const sharedInstant = new ReplayEngine({
+      clock: new ManualClock(),
+      rows: [
+        { rowId: "r1", occurredAt: "2026-01-01T09:00:00.000Z" },
+        { rowId: "r2", occurredAt: "2026-01-01T09:00:10.000Z" },
+        { rowId: "r3", occurredAt: "2026-01-01T09:00:10.000Z" },
+      ],
+    });
+    expect(sharedInstant.jumpToNextSeam(seams)?.rowId).toBe("r2");
+  });
+
+  it("negative control: a monotonic window jumps in exactly the order it always did", () => {
+    // Which is what shows the selection is a nearest-first walk rather than some
+    // other order that happens to differ from the log's.
+    const engine = engineOver(new ManualClock());
+    expect(engine.jumpToNextSeam(seams)?.rowId).toBe("r2");
+    expect(engine.jumpToNextSeam(seams)?.rowId).toBe("r3");
+    expect(engine.jumpToNextSeam(seams)).toBeUndefined();
   });
 
   it("negative control: past the last seam there is nowhere to jump, and nothing moves", () => {
