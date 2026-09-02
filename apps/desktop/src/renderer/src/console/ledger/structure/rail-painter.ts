@@ -20,6 +20,16 @@
 // error: the rail's slider, its keyboard walk, its preview card, and its "load
 // earlier" affordance are all DOM, so the surface stays fully operable with no ink
 // on it at all.
+//
+// THE BACKING STORE IS SIZED HERE, EVERY PAINT. A canvas nobody sizes carries the
+// 300x150 default bitmap while CSS stretches it over the rail's full height, so
+// every mark is scaled by that ratio and resampled — a two-pixel tick drawn five
+// pixels tall and blurred, and a fisheye radius measured in the wrong pixels. So
+// the store is sized from the RENDERED box times the device pixel ratio, the
+// context is scaled by that ratio exactly once, and every measurement below is
+// then in CSS pixels — the same units `constants.ts` states the ink width and the
+// fisheye radius in. `rail-surface.ts` is what tells the component that the box or
+// the ratio moved; nothing here polls, and there is no frame loop at rest.
 
 import { tokenReference } from "../../tokens/index.js";
 import {
@@ -28,6 +38,7 @@ import {
   RAIL_INK_WIDTH_PX,
   RAIL_MAX_TICKS_PER_PIXEL,
 } from "./constants.js";
+import { hostDevicePixelRatio } from "./rail-surface.js";
 import { type RailTick } from "./rail-model.js";
 
 /**
@@ -41,6 +52,17 @@ import { type RailTick } from "./rail-model.js";
 export class RailPainter {
   #context: CanvasRenderingContext2D | undefined;
   #canvas: HTMLCanvasElement | undefined;
+  readonly #readDevicePixelRatio: () => number;
+
+  /**
+   * @param options.readDevicePixelRatio - how the painter learns the host's pixel
+   *   density. Injected so the unit tier can drive a two-times display, and shared
+   *   with the surface watch by default so the store cannot be sized for one ratio
+   *   while the watch listens for another.
+   */
+  public constructor(options: { readonly readDevicePixelRatio?: () => number } = {}) {
+    this.#readDevicePixelRatio = options.readDevicePixelRatio ?? hostDevicePixelRatio;
+  }
 
   public paint(
     canvas: HTMLCanvasElement | null,
@@ -54,8 +76,15 @@ export class RailPainter {
     if (context === undefined) {
       return;
     }
-    const width = canvas.width;
-    const height = canvas.height;
+    const surface = this.#synchroniseBackingStore(canvas, context);
+    if (surface === undefined) {
+      // Nothing has been laid out yet — a rail inside a collapsed pane, or a host
+      // whose rects are all zero. Painting into a store with no extent would put
+      // every tick at y=0; leaving the canvas alone means the first real layout
+      // repaints it through the surface watch.
+      return;
+    }
+    const { width, height } = surface;
     context.clearRect(0, 0, width, height);
     // Marks folded into the column they would have overdrawn, never dropped:
     // `RAIL_MAX_TICKS_PER_PIXEL` is a PAINTING bound, so a window denser than the
@@ -78,6 +107,36 @@ export class RailPainter {
       context.fillStyle = TICK_TONE_FILL[tick.tone];
       context.fillRect(0, y - scale / 2, RAIL_INK_WIDTH_PX, Math.max(1, scale));
     }
+  }
+
+  /**
+   * Match the backing store to the rendered box, and return that box in CSS pixels.
+   *
+   * `undefined` where the element has no rendered extent. Assigning `width` or
+   * `height` RESETS the whole context — transform included — so the transform is
+   * set after the sizing rather than once at construction, and `setTransform`
+   * rather than `scale` because `scale` compounds and a second paint would then
+   * draw at the square of the ratio.
+   */
+  #synchroniseBackingStore(
+    canvas: HTMLCanvasElement,
+    context: CanvasRenderingContext2D,
+  ): { readonly width: number; readonly height: number } | undefined {
+    const rendered = canvas.getBoundingClientRect();
+    if (rendered.width <= 0 || rendered.height <= 0) {
+      return undefined;
+    }
+    const ratio = this.#readDevicePixelRatio();
+    const backingWidth = Math.max(1, Math.round(rendered.width * ratio));
+    const backingHeight = Math.max(1, Math.round(rendered.height * ratio));
+    if (canvas.width !== backingWidth) {
+      canvas.width = backingWidth;
+    }
+    if (canvas.height !== backingHeight) {
+      canvas.height = backingHeight;
+    }
+    context.setTransform(ratio, 0, 0, ratio, 0, 0);
+    return { width: rendered.width, height: rendered.height };
   }
 
   #contextFor(canvas: HTMLCanvasElement): CanvasRenderingContext2D | undefined {
