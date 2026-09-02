@@ -23,4 +23,11 @@ export { FrameStore } from "./frame-store.js";
 
 export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
 
+// The refresh chokepoint, through the same door as the stores it feeds. A view
+// family that refreshes a wire read reaches this scheduler and no other timer:
+// `apps/desktop/AGENTS.md` puts every refresh through `store/scheduling.ts`, and a
+// chokepoint reachable only by deep-importing past this barrel is one a family
+// would route around rather than through.
+export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
+
 export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";
