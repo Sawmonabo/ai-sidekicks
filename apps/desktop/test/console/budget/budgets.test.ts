@@ -58,17 +58,19 @@ const EXPECTED_BUDGET_IDS: readonly string[] = [
  * id against any harness that holds no renderer restores the false green rather
  * than the gate, which `heap-budget.test.ts` refuses by name.
  *
- * `terminal-instance-memory` joined on 2026-09-02, and by the opposite movement:
- * its measurement was already real — one `@xterm/xterm` instance at the default
- * scrollback, held live across the sample — and what was missing was the wiring
- * `apps/desktop/AGENTS.md` requires before a row may say `enforced`. Its tier,
- * `test:console-bundle`, is now in both the aggregate `test` script and the CI
- * desktop step, so the row gates rather than declaring a gate that does not run.
+ * `terminal-instance-memory` made the same round trip on 2026-09-02 and did not
+ * come back. Its wiring was never the problem — `test:console-bundle` is on both
+ * the aggregate script and the CI desktop step — but the harness it named built an
+ * `XtermTerminalAdapter` directly under happy-dom and read the Node process's own
+ * heap, so the WebGL renderer, the pane's React tree, its lease, and its store
+ * state, all named in the row's own subject, could not move the number. A gate
+ * whose subject is narrower than its row can report green over a pane well past
+ * the ceiling, which is the one failure a budget exists to catch. It returns when
+ * a deck mounts panes and the endurance tier can open them for real.
  */
 const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "renderer-heap-at-rest",
-  "terminal-instance-memory",
 ];
 
 /** How each declared unit reduces to its canonical unit. */

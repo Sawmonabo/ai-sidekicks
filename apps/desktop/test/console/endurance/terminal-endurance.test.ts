@@ -3,18 +3,28 @@
 // Tier: endurance — the terminal held open, and a churn of them.
 //
 // `steady-state.test.ts` states this tier's question in its own words: not the peak
-// and not the absolute heap at an instant — those are budget-tier questions, and
-// `test/console/budget/heap-terminal.test.ts` answers them against `budgets.json`
-// — but whether the number comes BACK. So this file asks the two terminal-shaped
-// versions of that:
+// and not the absolute heap at an instant, but whether the number comes BACK. So
+// this file asks the terminal-shaped versions of that:
 //
 //   • a terminal that has taken ten thousand lines is holding a BOUNDED buffer,
 //     not a growing one: the eviction that the scrollback promises actually
 //     happens, and a second ten thousand lines does not cost a second buffer;
+//   • one instance gives its bytes back when it is disposed, and an undisposed one
+//     is still holding them — the pair that makes "released" a claim about
+//     something rather than about a sampler that always reads the baseline;
 //   • a churn of open-and-close cycles leaves the page where it started — the
 //     renderer slot ledger empty and the retained bytes back near baseline —
 //     because a console is left open for a working day and a pane is opened and
 //     closed dozens of times in one.
+//
+// WHAT THIS FILE IS NOT. It is not the `terminal-instance-memory` budget's
+// measurement, and it does not claim to be: that row's subject is a whole terminal
+// PANE — the emulator, its WebGL renderer, and the pane's own React, lease, and
+// store state — and this process holds only the adapter. The row is `n/a` in
+// `budgets.json` for exactly that reason and names no harness. The ceiling below is
+// READ from that row as a reference figure, never restated, because comparing an
+// adapter against a number chosen here instead would be a second source of truth
+// for a budget the spec already fixed.
 //
 // WHY THIS FILE DRIVES THE ADAPTER IN PROCESS RATHER THAN A REAL WINDOW. Every
 // other file in this tier drives the built application through Playwright's
@@ -41,7 +51,14 @@ import { heapCollectorAvailable, retainedGrowthBytes, sampleHeap } from "../heap
 
 const registry = ConsoleBudgetRegistry.load();
 
-/** The ceiling this tier compares against is the BUDGET's, read — never restated. */
+/**
+ * The reference ceiling, read from the budget row rather than restated here.
+ *
+ * Read and not claimed: the row is `n/a`, so nothing in this file is its gate, and
+ * the assertions below say what the ADAPTER does against a figure the spec already
+ * fixed. Restating the number would put one ceiling in two places, which the
+ * package's config single-sourcing rule refuses.
+ */
 const terminalBudget = registry.requireBudget("terminal-instance-memory");
 
 /** Columns a terminal is driven at. The same working width the budget is read at. */
@@ -123,23 +140,65 @@ describe("a terminal held open over a long stream", () => {
   );
 
   it(
-    "stays inside the per-instance budget after twice its scrollback",
+    "keeps the adapter under the reference ceiling after twice its scrollback",
     async () => {
       requireHeapCollector();
       const pool = new TerminalRendererPool();
       const before = await sampleHeap();
       const adapter = mountAdapter("endurance-budget-terminal", pool);
       await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES * 2);
+      // Held live across the sample on purpose: the figure is what the instance
+      // RETAINS, so it has to still be reachable when the heap is read.
       expect(adapter.bufferLineCount).toBeGreaterThan(0);
       const after = await sampleHeap();
 
-      // Same ceiling as the budget tier's, read from the same row: a long stream
-      // must not buy a terminal a bigger allowance than a full one gets.
+      // A long stream must not buy an emulator a bigger allowance than a full one
+      // gets. Against the reference figure, which the pane the budget bounds also
+      // has to fit inside — so an adapter over it is already over the pane's.
       const verdict = evaluateBudget(terminalBudget, retainedGrowthBytes(before, after));
       expect(
         verdict.withinBudget,
         `${verdict.budgetId}: ${verdict.measuredCanonicalValue} of ${verdict.limitCanonicalValue} ${verdict.canonicalUnit}`,
       ).toBe(true);
+    },
+    ENDURANCE_CASE_TIMEOUT_MS,
+  );
+
+  it(
+    "gives the memory back on disposal",
+    async () => {
+      requireHeapCollector();
+      const pool = new TerminalRendererPool();
+      const baseline = await sampleHeap();
+      const adapter = mountAdapter("teardown-terminal", pool);
+      await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      const held = await sampleHeap();
+      adapter.dispose();
+      const released = await sampleHeap();
+
+      // The buffer was really there — otherwise "it was released" is a claim about
+      // nothing — and then it is not.
+      const retainedWhileLive = retainedGrowthBytes(baseline, held);
+      expect(retainedWhileLive).toBeGreaterThan(1_000_000);
+      expect(retainedGrowthBytes(baseline, released)).toBeLessThan(retainedWhileLive / 2);
+      expect(pool.holds("teardown-terminal")).toBe(false);
+    },
+    ENDURANCE_CASE_TIMEOUT_MS,
+  );
+
+  it(
+    "negative control: an undisposed instance is still holding it",
+    async () => {
+      requireHeapCollector();
+      const pool = new TerminalRendererPool();
+      const baseline = await sampleHeap();
+      const adapter = mountAdapter("undisposed-terminal", pool);
+      await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      const held = await sampleHeap();
+      // Deliberately NOT disposed. Without this case the release assertion above
+      // would pass against a sampler that always read the baseline back, and every
+      // heap figure in this file would be measuring nothing.
+      expect(retainedGrowthBytes(baseline, held)).toBeGreaterThan(1_000_000);
     },
     ENDURANCE_CASE_TIMEOUT_MS,
   );
