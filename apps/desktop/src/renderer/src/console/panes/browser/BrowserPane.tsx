@@ -49,17 +49,28 @@ import {
 } from "../../browser/navigation-state.js";
 import { consoleOcclusionRegistry } from "../../browser/occlusion-registry.js";
 import { resolvePaneViewHost } from "../../browser/view-host.js";
-import { RealClock, refusalFromRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { RealClock, type ConsoleRefusal } from "../../core/index.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { tokenReference } from "../../tokens/index.js";
+import { useBrowserPaneActs } from "./act-sequence.js";
 import { ChromeControl } from "./ChromeControl.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 
-/** The subsystem name every refusal this pane raises itself carries. */
-const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
-
 /** The pane region's accessible name. The tab strip's own labels arrive with it. */
 const BROWSER_PANE_LABEL = "Browser";
+
+/** What a navigation act that never answered says, where the rejection carries no code. */
+const NAVIGATION_CALL_FALLBACK = {
+  code: "navigation-call-failed",
+  detail:
+    "The page could not be reached from this window, because the call into the browser never answered.",
+} as const;
+
+/** The same, for the one control that leaves this window entirely. */
+const OPEN_EXTERNAL_FALLBACK = {
+  code: "open-external-failed",
+  detail: "The system browser could not be reached from this window.",
+} as const;
 
 /** Carries this pane's attribution hue into the shell's inline-start edge. */
 interface PaneAttributionStyle extends React.CSSProperties {
@@ -134,31 +145,25 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   const navigation = useReportedNavigation(bridge, paneId);
   const geometry = useGeometryPublisher();
   const [addressField, setAddressField] = useState<AddressFieldState>(FOLLOWING_ADDRESS_FIELD);
-  const [actRefusal, setActRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  const {
+    refusal: actRefusal,
+    run: runAct,
+    refuseLocally,
+    dismiss: dismissActRefusal,
+  } = useBrowserPaneActs();
   const addressFieldId = useId();
   const reported = navigation.state;
   const reportedUrl = reported?.url;
 
-  const refuseLocally = useCallback((code: string, detail: string): void => {
-    setActRefusal(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
-  }, []);
-
-  const dispatch = useCallback((act: () => Promise<NavigationActOutcome>): void => {
-    void act().then(
-      (outcome) => {
-        setActRefusal(outcome.status === "unavailable" ? outcome : undefined);
-      },
-      (failure: unknown) => {
-        setActRefusal(
-          refusalFromRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, {
-            code: "navigation-call-failed",
-            detail:
-              "The page could not be reached from this window, because the call into the browser never answered.",
-          }),
-        );
-      },
-    );
-  }, []);
+  const dispatch = useCallback(
+    (act: () => Promise<NavigationActOutcome>): void => {
+      runAct(async () => {
+        const outcome = await act();
+        return outcome.status === "unavailable" ? outcome : undefined;
+      }, NAVIGATION_CALL_FALLBACK);
+    },
+    [runAct],
+  );
 
   const onCloseTabChord = useCallback(
     (event: React.KeyboardEvent<HTMLElement>): void => {
@@ -184,20 +189,11 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
       );
       return;
     }
-    void bridge.sidekicks.native.openExternal(url).then(
-      () => {
-        setActRefusal(undefined);
-      },
-      (failure: unknown) => {
-        setActRefusal(
-          refusalFromRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, {
-            code: "open-external-failed",
-            detail: "The system browser could not be reached from this window.",
-          }),
-        );
-      },
-    );
-  }, [bridge, refuseLocally, reportedUrl]);
+    runAct(async () => {
+      await bridge.sidekicks.native.openExternal(url);
+      return undefined;
+    }, OPEN_EXTERNAL_FALLBACK);
+  }, [bridge, refuseLocally, reportedUrl, runAct]);
 
   const submitDestination = useCallback(
     (event: React.FormEvent<HTMLFormElement>): void => {
@@ -306,12 +302,7 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
       </div>
 
       {actRefusal === undefined ? null : (
-        <RefusalBanner
-          {...actRefusal}
-          onDismiss={() => {
-            setActRefusal(undefined);
-          }}
-        />
+        <RefusalBanner {...actRefusal} onDismiss={dismissActRefusal} />
       )}
 
       <div

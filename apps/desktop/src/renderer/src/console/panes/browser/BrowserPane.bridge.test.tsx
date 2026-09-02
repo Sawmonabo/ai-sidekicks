@@ -6,7 +6,7 @@
 // host, mocked here and nowhere else — and because each is a claim about what is on
 // screen when nothing arrived the way the happy path expected.
 
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -173,6 +173,88 @@ describe("browser pane bridge rejections", () => {
     await waitFor(() => {
       expect(queryRefusalBanner()).toBeNull();
     });
+  });
+});
+
+// Two acts in flight over one page, settling out of order.
+//
+// The reload/stop slot is one control that dispatches two acts, so an operator who
+// stops a reload has two calls outstanding over the same pane — and the network the
+// page is waiting on decides which of them answers first. A pane that rendered every
+// completion as it landed finished that sequence showing the failure of the act the
+// operator had already replaced, over a page whose newest act had just succeeded.
+describe("browser pane overlapping acts", () => {
+  /** A bridge whose reload hangs until the test settles it, and whose stop serves. */
+  function withPendingReload(bridge: ConsoleBridge): {
+    readonly bridge: ConsoleBridge;
+    readonly rejectReload: (failure: unknown) => void;
+  } {
+    let settle: ((failure: unknown) => void) | undefined;
+    return {
+      rejectReload: (failure) => {
+        settle?.(failure);
+      },
+      bridge: {
+        ...bridge,
+        growth: {
+          ...bridge.growth,
+          browserReload: async () =>
+            new Promise((_resolve, reject) => {
+              settle = reject;
+            }),
+          browserStopLoading: async () => ({ status: "served" as const, value: undefined }),
+        },
+      },
+    };
+  }
+
+  /** Report a state, then hand back the reload/stop slot as it stands after it. */
+  async function slotAfterReport(
+    report: (state: ReturnType<typeof reportedState>) => void,
+    state: ReturnType<typeof reportedState>,
+    label: "Reload" | "Stop",
+  ): Promise<HTMLElement> {
+    report(state);
+    return waitFor(() => {
+      const control = screen.getByRole("button", { name: label });
+      expect(control).toHaveProperty("disabled", false);
+      return control;
+    });
+  }
+
+  const PAGE = "https://example.invalid/page";
+
+  it("keeps a superseded act's failure off the pane after a newer act was served", async () => {
+    // The finding's exact interleaving. On the old code the pane finished here
+    // showing the reload's failure, because every completion wrote the banner
+    // regardless of which act the operator had run last.
+    const { bridge, report } = navigationReportingBridge();
+    const overlapping = withPendingReload(bridge);
+    await renderBrowserPane(overlapping.bridge);
+
+    fireEvent.click(await slotAfterReport(report, reportedState(PAGE), "Reload"));
+    fireEvent.click(
+      await slotAfterReport(report, reportedState(PAGE, { isLoading: true }), "Stop"),
+    );
+    await act(async () => {
+      overlapping.rejectReload(new Error("the reload never answered"));
+      await Promise.resolve();
+    });
+
+    expect(queryRefusalBanner()).toBeNull();
+  });
+
+  it("negative control: the same rejection still renders while it is the newest act", async () => {
+    // Without this, a pane that swallowed every rejection would satisfy the case
+    // above and would report nothing at all when the one act in flight failed.
+    const { bridge, report } = navigationReportingBridge();
+    const overlapping = withPendingReload(bridge);
+    await renderBrowserPane(overlapping.bridge);
+
+    fireEvent.click(await slotAfterReport(report, reportedState(PAGE), "Reload"));
+    overlapping.rejectReload(new Error("the reload never answered"));
+
+    expect((await findRefusalBanner()).textContent).toContain("navigation-call-failed");
   });
 });
 
