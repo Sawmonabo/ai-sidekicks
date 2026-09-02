@@ -99,7 +99,10 @@ export type GrowthOperationId =
   | "windowCloseAuxiliary"
   | "windowSubscribePaneErrors"
   | "providerSessionImportBegin"
-  | "providerSessionImportSubscribe";
+  | "providerSessionImportSubscribe"
+  | "attentionProjectionRead"
+  | "attentionPreferenceRead"
+  | "attentionPreferenceUpdate";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

@@ -262,6 +262,7 @@ Every console surface is built now against the fixture bridge (`Spec-023 §Conso
 | `SessionSearch` query surface | Spec-001 | palette, all-sessions list |
 | Window-control bridge namespace — renderer-initiated pane detach into an auxiliary window, auxiliary-window focus and close, and the crashed-window pane-error signal | `Spec-023 §Preload Bridge Contract` + `§Console Design (Meridian)` (§The surface set — auxiliary windows) | session workspace deck, auxiliary windows |
 | Provider-session import ingest (the bring-your-history fixture scenario) | a new spec | import flow |
+| `attention.projectionRead` / `attention.preferenceRead` / `attention.preferenceUpdate` and the `AttentionItem` trigger and severity domains they carry (registered in [api-payload-contracts.md](../architecture/contracts/api-payload-contracts.md#attention-method-name-registry-tier-8-plan-019) and in no code package) | `Spec-019 §Interfaces And Contracts`; [Plan-019](./019-notifications-and-attention-model.md) (the `packages/contracts/src/attention/` schemas) | notification centre, icon-rail attention marker |
 
 ## Invariants
 
