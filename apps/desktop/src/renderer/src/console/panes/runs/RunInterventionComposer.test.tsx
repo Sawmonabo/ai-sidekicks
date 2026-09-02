@@ -104,12 +104,15 @@ function typeInto(element: Element | null, value: string): void {
   });
 }
 
-function submit(container: HTMLElement): void {
+// Awaited, because a confirm that reaches the wire settles asynchronously: the
+// state update carrying the outcome lands after the click returns, and an
+// unawaited act() would leave it outside the boundary React asserts on.
+async function submit(container: HTMLElement): Promise<void> {
   const confirm = container.querySelector(".meridian-run-composer__confirm");
   if (!(confirm instanceof HTMLButtonElement)) {
     throw new Error("the composer drew no confirm");
   }
-  act(() => {
+  await act(async () => {
     confirm.click();
   });
 }
@@ -132,36 +135,36 @@ describe("preview is consent", () => {
   });
 });
 
-describe("the two refusals raised before the wire", () => {
-  it("refuses a rewind with no target position, and sends nothing", () => {
+describe("the two refusals raised before the wire", async () => {
+  it("refuses a rewind with no target position, and sends nothing", async () => {
     const { container, calls } = renderComposer("rollback");
-    submit(container);
+    await submit(container);
     expect(calls).toHaveLength(0);
     expect(container.textContent).toContain("target-position-unnamed");
   });
 
-  it("refuses a composite whose replacement is only whitespace, and sends nothing", () => {
+  it("refuses a composite whose replacement is only whitespace, and sends nothing", async () => {
     const { container, calls } = renderComposer("rollback");
     typeInto(container.querySelector(".meridian-run-composer__position"), "4");
     typeInto(container.querySelector(".meridian-run-composer__body"), "   ");
-    submit(container);
+    await submit(container);
     expect(calls).toHaveLength(0);
     expect(container.textContent).toContain("empty-replacement");
   });
 
-  it("refuses an empty steer, and sends nothing", () => {
+  it("refuses an empty steer, and sends nothing", async () => {
     const { container, calls } = renderComposer("steer");
-    submit(container);
+    await submit(container);
     expect(calls).toHaveLength(0);
     expect(container.textContent).toContain("empty-directive");
   });
 
-  it("negative control: a named position with no replacement dispatches a bare rewind", () => {
+  it("negative control: a named position with no replacement dispatches a bare rewind", async () => {
     // Proves the refusals above are about the two named conditions rather than a
     // composer that never sends anything.
     const { container, calls } = renderComposer("rollback");
     typeInto(container.querySelector(".meridian-run-composer__position"), "4");
-    submit(container);
+    await submit(container);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.method).toBe("run.intervene");
     expect(calls[0]?.params).toMatchObject({ type: "rollback", targetPosition: 4 });
@@ -179,11 +182,11 @@ describe("the composite says what it did", () => {
     expect(composite?.textContent).not.toContain("re-sent");
   });
 
-  it("carries the replacement on the one intervention rather than as a second call", () => {
+  it("carries the replacement on the one intervention rather than as a second call", async () => {
     const { container, calls } = renderComposer("rollback");
     typeInto(container.querySelector(".meridian-run-composer__position"), "4");
     typeInto(container.querySelector(".meridian-run-composer__body"), "try this instead");
-    submit(container);
+    await submit(container);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.params).toMatchObject({
       type: "rollback",
