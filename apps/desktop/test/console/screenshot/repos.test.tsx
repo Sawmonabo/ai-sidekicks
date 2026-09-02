@@ -1,13 +1,14 @@
-// The screenshot tier: the repos family's four surfaces, per scheme.
+// The screenshot tier: the repos family's five surfaces, per scheme.
 //
 // `frame.test.tsx`'s header owns the mechanism this file rides — the three
 // snapshot-update modes, why the references are pinned to `darwin`, and which
 // machine may mint one. `baseline-platform.ts` holds the values that reasoning
 // produces, so nothing about it is restated here.
 //
-// WHAT IS PINNED, AND WHY THESE FOUR. The family ships one sidebar section, two pane
-// bodies, and the gate a change proposal is put through, and each is a different
-// composition rather than a state of one:
+// WHAT IS PINNED, AND WHY THESE FIVE. The family ships one sidebar section, two pane
+// bodies, and the gate a change proposal is put through — and the gate is pinned both
+// on its own and where a person meets it. Each is a different composition rather than
+// a state of one:
 //
 //   • the repos SECTION with a DEGRADED MOUNT — the scenario states two mounts and
 //     one of them answers `unreachable`, and the section's design claim is that a
@@ -23,9 +24,12 @@
 //     with a remedy in it, and pinning it is how a tier notices it turning into a
 //     bare error box;
 //   • the PROPOSAL GATE on its prepared arm, where the branch context, the proposal,
-//     its changed paths, and the three offers are all on screen at once.
+//     its changed paths, and the three offers are all on screen at once;
+//   • the SECTION AGAIN with a root's gate DISCLOSED, which is the only subject that
+//     holds the mount: the gate composing inside a row it does not own, under the
+//     execution root it was asked about, on whatever arm the fixture actually served.
 //
-// Four surfaces and two schemes is eight references, and every one of them is minted
+// Five surfaces and two schemes is ten references, and every one of them is minted
 // on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
 // A local run on any other host skips; a local run on a developer Mac is advisory in
 // the small, measured way `frame.test.tsx` records.
@@ -38,6 +42,7 @@ import {
   mountDiffPane,
   mountProposalGate,
   mountRepoSection,
+  mountRepoSectionWithOpenGate,
   type MountedFamilySurface,
 } from "../repos-surfaces.js";
 import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
@@ -60,6 +65,7 @@ const PINNED_SURFACES: readonly {
   { referenceName: "repos-diff-pane", mount: mountDiffPane },
   { referenceName: "repos-artifact-pane", mount: mountArtifactPane },
   { referenceName: "repos-proposal-gate", mount: mountProposalGate },
+  { referenceName: "repos-section-mounted-gate", mount: mountRepoSectionWithOpenGate },
 ];
 
 beforeEach(() => {

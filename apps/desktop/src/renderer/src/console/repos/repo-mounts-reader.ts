@@ -7,6 +7,13 @@
 // arms a timer of its own; the scheduler coalesces a burst of reasons into one read
 // and serializes reads so two never overlap.
 //
+// THE ROOTS COME FROM THEIR OWN READ, and it is the only one that names a worktree.
+// A workspace row carries no worktree id, so `repo.worktreeStatusRead` — session
+// scoped, both root kinds in one answer — is what lets the section draw the roots a
+// session is running in and lets the change-proposal gate be asked per worktree. It
+// is one call for the whole session rather than one per mount, because the request's
+// mount filter exists for a caller with one mount in view and this section has a list.
+//
 // THE READ ORDER IS FORCED BY THE WIRE, not chosen. There is no `repo.mountList`
 // method anywhere in the corpus, so the session's mounts are learned from its
 // WORKSPACES: `workspaces.repo_mount_id` is NOT NULL under the mount-first funnel
@@ -51,10 +58,12 @@ import {
   readExecutionModeCapabilities,
   readRepoMount,
   readSessionWorkspaces,
+  readWorktreeStatus,
   refusalFromRejection,
   selectExecutionMode,
   type RepoCallOutcome,
 } from "./repo-reads.js";
+import type { WorktreeStatusRecord } from "./worktree-model.js";
 
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
 export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
@@ -72,11 +81,33 @@ export interface RepoMountsReading {
   readonly status: "not-read" | "reading" | "read";
   readonly mounts: readonly RepoMountReadResponse[];
   readonly workspaces: readonly RepoWorkspaceRow[];
+  /** Every worktree this session holds, in the order the status read returned them. */
+  readonly worktrees: readonly WorktreeStatusRecord[];
+  /**
+   * The instant this reading was taken, on the reader's own clock.
+   *
+   * Carried on the reading rather than read from the wall clock by the cards that
+   * render an age, because `Spec-023 §Console Design (Meridian)` §10.3 forbids polling
+   * on that surface: an age has to move when the surface RE-READS and at no other
+   * time, and a card reading `Date.now()` in its render body would move it on any
+   * unrelated re-render. Zero before the first read, which no card renders against —
+   * every one of them is behind the `read` status.
+   */
+  readonly readAtMilliseconds: number;
   readonly capabilitiesByWorkspaceId: Readonly<
     Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
   >;
   /** The read's own failure, when the section as a whole could not be answered. */
   readonly refusal: ConsoleRefusal | undefined;
+  /**
+   * The root read's own failure, scoped to it.
+   *
+   * Its own field rather than folded into `refusal`, on the same rule the per-workspace
+   * map follows: a session whose mounts and workspaces answered and whose roots did not
+   * is a PARTIAL answer, and collapsing the two would either hide the gap or report the
+   * whole section as unread when most of it is on screen.
+   */
+  readonly worktreeRefusal: ConsoleRefusal | undefined;
   /** Per workspace: the daemon's answer to a capabilities read or a mode switch. */
   readonly refusalByWorkspaceId: Readonly<Record<string, ConsoleRefusal>>;
 }
@@ -85,8 +116,11 @@ const NOTHING_READ_YET: RepoMountsReading = {
   status: "not-read",
   mounts: [],
   workspaces: [],
+  worktrees: [],
+  readAtMilliseconds: 0,
   capabilitiesByWorkspaceId: {},
   refusal: undefined,
+  worktreeRefusal: undefined,
   refusalByWorkspaceId: {},
 };
 
@@ -100,6 +134,7 @@ export interface RepoMountsReaderOptions {
 export class RepoMountsReader {
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string;
+  readonly #clock: ConsoleClock;
   readonly #scheduler: RefreshScheduler;
   readonly #changes = new Emitter<RepoMountsReading>("repo mounts reading");
 
@@ -111,8 +146,12 @@ export class RepoMountsReader {
   public constructor(options: RepoMountsReaderOptions) {
     this.#bridge = options.bridge;
     this.#sessionId = options.sessionId;
+    // Bound once and shared with the scheduler, so the instant a reading is stamped
+    // with and the instant a refresh is measured from are the same time base — under
+    // the fixture that is the scenario's frozen clock and under the app it is the wall.
+    this.#clock = options.clock ?? new RealClock();
     this.#scheduler = new RefreshScheduler({
-      clock: options.clock ?? new RealClock(),
+      clock: this.#clock,
       perform: async () => {
         await this.#performRead();
       },
@@ -247,6 +286,11 @@ export class RepoMountsReader {
       }
     }
 
+    const worktreeOutcome = await readWorktreeStatus(this.#bridge, this.#sessionId);
+    if (this.#disposed) {
+      return;
+    }
+
     const capabilitiesByWorkspaceId: Record<
       string,
       WorkspaceExecutionModeCapabilitiesReadResponse
@@ -268,8 +312,11 @@ export class RepoMountsReader {
       status: "read",
       mounts,
       workspaces,
+      worktrees: worktreeOutcome.status === "read" ? worktreeOutcome.value.worktrees : [],
+      readAtMilliseconds: this.#clock.now(),
       capabilitiesByWorkspaceId,
       refusal: firstRefusal,
+      worktreeRefusal: worktreeOutcome.status === "refused" ? worktreeOutcome.refusal : undefined,
       refusalByWorkspaceId,
     });
   }

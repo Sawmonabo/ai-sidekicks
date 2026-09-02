@@ -52,17 +52,59 @@ export type ProposalState = (typeof PROPOSAL_STATES)[number];
  * below is the only reader of it, and it produces strings.
  */
 export interface PreparedProposal {
-  readonly title: string;
-  readonly body: string;
+  /**
+   * FOUR MEMBERS BELOW ARE OPTIONAL BECAUSE NO REGISTERED REPLY CARRIES THEM.
+   *
+   * The preparation call answers with a preparation id, a state, and an untyped
+   * blob (`bridge/growth-signatures.ts`, `gitflowPrPrepare`), so a reader can supply
+   * the two branches — from the branch context, which is where §10.7 says base and
+   * head always come from — and the state, and nothing else. Absence is therefore
+   * the honest reading, and each one renders as the "nobody supplied this" kind of
+   * nothing rather than as a default: an empty title reads as an untitled proposal
+   * and an empty path list reads as a proposal that changes no files, and both are
+   * claims about the proposal that no read established.
+   *
+   * They stay on the shape rather than being deleted because they are what §10.7
+   * asks the gate to show, and a caller that HAS them — the fixtures the tiers pin,
+   * and any later reply that carries them — draws the full surface unchanged.
+   */
+  readonly title?: string | undefined;
+  readonly body?: string | undefined;
   readonly baseBranch: string;
   readonly headBranch: string;
   readonly state: ProposalState;
   /** The attribution lines the proposal will carry, verbatim and in order. */
-  readonly trailers: readonly string[];
+  readonly trailers?: readonly string[] | undefined;
   /** The paths this proposal publishes. Named so the gate can offer the diff half. */
-  readonly changedPaths: readonly string[];
+  readonly changedPaths?: readonly string[] | undefined;
   readonly blob?: Readonly<Record<string, unknown>> | undefined;
 }
+
+/**
+ * The proposal members §10.7 draws that no registered reply supplies.
+ *
+ * A closed set with one sentence each, declared here and derived everywhere, so the
+ * summary cannot word one absence differently from another, and a member that later
+ * ARRIVES on the wire is removed from one list rather than hunted for in prose.
+ */
+export const PROPOSAL_MEMBERS_NOT_ON_THE_WIRE = [
+  "title",
+  "body",
+  "trailers",
+  "changedPaths",
+] as const;
+
+/** One unsupplied proposal member. Derived, so the vocabulary is declared once. */
+export type ProposalMemberNotOnTheWire = (typeof PROPOSAL_MEMBERS_NOT_ON_THE_WIRE)[number];
+
+/** Total over `ProposalMemberNotOnTheWire` by construction. */
+export const PROPOSAL_MEMBER_UNSUPPLIED_COPY: Readonly<Record<ProposalMemberNotOnTheWire, string>> =
+  {
+    title: "No title came with this preparation.",
+    body: "No body came with this preparation.",
+    trailers: "No trailer list came with this preparation.",
+    changedPaths: "No file list came with this preparation.",
+  };
 
 /** One inert row read out of the untyped proposal blob. Both halves are display text. */
 export interface ProposalBlobRow {
@@ -333,16 +375,26 @@ export interface CheckoutConflictOption {
  * The gate's arms. Six, and none stands in for another — rule 8's whole claim, applied
  * to a surface whose absences are unusually easy to conflate.
  *
- *   • `not-checked`  — nothing was asked. No branch-context read is registered on the
- *                      bridge, so this is V1's ordinary arm and it must never read as
- *                      "this workspace has no context".
+ *   • `not-checked`  — the question could not be put. The branch-context read is a
+ *                      growth-port operation whose wire is unregistered, so under the
+ *                      live bridge this is V1's ordinary arm — and it must never read
+ *                      as "this workspace has no context". The port's own refusal
+ *                      sentence travels beside it, because this arm carries no
+ *                      message of its own.
  *   • `no-context`   — the question was put and the mode is the answer. Carries the
  *                      mode so the reason names it rather than generalising.
  *   • `preparing`    — a read is in flight.
  *   • `prepared`     — a context, optionally a proposal, optionally its host status.
  *   • `hosting-unavailable` — the DEGRADED arm, which is a required feature rather
  *                      than an error page: a proposal-ready summary plus the bundle a
- *                      participant acts on by hand.
+ *                      participant acts on by hand. NO READ REACHES IT, and that is a
+ *                      fact about the wire rather than a gap in the reader: the
+ *                      preparation reply's state vocabulary is `draft | ready` and
+ *                      nothing on it names a bundle, so `proposal-gate-reader.ts`
+ *                      never publishes this arm and records why. It stays here
+ *                      because `Spec-011 §Fallback Behavior` makes the degraded
+ *                      summary required behaviour, and the gate draws it for any
+ *                      caller that can state it.
  *   • `refused`      — a first-class failure carrying the daemon's own message.
  */
 export type ProposalGateState =
@@ -352,7 +404,17 @@ export type ProposalGateState =
   | {
       readonly kind: "prepared";
       readonly context: BranchContextReading;
-      readonly detectedHost: string;
+      /**
+       * The host the remote was detected as, where something said so.
+       *
+       * OPTIONAL, for the reason the four proposal members above are: §10.7 has the
+       * provider auto-detected from the git remote URL, and no registered reply
+       * carries the result — the branch-context read answers with the four branch
+       * values and the worktree association and names no host. So the gate reports a
+       * host where one was supplied and reports nothing where none was, rather than
+       * defaulting to a provider name nothing established.
+       */
+      readonly detectedHost?: string | undefined;
       readonly proposal?: PreparedProposal | undefined;
       readonly status?: ProposalStatusReading | undefined;
     }

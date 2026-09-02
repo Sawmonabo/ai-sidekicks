@@ -19,6 +19,7 @@
 import { Chip, DerivedFigure, Nothing, WireFigure, formatCount } from "../primitives/index.js";
 import {
   ONE_CUMULATIVE_PROPOSAL_COPY,
+  PROPOSAL_MEMBER_UNSUPPLIED_COPY,
   proposalBlobRows,
   type PreparedProposal,
 } from "./proposal-model.js";
@@ -42,7 +43,22 @@ export function ProposalSummary(props: ProposalSummaryProps): React.JSX.Element 
     <article className="meridian-proposal" aria-label="Prepared proposal">
       <div className="meridian-proposal__face">
         <Chip label={proposal.state} mono glyph="workflow" />
-        <h4 className="meridian-proposal__title">{proposal.title}</h4>
+        {/*
+          Three absences on this surface and they are three DIFFERENT absences, which
+          is the whole of rule 8 applied to one card. `not-checked` is "no reply
+          supplied this member" — the model names which four those are — and `empty`
+          below is "a list arrived and it was empty". A title rendered as blank text
+          would have said the proposal is untitled, which nothing read.
+        */}
+        {proposal.title === undefined ? (
+          <Nothing
+            kind="not-checked"
+            placement="inline"
+            title={PROPOSAL_MEMBER_UNSUPPLIED_COPY.title}
+          />
+        ) : (
+          <h4 className="meridian-proposal__title">{proposal.title}</h4>
+        )}
         <span className="meridian-proposal__range">
           <WireFigure value={proposal.headBranch} /> into <WireFigure value={proposal.baseBranch} />
         </span>
@@ -51,45 +67,31 @@ export function ProposalSummary(props: ProposalSummaryProps): React.JSX.Element 
 
       <details className="meridian-proposal-gate__detail">
         <summary className="meridian-proposal-gate__detail-summary">Body and trailers</summary>
-        <p className="meridian-proposal__body">{proposal.body}</p>
-        {proposal.trailers.length === 0 ? (
-          <Nothing kind="empty" placement="inline" title="No attribution trailers." />
+        {proposal.body === undefined ? (
+          <Nothing
+            kind="not-checked"
+            placement="surface"
+            title={PROPOSAL_MEMBER_UNSUPPLIED_COPY.body}
+          />
         ) : (
-          <ul className="meridian-proposal__trailers">
-            {proposal.trailers.map((trailer) => (
-              <li key={trailer}>
-                <WireFigure value={trailer} />
-              </li>
-            ))}
-          </ul>
+          <p className="meridian-proposal__body">{proposal.body}</p>
         )}
+        {renderTrailers(proposal.trailers)}
       </details>
 
       <details className="meridian-proposal-gate__detail">
         <summary className="meridian-proposal-gate__detail-summary">
-          Files <DerivedFigure text={formatCount(proposal.changedPaths.length)} />
+          Files{" "}
+          {/*
+            The count is drawn from a list that arrived, and from nothing else. A
+            `0` beside an unsupplied list would be a figure the console computed over
+            an absence, which is the one thing a derived figure may never be.
+          */}
+          {proposal.changedPaths === undefined ? null : (
+            <DerivedFigure text={formatCount(proposal.changedPaths.length)} />
+          )}
         </summary>
-        {proposal.changedPaths.length === 0 ? (
-          <Nothing kind="empty" placement="inline" title="No file changes in this proposal." />
-        ) : (
-          <ul className="meridian-proposal__paths">
-            {proposal.changedPaths.map((path) => (
-              <li key={path}>
-                {props.onOpenChangedPath === undefined ? (
-                  <WireFigure value={path} />
-                ) : (
-                  <button
-                    type="button"
-                    className="meridian-proposal__path-link"
-                    onClick={() => props.onOpenChangedPath?.(path)}
-                  >
-                    <WireFigure value={path} />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
+        {renderChangedPaths(proposal.changedPaths, props.onOpenChangedPath)}
       </details>
 
       {blobRows.length === 0 ? null : (
@@ -118,5 +120,76 @@ export function ProposalSummary(props: ProposalSummaryProps): React.JSX.Element 
         </details>
       )}
     </article>
+  );
+}
+
+/**
+ * The trailer list, in its three states.
+ *
+ * A function rather than a third nested ternary in the body above: the two list
+ * members share one shape — unsupplied, supplied-and-empty, supplied — and writing
+ * it twice inline is how the two absences come to be worded differently.
+ */
+function renderTrailers(trailers: readonly string[] | undefined): React.JSX.Element {
+  if (trailers === undefined) {
+    return (
+      <Nothing
+        kind="not-checked"
+        placement="inline"
+        title={PROPOSAL_MEMBER_UNSUPPLIED_COPY.trailers}
+      />
+    );
+  }
+  if (trailers.length === 0) {
+    return <Nothing kind="empty" placement="inline" title="No attribution trailers." />;
+  }
+  return (
+    <ul className="meridian-proposal__trailers">
+      {trailers.map((trailer) => (
+        <li key={trailer}>
+          <WireFigure value={trailer} />
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** The changed-path list, in the same three states, with the diff half where offered. */
+function renderChangedPaths(
+  changedPaths: readonly string[] | undefined,
+  onOpenChangedPath: ((path: string) => void) | undefined,
+): React.JSX.Element {
+  if (changedPaths === undefined) {
+    return (
+      <Nothing
+        kind="not-checked"
+        placement="inline"
+        title={PROPOSAL_MEMBER_UNSUPPLIED_COPY.changedPaths}
+      />
+    );
+  }
+  if (changedPaths.length === 0) {
+    return <Nothing kind="empty" placement="inline" title="No file changes in this proposal." />;
+  }
+  return (
+    <ul className="meridian-proposal__paths">
+      {changedPaths.map((path) => (
+        <li key={path}>
+          {onOpenChangedPath === undefined ? (
+            <WireFigure value={path} />
+          ) : (
+            <button
+              type="button"
+              className="meridian-proposal__path-link"
+              onClick={() => {
+                onOpenChangedPath(path);
+              }}
+            >
+              <WireFigure value={path} />
+            </button>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }
