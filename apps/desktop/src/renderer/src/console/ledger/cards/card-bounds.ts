@@ -35,15 +35,25 @@ export const MARKDOWN_SETTLE_LAG_BLOCKS = 2;
 export const MARKDOWN_BLOCK_CACHE_BYTE_CAP = 2_097_152;
 
 /**
- * Bytes of highlighted-token cache the renderer retains, across every code block.
+ * SOURCE bytes of highlighted code the token cache holds, across every code block.
  *
  * `Spec-023 §Console Libraries`, syntax-highlighting row: "byte-bounded token cache".
- * The measurement behind the figure is that row's own: retained tokens run about 21.5x
- * the source they came from, so one mebibyte of cache is roughly 48,000 bytes of code — a
- * screenful of fenced blocks in scrollback, and far below the point where retaining
- * them costs more than re-tokenising them.
+ * The bound is in source bytes because that is what `byte-bounded-cache.ts` charges —
+ * it measures the KEY, which is the block's own text, for the reason its header gives:
+ * a node tree's retained size cannot be had without walking it. So this figure is sized
+ * with the retained tokens in mind rather than stated in them. That row's measurement is
+ * 21.5x, and one mebibyte of retained tokens divided by it is about 48,771 source bytes;
+ * 48,000 is that rounded down, so the tokens stay INSIDE the mebibyte rather than a
+ * little past it. It is a screenful of fenced blocks in scrollback, and far below the
+ * point where retaining them costs more than re-tokenising them.
+ *
+ * THE CONSEQUENCE, NAMED RATHER THAN LEFT TO BE FOUND: a block between this cap and
+ * `CODE_HIGHLIGHT_SOURCE_BYTE_CAP` is highlighted and NOT cached, because the cache
+ * drops an entry larger than the whole cap rather than evicting everything else to hold
+ * it. That is exactly what the highlight-source cap's own rationale below asserts, and
+ * it is only true while this figure is stated in the units the cache charges.
  */
-export const CODE_TOKEN_CACHE_BYTE_CAP = 1_048_576;
+export const CODE_TOKEN_CACHE_BYTE_CAP = 48_000;
 
 /**
  * Source bytes above which highlighting leaves the main thread.
@@ -92,7 +102,13 @@ export const TOOL_SUMMARY_MAX_CHARACTERS = 96;
  *
  * `anser` yields one entry per style run, so a colour-heavy build log produces far more
  * entries than lines. The cap is on the mapped spans rather than on the source bytes
- * because the spans are what become DOM nodes, and the fold is recoverable — the body
- * says how much is shown and offers the rest, per §5.9's payload-expansion rule.
+ * because the spans are what become DOM nodes.
+ *
+ * IT IS THE FIRST RENDER'S CAP AND NOT THE BLOCK'S CEILING. `Spec-023 §Console Design
+ * (Meridian)`'s "#### Rules every console surface obeys" is why: the fold has to be
+ * recoverable, and `AnsiOutput` is what makes it so — the notice carries both figures
+ * and a control that re-parses the same source under a cap that admits every run. A cap
+ * with no way past it would put the tail of a colour-heavy command beyond reach, since
+ * reopening the card re-parses exactly the same capped sequence.
  */
 export const ANSI_SPAN_RENDER_CAP = 4096;

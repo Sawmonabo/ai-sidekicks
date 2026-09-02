@@ -1,12 +1,49 @@
 // Where a block is tokenised, where the answer is kept, and what happens when it cannot
 // be tokenised at all.
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { CODE_HIGHLIGHT_SOURCE_BYTE_CAP, CODE_WORKER_THRESHOLD_BYTES } from "../card-bounds.js";
-import { HIGHLIGHT_DECLINE_REASONS, CodeHighlightScheduler } from "./highlight-scheduler.js";
+import {
+  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
+  CODE_TOKEN_CACHE_BYTE_CAP,
+  CODE_WORKER_THRESHOLD_BYTES,
+} from "../card-bounds.js";
+import type { HighlightRequestMessage, HighlightResponseMessage } from "./highlight-protocol.js";
+import {
+  HIGHLIGHT_DECLINE_REASONS,
+  CodeHighlightScheduler,
+  type HighlightOutcome,
+} from "./highlight-scheduler.js";
 
 const schedulers: CodeHighlightScheduler[] = [];
+
+/**
+ * What a request that never answers looks like to a test.
+ *
+ * A hung promise is otherwise indistinguishable from a slow one, and a suite that
+ * waited for the runner's own timeout would take five seconds to report the defect and
+ * would report it as "timed out" rather than as "never settled".
+ */
+const NEVER_SETTLED = "never-settled";
+
+/**
+ * The retained-token-to-source ratio `Spec-023 §Console Libraries` measures, and the
+ * budget it is measured against. Here rather than in `card-bounds.ts` because they are
+ * what the constant is DERIVED from — a module that exported its own derivation inputs
+ * would let a future edit move both together and still call the result checked.
+ */
+const MEASURED_TOKEN_TO_SOURCE_RATIO = 21.5;
+const ONE_MEBIBYTE = 1_048_576;
+
+const NEVER_SETTLED_MILLISECONDS = 50;
+
+function neverSettledAfter(milliseconds: number): Promise<typeof NEVER_SETTLED> {
+  return new Promise((resolve) => {
+    setTimeout(() => {
+      resolve(NEVER_SETTLED);
+    }, milliseconds);
+  });
+}
 
 function scheduler(byteCap?: number): CodeHighlightScheduler {
   const created =
@@ -96,5 +133,169 @@ describe("declining to tokenise", () => {
     const stats = created.cacheStats();
     expect(stats.byteCap).toBe(512);
     expect(stats.retainedByteCount).toBeLessThanOrEqual(512);
+  });
+
+  it("states the token cap in the units the cache charges", () => {
+    // The DERIVATION rather than the number, so the units cannot drift again. The cache
+    // charges the key, which is the source; the cap is therefore a source-byte figure
+    // sized so the tokens it admits stay inside one mebibyte at the measured ratio. Read
+    // as a token-memory figure it was 22.5 MiB of retained objects against a 120 MB
+    // renderer heap.
+    expect(CODE_TOKEN_CACHE_BYTE_CAP * MEASURED_TOKEN_TO_SOURCE_RATIO).toBeLessThanOrEqual(
+      ONE_MEBIBYTE,
+    );
+    expect(scheduler().cacheStats().byteCap).toBe(CODE_TOKEN_CACHE_BYTE_CAP);
+  });
+
+  it("negative control: a block past the token cap is highlighted and not cached", async () => {
+    // The consequence the cap's own rationale asserts, held to. Without it the
+    // derivation above could be met by a cap of one byte, which caches nothing at all.
+    const created = scheduler();
+    const withinCap = "const a = 1;\n";
+    await created.requestTokens(withinCap, "typescript");
+    expect(created.cachedTokens(withinCap, "typescript")).not.toBeUndefined();
+  });
+});
+
+/**
+ * A `Worker` the test drives, standing in for the realm's own.
+ *
+ * The scheduler's off-thread path is unreachable otherwise: `happy-dom` supplies no
+ * module worker, so every large block declines before a message is ever posted and the
+ * error path — the one this suite is about — has no way to be entered. The fake answers
+ * exactly the three members `highlight-scheduler.ts` uses, so it cannot pass a test the
+ * real seam would fail by supplying something the scheduler never asks for.
+ */
+class FakeHighlightWorker {
+  public static latest: FakeHighlightWorker | undefined;
+
+  public readonly postedRequests: HighlightRequestMessage[] = [];
+  public terminateCount = 0;
+
+  readonly #listenersByType = new Map<string, ((event: unknown) => void)[]>();
+
+  public constructor() {
+    FakeHighlightWorker.latest = this;
+  }
+
+  public addEventListener(type: string, listener: (event: unknown) => void): void {
+    const listeners = this.#listenersByType.get(type) ?? [];
+    listeners.push(listener);
+    this.#listenersByType.set(type, listeners);
+  }
+
+  public postMessage(request: HighlightRequestMessage): void {
+    this.postedRequests.push(request);
+  }
+
+  public terminate(): void {
+    this.terminateCount += 1;
+  }
+
+  /** The thread died. What the browser dispatches, with nothing the scheduler reads. */
+  public dispatchError(): void {
+    this.#dispatch("error", {});
+  }
+
+  /** One answered request, as the worker's protocol carries it. */
+  public dispatchResponse(response: HighlightResponseMessage): void {
+    this.#dispatch("message", { data: response });
+  }
+
+  #dispatch(type: string, event: unknown): void {
+    for (const listener of this.#listenersByType.get(type) ?? []) {
+      listener(event);
+    }
+  }
+}
+
+describe("a worker that dies", () => {
+  const globalWorkerKey = "Worker";
+  let originalWorkerConstructor: unknown;
+
+  beforeEach(() => {
+    originalWorkerConstructor = Reflect.get(globalThis, globalWorkerKey);
+    FakeHighlightWorker.latest = undefined;
+    Reflect.set(globalThis, globalWorkerKey, FakeHighlightWorker);
+  });
+
+  afterEach(() => {
+    if (originalWorkerConstructor === undefined) {
+      Reflect.deleteProperty(globalThis, globalWorkerKey);
+      return;
+    }
+    Reflect.set(globalThis, globalWorkerKey, originalWorkerConstructor);
+  });
+
+  function overThresholdSource(fill: string): string {
+    return fill.repeat(CODE_WORKER_THRESHOLD_BYTES + 1);
+  }
+
+  it("settles the block it was holding as an unavailable worker", async () => {
+    const created = scheduler();
+    const answered = created.requestTokens(overThresholdSource("a"), "typescript");
+    const worker = FakeHighlightWorker.latest;
+    expect(worker?.postedRequests).toHaveLength(1);
+    worker?.dispatchError();
+    const outcome = await answered;
+    expect(outcome.status).toBe("declined");
+    if (outcome.status === "declined") {
+      expect(outcome.reason).toBe("worker-unavailable");
+    }
+  });
+
+  it("lets the dead thread go rather than holding it for the next block", async () => {
+    const created = scheduler();
+    const answered = created.requestTokens(overThresholdSource("b"), "typescript");
+    const worker = FakeHighlightWorker.latest;
+    worker?.dispatchError();
+    await answered;
+    expect(worker?.terminateCount).toBe(1);
+  });
+
+  it("declines a later block instead of posting to a thread that is gone", async () => {
+    // The whole defect, in one assertion: before the fix a request arriving after the
+    // failure registered a settle nobody could ever call and posted to a terminated
+    // worker, so this promise never settled at all and the caller's closure — and its
+    // slot in the pending map — was retained for the life of the page.
+    const created = scheduler();
+    const answered = created.requestTokens(overThresholdSource("c"), "typescript");
+    const worker = FakeHighlightWorker.latest;
+    worker?.dispatchError();
+    await answered;
+
+    const later = created.requestTokens(overThresholdSource("d"), "typescript");
+    const settled: HighlightOutcome | typeof NEVER_SETTLED = await Promise.race([
+      later,
+      neverSettledAfter(NEVER_SETTLED_MILLISECONDS),
+    ]);
+    expect(settled).not.toBe(NEVER_SETTLED);
+    if (settled !== NEVER_SETTLED && settled.status === "declined") {
+      expect(settled.reason).toBe("worker-unavailable");
+    }
+    // Nothing was posted to the dead thread, and no second worker was constructed to
+    // take its place: the same instance is still the latest, still holding one request.
+    expect(worker?.postedRequests).toHaveLength(1);
+    expect(FakeHighlightWorker.latest).toBe(worker);
+  });
+
+  it("negative control: a worker that never errors answers exactly as before", async () => {
+    // Without this the three assertions above are vacuous — a fake that could never
+    // deliver an answer would decline for reasons that have nothing to do with the
+    // error path.
+    const created = scheduler();
+    const answered = created.requestTokens(overThresholdSource("e"), "typescript");
+    const worker = FakeHighlightWorker.latest;
+    const request = worker?.postedRequests[0];
+    expect(request).not.toBeUndefined();
+    if (request !== undefined) {
+      worker?.dispatchResponse({
+        requestId: request.requestId,
+        lines: [[{ content: "e", colorReference: undefined }]],
+      });
+    }
+    const outcome = await answered;
+    expect(outcome.status).toBe("highlighted");
+    expect(worker?.terminateCount).toBe(0);
   });
 });

@@ -95,11 +95,17 @@ export interface AnsiSpan {
 export interface AnsiSpanSequence {
   readonly spans: readonly AnsiSpan[];
   /**
-   * How many further spans the source held past `ANSI_SPAN_RENDER_CAP`.
+   * How many further spans the source held past the cap this parse ran under.
    *
    * Reported rather than dropped silently: a truncated render that says nothing is
    * indistinguishable from a tool that stopped printing, and `Nothing` exists so the
    * card can say which one this is.
+   *
+   * IT COUNTS RUNS THAT WOULD HAVE BECOME SPANS, and only those. The parse skips the
+   * empty-content entries anser emits around a bare escape sequence, so a figure taken
+   * as `entries.length - spans.length` charges the reader for runs that were never
+   * withheld — it would say a hundred further runs are not shown when the tail holds
+   * ten and ninety escape boundaries.
    */
   readonly elidedSpanCount: number;
 }
@@ -111,26 +117,41 @@ const COLOR_NAMES_BY_ANSER_CLASS: ReadonlyMap<string, AnsiColorName> = new Map(
 const REPRODUCED_DECORATIONS: ReadonlySet<string> = new Set<string>(ANSI_DECORATIONS);
 
 /**
- * Parse ANSI text into styled spans.
+ * Parse ANSI text into styled spans, up to a cap.
  *
  * `remove_empty` drops the zero-length runs anser emits around a bare escape sequence,
  * which would otherwise render as empty elements the accessibility tree still walks.
+ *
+ * THE CAP IS A PARAMETER rather than a constant this module reads, because the fold it
+ * produces is recoverable: a caller that has been asked for the rest re-parses the same
+ * source under a cap that admits it. `ANSI_SPAN_RENDER_CAP` is the default, so a caller
+ * that has not been asked spends exactly what it spent before.
+ *
+ * The loop runs to the end of the entries once the cap is reached rather than returning
+ * there: the remainder still has to be COUNTED, and it is counted over the same skip the
+ * admitted half was built through. Walking an array anser has already materialised is
+ * the cheap half of this function.
  */
-export function parseAnsiSpans(source: string): AnsiSpanSequence {
+export function parseAnsiSpans(
+  source: string,
+  spanCap: number = ANSI_SPAN_RENDER_CAP,
+): AnsiSpanSequence {
   const entries = Anser.ansiToJson(source, { json: true, use_classes: true, remove_empty: true });
   const spans: AnsiSpan[] = [];
+  let elidedSpanCount = 0;
 
   for (const entry of entries) {
     if (entry.content === "") {
       continue;
     }
-    if (spans.length >= ANSI_SPAN_RENDER_CAP) {
-      return { spans, elidedSpanCount: entries.length - spans.length };
+    if (spans.length >= spanCap) {
+      elidedSpanCount += 1;
+      continue;
     }
     spans.push(toSpan(entry));
   }
 
-  return { spans, elidedSpanCount: 0 };
+  return { spans, elidedSpanCount };
 }
 
 /**

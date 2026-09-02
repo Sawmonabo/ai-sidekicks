@@ -20,6 +20,18 @@ import {
  */
 const ESCAPE = String.fromCodePoint(0x1b);
 
+/**
+ * One styled run per repetition, so a fixture's run count is its repetition count.
+ *
+ * Every run carries content, which is what makes the elision figures below exact: anser
+ * runs with `remove_empty`, so the entry list and the span list are the same population
+ * and a count taken over either agrees — the parse counts over the SPANS' own walk so
+ * that agreement is a property of this module rather than of an option set elsewhere.
+ */
+function styledRuns(runCount: number): string {
+  return `${ESCAPE}[31ma${ESCAPE}[39m`.repeat(runCount);
+}
+
 describe("parsing ANSI output", () => {
   it("keeps the text and drops the escape sequences", () => {
     const { spans } = parseAnsiSpans(`${ESCAPE}[31mfailed${ESCAPE}[39m`);
@@ -66,13 +78,34 @@ describe("parsing ANSI output", () => {
   });
 
   it("bounds what it renders and says how much it left out", () => {
-    const oversized = Array.from(
-      { length: ANSI_SPAN_RENDER_CAP + 40 },
-      (_unused, index) => `${ESCAPE}[3${String(index % 7)}mx`,
-    ).join("");
-    const { spans, elidedSpanCount } = parseAnsiSpans(oversized);
+    const { spans, elidedSpanCount } = parseAnsiSpans(styledRuns(ANSI_SPAN_RENDER_CAP + 40));
     expect(spans.length).toBe(ANSI_SPAN_RENDER_CAP);
-    expect(elidedSpanCount).toBeGreaterThan(0);
+    // The exact figure, not merely a positive one: the count is what the card puts on
+    // screen, and a mapper that reported the entry total rather than the withheld runs
+    // would satisfy "greater than zero" while telling the reader the wrong number.
+    expect(elidedSpanCount).toBe(40);
+  });
+
+  it("takes the cap from its caller, so a fold can be lifted for one block", () => {
+    // `AnsiOutput` re-parses the same source under a wider cap when the reader asks for
+    // the rest. Without a cap parameter the tail of a colour-heavy command is reachable
+    // by nothing, because reopening the card re-parses exactly the same capped sequence.
+    const source = styledRuns(10);
+    const folded = parseAnsiSpans(source, 4);
+    expect(folded.spans).toHaveLength(4);
+    expect(folded.elidedSpanCount).toBe(6);
+
+    const lifted = parseAnsiSpans(source, folded.spans.length + folded.elidedSpanCount);
+    expect(lifted.spans).toHaveLength(10);
+    expect(lifted.elidedSpanCount).toBe(0);
+  });
+
+  it("negative control: a cap at the run count elides nothing at its own boundary", () => {
+    // Without this, an off-by-one that withheld the last admitted run would still report
+    // a plausible-looking figure in the two assertions above.
+    const { spans, elidedSpanCount } = parseAnsiSpans(styledRuns(4), 4);
+    expect(spans).toHaveLength(4);
+    expect(elidedSpanCount).toBe(0);
   });
 
   it("negative control: output inside the bound elides nothing", () => {
