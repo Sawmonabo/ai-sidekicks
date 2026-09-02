@@ -6,7 +6,7 @@
 // synchronously would satisfy every other assertion in this file and would still
 // be the `ResizeObserver` loop `Spec-023 §Console Design (Meridian)` §4.2 forbids.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import {
@@ -16,6 +16,14 @@ import {
   rectKey,
   type TrackedRect,
 } from "./rect-discipline.js";
+
+/** A rectangle in viewport coordinates, as the DOM would report one. */
+interface ViewportBox {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
 
 /** An element whose rect is whatever the test says it is. */
 function elementMeasuring(box: { width: number; height: number; x?: number; y?: number }): Element {
@@ -27,6 +35,11 @@ function elementMeasuring(box: { width: number; height: number; x?: number; y?: 
       height: box.height,
     }),
   } as unknown as Element;
+}
+
+/** Give a REAL element a box, which jsdom otherwise reports as all zeroes. */
+function measuring(element: HTMLElement, box: ViewportBox): void {
+  element.getBoundingClientRect = () => ({ ...box, top: box.y, left: box.x }) as DOMRect;
 }
 
 interface TrackerHarness {
@@ -138,18 +151,53 @@ describe("PaneRectTracker — what it reports as visible", () => {
     expect(writes[0]?.[0]?.isVisible).toBe(true);
   });
 
-  it("yields the airspace while an overlay is up, and takes it back when it closes", () => {
+  it("yields the airspace when an overlay opens, with nothing else asking it to look", () => {
+    // No manual invalidate anywhere in this case, and that absence IS the assertion.
+    // An overlay opening fires none of the four layout sources — the palette does not
+    // lock document scroll and its inert carrier is `display: contents` — so a tracker
+    // that only sampled occupancy inside `invalidate` would leave the last flushed
+    // visibility standing and composite a native view over the dialog.
     const airspace = new AirspaceRegistry();
     const { clock, tracker, writes } = harness(airspace);
-    const release = airspace.claim("dialog-1");
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
     clock.runFrame();
-    expect(writes[0]?.[0]?.isVisible).toBe(false);
+    expect(writes[0]?.[0]?.isVisible).toBe(true);
+
+    const release = airspace.claim("dialog-1");
+    clock.runFrame();
+    expect(writes[1]?.[0]?.isVisible).toBe(false);
 
     release();
-    tracker.invalidate("layout-mover");
     clock.runFrame();
-    expect(writes[1]?.[0]?.isVisible).toBe(true);
+    expect(writes[2]?.[0]?.isVisible).toBe(true);
+    expect(tracker.invalidationCount("airspace")).toBe(2);
+  });
+
+  it("negative control: a claim that does not change occupancy asks for nothing", () => {
+    // The release side has always emitted only on a real change. Without the same
+    // rule on the claim side, every overlay stacked above the first would re-measure
+    // every tracked pane for an answer that cannot differ.
+    const airspace = new AirspaceRegistry();
+    const { clock, tracker } = harness(airspace);
+    tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
+    clock.runFrame();
+
+    airspace.claim("dialog-1");
+    airspace.claim("toast-1");
+    expect(tracker.invalidationCount("airspace")).toBe(1);
+  });
+
+  it("stops listening to the airspace once disposed", () => {
+    const airspace = new AirspaceRegistry();
+    const { clock, tracker, writes } = harness(airspace);
+    tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
+    clock.runFrame();
+    tracker.dispose();
+
+    airspace.claim("dialog-1");
+    expect(clock.pendingCount).toBe(0);
+    clock.runFrame();
+    expect(writes).toHaveLength(1);
   });
 
   it("negative control: two overlays, and the first to close does not free the airspace", () => {
@@ -158,6 +206,80 @@ describe("PaneRectTracker — what it reports as visible", () => {
     airspace.claim("toast-1");
     releaseFirst();
     expect(airspace.isOccupied).toBe(true);
+  });
+});
+
+describe("PaneRectTracker — what a clipping ancestor does to the rect", () => {
+  /** A real element whose box the test decides, inside a real clipping ancestor. */
+  function paneInsideScroller(options: {
+    readonly pane: ViewportBox;
+    readonly scroller: ViewportBox;
+    readonly overflow: string;
+  }): Element {
+    const scroller = document.createElement("div");
+    scroller.style.overflow = options.overflow;
+    measuring(scroller, options.scroller);
+    const pane = document.createElement("div");
+    measuring(pane, options.pane);
+    scroller.append(pane);
+    document.body.append(scroller);
+    return pane;
+  }
+
+  afterEach(() => {
+    document.body.replaceChildren();
+  });
+
+  it("publishes the intersection with a scrolling ancestor rather than the border box", () => {
+    // A native view is composited by the host and is not clipped by the DOM ancestor
+    // that clips the pane, so a pane scrolled half out of the frame surface would have
+    // its view drawn over whatever sits beside it.
+    const { clock, tracker, writes } = harness();
+    tracker.track(
+      "pane-1",
+      paneInsideScroller({
+        pane: { x: 100, y: 40, width: 400, height: 300 },
+        scroller: { x: 100, y: 40, width: 400, height: 120 },
+        overflow: "auto",
+      }),
+    );
+    clock.runFrame();
+
+    expect(writes[0]?.[0]).toMatchObject({ x: 100, y: 40, width: 400, height: 120 });
+    expect(writes[0]?.[0]?.isVisible).toBe(true);
+  });
+
+  it("reports hidden when the ancestor's clip collapses the pane to nothing", () => {
+    const { clock, tracker, writes } = harness();
+    tracker.track(
+      "pane-1",
+      paneInsideScroller({
+        pane: { x: 100, y: 400, width: 400, height: 300 },
+        scroller: { x: 100, y: 40, width: 400, height: 120 },
+        overflow: "scroll",
+      }),
+    );
+    clock.runFrame();
+
+    expect(writes[0]?.[0]?.height).toBe(0);
+    expect(writes[0]?.[0]?.isVisible).toBe(false);
+  });
+
+  it("negative control: an ancestor that does not clip leaves the pane's own rect alone", () => {
+    // Without this, both cases above would pass over a tracker that intersected with
+    // every ancestor it walked, which would report a pane hidden for having a parent.
+    const { clock, tracker, writes } = harness();
+    tracker.track(
+      "pane-1",
+      paneInsideScroller({
+        pane: { x: 100, y: 40, width: 400, height: 300 },
+        scroller: { x: 100, y: 40, width: 400, height: 120 },
+        overflow: "visible",
+      }),
+    );
+    clock.runFrame();
+
+    expect(writes[0]?.[0]).toMatchObject({ x: 100, y: 40, width: 400, height: 300 });
   });
 });
 

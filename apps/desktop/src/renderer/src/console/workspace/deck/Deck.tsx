@@ -58,7 +58,12 @@ import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./dec
 import { minimumPaneWidthPx, type DeckDensity } from "./density.js";
 import { useDeckDragCoordinator, useDeckDragMonitor, useDeckDropIndicator } from "./pane-drag.js";
 import { DeckPaneSlot } from "./DeckPaneSlot.js";
-import { usePaneRectSources, usePaneRectTracker, type TrackedRect } from "./rect-discipline.js";
+import {
+  usePaneRectSources,
+  usePaneRectTracker,
+  type AirspaceRegistry,
+  type TrackedRect,
+} from "./rect-discipline.js";
 import { useSeparatorValueBoundsCorrection } from "./separator-aria.js";
 
 export interface DeckProps {
@@ -74,6 +79,15 @@ export interface DeckProps {
   readonly restoreRefusals?: readonly ConsoleRefusal[];
   /** Where measured pane rects go, for a body that hosts a native view (§4.3). */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
+  /**
+   * Which overlays are up, so a pane's rect yields while one is.
+   *
+   * Passed rather than constructed here: an overlay registers on the registry its own
+   * window owns (I-023-12's no-shared-state property), and a deck that made its own
+   * would be tracking an airspace nothing claims. The tracker has taken this option
+   * since it was written; until now no component could supply it.
+   */
+  readonly airspace?: AirspaceRegistry;
 }
 
 export function Deck(props: DeckProps): React.JSX.Element {
@@ -84,6 +98,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
   const tracker = usePaneRectTracker({
     clock,
     ...(props.onPaneRects === undefined ? {} : { onRects: props.onPaneRects }),
+    ...(props.airspace === undefined ? {} : { airspace: props.airspace }),
   });
   usePaneRectSources(tracker, containerReference, state.revision);
   useSeparatorValueBoundsCorrection(containerReference, state.revision);
