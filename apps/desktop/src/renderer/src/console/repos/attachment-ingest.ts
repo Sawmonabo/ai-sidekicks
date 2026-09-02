@@ -39,6 +39,15 @@
 // disposition differs are named in `attachment-model.ts` and classified there; this
 // file acts on the classification and invents no policy of its own.
 //
+// A PARTICIPANT CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
+// ledger after its await and proceeds only if the entry still stands where it stood.
+// Abandonment is the case that makes this load-bearing: an upload stopped while Init
+// was in flight would otherwise be resumed by the continuation writing its captured
+// entry back, and one stopped mid-chunk would stream on to completion. A stale
+// continuation writes nothing and leaves the abandoned state exactly as it found it.
+// The one thing it does do is abort the stream the daemon opened underneath it, which
+// nobody else can: that ingest id reached no ledger entry, so `abandon` never saw it.
+//
 // NO TIMER, ANYWHERE. The client performs work when a participant asks it to — attach,
 // retry, abandon — and at no other moment. There is no interval, no backoff timer, and
 // no automatic re-drive: `wait-and-retry` is a sentence a person reads and a control
@@ -209,7 +218,8 @@ export class AttachmentIngestClient {
   /** `AttachmentIngestInit`. Skipped when the stream is already open, which is what makes retry a replay. */
   async #openStream(localId: string): Promise<boolean> {
     const entry = this.#ledger.current(localId);
-    if (entry === undefined) {
+    const stamp = this.#ledger.stamp(localId);
+    if (entry === undefined || stamp === undefined) {
       return false;
     }
     if (entry.ingestId !== undefined) {
@@ -221,12 +231,20 @@ export class AttachmentIngestClient {
         name: entry.declared.declaredName,
         byteLength: entry.declared.byteLength,
       });
+    const settled = this.#ledger.currentIfUnchanged(localId, stamp);
+    if (settled === undefined) {
+      // Abandoned, removed, or disposed while Init was in flight. The daemon opened a
+      // stream whose id never reached the ledger, so this is the only place that can
+      // ask for its spool back.
+      this.#abort(answer.value?.ingestId);
+      return false;
+    }
     if (answer.status !== "served" || answer.value === undefined) {
-      this.#refuse(localId, answer);
+      this.#refuse(localId, settled, answer);
       return false;
     }
     this.#ledger.write(localId, {
-      ...entry,
+      ...settled,
       state: "ingesting",
       ingestId: answer.value.ingestId,
       openedAtMilliseconds: this.#clock.now(),
@@ -249,7 +267,8 @@ export class AttachmentIngestClient {
   async #streamChunks(localId: string): Promise<boolean> {
     for (;;) {
       const entry = this.#ledger.current(localId);
-      if (entry === undefined || entry.ingestId === undefined) {
+      const stamp = this.#ledger.stamp(localId);
+      if (entry === undefined || stamp === undefined || entry.ingestId === undefined) {
         return false;
       }
       const offset = entry.receivedBytes;
@@ -258,22 +277,27 @@ export class AttachmentIngestClient {
       }
       const slice = entry.declared.payload.slice(offset, offset + ATTACHMENT_CHUNK_BYTE_CAP);
       const bytes = new Uint8Array(await slice.arrayBuffer());
+      if (this.#ledger.currentIfUnchanged(localId, stamp) === undefined) {
+        return false;
+      }
       const answer: PortAnswer<void> = await this.#bridge.growth.artifactIngestWriteChunk({
         ingestId: entry.ingestId,
         sequenceNumber: Math.floor(offset / ATTACHMENT_CHUNK_BYTE_CAP),
         chunk: encodeBase64(bytes),
       });
-      if (answer.status !== "served") {
-        this.#refuse(localId, answer);
+      const settled = this.#ledger.currentIfUnchanged(localId, stamp);
+      if (settled === undefined) {
+        // Abandoned or removed mid-chunk. `abandon` already asked for this spool back,
+        // because the ingest id was in the ledger for it to find.
         return false;
       }
-      const stillCurrent = this.#ledger.current(localId);
-      if (stillCurrent === undefined) {
+      if (answer.status !== "served") {
+        this.#refuse(localId, settled, answer);
         return false;
       }
       this.#ledger.write(localId, {
-        ...stillCurrent,
-        receivedBytes: advanceReceivedBytes(stillCurrent, bytes.byteLength),
+        ...settled,
+        receivedBytes: advanceReceivedBytes(settled, bytes.byteLength),
         lastProgressAtMilliseconds: this.#clock.now(),
       });
     }
@@ -282,7 +306,8 @@ export class AttachmentIngestClient {
   /** `AttachmentIngestComplete`. The derived truth replaces the declaration here and nowhere else. */
   async #completeStream(localId: string): Promise<void> {
     const entry = this.#ledger.current(localId);
-    if (entry === undefined || entry.ingestId === undefined) {
+    const stamp = this.#ledger.stamp(localId);
+    if (entry === undefined || stamp === undefined || entry.ingestId === undefined) {
       return;
     }
     const answer: PortAnswer<{
@@ -291,12 +316,16 @@ export class AttachmentIngestClient {
       readonly derivedMediaType: string;
       readonly derivedSizeBytes: number;
     }> = await this.#bridge.growth.artifactIngestComplete({ ingestId: entry.ingestId });
+    const settled = this.#ledger.currentIfUnchanged(localId, stamp);
+    if (settled === undefined) {
+      return;
+    }
     if (answer.status !== "served" || answer.value === undefined) {
-      this.#refuse(localId, answer);
+      this.#refuse(localId, settled, answer);
       return;
     }
     this.#ledger.write(localId, {
-      ...entry,
+      ...settled,
       state: "complete",
       derived: {
         artifactId: answer.value.artifactId,
@@ -315,12 +344,13 @@ export class AttachmentIngestClient {
     }
   }
 
-  /** Record a refusal verbatim, with the disposition that decides what the control offers. */
-  #refuse(localId: string, answer: PortAnswer<unknown>): void {
-    const entry = this.#ledger.current(localId);
-    if (entry === undefined) {
-      return;
-    }
+  /**
+   * Record a refusal verbatim, with the disposition that decides what the control offers.
+   *
+   * Takes the entry its caller re-read after the await rather than reading one itself,
+   * so a refusal can never be written over a state a participant moved meanwhile.
+   */
+  #refuse(localId: string, entry: AttachmentIngestEntry, answer: PortAnswer<unknown>): void {
     const code = answer.code ?? "attachment.ingest_rejected";
     this.#ledger.write(localId, {
       ...entry,

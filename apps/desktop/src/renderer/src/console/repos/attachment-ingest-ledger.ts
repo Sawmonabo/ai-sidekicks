@@ -16,13 +16,32 @@
 // is the record, not a rendering of one.
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
-import type { AttachmentIngestEntry, AttachmentSource } from "./attachment-model.js";
+import type {
+  AttachmentIngestEntry,
+  AttachmentIngestState,
+  AttachmentSource,
+} from "./attachment-model.js";
 
 /** One entry's fields, minus the bookkeeping the ledger stamps for itself. */
 export type AttachmentLedgerWrite = Omit<AttachmentIngestEntry, "declared">;
 
+/**
+ * What one entry stood at, taken before an await and checked after it.
+ *
+ * The generation is the ledger's own record of how many times an entry has been
+ * rewritten, and it is what makes the check total: two states can be equal across an
+ * await that changed and changed back, and a counter that only ever rises cannot be.
+ * It is NOT on the entry a card renders, because it is bookkeeping about the record
+ * rather than anything a participant is shown.
+ */
+export interface AttachmentLedgerStamp {
+  readonly state: AttachmentIngestState;
+  readonly generation: number;
+}
+
 export class AttachmentIngestLedger {
   readonly #entriesByLocalId = new Map<string, AttachmentIngestEntry>();
+  readonly #generationByLocalId = new Map<string, number>();
   readonly #declaredOrder: string[] = [];
   readonly #changes = new Emitter<readonly AttachmentIngestEntry[]>("attachment ingest");
 
@@ -48,9 +67,38 @@ export class AttachmentIngestLedger {
     return this.#disposed ? undefined : this.#entriesByLocalId.get(localId);
   }
 
+  /** What this entry stands at now, for a continuation to check against later. */
+  public stamp(localId: string): AttachmentLedgerStamp | undefined {
+    const entry = this.current(localId);
+    if (entry === undefined) {
+      return undefined;
+    }
+    return { state: entry.state, generation: this.#generationByLocalId.get(localId) ?? 0 };
+  }
+
+  /**
+   * The entry, but only if nothing has touched it since the stamp was taken.
+   *
+   * Every continuation that comes back from an await asks this rather than acting on
+   * the entry it captured. A participant can abandon or remove an attachment while a
+   * call is in flight, and a continuation that wrote its captured entry back would
+   * restore the state that abandonment replaced — resuming an upload somebody stopped.
+   */
+  public currentIfUnchanged(
+    localId: string,
+    stamp: AttachmentLedgerStamp,
+  ): AttachmentIngestEntry | undefined {
+    const entry = this.current(localId);
+    if (entry === undefined || entry.state !== stamp.state) {
+      return undefined;
+    }
+    return (this.#generationByLocalId.get(localId) ?? 0) === stamp.generation ? entry : undefined;
+  }
+
   /** Take one attachment into the carrier, at the end of the declared order. */
   public declare(source: AttachmentSource): void {
     this.#declaredOrder.push(source.localId);
+    this.#generationByLocalId.set(source.localId, 0);
     this.#entriesByLocalId.set(source.localId, {
       declared: source,
       state: "declared",
@@ -78,6 +126,7 @@ export class AttachmentIngestLedger {
       return;
     }
     this.#entriesByLocalId.set(localId, { ...fields, declared: existing.declared });
+    this.#generationByLocalId.set(localId, (this.#generationByLocalId.get(localId) ?? 0) + 1);
     this.#publish();
   }
 
@@ -89,6 +138,7 @@ export class AttachmentIngestLedger {
     }
     this.#declaredOrder.splice(position, 1);
     this.#entriesByLocalId.delete(localId);
+    this.#generationByLocalId.delete(localId);
     this.#publish();
   }
 
