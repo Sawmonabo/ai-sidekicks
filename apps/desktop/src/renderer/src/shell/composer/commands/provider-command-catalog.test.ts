@@ -8,12 +8,7 @@ import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import type { ConsoleCommand } from "../../../console/palette/index.js";
-import {
-  composeCatalog,
-  filterCatalog,
-  providerCommandNames,
-  readDiscoveryPrefix,
-} from "./provider-command-catalog.js";
+import { composeCatalog, filterCatalog, readDiscoveryPrefix } from "./provider-command-catalog.js";
 
 const OFFERED: readonly ConsoleCommand[] = [
   { id: "frame.goToSettings", title: "Go to Settings", group: "Navigate", run: () => undefined },
@@ -119,13 +114,5 @@ describe("filterCatalog", () => {
     const catalog = composeCatalog({ offeredCommands: OFFERED, providerGroups: GROUPS });
 
     expect(filterCatalog(catalog, "")).toHaveLength(3);
-  });
-});
-
-describe("providerCommandNames", () => {
-  it("names only what the provider published, never a console act", () => {
-    const catalog = composeCatalog({ offeredCommands: OFFERED, providerGroups: GROUPS });
-
-    expect(providerCommandNames(catalog)).toEqual(["compact", "compact"]);
   });
 });

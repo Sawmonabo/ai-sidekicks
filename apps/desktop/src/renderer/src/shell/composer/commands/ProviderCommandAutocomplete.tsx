@@ -27,14 +27,13 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { InlineRefusal, Nothing, WireFigure } from "../../../console/primitives/index.js";
 import { type ComposerSeatProps } from "../../../console/workspace/index.js";
 import { useComposerAddress } from "../composer-address.js";
+import type { CommandOutcome } from "../router/command-executor.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
-import type { CommandOutcome } from "./client-command-recognizer.js";
 import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
 import { useDirectiveLineDiscovery } from "./directive-line-observer.js";
 import {
   composeCatalog,
   filterCatalog,
-  providerCommandNames,
   type CommandCatalogEntry,
 } from "./provider-command-catalog.js";
 import { useProviderCommandEnumeration } from "./provider-command-read.js";
@@ -105,18 +104,7 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
   });
   const entries = filterCatalog(catalog, prefix);
 
-  // Read through a ref so the executor built once always decides against the
-  // enumeration in hand rather than the one this surface opened on.
-  const providerNamesRef = useRef<readonly string[]>([]);
-  providerNamesRef.current = providerCommandNames(catalog);
-  const executor = useMemo(
-    () =>
-      createClientCommandExecutor({
-        readSurface,
-        readProviderCommandNames: () => providerNamesRef.current,
-      }),
-    [readSurface],
-  );
+  const executor = useMemo(() => createClientCommandExecutor({ readSurface }), [readSurface]);
 
   const boundedIndex = entries.length === 0 ? -1 : Math.min(activeIndex, entries.length - 1);
 
@@ -152,7 +140,7 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
   const runConsoleCommand = useCallback(
     (commandId: string) => {
       setActionOutcome(undefined);
-      void executor({ commandName: commandId, argumentText: "" }).then(setActionOutcome);
+      void executor({ commandName: commandId, text: `/${commandId}` }).then(setActionOutcome);
     },
     [executor],
   );

@@ -37,11 +37,15 @@ function registerCommand(command: {
   registeredIds.push(command.id);
 }
 
-function executorOverProviderNames(providerCommandNames: readonly string[]) {
+function executorOverConsoleRegistry() {
   return createClientCommandExecutor({
     readSurface: () => composerCommandSurface(DEFAULT_ROUTE),
-    readProviderCommandNames: () => providerCommandNames,
   });
+}
+
+/** One line as the router builds it: the name, and the trimmed text it came from. */
+function directiveLine(commandName: string) {
+  return { commandName, text: `/${commandName}` };
 }
 
 afterEach(() => {
@@ -59,9 +63,9 @@ describe("createClientCommandExecutor", () => {
         ranCount += 1;
       },
     });
-    const executor = executorOverProviderNames([]);
+    const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor({ commandName: RAN_COMMAND_ID, argumentText: "" });
+    const outcome = await executor(directiveLine(RAN_COMMAND_ID));
 
     expect(outcome).toEqual({ status: "applied" });
     expect(ranCount).toBe(1);
@@ -80,9 +84,9 @@ describe("createClientCommandExecutor", () => {
         settled = true;
       },
     });
-    const executor = executorOverProviderNames([]);
+    const executor = executorOverConsoleRegistry();
 
-    const pending = executor({ commandName: RAN_COMMAND_ID, argumentText: "" });
+    const pending = executor(directiveLine(RAN_COMMAND_ID));
     expect(settled).toBe(false);
     release?.();
 
@@ -95,9 +99,9 @@ describe("createClientCommandExecutor", () => {
       id: FAILING_COMMAND_ID,
       run: () => Promise.reject(new Error("the act did not complete")),
     });
-    const executor = executorOverProviderNames([]);
+    const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor({ commandName: FAILING_COMMAND_ID, argumentText: "" });
+    const outcome = await executor(directiveLine(FAILING_COMMAND_ID));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -117,9 +121,9 @@ describe("createClientCommandExecutor", () => {
         ranCount += 1;
       },
     });
-    const executor = executorOverProviderNames([]);
+    const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor({ commandName: HIDDEN_COMMAND_ID, argumentText: "" });
+    const outcome = await executor(directiveLine(HIDDEN_COMMAND_ID));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
@@ -141,24 +145,25 @@ describe("createClientCommandExecutor", () => {
     expect(surface.offeredCommands.map((command) => command.id)).not.toContain(HIDDEN_COMMAND_ID);
   });
 
-  it("refuses a provider command by rule and dispatches nothing", async () => {
-    const executor = executorOverProviderNames(["compact"]);
+  it("refuses a name the console never registered and dispatches nothing", async () => {
+    // `compact` is a real provider command name, which is exactly why it is the
+    // interesting one: the console does not register it, so the composer does not run
+    // it, and the popover is where a person reads that the provider's own entries are
+    // offered for discovery and nothing else.
+    const executor = executorOverConsoleRegistry();
 
-    const outcome = await executor({ commandName: "compact", argumentText: "" });
+    const outcome = await executor(directiveLine("compact"));
 
     expect(outcome.status).toBe("refused");
     if (outcome.status !== "refused") {
-      throw new Error("a provider command must never be executed from the composer");
+      throw new Error("an unregistered name must never be executed from the composer");
     }
-    expect(outcome.refusal.code).toBe("provider-command-not-executable");
+    expect(outcome.refusal.code).toBe("unknown-command");
   });
 
   it("reads the registry at run time, so a late registration is reachable", async () => {
-    const executor = executorOverProviderNames([]);
-    const beforeRegistration = await executor({
-      commandName: RAN_COMMAND_ID,
-      argumentText: "",
-    });
+    const executor = executorOverConsoleRegistry();
+    const beforeRegistration = await executor(directiveLine(RAN_COMMAND_ID));
     expect(beforeRegistration.status).toBe("refused");
 
     let ranCount = 0;
@@ -169,7 +174,7 @@ describe("createClientCommandExecutor", () => {
       },
     });
 
-    expect(await executor({ commandName: RAN_COMMAND_ID, argumentText: "" })).toEqual({
+    expect(await executor(directiveLine(RAN_COMMAND_ID))).toEqual({
       status: "applied",
     });
     expect(ranCount).toBe(1);

@@ -126,8 +126,3 @@ export function filterCatalog(
   const wanted = prefix.toLowerCase();
   return entries.filter((entry) => entry.name.toLowerCase().startsWith(wanted));
 }
-
-/** Every provider-published name in one catalog, for the recognizer's second answer. */
-export function providerCommandNames(entries: readonly CommandCatalogEntry[]): readonly string[] {
-  return entries.filter((entry) => entry.source === "provider").map((entry) => entry.name);
-}

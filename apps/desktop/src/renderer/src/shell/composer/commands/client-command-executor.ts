@@ -11,24 +11,24 @@
 // So this module is the one place that spends the `completion` promise `invoke`
 // returns, and it answers with a settlement rather than a start.
 //
-// EVERY ARM SETTLES, AND EACH SETTLES DIFFERENTLY. `unknown-command` is a name
-// nothing registers; `hidden-in-context` is a command that exists and does not apply
-// where this composer is — two different remedies, so two different codes. A rejected
-// `completion` is a third: the command ran and failed, and the honest report is the
-// command's own failure rather than a claim that it was never recognised.
+// EVERY ARM SETTLES, AND EACH SETTLES DIFFERENTLY. `unknown-command` is a name the
+// registry no longer holds; `hidden-in-context` is a command that exists and does not
+// apply where this composer is — two different remedies, so two different codes. A
+// rejected `completion` is a third: the command ran and failed, and the honest report
+// is the command's own failure rather than a claim that it was never recognised.
+
+import { useCallback, useMemo } from "react";
 
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
+import type { ConsoleRoute } from "../../../console/routing/index.js";
+import type { CommandExecutor, CommandOutcome, DirectiveLine } from "../router/command-executor.js";
+import type { ClientCommandPredicate } from "../router/send-router.js";
 import {
   clientCommandRefusal,
   recognizeClientCommand,
   type ClientCommandRecognitionInput,
-  type CommandOutcome,
-  type DirectiveLine,
 } from "./client-command-recognizer.js";
-import type { ComposerCommandSurface } from "./console-command-surface.js";
-
-/** What the send controller is handed: one line in, one settlement out. */
-export type ClientCommandExecutor = (line: DirectiveLine) => Promise<CommandOutcome>;
+import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
 
 /**
  * Build the executor for one composer.
@@ -40,15 +40,13 @@ export type ClientCommandExecutor = (line: DirectiveLine) => Promise<CommandOutc
  */
 export function createClientCommandExecutor(options: {
   readonly readSurface: () => ComposerCommandSurface;
-  readonly readProviderCommandNames: () => readonly string[];
-}): ClientCommandExecutor {
+}): CommandExecutor {
   return async (line: DirectiveLine): Promise<CommandOutcome> => {
     const surface = options.readSurface();
     const recognitionInput: ClientCommandRecognitionInput = {
       registeredCommandIds: surface.registeredCommandIds,
-      providerCommandNames: options.readProviderCommandNames(),
     };
-    const recognition = recognizeClientCommand(line, recognitionInput);
+    const recognition = recognizeClientCommand(line.commandName, recognitionInput);
     if (recognition.status === "refused") {
       return { status: "refused", refusal: recognition.refusal };
     }
@@ -100,4 +98,38 @@ async function settleInvocation(
         };
       }
   }
+}
+
+/**
+ * The two halves the send bar is handed, built together.
+ *
+ * TOGETHER, because they are one decision split in half. The router will not
+ * intercept a name nothing claims, so a recogniser with no executor intercepts into a
+ * refusal and an executor with no recogniser is never called — which is why the
+ * controller documents them as supplied by one zone or by neither, and why one hook
+ * here answers for both.
+ *
+ * Both halves read the SAME surface thunk, so the predicate that claimed a name and
+ * the executor that runs it can never be looking at two different registries.
+ */
+export interface ComposerCommandZone {
+  readonly recognizeClientCommand: ClientCommandPredicate;
+  readonly commandExecutor: CommandExecutor;
+}
+
+/** Build the send bar's recogniser and executor for one composer's route. */
+export function useComposerCommandZone(route: ConsoleRoute): ComposerCommandZone {
+  const readSurface = useCallback(() => composerCommandSurface(route), [route]);
+  const recognizeName = useCallback<ClientCommandPredicate>(
+    (commandName) =>
+      recognizeClientCommand(commandName, {
+        registeredCommandIds: readSurface().registeredCommandIds,
+      }).status === "recognized",
+    [readSurface],
+  );
+  const commandExecutor = useMemo(
+    () => createClientCommandExecutor({ readSurface }),
+    [readSurface],
+  );
+  return { recognizeClientCommand: recognizeName, commandExecutor };
 }

@@ -34,14 +34,21 @@ import { type ComposerSeatProps } from "../../../console/workspace/index.js";
 import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
 import { useComposerAddress } from "../composer-address.js";
 import { readTextNeutralization } from "../neutralization-tripwire.js";
+import { useComposerCommandZone } from "../commands/client-command-executor.js";
 import { useSendController } from "./send-controller.js";
 
 export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
+  // BOTH HALVES OR NEITHER. The router will not intercept a name its recogniser does
+  // not claim, and an intercepted name with no executor refuses rather than running,
+  // so the two are supplied together by the zone that owns both.
+  const commandZone = useComposerCommandZone(props.route);
   const controller = useSendController({
     bridge: props.bridge,
     target: address.target,
     draftStore: props.draftStore,
+    recognizeClientCommand: commandZone.recognizeClientCommand,
+    commandExecutor: commandZone.commandExecutor,
   });
   const pathLabelId = useId();
   const isSending = controller.status === "sending";

@@ -2,17 +2,18 @@
 //
 // One of the composer's zones, and the one that answers the reserved slash prefix:
 // what a typed `/name` runs, and what the bound provider offers for discovery beside
-// it. The host mounts the popover and nothing else, so that is what leaves through
-// here — the recognizer, the executor, and the catalog model are reached deeply from
-// inside this zone, which is what a barrel is for.
+// it. One thing leaves through here — the popover the host mounts — because the
+// host is the only consumer outside this zone that mounts anything.
 //
-// The executor and its two types DO leave, because the send controller's optional
-// `commandExecutor` dependency is a seam across zones: the router zone holds the
-// controller and this zone holds what plugs into it. They carry the dead-code gate's
-// one exemption on the terms `apps/desktop/AGENTS.md` sets — a `@consumedBy` tag on
-// the barrel specifier naming the task that imports them — because the controller
-// side of the seam lands in the same family and not in this commit. The tag and the
-// comment are deleted together by the change that wires them.
+// The send bar reaches `useComposerCommandZone` DEEP rather than through this door,
+// the same way this zone reaches the router's executor seam deep: an intra-family
+// import is a sibling reading a sibling, and routing it through a barrel would make
+// this module look like the owner of a hook the send bar is the only caller of.
+//
+// The seam's own shapes do not leave through here either. `DirectiveLine`,
+// `CommandOutcome`, and `CommandExecutor` are the router zone's declarations,
+// imported by this zone rather than restated in it, and a barrel that re-exported
+// another zone's types would advertise this one as their owner.
 //
 // The stylesheet is imported here so it arrives on the zone's one edge, the same rule
 // every other family's door follows.
@@ -20,16 +21,3 @@
 import "./provider-command-autocomplete.css";
 
 export { ProviderCommandAutocomplete } from "./ProviderCommandAutocomplete.js";
-
-export {
-  /** @consumedBy T-023p-1C-3 */
-  createClientCommandExecutor,
-  /** @consumedBy T-023p-1C-3 */
-  type ClientCommandExecutor,
-} from "./client-command-executor.js";
-export type {
-  /** @consumedBy T-023p-1C-3 */
-  CommandOutcome,
-  /** @consumedBy T-023p-1C-3 */
-  DirectiveLine,
-} from "./client-command-recognizer.js";

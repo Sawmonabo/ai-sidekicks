@@ -1,9 +1,9 @@
-// The three answers, and that they stay three.
+// The two answers, and that they stay two.
 //
-// The claim worth a unit is the middle one: a name the bound provider published is
-// refused for a DIFFERENT reason than a name nobody registered. Collapsing them
-// would tell a person who typed a real provider command that no such command exists,
-// which is both false and the wrong next move.
+// The claim worth a unit is the second one's SCOPE: recognition is decided against
+// every id this window has registered, visible or not, so a command that exists and
+// does not apply here is never reported as a name nobody has heard of. That is the
+// difference between "go where it applies" and "you typed it wrong".
 
 import { describe, expect, it } from "vitest";
 
@@ -16,62 +16,53 @@ import {
 
 const INPUT: ClientCommandRecognitionInput = {
   registeredCommandIds: ["frame.goToSettings", "bridge.copyBuildDetails"],
-  providerCommandNames: ["compact", "review"],
 };
 
 describe("recognizeClientCommand", () => {
   it("recognises a registered console command by its exact id", () => {
-    const recognition = recognizeClientCommand(
-      { commandName: "frame.goToSettings", argumentText: "" },
-      INPUT,
-    );
+    const recognition = recognizeClientCommand("frame.goToSettings", INPUT);
 
     expect(recognition).toEqual({ status: "recognized", commandId: "frame.goToSettings" });
   });
 
-  it("refuses a provider command by rule, naming the discovery-only reading", () => {
-    const recognition = recognizeClientCommand({ commandName: "compact", argumentText: "" }, INPUT);
+  it("carries this zone's origin on every refusal it mints", () => {
+    const recognition = recognizeClientCommand("compact", INPUT);
 
     expect(recognition.status).toBe("refused");
     if (recognition.status !== "refused") {
-      throw new Error("a provider command name must not be recognised");
+      throw new Error("a name the console never registered must not be recognised");
     }
-    expect(recognition.refusal.code).toBe("provider-command-not-executable");
     expect(recognition.refusal.origin).toBe(CLIENT_COMMAND_REFUSAL_ORIGIN);
     expect(recognition.refusal.detail).toContain("compact");
   });
 
-  it("refuses an unregistered name as unknown, naming the literal-slash escape", () => {
-    const recognition = recognizeClientCommand(
-      { commandName: "nowhere.atAll", argumentText: "" },
-      INPUT,
-    );
+  it("refuses an unregistered name as unknown, naming the name rather than the escape", () => {
+    const recognition = recognizeClientCommand("nowhere.atAll", INPUT);
 
     expect(recognition.status).toBe("refused");
     if (recognition.status !== "refused") {
       throw new Error("an unregistered name must not be recognised");
     }
     expect(recognition.refusal.code).toBe("unknown-command");
-    expect(recognition.refusal.detail).toContain("//");
+    expect(recognition.refusal.detail).toContain("nowhere.atAll");
+    // The escape belongs to the router, which is what a person who TYPED an
+    // unrecognised name actually meets; saying it twice would be two owners of one
+    // sentence.
+    expect(recognition.refusal.detail).not.toContain("//");
   });
 
   it("negative control: a partial id is not a match, so prefixes never run a command", () => {
-    const recognition = recognizeClientCommand(
-      { commandName: "frame.goTo", argumentText: "" },
-      INPUT,
-    );
+    const recognition = recognizeClientCommand("frame.goTo", INPUT);
 
     expect(recognition.status).toBe("refused");
   });
 
-  it("negative control: an offered id that is also a provider name resolves as the console's", () => {
-    const recognition = recognizeClientCommand(
-      { commandName: "compact", argumentText: "" },
-      {
-        registeredCommandIds: ["compact"],
-        providerCommandNames: ["compact"],
-      },
-    );
+  it("negative control: a name the provider also publishes resolves as the console's", () => {
+    // Both surfaces may publish `compact`. The console's registration is what decides
+    // here, because the console's is the only one this composer can run.
+    const recognition = recognizeClientCommand("compact", {
+      registeredCommandIds: ["compact"],
+    });
 
     expect(recognition).toEqual({ status: "recognized", commandId: "compact" });
   });

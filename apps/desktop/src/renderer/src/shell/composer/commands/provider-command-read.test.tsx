@@ -46,6 +46,7 @@ function targetForAgent(agentId: string): ComposerTarget {
     sessionId: COMPOSER_SCENARIO.sessionId,
     agentId,
     agentName: undefined,
+    driverName: "claude",
     targetRunId: "019b7a11-1100-740e-8110-d1a4c1150311",
     expectedRunVersion: 4,
     runState: "waiting_for_input",
