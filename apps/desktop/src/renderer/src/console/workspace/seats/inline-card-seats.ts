@@ -69,14 +69,12 @@ export interface DiffInlineCardProps {
   readonly changeSetId: string;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /** An attachment card, over one message attachment. */
 export interface AttachmentInlineCardProps {
   readonly kind: "attachment";
   readonly attachment: InlineCardAttachmentRef;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-5
 /**
  * An artifact card, over one published artifact.
  *

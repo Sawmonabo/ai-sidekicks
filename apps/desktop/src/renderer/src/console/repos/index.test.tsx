@@ -28,6 +28,18 @@ import { registerRepos, registerReposPanes } from "./index.js";
 const REPOS_PANE_KINDS = ["diff", "artifact"] as const;
 
 /**
+ * The accessible name each pane's own region carries — its kind's noun.
+ *
+ * Named rather than positional because a pane may MOUNT further regions inside itself:
+ * the artifact pane composes the artifacts panel, which is a labelled region of its
+ * own, so a bare role query finds two and fails for a reason unrelated to the claim.
+ */
+const PANE_REGION_NAME_BY_KIND: Readonly<Record<(typeof REPOS_PANE_KINDS)[number], string>> = {
+  diff: "Diff",
+  artifact: "Artifact",
+};
+
+/**
  * A section context with real collaborators.
  *
  * The section READS now — it holds the `repo.workspaceList` / `repo.mountRead` pair
@@ -134,7 +146,9 @@ describe("repos family — the deck's pane kinds", () => {
       // length of the case, so a document-wide query finds two regions on the
       // second pass and fails for a reason that has nothing to do with the claim.
       const { container } = render(<>{descriptor?.render(paneContext(kind))}</>);
-      expect(within(container).getByRole("region")).toBeDefined();
+      expect(
+        within(container).getByRole("region", { name: PANE_REGION_NAME_BY_KIND[kind] }),
+      ).toBeDefined();
     }
   });
 });
