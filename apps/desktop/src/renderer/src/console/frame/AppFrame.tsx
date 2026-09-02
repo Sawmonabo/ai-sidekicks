@@ -122,6 +122,8 @@ function surfaceNameFor(route: ConsoleRoute): string {
       return "The sessions list";
     case "workspace":
       return "The session workspace";
+    case "workflows":
+      return "Workflows";
     case "settings":
       return "Settings";
     case "auxiliary":

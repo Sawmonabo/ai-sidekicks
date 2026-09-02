@@ -77,8 +77,14 @@ describe("legacy surfaces — which family holds which slot", () => {
 
   it("negative control: the slots nobody claimed stay reserved", () => {
     // "Reserved, not stubbed" is the frame's rule for an unclaimed slot, and the
-    // case above would read the same over a registrar that claimed all five.
+    // case above would read the same over a registrar that claimed all six.
+    //
+    // `workflows` is here for a second reason: the rail's middle destination is
+    // reachable now and the family that fills it (T-023p-1C-6) ships on its own
+    // branch, so the slot has to be declared and unclaimed rather than declared
+    // and quietly held by whoever registered nearest to it.
     const registry = registeredLegacySurfaces();
+    expect(registry.descriptorFor("workflows")).toBeUndefined();
     expect(registry.descriptorFor("settings")).toBeUndefined();
     expect(registry.descriptorFor("timeline")).toBeUndefined();
   });

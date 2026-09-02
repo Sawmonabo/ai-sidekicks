@@ -139,10 +139,14 @@ describe("browser — the frame lays out", () => {
     const listed = [...(dialog?.querySelectorAll("[role='option']") ?? [])].map(
       (option) => option.textContent ?? "",
     );
+    // The three rail destinations, listed because the palette walks the same
+    // closed set the rail does — a destination reachable by icon and not by
+    // command would be the two disagreeing about where a person can go.
+    expect(listed.some((text) => text.includes("Go to Sessions"))).toBe(true);
+    expect(listed.some((text) => text.includes("Go to Workflows"))).toBe(true);
+    expect(listed.some((text) => text.includes("Go to Settings"))).toBe(true);
     // "Go to Workspace" is deliberately absent: its `when: "sessionActive"` is
     // false on a first run, and a command that cannot act is not offered.
-    expect(listed.some((text) => text.includes("Go to Sessions"))).toBe(true);
-    expect(listed.some((text) => text.includes("Go to Settings"))).toBe(true);
     expect(listed.some((text) => text.includes("Go to Workspace"))).toBe(false);
   });
 

@@ -26,11 +26,15 @@
 //     commit later: a store that started on the default route left the route-to-hash
 //     direction publishing that default on the very first pass — long enough to
 //     overwrite the address an auxiliary window was opened at with `#/sessions`.
-//   • **The rail and the palette follow the RETAINED session, not the route.** The
-//     registry keeps a session open after the route leaves it, so Workspace stays
-//     reachable from Settings and goes back to the session that is still open.
+//   • **The palette follows the RETAINED session, not the route.** The registry
+//     keeps a session open after the route leaves it, so "Go to Workspace" stays
+//     offered from Settings and goes back to the session that is still open.
 //     `RouteSurface` still reads the route's own session, which is a different
 //     question — what to render now, rather than where to go back to.
+//   • **The frame's background is inert for exactly the palette's lifetime.** The
+//     dialog family traps focus and leaves inerting the app root to the shell, and
+//     this file is the shell: it owns the palette's open state, so it is the only
+//     place that can hand `AppFrame` the flag.
 //   • **The bridge is provided, never reached for.** No component below this one
 //     touches `window.sidekicks`.
 
@@ -50,7 +54,7 @@ import { applyConsoleScheme, installMeridianTokens } from "./token-installation.
 import { AppFrame } from "./AppFrame.js";
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
 import { useHashRouteBinding } from "./hash-route-binding.js";
-import { buildRailEntries, routeForDestination } from "./rail-navigation.js";
+import { RAIL_ENTRIES, routeForDestination } from "./rail-navigation.js";
 import { RouteSurface } from "./RouteSurface.js";
 import { useSchemePreference } from "./scheme-preference.js";
 import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecycle.js";
@@ -241,11 +245,12 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   return (
     <AppFrame
       route={route}
-      railEntries={buildRailEntries(lastOpenedSessionId)}
+      railEntries={RAIL_ENTRIES}
       railDestination={railDestinationFor(route)}
       onSelectDestination={(destination) => {
-        frameStore.navigate(routeForDestination(destination, lastOpenedSessionId));
+        frameStore.navigate(routeForDestination(destination));
       }}
+      modalOverlayOpen={commandSurface.paletteOpen}
       banners={banners}
       onDismissBanner={(bannerId) => {
         frameStore.dismissBanner(bannerId);
