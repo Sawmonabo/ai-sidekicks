@@ -3,7 +3,11 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { CODE_HIGHLIGHT_SOURCE_BYTE_CAP, CODE_WORKER_THRESHOLD_BYTES } from "../card-bounds.js";
+import {
+  CODE_HIGHLIGHT_SOURCE_BYTE_CAP,
+  CODE_TOKEN_CACHE_BYTE_CAP,
+  CODE_WORKER_THRESHOLD_BYTES,
+} from "../card-bounds.js";
 import type { HighlightRequestMessage, HighlightResponseMessage } from "./highlight-protocol.js";
 import {
   HIGHLIGHT_DECLINE_REASONS,
@@ -21,6 +25,16 @@ const schedulers: CodeHighlightScheduler[] = [];
  * would report it as "timed out" rather than as "never settled".
  */
 const NEVER_SETTLED = "never-settled";
+
+/**
+ * The retained-token-to-source ratio `Spec-023 §Console Libraries` measures, and the
+ * budget it is measured against. Here rather than in `card-bounds.ts` because they are
+ * what the constant is DERIVED from — a module that exported its own derivation inputs
+ * would let a future edit move both together and still call the result checked.
+ */
+const MEASURED_TOKEN_TO_SOURCE_RATIO = 21.5;
+const ONE_MEBIBYTE = 1_048_576;
+
 const NEVER_SETTLED_MILLISECONDS = 50;
 
 function neverSettledAfter(milliseconds: number): Promise<typeof NEVER_SETTLED> {
@@ -119,6 +133,27 @@ describe("declining to tokenise", () => {
     const stats = created.cacheStats();
     expect(stats.byteCap).toBe(512);
     expect(stats.retainedByteCount).toBeLessThanOrEqual(512);
+  });
+
+  it("states the token cap in the units the cache charges", () => {
+    // The DERIVATION rather than the number, so the units cannot drift again. The cache
+    // charges the key, which is the source; the cap is therefore a source-byte figure
+    // sized so the tokens it admits stay inside one mebibyte at the measured ratio. Read
+    // as a token-memory figure it was 22.5 MiB of retained objects against a 120 MB
+    // renderer heap.
+    expect(CODE_TOKEN_CACHE_BYTE_CAP * MEASURED_TOKEN_TO_SOURCE_RATIO).toBeLessThanOrEqual(
+      ONE_MEBIBYTE,
+    );
+    expect(scheduler().cacheStats().byteCap).toBe(CODE_TOKEN_CACHE_BYTE_CAP);
+  });
+
+  it("negative control: a block past the token cap is highlighted and not cached", async () => {
+    // The consequence the cap's own rationale asserts, held to. Without it the
+    // derivation above could be met by a cap of one byte, which caches nothing at all.
+    const created = scheduler();
+    const withinCap = "const a = 1;\n";
+    await created.requestTokens(withinCap, "typescript");
+    expect(created.cachedTokens(withinCap, "typescript")).not.toBeUndefined();
   });
 });
 
