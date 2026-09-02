@@ -31,6 +31,7 @@ import {
 } from "./phase-sequence-layout.js";
 import {
   PHASE_PARK_ATTENTION_MARKS,
+  phaseDisplayText,
   type PhaseGraphNode,
   type PhaseSequenceEdge,
 } from "./phase-topology.js";
@@ -83,12 +84,17 @@ export interface PhaseGraphElements {
  * whether that park needs a person is the caller's reading rather than a second one
  * made here.
  *
+ * The words that open it come from `phaseDisplayText`, which is also what an edge
+ * carries: a sentence has no mono face to lend a wire identifier, so the fallback is
+ * chosen in one place rather than here and there. A reader listening is told the
+ * identifier where the box shows the identifier, and never a different string.
+ *
  * The park's words come from the same table the box prints, so a reader listening is
  * told a scheduled park is scheduled — which is the whole of what the neutral
  * treatment says to a reader looking at it.
  */
 export function phaseNodeAccessibleName(phase: PhaseGraphNode): string {
-  const parts = [`${phase.label}: ${phase.state}`, `gate ${phase.gateState}`];
+  const parts = [`${phaseDisplayText(phase)}: ${phase.state}`, `gate ${phase.gateState}`];
   if (phase.parkAttention !== undefined) {
     parts.push(PHASE_PARK_ATTENTION_MARKS[phase.parkAttention]);
   }

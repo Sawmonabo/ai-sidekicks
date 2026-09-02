@@ -22,6 +22,16 @@
 // built this list. A box that inferred park from a state that looked like waiting
 // would be asserting something the run never said.
 //
+// THREE OF THE FOUR THINGS ON THIS BOX CAME OFF THE WIRE, AND THEY LOOK LIKE IT.
+// `Spec-023 §Console Design (Meridian)` rule 4 gives every wire-true figure the mono
+// provenance signature, and the phase id, the state and the gate state are all
+// strings a daemon sent. They were drawn as ordinary interface prose, which read
+// worst on the id: with no authored name available to any read this console can put,
+// the id stood in the name's place, in the name's face and weight, and an opaque key
+// was presented as something a person had chosen. So the name — where there is one —
+// is the only text here the console sets as prose, and the identifier and the two
+// enum values go through `WireFigure`.
+//
 // AND THE PARK'S ATTENTION IS THE CALLER'S READING, NOT THIS BOX'S. Amber means a
 // person is needed; a phase parked on provider capacity with a readable resume
 // instant needs nobody, so it takes the neutral scheduled treatment. The two are one
@@ -30,6 +40,7 @@
 
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 
+import { WireFigure } from "../../../primitives/index.js";
 import type { PhaseFlowNode } from "./phase-graph-elements.js";
 import { PHASE_PARK_ATTENTION_MARKS } from "./phase-topology.js";
 
@@ -49,10 +60,17 @@ export function PhaseNode(props: NodeProps<PhaseFlowNode>): React.JSX.Element {
         isConnectable={false}
         className="meridian-phase-node__handle"
       />
-      <span className="meridian-phase-node__label">{phase.label}</span>
+      {phase.displayName === undefined ? null : (
+        <span className="meridian-phase-node__name">{phase.displayName}</span>
+      )}
+      <span className="meridian-phase-node__id">
+        <WireFigure value={phase.phaseId} />
+      </span>
       <span className="meridian-phase-node__state">
-        {phase.state}
-        <span className="meridian-phase-node__gate">{`gate ${phase.gateState}`}</span>
+        <WireFigure value={phase.state} />
+        <span className="meridian-phase-node__gate">
+          gate <WireFigure value={phase.gateState} />
+        </span>
         {phase.parkAttention === undefined ? null : (
           <span className="meridian-phase-node__park">
             {PHASE_PARK_ATTENTION_MARKS[phase.parkAttention]}

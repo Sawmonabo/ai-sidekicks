@@ -29,7 +29,7 @@ const THREE_PHASE_TOPOLOGY: PhaseTopology = [
 /** A phase with everything named, so a case perturbs exactly one member. */
 function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
   return {
-    label: `Phase ${overrides.phaseId}`,
+    displayName: `Phase ${overrides.phaseId}`,
     state: "pending",
     gateState: "closed",
     parkAttention: undefined,
@@ -151,7 +151,7 @@ describe("a sequence that cannot be drawn", () => {
     const layout = layoutPhaseSequence([
       phase({ phaseId: "build" }),
       phase({ phaseId: "review" }),
-      phase({ phaseId: "build", label: "Build again" }),
+      phase({ phaseId: "build", displayName: "Build again" }),
     ]);
     expect(layout.status).toBe("malformed");
     expect(layout.status === "malformed" ? layout.repeatedPhaseIds : []).toStrictEqual(["build"]);
@@ -172,8 +172,8 @@ describe("a sequence that cannot be drawn", () => {
     // Without this the refusal above would also fire on two phases that merely look
     // alike, and a run with two `pending` steps would render as an error.
     const layout = layoutPhaseSequence([
-      phase({ phaseId: "first", label: "Same words" }),
-      phase({ phaseId: "second", label: "Same words" }),
+      phase({ phaseId: "first", displayName: "Same words" }),
+      phase({ phaseId: "second", displayName: "Same words" }),
     ]);
     expect(layout.status).toBe("drawn");
   });
@@ -209,7 +209,7 @@ describe("the layout memo", () => {
     const base = phase({ phaseId: "one" });
     const perturbations: readonly PhaseGraphNode[] = [
       { ...base, phaseId: "two" },
-      { ...base, label: "Other words" },
+      { ...base, displayName: "Other words" },
       { ...base, state: "running" },
       { ...base, gateState: "bypassed" },
       { ...base, parkAttention: "awaiting-person" },

@@ -111,28 +111,24 @@ function openHumanFormFor(phases: readonly WorkflowPhaseState[]): HumanFormMount
 }
 
 /**
- * How one phase is named wherever this pane names one.
+ * The authored name this pane can put beside a phase, which is none of them.
  *
- * ONE DERIVATION FOR TWO SURFACES, which is the point of the function rather than an
- * incidental tidiness: the graph labels a node and the park card names a phase, and
- * an operator reading a card is matching it against a node. Two call sites each
- * reaching for a member would be two chances to disagree, and a disagreement here is
- * invisible — both would render a plausible string.
+ * A CONSTANT, AND `undefined` RATHER THAN THE PHASE ID. Both surfaces below name a
+ * phase — the graph labels a node and the park card captions a card — and both used
+ * to be handed the phase id through a function called a display label. That put an
+ * opaque wire key on screen in the face and weight an authored name would have had,
+ * so a reader could not tell a chosen name from a generated one, which is the single
+ * fact this pane is otherwise scrupulous about rendering the absence of.
  *
- * IT IS THE PHASE ID BECAUSE NOTHING ELSE IS READABLE FROM HERE. The projection
- * carries an optional `phaseName` for surfaces that have one; the run read this pane
- * puts is not such a surface, because the authored name lives on the definition body
- * and no read reachable from this build serves it (the graph's own comment
- * enumerates why). So the id travels, exactly as the wire sent it — composing a
- * prettier label out of it, title-casing it or splitting it on separators, would put
- * an invented name on screen that is indistinguishable from an authored one. The
- * graph renders the same value as a node's label, so a card and a node agree by
- * construction, and the day a definition read lands this function is the single
- * place its `name` replaces the id and both surfaces move together.
+ * Both surfaces now take the name and the identifier as two values: the identifier
+ * always, in the mono provenance signature `Spec-023 §Console Design (Meridian)`
+ * rule 4 gives a wire-true figure, and the name only where there is one. There is
+ * none here because the authored name lives on the definition body and no read
+ * reachable from this build serves it (the graph's own comment enumerates why), and
+ * this is the one place that says so — the day a definition read lands, its `name`
+ * replaces this constant and both surfaces move together.
  */
-function phaseDisplayLabel(phase: WorkflowPhaseState): string {
-  return phase.phaseId;
-}
+const PHASE_DISPLAY_NAME: string | undefined = undefined;
 
 /**
  * What stands above the slots for one read state.
@@ -193,11 +189,11 @@ function RunReadState(props: { readonly snapshot: WorkflowRunSnapshotState }): R
  * The graph draws the states and captions the absence instead; the day a definition
  * read lands on the port, this is the one call site that grows a `topology` prop.
  *
- * THE LABEL IS THE PHASE ID AND NOT A NAME, for the same reason at one remove: the
- * name lives in that same unreachable definition body. A graph that composed a
- * readable label from the id would be inventing exactly the fact this family renders
- * the absence of, and an invented name is indistinguishable on screen from an
- * authored one.
+ * A NODE CARRIES THE NAME AND THE IDENTIFIER SEPARATELY, and this pane supplies no
+ * name: it lives in that same unreachable definition body. Composing a readable
+ * label out of the id would invent exactly the fact this family renders the absence
+ * of, and passing the id AS the name — which this surface did — is the same
+ * invention with the composing step left out.
  *
  * THE PARK IS READ FROM `parkReason` AND NEVER FROM A PHASE'S STATE, the same rule
  * the park banner beneath obeys: the status union has no suspended arm, and the park
@@ -208,7 +204,7 @@ function RunPhaseGraph(props: {
 }): React.JSX.Element {
   const nodes: readonly PhaseGraphNode[] = props.phases.map((phase) => ({
     phaseId: phase.phaseId,
-    label: phaseDisplayLabel(phase),
+    displayName: PHASE_DISPLAY_NAME,
     state: phase.state,
     gateState: phase.gateState,
     parkAttention: phaseParkAttention(phase),
@@ -252,12 +248,12 @@ function phaseParkAttention(phase: WorkflowPhaseState): PhaseParkAttention | und
  * A run with nothing parked says so rather than rendering an empty region: "nothing
  * is waiting on anyone" is the answer an operator opened this pane for.
  *
- * EVERY CARD NAMES ITS PHASE. A run that branches parks more than one phase at a
- * time, and a stack of cards carrying only reason, cause and schedule leaves an
+ * EVERY CARD IDENTIFIES ITS PHASE. A run that branches parks more than one phase at
+ * a time, and a stack of cards carrying only reason, cause and schedule leaves an
  * operator unable to tell which branch stopped — the two cards of a fan-out read
- * identically. The identity is the same value the node above the cards is labelled
- * with, so a person reads one key in two places rather than matching a card to a
- * node by position.
+ * identically. The badge draws that identity from `phaseId`, which is the same value
+ * the node above the cards draws, so a person reads one key in two places rather
+ * than matching a card to a node by position.
  */
 function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): React.JSX.Element {
   const parked = props.phases.flatMap<WorkflowParkedPhase>((phase) => {
@@ -267,15 +263,16 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
     // `autoResumeAt`'s presence, and a second derivation of it here would be the
     // second authority the badge stopped being.
     //
-    // `phaseName` is the badge's identity slot, and it is fed rather than left
-    // empty: a badge handed nothing renders nothing for it, which is the stack of
-    // indistinguishable cards this arm exists to fix.
+    // `phaseName` is the badge's slot for an AUTHORED name and is left empty,
+    // because this read carries none. The card is still identified: the badge draws
+    // `phaseId` unconditionally, as a wire figure, which is what keeps a fan-out's
+    // cards distinguishable without any surface inventing a name.
     return park === undefined
       ? []
       : [
           {
             phaseId: phase.phaseId,
-            phaseName: phaseDisplayLabel(phase),
+            phaseName: PHASE_DISPLAY_NAME,
             park,
             schedule: parkSchedule(park),
           },
@@ -294,8 +291,8 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
   return (
     <div className="meridian-workflow__parks">
       {parked.map((entry) => (
-        // Keyed by the phase, which is the run's own identity for it, and named by
-        // the same derivation the graph labels that phase's node with.
+        // Keyed by the phase, which is the run's own identity for it, and the same
+        // value the graph draws on that phase's node.
         <ParkBadge key={entry.phaseId} parked={entry} />
       ))}
     </div>

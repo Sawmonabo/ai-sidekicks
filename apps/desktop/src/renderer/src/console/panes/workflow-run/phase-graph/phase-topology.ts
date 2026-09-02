@@ -91,14 +91,28 @@ export const PHASE_PARK_ATTENTION_MARKS: Readonly<Record<PhaseParkAttention, str
  *
  * The other half of the pair: a declaration above is what the definition says
  * should happen, and this is what the run says did. Every member is the caller's,
- * and in particular the label is supplied rather than composed — a phase's display
+ * and in particular the display name is supplied rather than composed — a phase's
  * name is a fact about the run, and a graph that invented one would be asserting
  * something it never read.
+ *
+ * THE NAME AND THE IDENTIFIER ARE TWO MEMBERS, NOT ONE LABEL. A single `label` let a
+ * caller with no name to give pass the phase id in its place, and the box then drew a
+ * wire identifier in the same face and weight an authored name would have had — so
+ * an opaque key read as something a person had chosen. Keeping them apart means the
+ * absence of a name is representable, and the id can carry rule 4's mono provenance
+ * signature wherever it is drawn.
  */
 export interface PhaseGraphNode {
+  /** The run's own identity for this phase. Wire-verbatim; never parsed, never prettified. */
   readonly phaseId: string;
-  /** What a person reads on the node. The caller decides; this file never invents one. */
-  readonly label: string;
+  /**
+   * The phase's authored name, where the caller holds one.
+   *
+   * `undefined` means no read available to the caller carries a name — not that the
+   * phase has none. Spelled `| undefined` rather than left optional because the
+   * caller builds this shape per node and states the member every time.
+   */
+  readonly displayName: string | undefined;
   readonly state: "pending" | "running" | "completed" | "failed" | "skipped";
   readonly gateState: "closed" | "open" | "bypassed";
   /**
@@ -133,8 +147,21 @@ function dependencyEdge(sourcePhaseId: string, target: PhaseGraphNode): PhaseSeq
     edgeId: `${sourcePhaseId}->${target.phaseId}`,
     sourcePhaseId,
     targetPhaseId: target.phaseId,
-    targetLabel: target.label,
+    targetLabel: phaseDisplayText(target),
   };
+}
+
+/**
+ * The words that stand for one phase where only a string will do.
+ *
+ * An accessible name and an edge's label are sentences rather than markup, so
+ * neither can draw the name and the identifier differently — they get the name where
+ * there is one and the identifier where there is not. That fallback is stated once
+ * here because two call sites choosing it separately is how one of them comes to
+ * announce a phase the other calls something else.
+ */
+export function phaseDisplayText(phase: PhaseGraphNode): string {
+  return phase.displayName ?? phase.phaseId;
 }
 
 /**

@@ -23,7 +23,7 @@ import type { PhaseGraphNode, PhaseTopology } from "./phase-topology.js";
 
 function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
   return {
-    label: `Phase ${overrides.phaseId}`,
+    displayName: `Phase ${overrides.phaseId}`,
     state: "pending",
     gateState: "closed",
     parkAttention: undefined,
@@ -32,10 +32,10 @@ function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }
 }
 
 const TWO_PHASES: readonly PhaseGraphNode[] = [
-  phase({ phaseId: "plan", label: "Plan", state: "completed", gateState: "open" }),
+  phase({ phaseId: "plan", displayName: "Plan", state: "completed", gateState: "open" }),
   phase({
     phaseId: "build",
-    label: "Build",
+    displayName: "Build",
     state: "running",
     parkAttention: "awaiting-person",
   }),
@@ -90,8 +90,8 @@ describe("a run with nothing to draw", () => {
 
 describe("a sequence that cannot be drawn", () => {
   const REPEATED: readonly PhaseGraphNode[] = [
-    phase({ phaseId: "build", label: "Build" }),
-    phase({ phaseId: "build", label: "Build again" }),
+    phase({ phaseId: "build", displayName: "Build" }),
+    phase({ phaseId: "build", displayName: "Build again" }),
   ];
 
   it("refuses, and names the identifier that repeated", () => {
@@ -209,14 +209,73 @@ describe("the drawn graph", () => {
     expect(notParked?.textContent).not.toContain("parked");
   });
 
+  it("draws the identifier as a wire figure and an authored name as prose", async () => {
+    // Rule 4: mono is the provenance signature. A phase id is a string the daemon
+    // sent, and it used to be drawn in the same sans face and weight an authored name
+    // would have had — so with no name available anywhere in this build, every box on
+    // this canvas presented an opaque key as something a person had chosen.
+    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    await settleGraphLoad();
+    const node = container.querySelector('.react-flow__node[data-id="build"]');
+
+    const identifier = node?.querySelector(".meridian-phase-node__id");
+    expect(identifier?.querySelector(".meridian-figure--wire")?.textContent).toBe("build");
+    // The control on the same box: the authored name sits beside it and is NOT a
+    // figure, so an implementation that put the whole box in mono fails here.
+    const authored = node?.querySelector(".meridian-phase-node__name");
+    expect(authored?.textContent).toBe("Build");
+    expect(authored?.querySelector(".meridian-figure--wire")).toBeNull();
+  });
+
+  it("draws no name element for a phase the caller read no name for", async () => {
+    // The case every read reachable from this build produces. Nothing stands in for
+    // the name: the identifier is already on the box, in the face that says where it
+    // came from, and a second copy of it in the name's slot is the invention this
+    // whole split exists to stop.
+    const nameless: readonly PhaseGraphNode[] = TWO_PHASES.map((entry) => ({
+      ...entry,
+      displayName: undefined,
+    }));
+    const { container } = render(<PhaseGraph phases={nameless} label="Phase sequence" />);
+    await settleGraphLoad();
+
+    expect(container.querySelectorAll(".meridian-phase-node__name")).toHaveLength(0);
+    expect(
+      container.querySelectorAll(".meridian-phase-node__id .meridian-figure--wire"),
+    ).toHaveLength(nameless.length);
+  });
+
+  it("draws the state and the gate state as wire figures, and the word gate as prose", async () => {
+    // Both are closed enum values the daemon sent, so both wear the signature. The
+    // word "gate" is the console's own and does not.
+    const { container } = render(<PhaseGraph phases={TWO_PHASES} label="Phase sequence" />);
+    await settleGraphLoad();
+    const state = container.querySelector(
+      '.react-flow__node[data-id="build"] .meridian-phase-node__state',
+    );
+
+    const figures = [...(state?.querySelectorAll(".meridian-figure--wire") ?? [])].map(
+      (figure) => figure.textContent,
+    );
+    expect(figures).toStrictEqual(["running", "closed"]);
+    const gate = state?.querySelector(".meridian-phase-node__gate");
+    expect(gate?.textContent).toBe("gate closed");
+    expect(gate?.firstChild?.textContent).toBe("gate ");
+  });
+
   it("gives a scheduled park a treatment of its own rather than the amber one", async () => {
     // Rule 3 spends amber on a person being needed. A phase parked on provider
     // capacity that the engine armed a readable resume for needs nobody, and drawing
     // it in the same border as one waiting on a person is the pane asking for
     // attention nothing is owed.
     const scheduled: readonly PhaseGraphNode[] = [
-      phase({ phaseId: "plan", label: "Plan", state: "completed", gateState: "open" }),
-      phase({ phaseId: "build", label: "Build", state: "running", parkAttention: "scheduled" }),
+      phase({ phaseId: "plan", displayName: "Plan", state: "completed", gateState: "open" }),
+      phase({
+        phaseId: "build",
+        displayName: "Build",
+        state: "running",
+        parkAttention: "scheduled",
+      }),
     ];
     const { container } = render(<PhaseGraph phases={scheduled} label="Phase sequence" />);
     await settleGraphLoad();

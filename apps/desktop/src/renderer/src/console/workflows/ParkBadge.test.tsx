@@ -152,8 +152,26 @@ describe("what the badge quotes and what it writes", () => {
   });
 
   it("names the parked phase when it is shown away from that phase's own row", () => {
-    expect(renderBadge(WAITING_ON_A_PERSON, "Sign-off").textContent).toContain("Sign-off");
-    // The control: absent the name, nothing is invented in its place.
-    expect(renderBadge(WAITING_ON_A_PERSON).querySelector(".meridian-park__phase")).toBeNull();
+    const named = renderBadge(WAITING_ON_A_PERSON, "Sign-off");
+    expect(named.querySelector(".meridian-park__phase-name")?.textContent).toBe("Sign-off");
+    // The name is the console's prose and wears no provenance signature; the wire's
+    // own key beside it does.
+    expect(named.querySelector(".meridian-park__phase-name .meridian-figure--wire")).toBeNull();
+  });
+
+  it("identifies the phase by its wire key even when no name was read", () => {
+    // The badge is handed a name only where a read carries one, and the run READ
+    // carries none — so a card that showed only the name showed nothing, and two
+    // parks from one fan-out read identically. The caller papered over that by
+    // passing the id INTO the name slot, which put an opaque key on screen in the
+    // face an authored name would have had.
+    const badge = renderBadge(WAITING_ON_A_PERSON);
+    const identity = badge.querySelector(".meridian-park__phase");
+
+    expect(identity?.querySelector(".meridian-figure--wire")?.textContent).toBe("phase-1");
+    // The control: nothing is invented in the name's place — the slot is the figure
+    // and nothing else.
+    expect(identity?.querySelector(".meridian-park__phase-name")).toBeNull();
+    expect(identity?.textContent).toBe("phase-1");
   });
 });
