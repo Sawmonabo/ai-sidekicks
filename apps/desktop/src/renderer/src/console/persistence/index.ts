@@ -21,6 +21,13 @@ export { PERSISTENCE_GLOBAL_PARTITION, SCHEME_PREFERENCE_KEY } from "./adapter.j
 
 export { CONSOLE_DATABASE_NAME, UI_STATE_STORE_NAME } from "./indexeddb-adapter.js";
 
+// The in-memory adapter, which is what this door's header means by "they are
+// exported because tests construct them": a surface in another family that has to
+// drive a real durable write — a sidebar restoring its collapsed set, say — needs
+// a store with no browser storage behind it, and the alternative is a hand-rolled
+// stand-in that would pass while the real chokepoint refused.
+export { MemoryPersistenceAdapter } from "./memory-adapter.js";
+
 export { UiStateStore } from "./ui-state-store.js";
 
 export { DraftStore } from "./draft-store.js";

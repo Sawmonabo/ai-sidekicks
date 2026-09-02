@@ -60,14 +60,11 @@ export {
 
 export {
   SIDEBAR_SECTION_IDS,
-  /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   registerSidebarSection,
   sidebarSectionRegistry,
-  sidebarSectionRenderer,
+  type SidebarSectionAttention,
   type SidebarSectionContext,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
   type SidebarSectionId,
 } from "./sidebar-sections.js";

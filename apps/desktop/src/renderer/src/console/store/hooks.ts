@@ -32,6 +32,7 @@ import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entit
 import type { FrameStore, FrameStoreState } from "./frame-store.js";
 import type { SessionStoreRegistry } from "./session-store-registry.js";
 import { selectEntity, selectPartition, type SessionStore } from "./session-store.js";
+import type { SessionDegradedCause } from "./session-store.js";
 import type { SessionStoreState } from "./session-store.js";
 
 /**
@@ -101,6 +102,24 @@ export function useSessionInitialised(store: SessionStore): boolean {
 
 function readInitialised(state: SessionStoreState): boolean {
   return state.initialised;
+}
+
+/**
+ * Why the projection is known-incomplete, or `undefined` while it is whole.
+ *
+ * A hook of its own rather than a `useSessionStore` call at each surface, for the
+ * reason this family's header gives: the selector has to return a stored
+ * reference, and one written per surface is one more chance to build a value and
+ * re-render every frame. A sidebar section renders "unavailable" from this rather
+ * than rendering a zero, which is the distinction `Spec-023 §Console Design
+ * (Meridian)` draws between an answered empty read and a read that never landed.
+ */
+export function useSessionDegradedCause(store: SessionStore): SessionDegradedCause | undefined {
+  return useStore(store.readable, readDegradedCause);
+}
+
+function readDegradedCause(state: SessionStoreState): SessionDegradedCause | undefined {
+  return state.degradedCause;
 }
 
 /** Select from the frame store. */

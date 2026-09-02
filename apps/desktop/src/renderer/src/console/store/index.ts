@@ -37,10 +37,19 @@ export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-stor
 // subscription path with its own equality rule. `SessionStoreState` travels with
 // it because a caller hoisting a selector to module scope has to name the state
 // it selects from.
+//
+// `useSessionInitialised` and `useSessionDegradedCause` are the two absences a
+// partition read cannot express: a map with no rows means one thing before the
+// read has answered, another when the daemon has said the projection is
+// incomplete, and a third when the session simply has none of that kind. A
+// surface that could reach only the partition would have to render all three as
+// "empty", which is the collapse rule 8 forbids.
 export {
   useFrameStore,
   useLocationHash,
   useOpenSessionStore,
+  useSessionDegradedCause,
+  useSessionInitialised,
   useSessionPartition,
   useSessionStore,
 } from "./hooks.js";

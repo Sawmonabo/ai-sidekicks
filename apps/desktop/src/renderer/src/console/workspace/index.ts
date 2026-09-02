@@ -29,3 +29,10 @@ export {
   /** @consumedBy T-023p-1C-2 */
   type SidebarProps,
 } from "./sidebar/index.js";
+
+// The one sidebar section this family owns, filled through the seat like every
+// other. It ships through this door for the same reason `Sidebar` does — the
+// composition root that calls it sits outside the console and reaches a family
+// through its barrel — and it is a CALL rather than a module side effect, so
+// importing anything here fills no seat.
+export { registerComposerSidebarSections } from "./sidebar/sections/index.js";
