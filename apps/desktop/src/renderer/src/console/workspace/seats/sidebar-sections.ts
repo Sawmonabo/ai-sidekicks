@@ -49,6 +49,22 @@ export const SIDEBAR_SECTION_IDS = [
 /** One sidebar section. Derived from the enumeration, never restated. */
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 
+/**
+ * How loudly a section is asking to be looked at, as the section's own read
+ * answers it.
+ *
+ * The vocabulary is the attention palette's, not a severity scale of its own:
+ * `Spec-023 §Console Design (Meridian)` §4.4 says "a section carrying an amber or
+ * red item is open, every other section is collapsed", and Meridian has exactly
+ * two attention marks. `calm` is the third member because "nothing needs a look"
+ * has to be sayable — a section that could only report amber or red could never
+ * take back an earlier report.
+ */
+export const SIDEBAR_SECTION_ATTENTIONS = ["red", "amber", "calm"] as const;
+
+/** One attention level. Derived from the enumeration, never restated. */
+export type SidebarSectionAttention = (typeof SIDEBAR_SECTION_ATTENTIONS)[number];
+
 /** Everything a section body is handed. */
 export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
@@ -68,9 +84,39 @@ export interface SidebarSectionContext {
    * second source of truth for a rule stated over the set.
    */
   readonly isOpen: boolean;
+  /**
+   * What the sidebar's filter field currently holds, verbatim.
+   *
+   * The field is the SIDEBAR's — §4.4 puts one filter "over titles and paths"
+   * above the whole tree — and the matching is each SECTION's, because only the
+   * section knows what its own rows are called. Empty means no filter is on;
+   * a section that ignores this member simply does not narrow.
+   *
+   * Additive-optional so a section authored before this seam existed still
+   * compiles. The sidebar always supplies it.
+   */
+  readonly filterQuery?: string;
+  /**
+   * Tell the sidebar how loudly this section is asking to be looked at.
+   *
+   * The split is deliberate and is the same one `isOpen` names: the section owns
+   * the DATUM, because the rollup is a property of the section's own read, and
+   * the sidebar owns the STATE, because "a section carrying an amber or red item
+   * is open, every other section is collapsed" is a rule over the whole set.
+   * Without this the rule is unreachable — nothing else in the sidebar can see
+   * inside a section's read.
+   *
+   * Call it from an effect rather than during a render: it moves the sidebar's
+   * state, and a section that reported while rendering would be writing to its
+   * parent mid-pass. Reporting the same level twice is free — the sidebar
+   * compares before it moves anything.
+   *
+   * Additive-optional for `filterQuery`'s reason; a section that never calls it
+   * is `calm`, which is the fail-closed answer.
+   */
+  readonly reportAttention?: (attention: SidebarSectionAttention) => void;
 }
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 export interface SidebarSectionDescriptor {
   readonly id: SidebarSectionId;
   /** The task or family that owns it, so an unfilled section names someone. */
@@ -78,7 +124,6 @@ export interface SidebarSectionDescriptor {
   readonly render: (context: SidebarSectionContext) => React.ReactNode;
 }
 
-// Consumed by T-023p-1C-3
 export class SidebarSectionRegistry {
   // `"owner-scoped"`, for `frame/surface-registry.ts`'s reason: a hot reload
   // re-runs the owning family's module and must replace, while two owners on one
@@ -112,7 +157,6 @@ export class SidebarSectionRegistry {
 /** The process-wide registry the four contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** The call a family makes to fill one sidebar section. */
 export function registerSidebarSection(descriptor: SidebarSectionDescriptor): void {
   sidebarSectionRegistry.register(descriptor);

@@ -40,7 +40,6 @@ export {
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   type ConsolePaneContext,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -61,14 +60,11 @@ export {
 
 export {
   SIDEBAR_SECTION_IDS,
-  /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   registerSidebarSection,
   sidebarSectionRegistry,
-  sidebarSectionRenderer,
+  type SidebarSectionAttention,
   type SidebarSectionContext,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
   type SidebarSectionId,
 } from "./sidebar-sections.js";

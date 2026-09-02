@@ -1,66 +1,56 @@
-// The session sidebar's frame: the sections host, and the collapse rule.
+// The session sidebar's frame: the filter, the sections host, the width, and the
+// collapse rule.
 //
-// `Spec-023 §Console Design (Meridian)` §4.4 — "Show what else in the session needs
-// a look, as independently loaded sections that open panes." The sections are four
-// families' bodies and the frame is one; this file is the frame, and it renders
-// whatever `sidebarSectionRenderer` answers with.
+// `Spec-023 §Console Design (Meridian)` §4.4 — "Show what else in the session
+// needs a look, as independently loaded sections that open panes." The sections
+// are four families' bodies and the frame is one; this file is the frame, and it
+// renders whatever the section registry answers with.
 //
-// THE FRAME READS NOTHING. §4.4's own sentence — "the sidebar reads nothing itself
-// beyond `session.read` and `session.subscribe` for the spine" — is why there is no
-// bridge call in this file. Counts, rollup status, and the filter field are each a
+// THE FRAME READS NO WIRE. §4.4's own sentence — "the sidebar reads nothing itself
+// beyond `session.read` and `session.subscribe` for the spine" — is why there is
+// no bridge call here. Counts, rollup status, and what a filter matches are each a
 // property of a SECTION's read, so a frame that computed one would be synthesising
 // a badge the daemon has not served, which the same section forbids in as many
-// words.
+// words. What the frame owns is the SHAPE: which section is open, where the
+// keyboard is, what the filter holds, and how wide the column is.
 //
-// COLLAPSE IS AN INVERTED SET
+// COLLAPSE, THE FILTER, THE CURSOR, AND THE WIDTH ALL LIVE IN `SidebarModel`. The
+// component subscribes and dispatches; it holds no state of its own beyond the map
+// of disclosure elements, which is a DOM handle rather than state — nothing
+// renders from it, and the cursor it serves is the model's.
 //
-// The persisted shape is the ids the person has COLLAPSED, never the ids they have
-// opened. §4.4: "so a new section defaults open when it carries attention" — a set
-// of opened ids would leave a section minted after the last save silently shut, and
-// the one that would be shut is the new one nobody has seen. It starts holding
-// every id because no section carries attention yet; the moment a section's read
-// can answer amber or red, the initial set is that answer's complement and nothing
-// else in this file changes.
-//
-// The set lives in React state rather than in a store: it is this component's own
-// view state, no other surface reads it, and the durable half is the persistence
-// chokepoint's — a `UiStateStore` write, which lands with the section that first
-// has something worth restoring.
+// THE REGISTRY IS AN INJECTABLE PROP OVER A PROCESS-WIDE DEFAULT. Four families
+// fill this sidebar by calling `registerSidebarSection`, which writes into the
+// process-wide registry, so a mount that named no registry would have to read
+// that one or render six empty seats — the default is what the seat contract
+// already means. It stays overridable for the two cases where the process-wide
+// one is the wrong answer: a test composes sections into a registry it owns
+// rather than leaking into a shared one, and an auxiliary window composes a
+// different subset without a second code path.
 
-import { useCallback, useId, useState } from "react";
+import { useCallback, useId, useMemo, useRef } from "react";
 
-import { Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
+import { InlineRefusal } from "../../primitives/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
+import { type UiStateStore } from "../../persistence/index.js";
 import { type SessionStore } from "../../store/index.js";
 import {
   SIDEBAR_SECTION_IDS,
-  sidebarSectionRenderer,
+  sidebarSectionRegistry,
   type ConsolePaneOpener,
-  type SidebarSectionContext,
   type SidebarSectionId,
+  type SidebarSectionRegistry,
 } from "../seats/index.js";
+import { SidebarResizeHandle } from "./SidebarResizeHandle.js";
+import { SidebarSection } from "./SidebarSection.js";
+import { useSidebarKeyboard, useSidebarModel, useSidebarSnapshot } from "./sidebar-hooks.js";
 
 import "./sidebar.css";
 
-/** What each section is called. Total over the closed set, so a seventh id fails here. */
-const LABEL_BY_SECTION_ID: Readonly<Record<SidebarSectionId, string>> = {
-  channels: "Channels",
-  agents: "Agents",
-  runs: "Runs",
-  repos: "Repos and worktrees",
-  artifacts: "Artifacts",
-  members: "Members",
-};
-
-/** The glyph each section wears. Total for `LABEL_BY_SECTION_ID`'s reason. */
-const GLYPH_BY_SECTION_ID: Readonly<Record<SidebarSectionId, GlyphName>> = {
-  channels: "channel",
-  agents: "agent",
-  runs: "run",
-  repos: "repo",
-  artifacts: "artifact",
-  members: "member",
-};
+/** Carries the model's width into the column, so CSS owns layout and JS owns the number. */
+interface SidebarWidthStyle extends React.CSSProperties {
+  readonly "--meridian-sidebar-width": string;
+}
 
 export interface SidebarProps {
   readonly sessionStore: SessionStore;
@@ -70,104 +60,110 @@ export interface SidebarProps {
    * rendered in an auxiliary window opens panes in THAT window's deck.
    */
   readonly openPane: ConsolePaneOpener;
+  /** The registry the sections were filled through. Defaults to the process-wide one. */
+  readonly sectionRegistry?: SidebarSectionRegistry;
+  /**
+   * Where collapse and width are kept, or `undefined` for a sidebar with no
+   * durable home. Omitted, the sidebar works and forgets — which is honest, and
+   * is what an auxiliary window with no database of its own gets.
+   */
+  readonly uiStateStore?: UiStateStore;
 }
 
 export function Sidebar(props: SidebarProps): React.JSX.Element {
-  const [collapsedSectionIds, setCollapsedSectionIds] = useState<ReadonlySet<SidebarSectionId>>(
-    () => new Set(SIDEBAR_SECTION_IDS),
+  const filterFieldId = useId();
+  const containerRef = useRef<HTMLElement | null>(null);
+  // A DOM handle rather than state: nothing renders from it, and re-rendering
+  // when a disclosure mounts would be a render caused by a ref callback.
+  const disclosuresRef = useRef(new Map<SidebarSectionId, HTMLButtonElement>());
+
+  const sectionRegistry = props.sectionRegistry ?? sidebarSectionRegistry;
+
+  const model = useSidebarModel(props.sessionStore.sessionId, props.uiStateStore);
+  const snapshot = useSidebarSnapshot(model);
+
+  const registerDisclosure = useCallback(
+    (id: SidebarSectionId, element: HTMLButtonElement | null) => {
+      if (element === null) {
+        disclosuresRef.current.delete(id);
+        return;
+      }
+      disclosuresRef.current.set(id, element);
+    },
+    [],
   );
 
-  const toggleSection = useCallback((id: SidebarSectionId) => {
-    setCollapsedSectionIds((collapsed) => {
-      const next = new Set(collapsed);
-      if (!next.delete(id)) {
-        next.add(id);
-      }
-      return next;
-    });
+  const focusSection = useCallback((id: SidebarSectionId) => {
+    disclosuresRef.current.get(id)?.focus();
   }, []);
 
+  const keyboardTargets = useMemo(
+    () => ({ openPane: props.openPane, focusSection }),
+    [props.openPane, focusSection],
+  );
+  useSidebarKeyboard(model, keyboardTargets, containerRef);
+
+  const widthStyle: SidebarWidthStyle = {
+    "--meridian-sidebar-width": `${String(snapshot.widthPx)}px`,
+  };
+
   return (
-    <nav className="meridian-sidebar" aria-label="Session sidebar">
+    <nav
+      className="meridian-sidebar"
+      aria-label="Session sidebar"
+      ref={containerRef}
+      style={widthStyle}
+    >
+      <div className="meridian-sidebar__filter">
+        <label className="meridian-visually-hidden" htmlFor={filterFieldId}>
+          Filter the sidebar by title or path
+        </label>
+        <input
+          id={filterFieldId}
+          className="meridian-sidebar__filter-field"
+          type="search"
+          // `search` rather than `text` so the platform's own clear affordance is
+          // there. §4.4 offers no global search here — that is a growth item —
+          // and the placeholder says which of the two this is.
+          placeholder="Filter sections"
+          value={snapshot.filterQuery}
+          onChange={(event) => {
+            model.setFilterQuery(event.currentTarget.value);
+          }}
+        />
+      </div>
       <ul className="meridian-sidebar__sections">
         {SIDEBAR_SECTION_IDS.map((id) => (
           <SidebarSection
             key={id}
             id={id}
-            isOpen={!collapsedSectionIds.has(id)}
-            onToggle={toggleSection}
+            model={model}
+            render={sectionRegistry.descriptorFor(id)?.render}
+            isOpen={model.isSectionOpen(id)}
+            isCursored={snapshot.cursorSectionId === id}
+            attention={model.attentionFor(id)}
+            filterQuery={snapshot.filterQuery}
             sessionStore={props.sessionStore}
             bridge={props.bridge}
             openPane={props.openPane}
+            registerDisclosure={registerDisclosure}
           />
         ))}
       </ul>
-    </nav>
-  );
-}
-
-interface SidebarSectionProps extends SidebarProps {
-  readonly id: SidebarSectionId;
-  readonly isOpen: boolean;
-  readonly onToggle: (id: SidebarSectionId) => void;
-}
-
-/**
- * One section: a disclosure header and the owning family's body behind it.
- *
- * A native `<button>` rather than a div with a role, so Enter and Space activate it
- * without this file re-implementing what the platform already does — the DOM-free
- * `j` / `k` cursor §4.4 asks for is a movement layer ABOVE this and lands with the
- * section reads it moves between.
- */
-function SidebarSection(props: SidebarSectionProps): React.JSX.Element {
-  const headerId = useId();
-  const bodyId = useId();
-  const render = sidebarSectionRenderer(props.id);
-  const label = LABEL_BY_SECTION_ID[props.id];
-
-  const context: SidebarSectionContext = {
-    sessionStore: props.sessionStore,
-    bridge: props.bridge,
-    openPane: props.openPane,
-    isOpen: props.isOpen,
-  };
-
-  return (
-    <li className="meridian-sidebar__section">
-      <h2 className="meridian-sidebar__heading">
-        <button
-          type="button"
-          id={headerId}
-          className="meridian-sidebar__disclosure"
-          aria-expanded={props.isOpen}
-          aria-controls={bodyId}
-          onClick={() => {
-            props.onToggle(props.id);
-          }}
-        >
-          <Glyph name={props.isOpen ? "chevron-down" : "chevron-right"} size={12} />
-          <Glyph name={GLYPH_BY_SECTION_ID[props.id]} size={14} />
-          <span className="meridian-sidebar__label">{label}</span>
-        </button>
-      </h2>
-      <div
-        className="meridian-sidebar__body"
-        id={bodyId}
-        role="region"
-        aria-labelledby={headerId}
-        hidden={!props.isOpen}
-      >
-        {render === undefined ? (
-          <Nothing
-            kind="not-checked"
-            title={`The ${label.toLowerCase()} section has not been built yet.`}
-            detail="It is reserved here rather than stubbed, so nothing on screen stands in for a read the console has not made."
+      {snapshot.persistenceRefusal === undefined ? null : (
+        <div className="meridian-sidebar__refusal">
+          <InlineRefusal
+            code={snapshot.persistenceRefusal.code}
+            detail={snapshot.persistenceRefusal.detail}
           />
-        ) : (
-          render(context)
-        )}
-      </div>
-    </li>
+        </div>
+      )}
+      <SidebarResizeHandle
+        widthPx={snapshot.widthPx}
+        onResize={(widthPx) => {
+          model.setWidth(widthPx);
+        }}
+      />
+    </nav>
   );
 }
