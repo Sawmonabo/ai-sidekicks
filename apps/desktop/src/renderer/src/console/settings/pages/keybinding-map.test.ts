@@ -31,18 +31,18 @@ describe("reserved chords", () => {
 
 describe("composing rows", () => {
   const commands = [
-    command("frame.goToWorkspace", "Go to workspace"),
+    command("frame.goToWorkflows", "Go to workflows"),
     command("frame.goToSessions", "Go to sessions"),
     command("app.checkForUpdates", "Check for updates", "Application"),
   ];
   const bindings: readonly KeyBinding[] = [
     { chord: "$mod+1", commandId: "frame.goToSessions" },
-    { chord: "$mod+2", commandId: "frame.goToWorkspace", when: "sessionActive" },
+    { chord: "$mod+2", commandId: "frame.goToWorkflows", when: "sessionActive" },
   ];
 
   it("carries each command's chord and the scope of that chord", () => {
     const rows = composeKeybindingRows({ commands, bindings, platform: "darwin" });
-    const workspace = rows.find((row) => row.commandId === "frame.goToWorkspace");
+    const workspace = rows.find((row) => row.commandId === "frame.goToWorkflows");
     expect(workspace?.chord).toBe("$mod+2");
     expect(workspace?.whenExpression).toBe("sessionActive");
   });
@@ -57,7 +57,7 @@ describe("composing rows", () => {
     expect(rows.map((row) => row.commandId)).toStrictEqual([
       "app.checkForUpdates",
       "frame.goToSessions",
-      "frame.goToWorkspace",
+      "frame.goToWorkflows",
     ]);
   });
 
@@ -73,7 +73,7 @@ describe("composing rows", () => {
     // The negative half of the same claim: marking every row would be as wrong as
     // marking none, and only the reserved one carries a reason.
     expect(
-      rows.find((row) => row.commandId === "frame.goToWorkspace")?.unavailableReason,
+      rows.find((row) => row.commandId === "frame.goToWorkflows")?.unavailableReason,
     ).toBeUndefined();
   });
 });
@@ -82,7 +82,7 @@ describe("auditing a binding set", () => {
   it("reports nothing wrong with a set that is well formed and disjoint", () => {
     const audit = auditKeybindings([
       { chord: "$mod+1", commandId: "frame.goToSessions" },
-      { chord: "$mod+2", commandId: "frame.goToWorkspace", when: "sessionActive" },
+      { chord: "$mod+2", commandId: "frame.goToWorkflows", when: "sessionActive" },
     ]);
     expect(audit.conflicts).toHaveLength(0);
     expect(audit.dropped).toHaveLength(0);
@@ -94,12 +94,12 @@ describe("auditing a binding set", () => {
     // this page's report in the same act.
     const audit = auditKeybindings([
       { chord: "$mod+1", commandId: "frame.goToSessions" },
-      { chord: "$mod+1", commandId: "frame.goToWorkspace" },
+      { chord: "$mod+1", commandId: "frame.goToWorkflows" },
     ]);
     expect(audit.conflicts).toHaveLength(1);
     expect(audit.conflicts[0]?.commandIds).toStrictEqual([
       "frame.goToSessions",
-      "frame.goToWorkspace",
+      "frame.goToWorkflows",
     ]);
   });
 
@@ -113,7 +113,7 @@ describe("auditing a binding set", () => {
   it("keeps two disjoint scopes on one chord out of the conflict list", () => {
     const audit = auditKeybindings([
       { chord: "$mod+1", commandId: "frame.goToSessions", when: "onSettings" },
-      { chord: "$mod+1", commandId: "frame.goToWorkspace", when: "!onSettings" },
+      { chord: "$mod+1", commandId: "frame.goToWorkflows", when: "!onSettings" },
     ]);
     expect(audit.conflicts).toHaveLength(0);
   });

@@ -17,7 +17,7 @@ import { SettingsPageRegistry } from "../settings-page-registry.js";
  */
 const TEST_COMMAND_IDS = [
   "frame.goToSessions",
-  "frame.goToWorkspace",
+  "frame.goToWorkflows",
   "app.checkForUpdates",
 ] as const;
 
@@ -30,8 +30,8 @@ beforeEach(() => {
       run: () => undefined,
     },
     {
-      id: "frame.goToWorkspace",
-      title: "Go to workspace",
+      id: "frame.goToWorkflows",
+      title: "Go to workflows",
       group: "Navigation",
       run: () => undefined,
     },
@@ -60,11 +60,14 @@ describe("keyboard page", () => {
     expect(container.querySelectorAll("kbd").length).toBeGreaterThan(0);
   });
 
-  it("names the scope a scoped chord is live in, and calls an unscoped one global", () => {
+  it("says where a chord is live rather than leaving its scope unstated", () => {
+    // Every chord the frame binds today is unscoped, so this asserts the arm the
+    // shipped set actually reaches. That a scoped binding carries its expression
+    // through to its row is asserted in `keybinding-map.test.ts`, against a set
+    // that has one — a page test cannot plant a binding, because the page reads
+    // the console's own.
     const { container } = render(<KeyboardPage />);
-    const text = container.textContent ?? "";
-    expect(text).toContain("Live when sessionActive");
-    expect(text).toContain("Live everywhere in this window");
+    expect(container.textContent ?? "").toContain("Live everywhere in this window");
   });
 
   it("says a command with no chord has none rather than leaving the row blank", () => {
@@ -87,9 +90,9 @@ describe("keyboard page", () => {
     if (filterInput === null) {
       return;
     }
-    fireEvent.change(filterInput, { target: { value: "workspace" } });
+    fireEvent.change(filterInput, { target: { value: "workflows" } });
     expect(container.querySelectorAll(".meridian-keymap__row")).toHaveLength(1);
-    expect(container.textContent ?? "").toContain("Go to workspace");
+    expect(container.textContent ?? "").toContain("Go to workflows");
 
     fireEvent.change(filterInput, { target: { value: "zzzqqq" } });
     expect(container.querySelectorAll(".meridian-keymap__row")).toHaveLength(0);
