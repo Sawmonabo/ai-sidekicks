@@ -21,14 +21,14 @@
 //     grow without bound: every row named its run, no row WAS its run, and the cap
 //     counted nobody. The orphan is also its own cut unit — dropping it drops its
 //     own subtree and no sibling's, so a run does not lose its middle.
-//   • **Prune is a REQUEST, not an act.** Four conditions can refuse it, each with
-//     a name the caller can read back. A prune that silently did nothing would be
-//     indistinguishable from a window that was already under cap.
+//   • **Prune is a REQUEST, not an act.** A closed set of conditions can refuse
+//     it, each with a name the caller can read back. A prune that silently did
+//     nothing would be indistinguishable from a window already under cap.
 //   • **Ancestor closure.** Dropping a parent drops its subtree in the same pass. A
 //     child left behind renders under a parent that is not there, which is the
 //     orphan §5.16 names.
-//   • **Held rows are never pruned**, however old. The reading anchor decides what
-//     is held; the window only obeys.
+//   • **Held rows are never pruned**, however old, and the drop stops at the row
+//     the reader is on. The reading anchor decides both; the window only obeys.
 //   • **Leases are parked, not dropped.** A row a person had expanded comes back
 //     expanded when they page to it again, because its state was re-parked under a
 //     synthetic key rather than deleted with the row.
@@ -72,6 +72,7 @@ export const PRUNE_DEFERRAL_REASONS = [
   "scroll-write",
   "reveal-drain",
   "pinned-history",
+  "reading-floor",
 ] as const;
 
 /** One deferral reason. Derived from the enumeration, never restated. */
@@ -89,6 +90,16 @@ export interface PruneConditions {
   readonly pinnedRootCursor: string | undefined;
   /** `ReadingAnchor.heldRowKeys()`. A held row survives the cap. */
   readonly heldRowKeys: readonly string[];
+  /**
+   * The row the reader is on, or `undefined` while they are at the tail.
+   *
+   * A FLOOR rather than a sixth held key. A held row is SKIPPED and the drop walks
+   * on past it, so a reader parked at row ten of four thousand would keep row ten
+   * and lose the rows under it — a hole opening immediately below them. A floor
+   * STOPS the walk: prune takes what it honestly can from above the reader and the
+   * retained window stays contiguous.
+   */
+  readonly readingFloorRowKey: string | undefined;
 }
 
 export interface PruneOutcome {
@@ -207,10 +218,11 @@ export class LedgerWindow {
   /**
    * Drop the oldest top-level rows, or say why it could not.
    *
-   * The order of the four refusals is the order they cost: `under-cap` is free,
-   * and the three that follow are conditions that will clear on their own within a
-   * frame or two, so a caller that re-asks next frame gets its prune without any
-   * of them needing to be waited on.
+   * The refusals `#deferralFor` answers are ordered by what they cost: `under-cap`
+   * is free, and the rest clear on their own within a frame or two, so a caller
+   * that re-asks next frame gets its prune without waiting on any of them. The one
+   * refusal that cannot be decided up front is `reading-floor`, which is knowable
+   * only once the walk has found it can take nothing.
    */
   public prune(conditions: PruneConditions): PruneOutcome {
     const deferral = this.#deferralFor(conditions);
@@ -226,17 +238,24 @@ export class LedgerWindow {
     const topLevelKeys = this.topLevelRowKeys();
     const removedKeys = new Set<string>();
     const prunedKeys: string[] = [];
+    const keysFromReadingFloor = this.#keysFromReadingFloor(conditions.readingFloorRowKey);
     let remainingToDrop = topLevelKeys.length - this.#topLevelCap;
+    let stoppedAtReadingFloor = false;
     for (const key of topLevelKeys) {
       if (remainingToDrop <= 0) {
         break;
       }
-      if (heldRowKeys.has(key) || this.#subtreeHoldsAny(key, heldRowKeys)) {
+      const closure = this.#ancestorClosure(key);
+      if (closure.some((closedKey) => keysFromReadingFloor.has(closedKey))) {
+        stoppedAtReadingFloor = true;
+        break;
+      }
+      if (closure.some((closedKey) => heldRowKeys.has(closedKey))) {
         // Never prunes a held row, and never orphans one either: a chapter whose
         // child is open stays whole rather than losing its head.
         continue;
       }
-      for (const closedKey of this.#ancestorClosure(key)) {
+      for (const closedKey of closure) {
         if (removedKeys.has(closedKey)) {
           continue;
         }
@@ -245,6 +264,18 @@ export class LedgerWindow {
         prunedKeys.push(closedKey);
       }
       remainingToDrop -= 1;
+    }
+    if (stoppedAtReadingFloor && prunedKeys.length === 0) {
+      // Over cap and unable to take one row, because everything above the cap is at
+      // or below the reader. Named rather than returned as an applied prune with an
+      // empty key list, which this module's second property calls indistinguishable
+      // from a window already under cap.
+      return {
+        applied: false,
+        deferredBecause: "reading-floor",
+        prunedKeys: [],
+        topLevelRetained: topLevelKeys.length,
+      };
     }
     this.#rows = this.#rows.filter((row) => !removedKeys.has(row.key));
     for (const removedKey of removedKeys) {
@@ -301,8 +332,32 @@ export class LedgerWindow {
     return closure;
   }
 
-  #subtreeHoldsAny(rootKey: string, heldRowKeys: ReadonlySet<string>): boolean {
-    return this.#ancestorClosure(rootKey).some((key) => heldRowKeys.has(key));
+  /**
+   * Every key from the reader's row to the end of the window — the set the drop
+   * may not touch — and empty when there is no floor to honour.
+   *
+   * Empty for a floor naming a row the window no longer holds, too: the row the
+   * reader was on is already gone, so there is nothing above it left to protect,
+   * and that case is the viewport controller's residual rather than the cap's. The
+   * floor resolves to the FIRST occurrence of a repeated key, which is the reading
+   * that protects the most of a projection defect `RowWindow` reports separately.
+   */
+  #keysFromReadingFloor(readingFloorRowKey: string | undefined): ReadonlySet<string> {
+    const keysFromFloor = new Set<string>();
+    if (readingFloorRowKey === undefined) {
+      return keysFromFloor;
+    }
+    const floorPosition = this.#rows.findIndex((row) => row.key === readingFloorRowKey);
+    if (floorPosition < 0) {
+      return keysFromFloor;
+    }
+    for (let position = floorPosition; position < this.#rows.length; position += 1) {
+      const rowKey = this.#rows[position]?.key;
+      if (rowKey !== undefined) {
+        keysFromFloor.add(rowKey);
+      }
+    }
+    return keysFromFloor;
   }
 
   /**

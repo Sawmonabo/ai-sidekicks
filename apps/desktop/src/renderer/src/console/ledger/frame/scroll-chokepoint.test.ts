@@ -12,8 +12,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
+import { LEDGER_GEOMETRY_EPSILON_PX } from "./frame-bounds.js";
+import { countingSurface } from "./scroll-surface-fixture.js";
 import { LEDGER_SCROLL_CALLERS, LedgerScrollController } from "./scroll-chokepoint.js";
-import type { LedgerGeometry, LedgerScrollSurface } from "./scroll-chokepoint.js";
+import type { LedgerGeometry } from "./geometry-sample.js";
+import type { LedgerScrollSurface } from "./scroll-chokepoint.js";
 
 /** A surface that counts every property the controller reads. */
 class RecordingScrollSurface implements LedgerScrollSurface {
@@ -183,6 +186,66 @@ describe("the scroll chokepoint — writes", () => {
   it("writes nothing when it has no surface", () => {
     expect(controller.glideTo("follow-tail", 10)).toBeUndefined();
     expect(controller.glideToTail("follow-tail")).toBeUndefined();
+  });
+});
+
+describe("the scroll chokepoint — a box that changed size", () => {
+  /** A surface whose box a case can change, and the pass that notices it. */
+  function resizableController(): {
+    resizable: ReturnType<typeof countingSurface>;
+    samples: LedgerGeometry[];
+  } {
+    const resizable = countingSurface({
+      initialScrollTop: 0,
+      clientHeight: 500,
+      scrollHeight: 5000,
+    });
+    controller.attach(resizable);
+    const samples: LedgerGeometry[] = [];
+    controller.subscribeToGeometry((geometry) => samples.push(geometry));
+    samples.length = 0;
+    return { resizable, samples };
+  }
+
+  it("publishes the new box on a height change with no scroll at all", () => {
+    // The virtualizer's viewport height arrives through this emitter and nowhere
+    // else, so a pass that measured privately left its rendered range, its
+    // offset-for-index and its tail arithmetic on the height the pane used to have.
+    const { resizable, samples } = resizableController();
+    resizable.resizeTo(260, 5000);
+    controller.requestOverflowMeasurement();
+    clock.runFrame();
+
+    expect(samples).toHaveLength(1);
+    expect(samples[0]?.viewportHeight).toBe(260);
+    expect(samples[0]?.cause).toBe("resize");
+    expect(controller.geometry?.viewportHeight).toBe(260);
+  });
+
+  it("negative control: a height change under the epsilon wakes nobody", () => {
+    // Which is what makes the publication above a change rather than a heartbeat:
+    // sub-pixel wobble is what a fractional row height produces every frame.
+    const { resizable, samples } = resizableController();
+    resizable.resizeTo(500 + LEDGER_GEOMETRY_EPSILON_PX / 2, 5000);
+    controller.requestOverflowMeasurement();
+    clock.runFrame();
+    expect(samples).toStrictEqual([]);
+  });
+
+  it("negative control: a scroll with no resize is never reported as one", () => {
+    const { resizable, samples } = resizableController();
+    resizable.moveTo(900);
+    expect(samples.map((geometry) => geometry.cause)).toStrictEqual(["scroll"]);
+  });
+
+  it("hands the overflow sink the one sample it published, rather than taking a second", () => {
+    const { resizable, samples } = resizableController();
+    const measuredAt: LedgerGeometry[] = [];
+    controller.observeOverflow((geometry) => measuredAt.push(geometry));
+    resizable.resizeTo(320, 6000);
+    controller.requestOverflowMeasurement();
+    clock.runFrame();
+    expect(measuredAt).toStrictEqual(samples);
   });
 });
 

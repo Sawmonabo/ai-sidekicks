@@ -65,6 +65,40 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
     expect(heights).toStrictEqual([300]);
   });
 
+  it("gives the library a new viewport rect when the box changes without a scroll", () => {
+    // The library's own `observeElementRect` runs a `ResizeObserver`; this frame
+    // replaces it, so the height a resize produces reaches the virtualizer through
+    // this subscription or through nothing at all.
+    const surface = countingSurface({ clientHeight: 300 });
+    const clock = new ManualClock();
+    const controller = new LedgerViewportController({ clock });
+    controller.attach(surface);
+    const heights: number[] = [];
+    controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
+
+    surface.resizeTo(260, 4000);
+    controller.scroll.requestOverflowMeasurement();
+    clock.runFrame();
+
+    expect(heights).toStrictEqual([300, 260]);
+  });
+
+  it("negative control: a pass over an unchanged box gives it nothing to re-lay-out", () => {
+    // Otherwise the case above would pass over a seam that republished on every
+    // pass, which is a full re-layout of the window per measurement frame.
+    const surface = countingSurface({ clientHeight: 300 });
+    const clock = new ManualClock();
+    const controller = new LedgerViewportController({ clock });
+    controller.attach(surface);
+    const heights: number[] = [];
+    controller.seams.observeElementRect(UNUSED_VIRTUALIZER, (rect) => heights.push(rect.height));
+
+    controller.scroll.requestOverflowMeasurement();
+    clock.runFrame();
+
+    expect(heights).toStrictEqual([300]);
+  });
+
   it("drops the library's measurements when the display changes under them", () => {
     const { controller } = attachedController();
     controller.measurements.acceptedHeight("row-0", 240);

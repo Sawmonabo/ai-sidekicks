@@ -105,6 +105,16 @@ export class ReplayEngine {
   readonly #clock: ConsoleClock;
   readonly #rowsInOrder: readonly ReplayRow[];
   readonly #offsetsMs: readonly number[];
+  /**
+   * Where each row sits in the ordered window, keyed by its id.
+   *
+   * Built once, because every caller that names a row — a seam jump, "replay from
+   * here", the timestamp the control renders — otherwise scans the window, and the
+   * seam jump scanned it once per seam on every press. A repeated row id is a
+   * projection defect; the first occurrence wins, which is the row the ordering
+   * put first.
+   */
+  readonly #rowIndexByRowId: ReadonlyMap<string, number>;
   readonly #granularity: ReplayGranularity;
   readonly #onPositionChange: ((position: ReplayPosition) => void) | undefined;
   readonly #frameIntervalMs: number;
@@ -136,8 +146,15 @@ export class ReplayEngine {
       // rows than the ledger does.
       return Number.isNaN(parsed) ? 0 : parsed - firstMs;
     });
+    const rowIndexByRowId = new Map<string, number>();
+    for (const [index, row] of rowsInOrder.entries()) {
+      if (!rowIndexByRowId.has(row.rowId)) {
+        rowIndexByRowId.set(row.rowId, index);
+      }
+    }
     this.#rowsInOrder = rowsInOrder;
     this.#offsetsMs = offsets;
+    this.#rowIndexByRowId = rowIndexByRowId;
     this.#spanMs = offsets.length === 0 ? 0 : Math.max(...offsets);
   }
 
@@ -210,11 +227,11 @@ export class ReplayEngine {
    * absence rather than silently doing nothing.
    */
   public replayFrom(rowId: string): boolean {
-    const index = this.#rowsInOrder.findIndex((row) => row.rowId === rowId);
-    if (index < 0) {
+    const offsetMs = this.#offsetMsOf(rowId);
+    if (offsetMs === undefined) {
       return false;
     }
-    this.scrubTo(this.#offsetsMs[index] ?? 0);
+    this.scrubTo(offsetMs);
     return true;
   }
 
@@ -223,20 +240,31 @@ export class ReplayEngine {
    *
    * Takes the seams rather than deriving them: `seams.ts` owns that vocabulary and
    * a second classifier here would be the drift the structure rules forbid.
+   *
+   * NEXT is the chronologically nearest and not the first in the list. `seams()`
+   * produces its output in log order and sorts nothing, while replay orders rows by
+   * `occurredAt`, and the two differ wherever the daemon admitted rows out of
+   * wall-clock order. Taking the first in log order there jumps PAST a nearer seam
+   * — and because the jump scrubs, the skipped seam is then behind the elapsed
+   * position and no later press can ever reach it. The comparison is strict, so
+   * seams sharing an instant are taken in the order the log recorded them.
    */
   public jumpToNextSeam(seams: readonly LedgerSeam[]): LedgerSeam | undefined {
+    let nearestSeam: LedgerSeam | undefined;
+    let nearestOffsetMs = Number.POSITIVE_INFINITY;
     for (const seam of seams) {
-      const index = this.#rowsInOrder.findIndex((row) => row.rowId === seam.rowId);
-      if (index < 0) {
+      const offsetMs = this.#offsetMsOf(seam.rowId);
+      if (offsetMs === undefined || offsetMs <= this.#elapsedMs || offsetMs >= nearestOffsetMs) {
         continue;
       }
-      const offset = this.#offsetsMs[index] ?? 0;
-      if (offset > this.#elapsedMs) {
-        this.scrubTo(offset);
-        return seam;
-      }
+      nearestSeam = seam;
+      nearestOffsetMs = offsetMs;
     }
-    return undefined;
+    if (nearestSeam === undefined) {
+      return undefined;
+    }
+    this.scrubTo(nearestOffsetMs);
+    return nearestSeam;
   }
 
   /**
@@ -257,13 +285,20 @@ export class ReplayEngine {
     return this.#armedHandle !== undefined;
   }
 
+  /** Where a row sits on the replay clock, or `undefined` for a row not in the window. */
+  #offsetMsOf(rowId: string): number | undefined {
+    const index = this.#rowIndexByRowId.get(rowId);
+    return index === undefined ? undefined : (this.#offsetsMs[index] ?? 0);
+  }
+
   #positionIso(): string | undefined {
     const revealed = this.#revealedRowIds();
     const lastRevealedId = revealed[revealed.length - 1];
     if (lastRevealedId === undefined) {
       return this.#rowsInOrder[0]?.occurredAt;
     }
-    return this.#rowsInOrder.find((row) => row.rowId === lastRevealedId)?.occurredAt;
+    const index = this.#rowIndexByRowId.get(lastRevealedId);
+    return index === undefined ? undefined : this.#rowsInOrder[index]?.occurredAt;
   }
 
   #revealedRowIds(): readonly string[] {

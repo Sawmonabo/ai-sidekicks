@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
+import { LEDGER_ROW_HEIGHT_ESTIMATE_PX, LEDGER_WINDOW_ROW_CAP } from "./frame-bounds.js";
 import { countingSurface } from "./scroll-surface-fixture.js";
 import { LedgerViewportController } from "./viewport-controller.js";
 import type { LedgerViewportRow } from "./viewport-snapshot.js";
@@ -94,6 +95,7 @@ describe("the viewport controller — reconcile", () => {
       distanceFromTailPx: 3880,
       isAtTail: false,
       sampledAt: 0,
+      cause: "scroll",
     });
     controller.reconcile({ rows: syntheticRows(7), ...CALM });
     expect(controller.snapshot().reading).toMatchObject({
@@ -123,6 +125,7 @@ describe("the viewport controller — holding the reading position", () => {
       distanceFromTailPx: 3500,
       isAtTail: false,
       sampledAt: 0,
+      cause: "scroll",
     });
     controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -12 });
     const followsBefore = controller.scroll.writeCount("follow-tail");
@@ -141,6 +144,7 @@ describe("the viewport controller — holding the reading position", () => {
       distanceFromTailPx: 3500,
       isAtTail: false,
       sampledAt: 0,
+      cause: "scroll",
     });
     controller.anchor.capture({ rowKey: "row-not-here", offsetWithinViewportPx: 0 });
     controller.holdReadingPosition();
@@ -156,6 +160,7 @@ describe("the viewport controller — holding the reading position", () => {
       distanceFromTailPx: 3500,
       isAtTail: false,
       sampledAt: 0,
+      cause: "scroll",
     });
     controller.jumpToTail();
     expect(controller.snapshot().reading.mode).toBe("following");
@@ -212,6 +217,127 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
     expect(capturedByTheReader).toBeDefined();
     controller.scroll.glideTo("deep-link", 900);
     expect(controller.anchor.state.anchorPoint).toBe(capturedByTheReader);
+  });
+});
+
+describe("the viewport controller — a pane that changed size", () => {
+  /** A viewport parked at the bottom of its content, in the tail's own arithmetic. */
+  function surfaceAtTail(): ReturnType<typeof countingSurface> {
+    return countingSurface({ initialScrollTop: 3700, clientHeight: 300, scrollHeight: 4000 });
+  }
+
+  it("keeps a follower following, and re-glides to the tail the resize moved", () => {
+    // A shorter viewport raises the distance from the tail on its own. Without the
+    // asymmetry the anchor states, this alone would stop the ledger following.
+    const surface = surfaceAtTail();
+    const clock = new ManualClock();
+    const controller = new LedgerViewportController({ clock });
+    controller.attach(surface);
+    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    const followsBefore = controller.scroll.writeCount("follow-tail");
+
+    surface.resizeTo(150, 4000);
+    controller.scroll.requestOverflowMeasurement();
+    clock.runFrame();
+
+    expect(controller.anchor.state.mode).toBe("following");
+    expect(controller.scroll.writeCount("follow-tail")).toBe(followsBefore + 1);
+    expect(surface.scrollTop).toBe(3850);
+  });
+
+  it("negative control: a reader who had scrolled away is not dragged to the tail", () => {
+    const surface = countingSurface({
+      initialScrollTop: 500,
+      clientHeight: 300,
+      scrollHeight: 4000,
+    });
+    const clock = new ManualClock();
+    const controller = new LedgerViewportController({ clock });
+    controller.attach(surface);
+    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
+
+    surface.resizeTo(150, 4000);
+    controller.scroll.requestOverflowMeasurement();
+    clock.runFrame();
+
+    expect(controller.anchor.state.mode).toBe("reading");
+    expect(controller.scroll.writeCount("follow-tail")).toBe(0);
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(1);
+  });
+});
+
+describe("the viewport controller — pruning under a reader", () => {
+  /** Far enough back that the cap wants the row, near enough to name in a claim. */
+  const READER_ROW_INDEX = 10;
+  const READER_ROW_KEY = `row-${String(READER_ROW_INDEX)}`;
+  const LOADED_ROW_COUNT = 4400;
+  const INITIAL_SCROLL_TOP_PX = 2000;
+
+  /** A surface tall enough that no compensation this case performs is clamped. */
+  function tallSurface(initialScrollTop: number): ReturnType<typeof countingSurface> {
+    return countingSurface({ initialScrollTop, clientHeight: 300, scrollHeight: 400_000 });
+  }
+
+  it("stops the prune at the reader's row and moves the offset by exactly what it took", () => {
+    const surface = tallSurface(INITIAL_SCROLL_TOP_PX);
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
+
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+
+    // Contiguous, and all of it above the reader: the ten rows before them, in order.
+    expect(controller.snapshot().lastPrune?.prunedKeys).toStrictEqual(
+      Array.from({ length: READER_ROW_INDEX }, (_unused, index) => `row-${String(index)}`),
+    );
+    expect(controller.snapshot().rowKeys[0]).toBe(READER_ROW_KEY);
+    // And the reader keeps their pixel, by arithmetic rather than by a virtualizer
+    // read that would still answer in the pre-prune index space.
+    expect(controller.scroll.writeCount("prune-compensation")).toBe(1);
+    expect(surface.scrollTop).toBe(
+      INITIAL_SCROLL_TOP_PX - READER_ROW_INDEX * LEDGER_ROW_HEIGHT_ESTIMATE_PX,
+    );
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(0);
+  });
+
+  it("defers by name when the reader is on the oldest row it could have taken", () => {
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(tallSurface(INITIAL_SCROLL_TOP_PX));
+    controller.anchor.capture({ rowKey: "row-0", offsetWithinViewportPx: 0 });
+
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+
+    expect(controller.snapshot().lastPrune?.deferredBecause).toBe("reading-floor");
+    expect(controller.snapshot().rowKeys).toHaveLength(LOADED_ROW_COUNT);
+  });
+
+  it("takes the rows it had to leave once the reader returns to the tail", () => {
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(tallSurface(INITIAL_SCROLL_TOP_PX));
+    controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+
+    controller.jumpToTail();
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+
+    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().rowKeys[0]).toBe(
+      `row-${String(LOADED_ROW_COUNT - LEDGER_WINDOW_ROW_CAP)}`,
+    );
+  });
+
+  it("negative control: a reader at the tail prunes as it always did, compensating nothing", () => {
+    // Without this the floor could have been a cap that never lets go at all.
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(tallSurface(399_700));
+    expect(controller.anchor.state.mode).toBe("following");
+
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+
+    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.scroll.writeCount("prune-compensation")).toBe(0);
+    expect(controller.scroll.writeCount("follow-tail")).toBeGreaterThan(0);
   });
 });
 
