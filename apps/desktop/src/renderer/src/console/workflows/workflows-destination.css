@@ -2,14 +2,17 @@
  * The workflows destination's own composition: the scope line above the browser, and
  * the question that stands in its place while no session is in scope.
  *
- * A sibling sheet rather than a section of `workflows.css`, on the
- * `panes/workflow-run/phase-graph/phase-graph.css` precedent: these rules belong to
- * one surface, and appending them to the family sheet would put a surface's layout in
- * the file every other surface in the family also edits.
+ * A sibling FILE rather than a section of `workflows.css`, on the precedent of the
+ * four sheets beside it: these rules belong to one surface, and appending them to the
+ * family sheet would put a surface's layout in the file every other surface in the
+ * family also edits.
  *
- * Imported by `WorkflowsDestination.tsx` and by nothing else. The picker beside it is
- * mounted only from there, so one edge still reaches every rule below and a chrome
- * can never arrive without them.
+ * A sibling file is not a second import EDGE, and the two were confused here once:
+ * this sheet used to be imported from `WorkflowsDestination.tsx` directly, so the
+ * family had two ways into its own rules and which one won depended on which
+ * component modules a build happened to reach first. It is now `@import`ed at the head
+ * of `workflows.css` with its siblings, and `workflows/index.ts` is the family's only
+ * stylesheet importer.
  *
  * `Spec-023 §Console Design (Meridian)` governs every rule here: values come from the
  * generated token sheet, there is no literal colour and no literal length off the

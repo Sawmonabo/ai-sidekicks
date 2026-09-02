@@ -7,6 +7,14 @@
 // barrel for exactly that reason: a sheet imported anywhere on the initial path
 // would put 13.6 kB of library CSS into the document the operator waits for.
 //
+// THIS IS THE CONSOLE'S ONE STYLESHEET EDGE OUTSIDE A FAMILY BARREL, and it is
+// asserted by name in `test/console/architecture/stylesheet-edges.test.ts` rather
+// than left to a reader to notice. Pulling `phase-graph.css` up into `workflows.css`
+// with the family's other per-surface sheets would break it twice over: it would put
+// this sheet on the initial path the paragraph above keeps it off, and it would load
+// it BEFORE `base.css` instead of after — so every `--xy-*` value the block below
+// sets from Meridian would lose to the library's own fallback at equal specificity.
+//
 // THE STYLESHEET ORDER BELOW IS LOAD-BEARING. `base.css` defines the library's own
 // fallback palette on `.react-flow`; this family's sheet redefines every one of
 // those properties from Meridian tokens at equal specificity, so it has to come

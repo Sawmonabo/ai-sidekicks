@@ -7,6 +7,16 @@
  * their own modules for that reason: each is owned and edited by the surface it names,
  * and none of them is a second import edge.
  *
+ * ONE SHEET IN THIS FAMILY IS DELIBERATELY NOT BELOW, and naming it here is what keeps
+ * the list a claim rather than a coincidence: `panes/workflow-run/phase-graph/phase-graph.css`
+ * rides the lazy graph chunk. It is imported beside the graph library's own `base.css`
+ * from `PhaseGraphCanvas.tsx`, which is reached through `import()` and nothing else,
+ * and it has to load AFTER that sheet to win at equal specificity. Pulled in here it
+ * would land in the document the operator waits for and would load BEFORE the sheet it
+ * overrides, so the library's fallback palette would paint. That exception is asserted
+ * by name in `test/console/architecture/stylesheet-edges.test.ts`; there is not a
+ * second one.
+ *
  * WHAT STAYS HERE. The chrome every workflows surface stands in — the block, the
  * header, the body column, the reserved-slot box, and the one action treatment the
  * browser's primary act and the run controls both wear. A rule that belongs to exactly
@@ -24,6 +34,7 @@
  */
 
 /* The per-surface sheets, in the order a person meets the surfaces. */
+@import "./workflows-destination.css";
 @import "./definitions-browser.css";
 @import "./run-list.css";
 @import "./park-badge.css";
