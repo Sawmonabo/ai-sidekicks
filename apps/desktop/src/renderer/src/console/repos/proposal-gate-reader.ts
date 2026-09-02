@@ -29,19 +29,15 @@
 //
 // WHAT THIS READER DELIBERATELY CANNOT PUBLISH, AND WHY IT IS A WIRE FACT
 //
-//   • `hosting-unavailable`. The arm needs a bundle path and a preparation state that
-//     names the outage. The preparation reply carries `prPreparationId`, a state
-//     closed at `draft | ready`, and an untyped blob — and the blob is display data
-//     the console may never read as an instruction (`prepared-proposal.ts`), so there is
-//     no honest route to the arm at all. Publishing it from a `draft` reply would
-//     report an outage nothing observed; publishing a bundle path would invent a
-//     filesystem location. The arm stays drawable for a caller that CAN state it.
+//   • `hosting-unavailable`, for the reason `proposal-gate-state.ts` records on the arm
+//     itself: no registered reply names a bundle or an outage, so there is no honest
+//     route to it, and it stays drawable for a caller that CAN state it.
 //   • A `status` reading. The three trichotomies are facts about a proposal that
 //     exists ON A HOST, and nothing in this console has talked to one — the
 //     preparation call is explicitly the step before any remote mutation.
 //   • `detectedHost`, `title`, `body`, `trailers`, `changedPaths`. Each is optional on
-//     the shapes it belongs to, for the reason recorded there, and this reader
-//     supplies exactly the ones a reply named.
+//     the shape it belongs to for the reason recorded there, and this reader supplies
+//     exactly the ones a reply named.
 //
 // THE TARGET BRANCH IS THE CONTEXT'S AND NEVER A SELECTION. §10.7 forbids inferring
 // base or head from a pane, a tab, or a focused view; the preparation call's
@@ -91,7 +87,12 @@ export interface ProposalGateReading {
   readonly state: ProposalGateState;
   /** The read's own failure, where the published arm admits no message. */
   readonly refusal: ConsoleRefusal | undefined;
-  /** What the last press of each act produced. Rendered beside the control pressed. */
+  /**
+   * What the last press of each act produced. Rendered beside the control pressed.
+   *
+   * An act's entry is dropped the moment that act is issued again, so what stands here
+   * is always a failure of the most recent press and never one a later success outran.
+   */
   readonly actionRefusals: ReadonlyMap<ProposalAction, ConsoleRefusal>;
   /**
    * One sentence naming what this gate settled on, or `undefined` before it has.
@@ -210,6 +211,13 @@ export class ProposalGateReader {
    * re-reads, because what the act changed is what the next read will say.
    */
   public async requestAction(action: ProposalAction): Promise<void> {
+    // WHAT THE LAST PRESS PRODUCED IS CLEARED WHEN THE NEXT ONE IS ISSUED, not when it
+    // settles: every later publish spreads `actionRefusals` forward, so a refusal used
+    // to stand beside its control for the life of the reader even after the same act
+    // succeeded. One write here covers both accepted paths and leaves an in-flight
+    // retry showing no stale failure; a refused retry re-records its own below. Every
+    // OTHER act's entry survives — a failed commit is still a fact after a push worked.
+    this.#clearActionRefusal(action);
     const context = this.#context;
     if (context === undefined) {
       // Structurally unreachable from the gate, which offers acts only on the
@@ -381,6 +389,16 @@ export class ProposalGateReader {
   #discardProposal(): void {
     this.#proposal = undefined;
     this.#proposalPreparedFor = undefined;
+  }
+
+  /** Drop one act's standing failure. A publish only where there was one to drop. */
+  #clearActionRefusal(action: ProposalAction): void {
+    if (!this.#reading.actionRefusals.has(action)) {
+      return;
+    }
+    const actionRefusals = new Map(this.#reading.actionRefusals);
+    actionRefusals.delete(action);
+    this.#publish({ ...this.#reading, actionRefusals });
   }
 
   #recordActionRefusal(action: ProposalAction, refusal: ConsoleRefusal): void {

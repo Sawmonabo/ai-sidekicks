@@ -116,27 +116,37 @@ function bridgeAnswering(script: PortScript): ConsoleBridge {
   } as unknown as ConsoleBridge;
 }
 
+/** A bridge whose answers a case can MOVE between calls, and the two movers for it. */
+interface MovingPort {
+  readonly bridge: ConsoleBridge;
+  readonly serveContext: (answer: unknown) => void;
+  readonly serveGitAction: (answer: unknown) => void;
+}
+
 /**
- * A bridge whose context reply a case can MOVE between reads.
+ * A bridge whose replies a case can MOVE between calls.
  *
- * The retention rule is about two reads answering differently, which a fixed script
- * cannot express: the first read establishes the context a proposal is prepared
- * against, and the second is where the discard is decided.
+ * Two rules below are about the SECOND answer differing from the first, which a fixed
+ * script cannot express: a proposal is retained or discarded by comparing the context
+ * a re-read served against the one it was prepared under, and an act's standing
+ * refusal is cleared by pressing that act again against a different answer.
  */
-function bridgeWithMovingContext(prepare: unknown): {
-  bridge: ConsoleBridge;
-  serveContext: (answer: unknown) => void;
-} {
+function bridgeWithMovingAnswers(prepare: unknown = SERVED_PREPARATION): MovingPort {
   let branchContext: unknown = SERVED_CONTEXT;
+  let gitAction: unknown = WIRE_UNREGISTERED;
   return {
     bridge: {
       growth: {
         gitflowBranchContextRead: async () => branchContext,
         gitflowPrPrepare: async () => prepare,
+        gitActionExecute: async () => gitAction,
       },
     } as unknown as ConsoleBridge,
     serveContext: (answer: unknown) => {
       branchContext = answer;
+    },
+    serveGitAction: (answer: unknown) => {
+      gitAction = answer;
     },
   };
 }
@@ -380,11 +390,73 @@ describe("ProposalGateReader — the acts", () => {
   });
 });
 
+describe("ProposalGateReader — what a refused act leaves standing", () => {
+  /** An accepted git action, which is what a successful retry answers with. */
+  const ACCEPTED_ACTION = { status: "served", value: { accepted: true } } as const;
+
+  /** Start a gate on the served context, with the acts answering `WIRE_UNREGISTERED`. */
+  async function openOnServedContext(): Promise<{
+    reader: ProposalGateReader;
+    clock: ManualClock;
+    port: MovingPort;
+  }> {
+    const clock = new ManualClock();
+    const port = bridgeWithMovingAnswers();
+    const reader = openReader(port.bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+    return { reader, clock, port };
+  }
+
+  it("clears the standing refusal when the same act is accepted", async () => {
+    const { reader, clock, port } = await openOnServedContext();
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+    expect(reader.snapshot.actionRefusals.get("push")?.code).toBe("wire-unregistered");
+
+    port.serveGitAction(ACCEPTED_ACTION);
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+
+    // Nothing is refusing this act any more, so nothing renders beside its control.
+    expect(reader.snapshot.actionRefusals.has("push")).toBe(false);
+  });
+
+  it("renders the newer refusal when a retry is refused for a different reason", async () => {
+    const { reader, clock, port } = await openOnServedContext();
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+
+    port.serveGitAction(REPLY_ABANDONED);
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+
+    expect(reader.snapshot.actionRefusals.get("push")?.code).toBe("reply-abandoned");
+  });
+
+  it("negative control: another act's refusal survives a successful one", async () => {
+    // The clear is per-action on purpose. Without this case the two above would pass
+    // against a reader that emptied the whole map on any press, which would erase a
+    // failed commit the moment a push worked.
+    const { reader, clock, port } = await openOnServedContext();
+    await reader.requestAction("commit");
+    await settleAct(clock, reader);
+    expect(reader.snapshot.actionRefusals.get("commit")?.code).toBe("wire-unregistered");
+
+    port.serveGitAction(ACCEPTED_ACTION);
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+
+    expect(reader.snapshot.actionRefusals.get("commit")?.code).toBe("wire-unregistered");
+    expect(reader.snapshot.actionRefusals.has("push")).toBe(false);
+  });
+});
+
 describe("ProposalGateReader — the proposal and the context it was prepared for", () => {
   /** Prepare a proposal, then serve `nextContext` and let the re-read land. */
   async function prepareThenRefresh(nextContext: unknown): Promise<ProposalGateReader> {
     const clock = new ManualClock();
-    const { bridge, serveContext } = bridgeWithMovingContext(SERVED_PREPARATION);
+    const { bridge, serveContext } = bridgeWithMovingAnswers();
     const reader = openReader(bridge, clock);
     reader.start();
     await settle(clock, reader);
