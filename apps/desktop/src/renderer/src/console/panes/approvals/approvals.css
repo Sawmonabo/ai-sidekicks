@@ -230,6 +230,10 @@
   border-radius: 1px;
 }
 
+/* Every control this pane owns shares its METRICS. The face splits two ways below,
+   because rule 1's one primary action per surface is a difference in face and not
+   in size: the approve action and the goal's save carry `meridian-accent-fill` from
+   the primitives, and every other control here is quiet chrome. */
 .meridian-approval-card__scope-trigger,
 .meridian-approval-card__action,
 .meridian-grants__revoke,
@@ -239,9 +243,21 @@
 .meridian-goal__clear,
 .meridian-goal__cancel {
   padding: var(--meridian-space-1) var(--meridian-space-3);
-  color: var(--meridian-text);
   font: inherit;
   font-size: var(--meridian-text-sm);
+}
+
+/* The quiet controls, named one by one rather than as `__action` with the primary
+   overriding it: an override would restate the accent pairing here, which is the
+   one thing `meridian-accent-fill` exists to keep in a single place. */
+.meridian-approval-card__scope-trigger,
+.meridian-approval-card__action--reject,
+.meridian-grants__revoke,
+.meridian-grants__cancel,
+.meridian-goal__open,
+.meridian-goal__clear,
+.meridian-goal__cancel {
+  color: var(--meridian-text);
   background: var(--meridian-surface);
   border: 1px solid var(--meridian-edge-strong);
   border-radius: var(--meridian-radius-sm);
@@ -261,18 +277,13 @@
   cursor: pointer;
 }
 
-/* One primary action per surface: approve carries the accent, reject is quiet
-   chrome. Reject is never red — a rejection is the console working. */
+/* One primary action per surface: approve carries the accent — through
+   `meridian-accent-fill`, whose ink is measured against that fill — and reject is
+   quiet chrome. Reject is never red: a rejection is the console working. */
 .meridian-approval-card__actions {
   display: flex;
   gap: var(--meridian-space-2);
   align-items: center;
-}
-
-.meridian-approval-card__action--approve {
-  color: var(--meridian-accent-text);
-  background: var(--meridian-accent);
-  border-color: var(--meridian-accent);
 }
 
 .meridian-approval-card__action:disabled,
@@ -522,10 +533,4 @@
   display: flex;
   gap: var(--meridian-space-2);
   align-items: center;
-}
-
-.meridian-goal__save {
-  color: var(--meridian-accent-text);
-  background: var(--meridian-accent);
-  border-color: var(--meridian-accent);
 }

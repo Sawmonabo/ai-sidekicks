@@ -35,6 +35,7 @@ import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
 
 import {
+  ACCENT_FILL_CLASS,
   Chip,
   DerivedFigure,
   InlineRefusal,
@@ -83,12 +84,28 @@ export interface ApprovalCardProps {
 const ACTION_ORDER = ["approve", "reject"] as const;
 
 /**
+ * The one member of {@link ACTION_ORDER} that carries the accent, per rule 1's one
+ * primary action per surface. Named here rather than compared inline so the row
+ * cannot grow a second filled control without this line moving.
+ */
+const PRIMARY_ACTION: (typeof ACTION_ORDER)[number] = "approve";
+
+/**
  * The attribute a card carries its record's identity on, and the class its actions
  * wear. Both sides of one seam live here: the card writes them and
  * {@link findApprovalCardAction} reads them, so neither can be renamed alone.
  */
 const APPROVAL_CARD_ID_ATTRIBUTE = "data-approval-id";
 const APPROVAL_CARD_ACTION_CLASS = "meridian-approval-card__action";
+
+/**
+ * The classes one action wears: the block, its own modifier, and — on the primary
+ * action alone — the primitives' filled-accent face.
+ */
+function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
+  const base = `${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action}`;
+  return action === PRIMARY_ACTION ? `${base} ${ACCENT_FILL_CLASS}` : base;
+}
 
 /**
  * The first action of ONE card, found by the record it belongs to.
@@ -248,7 +265,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
           >
             {ACTION_ORDER.map((action) => (
               <button
-                className={`${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action}`}
+                className={actionClassName(action)}
                 key={action}
                 type="button"
                 disabled={props.isResolving}

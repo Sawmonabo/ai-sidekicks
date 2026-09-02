@@ -9,6 +9,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { SessionGoalCard } from "./SessionGoalCard.js";
+import { ACCENT_FILL_CLASS } from "../../primitives/index.js";
 import { refuse } from "../../core/index.js";
 import { type SessionGoalProjection } from "./session-goal.js";
 
@@ -95,6 +96,29 @@ describe("setting and clearing are two acts", () => {
     expect(onClear).toHaveBeenCalledTimes(1);
     // Two operations, two handlers — a clear never travels as an empty update.
     expect(onUpdate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("one primary action per surface", () => {
+  it("gives the save the filled accent and leaves every sibling quiet", () => {
+    renderCard({ goal: A_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+
+    // The face comes from the primitives rather than from this pane's sheet, which
+    // is what makes the ink measurable: `tokens/contrast.test.ts` measures
+    // `accent-ink` against the fill, and a control painting its own accent is a
+    // pairing that measurement never sees.
+    expect(screen.getByRole("button", { name: "Save goal" }).classList).toContain(
+      ACCENT_FILL_CLASS,
+    );
+
+    // The negative control, and rule 1 itself: exactly one control in the editor
+    // carries the accent, so a sibling wearing it is a second primary action.
+    for (const quiet of ["Clear the goal", "Cancel"]) {
+      expect(screen.getByRole("button", { name: quiet }).classList).not.toContain(
+        ACCENT_FILL_CLASS,
+      );
+    }
   });
 });
 

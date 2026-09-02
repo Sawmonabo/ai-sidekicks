@@ -30,7 +30,12 @@
 
 import { useCallback, useEffect, useId, useState } from "react";
 
-import { DerivedFigure, InlineRefusal, Nothing } from "../../primitives/index.js";
+import {
+  ACCENT_FILL_CLASS,
+  DerivedFigure,
+  InlineRefusal,
+  Nothing,
+} from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { SESSION_GOAL_MAX_LENGTH } from "./approvals-bounds.js";
 import { sessionGoalTextSchema, type SessionGoalProjection } from "./session-goal.js";
@@ -118,8 +123,10 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
             </p>
           )}
           <div className="meridian-goal__actions">
+            {/* The editor's one primary action, and the only control here that takes
+                the accent as its face (rule 1). */}
             <button
-              className="meridian-goal__save"
+              className={`meridian-goal__save ${ACCENT_FILL_CLASS}`}
               type="button"
               disabled={!canSubmit}
               onClick={submit}

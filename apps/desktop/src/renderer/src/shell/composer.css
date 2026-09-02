@@ -105,15 +105,15 @@
    colour for text on a SURFACE, so painting it on the `accent` fill puts two
    near-isoluminant colours together (L 0.475 on L 0.575 light, L 0.845 on
    L 0.73 dark) and fails WCAG 1.4.3 in both schemes — which the accessibility
-   tier reports on this exact selector. No token in the palette is an on-accent
-   ink: the lightest surface the console owns reaches only 4.23:1 on the light
-   accent fill, so no substitution inside the fill can clear 4.5:1 either. The
-   pair below is the one the palette DOES design for an accent affordance, the
-   same pair `.meridian-chip--accent` uses — 6.38:1 light and 11.49:1 dark for
-   the label, with the accent boundary at 4.17:1 and 7.77:1 against the send
-   box's own surface, clearing the 3:1 non-text floor rule 3 puts on a control
-   boundary. The control still reads as the one accented affordance in the
-   composer, because it is the only one. */
+   tier reports on this exact selector. The primitives DO own a filled treatment
+   that clears the floor, `meridian-accent-fill`, which pairs that fill with
+   `accent-ink` at 4.73:1 light and 7.41:1 dark, and a card's one primary action
+   wears it. This control keeps the boundary-and-ink pair instead, because that
+   pair measures HIGHER on the label it has to carry — 6.38:1 light and 11.49:1
+   dark, the same pair `.meridian-chip--accent` uses — with the accent boundary
+   at 4.17:1 and 7.77:1 against the send box's own surface, clearing the 3:1
+   non-text floor rule 3 puts on a control boundary. The control still reads as
+   the one accented affordance in the composer, because it is the only one. */
 .meridian-composer__primary {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);

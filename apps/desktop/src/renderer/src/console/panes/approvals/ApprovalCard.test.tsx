@@ -10,6 +10,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ApprovalCard } from "./ApprovalCard.js";
+import { ACCENT_FILL_CLASS } from "../../primitives/index.js";
 import { type ApprovalRecord } from "./approval-records.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
 
@@ -96,6 +97,26 @@ describe("the two answers", () => {
     for (const button of actions.querySelectorAll("button")) {
       expect(button.disabled).toBe(true);
     }
+  });
+
+  it("gives approve the filled accent and leaves reject quiet", () => {
+    renderCard(pendingRecord());
+    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
+
+    // The face comes from the primitives rather than from this pane's sheet, which
+    // is what makes the ink measurable: `tokens/contrast.test.ts` measures
+    // `accent-ink` against the fill, and a control painting its own accent is a
+    // pairing that measurement never sees.
+    expect(within(actions).getByRole("button", { name: "Approve" }).classList).toContain(
+      ACCENT_FILL_CLASS,
+    );
+
+    // The negative control, and rule 1 itself: one primary action per surface. A
+    // reject that also carried the fill would be a second — and reject is never
+    // coloured at all, because a rejection is the console working.
+    expect(within(actions).getByRole("button", { name: "Reject" }).classList).not.toContain(
+      ACCENT_FILL_CLASS,
+    );
   });
 });
 

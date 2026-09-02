@@ -18,6 +18,11 @@
 
 import "./primitives.css";
 
+// The sheet's one filled-accent face, named where TypeScript can see it. Two
+// surfaces outside this family wear it, so the name is declared once rather than
+// spelled at each of them.
+export { ACCENT_FILL_CLASS } from "./accent-fill.js";
+
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
 
