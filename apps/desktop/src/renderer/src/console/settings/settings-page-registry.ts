@@ -230,70 +230,43 @@ export function matchSettingsEntries(
 
 // --- Pages whose body another plan authors ---------------------------------
 //
-// Three settings-adjacent bodies are owned elsewhere and two of them are pages.
-// This lane builds the CHROME and mounts a typed slot; the body arrives from its
-// owning plan and the shell below is deleted rather than superseded.
+// Two settings sections are holes another plan fills: the provider-account
+// registry and the MCP server inventory. Each is a PAGE this repository builds the
+// chrome for and a BODY it does not author at all, so the arrangement is the seat
+// contract `workspace/seats/owner-slot.ts` declares — who owns the body, what the
+// mount owes it, and where the shell dies.
+//
+// WHY THE RENDERER IS HERE AND THE SLOTS ARE NOT
+//
+// Each slot lives beside the page that mounts it, because the reservation copy, the
+// body's props, and the section registration are one decision. What is shared is
+// the four lines that CHOOSE between a body and its reservation, and those were
+// written twice before this function existed — `apps/desktop/AGENTS.md` hoists on
+// the second use, and this module is the lowest one both pages already import.
 //
 // The reservation copy names the FEATURE and never the governance work — a slot
 // contract is developer-facing (`workspace/seats/owner-slot.ts` says so in terms),
 // and the repository's standing rule keeps governance identifiers out of what a
 // participant reads.
 
-/** One reserved page: the seat contract, its rail position, and what it says today. */
-interface ReservedSettingsPage {
-  readonly section: SettingsSectionId;
-  readonly label: string;
-  readonly keywords: readonly string[];
+/** One page whose body another plan authors: the seat, and what it says today. */
+export interface OwnerSlotPage {
   readonly slot: OwnerSlotProps<SettingsPageBody>;
+  /** What is absent, in one sentence. The feature, never the work that owes it. */
   readonly reservationTitle: string;
+  /** The second line: what the body will hold, and what has not been asked for. */
   readonly reservationDetail: string;
 }
 
-const RESERVED_SETTINGS_PAGES: readonly ReservedSettingsPage[] = [
-  {
-    section: "mcp-servers",
-    label: "MCP servers",
-    keywords: ["tools", "servers", "model context protocol", "governance"],
-    slot: {
-      contract: {
-        owningTask: "Plan-028 (CP-028-8 mounts into CP-023-7)",
-        mountObligation:
-          "the page frame, the section heading, and a SettingsPageContext carrying the console bridge; the body owns every read, every control, and every refusal",
-        deleteShellIn: "the Plan-028 page-body task that fills this slot",
-      },
-      body: undefined,
-    },
-    reservationTitle: "The MCP server page has not been built here yet.",
-    reservationDetail:
-      "It will list the servers this node may reach, how each one is reported, and what an agent is allowed to call. Nothing has been asked of the daemon for it.",
-  },
-  {
-    section: "accounts",
-    label: "Provider accounts and cost",
-    keywords: ["provider", "billing", "spend", "credentials", "sign in"],
-    slot: {
-      contract: {
-        owningTask: "Plan-029, reading committed spend through Plan-016",
-        mountObligation:
-          "the page frame, the section heading, and a SettingsPageContext carrying the console bridge; the body owns the account registry read and the committed-spend read",
-        deleteShellIn: "the Plan-029 page-body task that fills this slot",
-      },
-      body: undefined,
-    },
-    reservationTitle: "The provider accounts page has not been built here yet.",
-    reservationDetail:
-      "It will show which providers this node can sign in to and what each account has spent, read from the daemon's own committed figure. Nothing has been asked for it.",
-  },
-];
-
 /**
- * Render one reserved page: the body if it has arrived, the reservation if not.
+ * Render one such page: the body if it has arrived, the reservation if not.
  *
- * "Reserved, not stubbed" — the console says the page has not been built rather
+ * "Reserved, not stubbed" — the console says the body has not been built rather
  * than drawing an empty pane that reads as a broken feature. The absence is a
- * `surface` placement because it stands in for the whole pane, not for one value.
+ * `surface` placement because it stands in for the region the body would fill, not
+ * for one value inside it.
  */
-function renderReservedPage(page: ReservedSettingsPage, context: SettingsPageContext): ReactNode {
+export function renderOwnerSlotPage(page: OwnerSlotPage, context: SettingsPageContext): ReactNode {
   const { body } = page.slot;
   if (body !== undefined) {
     return body(context);
@@ -304,23 +277,4 @@ function renderReservedPage(page: ReservedSettingsPage, context: SettingsPageCon
     title: page.reservationTitle,
     detail: page.reservationDetail,
   });
-}
-
-/**
- * Claim the sections whose body another plan owns.
- *
- * Separate from the page lanes' own registrations so the shell's deletion is one
- * table edit rather than a hunt: a body that lands replaces its `undefined` here
- * and the reservation copy goes with the row.
- */
-export function registerReservedSettingsPages(registry: SettingsPageRegistry): void {
-  for (const page of RESERVED_SETTINGS_PAGES) {
-    registry.register({
-      section: page.section,
-      owner: "collaboration-settings-reserved",
-      label: page.label,
-      keywords: page.keywords,
-      render: (context) => renderReservedPage(page, context),
-    });
-  }
 }

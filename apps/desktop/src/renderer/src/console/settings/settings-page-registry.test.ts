@@ -12,7 +12,9 @@ import {
   SETTINGS_SECTION_LABELS,
   SettingsPageRegistry,
   matchSettingsEntries,
-  registerReservedSettingsPages,
+  renderOwnerSlotPage,
+  type OwnerSlotPage,
+  type SettingsPageContext,
   type SettingsPageDescriptor,
 } from "./settings-page-registry.js";
 
@@ -82,34 +84,59 @@ describe("settings page registry — one page per section", () => {
   });
 });
 
-describe("settings pages whose body another plan authors", () => {
-  it("claims its sections and renders a stated absence rather than a stub", () => {
-    const registry = new SettingsPageRegistry();
-    registerReservedSettingsPages(registry);
-    const sections = registry.registeredSections();
-    expect(sections.length).toBeGreaterThan(0);
-    for (const section of sections) {
-      const rendered = registry.descriptorFor(section)?.render({
-        bridge: undefined as never,
-        openSection: () => undefined,
-        activeSessionId: undefined,
-      });
-      expect(rendered).not.toBeNull();
-      expect(rendered).toBeDefined();
-    }
+describe("a settings page whose body another plan authors", () => {
+  const CONTEXT = {
+    bridge: undefined as never,
+    openSection: () => undefined,
+    activeSessionId: undefined,
+  } satisfies SettingsPageContext;
+
+  const RESERVED: OwnerSlotPage = {
+    slot: {
+      contract: {
+        owningTask: "Plan-999 (the registry test's own seat)",
+        mountObligation: "the page frame and the page context",
+        deleteShellIn: "the task that fills this slot",
+      },
+      body: undefined,
+    },
+    reservationTitle: "The example page has not been built here yet.",
+    reservationDetail: "It will hold what the owning plan authors. Nothing has been asked for it.",
+  };
+
+  const FILLED: OwnerSlotPage = {
+    ...RESERVED,
+    slot: { contract: RESERVED.slot.contract, body: () => "the body rendered" },
+  };
+
+  it("renders the reservation while nobody has filled the seat", () => {
+    const rendered = renderOwnerSlotPage(RESERVED, CONTEXT);
+    expect(rendered).not.toBeNull();
+    expect(rendered).toBeDefined();
+    expect(JSON.stringify(rendered)).toContain("has not been built here yet");
   });
 
-  it("names no governance work in anything it renders", () => {
+  it("negative control: a filled seat renders its body instead", () => {
+    // Without this, the case above would pass over a renderer that ignored the seat
+    // and reserved unconditionally — which is the renderer that will silently
+    // swallow the body on the day it lands.
+    expect(renderOwnerSlotPage(FILLED, CONTEXT)).toBe("the body rendered");
+  });
+
+  it("puts none of the seat's contract on screen", () => {
     // A slot contract is developer-facing and reaches no screen. The rule is
     // repository-wide: governance identifiers live in comments, never in a string
     // a participant reads.
-    const registry = new SettingsPageRegistry();
-    registerReservedSettingsPages(registry);
-    for (const section of registry.registeredSections()) {
-      const descriptor = registry.descriptorFor(section);
-      const readable = [descriptor?.label ?? "", ...(descriptor?.keywords ?? [])].join(" ");
-      expect(readable).not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP)-\d/u);
-    }
+    const rendered = JSON.stringify(renderOwnerSlotPage(RESERVED, CONTEXT));
+    expect(rendered).not.toContain(RESERVED.slot.contract.owningTask);
+    expect(rendered).not.toContain(RESERVED.slot.contract.deleteShellIn);
+    expect(rendered).not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP)-\d/u);
+  });
+
+  it("negative control: the reservation does render text that could have carried it", () => {
+    // Without this, the case above would pass over a renderer that produced nothing
+    // at all, which is indistinguishable to `toContain` from one that stayed quiet.
+    expect(JSON.stringify(renderOwnerSlotPage(RESERVED, CONTEXT)).length).toBeGreaterThan(80);
   });
 });
 

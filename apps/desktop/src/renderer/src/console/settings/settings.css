@@ -375,3 +375,41 @@
   transform: translateX(14px);
   background: var(--meridian-surface);
 }
+
+/* --- A wire vocabulary: the closed set a page's rows will speak ----------- */
+/* Two columns rather than the `__facts` grid, because a term here is a value the
+   daemon sends and `__facts` upper-cases its terms — which would re-case a wire
+   string, and rule 4 is that a wire string renders verbatim. The term column sizes
+   to its content so the definitions share one left edge and read as a list. */
+
+.meridian-settings-page__vocabulary {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+  align-items: baseline;
+}
+
+/* The grid is two columns and each entry is a `dt`/`dd` pair, so the wrapper is
+   `display: contents`: the pair lands in the grid's own tracks rather than in a
+   box of its own, which is what keeps every definition on one left edge. */
+.meridian-settings-page__vocabulary-entry {
+  display: contents;
+}
+
+.meridian-settings-page__vocabulary dt {
+  margin: 0;
+  min-width: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-settings-page__vocabulary dd {
+  margin: 0;
+  min-width: 0;
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}
