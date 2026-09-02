@@ -530,3 +530,24 @@
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
+
+/*
+ * The builder's one primary act, in the state a build with no wire leaves it in.
+ * It sits in the header's primary-action box, so this rule gives it a column and
+ * nothing else: the refusal's own grammar is the primitives' and is not restyled.
+ */
+.meridian-workflow__authoring {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-end;
+}
+
+/* The act's name where the control itself is refused and so is not drawn. */
+.meridian-workflow__authoring-label {
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--meridian-text-muted);
+}
