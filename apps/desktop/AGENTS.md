@@ -37,7 +37,7 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 - Renderer source never imports `electron`, `electron/*`, `node:*`, bare Node builtins, `@ai-sidekicks/runtime-daemon`, `@ai-sidekicks/control-plane`, or any path under `main/` or `preload/`. Declared in `eslint.config.mjs`; add a new ban there, never in a test.
 - Main and preload never import from `src/renderer/`. A value both sides need goes in `src/shared/` and is imported by both — never mirrored by hand.
 - The console families form a DAG, low to high: `core → tokens → routing → primitives → store / persistence → bridge → palette → frame → view families`. A family imports any family below it and none above it. An upward edge fails `structure:layering`; hoist the symbol down to the lowest family that needs it, never deep-import around it.
-  - `core/` holds `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`, `emitter.ts`, `clock.ts`.
+  - `core/` holds `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`, `emitter.ts`, `clock.ts`, `fixture-globals.ts`.
   - `routing/` holds `ConsoleRoute`, `parseRoute`, `formatRoute`, `railDestinationFor`.
   - Chord formatting lives in `primitives/chord-format.ts`; the palette consumes it.
 - Console code reaches the bridge only through `console/bridge/BridgeProvider.tsx`; `window.sidekicks` appears in no other renderer file.

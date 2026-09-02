@@ -46,7 +46,7 @@
 // gains an argument and nothing else about the lifecycle moves.
 
 import type { Unsubscribe } from "../core/index.js";
-import { reportTripwire } from "../core/index.js";
+import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, reportTripwire } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleSessionEvent, SessionStoreRegistry } from "../store/index.js";
 
@@ -106,15 +106,16 @@ export interface ConsoleSessionDiagnostics {
   boundSessionIds: () => readonly string[];
 }
 
-/**
+/*
  * The property a fixture build hangs the session diagnostics on.
  *
- * A constant rather than a literal written at both ends, for the same reason the
- * tripwire registry's is: the tier that reads it imports this name, so a rename is
- * a compile error there instead of a check that silently starts reading `undefined`
- * and reports nothing forever.
+ * Declared in `core/fixture-globals.ts` and re-exported here, so this installer
+ * and the release-absence sweep that proves the handle absent read one string.
+ * Re-exported rather than only imported because the tier that reads it reaches
+ * this module by name, so a rename is a compile error there instead of a check
+ * that silently starts reading `undefined` and reports nothing forever.
  */
-export const SESSION_DIAGNOSTICS_FIXTURE_GLOBAL = "__sidekicksConsoleSessions__";
+export { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL };
 
 export interface SessionEventBinderOptions {
   readonly registry: SessionStoreRegistry;
