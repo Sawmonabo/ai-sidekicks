@@ -63,6 +63,40 @@ export interface ApprovalCardProps {
 /** The action row's members, in the order the arrows walk them. */
 const ACTION_ORDER = ["approve", "reject"] as const;
 
+/**
+ * The attribute a card carries its record's identity on, and the class its actions
+ * wear. Both sides of one seam live here: the card writes them and
+ * {@link findApprovalCardAction} reads them, so neither can be renamed alone.
+ */
+const APPROVAL_CARD_ID_ATTRIBUTE = "data-approval-id";
+const APPROVAL_CARD_ACTION_CLASS = "meridian-approval-card__action";
+
+/**
+ * The first action of ONE card, found by the record it belongs to.
+ *
+ * Here rather than at a caller because the selector is this component's own markup.
+ * A caller reaching for the first action in DOM order gets an older card's button
+ * whenever more than one is rendered — which is the whole reason a caller needs to
+ * name a record at all.
+ *
+ * The identity is compared as a string rather than interpolated into a selector: an
+ * approval id is a wire value, and a value that reaches a query as syntax is a value
+ * that can be malformed there.
+ */
+export function findApprovalCardAction(
+  root: ParentNode,
+  approvalRequestId: string,
+): HTMLElement | undefined {
+  for (const card of root.querySelectorAll(`[${APPROVAL_CARD_ID_ATTRIBUTE}]`)) {
+    if (card.getAttribute(APPROVAL_CARD_ID_ATTRIBUTE) !== approvalRequestId) {
+      continue;
+    }
+    const action = card.querySelector(`.${APPROVAL_CARD_ACTION_CLASS}`);
+    return action instanceof HTMLElement ? action : undefined;
+  }
+  return undefined;
+}
+
 export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const { record, onResolve } = props;
   const titleId = useId();
@@ -112,7 +146,14 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   }, []);
 
   return (
-    <article className="meridian-approval-card" aria-labelledby={titleId}>
+    <article
+      className="meridian-approval-card"
+      aria-labelledby={titleId}
+      // The written form of `APPROVAL_CARD_ID_ATTRIBUTE` above; a JSX attribute
+      // name is syntax and cannot be the constant itself. The pane's focus test
+      // fails the moment the two stop agreeing, which is what holds them together.
+      data-approval-id={record.approvalRequestId}
+    >
       <header className="meridian-approval-card__head">
         <h3 className="meridian-approval-card__title" id={titleId}>
           {category === undefined ? "Unrecognized category" : CATEGORY_PHRASE[category]}
@@ -249,7 +290,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
           >
             {ACTION_ORDER.map((action) => (
               <button
-                className={`meridian-approval-card__action meridian-approval-card__action--${action}`}
+                className={`${APPROVAL_CARD_ACTION_CLASS} ${APPROVAL_CARD_ACTION_CLASS}--${action}`}
                 key={action}
                 type="button"
                 disabled={props.isResolving}

@@ -10,9 +10,10 @@
 //     nothing dropped. The pending / history split below is a RENDERING of one
 //     answered read, never a second read or a client-side filter of the wire.
 //   • **Arrival is announced, and focus is not stolen.** A newly pending card is
-//     announced through an assertive live region. Focus moves to its action row
-//     only when the composer already held focus — a person mid-sentence anywhere
-//     else keeps their caret.
+//     announced through an assertive live region. Focus moves to THAT card's action
+//     row — the arrived record's, found by its own approval id — and only when the
+//     composer already held focus; a person mid-sentence anywhere else keeps their
+//     caret.
 //   • **The wait-for-all barrier is STATED, not inferred.** One turn may raise
 //     several requests, one per contributing principal, and all of them must
 //     resolve — the aggregate is approved only if every member approves, and the
@@ -31,7 +32,7 @@ import { type ConsoleRefusal } from "../../core/index.js";
 import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
-import { ApprovalCard } from "./ApprovalCard.js";
+import { ApprovalCard, findApprovalCardAction } from "./ApprovalCard.js";
 import { DriverAskCard } from "./DriverAskCard.js";
 import { ExecutionPostureChip } from "./ExecutionPosture.js";
 import { CallbackTools } from "./CallbackTools.js";
@@ -87,10 +88,11 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   const pending = useMemo(() => partitionRecords(snapshot.approvals).pending, [snapshot.approvals]);
   const history = useMemo(() => partitionRecords(snapshot.approvals).history, [snapshot.approvals]);
 
-  const announcement = useArrivalAnnouncement(pending);
+  const paneRootRef = useRef<HTMLDivElement>(null);
+  const announcement = useArrivalAnnouncement(pending, paneRootRef);
 
   return (
-    <div className="meridian-approvals">
+    <div className="meridian-approvals" ref={paneRootRef}>
       <SessionGoalCard
         goal={goal}
         // The role read this control is gated on is not on this pane's wire, and a
@@ -324,12 +326,19 @@ function partitionRecords(phase: ReadPhase<ApprovalRecord>): {
 /**
  * Announce a newly pending card, and move focus only when the composer had it.
  *
- * The focus rule is the sharp half. A person typing in the composer is already
- * looking at the work and has asked for nothing else; a person reading a diff, or
- * mid-sentence in a field this pane knows nothing about, has not. So the check is
- * on where focus IS rather than on what the pane would prefer.
+ * The focus rule is the sharp half, and it has two parts. WHETHER focus moves is a
+ * question about where focus already is: a person typing in the composer is looking
+ * at the work and has asked for nothing else, while a person reading a diff, or
+ * mid-sentence in a field this pane knows nothing about, has not. WHERE it moves is
+ * a question about which record arrived — the announcement names that record, so
+ * landing the caret on an older card's button describes one request and hands over
+ * another. Both the pane root and the record are named rather than assumed: a
+ * document-wide query for the first action in DOM order answers with neither.
  */
-function useArrivalAnnouncement(pending: readonly ApprovalRecord[]): string {
+function useArrivalAnnouncement(
+  pending: readonly ApprovalRecord[],
+  paneRootRef: React.RefObject<HTMLElement | null>,
+): string {
   const [announcement, setAnnouncement] = useState("");
   const seenIdsRef = useRef<ReadonlySet<string>>(new Set());
 
@@ -356,11 +365,11 @@ function useArrivalAnnouncement(pending: readonly ApprovalRecord[]): string {
     if (!(focused instanceof HTMLElement) || focused.closest(COMPOSER_ROOT_SELECTOR) === null) {
       return;
     }
-    const action = document.querySelector(".meridian-approval-card__action");
-    if (action instanceof HTMLElement) {
-      action.focus();
-    }
-  }, [pending]);
+    // Scoped to this pane, because a deck may hold a second one and its cards are
+    // no more this arrival's than an older card of this pane's is.
+    const action = findApprovalCardAction(paneRootRef.current ?? document, first.approvalRequestId);
+    action?.focus();
+  }, [pending, paneRootRef]);
 
   return announcement;
 }
