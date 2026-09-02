@@ -14,25 +14,73 @@
 // have the fixture folding the event stream to re-derive a fact the scenario already
 // states, and would disagree with the read the same window performs a moment later.
 
+import type { SessionState } from "@ai-sidekicks/contracts";
+
+import { ConsoleRefusalError, refuse } from "../core/index.js";
 import type { GrowthSessionSummary } from "./growth-values.js";
 import type { ConsoleScenario } from "./scenario.js";
 
+/** The subsystem a directory-derivation refusal names as its author. */
+const DIRECTORY_ORIGIN = "fixture-session-directory";
+
+/** Whether a session in one state appears in the node's directory. */
+type DirectoryVisibility = "listed" | "hidden";
+
 /**
- * Session states that put a session in the node's directory.
+ * Every registered session state, and whether the directory lists it.
  *
- * The directory answers what this node HAS, and `provisioning` is the state of a
- * session that is still being created — the one a first run is sitting in, and the
- * whole reason the first-run scenario exists. Listing it would make a freshly
- * installed console show a session row where `Spec-023 §Console Design (Meridian)`
- * §The five kinds of nothing requires the EMPTY kind: "no sessions yet", a stated
- * fact with a next action.
+ * DERIVED FROM THE CONTRACT, NOT FROM A LIST WRITTEN HERE. The keys are
+ * `SessionState`'s own six members (`packages/contracts/src/session.ts`), so a
+ * state added to the wire is a compile error in this table until someone decides
+ * what the directory does with it. The old allow-list was a free `Set<string>`
+ * and had drifted in both directions at once: it admitted `paused`, which the
+ * union has never contained, so a scenario could serve a row no daemon can send,
+ * and it dropped `closed` and `purge_requested`, so a session that really exists
+ * rendered as an empty directory.
  *
- * An allow-list rather than a deny-list, so a state nobody has thought about yet
- * stays out of the directory rather than appearing in it by default. The directory
- * is the surface a person reads to find out what exists; the failure that matters
- * is a row for something that does not.
+ * THE RULE, AND ITS SOURCE. No directory read is registered anywhere in the
+ * corpus — `Plan-023 §Console growth slate` carries the row precisely because
+ * `Spec-001` registers the `session.read` payloads and no list — so there is no
+ * wire behaviour to mirror and the rule is this module's own, stated once: the
+ * directory lists what this node HAS, which is every registered state except the
+ * two ends of the lifecycle that are not a session anyone can open.
+ *
+ *   • `provisioning` is hidden because the session is still being created — the
+ *     state a first run sits in, and the whole reason the first-run scenario
+ *     exists. Listing it would make a freshly installed console show a session row
+ *     where `Spec-023 §Console Design (Meridian)` §The five kinds of nothing
+ *     requires the EMPTY kind: "no sessions yet", a stated fact with a next action.
+ *   • `purged` is hidden because `Spec-022 §Required Behavior` makes the purge
+ *     irreversible and its data gone; a row for it would name something to open
+ *     that no longer has anything in it.
+ *   • `purge_requested` is LISTED, on the same rule read the other way: that spec
+ *     calls it a transient processing state in which "the session is locked
+ *     against further modification while purge processing is pending". The session
+ *     still exists, and hiding it would make a pending erasure invisible on the one
+ *     surface that lists sessions.
+ *   • `closed` and `archived` are listed for the plainest reason of all: the
+ *     all-sessions list renders each row's "wire-verbatim `SessionState`"
+ *     (`Spec-023 §Console Design (Meridian)` §The surface set), which is only a
+ *     sentence about rows that reach it.
  */
-const DIRECTORY_SESSION_STATES: ReadonlySet<string> = new Set(["active", "paused", "archived"]);
+const DIRECTORY_VISIBILITY_BY_SESSION_STATE: Readonly<Record<SessionState, DirectoryVisibility>> = {
+  provisioning: "hidden",
+  active: "listed",
+  archived: "listed",
+  closed: "listed",
+  purge_requested: "listed",
+  purged: "hidden",
+};
+
+/**
+ * Whether a declared state is one the contract registers.
+ *
+ * Asked against the table above rather than against a second copy of the union,
+ * which is what makes the exhaustiveness check load-bearing at runtime too.
+ */
+function isRegisteredSessionState(candidate: string): candidate is SessionState {
+  return Object.hasOwn(DIRECTORY_VISIBILITY_BY_SESSION_STATE, candidate);
+}
 
 /**
  * The node's session directory, derived from what the scenario declares.
@@ -50,10 +98,25 @@ const DIRECTORY_SESSION_STATES: ReadonlySet<string> = new Set(["active", "paused
  */
 export function directorySessionsOf(scenario: ConsoleScenario): readonly GrowthSessionSummary[] {
   const state = declaredSessionState(scenario);
-  if (state === undefined || !DIRECTORY_SESSION_STATES.has(state)) {
+  if (state === undefined) {
     return [];
   }
-  return [{ sessionId: scenario.sessionId, state } satisfies GrowthSessionSummary];
+  if (!isRegisteredSessionState(state)) {
+    // A THROW rather than an empty directory, on `inline-card-seats.ts`' terms: a
+    // scenario is in-tree source, so a state the wire cannot send is an authoring
+    // defect, and answering `[]` would hide it behind the same empty directory a
+    // first run legitimately produces.
+    throw new ConsoleRefusalError(
+      refuse(
+        DIRECTORY_ORIGIN,
+        "session-state-unregistered",
+        `a scenario declared its session "${state}", which is not one of the ${String(Object.keys(DIRECTORY_VISIBILITY_BY_SESSION_STATE).length)} registered session states`,
+      ),
+    );
+  }
+  return DIRECTORY_VISIBILITY_BY_SESSION_STATE[state] === "hidden"
+    ? []
+    : [{ sessionId: scenario.sessionId, state } satisfies GrowthSessionSummary];
 }
 
 /**

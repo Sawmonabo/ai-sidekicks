@@ -10,13 +10,13 @@
 import { describe, expect, it } from "vitest";
 
 import { DuplicateRegistrationError } from "../../core/index.js";
+import { type ConsolePaneAddress } from "./pane-address.js";
 import { PANE_KINDS } from "./pane-kinds.js";
 import {
   ConsolePaneRegistry,
   consolePaneRegistry,
   registerConsolePane,
   registeredPaneKinds,
-  type ConsolePaneAddress,
   type ConsolePaneDescriptor,
   type ConsolePaneLink,
   type ConsolePaneOpener,
@@ -155,16 +155,19 @@ describe("pane opener — a pane that opens another can name itself", () => {
     };
   }
 
-  const inspectorAddress: ConsolePaneAddress = {
+  // A worktree, because the address union types `entity` PER KIND and a `diff`
+  // pane is a view of a worktree or a workspace. An artifact reference here is
+  // not a fixture detail the compiler now lets pass.
+  const diffAddress: ConsolePaneAddress = {
     kind: "diff",
-    entity: { kind: "artifact", id: "artifact-7" },
+    entity: { kind: "worktree", id: "worktree-7" },
   };
 
   it("carries the source pane id through to the deck", () => {
     const { openPane, opens } = recordingOpener();
-    openPane(inspectorAddress, { linkedSourcePaneId: "pane-ledger-2" });
+    openPane(diffAddress, { linkedSourcePaneId: "pane-ledger-2" });
     expect(opens).toStrictEqual([
-      { address: inspectorAddress, link: { linkedSourcePaneId: "pane-ledger-2" } },
+      { address: diffAddress, link: { linkedSourcePaneId: "pane-ledger-2" } },
     ]);
   });
 
@@ -173,7 +176,7 @@ describe("pane opener — a pane that opens another can name itself", () => {
     // link on every open — and a pane linked to a source it was not opened from
     // is exactly the state `linkedSourcePaneId` exists to make impossible.
     const { openPane, opens } = recordingOpener();
-    openPane(inspectorAddress);
+    openPane(diffAddress);
     expect(opens[0]?.link).toBeUndefined();
   });
 });

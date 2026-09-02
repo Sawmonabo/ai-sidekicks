@@ -19,7 +19,7 @@ import { type ConsoleBridge } from "../../bridge/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { type DraftStore } from "../../persistence/index.js";
 import { type ConsoleRoute } from "../../routing/index.js";
-import { type ConsolePaneAddress } from "./pane-registry.js";
+import { type ConsolePaneAddress } from "./pane-address.js";
 import { SingleSlotSeat } from "./single-slot-seat.js";
 
 // Consumed by T-023p-1C-2, T-023p-1C-3
