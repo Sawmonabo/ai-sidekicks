@@ -182,6 +182,49 @@ describe("the fresh comparand comes from the answer", () => {
   });
 });
 
+describe("the comparand is the newer of the two readings", () => {
+  it("sends the stream's reading once it has passed the cached one", async () => {
+    const { dispatcher, calls } = dispatcherOver(async () => ACK);
+    await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
+    // The run then advances on `run.subscribeState`, which no control caused and
+    // whose advance the cache therefore never saw.
+    const comparand = dispatcher.comparandFor(RUN_ID, 8);
+    await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: comparand });
+    expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 8 });
+  });
+
+  it("negative control: the cached reading alone would have sent the stale version", async () => {
+    // The superseded expression, written out: prefer the cache, fall back to the
+    // stream. Over the same two readings it sends 7 — the version the daemon has
+    // already moved past — and every later guarded control is refused as stale.
+    const { dispatcher } = dispatcherOver(async () => ACK);
+    await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
+    expect(dispatcher.freshComparandFor(RUN_ID) ?? 8).toBe(7);
+    expect(dispatcher.comparandFor(RUN_ID, 8)).toBe(8);
+  });
+
+  it("keeps the cached reading when the stream is behind it", async () => {
+    // An applied native steer advances the run and emits no state event, so the
+    // stream's reading is legitimately older than the answer's for a while.
+    const { dispatcher, calls } = dispatcherOver(async () => ACK);
+    await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
+    const comparand = dispatcher.comparandFor(RUN_ID, 6);
+    await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: comparand });
+    expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 7 });
+  });
+
+  it("sends the stream's reading when no control has settled yet", () => {
+    const { dispatcher } = dispatcherOver(async () => ACK);
+    expect(dispatcher.comparandFor(RUN_ID, 3)).toBe(3);
+  });
+
+  it("answers nothing when neither reading exists, so the caller dispatches nothing", () => {
+    const { dispatcher, calls } = dispatcherOver(async () => ACK);
+    expect(dispatcher.comparandFor(RUN_ID, undefined)).toBeUndefined();
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe("the daemon's answer is the only settlement", () => {
   it("carries a typed wire refusal through verbatim", async () => {
     const { dispatcher } = dispatcherOver(async () => {

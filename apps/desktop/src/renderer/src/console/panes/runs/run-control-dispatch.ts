@@ -16,10 +16,15 @@
 //   2. **One key per body.** A key is minted per dispatch and never reused across a
 //      changed body — reuse with a differing body is `intervention.idempotency_conflict`
 //      (422), which is a refusal the caller earned rather than one to render around.
-//   3. **The fresh comparand comes from the answer.** `InterventionResponseBase.runVersion`
-//      and `RunControlAck.runVersion` are threaded back out on every settlement,
-//      because after an applied native steer the response is the ONLY place the
-//      caller can read it — that advance emits no state event.
+//   3. **The fresh comparand comes from the answer, reconciled against the stream.**
+//      `InterventionResponseBase.runVersion` and `RunControlAck.runVersion` are
+//      threaded back out on every settlement, because after an applied native steer
+//      the response is the ONLY place the caller can read it — that advance emits no
+//      state event. The run also advances through `run.subscribeState` without any
+//      control being pressed, so neither reading is the freshest on its own and a
+//      caller is answered with the NEWER of the two. That reconciliation lives here,
+//      beside the map that holds the cache, because both callers ask for it and a
+//      maximum written at two call sites would be two claims about one comparand.
 //   4. **Eligibility is not projected.** Every control is dispatched and the
 //      daemon's typed refusal is what renders. There is no role check, no
 //      authorship check, and no state precondition anywhere in this file.
@@ -133,14 +138,41 @@ export class RunControlDispatcher {
   }
 
   /**
-   * The freshest comparand this dispatcher has read for a run, if any.
+   * The comparand this dispatcher has read for a run off the daemon's own answers.
    *
-   * Read from the daemon's own answers and from nowhere else. A caller that has
-   * none falls back to the stream's `runVersion`, and a caller with neither does
-   * not dispatch — never a zero, which would be a guard the console invented.
+   * Read from those answers and from nowhere else. This is one of the two readings
+   * `comparandFor` reconciles, and callers that send a guard want that one.
    */
   public freshComparandFor(runId: string): number | undefined {
     return this.#freshComparandByRunId.get(runId);
+  }
+
+  /**
+   * The comparand to send for a run: the newer of the daemon's last answer and the
+   * reading the state stream currently carries.
+   *
+   * Both are wire figures and both are monotonic per run, so the larger is the
+   * fresher. Preferring the cached one unconditionally would pin every later
+   * control to the version the last settlement saw: the run advances through
+   * `run.subscribeState` without any control being pressed, the row renders that
+   * newer projection, and each guarded call would then be refused as stale with no
+   * way back — a refusal carries no `runVersion`, so no failed control can refresh
+   * the cache it was refused over.
+   *
+   * A caller with neither reading gets `undefined` and does not dispatch — never a
+   * zero, which would be a guard the console invented.
+   */
+  public comparandFor(runId: string, streamReading: number): number;
+  public comparandFor(runId: string, streamReading: number | undefined): number | undefined;
+  public comparandFor(runId: string, streamReading: number | undefined): number | undefined {
+    const cached = this.#freshComparandByRunId.get(runId);
+    if (cached === undefined) {
+      return streamReading;
+    }
+    if (streamReading === undefined) {
+      return cached;
+    }
+    return Math.max(cached, streamReading);
   }
 
   /** Pause. `run.pause`, and never an intervention arm — the union has none. */
@@ -200,7 +232,7 @@ export class RunControlDispatcher {
       this.#freshComparandByRunId.set(target.runId, parsed.data.runVersion);
       return { kind: "acknowledged", control, ack: parsed.data };
     } catch (rejection) {
-      return this.#carried(control, rejection);
+      return carriedRunControlRefusal(control, rejection);
     }
   }
 
@@ -247,7 +279,7 @@ export class RunControlDispatcher {
       this.#freshComparandByRunId.set(target.runId, parsed.data.runVersion);
       return { kind: "settled", control, response: parsed.data };
     } catch (rejection) {
-      return this.#carried(control, rejection);
+      return carriedRunControlRefusal(control, rejection);
     }
   }
 
@@ -274,22 +306,29 @@ export class RunControlDispatcher {
       ),
     };
   }
+}
 
-  /**
-   * Carry a daemon rejection through without paraphrasing it.
-   *
-   * The code the daemon sent is the code a person sees; there is deliberately no
-   * table here mapping a wire code onto console prose. Every refusal §7.2 names as
-   * reachable — `run.invalid_transition`, `run.not_found`, `run.limit_exceeded`,
-   * `run.recovery_failed`, `intervention.idempotency_conflict`,
-   * `auth.principal_mismatch` — travels this one path.
-   */
-  #carried(control: RunControl, rejection: unknown): RunControlOutcome {
-    const wireError = normalizeWireRejection(rejection, { total: true });
-    return {
-      kind: "refused",
-      control,
-      refusal: refuse(RUN_CONTROL_REFUSAL_ORIGIN, wireError.name, wireError.message),
-    };
-  }
+/**
+ * Carry a rejection through without paraphrasing it.
+ *
+ * The code the daemon sent is the code a person sees; there is deliberately no
+ * table here mapping a wire code onto console prose. Every refusal §7.2 names as
+ * reachable — `run.invalid_transition`, `run.not_found`, `run.limit_exceeded`,
+ * `run.recovery_failed`, `intervention.idempotency_conflict`,
+ * `auth.principal_mismatch` — travels this one path.
+ *
+ * Module-level rather than a private method because the React binding needs the
+ * same carriage for a `perform` that rejects before the dispatcher ever runs, and
+ * one rejection deserves one reading.
+ */
+export function carriedRunControlRefusal(
+  control: RunControl,
+  rejection: unknown,
+): RunControlOutcome {
+  const wireError = normalizeWireRejection(rejection, { total: true });
+  return {
+    kind: "refused",
+    control,
+    refusal: refuse(RUN_CONTROL_REFUSAL_ORIGIN, wireError.name, wireError.message),
+  };
 }

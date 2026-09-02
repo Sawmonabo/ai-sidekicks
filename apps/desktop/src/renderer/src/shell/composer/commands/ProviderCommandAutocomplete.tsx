@@ -16,6 +16,15 @@
 //     client-command executor, not a send. A provider row carries no button at all,
 //     because there is nothing this console may do with it.
 //
+// THE EMPTY STATE WAITS FOR EVERY APPLICABLE SOURCE. "No command matches what you
+// have typed" is a claim about a SEARCH THAT FINISHED, and this popover reads two
+// sources: the console's own command surface, which is local and always settled, and
+// the provider enumeration, which has phases. So while that read is in flight or has
+// been refused, the popover says so — through the one statement that read owns — and
+// says nothing about matching, because the source that might hold the match has not
+// answered. A list that DOES have entries keeps that statement beside it, unchanged:
+// a partial list whose provider half is missing must still say the half is missing.
+//
 // THE SURFACE SPEAKS THROUGH ITS OWN STATUS REGION rather than through the window's
 // live announcer. The announcer exists so a read a person did not trigger and is not
 // looking at can still reach them; this popover is opened by their own keystroke and
@@ -40,6 +49,7 @@ import {
   useProviderCommandEnumeration,
   type ProviderCommandEnumeration,
 } from "./provider-command-holder.js";
+import { type ProviderCommandReadState } from "./provider-command-read.js";
 
 export type ProviderCommandAutocompleteProps = ComposerSeatProps & {
   /** The composer region whose line this surface watches. It writes to none of it. */
@@ -117,6 +127,7 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
     providerGroups: enumeration.phase === "served" ? enumeration.groups : [],
   });
   const entries = filterCatalog(catalog, prefix);
+  const isServedEmpty = entries.length === 0 && haveAllSourcesAnswered(enumeration);
 
   const executor = useMemo(() => createClientCommandExecutor({ readSurface }), [readSurface]);
 
@@ -165,14 +176,7 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
         What this console can do, and what the addressed agent&rsquo;s provider offers. Choosing an
         entry starts no turn.
       </p>
-      {entries.length === 0 ? (
-        <Nothing
-          kind="empty"
-          placement="surface"
-          title="No command matches what you have typed"
-          detail="Clear the line to see everything on offer, or type // to send a message that really begins with a slash."
-        />
-      ) : (
+      {entries.length === 0 ? null : (
         <ul
           className="meridian-command-discovery__list"
           id={listId}
@@ -197,6 +201,14 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
           ))}
         </ul>
       )}
+      {isServedEmpty ? (
+        <Nothing
+          kind="empty"
+          placement="surface"
+          title="No command matches what you have typed"
+          detail="Clear the line to see everything on offer, or type // to send a message that really begins with a slash."
+        />
+      ) : null}
       <EnumerationState enumeration={enumeration} />
       {actionOutcome?.status === "refused" ? (
         <InlineRefusal code={actionOutcome.refusal.code} detail={actionOutcome.refusal.detail} />
@@ -281,6 +293,21 @@ function CatalogRow(props: CatalogRowProps): React.JSX.Element {
       ) : null}
     </li>
   );
+}
+
+/**
+ * Whether every source that could hold a match has answered.
+ *
+ * The console's own command surface is local and always settled, so the provider
+ * enumeration is the only source with phases and the only one this asks about.
+ * `not-checked` counts as answered and not as pending: this composer addresses a
+ * channel rather than an agent, so no provider was asked and none is coming — the
+ * console's own commands are the whole of what could match, and an empty result over
+ * them is a finished search. `EnumerationState` says why the provider half is absent
+ * beneath it, which is a different sentence rather than a second copy of this one.
+ */
+function haveAllSourcesAnswered(enumeration: ProviderCommandReadState): boolean {
+  return enumeration.phase === "served" || enumeration.phase === "not-checked";
 }
 
 /**

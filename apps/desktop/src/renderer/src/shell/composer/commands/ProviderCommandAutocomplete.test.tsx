@@ -26,6 +26,10 @@ import type { ConsolePaneAddress } from "../../../console/workspace/index.js";
 import { MessageComposer } from "../../MessageComposer.js";
 
 const TEST_COMMAND_ID = "composer-discovery-test.act";
+const ENUMERATION_METHOD = "driver.listProviderCommands";
+/** A prefix no console command and no enumerated provider entry begins with. */
+const UNMATCHED_PREFIX = "/zzz-nothing-begins-with-this";
+const EMPTY_STATE_SENTENCE = "No command matches what you have typed";
 const registeredIds: string[] = [];
 
 /** One recorded daemon call, so a re-read is distinguishable from a re-filter. */
@@ -35,13 +39,15 @@ interface RecordedCall {
 }
 
 /**
- * The real fixture bridge with a recorder in front of `daemon.call`.
+ * The real fixture bridge with `answer` in front of `daemon.call`.
  *
  * A wrapper rather than a stand-in bridge: the replies, the refusals, and the
- * scenario clock are all the fixture's own, and the only thing added is a note of
- * what was asked.
+ * scenario clock are all the fixture's own, and `answer` decides only whether a
+ * call is forwarded to them, noted on the way past, or held.
  */
-function recordingBridge(recorded: RecordedCall[]): ConsoleBridge {
+function bridgeAnswering(
+  answer: (method: string, params: unknown, forward: () => Promise<unknown>) => Promise<unknown>,
+): ConsoleBridge {
   const base = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
   const call = base.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>;
   return {
@@ -50,13 +56,46 @@ function recordingBridge(recorded: RecordedCall[]): ConsoleBridge {
       ...base.sidekicks,
       daemon: {
         ...base.sidekicks.daemon,
-        call: ((method: string, params: unknown) => {
-          recorded.push({ method, params });
-          return call(method, params);
-        }) as typeof base.sidekicks.daemon.call,
+        call: ((method: string, params: unknown) =>
+          answer(method, params, () => call(method, params))) as typeof base.sidekicks.daemon.call,
       },
     },
   };
+}
+
+/** The fixture, with a note of what was asked. */
+function recordingBridge(recorded: RecordedCall[]): ConsoleBridge {
+  return bridgeAnswering((method, params, forward) => {
+    recorded.push({ method, params });
+    return forward();
+  });
+}
+
+/** The fixture scenario, with the enumeration refused by the daemon's own code. */
+function refusingEnumerationBridge(): ConsoleBridge {
+  return createFixtureBridge({
+    scenario: {
+      ...COMPOSER_SCENARIO,
+      id: "composer-discovery-refusing",
+      replies: [
+        ...COMPOSER_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
+        {
+          call: ENUMERATION_METHOD,
+          refusal: {
+            code: "driver.unavailable",
+            message: "This agent holds no live binding, so there is nothing to enumerate.",
+          },
+        },
+      ],
+    },
+  });
+}
+
+/** The fixture, with the enumeration held open so the read stays in flight. */
+function bridgeHoldingTheEnumeration(): ConsoleBridge {
+  return bridgeAnswering((method, _params, forward) =>
+    method === ENUMERATION_METHOD ? new Promise<unknown>(() => undefined) : forward(),
+  );
 }
 
 /** The scenario's agents, read out of the log rather than restated. */
@@ -232,26 +271,8 @@ describe("ProviderCommandAutocomplete", () => {
   });
 
   it("renders a refused enumeration under the daemon's own code", async () => {
-    const refusingBridge = createFixtureBridge({
-      scenario: {
-        ...COMPOSER_SCENARIO,
-        id: "composer-discovery-refusing",
-        replies: [
-          ...COMPOSER_SCENARIO.replies.filter(
-            (reply) => reply.call !== "driver.listProviderCommands",
-          ),
-          {
-            call: "driver.listProviderCommands",
-            refusal: {
-              code: "driver.unavailable",
-              message: "This agent holds no live binding, so there is nothing to enumerate.",
-            },
-          },
-        ],
-      },
-    });
     const mounted = await mountComposer({
-      bridge: refusingBridge,
+      bridge: refusingEnumerationBridge(),
       focusedPane: agentPane(composerAgentIds()[0]!),
     });
 
@@ -262,6 +283,76 @@ describe("ProviderCommandAutocomplete", () => {
     );
     expect(refusal?.textContent).toContain("driver.unavailable");
     expect(refusal?.textContent).toContain("no live binding");
+  });
+
+  it("waits for the enumeration before saying nothing matches", async () => {
+    // The negative control is the assertion itself: the superseded branch rendered
+    // the empty sentence the moment the filter came back empty, so it asserted a
+    // finished search beside a line saying the provider half was still being read.
+    const mounted = await mountComposer({
+      bridge: bridgeHoldingTheEnumeration(),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
+
+    expect(
+      mounted.container.querySelector(
+        ".meridian-command-discovery__state .meridian-nothing--not-loaded",
+      ),
+    ).not.toBeNull();
+    expect(mounted.container.textContent).not.toContain(EMPTY_STATE_SENTENCE);
+  });
+
+  it("says nothing matches once the enumeration has been served and matched nothing", async () => {
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
+
+    const empties = mounted.container.querySelectorAll(".meridian-nothing--empty");
+    expect(empties).toHaveLength(1);
+    expect(empties[0]?.textContent).toContain(EMPTY_STATE_SENTENCE);
+  });
+
+  it("renders a refused enumeration's own code instead of an empty result", async () => {
+    const mounted = await mountComposer({
+      bridge: refusingEnumerationBridge(),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
+
+    const refusal = mounted.container.querySelector(
+      ".meridian-command-discovery__state .meridian-refusal",
+    );
+    expect(refusal?.textContent).toContain("driver.unavailable");
+    expect(mounted.container.textContent).not.toContain(EMPTY_STATE_SENTENCE);
+  });
+
+  it("renders the console half beside the note that the provider half is still being read", async () => {
+    consoleCommands.register({
+      id: TEST_COMMAND_ID,
+      title: "A console act",
+      group: "Test",
+      run: () => undefined,
+    });
+    registeredIds.push(TEST_COMMAND_ID);
+    const mounted = await mountComposer({
+      bridge: bridgeHoldingTheEnumeration(),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
+
+    expect(optionNames(mounted.container)).toEqual([TEST_COMMAND_ID]);
+    expect(
+      mounted.container.querySelector(
+        ".meridian-command-discovery__state .meridian-nothing--not-loaded",
+      ),
+    ).not.toBeNull();
   });
 
   it("negative control: a provider entry offers no act, and nothing is dispatched", async () => {

@@ -10,9 +10,10 @@
 //     typed refusal is what renders. There is no role check, no authorship check,
 //     and no state precondition in this file — `run-control-gating.ts` decides only
 //     whether a driver DECLARED a capability, which is a read and not a rule.
-//   • It threads no guard of its own. The comparand is the dispatcher's freshest
-//     reading of the daemon's own answers, falling back to the run version the
-//     state stream last carried. Both are wire figures; neither is invented here.
+//   • It threads no guard of its own. The comparand is the dispatcher's own
+//     reconciliation of two wire figures — the freshest run version the daemon has
+//     answered with and the one this row's projection currently carries — and the
+//     rule that picks between them lives at that chokepoint, not here.
 //   • It never settles optimistically. A control goes busy the moment it is
 //     pressed; what it SAYS comes only from the daemon's answer.
 //   • It offers no reorder, no priority, no dequeue distinct from cancel, and no
@@ -78,7 +79,7 @@ export interface RunControlsProps {
 export function RunControls(props: RunControlsProps): React.JSX.Element {
   const { run, surface, driverCapabilities } = props;
   const [isOverflowOpen, setOverflowOpen] = useState(false);
-  const comparand = surface.dispatcher.freshComparandFor(run.runId) ?? run.runVersion;
+  const comparand = surface.dispatcher.comparandFor(run.runId, run.runVersion);
 
   const onResume = useCallback(() => {
     surface.dispatch(run.runId, "resume", (dispatcher) =>
