@@ -22,12 +22,16 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RunStateChangeEventSchema } from "@ai-sidekicks/contracts";
+import { RunStateChangeEventSchema, RunRolledBackEventSchema } from "@ai-sidekicks/contracts";
 
+import type { ConsoleSessionEvent } from "../store/index.js";
 import { PROBE_RUN_ID, runTransitionBeat } from "./fixture-bridge.test-support.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
+
+/** A session the branded schema accepts that is not the one the beats are delivered on. */
+const OTHER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
 
 /** The members every well-formed transition beat below carries. */
 function transitionPayload(
@@ -41,6 +45,23 @@ function transitionPayload(
     newState: "running",
     ...overrides,
   };
+}
+
+/**
+ * One `run.rolled_back` beat, in the registered per-type payload shape.
+ *
+ * Built off the shared transition beat and then re-kinded, so the envelope members are
+ * the ones the fixture's own beats carry and the cases below are about the payload.
+ */
+function rollbackBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ConsoleSessionEvent {
+  const beat = runTransitionBeat({
+    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    runId: PROBE_RUN_ID,
+    runVersion: 5,
+    targetPosition: 2,
+    ...overrides,
+  });
+  return { ...beat.event, kind: "run.rolled_back" };
 }
 
 describe("run-stream projection — which subscriptions it answers for", () => {
@@ -164,6 +185,68 @@ describe("run-stream projection — an optional the registered shape rejects", (
       currentState: "running",
       timestamp: beat.event.occurredAt,
     });
+  });
+});
+
+describe("run-stream projection — the rollback arm's session, which the payload owns", () => {
+  it("refuses a rollback beat that names no session in its payload", () => {
+    // The registered per-type payload is `{sessionId, runId, runVersion, channelId?,
+    // targetPosition}` and no strict-layer variant is registered for the kind, so
+    // nothing the contracts package ships rejects an omission. This module used to
+    // stamp the envelope's session onto the candidate before parsing, which turned a
+    // beat missing the member into a valid-looking rollback.
+    const projection = projectRunStreamDelivery(
+      RUN_STATE_EVENT_STREAM,
+      rollbackBeatEvent({ sessionId: undefined }),
+    );
+
+    expect(projection?.status).toBe("unprojectable");
+    if (projection?.status !== "unprojectable") {
+      return;
+    }
+    expect(projection.detail).toContain("sessionId");
+  });
+
+  it("refuses a rollback beat whose payload names a different session, naming both", () => {
+    // The louder half of the same defect. The durable row is what the timeline's
+    // boundary entry refines against the envelope, so the two cannot disagree — and
+    // before the check the disagreement was resolved silently, in the envelope's
+    // favour, by overwriting the evidence.
+    const projection = projectRunStreamDelivery(
+      RUN_STATE_EVENT_STREAM,
+      rollbackBeatEvent({ sessionId: OTHER_SESSION_ID }),
+    );
+
+    expect(projection?.status).toBe("unprojectable");
+    if (projection?.status !== "unprojectable") {
+      return;
+    }
+    // Both values, so a scenario author reads which two sessions were in hand rather
+    // than that something about a session was wrong.
+    expect(projection.detail).toContain(FLAGSHIP_SCENARIO.sessionId);
+    expect(projection.detail).toContain(OTHER_SESSION_ID);
+  });
+
+  it("negative control: an agreeing beat is delivered, carrying the payload's own member", () => {
+    // Without this the two cases above would hold over an arm that refused every
+    // rollback. The delivered value is asserted whole: the session it carries is the
+    // one the PAYLOAD named, which is the same value the envelope named — and a
+    // projection that went back to copying the envelope's would pass this case while
+    // making the equality check unreachable, which is why the mismatch case above is
+    // the one that pins the source.
+    const projection = projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, rollbackBeatEvent());
+
+    expect(projection?.status).toBe("projected");
+    if (projection?.status !== "projected") {
+      return;
+    }
+    expect(projection.delivery).toStrictEqual({
+      sessionId: FLAGSHIP_SCENARIO.sessionId,
+      runId: PROBE_RUN_ID,
+      runVersion: 5,
+      targetPosition: 2,
+    });
+    expect(RunRolledBackEventSchema.parse(projection.delivery)).toStrictEqual(projection.delivery);
   });
 });
 

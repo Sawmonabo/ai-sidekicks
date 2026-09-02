@@ -53,6 +53,14 @@
 //     at once, and the fold that consumes it would store the one the payload names
 //     under the kind the timeline renders. Read off the same module the queue leg
 //     reads, for the same reason.
+//   • The rollback payload's own session. `run.rolled_back` is the one run-lifecycle
+//     payload that carries `sessionId`, and it carries it because the durable row is
+//     what the timeline's boundary entry refines against the envelope — outer
+//     attribution and payload cannot disagree. The strict layer registers no variant
+//     for it either, so a beat that omits the member, or names another session,
+//     passes every leg above. Refused here so the scenario pass rejects exactly what
+//     `run-stream-projection.ts` would refuse at delivery, rather than letting a
+//     fixture ship a defect that only surfaces one stream later.
 //
 // WHY THE PROBE IS A WHOLE ENVELOPE, AND WHOSE ENVELOPE IT IS. The strict layer is
 // declared per EVENT, not per payload — there is no exported payload-only schema to
@@ -84,7 +92,11 @@ import {
 
 import { composeScenarioEventEnvelope } from "../scenario-envelope.js";
 import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
-import { runQueueStreamStateFor, runStateForTransitionKind } from "../session-event-streams.js";
+import {
+  runQueueStreamStateFor,
+  runStateForTransitionKind,
+  runStateStreamArmFor,
+} from "../session-event-streams.js";
 
 /**
  * One way a scenario contradicts the shipped wire contract.
@@ -152,6 +164,10 @@ function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   const runState = describeRunStateDefect(beat);
   if (runState !== undefined) {
     return runState;
+  }
+  const rollbackSession = describeRollbackSessionDefect(beat);
+  if (rollbackSession !== undefined) {
+    return rollbackSession;
   }
   const envelope = composeScenarioEventEnvelope(beat.event);
   const carried = EventEnvelopeSchema.safeParse(envelope);
@@ -286,6 +302,47 @@ function describeRunStateDefect(beat: ScenarioBeat): string | undefined {
     "state the payload names under the kind the timeline renders. Script the transition this " +
     "beat means."
   );
+}
+
+/**
+ * A rollback beat that names no session, or names one its envelope contradicts.
+ *
+ * `Spec-006 §Run Lifecycle (run_lifecycle)` fixes the per-type `run.rolled_back`
+ * payload at `{sessionId, runId, runVersion, channelId?, targetPosition}` — the one
+ * run-lifecycle payload carrying a session, and it carries one because the same
+ * payload is the durable row the timeline's boundary entry refines against the
+ * envelope: `sessionId === payload.sessionId`, so outer attribution and payload
+ * cannot disagree. `SessionEventSchema` registers no variant for this kind, so both
+ * halves of that rule are enforced by nothing the contracts package ships.
+ *
+ * The arm is read off `session-event-streams.ts` rather than compared against a
+ * literal kind, exactly as the two legs above read their tables: that module is what
+ * routes this beat onto the rollback arm of the run-state stream, and a second copy
+ * of the mapping here would let a scenario pass this leg and fail the projection that
+ * consumes it. Every other kind travels an arm with no session member and is not this
+ * leg's business.
+ */
+function describeRollbackSessionDefect(beat: ScenarioBeat): string | undefined {
+  if (runStateStreamArmFor(beat.event.kind) !== "rollback") {
+    return undefined;
+  }
+  const statedSessionId = beat.event.payload?.["sessionId"];
+  if (statedSessionId === undefined) {
+    return (
+      "this beat names no `sessionId`, which is a required member of every rollback " +
+      "payload the daemon emits — and the member the timeline's boundary entry refines " +
+      `against the envelope. Name the session this beat is delivered on, \`"${beat.event.sessionId}"\`.`
+    );
+  }
+  if (statedSessionId !== beat.event.sessionId) {
+    return (
+      `this beat is delivered on session "${beat.event.sessionId}" and names ` +
+      `${JSON.stringify(statedSessionId)} in its payload, so its outer attribution and its ` +
+      "payload disagree about which session was rolled back. One of the two is the session " +
+      "this beat means; script that one in both places."
+    );
+  }
+  return undefined;
 }
 
 /** One Zod issue as a sentence fragment: where it is, and what it says. */
