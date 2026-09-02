@@ -14,12 +14,12 @@
 //   node --experimental-strip-types scripts/budget/measure-bundle.mts
 // Exit: 0 within budget · 1 over budget · 2 no build output / bad usage.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 import console from "node:console";
 import { Buffer } from "node:buffer";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { gzipSync, brotliCompressSync } from "node:zlib";
 
 import {
@@ -242,7 +242,15 @@ export function runBundleBudgetCommand(argumentList: readonly string[]): Promise
 
 // CLI only when this file is the entry point, so the Vitest project can import
 // it without side effects.
+// Compared through `realpathSync` on BOTH sides, never `import.meta.url ===
+// pathToFileURL(argv[1])`: Node resolves the module URL through symlinks while
+// argv[1] keeps the path as typed, so the naive form silently no-ops through a
+// symlinked or spaced checkout and exits 0 over an unrun budget gate
+// (`tools/__tests__/entry-guard.test.mjs` pins exactly this).
 const invokedPath = process.argv[1];
-if (invokedPath !== undefined && import.meta.url === pathToFileURL(invokedPath).href) {
+if (
+  invokedPath !== undefined &&
+  realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url))
+) {
   process.exitCode = await runBundleBudgetCommand(process.argv.slice(2));
 }

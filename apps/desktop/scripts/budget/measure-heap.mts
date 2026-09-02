@@ -17,7 +17,8 @@
 import { spawnSync } from "node:child_process";
 import process from "node:process";
 import console from "node:console";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
+import { realpathSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -295,8 +296,16 @@ function reExecuteWithExposedGarbageCollector(argumentList: readonly string[]): 
   return child.error !== undefined || child.status === null ? null : child.status;
 }
 
+// Compared through `realpathSync` on BOTH sides, never `import.meta.url ===
+// pathToFileURL(argv[1])`: Node resolves the module URL through symlinks while
+// argv[1] keeps the path as typed, so the naive form silently no-ops through a
+// symlinked or spaced checkout and exits 0 over an unrun budget gate
+// (`tools/__tests__/entry-guard.test.mjs` pins exactly this).
 const invokedPath = process.argv[1];
-if (invokedPath !== undefined && import.meta.url === pathToFileURL(invokedPath).href) {
+if (
+  invokedPath !== undefined &&
+  realpathSync(invokedPath) === realpathSync(fileURLToPath(import.meta.url))
+) {
   const commandArguments = process.argv.slice(2);
   const reExecStatus = reExecuteWithExposedGarbageCollector(commandArguments);
   process.exitCode =
