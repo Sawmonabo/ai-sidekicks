@@ -1035,6 +1035,509 @@ shipped:
       `rebuild-shipment-manifest.mjs` derives (`mergedAt.split("T")[0]`); the
       local-time date reads 2026-09-01. Review: three Codex rounds plus a round-4
       finding folded in-PR; CI green on the squash head.
+  - phase: 1
+    task: T-023p-1C-1
+    pr: 416
+    sha: 7c31cfc0
+    merged_at: 2026-09-02
+    files:
+      - .github/workflows/ci.yml
+      - .github/workflows/console-screenshot-baselines.yml
+      - .gitignore
+      - apps/desktop/.dependency-cruiser.mjs
+      - apps/desktop/AGENTS.md
+      - apps/desktop/CLAUDE.md
+      - apps/desktop/electron.vite.config.ts
+      - apps/desktop/knip.json
+      - apps/desktop/package.json
+      - apps/desktop/scripts/budget/budget-harness.mts
+      - apps/desktop/scripts/budget/budget-registry.mts
+      - apps/desktop/scripts/budget/measure-bundle.mts
+      - apps/desktop/scripts/budget/measure-heap.mts
+      - apps/desktop/src/main/index.ts
+      - apps/desktop/src/main/window-reveal.test.ts
+      - apps/desktop/src/main/window-reveal.ts
+      - apps/desktop/src/main/window.ts
+      - apps/desktop/src/renderer/src/App.tsx
+      - apps/desktop/src/renderer/src/console/bridge/attention-projection.ts
+      - apps/desktop/src/renderer/src/console/bridge/bridge-shape.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/bridge-shape.ts
+      - apps/desktop/src/renderer/src/console/bridge/BridgeProvider.test.tsx
+      - apps/desktop/src/renderer/src/console/bridge/BridgeProvider.tsx
+      - apps/desktop/src/renderer/src/console/bridge/console-bridge.ts
+      - apps/desktop/src/renderer/src/console/bridge/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-growth-port.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-growth-port.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-entry.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-operations.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-operations.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-outcome.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-port.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-prerequisites.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-signatures.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-slate.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values.ts
+      - apps/desktop/src/renderer/src/console/bridge/index.ts
+      - apps/desktop/src/renderer/src/console/bridge/live-bridge.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-manifest.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-selection.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-selection.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/first-run.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/flagship.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/index.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth.ts
+      - apps/desktop/src/renderer/src/console/bridge/sidekick-definition.ts
+      - apps/desktop/src/renderer/src/console/bridge/workflow-projection.ts
+      - apps/desktop/src/renderer/src/console/console-env.d.ts
+      - apps/desktop/src/renderer/src/console/core/clock.test.ts
+      - apps/desktop/src/renderer/src/console/core/clock.ts
+      - apps/desktop/src/renderer/src/console/core/constants.test.ts
+      - apps/desktop/src/renderer/src/console/core/constants.ts
+      - apps/desktop/src/renderer/src/console/core/emitter.test.ts
+      - apps/desktop/src/renderer/src/console/core/emitter.ts
+      - apps/desktop/src/renderer/src/console/core/fixture-globals.ts
+      - apps/desktop/src/renderer/src/console/core/index.ts
+      - apps/desktop/src/renderer/src/console/core/keyed-registry.test.ts
+      - apps/desktop/src/renderer/src/console/core/keyed-registry.ts
+      - apps/desktop/src/renderer/src/console/core/refusal.test.ts
+      - apps/desktop/src/renderer/src/console/core/refusal.ts
+      - apps/desktop/src/renderer/src/console/core/tripwires.test.ts
+      - apps/desktop/src/renderer/src/console/core/tripwires.ts
+      - apps/desktop/src/renderer/src/console/families.test.ts
+      - apps/desktop/src/renderer/src/console/families.ts
+      - apps/desktop/src/renderer/src/console/frame/AgentChoice.tsx
+      - apps/desktop/src/renderer/src/console/frame/AppFrame.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/AppFrame.tsx
+      - apps/desktop/src/renderer/src/console/frame/banner-announcements.ts
+      - apps/desktop/src/renderer/src/console/frame/command-surface.test.ts
+      - apps/desktop/src/renderer/src/console/frame/command-surface.ts
+      - apps/desktop/src/renderer/src/console/frame/ConsoleRoot.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/ConsoleRoot.tsx
+      - apps/desktop/src/renderer/src/console/frame/ContextPicker.tsx
+      - apps/desktop/src/renderer/src/console/frame/ErrorBoundary.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/ErrorBoundary.tsx
+      - apps/desktop/src/renderer/src/console/frame/frame-commands.ts
+      - apps/desktop/src/renderer/src/console/frame/frame.css
+      - apps/desktop/src/renderer/src/console/frame/hash-route-binding.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/hash-route-binding.ts
+      - apps/desktop/src/renderer/src/console/frame/IconRail.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/IconRail.tsx
+      - apps/desktop/src/renderer/src/console/frame/index.ts
+      - apps/desktop/src/renderer/src/console/frame/legacy-surfaces.test.ts
+      - apps/desktop/src/renderer/src/console/frame/legacy-surfaces.ts
+      - apps/desktop/src/renderer/src/console/frame/rail-navigation.test.ts
+      - apps/desktop/src/renderer/src/console/frame/rail-navigation.ts
+      - apps/desktop/src/renderer/src/console/frame/RouteSurface.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/RouteSurface.tsx
+      - apps/desktop/src/renderer/src/console/frame/scheme-preference.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/scheme-preference.ts
+      - apps/desktop/src/renderer/src/console/frame/session-directory.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/session-directory.ts
+      - apps/desktop/src/renderer/src/console/frame/session-event-binder.test.ts
+      - apps/desktop/src/renderer/src/console/frame/session-event-binder.ts
+      - apps/desktop/src/renderer/src/console/frame/session-lifecycle.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/session-lifecycle.ts
+      - apps/desktop/src/renderer/src/console/frame/SessionsSurface.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/SessionsSurface.tsx
+      - apps/desktop/src/renderer/src/console/frame/surface-registry.test.ts
+      - apps/desktop/src/renderer/src/console/frame/surface-registry.ts
+      - apps/desktop/src/renderer/src/console/frame/token-installation.test.ts
+      - apps/desktop/src/renderer/src/console/frame/token-installation.ts
+      - apps/desktop/src/renderer/src/console/frame/ui-state-lifecycle.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/ui-state-lifecycle.ts
+      - apps/desktop/src/renderer/src/console/frame/WireChoiceList.tsx
+      - apps/desktop/src/renderer/src/console/palette/bridge-commands.test.tsx
+      - apps/desktop/src/renderer/src/console/palette/bridge-commands.ts
+      - apps/desktop/src/renderer/src/console/palette/chord-decoding.test.ts
+      - apps/desktop/src/renderer/src/console/palette/command-ranking.ts
+      - apps/desktop/src/renderer/src/console/palette/command-registry.ts
+      - apps/desktop/src/renderer/src/console/palette/contributions.ts
+      - apps/desktop/src/renderer/src/console/palette/index.ts
+      - apps/desktop/src/renderer/src/console/palette/keybinding-chord.ts
+      - apps/desktop/src/renderer/src/console/palette/keybinding-conflicts.test.ts
+      - apps/desktop/src/renderer/src/console/palette/keybinding-conflicts.ts
+      - apps/desktop/src/renderer/src/console/palette/keybindings.test.ts
+      - apps/desktop/src/renderer/src/console/palette/keybindings.ts
+      - apps/desktop/src/renderer/src/console/palette/palette.css
+      - apps/desktop/src/renderer/src/console/palette/PaletteAbsence.tsx
+      - apps/desktop/src/renderer/src/console/palette/PaletteOverlay.tsx
+      - apps/desktop/src/renderer/src/console/palette/PaletteResultList.tsx
+      - apps/desktop/src/renderer/src/console/palette/subsequence-score.ts
+      - apps/desktop/src/renderer/src/console/palette/when-clause-cache.ts
+      - apps/desktop/src/renderer/src/console/palette/when-clause-overlap.ts
+      - apps/desktop/src/renderer/src/console/palette/when-clause-parser.ts
+      - apps/desktop/src/renderer/src/console/palette/when-clause.test.ts
+      - apps/desktop/src/renderer/src/console/palette/when-clause.ts
+      - apps/desktop/src/renderer/src/console/persistence/adapter.ts
+      - apps/desktop/src/renderer/src/console/persistence/draft-store.ts
+      - apps/desktop/src/renderer/src/console/persistence/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/persistence/index.ts
+      - apps/desktop/src/renderer/src/console/persistence/indexeddb-adapter.ts
+      - apps/desktop/src/renderer/src/console/persistence/memory-adapter.ts
+      - apps/desktop/src/renderer/src/console/persistence/ui-state-store.test.ts
+      - apps/desktop/src/renderer/src/console/persistence/ui-state-store.ts
+      - apps/desktop/src/renderer/src/console/persistence/value-classes.test.ts
+      - apps/desktop/src/renderer/src/console/persistence/value-classes.ts
+      - apps/desktop/src/renderer/src/console/primitives/Chip.test.tsx
+      - apps/desktop/src/renderer/src/console/primitives/Chip.tsx
+      - apps/desktop/src/renderer/src/console/primitives/chord-format.test.ts
+      - apps/desktop/src/renderer/src/console/primitives/chord-format.ts
+      - apps/desktop/src/renderer/src/console/primitives/ChordHint.tsx
+      - apps/desktop/src/renderer/src/console/primitives/Figure.test.tsx
+      - apps/desktop/src/renderer/src/console/primitives/Figure.tsx
+      - apps/desktop/src/renderer/src/console/primitives/Glyph.tsx
+      - apps/desktop/src/renderer/src/console/primitives/index.ts
+      - apps/desktop/src/renderer/src/console/primitives/LedgerRow.test.tsx
+      - apps/desktop/src/renderer/src/console/primitives/LedgerRow.tsx
+      - apps/desktop/src/renderer/src/console/primitives/live-announcer.test.ts
+      - apps/desktop/src/renderer/src/console/primitives/live-announcer.ts
+      - apps/desktop/src/renderer/src/console/primitives/LiveAnnouncerProvider.test.tsx
+      - apps/desktop/src/renderer/src/console/primitives/LiveAnnouncerProvider.tsx
+      - apps/desktop/src/renderer/src/console/primitives/Nothing.test.tsx
+      - apps/desktop/src/renderer/src/console/primitives/Nothing.tsx
+      - apps/desktop/src/renderer/src/console/primitives/primitives.css
+      - apps/desktop/src/renderer/src/console/primitives/Refusal.test.tsx
+      - apps/desktop/src/renderer/src/console/primitives/Refusal.tsx
+      - apps/desktop/src/renderer/src/console/primitives/wire-figures.test.ts
+      - apps/desktop/src/renderer/src/console/primitives/wire-figures.ts
+      - apps/desktop/src/renderer/src/console/routing/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/routing/index.ts
+      - apps/desktop/src/renderer/src/console/routing/routes.test.ts
+      - apps/desktop/src/renderer/src/console/routing/routes.ts
+      - apps/desktop/src/renderer/src/console/store/degradation.test.ts
+      - apps/desktop/src/renderer/src/console/store/degradation.ts
+      - apps/desktop/src/renderer/src/console/store/entities.test.ts
+      - apps/desktop/src/renderer/src/console/store/entities.ts
+      - apps/desktop/src/renderer/src/console/store/entity-partitions.ts
+      - apps/desktop/src/renderer/src/console/store/entity-projection.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/store/frame-store.test.ts
+      - apps/desktop/src/renderer/src/console/store/frame-store.ts
+      - apps/desktop/src/renderer/src/console/store/hooks.test.tsx
+      - apps/desktop/src/renderer/src/console/store/hooks.ts
+      - apps/desktop/src/renderer/src/console/store/index.ts
+      - apps/desktop/src/renderer/src/console/store/open-session-entry.test.ts
+      - apps/desktop/src/renderer/src/console/store/open-session-entry.ts
+      - apps/desktop/src/renderer/src/console/store/pre-initialisation-buffer.ts
+      - apps/desktop/src/renderer/src/console/store/readable.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.test.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.ts
+      - apps/desktop/src/renderer/src/console/store/selectors.ts
+      - apps/desktop/src/renderer/src/console/store/sequence-reconciler.test.ts
+      - apps/desktop/src/renderer/src/console/store/sequence-reconciler.ts
+      - apps/desktop/src/renderer/src/console/store/session-state.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.ts
+      - apps/desktop/src/renderer/src/console/store/session-store.ts
+      - apps/desktop/src/renderer/src/console/tokens/color.ts
+      - apps/desktop/src/renderer/src/console/tokens/contrast.test.ts
+      - apps/desktop/src/renderer/src/console/tokens/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/tokens/generate-css.ts
+      - apps/desktop/src/renderer/src/console/tokens/glyphs.test.ts
+      - apps/desktop/src/renderer/src/console/tokens/glyphs.ts
+      - apps/desktop/src/renderer/src/console/tokens/index.ts
+      - apps/desktop/src/renderer/src/console/tokens/palette.ts
+      - apps/desktop/src/renderer/src/console/tokens/participant-hue.ts
+      - apps/desktop/src/renderer/src/console/tokens/tokens.test.ts
+      - apps/desktop/src/renderer/src/console/tokens/tokens.ts
+      - apps/desktop/src/renderer/src/runtime-node-attach/AttachFlow.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/CapabilityDeclaration.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/index.ts
+      - apps/desktop/src/renderer/src/runtime-node-attach/MixedVersionStatus.tsx
+      - apps/desktop/src/renderer/src/runtime-node-attach/NodeRoster.tsx
+      - apps/desktop/src/renderer/src/session-bootstrap/SessionBootstrap.tsx
+      - apps/desktop/src/renderer/src/session-members/invite-accept-view.tsx
+      - apps/desktop/src/renderer/src/session-members/participant-roster.tsx
+      - apps/desktop/src/renderer/tsconfig.json
+      - apps/desktop/src/renderer/tsconfig.test.json
+      - apps/desktop/src/shared/auxiliary-routes.ts
+      - apps/desktop/test/console/accessibility/frame-axe.test.tsx
+      - apps/desktop/test/console/architecture/build-flavour-cache.test.ts
+      - apps/desktop/test/console/architecture/ci-tier-coverage.test.ts
+      - apps/desktop/test/console/architecture/draft-non-persistence.test.ts
+      - apps/desktop/test/console/architecture/scenario-wire-truth.test.ts
+      - apps/desktop/test/console/architecture/tripwire-fixture-global.test.ts
+      - apps/desktop/test/console/architecture/vitest-project-globs.test.ts
+      - apps/desktop/test/console/architecture/wire-figure-chokepoint.test.ts
+      - apps/desktop/test/console/assets/generated-tokens.test.ts
+      - apps/desktop/test/console/bench/fan-out.bench.ts
+      - apps/desktop/test/console/bench/ledger.json
+      - apps/desktop/test/console/bench/ledger.test.ts
+      - apps/desktop/test/console/bench/ledger.ts
+      - apps/desktop/test/console/browser/frame-geometry.test.tsx
+      - apps/desktop/test/console/budget/budgets.json
+      - apps/desktop/test/console/budget/budgets.test.ts
+      - apps/desktop/test/console/budget/bundle-budget.test.ts
+      - apps/desktop/test/console/budget/heap-budget.test.ts
+      - apps/desktop/test/console/budget/release-absence.test.ts
+      - apps/desktop/test/console/console-harness.tsx
+      - apps/desktop/test/console/e2e/frame-boot.test.ts
+      - apps/desktop/test/console/electron-harness.ts
+      - apps/desktop/test/console/endurance/console-workload.ts
+      - apps/desktop/test/console/endurance/heap-at-rest.test.ts
+      - apps/desktop/test/console/endurance/steady-state.test.ts
+      - apps/desktop/test/console/screenshot/__screenshots__/frame.test.tsx/frame-first-run-dark-chromium-darwin.png
+      - apps/desktop/test/console/screenshot/__screenshots__/frame.test.tsx/frame-first-run-light-chromium-darwin.png
+      - apps/desktop/test/console/screenshot/__screenshots__/frame.test.tsx/palette-open-light-chromium-darwin.png
+      - apps/desktop/test/console/screenshot/frame.test.tsx
+      - apps/desktop/test/console/vitest-projects.ts
+      - apps/desktop/test/helpers/electron-probe.ts
+      - apps/desktop/test/lifecycle.gc.test.ts
+      - apps/desktop/tsconfig.build.json
+      - apps/desktop/tsconfig.console-architecture-test.json
+      - apps/desktop/tsconfig.console-browser-test.json
+      - apps/desktop/tsconfig.console-electron-test.json
+      - apps/desktop/tsconfig.scripts.json
+      - apps/desktop/tsconfig.test.json
+      - apps/desktop/turbo.json
+      - apps/desktop/vitest.config.ts
+      - CLAUDE.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/decisions/020-v1-deployment-model-and-oss-license.md
+      - docs/plans/023-desktop-shell-and-renderer.md
+      - docs/plans/026-first-run-onboarding.md
+      - docs/specs/023-desktop-shell-and-renderer.md
+      - packages/control-plane/tsconfig.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - tools/__tests__/entry-guard.test.mjs
+    verifies_invariant: [I-023-11, I-023-13, I-023-14]
+    spec_coverage:
+      [
+        "Spec-023 §Console Design (Meridian)",
+        "Spec-023 §Console Libraries",
+        "Spec-023 §Console Test Tiers",
+      ]
+    notes: |
+      T-023p-1C-1, first of two PRs. The console substrate: the app frame, icon rail, and
+      hash router; the Meridian tokens, hue system, and primitives; the session stores and
+      the apply chokepoint; the persistence layer with both adapters; the fixture bridge,
+      growth port, scenario manifest, and scenario engine; the palette and keybinding
+      grammar; the error boundaries; the tripwires; and the console test projects (unit,
+      browser-mode, screenshot, accessibility, budget, endurance, end-to-end, architecture,
+      assets, bundle). `App.tsx` mounts `ConsoleRoot` from this PR on; a release bundle
+      compiles the fixture out and binds the live preload bridge through the single
+      `bridge/live-bridge.ts` reader. Five Codex rounds folded through substrate lanes
+      (registry growth, the scripted-reply seam, RouteSurface agent context, tokens before
+      bridge failure, fixture stores on the scenario clock). `phase: 1` for the same reason
+      the Phase 1B row records: the supplement label `1C` can never be a manifest phase key,
+      so the task id carries the assertion. The task is not fully shipped by this row alone;
+      PR #422 (the next row) completes it.
+  - phase: 1
+    task: T-023p-1C-1
+    pr: 422
+    sha: ce8772d7
+    merged_at: 2026-09-02
+    files:
+      - apps/desktop/.dependency-cruiser.mjs
+      - apps/desktop/AGENTS.md
+      - apps/desktop/knip.json
+      - apps/desktop/package.json
+      - apps/desktop/src/renderer/src/console/bridge/console-bridge.ts
+      - apps/desktop/src/renderer/src/console/bridge/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-attention-derivation.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.latency.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.refusals.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.relay.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.run-streams.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.test-support.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-bridge.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-growth-port.attention.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-growth-port.gitflow.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-growth-port.refusals.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-growth-port.test-support.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-growth-port.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-growth-port.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-scripted-answer.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-session-directory.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-session-directory.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-session-snapshot.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/fixture-session-snapshot.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-entry.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-operations.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-operations.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-outcome.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-port.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-signatures.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-slate.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/artifacts.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/artifacts.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/attention.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/cost-receipts.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/cost-receipts.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/gitflow.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/index.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/index.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/panes.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/sessions.ts
+      - apps/desktop/src/renderer/src/console/bridge/growth-values/tools.ts
+      - apps/desktop/src/renderer/src/console/bridge/index.ts
+      - apps/desktop/src/renderer/src/console/bridge/queue-row-source.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/queue-row-source.ts
+      - apps/desktop/src/renderer/src/console/bridge/run-stream-projection.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/run-stream-projection.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-engine.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-engine.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-envelope.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-envelope.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-selection.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario-selection.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenario.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/first-run.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/flagship.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth.beat-order.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth.replies.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth.run-beats.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth/beat-order.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth/beat-shape.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth/defect.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth/membership.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth/reply-walk.ts
+      - apps/desktop/src/renderer/src/console/bridge/scenarios/wire-truth/run-and-queue-semantics.ts
+      - apps/desktop/src/renderer/src/console/bridge/scripted-reply.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/scripted-reply.ts
+      - apps/desktop/src/renderer/src/console/bridge/session-event-streams.test.ts
+      - apps/desktop/src/renderer/src/console/bridge/session-event-streams.ts
+      - apps/desktop/src/renderer/src/console/core/clock.manual-clock.test.ts
+      - apps/desktop/src/renderer/src/console/core/clock.test.ts
+      - apps/desktop/src/renderer/src/console/families.test.ts
+      - apps/desktop/src/renderer/src/console/families.ts
+      - apps/desktop/src/renderer/src/console/frame/AppFrame.announcer.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/AppFrame.test-support.tsx
+      - apps/desktop/src/renderer/src/console/frame/AppFrame.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/ConsoleRoot.routing.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/ConsoleRoot.test-support.tsx
+      - apps/desktop/src/renderer/src/console/frame/ConsoleRoot.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/ConsoleRoot.tokens.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/ConsoleRoot.tsx
+      - apps/desktop/src/renderer/src/console/frame/RouteSurface.agent-console.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/RouteSurface.test-support.ts
+      - apps/desktop/src/renderer/src/console/frame/RouteSurface.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/run-lifecycle-projector.body.test.ts
+      - apps/desktop/src/renderer/src/console/frame/run-lifecycle-projector.test.ts
+      - apps/desktop/src/renderer/src/console/frame/run-lifecycle-projector.ts
+      - apps/desktop/src/renderer/src/console/frame/session-event-binder.test.ts
+      - apps/desktop/src/renderer/src/console/frame/session-event-binder.ts
+      - apps/desktop/src/renderer/src/console/frame/session-event-payload.test.ts
+      - apps/desktop/src/renderer/src/console/frame/session-event-payload.ts
+      - apps/desktop/src/renderer/src/console/frame/session-lifecycle.binder.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/session-lifecycle.registry-wiring.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/session-lifecycle.test-support.tsx
+      - apps/desktop/src/renderer/src/console/frame/session-lifecycle.test.tsx
+      - apps/desktop/src/renderer/src/console/frame/session-lifecycle.ts
+      - apps/desktop/src/renderer/src/console/panes/index.ts
+      - apps/desktop/src/renderer/src/console/panes/panes.test.ts
+      - apps/desktop/src/renderer/src/console/persistence/adapter.ts
+      - apps/desktop/src/renderer/src/console/persistence/identifier-grammar.ts
+      - apps/desktop/src/renderer/src/console/persistence/index.ts
+      - apps/desktop/src/renderer/src/console/persistence/indexeddb-adapter.ts
+      - apps/desktop/src/renderer/src/console/persistence/memory-adapter.ts
+      - apps/desktop/src/renderer/src/console/persistence/refusals.ts
+      - apps/desktop/src/renderer/src/console/persistence/store-health.ts
+      - apps/desktop/src/renderer/src/console/persistence/ui-state-store.adapter-failure.test.ts
+      - apps/desktop/src/renderer/src/console/persistence/ui-state-store.degradation.test.ts
+      - apps/desktop/src/renderer/src/console/persistence/ui-state-store.test.ts
+      - apps/desktop/src/renderer/src/console/persistence/ui-state-store.ts
+      - apps/desktop/src/renderer/src/console/persistence/value-classes.ts
+      - apps/desktop/src/renderer/src/console/primitives/index.ts
+      - apps/desktop/src/renderer/src/console/primitives/primitives.css
+      - apps/desktop/src/renderer/src/console/primitives/wire-figures.test.ts
+      - apps/desktop/src/renderer/src/console/primitives/wire-figures.time.test.ts
+      - apps/desktop/src/renderer/src/console/primitives/wire-figures.units.test.ts
+      - apps/desktop/src/renderer/src/console/seats/composer-seat.test.ts
+      - apps/desktop/src/renderer/src/console/seats/composer-seat.ts
+      - apps/desktop/src/renderer/src/console/seats/index.ts
+      - apps/desktop/src/renderer/src/console/seats/inline-card-seats.test.ts
+      - apps/desktop/src/renderer/src/console/seats/inline-card-seats.ts
+      - apps/desktop/src/renderer/src/console/seats/owner-slot.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-address.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-address.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-kinds.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-kinds.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-registry.test.ts
+      - apps/desktop/src/renderer/src/console/seats/pane-registry.ts
+      - apps/desktop/src/renderer/src/console/seats/sidebar-sections.test.ts
+      - apps/desktop/src/renderer/src/console/seats/sidebar-sections.ts
+      - apps/desktop/src/renderer/src/console/seats/single-slot-seat.ts
+      - apps/desktop/src/renderer/src/console/seats/timeline-row-slot.test.ts
+      - apps/desktop/src/renderer/src/console/seats/timeline-row-slot.ts
+      - apps/desktop/src/renderer/src/console/store/degradation.test.ts
+      - apps/desktop/src/renderer/src/console/store/entities.ts
+      - apps/desktop/src/renderer/src/console/store/entity-partitions.ts
+      - apps/desktop/src/renderer/src/console/store/entity-projector-registry.test.ts
+      - apps/desktop/src/renderer/src/console/store/entity-projector-registry.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.projection.test.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.repair.test.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.sequence.test.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.test-support.ts
+      - apps/desktop/src/renderer/src/console/store/failure-modes.test.ts
+      - apps/desktop/src/renderer/src/console/store/hooks.caller-membership-role.test.tsx
+      - apps/desktop/src/renderer/src/console/store/hooks.test.tsx
+      - apps/desktop/src/renderer/src/console/store/hooks.ts
+      - apps/desktop/src/renderer/src/console/store/index.ts
+      - apps/desktop/src/renderer/src/console/store/open-session-entry.test.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.refresh-scheduler.test.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.test.ts
+      - apps/desktop/src/renderer/src/console/store/scheduling.ts
+      - apps/desktop/src/renderer/src/console/store/selectors.test.ts
+      - apps/desktop/src/renderer/src/console/store/selectors.ts
+      - apps/desktop/src/renderer/src/console/store/sequence-reconciler.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.gap-repair.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.scheduling.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.test-support.ts
+      - apps/desktop/src/renderer/src/console/store/session-store-registry.test.ts
+      - apps/desktop/src/renderer/src/console/store/session-store.ts
+      - apps/desktop/src/renderer/src/console/tokens/color.ts
+      - apps/desktop/src/renderer/src/console/tokens/contrast.test.ts
+      - apps/desktop/src/renderer/src/console/tokens/glyphs.test.ts
+      - apps/desktop/src/renderer/src/console/tokens/glyphs.ts
+      - apps/desktop/src/renderer/src/console/tokens/index.ts
+      - apps/desktop/src/renderer/src/console/tokens/palette.ts
+      - apps/desktop/src/renderer/src/console/tokens/participant-hue.ts
+      - apps/desktop/src/renderer/src/console/tokens/tokens.ts
+      - apps/desktop/test/console/architecture/browser-mode-optimize-deps.test.ts
+      - apps/desktop/test/console/architecture/console-layering-rules.test.ts
+      - apps/desktop/test/console/architecture/scenario-delivery-shape.test.ts
+      - apps/desktop/test/console/architecture/scenario-wire-truth.test.ts
+      - apps/desktop/test/console/architecture/vitest-project-globs.test.ts
+      - apps/desktop/test/console/bench/fan-out.bench.ts
+      - apps/desktop/test/console/browser-mode-deps.ts
+      - apps/desktop/vitest.config.ts
+      - docs/plans/023-desktop-shell-and-renderer.md
+      - docs/specs/023-desktop-shell-and-renderer.md
+    verifies_invariant: [I-023-11, I-023-13, I-023-14]
+    spec_coverage:
+      [
+        "Spec-023 §Console Design (Meridian)",
+        "Spec-023 §Console Libraries",
+        "Spec-023 §Console Test Tiers",
+      ]
+    notes: |
+      T-023p-1C-1, second of two PRs — the cross-family seat contracts the six family
+      branches build against: the `seats/` module (pane registry, kind-scoped
+      `ConsolePaneAddress` union with its runtime parser, sidebar section ids, inline-card
+      seats, pane-kind scope table), the run-stream and queue projections through the
+      registered payload schemas, the fixture session directory derived from the
+      `SessionState` census, the scenario wire-truth walk split by axis (beat shape,
+      run-and-queue semantics, beat order, reply walk, membership), late-subscriber prefix
+      replay in the scenario engine, session-scoped fixture relay, the `accent-ink` token
+      and filled-accent primitive, the store selectors for stamped execution posture and
+      membership role, and the two dependency-cruiser rules (view-family isolation, no
+      barrel chain) with their architecture tests. Thirteen Codex rounds: rounds 1–12 folded
+      in full through seats lanes; the code-review cap (five) was exceeded at round 6 and the
+      cycle closed at round 13 under the cap policy, whose four findings (beat `atMs`
+      finiteness, a present-but-malformed `channelId` normalized rather than refused, the
+      448-line `run-stream-projection.ts` queue-arm split, and the `resultFor` session-read
+      arm in the fixture directory) are answered on the PR threads and owed first by the
+      T-023p-1C-8 structure audit on develop. With this row T-023p-1C-1 is fully shipped;
+      T-023p-1C-2..7 ride PRs #423–#428, each a family branch merged onto this squash.
 ```
 
 ### Notes
