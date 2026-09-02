@@ -1,0 +1,150 @@
+// Find in ledger — the matcher behind the field.
+//
+// `Spec-023 §Console Design (Meridian)` §5.15: "A find field over the loaded rows
+// with match count, next and previous, and the boundary stated in the field:
+// 'searched loaded rows only' with a 'load earlier' affordance. Global search
+// across sessions is growth (`SessionSearch`)."
+//
+// THE BOUNDARY IS THE FEATURE. A find field that searched what it had and said
+// nothing would let a person conclude a session does not contain something it
+// does. So the boundary is a member of the result — `searchedRowCount` and
+// `hasEarlierRows` — rather than a caption the surface remembers to add, and
+// `LEDGER_FIND_SCOPE_NOTE` is the one sentence both the field and its test read.
+//
+// WHAT IS SEARCHED. A row's `summary`, which is the human-readable line the daemon
+// composed, and its `type`, which is the wire-verbatim event kind — so typing
+// `rolled_back` finds the rewind and typing a filename finds the row that names
+// it. The payload is deliberately NOT searched: it is an open record whose values
+// can be arbitrarily large, and a substring hit inside one would rank a row a
+// person cannot see the match in.
+
+import type { TimelineRow } from "@ai-sidekicks/contracts";
+
+import { FIND_MATCH_CAP } from "./constants.js";
+
+/**
+ * The sentence the field states its boundary in.
+ *
+ * One string, read by the component and by the test that asserts it is shown —
+ * two copies would let the field drop the caption while the test kept passing
+ * against its own literal.
+ */
+export const LEDGER_FIND_SCOPE_NOTE = "Searched loaded rows only.";
+
+/** One row the query matched, and where. */
+export interface LedgerFindMatch {
+  readonly rowId: string;
+  readonly sequence: number;
+  /** Which field matched, so the field can say why a row is in the list. */
+  readonly matchedIn: "summary" | "type";
+}
+
+/** What one query over one window produced. */
+export interface LedgerFindResult {
+  readonly query: string;
+  /**
+   * Every match, capped at `FIND_MATCH_CAP`. The walk is over these.
+   */
+  readonly matches: readonly LedgerFindMatch[];
+  /**
+   * The TRUE match count, uncapped. Reported honestly beside a capped walk: a
+   * count that silently equalled the cap would tell a person their query is
+   * narrower than it is.
+   */
+  readonly totalMatchCount: number;
+  /** Rows the query was actually run over. Half of the stated boundary. */
+  readonly searchedRowCount: number;
+  /** Whether the session has rows before this window. The other half. */
+  readonly hasEarlierRows: boolean;
+}
+
+/** The result an empty query produces: no matches, and the boundary still stated. */
+export function emptyFindResult(
+  searchedRowCount: number,
+  hasEarlierRows: boolean,
+): LedgerFindResult {
+  return { query: "", matches: [], totalMatchCount: 0, searchedRowCount, hasEarlierRows };
+}
+
+/**
+ * Run a query over one loaded window.
+ *
+ * Case-insensitive substring, deliberately not the palette's subsequence matcher:
+ * `scoreSubsequence` ranks command titles a person is half-remembering, and
+ * applying it to a log would match nearly every row on a three-letter query. Find
+ * is a literal search over text somebody is looking at.
+ *
+ * An empty or whitespace-only query matches nothing rather than everything —
+ * "everything" is what the ledger already shows, and a field that highlighted every
+ * row the moment it was focused would be noise.
+ */
+export function findInLedger(
+  rows: readonly TimelineRow[],
+  query: string,
+  hasEarlierRows: boolean,
+): LedgerFindResult {
+  const trimmedQuery = query.trim();
+  if (trimmedQuery.length === 0) {
+    return emptyFindResult(rows.length, hasEarlierRows);
+  }
+  const needle = trimmedQuery.toLowerCase();
+  const matches: LedgerFindMatch[] = [];
+  let totalMatchCount = 0;
+
+  for (const row of rows) {
+    const matchedIn = matchFieldOf(row, needle);
+    if (matchedIn === undefined) {
+      continue;
+    }
+    totalMatchCount += 1;
+    if (matches.length < FIND_MATCH_CAP) {
+      matches.push({ rowId: row.id, sequence: row.sequence, matchedIn });
+    }
+  }
+
+  return {
+    query: trimmedQuery,
+    matches,
+    totalMatchCount,
+    searchedRowCount: rows.length,
+    hasEarlierRows,
+  };
+}
+
+/** Which field a row matched on, summary first because that is what a person reads. */
+function matchFieldOf(row: TimelineRow, needle: string): LedgerFindMatch["matchedIn"] | undefined {
+  if (row.summary.toLowerCase().includes(needle)) {
+    return "summary";
+  }
+  if (row.type.toLowerCase().includes(needle)) {
+    return "type";
+  }
+  return undefined;
+}
+
+/**
+ * Where the next or previous match sits, given where the walk is now.
+ *
+ * Wraps, unlike the rail's tick walk, and the difference is deliberate: a find
+ * field shows "3 of 17", so a wrap is visible in the counter and a person always
+ * knows they came round. The rail shows no counter, so a silent wrap there would
+ * be a jump with nothing on screen explaining it.
+ *
+ * Returns `undefined` only when there is nothing to walk.
+ */
+export function stepFindMatch(
+  result: LedgerFindResult,
+  currentIndex: number,
+  direction: "next" | "previous",
+): { readonly index: number; readonly match: LedgerFindMatch } | undefined {
+  const count = result.matches.length;
+  if (count === 0) {
+    return undefined;
+  }
+  const step = direction === "next" ? 1 : -1;
+  // `+ count` before the modulus: JavaScript's `%` keeps the sign of the dividend,
+  // so stepping back from index 0 would land on -1 rather than on the last match.
+  const index = (((currentIndex + step) % count) + count) % count;
+  const match = result.matches[index];
+  return match === undefined ? undefined : { index, match };
+}
