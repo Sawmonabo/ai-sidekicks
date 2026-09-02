@@ -71,6 +71,21 @@ jobs:
     permissions:
       contents: read
     steps:
+      # Both `run:` steps below are guarded on `inputs.mode`, so a mode this job
+      # does not recognise would skip both of them and leave the job GREEN having
+      # rendered nothing — the one failure shape a baseline workflow must not
+      # have, because its output is trusted enough to be committed. `choice`
+      # already constrains the value at dispatch; this makes the constraint hold
+      # at the point the steps read it rather than at the point a form offered it.
+      - name: Assert the mode is one this job implements
+        env:
+          MODE: ${{ inputs.mode }}
+        run: |
+          case "${MODE}" in
+            verify|regenerate) echo "mode: ${MODE}" ;;
+            *) echo "unrecognised mode '${MODE}': this job implements verify and regenerate" >&2; exit 1 ;;
+          esac
+
       - name: Checkout
         uses: actions/checkout@v5
 
