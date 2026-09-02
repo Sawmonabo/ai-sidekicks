@@ -24,15 +24,16 @@
 // the read refused. Collapsing any two is the conflation the five kinds of nothing
 // exist to prevent.
 //
-// WHY THE REFUSAL ARM IS THE CONSOLE'S REFUSAL AND NOT THE PORT'S. Two different
-// failures reach this hook and both are refusals a person should read: the port's
-// own `wire-unregistered` outcome, and a DAEMON refusal, which the scripted-reply
-// seam throws verbatim rather than folding into the outcome union — deliberately, so
-// a fixture never paraphrases a daemon's `{code, message}` into a growth vocabulary.
-// A hook that attached only a fulfillment handler would leave the second one
-// unhandled and the surface reading forever. So both are normalized to
-// `ConsoleRefusal`, the one shape every refusal primitive renders, and `refuse`'s
-// `origin` is what still says which of the two it was.
+// THE READ IS SETTLED RATHER THAN MERELY AWAITED. Two different failures reach this
+// hook and both are refusals a person should read: the port's own
+// `wire-unregistered` outcome, and a DAEMON refusal, which the scripted-reply seam
+// throws verbatim rather than folding into the outcome union — deliberately, so a
+// fixture never paraphrases a daemon's `{code, message}` into a growth vocabulary.
+// A hook that attached only a fulfilment handler would leave the second one
+// unhandled and the surface reading forever. `read-settlement.ts` turns every ending
+// into one value, so what arrives here is an answer or a refusal and never a promise
+// nobody is waiting on — and the refusal's `origin` is what still says which of the
+// two authors raised it.
 
 import { useEffect, useState } from "react";
 
@@ -41,34 +42,14 @@ import { useEffect, useState } from "react";
 // the wire never promised, and the projection accepts what the bridge sends because
 // it is the reader, not the source.
 import type { GrowthPort, WorkflowRunSnapshot } from "../bridge/index.js";
-import { refuse, type ConsoleRefusal } from "../core/index.js";
-import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
+import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What a runs surface knows about the runs this session holds, at one moment. */
 export type WorkflowRunDirectoryState =
   | { readonly status: "unasked" }
   | { readonly status: "reading" }
   | { readonly status: "served"; readonly runs: readonly WorkflowRunSnapshot[] }
-  | { readonly status: "unavailable"; readonly refusal: ConsoleRefusal };
-
-/** The subsystem name a thrown daemon refusal is attributed to. */
-const DAEMON_REFUSAL_ORIGIN = "daemon";
-
-/**
- * The refusal a rejected read carries.
- *
- * A daemon refusal arrives as a `{code, message}` envelope and its two fields are
- * rendered verbatim — the code as the code, the message as the detail — because rule
- * 9 fixes what reaches a screen at exactly those two and the console adding a
- * sentence of its own is the paraphrase the seam threw the envelope to avoid.
- * Anything else that reaches here is a fault rather than a refusal, and it says so
- * under its own code instead of borrowing the daemon's.
- */
-function refusalFromRejection(reason: unknown): ConsoleRefusal {
-  return isWireErrorEnvelope(reason)
-    ? refuse(DAEMON_REFUSAL_ORIGIN, reason.code, reason.message)
-    : refuse(DAEMON_REFUSAL_ORIGIN, "read-failed", lossyStringify(reason));
-}
+  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * Read every run one session holds, once, for as long as the caller is mounted.
@@ -95,28 +76,20 @@ export function useWorkflowRunDirectory(
     // nothing about it says otherwise.
     setState({ status: "reading" });
     let isMounted = true;
-    void growth.workflowRunList({ sessionId }).then(
-      (outcome) => {
-        if (!isMounted) {
-          // The unmount already happened. Dropping the answer is the point: a
-          // `setState` on an unmounted caller is the leak the endurance tier exists
-          // to catch, and a directory read outliving its surface by one navigation
-          // is the ordinary case rather than the rare one.
-          return;
-        }
-        setState(
-          outcome.status === "served"
-            ? { status: "served", runs: outcome.value.runs }
-            : { status: "unavailable", refusal: outcome },
-        );
-      },
-      (reason: unknown) => {
-        if (!isMounted) {
-          return;
-        }
-        setState({ status: "unavailable", refusal: refusalFromRejection(reason) });
-      },
-    );
+    void settleGrowthRead(growth.workflowRunList({ sessionId })).then((outcome) => {
+      if (!isMounted) {
+        // The unmount already happened. Dropping the answer is the point: a
+        // `setState` on an unmounted caller is the leak the endurance tier exists
+        // to catch, and a directory read outliving its surface by one navigation
+        // is the ordinary case rather than the rare one.
+        return;
+      }
+      setState(
+        outcome.status === "served"
+          ? { status: "served", runs: outcome.value.runs }
+          : { status: "unavailable", refusal: outcome },
+      );
+    });
     return () => {
       isMounted = false;
     };
