@@ -258,24 +258,16 @@ function useDeckPersistence(options: DeckPersistenceOptions): readonly ConsoleRe
   const { layout, uiStateStore, sessionId, onSaveRefused } = options;
   const [restoreRefusals, setRestoreRefusals] = useState<readonly ConsoleRefusal[]>([]);
 
-  // The session the writer files under, read at WRITE time rather than captured at
-  // construction: the writer outlives a navigation between sessions, and a captured
-  // id would file the new session's layout under the old one's partition.
-  const [sessionIdHolder] = useState<{ current: string | undefined }>(() => ({
-    current: sessionId,
-  }));
-  useEffect(() => {
-    sessionIdHolder.current = sessionId;
-  }, [sessionIdHolder, sessionId]);
-
+  // The partition rides the REQUEST rather than being read here. A writer coalesces,
+  // so a queued arrangement settles after the act that queued it — and this component
+  // survives a navigation between two already-open sessions, because the shell opens
+  // session stores and never closes them. Reading a mutable current-session holder at
+  // write time filed the older session's arrangement under the newer one's partition
+  // and overwrote a deck the person had not touched.
   const [writer] = useState(
     () =>
       new DeckLayoutWriter({
-        write: async (snapshot) => {
-          const partition = sessionIdHolder.current;
-          if (partition === undefined) {
-            return;
-          }
+        write: async (partition, snapshot) => {
           const result = await uiStateStore.write(
             partition,
             DECK_LAYOUT_RECORD_KEY,
@@ -323,13 +315,14 @@ function useDeckPersistence(options: DeckPersistenceOptions): readonly ConsoleRe
     };
   }, [layout, sessionId, uiStateStore]);
 
-  useEffect(
-    () =>
-      layout.subscribe(() => {
-        writer.request(layout.toSnapshot());
-      }),
-    [layout, writer],
-  );
+  useEffect(() => {
+    if (sessionId === undefined) {
+      return;
+    }
+    return layout.subscribe(() => {
+      writer.request(sessionId, layout.toSnapshot());
+    });
+  }, [layout, writer, sessionId]);
 
   return restoreRefusals;
 }

@@ -7,7 +7,7 @@
 // like "the deck opened with one pane", which is also what success looks like the
 // first time.
 
-import { act, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
@@ -16,6 +16,7 @@ import type { ConsoleScenario } from "../bridge/scenario.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
+import type { StoredRecord } from "../persistence/adapter.js";
 import { FrameStore, SessionStore } from "../store/index.js";
 import {
   ConsolePaneRegistry,
@@ -87,6 +88,14 @@ interface RenderedWorkspace {
   readonly uiStateStore: UiStateStore;
 }
 
+/** One session the workspace can be pointed at, with the store it renders. */
+interface WorkspaceSession {
+  readonly sessionId: string;
+  readonly store: SessionStore;
+}
+
+const SESSION_B_ID = "session-workspace-b";
+
 /**
  * The workspace under the window's announcer, which is where `AppFrame` mounts it.
  *
@@ -113,6 +122,134 @@ function renderWorkspace(uiStateStore: UiStateStore, store?: SessionStore): Rend
 
 function memoryStore(): UiStateStore {
   return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
+}
+
+/**
+ * The memory adapter, plus a gate a test closes and a ledger of what was asked.
+ *
+ * Two things the plain adapter cannot give. The GATE holds a write open, which is
+ * what puts a second arrangement in the writer's pending slot — the state a coalescing
+ * writer spends a whole resize drag in, and the only state in which the partition it
+ * files under can disagree with the one that asked. The LEDGER records the partition
+ * every write NAMED, so the assertion is about where an arrangement was filed rather
+ * than about which record happened to be written last.
+ */
+class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
+  readonly asked: { readonly partition: string; readonly value: unknown }[] = [];
+  #writeGate = new SettlementGate();
+  #readGate = new SettlementGate();
+
+  public holdWrites(): void {
+    this.#writeGate.close();
+  }
+
+  public releaseWrites(): void {
+    this.#writeGate.open();
+  }
+
+  /** Holds the arriving session's restore open, so the ordering is decided here. */
+  public holdReads(): void {
+    this.#readGate.close();
+  }
+
+  public releaseReads(): void {
+    this.#readGate.open();
+  }
+
+  public override async read(partition: string, key: string): Promise<StoredRecord | undefined> {
+    await this.#readGate.passed();
+    return super.read(partition, key);
+  }
+
+  public override async write(record: StoredRecord): Promise<void> {
+    this.asked.push({ partition: record.partition, value: record.value });
+    await this.#writeGate.passed();
+    await super.write(record);
+  }
+}
+
+/** One gate a test opens and closes. Open by default, so nothing waits by accident. */
+class SettlementGate {
+  #held: Promise<void> | undefined;
+  #open: (() => void) | undefined;
+
+  public close(): void {
+    this.#held = new Promise<void>((resolve) => {
+      this.#open = resolve;
+    });
+  }
+
+  public open(): void {
+    this.#open?.();
+    this.#open = undefined;
+    this.#held = undefined;
+  }
+
+  public async passed(): Promise<void> {
+    await this.#held;
+  }
+}
+
+/** Let the write pump's `finally` chain run, without advancing any timer. */
+async function drainMicrotasks(): Promise<void> {
+  for (let turn = 0; turn < 8; turn += 1) {
+    await Promise.resolve();
+  }
+}
+
+/** How many panes a saved deck record holds. Its one non-pane key is `$deck`. */
+function panesInRecord(value: unknown): number {
+  return Object.keys(value as Record<string, unknown>).length - 1;
+}
+
+/** A second session, with a store of its own — never the first one's. */
+function otherSession(): WorkspaceSession {
+  const store = new SessionStore({ sessionId: SESSION_B_ID });
+  store.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
+  return { sessionId: SESSION_B_ID, store };
+}
+
+/** The workspace for one session, in the shape `AppFrame` mounts it in. */
+function workspaceFor(
+  session: WorkspaceSession,
+  uiStateStore: UiStateStore,
+  isKeyed: boolean,
+): React.JSX.Element {
+  return (
+    <LiveAnnouncerProvider>
+      <Workspace
+        {...(isKeyed ? { key: session.sessionId } : {})}
+        bridge={createFixtureBridge({ scenario: SCENARIO })}
+        frameStore={
+          new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
+        }
+        sessionStore={session.store}
+        uiStateStore={uiStateStore}
+        draftStore={new DraftStore()}
+        route={{ kind: "workspace", sessionId: session.sessionId }}
+        registry={testRegistry()}
+      />
+    </LiveAnnouncerProvider>
+  );
+}
+
+/** A saved arrangement for one session, written by the grammar that reads it back. */
+async function saveLayout(
+  store: UiStateStore,
+  partition: string,
+  kinds: readonly ("timeline" | "runs")[],
+): Promise<void> {
+  const layout = new DeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
+  for (const kind of kinds) {
+    layout.open({ kind, entity: undefined });
+  }
+  const result = await store.write(
+    partition,
+    DECK_LAYOUT_RECORD_KEY,
+    "layout",
+    layout.toSnapshot(),
+  );
+  expect(result.outcome).toBe("written");
 }
 
 /** A saved arrangement, written by the same grammar that reads it back. */
@@ -272,5 +409,103 @@ describe("Workspace — following an actor from the cast bar", () => {
     pressFirstChip(container);
 
     expect(politeText(container)).toBe(ACTOR_FOLLOW_ANNOUNCEMENTS["no-ledger"]);
+  });
+});
+
+describe("Workspace — navigating between two sessions the shell already has open", () => {
+  /** Cycle deck focus, which commits an arrangement without opening or closing a pane. */
+  function cycleDeckFocus(container: HTMLElement): void {
+    const deck = container.querySelector(".meridian-deck");
+    expect(deck).not.toBeNull();
+    if (deck !== null) {
+      fireEvent.keyDown(deck, { key: "ArrowRight", altKey: true });
+    }
+  }
+
+  it("files a queued arrangement under the session that made it, not the one now on screen", async () => {
+    // The defect: sessions are opened and never closed, so navigating straight from
+    // one to another re-renders this component rather than remounting it. With the
+    // writer's partition read at write time, the first session's queued arrangement
+    // was filed under the second session's partition and overwrote its saved deck.
+    const adapter = new GatedPersistenceAdapter();
+    const store = new UiStateStore({ adapter });
+    await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
+    await saveLayout(store, SESSION_B_ID, ["timeline"]);
+
+    const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container, rerender } = render(workspaceFor(first, store, false));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    });
+
+    // One write in flight against a closed gate, and a second arrangement waiting
+    // behind it — the state a resize drag spends its whole length in.
+    adapter.holdWrites();
+    adapter.holdReads();
+    // Twice: the first commit goes in flight against the closed gate, the second
+    // lands in the writer's single pending slot. That slot is the whole subject —
+    // it is what outlives the navigation below.
+    cycleDeckFocus(container);
+    cycleDeckFocus(container);
+    await drainMicrotasks();
+    const askedBeforeNavigation = adapter.asked.length;
+
+    rerender(workspaceFor(otherSession(), store, false));
+    // The arriving session's restore is held open, so the queued arrangement flushes
+    // while the surface already shows the second session — the ordering decided here
+    // rather than left to whichever promise happens to settle first.
+    adapter.releaseWrites();
+    await waitFor(() => {
+      expect(adapter.asked.length).toBeGreaterThan(askedBeforeNavigation);
+    });
+    adapter.releaseReads();
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    });
+
+    const filedUnderSecond = adapter.asked.filter((write) => write.partition === SESSION_B_ID);
+    expect(filedUnderSecond.length).toBeGreaterThan(0);
+    expect(filedUnderSecond.map((write) => panesInRecord(write.value))).not.toContain(2);
+  });
+
+  it("starts the second session's deck from its own record, not the first one's panes", async () => {
+    // The half with no race in it at all: the restore replaces wholesale but only
+    // runs where a record exists, so a session with none used to inherit whatever
+    // panes were already on screen — and then have them written under its own name.
+    const store = memoryStore();
+    await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
+
+    const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container, rerender } = render(workspaceFor(first, store, true));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    });
+
+    rerender(workspaceFor(otherSession(), store, true));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+    });
+    expect(container.querySelector("[data-body]")?.getAttribute("data-body")).toBe("timeline");
+  });
+
+  it("negative control: without the key the second session inherits the first one's deck", async () => {
+    // Mounted at a stable position with no key, the subtree survives the navigation
+    // and carries the arrangement with it. This is the case that makes the key above
+    // an instrument rather than a decoration.
+    const store = memoryStore();
+    await saveLayout(store, SESSION_ID, ["timeline", "runs"]);
+
+    const first: WorkspaceSession = { sessionId: SESSION_ID, store: sessionStore() };
+    const { container, rerender } = render(workspaceFor(first, store, false));
+    await waitFor(() => {
+      expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
+    });
+
+    rerender(workspaceFor(otherSession(), store, false));
+    await waitFor(async () => {
+      const record = await store.read(SESSION_B_ID, DECK_LAYOUT_RECORD_KEY);
+      expect(record).not.toBeUndefined();
+    });
+    expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(2);
   });
 });
