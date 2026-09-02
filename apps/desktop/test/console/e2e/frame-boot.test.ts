@@ -71,26 +71,18 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       const railButtonCount = await consoleWindow.locator(".meridian-rail__button").count();
       expect(railButtonCount).toBeGreaterThan(0);
 
-      // The sessions destination has an owner — the shipped session-bootstrap
-      // family, absorbed by the console — so the registry resolves and the
-      // owner's own render runs. What that render PRODUCES here is a refusal, and
-      // deliberately: this window is a fixture build, that family reads the
-      // installed bridge directly, and the console says the question was not put
-      // rather than answering from the live daemon beside fixture data. So the
-      // claim is not "no absence" — it is that the absence is the OWNER's and not
-      // the frame's reserved-slot arm.
-      //
-      // Read off the kind rather than the wrapper. Both producers compose through
-      // `SurfaceAbsence`, because a whole-surface absence is centred whoever
-      // raised it; the wrapper therefore says only "something is absent here",
-      // and the kind is what says which. Reading it off the wrapper is what an
-      // earlier form of this test did, and it passed only while the owner's
-      // refusal rendered as a bare line at the pane's top-left corner — the
-      // half-painted-page shape `SurfaceAbsence` exists to prevent.
+      // The sessions destination has an owner — the frame's own all-sessions
+      // surface, which creates nothing on mount and builds the absorbed
+      // session-bootstrap probe only when a participant presses "Start a
+      // session". So the claim on this destination is not about which absence
+      // renders — with no session open the surface shows its own not-checked
+      // line inside its list region, and once a session directory read lands it
+      // shows rows — but that the OWNER rendered and the frame's reserved-slot
+      // arm did not fire: the owner's section is present and the frame's
+      // composed absence wrapper is not.
       await consoleWindow.locator(".meridian-frame").waitFor({ state: "visible" });
-      await consoleWindow
-        .locator(".meridian-frame__absence .meridian-nothing--not-checked")
-        .waitFor({ state: "visible" });
+      await consoleWindow.locator(".meridian-sessions").waitFor({ state: "visible" });
+      expect(await consoleWindow.locator(".meridian-frame__absence").count()).toBe(0);
       expect(await consoleWindow.locator(".meridian-nothing--empty").count()).toBe(0);
 
       // Reserved, not stubbed, on a destination that genuinely has no owner. This
