@@ -114,6 +114,7 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
     <div className="meridian-composer__rail">
       <QueueShelf
         items={waitingItems}
+        pendingCancelIds={queueFeed.pendingCancelIds}
         cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
         onCancel={queueFeed.cancelItem}
       />

@@ -9,6 +9,13 @@
 // no reorder verb, so offering the gesture at all would be the console promising an
 // operation the daemon cannot perform. Priority is the daemon's and is shown as it
 // was sent.
+//
+// A CANCEL IN FLIGHT DISABLES ITS OWN ROW AND NO OTHER. The shelf renders the state
+// the reading publishes rather than holding its own: the same set the runs pane's
+// queue reads, so two surfaces over one reading never disagree about which row is
+// going. The row is `disabled` and `aria-busy` while its id is pending — the
+// authoritative single-flight is the reading's own chokepoint, and this is what a
+// person sees of it.
 
 import {
   DerivedFigure,
@@ -24,6 +31,8 @@ import { QUEUE_SHELF_ROW_CAP } from "./accessory-bounds.js";
 
 export interface QueueShelfProps {
   readonly items: readonly QueueItemSummary[];
+  /** The ids whose cancel is in flight, straight off the session's one reading. */
+  readonly pendingCancelIds: ReadonlySet<string>;
   readonly cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal>;
   readonly onCancel: (queueItemId: string) => void;
 }
@@ -43,6 +52,7 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
           <QueueShelfRow
             key={item.id}
             item={item}
+            isCancelPending={props.pendingCancelIds.has(item.id)}
             refusal={props.cancelRefusalByItemId.get(item.id)}
             onCancel={props.onCancel}
           />
@@ -59,6 +69,7 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
 
 interface QueueShelfRowProps {
   readonly item: QueueItemSummary;
+  readonly isCancelPending: boolean;
   readonly refusal: ConsoleRefusal | undefined;
   readonly onCancel: (queueItemId: string) => void;
 }
@@ -79,6 +90,8 @@ function QueueShelfRow(props: QueueShelfRowProps): React.JSX.Element {
       <button
         type="button"
         className="meridian-queue-shelf__cancel"
+        disabled={props.isCancelPending}
+        aria-busy={props.isCancelPending}
         onClick={() => {
           props.onCancel(item.id);
         }}

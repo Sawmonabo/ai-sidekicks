@@ -162,6 +162,13 @@
   outline-offset: 1px;
 }
 
+/* A cancel already in flight, told the same way the runs pane tells it: muted and
+   under a progress cursor, so two surfaces over one reading look alike. */
+.meridian-queue-shelf__cancel:disabled {
+  color: var(--meridian-text-muted);
+  cursor: progress;
+}
+
 .meridian-compaction__settlement,
 .meridian-compaction__completed,
 .meridian-step-in__receipt {

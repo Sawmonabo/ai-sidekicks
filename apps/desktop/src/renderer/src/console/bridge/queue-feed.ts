@@ -286,6 +286,14 @@ class SessionQueueReading {
   }
 
   #cancelItem = (queueItemId: string): void => {
+    if (this.#pendingCancelIds.has(queueItemId)) {
+      // Silent rather than refused: the person pressed Cancel for the cancel that is
+      // already going, and a refusal card would report a failure where the only
+      // thing that happened is that they were early. This is the chokepoint and not
+      // the button, because the set the button disables from is published one render
+      // behind — two presses inside one frame both read a control that was live.
+      return;
+    }
     this.#pendingCancelIds = withId(this.#pendingCancelIds, queueItemId);
     this.#publish();
     void callDaemon(this.#bridge, QUEUE_CANCEL_METHOD, { queueItemId })

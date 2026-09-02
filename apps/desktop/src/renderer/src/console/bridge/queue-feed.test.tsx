@@ -265,6 +265,85 @@ describe("the queue stream is opened with its registered request", () => {
   });
 });
 
+describe("a queued item is cancelled once", () => {
+  it("issues one mutation for two synchronous presses on one row", async () => {
+    const { bridge, calledMethods } = stubBridge();
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    const cancelItem = held?.cancelItem;
+    if (cancelItem === undefined) {
+      throw new Error("the queue feed reported no cancel");
+    }
+    // Both presses inside one act, which is the frame a person double-pressing
+    // produces: the second reads a control the render has not redrawn yet.
+    act(() => {
+      cancelItem(QUEUE_ITEM_ID);
+      cancelItem(QUEUE_ITEM_ID);
+    });
+    expect(calledMethods.filter((method) => method === "run.queueCancel")).toHaveLength(1);
+  });
+
+  it("negative control: two rows pressed once each are two mutations", async () => {
+    // Without this the case above would pass over a chokepoint that dispatched
+    // NOTHING, which is a different defect with the same count. The latch is per id,
+    // and this is the case that says so.
+    const { bridge, calledMethods } = stubBridge();
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      held?.cancelItem(QUEUE_ITEM_A);
+      held?.cancelItem(QUEUE_ITEM_B);
+    });
+    expect(calledMethods.filter((method) => method === "run.queueCancel")).toHaveLength(2);
+  });
+
+  it("takes the row's cancel again once the first has settled", async () => {
+    const { bridge, calledMethods } = stubBridge();
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      held?.cancelItem(QUEUE_ITEM_ID);
+      await Promise.resolve();
+    });
+    expect(held?.pendingCancelIds.has(QUEUE_ITEM_ID)).toBe(false);
+    act(() => {
+      held?.cancelItem(QUEUE_ITEM_ID);
+    });
+    expect(calledMethods.filter((method) => method === "run.queueCancel")).toHaveLength(2);
+  });
+
+  it("holds one row's cancel without holding another's", async () => {
+    const { bridge } = stubBridge();
+    let held: QueueFeed | undefined;
+    render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    act(() => {
+      held?.cancelItem(QUEUE_ITEM_A);
+    });
+    expect(held?.pendingCancelIds.has(QUEUE_ITEM_A)).toBe(true);
+    expect(held?.pendingCancelIds.has(QUEUE_ITEM_B)).toBe(false);
+  });
+});
+
 /** One row of the registered shape, at one state and one `updatedAt`. */
 function row(id: string, state: string, updatedAt: string): Record<string, unknown> {
   return { id, state, priority: 0, createdAt: "2026-09-02T09:00:00.000Z", updatedAt };
