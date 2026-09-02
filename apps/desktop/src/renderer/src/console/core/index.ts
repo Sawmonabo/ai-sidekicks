@@ -11,6 +11,8 @@
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 export {
   APPLY_COALESCE_MS,
+  LIVE_ANNOUNCEMENT_HOLD_MS,
+  LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
