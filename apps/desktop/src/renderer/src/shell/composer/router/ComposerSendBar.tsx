@@ -10,6 +10,8 @@
 // while the addressed target is a running turn, because a stop with nothing to stop
 // is a control offered against nothing. Neither derives eligibility: Stop is offered
 // on the ADDRESS and refuses through the daemon, which is the fail-closed direction.
+// Stop's own disabled state says nothing about eligibility either — it says an
+// interrupt this bar issued is still in flight, which is this surface's own fact.
 //
 // THE DISABLED BUTTON COVERS THE POINTER PATH AND ONLY THAT PATH. A read-only
 // textarea still receives key events, so an Enter repeat or a second press before
@@ -148,6 +150,12 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
           <button
             type="button"
             className="meridian-composer__stop"
+            // The rendered half of Stop's own single-flight guard: the interrupt is
+            // not idempotent, so a second press must not issue a second one. The
+            // half that holds inside one frame is the controller's synchronous ref,
+            // because this handler reads the status from the render that made it.
+            aria-busy={controller.isStopping}
+            disabled={controller.isStopping}
             onClick={() => {
               void controller.stop();
             }}

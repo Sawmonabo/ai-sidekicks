@@ -27,6 +27,16 @@
 // store's flag is still consumed at that first focus, so a window tells one composer
 // and no other repeats it.
 //
+// STOP HAS ITS OWN LATCH AND NOT THE SEND ONE. `driver.interruptRun` is not
+// idempotent: a second press issues a second interrupt, and once the first has
+// retired the active turn the duplicate refuses with no live run — a misleading
+// refusal standing beside an interrupt that worked. So Stop takes the same ref
+// pattern the send path takes, for the same reason, and deliberately NOT the same
+// ref: interrupting a turn while a send is in flight is exactly what the control
+// exists for, and sharing the latch would put Stop behind the state it escapes. A
+// second press while the first is held is silent, as `dispatch`'s own is — the
+// person pressed the control for the interrupt already going.
+//
 // THE HISTORY WALK IS PER ADDRESS FOR THE SAME REASON. One history for the life of
 // the mounted bar carried an address's sent messages, and any walk in progress, into
 // the next address the bar was rebound to. `AddressedDirectiveHistories` keys them
@@ -135,6 +145,13 @@ export interface SendController {
   /** "new turn" or "steer", or `undefined` when this text resolves to no send. */
   readonly pathLabel: DirectivePathLabel | undefined;
   readonly status: SendControllerStatus;
+  /**
+   * Whether an interrupt is in flight, so the surface can mark Stop busy.
+   *
+   * Its own reading rather than a second value of {@link status}: a stop and a send
+   * can be in flight at once, and one status could not say so.
+   */
+  readonly isStopping: boolean;
   /** The last refusal, composer-side or daemon-side, until the person types again. */
   readonly refusal: ConsoleRefusal | undefined;
   /**
@@ -190,7 +207,11 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // intercepted, refused, or a rejection the router turned into a refusal — releases
   // it on exactly one path rather than on the arms an author remembered.
   const isDispatchInFlight = useRef(false);
+  // Stop's own, on the same pattern and for the same reason. Separate because a stop
+  // is reachable while a send is in flight.
+  const isInterruptInFlight = useRef(false);
   const [status, setStatus] = useState<SendControllerStatus>("idle");
+  const [isStopping, setStopping] = useState(false);
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const [resendOffer, setResendOffer] = useState<AddressedResendOffer | undefined>(undefined);
   // Armed by the first focus of this composer, and only where the store still owed
@@ -289,8 +310,18 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   );
 
   const stop = useCallback(async () => {
-    const outcome = await router.stop(target);
-    setRefusal(outcome.status === "refused" ? outcome.refusal : undefined);
+    if (isInterruptInFlight.current) {
+      return;
+    }
+    isInterruptInFlight.current = true;
+    setStopping(true);
+    try {
+      const outcome = await router.stop(target);
+      setRefusal(outcome.status === "refused" ? outcome.refusal : undefined);
+    } finally {
+      isInterruptInFlight.current = false;
+      setStopping(false);
+    }
   }, [router, target]);
 
   const recallOlder = useCallback(
@@ -340,6 +371,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     placeholder: composeDirectivePlaceholder(target),
     pathLabel: directivePathLabel(resolution),
     status,
+    isStopping,
     refusal,
     resendableText: resendOffer?.draftKey === draftKey ? resendOffer.body : undefined,
     restartNotice:
