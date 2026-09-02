@@ -1,4 +1,4 @@
-// The repos family's daemon seam: four `repo.*` calls, parsed, and one refusal shape.
+// The repos family's daemon seam: five `repo.*` calls, parsed, and one refusal shape.
 //
 // `SidekicksBridge.daemon.call` is a single generic door — a branded method name in,
 // `unknown` out, until Plan-007 lands its discriminated unions. That leaves two jobs
@@ -33,6 +33,7 @@ import {
   RepoMountReadResponseSchema,
   WorkspaceExecutionModeCapabilitiesReadResponseSchema,
   WorkspaceListResponseSchema,
+  WorktreeStatusReadResponseSchema,
   type DaemonMethod,
   type ExecutionMode,
   type ExecutionModeSelectResponse,
@@ -42,6 +43,7 @@ import {
   type WorkspaceExecutionModeCapabilitiesReadResponse,
   type WorkspaceId,
   type WorkspaceListResponse,
+  type WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
 import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
 import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
@@ -70,11 +72,11 @@ export type RepoCallOutcome<TValue> =
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
 
 /**
- * The four method names, branded once.
+ * The five method names, branded once.
  *
  * `Spec-023 §Console Design (Meridian)` §10.1 and §10.2 name six controls across the
  * two sections; `repo.attach`, `repo.workspaceBind`, and `repo.detach` are not among
- * these four for three different reasons, each recorded where the surface that would
+ * these five for three different reasons, each recorded where the surface that would
  * call it lives: attach needs a node roster this section does not read, bind needs
  * the directory picker attach would open, and detach is offered by no renderer
  * surface at all in V1 (`Spec-009 §Detach Semantics (V1 Definition)`).
@@ -83,6 +85,7 @@ const MOUNT_READ_METHOD = "repo.mountRead" as DaemonMethod;
 const WORKSPACE_LIST_METHOD = "repo.workspaceList" as DaemonMethod;
 const CAPABILITIES_READ_METHOD = "repo.executionModeCapabilitiesRead" as DaemonMethod;
 const EXECUTION_MODE_SELECT_METHOD = "repo.executionModeSelect" as DaemonMethod;
+const WORKTREE_STATUS_READ_METHOD = "repo.worktreeStatusRead" as DaemonMethod;
 
 /** Minimal parse surface, so this module composes schemas without importing zod. */
 interface ReplyParser<TValue> {
@@ -159,6 +162,31 @@ export async function selectExecutionMode(
     EXECUTION_MODE_SELECT_METHOD,
     { workspaceId, executionMode },
     ExecutionModeSelectResponseSchema,
+  );
+}
+
+/**
+ * Every execution root this session holds, both kinds, in one read.
+ *
+ * SESSION-SCOPED and deliberately unfiltered. The request admits an optional
+ * `repoMountId` narrowing, and passing one would turn a single read into one per
+ * mount for a section that draws them all — the filter exists for a caller that has
+ * one mount in view, and this family has a list.
+ *
+ * It is the ONLY read that names a worktree at all: `workspaces` carries no worktree
+ * id, so without this the section could not name the roots a session is running in,
+ * and the change-proposal gate — which is asked per worktree — would have nothing to
+ * be asked about.
+ */
+export async function readWorktreeStatus(
+  bridge: ConsoleBridge,
+  sessionId: string,
+): Promise<RepoCallOutcome<WorktreeStatusReadResponse>> {
+  return callRepoMethod(
+    bridge,
+    WORKTREE_STATUS_READ_METHOD,
+    { sessionId: sessionId as SessionId },
+    WorktreeStatusReadResponseSchema,
   );
 }
 

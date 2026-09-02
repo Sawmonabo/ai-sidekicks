@@ -28,6 +28,7 @@ import {
   NODE_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
+  REVIEWER_WORKTREE_ID,
   SESSION_ID,
 } from "./repos-fixture-data.js";
 
@@ -102,6 +103,51 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
           lastError: "The bound path is no longer reachable on this node.",
         },
       ],
+    },
+  },
+  {
+    // The roots the two `worktree.ready` beats above created, as the only read that
+    // names a worktree at all returns them. Both hang off the GIT mount: a worktree is
+    // a git-backed execution root, so the plain-directory mount has none and the
+    // section draws that mount's roots as the `empty` kind of nothing rather than as
+    // an unasked question.
+    //
+    // `ephemeralClones` is present and empty rather than omitted, because the contract
+    // requires both arrays and a session that has bound no clone returns an empty one —
+    // which is a lawful answer and the one this scenario states, since its two agents
+    // both run in worktrees.
+    //
+    // The IMPLEMENTER's root is `dirty`, agreeing with the beat above it: the reclaim
+    // controls have to be unavailable somewhere, and a fixture whose every root is
+    // clean cannot reach that state.
+    call: "repo.worktreeStatusRead",
+    result: {
+      worktrees: [
+        {
+          worktreeId: IMPLEMENTER_WORKTREE_ID,
+          repoMountId: GIT_MOUNT_ID,
+          // The same string the branch context below carries as its head branch: the
+          // gate drawn under this root and the root itself are one piece of work, and
+          // two spellings of one branch is how a fixture stops representing a session.
+          branchName: "feat/rate-limit-wiring",
+          fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/rate-limit-wiring",
+          state: "dirty",
+          createdBySessionId: SESSION_ID,
+          createdAt: "2026-01-01T09:05:00.700Z",
+          updatedAt: "2026-01-01T09:05:01.200Z",
+        },
+        {
+          worktreeId: REVIEWER_WORKTREE_ID,
+          repoMountId: GIT_MOUNT_ID,
+          branchName: "review/rate-limit-wiring",
+          fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/review-rate-limit-wiring",
+          state: "ready",
+          createdBySessionId: SESSION_ID,
+          createdAt: "2026-01-01T09:05:00.840Z",
+          updatedAt: "2026-01-01T09:05:00.840Z",
+        },
+      ],
+      ephemeralClones: [],
     },
   },
   {

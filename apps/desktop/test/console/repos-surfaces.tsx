@@ -23,10 +23,16 @@
 //     the attribution badge, the compared states, the file list, and the rows. The
 //     absence arm is not unpinned by that — `DiffPane.test.tsx` owns it, where a
 //     DOM assertion can say WHICH absence it is and an image cannot.
-//   • The PROPOSAL GATE is a presentational body its own reader has not landed for
-//     (`repos/proposal-model.ts` records which wire it waits on). It is mounted on
-//     the `prepared` arm, which is the arm that draws every part of the surface:
-//     the branch context, the proposal, the changed paths, and the three offers.
+//   • The PROPOSAL GATE is a presentational body, and it is mounted TWICE for two
+//     different claims. Directly, on the `prepared` arm with a proposal supplied, it
+//     draws every part of the surface at once — the branch context, the proposal, its
+//     changed paths, and the three offers — which is a composition no read produces
+//     today, since no registered reply carries a title, a body, or a file list. And
+//     through the SECTION, where the gate reaches the screen the way a person meets
+//     it: collapsed under its own execution root, its line a reading, its arm
+//     whatever the fixture actually served. The two are different subjects and both
+//     are pinned, because the first would go on passing if the mount broke and the
+//     second would go on passing if the surface emptied.
 //
 // THE SECTION IS DRAWN FROM THE SCENARIO, NOT FROM A HAND-BUILT READING.
 // `REPOS_SCENARIO` states two mounts on purpose — a git checkout and a plain
@@ -48,7 +54,9 @@ import {
   buildDiffFixture,
 } from "../../src/renderer/src/console/panes/diff/diff-fixture.js";
 import { DiffPane } from "../../src/renderer/src/console/panes/diff/index.js";
+import { ManualClock } from "../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
+import { LiveAnnouncerProvider } from "../../src/renderer/src/console/primitives/index.js";
 import { ProposalGate } from "../../src/renderer/src/console/repos/ProposalGate.js";
 import { registerRepos, registerReposPanes } from "../../src/renderer/src/console/repos/index.js";
 import type { BranchContextReading } from "../../src/renderer/src/console/repos/branch-context-model.js";
@@ -184,10 +192,72 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
     sessionStore,
     openPane: () => undefined,
   };
-  const { container } = await renderSettled(<>{descriptor.render(context)}</>);
+  const { container } = await renderSettled(
+    // The announcer is the section's environment: each root's gate announces its own
+    // settlement, and `useAnnounce` throws outside the provider on purpose.
+    //
+    // ON FROZEN TIME, so the standing message never clears itself mid-capture. The
+    // announcer's hold deadline is the one timer the primitive arms, and on a real
+    // clock it lands a state update after the surface has settled — which a tier
+    // records as whichever side of the clear the runner happened to reach.
+    <LiveAnnouncerProvider clock={new ManualClock()}>
+      {descriptor.render(context)}
+    </LiveAnnouncerProvider>,
+  );
   const region = requireElement(container, ".meridian-repo-section");
   await waitForWithin(region, ".meridian-mount-card");
+  await waitForGatesSettled(region);
   return { element: region, bridge };
+}
+
+/**
+ * Wait until every root's gate has finished its own read.
+ *
+ * The mount card lands on the section's read; each root's change-proposal gate then
+ * performs a SECOND, independent read, so a tier that stopped at the card would
+ * capture a frame with reads still in flight — and would land their state updates
+ * outside `act`, which React reports as a warning and a baseline records as whichever
+ * half of the transition the runner happened to reach.
+ *
+ * The settled condition is read off the collapsed line, which is the gate's own
+ * summary of its arm. The two waited-on values are the pre-read ones; the fixture
+ * serves this family's branch-context read, so a line still showing either after the
+ * timeout is a fixture that stopped serving it — which is a failure worth having
+ * rather than a frame worth pinning.
+ */
+async function waitForGatesSettled(region: HTMLElement): Promise<void> {
+  await waitFor(
+    () => {
+      const unsettled = [...region.querySelectorAll(".meridian-worktree-gate__line")].filter(
+        (line) => line.textContent === "reading" || line.textContent === "not checked",
+      );
+      if (unsettled.length > 0) {
+        throw new Error(`${unsettled.length} change-proposal gate(s) have not settled yet`);
+      }
+    },
+    { timeout: FAMILY_READ_TIMEOUT_MS },
+  );
+}
+
+/**
+ * The same section, with its first root's gate disclosed.
+ *
+ * A second subject rather than a flag on the first, because a collapsed gate and an
+ * open one are two different claims: collapsed, the claim is that one honest line
+ * reports what the read found; open, it is that the gate's own surface composes
+ * inside a row it does not own. Waited on by the ROOT card and then by the gate, so
+ * neither the mount read nor the branch-context read is captured half-settled.
+ */
+export async function mountRepoSectionWithOpenGate(): Promise<MountedFamilySurface> {
+  const mounted = await mountRepoSection();
+  await waitForWithin(mounted.element, ".meridian-worktree-gate");
+  const disclosure = mounted.element.querySelector("details.meridian-worktree-gate");
+  if (!(disclosure instanceof HTMLDetailsElement)) {
+    throw new Error("the section mounted no change-proposal gate under its roots");
+  }
+  disclosure.open = true;
+  await waitForWithin(mounted.element, ".meridian-proposal-gate__body");
+  return mounted;
 }
 
 /** The diff pane over a parsed change set: attribution, compared states, rows. */

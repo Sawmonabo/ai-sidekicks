@@ -1,4 +1,4 @@
-// The accessibility tier over the repos family's four surfaces.
+// The accessibility tier over the repos family's five surfaces.
 //
 // `frame-axe.test.tsx` runs the frame; this file runs what the family mounts INTO
 // it, and it runs each surface scoped to itself rather than scanning the document,
@@ -9,6 +9,12 @@
 // palette tests cannot reach at all — a mount card tinted by its own health verdict,
 // a diff row whose intraline highlight is a tint inside a line of text, and a
 // refusal banner sitting inside a pane rather than beside one.
+//
+// THE MOUNTED GATE IS THE OTHER CASE WORTH HAVING. A gate reached through the section
+// is a `<details>` inside a card inside a list, announcing its own settlement into the
+// window's live region — a nesting no other subject here has, and the one where a
+// duplicated landmark, an unlabelled disclosure, or a region announced twice would
+// show up.
 //
 // THE DIFF PANE IS THE CASE WORTH HAVING. Its rows are a virtualized grid: the
 // scroller carries the row count and each drawn row carries its index, so what a
@@ -25,6 +31,7 @@ import {
   mountDiffPane,
   mountProposalGate,
   mountRepoSection,
+  mountRepoSectionWithOpenGate,
   type MountedFamilySurface,
 } from "../repos-surfaces.js";
 import {
@@ -46,6 +53,10 @@ const AUDITED_SURFACES: readonly {
   { label: "the diff pane over a parsed change set", mount: mountDiffPane },
   { label: "the artifact pane carrying a refusal", mount: mountArtifactPane },
   { label: "the proposal gate on a prepared proposal", mount: mountProposalGate },
+  {
+    label: "the repos section with a root's gate disclosed",
+    mount: mountRepoSectionWithOpenGate,
+  },
 ];
 
 beforeEach(() => {

@@ -32,6 +32,7 @@
 
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
 import { useCallback, useState } from "react";
+import type { ConsoleBridge } from "../bridge/index.js";
 import { type ConsoleRefusal } from "../core/index.js";
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import { type SidebarSectionContext } from "../workspace/index.js";
@@ -81,7 +82,12 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
         {copyRefusal !== undefined ? (
           <RefusalCard code={copyRefusal.code} detail={copyRefusal.detail} />
         ) : null}
-        <MountList reading={reading} onCopy={copyCanonicalRoot} onSelect={requestModeSelection} />
+        <MountList
+          reading={reading}
+          bridge={bridge}
+          onCopy={copyCanonicalRoot}
+          onSelect={requestModeSelection}
+        />
       </div>
     </div>
   );
@@ -89,6 +95,8 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
 
 interface MountListProps {
   readonly reading: RepoMountsReading;
+  /** Passed down rather than reached for: each root's gate performs its own read. */
+  readonly bridge: ConsoleBridge;
   readonly onCopy: (canonicalRoot: string) => void;
   readonly onSelect: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
 }
@@ -105,6 +113,10 @@ function MountList(props: MountListProps): React.JSX.Element {
             workspaces={reading.workspaces.filter((row) => row.repoMountId === mount.id)}
             capabilitiesByWorkspaceId={reading.capabilitiesByWorkspaceId}
             refusalByWorkspaceId={reading.refusalByWorkspaceId}
+            worktrees={reading.worktrees}
+            worktreeRefusal={reading.worktreeRefusal}
+            nowMilliseconds={reading.readAtMilliseconds}
+            bridge={props.bridge}
             onCopyCanonicalRoot={props.onCopy}
             onSelectExecutionMode={props.onSelect}
           />

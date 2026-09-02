@@ -8,6 +8,8 @@ import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { ConsoleBridge } from "../bridge/index.js";
+import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
 
@@ -37,19 +39,47 @@ const WORKSPACE: RepoWorkspaceRow = {
   fsRoot: CANONICAL_ROOT,
 } as RepoWorkspaceRow;
 
+/**
+ * A bridge whose every gate read refuses, which is what the live bridge does.
+ *
+ * The cast is `artifact-reader.test.ts`'s: this suite is about the card, and standing
+ * up the whole preload contract to reach the one namespace a root's gate calls would
+ * be scaffolding no assertion here reads.
+ */
+const REFUSING_BRIDGE = {
+  growth: {
+    gitflowBranchContextRead: async () => ({
+      status: "unavailable",
+      code: "wire-unregistered",
+      origin: "growth-port",
+      detail: "Not checked — the branch-context read is not registered yet.",
+    }),
+  },
+} as unknown as ConsoleBridge;
+
 function renderCard(
   overrides: Partial<React.ComponentProps<typeof MountCard>> = {},
 ): ReturnType<typeof render> {
   return render(
-    <MountCard
-      mount={mount()}
-      workspaces={[WORKSPACE]}
-      capabilitiesByWorkspaceId={{}}
-      refusalByWorkspaceId={{}}
-      onCopyCanonicalRoot={() => undefined}
-      onSelectExecutionMode={() => undefined}
-      {...overrides}
-    />,
+    // The announcer is the card's environment rather than its dependency: a root's
+    // gate announces its settlement, and `useAnnounce` throws outside the provider
+    // on purpose — a component speaking into nothing is invisible to everyone who
+    // can see the screen.
+    <LiveAnnouncerProvider>
+      <MountCard
+        mount={mount()}
+        workspaces={[WORKSPACE]}
+        capabilitiesByWorkspaceId={{}}
+        refusalByWorkspaceId={{}}
+        worktrees={[]}
+        worktreeRefusal={undefined}
+        nowMilliseconds={Date.parse("2026-01-01T09:05:02.000Z")}
+        bridge={REFUSING_BRIDGE}
+        onCopyCanonicalRoot={() => undefined}
+        onSelectExecutionMode={() => undefined}
+        {...overrides}
+      />
+    </LiveAnnouncerProvider>,
   );
 }
 

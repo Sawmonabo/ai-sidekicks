@@ -19,6 +19,10 @@
 //   • TWO AXES, TWO CHIPS. Lifecycle (`attached` / `detached` / `archived`) and
 //     health (`healthy` / `unreachable`) are separate facts and wear separate chips,
 //     with `checkedAt` beside the health one because a probe instant is information.
+//   • THE ROOTS SIT UNDER THE MOUNT THEY BELONG TO. §10.3's execution roots are read
+//     session-wide and drawn per mount, because a root's only stated relation is its
+//     `repoMountId` — and each one carries the change-proposal gate §10.7 puts behind
+//     it, collapsed, one per worktree.
 //   • NO DETACH CONTROL, AND NO SILENCE ABOUT IT. `Spec-009 §Detach Semantics (V1
 //     Definition)` gives the desktop renderer no detach surface in V1. §10.1 asks
 //     that the absence be DISCLOSED rather than silently omitted, so the provenance
@@ -37,8 +41,16 @@ import type {
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
+import type { ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
-import { Chip, Glyph, Nothing, WireFigure, formatClockTime } from "../primitives/index.js";
+import {
+  Chip,
+  Glyph,
+  Nothing,
+  RefusalCard,
+  WireFigure,
+  formatClockTime,
+} from "../primitives/index.js";
 import {
   bindControlPosture,
   mountHealthReading,
@@ -47,6 +59,9 @@ import {
 } from "./mount-health.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
+import { WorktreeGateRow } from "./WorktreeGateRow.js";
+import { unpairedWorktreeCopy, worktreeGateRowSubjects } from "./worktree-gate-pairing.js";
+import type { WorktreeStatusRecord } from "./worktree-model.js";
 
 const CARD_GLYPH_SIZE = 13;
 
@@ -58,6 +73,14 @@ export interface MountCardProps {
     Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
   >;
   readonly refusalByWorkspaceId: Readonly<Record<string, ConsoleRefusal>>;
+  /** Every execution root this session holds. Filtered to this mount's here, not by the caller. */
+  readonly worktrees: readonly WorktreeStatusRecord[];
+  /** The root read's own failure, where it had one. Rendered where the roots would be. */
+  readonly worktreeRefusal: ConsoleRefusal | undefined;
+  /** The instant the section read at, so a root's age moves on a re-read and not on a render. */
+  readonly nowMilliseconds: number;
+  /** The bridge each root's gate reads its own branch context through. */
+  readonly bridge: ConsoleBridge;
   /** Put the resolved root on the clipboard; the host's own refusal is the caller's to render. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
   readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
@@ -154,6 +177,13 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         </dl>
       </details>
 
+      <div className="meridian-mount-card__roots">
+        {props.worktreeRefusal === undefined ? null : (
+          <RefusalCard code={props.worktreeRefusal.code} detail={props.worktreeRefusal.detail} />
+        )}
+        {renderRoots(props)}
+      </div>
+
       <div className="meridian-mount-card__workspaces">
         {props.workspaces.length === 0 ? (
           <Nothing
@@ -178,5 +208,42 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
         )}
       </div>
     </article>
+  );
+}
+
+/**
+ * This mount's execution roots, each with its gate.
+ *
+ * The empty arm is `empty` and never `not-checked`: the root read is part of the same
+ * burst as the mount read, so by the time a card is on screen the question HAS been
+ * put — a mount with no roots is a mount nothing has run writably in yet, which is an
+ * ordinary state and says so.
+ */
+function renderRoots(props: MountCardProps): React.JSX.Element {
+  const rows = worktreeGateRowSubjects(props.worktrees, props.workspaces, props.mount.id);
+  if (rows.length === 0) {
+    return (
+      <Nothing
+        kind="empty"
+        placement="surface"
+        title="No execution root on disk for this mount."
+        detail="A root is created when a run selects a writable execution mode, so a mount with none has had no writable run yet."
+      />
+    );
+  }
+  const unpairedReason = unpairedWorktreeCopy(props.workspaces, props.mount.id);
+  return (
+    <>
+      {rows.map((row) => (
+        <WorktreeGateRow
+          key={row.record.worktreeId}
+          record={row.record}
+          subject={row.subject}
+          unpairedReason={unpairedReason}
+          bridge={props.bridge}
+          nowMilliseconds={props.nowMilliseconds}
+        />
+      ))}
+    </>
   );
 }
