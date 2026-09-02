@@ -49,8 +49,8 @@ export type ProposalGateState =
       /**
        * The host the remote was detected as, where something said so.
        *
-       * OPTIONAL, for the reason the four proposal members are: §10.7 has the provider
-       * auto-detected from the git remote URL, and no registered reply carries the
+       * OPTIONAL, for the reason the four proposal members are: this family has the
+       * provider auto-detected from the git remote URL, and no registered reply carries the
        * result — the branch-context read answers with the four branch values and the
        * worktree association and names no host. So the gate reports a host where one
        * was supplied and reports nothing where none was, rather than defaulting to a

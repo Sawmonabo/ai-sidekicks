@@ -35,7 +35,7 @@ export interface ProposalGateBinding {
  * object, because a caller composing it inline would otherwise mint a new reader on
  * every render. The session store is the reader's own collaborator rather than the
  * surface's: it is what carries the reconnect edge and the `workspace.stale` frame,
- * two of the three reasons §10.1 says a gate re-reads on.
+ * two of the four reasons `Spec-023 §Rules every console surface obeys` names.
  */
 export function useProposalGate(
   bridge: ConsoleBridge,

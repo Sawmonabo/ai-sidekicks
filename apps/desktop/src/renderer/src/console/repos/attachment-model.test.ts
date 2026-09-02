@@ -1,6 +1,6 @@
 // The attachment vocabulary, and the one rule that can be proved rather than intended.
 //
-// §10.8 says "never chart base64 length as progress". `advanceReceivedBytes` is the
+// `attachment-model.ts` says never chart base64 length as progress. `advanceReceivedBytes` is the
 // only place a progress figure is produced, and the cases below drive THAT function —
 // not a copy of its arithmetic — with an encoded length and assert the
 // `wire-figure-formatting` tripwire fires. The negative control is the same call with a
@@ -66,7 +66,8 @@ describe("attachment progress — the decoded-byte tripwire", () => {
 
   it("fires the wire-figure tripwire when a base64 length is charted as progress", () => {
     // 300 decoded bytes encode to 400 base64 characters. Charting the encoded length is
-    // the exact defect §10.8 forbids, and it is observable because it drives the total
+    // the exact defect `attachment-model.ts` forbids, and it is observable because it
+    // drives the total
     // past a figure the caller itself declared.
     expect(advanceReceivedBytes(entryDeclaring(300), 400)).toBe(300);
     expect(consoleTripwires.firingCount("wire-figure-formatting")).toBe(1);

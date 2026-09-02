@@ -1,11 +1,12 @@
 // The execution-mode picker: what a run bound here may do to the repository.
 //
-// `Spec-023 §Console Design (Meridian)` §10.2 gives this surface one job and three
-// prohibitions, and the prohibitions are what shape the component:
+// ONE JOB AND THREE PROHIBITIONS, all of them this module's — `Spec-023 §Console Design
+// (Meridian)` puts a surface's composition in the console's code — and the prohibitions
+// are what shape the component:
 //
 //   • THE REPLY IS RENDERED EXACTLY AS IT ARRIVES. The rows are `availableModes` in
 //     the daemon's own order, followed by every key of `restrictions` — never
-//     "everything not in `restrictions`", which §10.2 names as a Never and which
+//     "everything not in `restrictions`", which is the first of the three Nevers and which
 //     would silently invent a mode on a reply whose two halves disagreed.
 //   • `defaultMode` IS NOT THE CURRENT MODE. It is the default for the NEXT writable
 //     coding run (`worktree` on a git mount, per ADR-006), while the workspace's own
@@ -16,8 +17,8 @@
 //     substitution; the renderer's half is to show the daemon's refusal beside the
 //     control and leave the choice where it was.
 //
-// A RADIO GROUP, NOT A MENU. §10.2's density note is that all four rows are visible
-// at once, each with its reason, "since the reason is the point" — a menu hides
+// A RADIO GROUP, NOT A MENU. This surface's own density decision is that all four rows
+// are visible at once, each with its reason, since the reason is the point — a menu hides
 // exactly the reasons a restricted mount exists to show. Own-built over the typed
 // reply: the semantics here are a disabled row that still reads its reason aloud,
 // which is a labelling problem a component library does not solve better.

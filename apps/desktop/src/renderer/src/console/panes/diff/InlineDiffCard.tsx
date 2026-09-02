@@ -1,12 +1,13 @@
 // The diff card a ledger row carries, and the seat registration that fills it.
 //
-// `Spec-023 §Console Design (Meridian)` rule 7 puts diff cards in the timeline
-// and §10.6 says exactly how they behave: "Inline timeline cards use the same
+// `Spec-023 §Meridian, the design language` rule 7 puts diff cards in the timeline at
+// "a height cap and then offer 'show all'", and THIS CARD'S OWN RULE says exactly how
+// that behaves: an inline timeline card uses the same
 // renderer at a height cap, expanded to that cap by default with collapse
 // retained, plus expand-in-place and jump-to-end. No capped diff ends in a fade
-// with nowhere to go."
+// with nowhere to go.
 //
-// Each clause of that sentence is a decision this file makes and could have made
+// Each clause of that rule is a decision this file makes and could have made
 // wrongly:
 //
 //   • THE SAME RENDERER. `DiffRenderer`, not a lighter one. A card that rendered
@@ -57,8 +58,8 @@ export interface InlineDiffCardProps {
 
 export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
   const headingId = useId();
-  // Marks OFF by default here and ON in the pane — §10.6's density rule. A card
-  // is a glance; provenance marks earn their measure in a reading.
+  // Marks OFF by default here and ON in the pane — `DiffToolbar.tsx`'s density rule.
+  // A card is a glance; provenance marks earn their measure in a reading.
   const viewControls = useDiffViewControls({ showAttributionMarks: false });
   // The gap expansion is the MODEL's, and this card is reused for whichever diff
   // its ledger row carries, so it comes from the same hook the pane reads —
@@ -130,8 +131,8 @@ export function InlineDiffCard(props: InlineDiffCardProps): React.JSX.Element {
                 >
                   {isCapped ? "Expand in place" : "Restore height"}
                 </button>
-                {/* §10.6's density rule ends "one toggle away in both", so the
-                    card carries the ONE control whose default it differs from
+                {/* `DiffToolbar.tsx`'s density rule ends "one toggle away in both",
+                    so the card carries the ONE control whose default it differs from
                     the pane on — not the pane's whole toolbar, which is four
                     controls of chrome inside a conversation. */}
                 <button

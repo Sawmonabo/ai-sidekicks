@@ -1,21 +1,22 @@
 // One ephemeral-clone row of `repo.worktreeStatusRead`, drawn.
 //
 // A separate component from `WorktreeCard` rather than one card branching on a
-// discriminant, because `Spec-023 §Console Design (Meridian)` §10.3 asks for "two
-// lists, side by side, with DIFFERENT columns" and the wire agrees: the two records
+// discriminant, because `RepoSection.tsx` draws two
+// lists, side by side, with DIFFERENT columns, and the wire agrees: the two records
 // share four column names out of ten and nine, one is mount-anchored while the
 // other is workspace-anchored, and the clone record carries no `updatedAt` at all.
 // A single card would be two cards behind an `if`, and the `if` would be the only
 // thing standing between a clone row and a column it has no value for.
 //
 // WHAT THIS CARD ADDS that the worktree card has no equivalent of: the disposal
-// countdown. §10.3 puts `expiresAt` on the row rather than behind the disclosure
-// "since disposal takes that clone's snapshot refs with it" — the one fact on this
+// countdown. This card puts `expiresAt` on the row rather than behind the disclosure,
+// since disposal takes that clone's snapshot refs with it — the one fact on this
 // surface that changes with nobody acting, which is exactly the fact that must not
 // be one click away.
 //
 // THE COUNTDOWN NEVER TICKS. `nowMilliseconds` is a prop, the reading is a pure
-// function of it, and §10.3's "never poll on an interval" is therefore structural
+// function of it, and `Spec-023 §Rules every console surface obeys`' "No interval
+// polling" is therefore structural
 // here: this file contains no timer and can contain none, because it owns no state
 // to move.
 //

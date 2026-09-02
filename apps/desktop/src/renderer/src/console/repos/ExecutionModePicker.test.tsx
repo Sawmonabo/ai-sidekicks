@@ -1,6 +1,6 @@
 // The picker renders the reply and never re-derives it.
 //
-// Two of `Spec-023 §Console Design (Meridian)` §10.2's Nevers are testable as
+// Two of `ExecutionModePicker.tsx`'s three Nevers are testable as
 // negative controls, and both are here: `availableModes` is never computed as
 // "everything not in `restrictions`", and `defaultMode` is never treated as the
 // current mode. The first is what the fourth-mode case below fails on; the second is

@@ -88,8 +88,10 @@ export function registerRepos(): void {
  * the two kinds that cannot are the ones that hold something a window move would
  * break. A diff and an artifact are read from the renderer's own state — no
  * main-process view, no process lease — so a tear-off carries nothing with it.
- * `Spec-023 §Console Design (Meridian)` §10.6 states the diff case outright: the
- * diff is a deck pane by default with an open-in-window action.
+ * THAT IS THIS FAMILY'S OWN DECLARATION, and no committed document states it:
+ * `Spec-023 §The surface set` names `timeline` and `agent-console` as the two panes
+ * that get their own hardened window, so the flag here says only that neither of
+ * these bodies would break if the seat board moved one.
  */
 export function registerReposPanes(registry: ConsolePaneRegistry): void {
   registry.register({

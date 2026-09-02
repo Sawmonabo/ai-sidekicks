@@ -1,7 +1,10 @@
 // The two axes a mount card reads on, and the capability axis beside them.
 //
-// `Spec-023 §Console Design (Meridian)` §10.1 states the rule this module exists to
-// make structural: mount LIFECYCLE and mount HEALTH "never collapse into one chip".
+// THIS CONSOLE'S OWN RULE, stated here because no committed document states it: mount
+// LIFECYCLE and mount HEALTH never collapse into one chip. `Spec-023 §Console Design
+// (Meridian)` puts each surface's composition — what it renders, offers, refuses, and
+// folds — in the console's code, so a repos-surface rule is written where it is obeyed
+// rather than cited from somewhere it is not.
 // A `detached` mount and an `unreachable` mount are different facts — the first is
 // a row that has finished its life, the second is a row nobody can currently ask a
 // question of — and a console that rendered one chip for both would be asserting a
@@ -16,7 +19,7 @@
 // the daemon sent. The console does not probe a path, does not soften
 // `unreachable`, and does not decide precedence between two failing verdicts —
 // `Spec-009 §Repo Mount Health (V1 Definition)` puts all three with the daemon, and
-// `Spec-023 §Console Design (Meridian)` §10.1 restates each as a "Never".
+// each is a Never of this module's own rather than a rule read off a citation.
 //
 // WHAT THE HEALTH AXIS DOES NOT CARRY, AND WHY IT IS NOT HERE. The console's repos
 // design describes a third verdict on this axis for a root that is no longer the
@@ -61,7 +64,7 @@ const HEALTH_READINGS: Readonly<Record<RepoMountHealth["status"], MountAxisReadi
   unreachable: {
     tone: "failure",
     label: "unreachable",
-    // The card's own copy for the state, per §10.1: no further question can be put
+    // The card's own copy for the state: no further question can be put
     // to a root that cannot be probed. Deliberately not softened to "temporarily
     // unavailable" — precedence between failing verdicts is the daemon's.
     sentence:
@@ -131,9 +134,11 @@ export function mountVcsReading(vcsType: VcsType): MountAxisReading {
  * eligibility rule. The daemon remains the only authority on whether a bind is
  * admissible and answers a refused one with its own typed code, which the card
  * renders; what this function decides is whether the console offers a control it
- * has already been told cannot succeed. `Spec-023 §Console Design (Meridian)` §10.1
- * names both cases outright — `unreachable` "disables every bind control", and a
- * `detached` row "renders as history".
+ * has already been told cannot succeed. Both cases are this module's: an `unreachable`
+ * mount's bind controls are disabled with the reason said, and a `detached` row renders
+ * as history. Neither is a pre-denial — `Spec-023 §Rules every console surface obeys`
+ * keeps eligibility off the renderer, and what is read here is the daemon's own
+ * reported state.
  *
  * The withheld arm carries its own sentence so no call site invents one, and so the
  * card never disables a control without saying why.

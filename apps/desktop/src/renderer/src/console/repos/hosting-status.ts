@@ -1,13 +1,13 @@
 // What the git host says about a proposal that already exists there, normalized once.
 //
-// `Spec-023 §Console Design (Meridian)` §10.7 fixes three trichotomies and the check
-// rollup they open on, and this module is the whole of the console's reading of them —
+// THREE TRICHOTOMIES AND THE CHECK ROLLUP THEY OPEN ON, fixed here because no committed
+// document states them, and this module is the whole of the console's reading of them —
 // `prepared-proposal.ts` beside it owns what a proposal carries before any of this
 // exists, and `ProposalGate.tsx` draws what is decided here without deciding any of it
 // again.
 //
-// THE THREE TRICHOTOMIES ARE NORMALIZED HERE AND NOWHERE ELSE. §10.7 fixes their
-// members, and two of them carry a reading a host-shaped string would lose:
+// THE THREE TRICHOTOMIES ARE NORMALIZED HERE AND NOWHERE ELSE. Their
+// members are fixed above, and two of them carry a reading a host-shaped string would lose:
 // `mergeable: "unknown"` means the host is still computing and NEVER an error, and an
 // absent `reviewDecision` means no decision yet rather than a rejection. Both facts are
 // in the tables below, so a renderer cannot restate either one differently.
@@ -67,7 +67,7 @@ export const CHANGE_REQUEST_STATE_PRESENTATION: Readonly<
  *
  * `unknown` is NEUTRAL and its sentence says the host is still working. Toning it as a
  * failure, or wording it as "could not determine", would report a computation in
- * progress as a problem — the one reading §10.7 names explicitly.
+ * progress as a problem — the one reading this module names explicitly.
  */
 export const MERGEABILITY_PRESENTATION: Readonly<Record<MergeabilityReading, StatusPresentation>> =
   {

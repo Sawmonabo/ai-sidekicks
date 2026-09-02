@@ -1,9 +1,10 @@
 // What an execution root IS, read off the wire and turned into something a card
 // can draw — and nothing else. No React, no fetching, no eligibility.
 //
-// `Spec-023 §Console Design (Meridian)` §10.3's job for this surface: "Show what
+// THIS SURFACE'S JOB, stated here because `Spec-023 §Console Design (Meridian)` puts a
+// surface's composition in the console's code: show what
 // execution roots exist on disk for this session, which run holds one, and what is
-// safe to reclaim." Two of those three are decisions, and both are made here so a
+// safe to reclaim. Two of those three are decisions, and both are made here so a
 // card never makes them twice:
 //
 //   1. WHICH SUB-STATE A ROW IS IN. `state` is one wire string and the row's real
@@ -255,9 +256,9 @@ export const EPHEMERAL_CLONE_COLUMN_LABELS: Readonly<Record<EphemeralCloneColumn
 };
 
 /**
- * What the card shows without being asked. §10.3 §Density: "Each list shows state,
- * branch, root, and age." Age is `createdAt` read relatively, so the column is
- * `createdAt` and the reading is the card's.
+ * What the card shows without being asked. `WorktreeCard.tsx` owns the density rule —
+ * each list shows state, branch, root, and age. Age is `createdAt` read relatively, so
+ * the column is `createdAt` and the reading is the card's.
  */
 export const WORKTREE_SUMMARY_COLUMNS: readonly WorktreeColumnKey[] = [
   "state",

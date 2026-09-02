@@ -3,8 +3,8 @@
 // `steady-state.test.ts` beside this file measures the console held open for a
 // working day. This one measures the other endurance case a desktop console has:
 // one surface handed a body far larger than anything it is scrolled through, held
-// open, and worked. A forty-file, five-thousand-line change set is the shape
-// §10.6 is written against, and every property this file asserts is one that
+// open, and worked. A forty-file, five-thousand-line change set is the shape the diff
+// family is written against, and every property this file asserts is one that
 // holds at ten rows and quietly stops holding at five thousand.
 //
 // WHY THIS RUNS IN THE NODE PROJECT AND OPENS NO ELECTRON WINDOW

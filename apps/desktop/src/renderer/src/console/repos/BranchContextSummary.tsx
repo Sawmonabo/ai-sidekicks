@@ -1,6 +1,6 @@
 // The branch context, on the run that owns it.
 //
-// `Spec-023 §Console Design (Meridian)` §10.7 puts a branch context on EVERY writable
+// `branch-context-model.ts` puts a branch context on EVERY writable
 // coding run — `branch`, `worktree`, or `ephemeral clone` — so this summary is not a
 // part of the proposal, it is what the proposal is prepared against. Its own file for
 // that reason: the gate's `prepared` and `hosting-unavailable` arms both mount it, and
@@ -8,8 +8,9 @@
 //
 // EVERY VALUE IS THE WIRE'S, IN MONO. Base and head are branch names the daemon
 // resolved, and a renderer that normalised, shortened, or suffixed either would be
-// showing a branch the host does not have. Nothing here computes a name, and §10.7's
-// prohibition on inferring base or head from a pane, a tab, or a focused view is
+// showing a branch the host does not have. Nothing here computes a name, and
+// `branch-context-model.ts`'s prohibition on inferring base or head from a pane, a tab,
+// or a focused view is
 // structural rather than remembered: the context is the only prop.
 
 import { DerivedFigure, Nothing, WireFigure } from "../primitives/index.js";

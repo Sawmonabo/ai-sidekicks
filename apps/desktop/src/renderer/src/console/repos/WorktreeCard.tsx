@@ -1,10 +1,11 @@
 // One worktree row of `repo.worktreeStatusRead`, drawn.
 //
-// `Spec-023 §Console Design (Meridian)` §10.3 §Density: "Each list shows state,
-// branch, root, and age. Provenance and cleanup columns collapse behind a row
-// disclosure." That is the whole shape of this card, and the split is the design's
+// THIS CARD'S DENSITY, stated where it is obeyed: each list shows state, branch, root,
+// and age, and the provenance and cleanup columns collapse behind a row disclosure.
+// That is the whole shape of this card, and the split is deliberate
 // rather than a layout convenience — provenance is what a retired row still has to
-// prove, so it is one interaction away and never dropped.
+// prove, so it is one interaction away and never dropped, which is `Spec-023 §Meridian,
+// the design language` rule 7 ("secondary controls live one click away") on a column set.
 //
 // THE DISCLOSURE IS A NATIVE `<details>`. Keyboard reachable, labelled, and
 // focus-visible without a line of code, and — the reason that matters more than the
@@ -20,8 +21,8 @@
 // no formatted figure hides the value the daemon sent.
 //
 // WHAT THIS CARD DOES NOT OFFER, and why none of it is an omission:
-//   • No retire control. The retire confirm is the strongest interaction on §10.3's
-//     surface and it enumerates the candidate's branch, its uncommitted files, its
+//   • No retire control. The retire confirm is the strongest interaction this
+//     surface could carry and it enumerates the candidate's branch, its uncommitted files, its
 //     unmerged commits, and any inspection failure — a preview this card is not
 //     given and must not fabricate. Preview is consent, so the control belongs to
 //     the surface that can run the inspection.
@@ -56,8 +57,9 @@ export interface WorktreeCardProps {
   /**
    * The instant the surface read at.
    *
-   * A prop rather than a clock this card reaches for, because §10.3 forbids polling
-   * on this surface: the age moves when the surface re-reads and at no other time,
+   * A prop rather than a clock this card reaches for, because `Spec-023 §Rules every
+   * console surface obeys` forbids interval polling: the age moves when the surface
+   * re-reads and at no other time,
    * and a card that read the wall clock would move it on any unrelated re-render.
    */
   readonly nowMilliseconds: number;

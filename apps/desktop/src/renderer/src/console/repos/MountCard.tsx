@@ -1,6 +1,8 @@
 // One repo mount, on two axes that never collapse into one.
 //
-// `Spec-023 §Console Design (Meridian)` §10.1: the card says which repository this
+// THIS CARD'S OWN JOB, decided here because `Spec-023 §Console Design (Meridian)` puts
+// each surface's composition — what it renders, offers, refuses, and folds — in the
+// console's code: the card says which repository this
 // is, on which node, and whether it is still the repository it was attached as. Four
 // of its rules are structural rather than cosmetic, and each is visible in the markup
 // below:
@@ -19,13 +21,13 @@
 //   • TWO AXES, TWO CHIPS. Lifecycle (`attached` / `detached` / `archived`) and
 //     health (`healthy` / `unreachable`) are separate facts and wear separate chips,
 //     with `checkedAt` beside the health one because a probe instant is information.
-//   • THE ROOTS SIT UNDER THE MOUNT THEY BELONG TO. §10.3's execution roots are read
+//   • THE ROOTS SIT UNDER THE MOUNT THEY BELONG TO. Execution roots are read
 //     session-wide and drawn per mount, because a root's only stated relation is its
-//     `repoMountId` — and each one carries the change-proposal gate §10.7 puts behind
-//     it, collapsed, one per worktree.
+//     `repoMountId` — and each one carries the change-proposal gate `ProposalGate.tsx`
+//     owns, collapsed, one per worktree.
 //   • NO DETACH CONTROL, AND NO SILENCE ABOUT IT. `Spec-009 §Detach Semantics (V1
-//     Definition)` gives the desktop renderer no detach surface in V1. §10.1 asks
-//     that the absence be DISCLOSED rather than silently omitted, so the provenance
+//     Definition)` gives the desktop renderer no detach surface in V1, and this card
+//     DISCLOSES that absence rather than silently omitting it, so the provenance
 //     disclosure names where detach lives instead.
 //
 // WHAT THE CARD DOES NOT DO. It never resolves, canonicalises, or compares a path —

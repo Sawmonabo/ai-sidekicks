@@ -1,4 +1,4 @@
-// The card's four arms, and the three conflations §10.8 forbids between them.
+// The card's four arms, and the three conflations `AttachmentCard.tsx` forbids between them.
 //
 // Each describe below is one arm plus the arm it must not be mistaken for: the derived
 // truth must displace the declaration rather than sit beside it, the unresolved marker

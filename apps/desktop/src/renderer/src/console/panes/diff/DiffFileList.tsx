@@ -1,7 +1,6 @@
 // The changed-file list and its filter.
 //
-// `Spec-023 §Console Design (Meridian)` §10.6 puts "a file list with a filter"
-// among the pane's Renders, and its density rule opens the pane on that list. So
+// A FILE LIST WITH A FILTER, and `DiffPane.tsx`'s density opens the pane on it. So
 // the list is the pane's first surface rather than a sidebar bolted beside it,
 // and selecting a file narrows the rows to that file — which is what makes a
 // forty-file change set navigable without a second scroller to lose your place

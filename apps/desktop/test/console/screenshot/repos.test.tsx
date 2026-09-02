@@ -17,7 +17,7 @@
 //     what a DOM assertion reads one attribute of;
 //   • the DIFF PANE over a parsed change set: the attribution badge and the compared
 //     states in the header, the changed-file list, and the rows with their gutter
-//     marks — §10.6's whole surface, and the one place the intraline highlight is
+//     marks — the diff pane's whole surface, and the one place the intraline highlight is
 //     visible as a highlight rather than as a segment list;
 //   • the ARTIFACT PANE, which on this build carries the growth port's typed refusal
 //     beside the shipped-default allow-list hint. A refusal is a rendered surface

@@ -1,7 +1,8 @@
 // What an attachment IS to this console: the vocabularies, the bounds, the copy, and
 // the one arithmetic step every progress figure passes through.
 //
-// `Spec-023 §Console Design (Meridian)` §10.8. The split against `attachment-ingest.ts`
+// THIS FAMILY'S OWN VOCABULARY for attachments, stated here because no committed
+// document states it. The split against `attachment-ingest.ts`
 // beside it is behaviour versus vocabulary, the same split `artifact-model.ts` and
 // `ArtifactsPanel.tsx` already make one directory over: this module holds no state,
 // performs no call, and imports nothing that does, so a card can render an attachment
@@ -12,7 +13,7 @@
 // count cap of 64 — an UNTYPED arm, and `Spec-014 §Interfaces And Contracts` forbids
 // delivering an attachment over one. There is no `AttachmentIngestInit` shape, no
 // method string for any leg of the ingest trio, and no manifest type. So the shapes
-// below are CONSOLE VIEW MODELS transcribing what §10.8 names, and every call that
+// below are CONSOLE VIEW MODELS transcribing what `Spec-014` names, and every call that
 // would fill them goes through `bridge/growth-port.ts`, which refuses by name
 // (`artifact-ingest-and-crud`, `artifact-allowlist-and-abort`). Nothing here claims the
 // daemon sends it.
@@ -25,7 +26,8 @@
 // card that showed a declared type where a derived one belongs would be reporting the
 // caller's claim as the server's finding.
 //
-// WHAT THIS MODULE REFUSES TO MODEL, from §10.8's own Never list:
+// WHAT THIS MODULE REFUSES TO MODEL — its own Never list, because no committed
+// document carries one for this surface:
 //   • No payload bytes, in any field. An attachment REFERENCE is a typed, ordered list
 //     of artifact ids and never bytes, and no shape here carries a manifest's content.
 //     The source below holds the participant's own `Blob` — a handle the browser owns,
@@ -344,8 +346,8 @@ export const ATTACHMENT_PROGRESS_SITE = "repos/attachment-model.ts";
 /**
  * Advance one entry's decoded-byte total by one acknowledged chunk.
  *
- * THE WHOLE POINT OF THIS FUNCTION IS THAT IT IS THE ONLY ONE. §10.8's "never chart
- * base64 length as progress" is unenforceable as a rule about intent, but it is
+ * THE WHOLE POINT OF THIS FUNCTION IS THAT IT IS THE ONLY ONE. This module's rule —
+ * never chart base64 length as progress — is unenforceable as a rule about intent, but it is
  * perfectly checkable as arithmetic: an encoded length is about four thirds of the
  * decoded one, so charting it drives the running total past a total the caller itself
  * declared. That is impossible for a decoded count and is the observable signature of

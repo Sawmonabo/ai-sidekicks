@@ -31,7 +31,8 @@ export const PLAIN_WORKSPACE_ID: string = "9f2c4a10-0000-4000-8000-000000000006"
 export const PARTICIPANT_YOU: string = "9f2c4a10-0000-4000-8000-000000000010";
 export const AGENT_IMPLEMENTER: string = "9f2c4a10-0000-4000-8000-000000000011";
 export const AGENT_REVIEWER: string = "9f2c4a10-0000-4000-8000-000000000012";
-// One execution root per agent, which is what makes §10.3 a list rather than a row.
+// One execution root per agent, which is what makes the worktree surface a list rather
+// than a row.
 export const IMPLEMENTER_WORKTREE_ID: string = "9f2c4a10-0000-4000-8000-000000000020";
 export const REVIEWER_WORKTREE_ID: string = "9f2c4a10-0000-4000-8000-000000000021";
 // The third execution root, and the only one of the OTHER kind. Clone transitions

@@ -1,7 +1,7 @@
 // The two axes stay two axes.
 //
-// `Spec-023 §Console Design (Meridian)` §10.1's central claim about this surface is a
-// NEGATIVE one — lifecycle and health "never collapse into one chip" — and a negative
+// `mount-health.ts`'s central claim about this surface is a
+// NEGATIVE one — lifecycle and health never collapse into one chip — and a negative
 // claim needs a case that fails when it stops holding. The disjointness case below is
 // that case: it fails the moment one axis borrows the other's vocabulary, which is
 // the shape a collapse actually takes.
@@ -107,7 +107,7 @@ describe("mount-health — the bind-control posture", () => {
   it("negative control: lifecycle is checked before health, so a detached row never reads as unreachable", () => {
     // Both axes are failing here. A posture that reported the health reason would tell
     // a reader to go and fix a path, when the row's actual state is that its life is
-    // over — the exact conflation §10.1 forbids.
+    // over — the exact conflation `mount-health.ts` forbids.
     const posture = bindControlPosture(
       mount({
         state: "detached",

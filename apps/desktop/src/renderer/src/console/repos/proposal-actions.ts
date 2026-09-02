@@ -1,7 +1,7 @@
 // The acts the change-proposal gate offers: which exist, how far each one reaches, what
 // each says before it is confirmed, and which of them a given gate arm may offer at all.
 //
-// `Spec-023 §Console Design (Meridian)` §10.7 puts these on the gate; `Spec-011
+// `ProposalGate.tsx` is the surface that offers these; `Spec-011
 // §Required Behavior` names them. `ProposalGate.tsx` renders what `offeredProposalActions`
 // returns and decides nothing about it, and `proposal-gate-reader.ts` sends them without
 // re-deciding either.

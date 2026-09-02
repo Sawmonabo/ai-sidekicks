@@ -74,9 +74,10 @@ export type RepoCallOutcome<TValue> =
 /**
  * The five method names, branded once.
  *
- * `Spec-023 §Console Design (Meridian)` §10.1 and §10.2 name six controls across the
- * two sections; `repo.attach`, `repo.workspaceBind`, and `repo.detach` are not among
- * these five for three different reasons, each recorded where the surface that would
+ * The five the repos and workspaces sections actually call. `repo.attach`,
+ * `repo.workspaceBind`, and `repo.detach` are the three the surfaces would otherwise
+ * reach for and are not among them, for three different reasons, each recorded where
+ * the surface that would
  * call it lives: attach needs a node roster this section does not read, bind needs
  * the directory picker attach would open, and detach is offered by no renderer
  * surface at all in V1 (`Spec-009 §Detach Semantics (V1 Definition)`).

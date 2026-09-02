@@ -7,18 +7,19 @@
 // carry two independent gates and neither can publish the other's refusal.
 //
 // EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER, AND EVERY REASON THROUGH ONE
-// TRIGGER CLASS. `Spec-023 §Console Design (Meridian)` §10.1 fixes the policy in a
-// sentence — on panel focus, on reconnect, and on a `workspace.stale` frame, with no
-// interval polling — so this class arms no timer of its own and owns no listener of
+// TRIGGER CLASS. `Spec-023 §Rules every console surface obeys` fixes the policy —
+// "Reads happen on subscribe, on window focus, on reconnect, and on the terminal events
+// the owning spec names", under "No interval polling" — so this class arms no timer of
+// its own and owns no listener of
 // its own either: it builds a `RepoRefreshTriggers` over its own scheduler exactly as
-// `repo-mounts-reader.ts` beside it does, which is what makes all three reasons reach
-// a gate rather than only the first. A daemon that reconnected, or a `workspace.stale`
+// `repo-mounts-reader.ts` beside it does, which is what makes all four reasons reach
+// a gate rather than only window focus. A daemon that reconnected, or a `workspace.stale`
 // frame arriving in an already-focused window, used to leave the branch context and
 // the prepared proposal standing with `push` still offered against them.
 //
-// The reader adds one reason of its own on top of the three: the terminal event of an
-// act the daemon accepted, which it requests directly because it is the only observer
-// of that act.
+// The reader supplies one terminal event of its own beside the section's `workspace.stale`
+// one: an act the daemon accepted, which it requests directly because it is the only
+// observer of that act.
 //
 // ALL THREE OPERATIONS ARE GROWTH-PORT OPERATIONS, AND ALL THREE ARE UNREGISTERED.
 // `bridge/growth-signatures.ts` carries the branch-context read, the preparation
@@ -39,8 +40,8 @@
 //     the shape it belongs to for the reason recorded there, and this reader supplies
 //     exactly the ones a reply named.
 //
-// THE TARGET BRANCH IS THE CONTEXT'S AND NEVER A SELECTION. §10.7 forbids inferring
-// base or head from a pane, a tab, or a focused view; the preparation call's
+// THE TARGET BRANCH IS THE CONTEXT'S AND NEVER A SELECTION. `branch-context-model.ts`
+// forbids inferring base or head from a pane, a tab, or a focused view; the preparation call's
 // `targetBranch` is therefore read off the served context's `baseBranch` and there is
 // no parameter on this class through which a selection could reach it — the same
 // prohibition `ProposalGate.tsx` makes structural on its own side.

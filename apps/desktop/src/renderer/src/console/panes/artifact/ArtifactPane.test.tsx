@@ -1,5 +1,5 @@
 // The artifact pane: its chrome, the absence it renders before a read, the two
-// disclosures §10.4 and §10.8 put at its foot, and what its row acts actually do.
+// disclosures `ArtifactPane.tsx` puts at its foot, and what its row acts actually do.
 //
 // The case that matters most in the first block is the last one: `empty` here would be
 // the console stating that the session has no artifacts, a fact no read established.
@@ -206,7 +206,8 @@ describe("artifact pane — the ingest bounds disclosure", () => {
   });
 
   it("negative control: the pane offers no visibility toggle", () => {
-    // §10.4 names one and `bridge/growth-port.ts` registers no operation for it. A
+    // The wire carries an `artifact.visibility_updated` event and
+    // `bridge/growth-port.ts` registers no operation that could produce one. A
     // control that could only fail is worse than a control that is not there, and a
     // port entry is not this family's to add.
     const { queryByRole } = renderPane(contextFor(ARTIFACT_ENTITY));

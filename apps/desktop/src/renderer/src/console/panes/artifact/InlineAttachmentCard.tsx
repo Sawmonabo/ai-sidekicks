@@ -1,7 +1,9 @@
 // The attachment card a ledger row carries, and the seat registration that fills it.
 //
-// `Spec-023 §Console Design (Meridian)` rule 7 and §10.8. An attachment belongs to the
-// turn that carried it, and §10.8 requires its marker to sit in the attachment's
+// `Spec-023 §Meridian, the design language` rule 7 puts a secondary control one click
+// away, and THIS FAMILY'S OWN RULE puts an attachment in the position the participant
+// put it: an attachment belongs to the
+// turn that carried it, and its marker sits in the attachment's
 // DECLARED POSITION rather than being appended or footnoted — which is exactly what a
 // card inside the row is, and why this is a card and not a pane.
 //

@@ -1,6 +1,7 @@
 // The session sidebar's repos section — the read, the list, and what it says instead.
 //
-// `Spec-023 §Console Design (Meridian)` §10.1 gives the section its job: say which
+// THE SECTION'S JOB IS THIS MODULE'S TO STATE — `Spec-023 §Console Design (Meridian)`
+// puts each surface's composition in the console's code: say which
 // repositories this session is attached to, on which node, and whether each is still
 // the repository it was attached as. The per-mount answers live on the mount cards
 // beside this file; what this file owns is the read that produces them, where they
@@ -32,8 +33,9 @@
 // that had not read cannot know. So the reader starts on mount and the collapsed line
 // reports what it found — one read burst per mount, no interval, no poll.
 //
-// WHAT IS DELIBERATELY NOT OFFERED HERE. §10.1 also describes an attach entry point —
-// a local path picker plus a node picker sent as `repo.attach`. The node picker needs
+// WHAT IS DELIBERATELY NOT OFFERED HERE. This section would otherwise carry an attach
+// entry point — a local path picker plus a node picker sent as `repo.attach`. The node
+// picker needs
 // the session's runtime-node roster, which no read this section holds carries, and a
 // control that cannot name the node it would attach on is a control that can only
 // fail. So the empty state names attach as the deliberate act it is and says where it
@@ -130,8 +132,8 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
  * roster read answered while a mount read did not would then have clones nothing
  * could draw. The list sits at the section, where the read that produced it was made.
  *
- * `Spec-023 §Console Design (Meridian)` §10.3 asks for two lists with different
- * columns, and `EphemeralCloneCard` is the second one: the disposal countdown is on
+ * TWO LISTS WITH DIFFERENT COLUMNS, this section's own split and stated here because
+ * it is drawn here. `EphemeralCloneCard` is the second one: the disposal countdown is on
  * the row rather than behind the disclosure, because it is the one fact here that
  * changes with nobody acting.
  */

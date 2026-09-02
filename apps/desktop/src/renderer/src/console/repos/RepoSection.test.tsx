@@ -3,8 +3,8 @@
 // The cases here drive the REAL section against the REAL fixture bridge, because the
 // claim worth checking is that the daemon's answer reaches the screen — a hand-built
 // reading would pin a shape the fixture could stop producing without either tier
-// noticing. `Spec-023 §Console Design (Meridian)` §10.3 asks for two lists of
-// execution roots, and until this file existed only one of them was drawn: the clone
+// noticing. `RepoSection.tsx` draws two lists of
+// execution roots, and until this file existed only one of them was covered: the clone
 // list had no production mount at all.
 
 import { render, waitFor, within } from "@testing-library/react";

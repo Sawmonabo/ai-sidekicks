@@ -3,7 +3,8 @@
 // Two claims are worth a test here and the second is the reason the file exists.
 // The first is ordinary: the pane names itself, and the entity it is a view of
 // arrives on screen wire-verbatim with the full string recoverable. The second is
-// the rule §10.6 and rule 8 both turn on — that an unasked question renders as
+// what `Spec-023 §Meridian, the design language` rule 8 turns on — that an unasked
+// question renders as
 // `not-checked` and never as `empty`, because `empty` is the console asserting that
 // a workspace has no changes. A pane that regressed into `empty` would look
 // identical to a reviewer and would be stating a fact nobody established.
@@ -91,7 +92,7 @@ describe("diff pane — the absence it renders", () => {
 
 // ---------------------------------------------------------------------------
 // The pane with a diff in it. Everything above is the chrome and the absence;
-// what follows is the surface §10.6 actually describes — the compared states,
+// what follows is the surface `DiffPane.tsx` actually describes — the compared states,
 // the attribution badge, the file list, and the rows.
 
 describe("diff pane — the header a diff gives it", () => {
@@ -322,8 +323,8 @@ describe("diff pane — reused for a different diff", () => {
 
 describe("diff pane — the toolbar", () => {
   it("offers the four renderer-local controls, with marks on by default", () => {
-    // §10.6's density rule: attribution marks are ON in the pane and OFF in the
-    // card, one toggle away in both.
+    // `DiffToolbar.tsx`'s density rule: attribution marks are ON in the pane and OFF
+    // in the card, one toggle away in both.
     const { getByRole } = render(
       <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
     );

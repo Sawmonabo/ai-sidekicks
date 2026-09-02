@@ -1,7 +1,8 @@
 // The diff pane: what changed between two named states, and who is accountable
 // for each line.
 //
-// `Spec-023 §Console Design (Meridian)` §10.6 gives the pane that job, and this
+// THE PANE'S JOB IS THIS FAMILY'S TO STATE — `Spec-023 §Console Design (Meridian)`
+// puts each surface's composition in the console's code — and this
 // file is the chrome around it — the header that names the compared states and
 // the attribution, the toolbar of renderer-local view controls, the changed-file
 // list, and the region the rows are read inside. The rows themselves are
@@ -72,7 +73,7 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
   const headingId = useId();
   const viewControls = useDiffViewControls({ showAttributionMarks: true });
-  // §10.6's density rule: the pane opens on the changed-file list with the first
+  // This pane's own density: it opens on the changed-file list with the first
   // file expanded. Selecting a file narrows the rows to it; selecting none reads
   // the whole change set, which is what "the first file expanded" degrades to
   // once a reader has scrolled past it.

@@ -198,8 +198,8 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // `ephemeralClones` carries ONE row, and it is the only way this scenario can reach
     // that list at all: clone transitions are not separately evented, so no beat can
     // state a clone and this read is the whole surface. It is past its disposal time on
-    // purpose — the elapsed reading is the one state on §10.3's surface that arrives
-    // with nobody acting, and a fixture whose clone was merely scheduled could not
+    // purpose — the elapsed reading is the one state on the execution-root surface that
+    // arrives with nobody acting, and a fixture whose clone was merely scheduled could not
     // reach it.
     //
     // The IMPLEMENTER's root is `dirty`, agreeing with the beat above it: the reclaim

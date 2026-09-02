@@ -1,8 +1,10 @@
 // The three reasons the repos section re-reads, wired to the three things that say so.
 //
-// `Spec-023 §Console Design (Meridian)` §10.1 fixes the policy in one sentence — "on
-// panel focus, on reconnect, and on a `workspace.stale` frame. No interval polling" —
-// and until this module existed only the first of the three was wired: a path that
+// `Spec-023 §Rules every console surface obeys` fixes the policy: "Reads happen on
+// subscribe, on window focus, on reconnect, and on the terminal events the owning spec
+// names", under "No interval polling". The terminal event for this section is a
+// `workspace.stale` frame, and until this module existed only window focus was wired
+// beside the reader's own subscribe: a path that
 // went stale or a daemon that reconnected while the window stayed focused left the
 // mount health, the workspace states, the roots, and the mode controls standing on
 // the old read until something else happened to ask.

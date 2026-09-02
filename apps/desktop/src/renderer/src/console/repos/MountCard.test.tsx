@@ -1,6 +1,6 @@
 // The mount card: two axes, two paths, and one control the renderer must not have.
 //
-// Three negative controls carry `Spec-023 §Console Design (Meridian)` §10.1's three
+// Three negative controls carry `MountCard.tsx`'s three
 // hardest claims: the resolved root is never shortened in the STRING, the two status
 // axes are never one chip, and no detach control exists anywhere on the surface.
 
@@ -109,7 +109,7 @@ describe("MountCard — the two paths", () => {
   it("negative control: the resolved root is never shortened in the string", () => {
     // Truncation is the stylesheet's, at the measure; the value in the DOM is the
     // whole root. A card that abbreviated the home directory or kept the basename
-    // would make two different roots render identically, which is the one thing §10.1
+    // would make two different roots render identically, which is the one thing the card
     // says the renderer must never be the reason for.
     const { container } = renderCard();
     expect(within(head(container)).getByTitle(CANONICAL_ROOT).textContent).toBe(CANONICAL_ROOT);

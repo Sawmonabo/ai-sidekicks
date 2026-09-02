@@ -248,7 +248,7 @@ describe("RepoMountsReader — when the answer does not come", () => {
 
 describe("RepoMountsReader — the reasons it reads again", () => {
   it("re-reads on a `workspace.stale` frame", async () => {
-    // §10.1's third refresh trigger. Before it was wired, a path that went stale while
+    // The terminal-event refresh reason. Before it was wired, a path that went stale while
     // the window stayed focused left the mount health, the workspace states, the roots,
     // and the mode controls standing on the first read for as long as nobody clicked.
     const clock = new ManualClock();

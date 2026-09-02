@@ -1,13 +1,15 @@
 // The artifact pane: what this session produced, whether its bytes are reachable, and
 // what a participant may attempt on one.
 //
-// `Spec-023 §Console Design (Meridian)` §10.4 and, for the bounds disclosure at the
-// foot, §10.8. The pane is the DECK's view of the artifact list; the sidebar panel
+// THE ARTIFACT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
+// Design (Meridian)` puts a surface's composition — what it renders, offers, refuses,
+// and folds — in the console's code. The pane is the DECK's view of the artifact
+// list; the sidebar panel
 // beside it in `repos/ArtifactsPanel.tsx` is the same rows in a narrower column. One
 // body renders both, which is what keeps the diff pane a view onto this list rather
 // than a second store.
 //
-// THREE THINGS THIS PANE DOES NOT DO, each because §10.4 says so:
+// THREE THINGS THIS PANE DOES NOT DO, each of them this family's own Never:
 //
 //   • IT NEVER RENDERS A PAYLOAD. Not as markup, not as text, not behind a toggle.
 //     Payloads are explicit-fetch downloads with no in-product execution surface, and
@@ -17,8 +19,10 @@
 //   • IT NEVER DECIDES WHO MAY ACT. `artifact.delete_forbidden` is a 403 the daemon
 //     returns against the session roles. Every control is offered and the daemon's
 //     typed refusal renders beside the one that was pressed.
-//   • IT OFFERS NO VISIBILITY TOGGLE. §10.4 names one, and `bridge/growth-port.ts`
-//     registers no operation for it — the port has `artifactRead` and `artifactDelete`
+//   • IT OFFERS NO VISIBILITY TOGGLE. The wire carries an `artifact.visibility_updated`
+//     event and `bridge/growth-port.ts`
+//     registers no operation that could produce one — the port has `artifactRead`
+//     and `artifactDelete`
 //     and nothing that re-classifies. A control that could only fail is worse than a
 //     control that is not there, and a port entry is not this family's to add, so the
 //     act stays unoffered and the gap is the `artifact-ingest-and-crud` slate row.
@@ -32,9 +36,9 @@
 // the control is named for what the read serves and the header says, once, what a
 // payload fetch is waiting on.
 //
-// WHAT THE FOOT OF THE PANE IS FOR. §10.8 puts the effective allow-list and the ingest
-// bounds behind the attach affordance's own disclosure, and the composer owns that
-// affordance. This pane is where the same facts are readable without one, because they
+// WHAT THE FOOT OF THE PANE IS FOR. The effective allow-list and the ingest
+// bounds otherwise sit behind the attach affordance's own disclosure, and the composer
+// owns that affordance. This pane is where the same facts are readable without one, because they
 // are the artifact plane's rules and a participant who has just been refused for an
 // unsupported type needs somewhere to read what IS supported.
 
