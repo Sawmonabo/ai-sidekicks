@@ -776,11 +776,18 @@
   list-style: none;
 }
 
+/*
+ * The minimum block size is WCAG 2.2's 2.5.8 target size (24 CSS pixels), which the
+ * padding alone did not reach at this text size — the accessibility tier measured it.
+ * A row in a dense list is still a pointer target, and this list is the diff pane's
+ * only way to move between files.
+ */
 .meridian-diff-files__entry {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--meridian-space-2);
   inline-size: 100%;
+  min-block-size: 1.5rem;
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border: 0;
   background: transparent;
@@ -925,6 +932,15 @@
   border-inline-end: 1px solid var(--meridian-edge);
 }
 
+/*
+ * The gutter carries the line numbers, which are content a reader reads and not
+ * decoration: a person following a review comment arrives by number. `text-faint`
+ * is the console's quietest text and it clears the 4.5:1 floor on the palette's own
+ * grounds, but an insert or delete row is drawn on this family's own tint — a ground
+ * the palette contrast test does not cover — and the accessibility tier measured it
+ * failing there. `text-muted` is the next step up and is what secondary text a reader
+ * actually reads uses everywhere else in the console.
+ */
 .meridian-diff__gutter {
   display: inline-flex;
   flex: 0 0 auto;
@@ -933,7 +949,7 @@
   gap: var(--meridian-space-1);
   inline-size: 4rem;
   padding-inline-end: var(--meridian-space-2);
-  color: var(--meridian-text-faint);
+  color: var(--meridian-text-muted);
   user-select: none;
 }
 

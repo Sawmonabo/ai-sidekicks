@@ -19,10 +19,15 @@
 //     rather than the rendered composition — a muted label on a tinted card is a
 //     pair no token table knows about.
 
-import axe, { type Result } from "axe-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
+import {
+  PLANTED_VIOLATION_RULE_ID,
+  describeViolations,
+  plantAxeViolation,
+  runTierAxe,
+} from "./axe-run.js";
 
 import {
   ConsoleRoot,
@@ -30,18 +35,6 @@ import {
 } from "../../../src/renderer/src/console/frame/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
-
-/** WCAG 2.2 A + AA, which is the level `Spec-023 §Console Design (Meridian)` rule 3 sets. */
-const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
-
-function describeViolations(violations: readonly Result[]): string[] {
-  return violations.map(
-    (violation) =>
-      `${violation.id} (${violation.impact ?? "unknown"}): ${violation.nodes
-        .map((node) => node.target.join(" "))
-        .join(", ")}`,
-  );
-}
 
 beforeEach(() => {
   document.location.hash = "";
@@ -62,9 +55,7 @@ describe("accessibility — the frame", () => {
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
-      const results = await axe.run(container, { runOnly: { type: "tag", values: AXE_TAGS } });
-
-      expect(describeViolations(results.violations)).toStrictEqual([]);
+      expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
   }
 
@@ -72,12 +63,10 @@ describe("accessibility — the frame", () => {
     // Negative control. axe returning nothing is the expected result above, and a
     // misconfigured run (wrong root, wrong tags, an exception swallowed) returns
     // exactly the same nothing. This proves the run is live.
-    const planted = document.createElement("div");
-    planted.innerHTML = '<img src="data:," />';
-    document.body.append(planted);
+    const planted = plantAxeViolation();
     try {
-      const results = await axe.run(planted, { runOnly: { type: "tag", values: AXE_TAGS } });
-      expect(results.violations.map((violation) => violation.id)).toContain("image-alt");
+      const violations = await runTierAxe(planted);
+      expect(violations.map((violation) => violation.id)).toContain(PLANTED_VIOLATION_RULE_ID);
     } finally {
       planted.remove();
     }
