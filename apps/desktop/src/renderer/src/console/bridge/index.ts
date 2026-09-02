@@ -35,6 +35,7 @@ export {
   SidekicksBridgeProvider,
   useBridgeResolution,
   useConsoleBridge,
+  useConsoleClock,
 } from "./BridgeProvider.js";
 
 export { createFixtureBridge } from "./fixture-bridge.js";
