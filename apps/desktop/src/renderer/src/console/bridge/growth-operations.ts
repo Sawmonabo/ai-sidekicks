@@ -311,6 +311,74 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "set one global notification preference, over the control-plane transport",
     "attention.preferenceUpdate",
   ),
+  // workflow — nine of the thirteen rows of the registered method registry, in that
+  // registry's own order. The four it does not carry are named in the slate row's
+  // own wire text: the two authoring writes and the version read no console surface
+  // on this substrate calls, and the draft save, which is declared with no handler
+  // to reach.
+  workflowDefinitionList: op(
+    "workflowDefinitionList",
+    "workflow-run-control",
+    "method",
+    "enumerate the workflow definitions visible here, resolved most-specific-first, so the builder can name one it does not already hold an id for",
+    "workflow.definitionList",
+  ),
+  workflowRunStart: op(
+    "workflowRunStart",
+    "workflow-run-control",
+    "method",
+    "start a run against a pinned definition version",
+    "workflow.runStart",
+  ),
+  workflowRunRead: op(
+    "workflowRunRead",
+    "workflow-run-control",
+    "method",
+    "read one run's header and its per-phase projection, park surface included, so the pane renders a parked run from this one call",
+    "workflow.runRead",
+  ),
+  workflowRunCancel: op(
+    "workflowRunCancel",
+    "workflow-run-control",
+    "method",
+    "cancel a run, the operator control that is the only named producer of the cancelled status",
+    "workflow.runCancel",
+  ),
+  workflowRunResume: op(
+    "workflowRunResume",
+    "workflow-run-control",
+    "method",
+    "resume a parked run, carrying the explicit version re-pin as a request member rather than an operation of its own",
+    "workflow.runResume",
+  ),
+  workflowPhaseOutputRead: op(
+    "workflowPhaseOutputRead",
+    "workflow-run-control",
+    "method",
+    "read one phase's durable outputs, which stay addressable after the run ends",
+    "workflow.phaseOutputRead",
+  ),
+  workflowGateResolve: op(
+    "workflowGateResolve",
+    "workflow-run-control",
+    "method",
+    "resolve a phase-boundary gate and read back the appended chain row's anchor",
+    "workflow.gateResolve",
+  ),
+  workflowHumanFormSubmit: op(
+    "workflowHumanFormSubmit",
+    "workflow-run-control",
+    "method",
+    "submit a human phase's form under optimistic concurrency, so a stale submission is refused rather than silently overwriting",
+    "workflow.humanFormSubmit",
+  ),
+  workflowGateChainVerify: op(
+    "workflowGateChainVerify",
+    "workflow-run-control",
+    "method",
+    "verify a run's gate-resolution hash chain and report the first divergent sequence",
+    "workflow.gateChainVerify",
+  ),
 };
 
 function op(

@@ -41,7 +41,8 @@ export type GrowthSlateRowId =
   | "session-search"
   | "window-control-namespace"
   | "provider-session-import"
-  | "attention-plane";
+  | "attention-plane"
+  | "workflow-run-control";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -258,6 +259,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-019 §Interfaces And Contracts (the three operations); Plan-019 (the `packages/contracts/src/attention/` schemas, which no code package carries)",
     consumingSurface: "notification centre, icon-rail attention marker",
+    wireRegistered: false,
+  },
+  "workflow-run-control": {
+    id: "workflow-run-control",
+    wire: "nine of the thirteen workflow method strings — the definition enumeration, the run start and read, the operator cancel and resume pair, the phase-output read, the gate resolve, the human-form submit, and the gate-chain verify — with the run, phase, definition, and output shapes they carry",
+    owningDocument:
+      "Spec-017 §Interfaces And Contracts (the definition, run, gate, phase-output, and human-form operations) + §Operator run control (SA-45) (the cancel and resume pair); Plan-017 (the shared-contracts and client-SDK registration, which no code package carries)",
+    consumingSurface: "workflow-run pane, workflow builder",
     wireRegistered: false,
   },
 };

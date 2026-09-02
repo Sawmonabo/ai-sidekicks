@@ -102,7 +102,19 @@ export type GrowthOperationId =
   | "providerSessionImportSubscribe"
   | "attentionProjectionRead"
   | "attentionPreferenceRead"
-  | "attentionPreferenceUpdate";
+  | "attentionPreferenceUpdate"
+  // workflow — in the registered method registry's own order, so a reader comparing
+  // the two reads them top to bottom. Each id is its wire method's tail with the
+  // root folded in, which `growth-operations.test.ts` holds every entry to.
+  | "workflowDefinitionList"
+  | "workflowRunStart"
+  | "workflowRunRead"
+  | "workflowRunCancel"
+  | "workflowRunResume"
+  | "workflowPhaseOutputRead"
+  | "workflowGateResolve"
+  | "workflowHumanFormSubmit"
+  | "workflowGateChainVerify";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"
