@@ -42,12 +42,18 @@ import {
   type RunStateChangeEvent,
 } from "@ai-sidekicks/contracts";
 
+import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import {
   RUN_STATE_SUBSCRIBE_STREAM,
   subscribeDaemon,
   type ConsoleBridge,
 } from "../../bridge/index.js";
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import {
+  isConsoleRefusal,
+  refuse,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../../core/index.js";
 import { useSessionInitialised, type SessionStore } from "../../store/index.js";
 import { PROJECTED_RUN_CAP, RUN_STATUS_ROW_CAP } from "./runs-bounds.js";
 import { runStatusSubtypeFor, type RunStatusSubtype, type RunStopTrigger } from "./run-status.js";
@@ -325,24 +331,37 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStor
       };
     }
 
-    const unsubscribe = subscribeDaemon(
-      bridge,
-      { method: RUN_STATE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
-      (payload) => {
-        const wasReadable = fold.accept(payload);
-        if (!isMounted || !wasReadable) {
-          return;
-        }
-        setFeed({
-          runs: fold.runs(),
-          // Kept `false` here and supplied below from the store: a delivery proves
-          // a run exists, not that the read which enumerates them has completed.
-          hasRead: false,
-          unreadableDeliveryCount: fold.unreadableDeliveryCount,
-          openRefusal: undefined,
-        });
-      },
-    );
+    // The open itself can fail in this frame — the shipped live preload throws on
+    // every method — and an unopenable stream is a refusal this feed already has a
+    // field for, not an exception thrown during React's effect commit.
+    let unsubscribe: Unsubscribe;
+    try {
+      unsubscribe = subscribeDaemon(
+        bridge,
+        { method: RUN_STATE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
+        (payload) => {
+          const wasReadable = fold.accept(payload);
+          if (!isMounted || !wasReadable) {
+            return;
+          }
+          setFeed({
+            runs: fold.runs(),
+            // Kept `false` here and supplied below from the store: a delivery proves
+            // a run exists, not that the read which enumerates them has completed.
+            hasRead: false,
+            unreadableDeliveryCount: fold.unreadableDeliveryCount,
+            openRefusal: undefined,
+          });
+        },
+      );
+    } catch (thrown: unknown) {
+      setFeed({ ...EMPTY_FEED, openRefusal: streamOpenRefusal(thrown) });
+      // No unsubscribe was ever handed back, so the refused path has nothing to
+      // close — it only stops deliveries that can no longer arrive from landing.
+      return () => {
+        isMounted = false;
+      };
+    }
     return () => {
       isMounted = false;
       unsubscribe();
@@ -350,6 +369,24 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStor
   }, [bridge, sessionId]);
 
   return useMemo(() => ({ ...feed, hasRead: hasReadSnapshot }), [feed, hasReadSnapshot]);
+}
+
+/**
+ * The refusal an unopenable stream renders.
+ *
+ * A `ConsoleRefusalError` from the wrapper's own unscoped-open guard already
+ * carries a refusal, and re-wrapping it would replace a sentence that names the
+ * defect with one that names the exception. Anything else is a wire rejection and
+ * normalizes exactly as every other console catch boundary normalizes one, so this
+ * file grows no second normalizer.
+ */
+function streamOpenRefusal(thrown: unknown): ConsoleRefusal {
+  const carried = (thrown as { readonly refusal?: unknown } | null | undefined)?.refusal;
+  if (isConsoleRefusal(carried)) {
+    return carried;
+  }
+  const wireError = normalizeWireRejection(thrown, { total: true });
+  return refuse(RUN_STATE_REFUSAL_ORIGIN, wireError.name, wireError.message);
 }
 
 /** The reading before anything has been delivered. Frozen so no caller mutates it. */
