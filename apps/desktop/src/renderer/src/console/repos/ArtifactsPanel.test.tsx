@@ -4,6 +4,11 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  REPOS_IMPLEMENTER_RUN_ID,
+  REPOS_SESSION_ID,
+  REPOS_VIEWING_PARTICIPANT_ID,
+} from "../bridge/scenarios/repos.js";
 import { refuse } from "../core/index.js";
 import { formatByteQuantity } from "../primitives/index.js";
 import { ArtifactsPanel } from "./ArtifactsPanel.js";
@@ -19,9 +24,9 @@ const NOW_MILLISECONDS = Date.parse("2026-01-01T09:30:00.000Z");
 function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
   return {
     id: "artifact-01",
-    sessionId: "session-repos",
-    runId: "run-01",
-    createdBy: "participant-you",
+    sessionId: REPOS_SESSION_ID,
+    runId: REPOS_IMPLEMENTER_RUN_ID,
+    createdBy: REPOS_VIEWING_PARTICIPANT_ID,
     artifactType: "file",
     digest: "sha256:3b1f0c",
     size: 4096,
@@ -97,7 +102,7 @@ describe("ArtifactsPanel — the row's face", () => {
     expect(container.textContent).toContain("published");
     expect(container.textContent).toContain("shared");
     expect(container.textContent).toContain(formatByteQuantity(row.size).text);
-    expect(container.textContent).toContain("participant-you");
+    expect(container.textContent).toContain(REPOS_VIEWING_PARTICIPANT_ID);
     expect(container.textContent).toContain(ARTIFACT_REPLICATION_PRESENTATION.over_cap.meaning);
   });
 
