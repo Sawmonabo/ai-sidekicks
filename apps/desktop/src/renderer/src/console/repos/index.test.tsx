@@ -13,6 +13,9 @@
 import { render, within } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { createFixtureBridge } from "../bridge/index.js";
+import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
+import { SessionStore } from "../store/index.js";
 import {
   ConsolePaneRegistry,
   sidebarSectionRegistry,
@@ -24,9 +27,22 @@ import { registerRepos, registerReposPanes } from "./index.js";
 /** The kinds this family owns, in `PANE_KINDS` declaration order — which is what the registry answers in. */
 const REPOS_PANE_KINDS = ["diff", "artifact"] as const;
 
-/** A section context whose collaborators are never reached; only `isOpen` is read. */
+/**
+ * A section context with real collaborators.
+ *
+ * The section READS now — it holds the `repo.workspaceList` / `repo.mountRead` pair
+ * the mount cards are drawn from — so a context whose `bridge` and `sessionStore`
+ * were never reached would have this file asserting against a body that throws on
+ * its first hook. The fixture bridge and a bare store are the cheapest honest
+ * collaborators: both are the real classes, and the scenario is the family's own.
+ */
 function sectionContext(isOpen: boolean): SidebarSectionContext {
-  return { isOpen } as unknown as SidebarSectionContext;
+  return {
+    isOpen,
+    bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
+    sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
+    openPane: () => undefined,
+  } as unknown as SidebarSectionContext;
 }
 
 /** A pane context whose collaborators are never reached. */

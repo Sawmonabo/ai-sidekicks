@@ -13,11 +13,14 @@
 // is the shape they are built against: the beats that put mounts on screen and the
 // two reads that answer for them.
 //
-// THE IDS ARE READABLE RATHER THAN UUID-SHAPED, which is `flagship.ts`'s convention
-// and is safe for the same reason: the wire mints these ids as server-side UUIDs
-// and no console module parses one. A renderer that treated an id as anything but
-// an opaque string would be broken against the real wire whatever the fixture said,
-// and a readable id makes a failing assertion name the mount it is about.
+// THE IDS ARE UUID-SHAPED, WHICH THIS FILE ORIGINALLY ARGUED THEY NEED NOT BE. The
+// premise of that argument was that "no console module parses one" — and the repos
+// section now does: it parses every `repo.*` reply with the contract's own schema
+// (`packages/contracts/src/repo.ts`), and `RepoMountIdSchema` / `WorkspaceIdSchema` /
+// `SessionIdSchema` / `NodeIdSchema` are UUID-formatted. A readable id here would be
+// a value the wire cannot carry, which is the one thing a fixture may never script.
+// Legibility moves to the NAMES below, which is where a failing assertion reads them;
+// what reaches the screen is what the daemon would actually send.
 //
 // THE HEALTH VERDICTS ARE THE TWO THE CONTRACT SHIPS. `RepoMountHealth.status` in
 // `packages/contracts/src/repo.ts` is `healthy | unreachable` today; the third
@@ -28,10 +31,12 @@ import type { ConsoleScenario } from "../scenario.js";
 
 export const REPOS_SCENARIO_ID = "repos";
 
-const SESSION_ID = "session-repos";
-const NODE_ID = "node-workstation";
-const GIT_MOUNT_ID = "mount-sidekicks";
-const PLAIN_MOUNT_ID = "mount-notes";
+const SESSION_ID = "9f2c4a10-0000-4000-8000-000000000001";
+const NODE_ID = "9f2c4a10-0000-4000-8000-000000000002";
+const GIT_MOUNT_ID = "9f2c4a10-0000-4000-8000-000000000003";
+const PLAIN_MOUNT_ID = "9f2c4a10-0000-4000-8000-000000000004";
+const GIT_WORKSPACE_ID = "9f2c4a10-0000-4000-8000-000000000005";
+const PLAIN_WORKSPACE_ID = "9f2c4a10-0000-4000-8000-000000000006";
 
 export const REPOS_SCENARIO: ConsoleScenario = {
   id: REPOS_SCENARIO_ID,
@@ -88,7 +93,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         payload: {
           sessionId: SESSION_ID,
           repoMountId: GIT_MOUNT_ID,
-          workspaceId: "workspace-sidekicks",
+          workspaceId: GIT_WORKSPACE_ID,
           state: "ready",
         },
       },
@@ -115,7 +120,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         payload: {
           sessionId: SESSION_ID,
           repoMountId: PLAIN_MOUNT_ID,
-          workspaceId: "workspace-notes",
+          workspaceId: PLAIN_WORKSPACE_ID,
           state: "ready",
         },
       },
@@ -161,6 +166,21 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       },
     },
     {
+      // The WORKSPACE-scoped arm of `repo.executionModeCapabilitiesRead` — the
+      // post-bind question the mode picker asks. The answer is the git mount's,
+      // matching the mount `repo.mountRead` above returns: all four modes, with
+      // `worktree` the default for the next writable coding run per ADR-006, and no
+      // `restrictions` map at all, because a git mount restricts nothing (D-009-5).
+      // `defaultMode` is deliberately NOT the workspace's current mode: the rows
+      // below are all bound `read-only`, which is what a new workspace stays until a
+      // run explicitly selects otherwise, and the picker labels the two separately.
+      call: "repo.executionModeCapabilitiesRead",
+      result: {
+        availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
+        defaultMode: "worktree",
+      },
+    },
+    {
       // Session-scoped rather than mount-scoped, and both workspaces are
       // `read-only`: a new workspace stays read-only until a run explicitly
       // selects a writable mode.
@@ -168,14 +188,14 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       result: {
         workspaces: [
           {
-            id: "workspace-sidekicks",
+            id: GIT_WORKSPACE_ID,
             repoMountId: GIT_MOUNT_ID,
             executionMode: "read-only",
             state: "ready",
             fsRoot: "/Users/dev/code/ai-sidekicks",
           },
           {
-            id: "workspace-notes",
+            id: PLAIN_WORKSPACE_ID,
             repoMountId: PLAIN_MOUNT_ID,
             executionMode: "read-only",
             state: "ready",
