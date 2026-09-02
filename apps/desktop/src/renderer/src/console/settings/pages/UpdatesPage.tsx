@@ -26,10 +26,19 @@
 // and `ApplicationPage.tsx` is where the two blocks about the application itself
 // are composed.
 
-import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import type { UpdateState } from "@ai-sidekicks/contracts";
 
+import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import {
   DerivedFigure,
   Nothing,
@@ -40,65 +49,34 @@ import {
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { PreferenceToggleRow } from "./PreferenceToggleRow.js";
 import { useShellPreferences } from "./shell-preferences.js";
+import { UpdaterReadingHolder, type UpdateReading } from "./updater-reading.js";
 
 /** The one key this block spends. Named once so the row and its note cannot drift. */
 const AUTOMATIC_UPDATE_KEY = "updates.automatic";
 
 /**
- * What this block knows about the updater. Total; every arm renders something.
+ * Bind this window's reading of the updater.
  *
- * `unreachable` is deliberately NOT one of `UpdateState`'s arms: it is the state of
- * the CONVERSATION rather than of the update, and folding it into `error` would
- * attribute a failure to an updater that was never asked.
- */
-type UpdateReading =
-  | { readonly kind: "not-read" }
-  | { readonly kind: "state"; readonly state: UpdateState }
-  | { readonly kind: "unreachable"; readonly detail: string };
-
-/**
- * Subscribe to the updater and read its state once, in that order.
- *
- * Subscribe-before-read for the reason every push-driven read in this console gives:
- * a transition landing after the read and before the handler attaches would be lost,
- * and the worst case the other way round is one redundant render.
+ * The holder is constructed in a `useMemo` keyed on the bridge and opened in an
+ * effect — never in a render body — which is the shape the sibling preference
+ * carrier already takes. The sequencing between the subscription and the opening
+ * read is the holder's, not this hook's: two setters racing here is precisely what
+ * hid a transition behind the older snapshot.
  */
 function useUpdateReading(bridge: ConsoleBridge): UpdateReading {
-  const [reading, setReading] = useState<UpdateReading>({ kind: "not-read" });
+  const holder = useMemo(() => new UpdaterReadingHolder(bridge.sidekicks.update), [bridge]);
   useEffect(() => {
-    let isAttached = true;
-    const settleUnreachable = (thrown: unknown): void => {
-      if (isAttached) {
-        setReading({
-          kind: "unreachable",
-          detail: thrown instanceof Error ? thrown.message : String(thrown),
-        });
-      }
-    };
-    let release: (() => void) | undefined;
-    try {
-      release = bridge.sidekicks.update.subscribe((state) => {
-        if (isAttached) {
-          setReading({ kind: "state", state });
-        }
-      });
-      void bridge.sidekicks.update
-        .getState()
-        .then((state) => {
-          if (isAttached) {
-            setReading({ kind: "state", state });
-          }
-        })
-        .catch(settleUnreachable);
-    } catch (subscribeRejection: unknown) {
-      settleUnreachable(subscribeRejection);
-    }
+    holder.open();
     return () => {
-      isAttached = false;
-      release?.();
+      holder.close();
     };
-  }, [bridge]);
-  return reading;
+  }, [holder]);
+  const subscribe = useCallback(
+    (onStoreChange: () => void) => holder.subscribe(onStoreChange),
+    [holder],
+  );
+  const read = useCallback(() => holder.snapshot(), [holder]);
+  return useSyncExternalStore(subscribe, read, read).reading;
 }
 
 /**
@@ -162,7 +140,7 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
   const runControl = useCallback((perform: () => Promise<void>): void => {
     setRequestRefusal(undefined);
     void perform().catch((rejection: unknown) => {
-      setRequestRefusal(rejection instanceof Error ? rejection.message : String(rejection));
+      setRequestRefusal(normalizeWireRejection(rejection, { total: true }).message);
     });
   }, []);
 

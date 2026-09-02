@@ -30,7 +30,7 @@
 // shown read-only exactly as it arrived. No default is ever drawn, because a default
 // on this screen would look like the person's own answer.
 //
-// A SWITCH WRITES THE WHOLE VALUE BACK
+// A SWITCH WRITES THE WHOLE VALUE BACK, AND ONLY ONE AT A TIME PER RECORD
 //
 // The update carries a record rather than a patch, so a toggle sends the whole value
 // with one member flipped. On a served write the set is RE-READ rather than patched
@@ -39,13 +39,28 @@
 // rendered for the same reason — it would be a second truth about a record this page
 // is about to read again.
 //
+// Because the write is whole-record, two switches inside one record cannot be in
+// flight at once: composed from the same starting value, the second would erase the
+// first member's change. So the whole record goes busy while its write is out — every
+// switch in it stops taking presses and the record says so with `aria-busy` — and the
+// serialisation itself belongs to `notification-preference-writer.ts`, which also
+// decides what a toggle arriving mid-flight is composed against.
+//
 // WHAT IS REACHABLE WITHOUT THE DAEMON IS THE MUTE, AND IT IS GLOBAL
 //
 // The OS-toast mute is shell-local, so it rides the shell-config preference carrier
 // every settings toggle shares (`shell-preferences.ts`). It is offered once, for this
 // machine.
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
 
 import "./notifications.css";
 
@@ -53,13 +68,16 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing, WireFigure, useAnnounce } from "../../primitives/index.js";
 import {
   announcementFor,
-  flipMember,
   projectPreferenceRows,
   type AttentionPreferenceReadOutcome,
   type CallerParticipantOutcome,
   type PreferenceRow,
   type PreferenceToggleMember,
 } from "./attention-preference-model.js";
+import {
+  NotificationPreferenceWriter,
+  type TogglePreferenceRow,
+} from "./notification-preference-writer.js";
 import { PreferenceToggleRow } from "./PreferenceToggleRow.js";
 import { useShellPreferences } from "./shell-preferences.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page-registry.js";
@@ -80,13 +98,14 @@ const OS_TOAST_MUTE_KEY = "notifications.osToastsMuted";
 const STORED_MEMBER_DESCRIPTION =
   "Shown exactly as the daemon stores it. Nothing here says what it governs.";
 
-/** What one preference edit is doing right now, per switch rather than per key. */
+/** What one preference edit is doing right now: busy per record, refused per switch. */
 interface StoredPreferenceBinding {
   readonly participantOutcome: CallerParticipantOutcome | undefined;
   readonly readOutcome: AttentionPreferenceReadOutcome | undefined;
-  readonly pendingMemberKey: string | undefined;
-  readonly refusalByMemberKey: Readonly<Record<string, ConsoleRefusal>>;
-  readonly toggleMember: (row: PreferenceRow, member: PreferenceToggleMember) => void;
+  /** True while any switch in this record has a write out or queued behind one. */
+  readonly isRecordBusy: (recordKey: string) => boolean;
+  readonly refusalFor: (memberKey: string) => ConsoleRefusal | undefined;
+  readonly toggleMember: (row: TogglePreferenceRow, member: PreferenceToggleMember) => void;
 }
 
 export function NotificationsPage(props: { readonly context: SettingsPageContext }): ReactNode {
@@ -144,11 +163,12 @@ export function NotificationsPage(props: { readonly context: SettingsPageContext
 }
 
 /**
- * The two reads, in order, and the write that re-reads.
+ * The two reads, in order, and the writer that owns everything after them.
  *
- * A hook rather than a render body: it owns two effects, a write, and the staleness
- * guards that keep a reply from a session nobody is looking at any more from landing
- * on this one.
+ * A hook rather than a render body: it owns two effects and the staleness guards that
+ * keep a reply from a session nobody is looking at any more from landing on this one.
+ * Everything a switch does once the set is on screen — the write, the record's lock,
+ * the queue behind it, the re-read — belongs to the writer this hook builds.
  */
 function useStoredAttentionPreferences(context: SettingsPageContext): StoredPreferenceBinding {
   const { bridge, retainedSessionId } = context;
@@ -159,15 +179,9 @@ function useStoredAttentionPreferences(context: SettingsPageContext): StoredPref
   const [readOutcome, setReadOutcome] = useState<AttentionPreferenceReadOutcome | undefined>(
     undefined,
   );
-  const [pendingMemberKey, setPendingMemberKey] = useState<string | undefined>(undefined);
-  const [refusalByMemberKey, setRefusalByMemberKey] = useState<
-    Readonly<Record<string, ConsoleRefusal>>
-  >({});
-  const [readGeneration, setReadGeneration] = useState(0);
   // The chain settles once and says so once. Held in a ref rather than in state so
   // announcing never causes the render that would announce again.
   const hasAnnouncedRef = useRef(false);
-  const participantIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
     if (retainedSessionId === undefined) {
@@ -200,10 +214,6 @@ function useStoredAttentionPreferences(context: SettingsPageContext): StoredPref
     participantOutcome?.status === "served" ? participantOutcome.value.participantId : undefined;
 
   useEffect(() => {
-    participantIdRef.current = participantId;
-  }, [participantId]);
-
-  useEffect(() => {
     if (participantId === undefined) {
       return undefined;
     }
@@ -212,8 +222,6 @@ function useStoredAttentionPreferences(context: SettingsPageContext): StoredPref
       if (!isAttached) {
         return;
       }
-      // Replaced in place and never cleared first, so the re-read a write triggers
-      // does not return the section to its loading shape.
       setReadOutcome(result);
       if (!hasAnnouncedRef.current) {
         hasAnnouncedRef.current = true;
@@ -223,51 +231,44 @@ function useStoredAttentionPreferences(context: SettingsPageContext): StoredPref
     return () => {
       isAttached = false;
     };
-  }, [bridge, participantId, readGeneration, announce]);
+  }, [bridge, participantId, announce]);
 
-  const toggleMember = useCallback(
-    (row: PreferenceRow, member: PreferenceToggleMember) => {
-      if (participantId === undefined || row.kind !== "toggles") {
-        return;
-      }
-      setPendingMemberKey(member.memberKey);
-      // Last time's reason is dropped on the attempt rather than on its settlement,
-      // so a person pressing again does not read it beside this time's spinner.
-      setRefusalByMemberKey((held) =>
-        Object.fromEntries(
-          Object.entries(held).filter(([heldKey]) => heldKey !== member.memberKey),
-        ),
-      );
-      void bridge.growth
-        .attentionPreferenceUpdate({
-          participantId,
-          key: row.key,
-          value: flipMember(row.value, member.name),
-        })
-        .then((result) => {
-          if (participantIdRef.current !== participantId) {
-            return;
-          }
-          setPendingMemberKey(undefined);
-          if (result.status === "unavailable") {
-            setRefusalByMemberKey((held) => ({ ...held, [member.memberKey]: result }));
-            return;
-          }
-          // Re-read rather than patched, so this page never holds a second copy of a
-          // record the daemon owns. The reply's timestamp is not rendered for the
-          // same reason.
-          setReadGeneration((generation) => generation + 1);
-        });
-    },
+  // Rebuilt when the participant changes, because everything it holds — the queue,
+  // the busy records, the refusals — belongs to one person's set. The old writer's
+  // in-flight replies are released with it, so a reply for a participant nobody is
+  // looking at any more lands nowhere.
+  const writer = useMemo(
+    () =>
+      new NotificationPreferenceWriter({
+        port: bridge.growth,
+        participantId,
+        // Replaced in place and never cleared first, so the re-read a served write
+        // triggers does not return the section to its loading shape.
+        onRecordsRead: setReadOutcome,
+      }),
     [bridge, participantId],
   );
+  useEffect(
+    () => () => {
+      writer.releasePendingWrites();
+    },
+    [writer],
+  );
+  const subscribeToWrites = useCallback(
+    (onStoreChange: () => void) => writer.subscribe(onStoreChange),
+    [writer],
+  );
+  const readWrites = useCallback(() => writer.snapshot(), [writer]);
+  const writes = useSyncExternalStore(subscribeToWrites, readWrites, readWrites);
 
   return {
     participantOutcome,
     readOutcome,
-    pendingMemberKey,
-    refusalByMemberKey,
-    toggleMember,
+    isRecordBusy: (recordKey) => writes.busyRecordKeys.has(recordKey),
+    refusalFor: (memberKey) => writes.refusalByMemberKey.get(memberKey),
+    toggleMember: (row, member) => {
+      writer.toggle(row, member);
+    },
   };
 }
 
@@ -320,7 +321,14 @@ function StoredPreferences(props: {
   return (
     <ul className="meridian-attention-preferences">
       {rows.map((row) => (
-        <li className="meridian-attention-preferences__row" key={row.key}>
+        // `aria-busy` on the RECORD rather than on one switch, because that is the
+        // scope the write locks: the value goes back whole, so every member of it is
+        // unpressable until the daemon answers.
+        <li
+          className="meridian-attention-preferences__row"
+          key={row.key}
+          aria-busy={binding.isRecordBusy(row.key)}
+        >
           <p className="meridian-attention-preferences__key">
             <WireFigure value={row.key} />
           </p>
@@ -344,6 +352,7 @@ function StoredPreferenceValue(props: {
       </p>
     );
   }
+  const isBusy = binding.isRecordBusy(row.key);
   return (
     <>
       {row.members.map((member) => (
@@ -352,8 +361,8 @@ function StoredPreferenceValue(props: {
           label={member.name}
           description={STORED_MEMBER_DESCRIPTION}
           checked={member.isEnabled}
-          isPending={binding.pendingMemberKey === member.memberKey}
-          refusal={binding.refusalByMemberKey[member.memberKey]}
+          isPending={isBusy}
+          refusal={binding.refusalFor(member.memberKey)}
           onCheckedChange={() => {
             binding.toggleMember(row, member);
           }}
