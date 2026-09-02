@@ -102,7 +102,13 @@ export const TOOL_SUMMARY_MAX_CHARACTERS = 96;
  *
  * `anser` yields one entry per style run, so a colour-heavy build log produces far more
  * entries than lines. The cap is on the mapped spans rather than on the source bytes
- * because the spans are what become DOM nodes, and the fold is recoverable — the body
- * says how much is shown and offers the rest, per §5.9's payload-expansion rule.
+ * because the spans are what become DOM nodes.
+ *
+ * IT IS THE FIRST RENDER'S CAP AND NOT THE BLOCK'S CEILING. `Spec-023 §Console Design
+ * (Meridian)`'s "#### Rules every console surface obeys" is why: the fold has to be
+ * recoverable, and `AnsiOutput` is what makes it so — the notice carries both figures
+ * and a control that re-parses the same source under a cap that admits every run. A cap
+ * with no way past it would put the tail of a colour-heavy command beyond reach, since
+ * reopening the card re-parses exactly the same capped sequence.
  */
 export const ANSI_SPAN_RENDER_CAP = 4096;
