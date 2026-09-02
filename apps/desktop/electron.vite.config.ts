@@ -117,6 +117,12 @@ const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) =
       // emitted code, dropping the probe body from the release bundle.
       define: {
         __SIDEKICKS_SMOKE_BUILD__: JSON.stringify(isSmokeBuild),
+        // The console's fixture gate reaches `main` too, because the scenario a
+        // fixture build plays is named by a launch environment variable that main
+        // reads and forwards onto the renderer document URL. Substituted the same
+        // way and for the same reason: a release main bundle folds the branch
+        // away, so it carries neither the environment read nor the query.
+        __SIDEKICKS_CONSOLE_FIXTURES__: JSON.stringify(isFixtureBuild),
       },
       build: {
         outDir: "out/main",

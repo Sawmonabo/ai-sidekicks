@@ -27,3 +27,11 @@ export {
 } from "./BridgeProvider.js";
 
 export { createFixtureBridge } from "./fixture-bridge.js";
+
+// The boot-time scenario decision. Exported through this door because the
+// renderer root reads it — it is the one console fact that arrives on the
+// document URL rather than through the bridge, and the root is above every
+// family. `ScenarioFixtureControl` deliberately does NOT ship through here: its
+// only caller is the provider beside it, and its only reader is a driver in
+// another process that imports the module directly.
+export { ScenarioSelection } from "./scenario-selection.js";

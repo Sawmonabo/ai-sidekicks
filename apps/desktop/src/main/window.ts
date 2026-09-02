@@ -193,11 +193,35 @@ export function prepareAndLoad(
   loadDocument(browserWindow, documentUrl, role);
 }
 
+/**
+ * How the main window opens, beyond the load hook every window shares.
+ *
+ * `documentQuery` is a QUERY string (`?name=value`) and never a route: routes
+ * travel in the hash, which the renderer owns and navigates itself, and a query is
+ * the only part of the document URL that is fixed for the window's whole life.
+ * The main window opens with no hash, so the query is simply appended; an empty
+ * string — the default, and what every release build passes — resolves to exactly
+ * the URL this factory has always loaded.
+ *
+ * The one caller that passes a non-empty value is `main/index.ts`, behind the
+ * console's fixture `define`: a fixture build names the scenario it plays on the
+ * document URL because the renderer has no other way to be told, and a release
+ * build folds that branch away.
+ */
+export interface MainWindowOptions extends WindowLoadOptions {
+  readonly documentQuery?: string;
+}
+
 /** The main session window. */
-export function createMainWindow(options: WindowLoadOptions = {}): BrowserWindow {
+export function createMainWindow(options: MainWindowOptions = {}): BrowserWindow {
   const browserWindow = constructLockedWindow({ width: 1280, height: 800 });
 
-  prepareAndLoad(browserWindow, resolveRendererDocumentUrl(""), "main", options);
+  prepareAndLoad(
+    browserWindow,
+    resolveRendererDocumentUrl(options.documentQuery ?? ""),
+    "main",
+    options,
+  );
 
   return browserWindow;
 }
