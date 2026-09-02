@@ -39,18 +39,18 @@ describe("failure matrix — the router is handed a malformed auxiliary context"
     expect(parseRoute("#/window/timeline")).toStrictEqual({
       kind: "auxiliary",
       route: "timeline",
-      sessionId: undefined,
-      agentId: undefined,
     });
   });
 
   it("decodes a session id that needed escaping rather than splitting on it", () => {
-    const route = parseRoute("#/window/agent-console/session%2Fwith%2Fslashes");
+    // On the timeline route, whose context is the session alone: the agent console
+    // takes its session and its agent together or neither, so a one-segment agent
+    // console is refused by the shared grammar and would test the refusal instead.
+    const route = parseRoute("#/window/timeline/session%2Fwith%2Fslashes");
     expect(route).toStrictEqual({
       kind: "auxiliary",
-      route: "agent-console",
+      route: "timeline",
       sessionId: "session/with/slashes",
-      agentId: undefined,
     });
   });
 

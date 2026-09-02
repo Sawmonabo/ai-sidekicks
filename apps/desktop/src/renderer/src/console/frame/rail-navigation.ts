@@ -15,6 +15,7 @@
 import {
   RAIL_DESTINATIONS,
   isAuxiliaryRoute,
+  routeSessionId,
   type ConsoleRoute,
   type RailDestination,
 } from "../routing/index.js";
@@ -23,7 +24,7 @@ import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./IconRail.js";
 /** The rail's contents for a route. Workspace is absent with no session open. */
 export function buildRailEntries(route: ConsoleRoute): readonly RailEntry[] {
   const hasSession =
-    route.kind === "workspace" || (isAuxiliaryRoute(route) && route.sessionId !== undefined);
+    route.kind === "workspace" || (isAuxiliaryRoute(route) && routeSessionId(route) !== undefined);
   return RAIL_DESTINATIONS.map((destination) => ({
     destination,
     ...RAIL_ENTRY_TEMPLATES[destination],

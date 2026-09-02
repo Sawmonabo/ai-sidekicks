@@ -94,8 +94,8 @@ describe("surface registry — the slot set is one declaration", () => {
       { kind: "sessions" },
       { kind: "workspace", sessionId: "s-1" },
       { kind: "settings", page: undefined },
-      { kind: "auxiliary", route: "timeline", sessionId: undefined, agentId: undefined },
-      { kind: "auxiliary", route: "agent-console", sessionId: "s-1", agentId: undefined },
+      { kind: "auxiliary", route: "timeline" },
+      { kind: "auxiliary", route: "agent-console", sessionId: "s-1", agentId: "a-1" },
     ];
     const slots = routes.map((route) => surfaceSlotFor(route));
     expect(slots).toStrictEqual(["sessions", "workspace", "settings", "timeline", "agent-console"]);

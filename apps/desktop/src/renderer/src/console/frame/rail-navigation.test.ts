@@ -15,17 +15,11 @@ import { buildRailEntries, routeForDestination } from "./rail-navigation.js";
 
 const SESSIONS_ROUTE: ConsoleRoute = { kind: "sessions" };
 const WORKSPACE_ROUTE: ConsoleRoute = { kind: "workspace", sessionId: "session-1" };
-const BARE_TIMELINE_ROUTE: ConsoleRoute = {
-  kind: "auxiliary",
-  route: "timeline",
-  sessionId: undefined,
-  agentId: undefined,
-};
+const BARE_TIMELINE_ROUTE: ConsoleRoute = { kind: "auxiliary", route: "timeline" };
 const SEATED_TIMELINE_ROUTE: ConsoleRoute = {
   kind: "auxiliary",
   route: "timeline",
   sessionId: "session-1",
-  agentId: undefined,
 };
 
 /** The same entries, written in a different key order. The control's subject. */

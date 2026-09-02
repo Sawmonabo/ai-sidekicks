@@ -34,7 +34,7 @@ import { createElement, type ReactNode } from "react";
 import type { SessionId } from "@ai-sidekicks/contracts";
 
 import { Nothing } from "../primitives/index.js";
-import type { ConsoleRoute } from "../routing/index.js";
+import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
@@ -163,14 +163,6 @@ function mountSessionScopedLegacySurface(
  * with a schema validator in a bundle budget measured in kilobytes.
  */
 function subjectSessionId(route: ConsoleRoute): SessionId | undefined {
-  switch (route.kind) {
-    case "workspace":
-      return route.sessionId as SessionId;
-    case "auxiliary":
-      return route.sessionId === undefined ? undefined : (route.sessionId as SessionId);
-    case "sessions":
-    case "settings":
-    case "not-found":
-      return undefined;
-  }
+  const sessionId = routeSessionId(route);
+  return sessionId === undefined ? undefined : (sessionId as SessionId);
 }

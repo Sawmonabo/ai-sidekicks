@@ -35,7 +35,7 @@
 import {
   formatAuxiliaryFragment,
   parseAuxiliaryFragment,
-  type AuxiliaryRouteName,
+  type AuxiliaryRouteTarget,
 } from "../../../../shared/auxiliary-routes.js";
 
 /**
@@ -57,12 +57,17 @@ export type ConsoleRoute =
   | { readonly kind: "sessions" }
   | { readonly kind: "workspace"; readonly sessionId: string }
   | { readonly kind: "settings"; readonly page: string | undefined }
-  | {
-      readonly kind: "auxiliary";
-      readonly route: AuxiliaryRouteName;
-      readonly sessionId: string | undefined;
-      readonly agentId: string | undefined;
-    }
+  // The shared target with a kind tag, INTERSECTED rather than restated. That
+  // target is route-discriminated — an agent console carries its agent with its
+  // session or not at all, a timeline carries no agent — and writing the arm out
+  // here as two independent optionals would reintroduce the half-supplied context
+  // the shared grammar exists to make unrepresentable, in the one module that
+  // delegates both directions of that grammar precisely so it cannot drift.
+  //
+  // Distributing over the union gives four auxiliary arms rather than one, so
+  // `route.sessionId` reads only where a session is actually carried and the
+  // `"agentId" in route` test narrows instead of merely testing for `undefined`.
+  | ({ readonly kind: "auxiliary" } & AuxiliaryRouteTarget)
   | { readonly kind: "not-found"; readonly attempted: string };
 
 /** The route a window with no hash lands on. */
@@ -116,14 +121,12 @@ export function parseRoute(hash: string): ConsoleRoute {
     if (target === null) {
       return notFound(hash);
     }
-    return {
-      kind: "auxiliary",
-      route: target.route,
-      // A bare auxiliary route is legitimate and gets the context picker; only an
-      // unparseable one is not-found.
-      sessionId: "sessionId" in target ? target.sessionId : undefined,
-      agentId: "agentId" in target ? target.agentId : undefined,
-    };
+    // A bare auxiliary route is legitimate and gets the context picker; only an
+    // unparseable one is not-found. The target is spread whole rather than
+    // destructured field by field, which is what keeps this arm honest as the
+    // shared grammar grows a route: a third route's context keys arrive here with
+    // no edit, where a field list would have silently dropped them.
+    return { kind: "auxiliary", ...target };
   }
 
   return notFound(hash);
@@ -141,21 +144,12 @@ export function formatRoute(route: ConsoleRoute): string {
         ? "#/settings"
         : `#/settings/${encodeURIComponent(route.page)}`;
     case "auxiliary": {
-      // Widened into the shared three-arm target rather than encoded here. The
-      // arms are what make "an agent id with no session to read it in"
-      // unrepresentable, and going through them keeps this the exact inverse of
-      // the parse above — both sides of one grammar, written once.
-      if (route.sessionId === undefined) {
-        return formatAuxiliaryFragment({ route: route.route });
-      }
-      if (route.agentId === undefined) {
-        return formatAuxiliaryFragment({ route: route.route, sessionId: route.sessionId });
-      }
-      return formatAuxiliaryFragment({
-        route: route.route,
-        sessionId: route.sessionId,
-        agentId: route.agentId,
-      });
+      // Encoded by the shared producer, which keeps this the exact inverse of the
+      // parse above — both sides of one grammar, written once. Only the kind tag
+      // is dropped; the rest of the route IS the target, so there is no arm-by-arm
+      // reconstruction here to disagree with the grammar it is reconstructing.
+      const { kind: _consoleRouteKind, ...target } = route;
+      return formatAuxiliaryFragment(target);
     }
     case "not-found":
       return route.attempted;
@@ -195,11 +189,39 @@ export function isAuxiliaryRoute(route: ConsoleRoute): route is AuxiliaryConsole
 }
 
 /**
+ * The session a route is scoped to, or `undefined` where it names none.
+ *
+ * One accessor rather than a presence test at each call site. The auxiliary arm
+ * is route-discriminated, so `sessionId` is on the type of some arms and off the
+ * type of others; without this, every reader narrows for itself, and the two that
+ * already did — the frame store's active session and the legacy mounts' subject —
+ * had written two different walks over one union before the arm was discriminated
+ * at all.
+ */
+export function routeSessionId(route: ConsoleRoute): string | undefined {
+  switch (route.kind) {
+    case "workspace":
+      return route.sessionId;
+    case "auxiliary":
+      return "sessionId" in route ? route.sessionId : undefined;
+    case "sessions":
+    case "settings":
+    case "not-found":
+      return undefined;
+  }
+}
+
+/** The agent a route is scoped to. Module-private: only the comparison below asks. */
+function routeAgentId(route: ConsoleRoute): string | undefined {
+  return route.kind === "auxiliary" && "agentId" in route ? route.agentId : undefined;
+}
+
+/**
  * True when an auxiliary route needs the context picker: it named a window but not
  * what to show in it.
  */
 export function needsContextPicker(route: ConsoleRoute): boolean {
-  return route.kind === "auxiliary" && route.sessionId === undefined;
+  return route.kind === "auxiliary" && routeSessionId(route) === undefined;
 }
 
 /** Structural route comparison, so an unchanged hash costs no transition. */
@@ -218,8 +240,8 @@ export function routesAreEqual(left: ConsoleRoute, right: ConsoleRoute): boolean
       return (
         right.kind === "auxiliary" &&
         left.route === right.route &&
-        left.sessionId === right.sessionId &&
-        left.agentId === right.agentId
+        routeSessionId(left) === routeSessionId(right) &&
+        routeAgentId(left) === routeAgentId(right)
       );
     case "not-found":
       return right.kind === "not-found" && left.attempted === right.attempted;

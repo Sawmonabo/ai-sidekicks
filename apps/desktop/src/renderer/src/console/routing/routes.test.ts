@@ -42,8 +42,8 @@ const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
 
 /** Auxiliary routes as values, for the predicates. Never parsed from a hash here. */
 const AUXILIARY_ROUTES: readonly ConsoleRoute[] = [
-  { kind: "auxiliary", route: "timeline", sessionId: undefined, agentId: undefined },
-  { kind: "auxiliary", route: "timeline", sessionId: "session-1", agentId: undefined },
+  { kind: "auxiliary", route: "timeline" },
+  { kind: "auxiliary", route: "timeline", sessionId: "session-1" },
   { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: "agent-1" },
 ];
 
@@ -122,9 +122,13 @@ describe("routes — the auxiliary arm is the shared grammar, not a second copy"
     });
   });
 
-  it("refuses an unknown auxiliary route name and too many segments", () => {
+  it("refuses an unknown route name, too many segments, and a half-supplied context", () => {
     expect(parseRoute("#/window/nowhere").kind).toBe("not-found");
     expect(parseRoute("#/window/timeline/s1/a1/extra").kind).toBe("not-found");
+    // An agent console names its session AND its agent or neither: a session with
+    // no agent is not a partial descriptor of a window, it is a window that cannot
+    // be opened. The shared grammar refuses it, so this arm never sees a target.
+    expect(parseRoute("#/window/agent-console/session-1").kind).toBe("not-found");
   });
 
   it("negative control: the well-formed auxiliary hashes still parse", () => {
@@ -133,14 +137,12 @@ describe("routes — the auxiliary arm is the shared grammar, not a second copy"
     expect(parseRoute("#/window/timeline")).toStrictEqual({
       kind: "auxiliary",
       route: "timeline",
-      sessionId: undefined,
-      agentId: undefined,
     });
-    expect(parseRoute("#/window/agent-console/session-1")).toStrictEqual({
+    expect(parseRoute("#/window/agent-console/session-1/agent-1")).toStrictEqual({
       kind: "auxiliary",
       route: "agent-console",
       sessionId: "session-1",
-      agentId: undefined,
+      agentId: "agent-1",
     });
   });
 
@@ -207,24 +209,12 @@ describe("needsContextPicker — an auxiliary window that has no subject yet", (
   it("is true for an auxiliary route that names no session", () => {
     // Not an error and not an empty state: the window works, it just does not know
     // what to show, and the picker is what that case renders.
-    expect(
-      needsContextPicker({
-        kind: "auxiliary",
-        route: "timeline",
-        sessionId: undefined,
-        agentId: undefined,
-      }),
-    ).toBe(true);
+    expect(needsContextPicker({ kind: "auxiliary", route: "timeline" })).toBe(true);
   });
 
   it("is false once the route names a session", () => {
     expect(
-      needsContextPicker({
-        kind: "auxiliary",
-        route: "timeline",
-        sessionId: "session-1",
-        agentId: undefined,
-      }),
+      needsContextPicker({ kind: "auxiliary", route: "timeline", sessionId: "session-1" }),
     ).toBe(false);
   });
 
@@ -259,14 +249,14 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
     ).toBe(false);
     expect(
       routesAreEqual(
-        { kind: "auxiliary", route: "timeline", sessionId: "session-1", agentId: undefined },
-        { kind: "auxiliary", route: "timeline", sessionId: "session-1", agentId: "agent-1" },
+        { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: "agent-1" },
+        { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: "agent-2" },
       ),
     ).toBe(false);
     expect(
       routesAreEqual(
-        { kind: "auxiliary", route: "timeline", sessionId: "session-1", agentId: undefined },
-        { kind: "auxiliary", route: "agent-console", sessionId: "session-1", agentId: undefined },
+        { kind: "auxiliary", route: "timeline" },
+        { kind: "auxiliary", route: "agent-console" },
       ),
     ).toBe(false);
     expect(

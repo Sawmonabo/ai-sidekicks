@@ -18,6 +18,7 @@ export {
   needsContextPicker,
   parseRoute,
   railDestinationFor,
+  routeSessionId,
   routesAreEqual,
   type ConsoleRoute,
   type RailDestination,

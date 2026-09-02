@@ -30,7 +30,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { RENDERER_ORIGIN } from "../../../src/main/protocol.js";
+import { RENDERER_ORIGIN } from "../../../src/main/renderer-scheme.js";
 import {
   CONSOLE_DATABASE_NAME,
   PERSISTENCE_GLOBAL_PARTITION,

@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { KeyBindingTable, type WhenClauseContext } from "../palette/index.js";
-import { isAuxiliaryRoute, type ConsoleRoute } from "../routing/index.js";
+import { isAuxiliaryRoute, routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
 import {
@@ -125,10 +125,12 @@ export function describeScope(route: ConsoleRoute): string {
       return `Session ${route.sessionId}`;
     case "settings":
       return "Settings";
-    case "auxiliary":
-      return route.sessionId === undefined
+    case "auxiliary": {
+      const sessionId = routeSessionId(route);
+      return sessionId === undefined
         ? `${route.route} — no session chosen`
-        : `${route.route} — session ${route.sessionId}`;
+        : `${route.route} — session ${sessionId}`;
+    }
     case "not-found":
       return "Nowhere";
   }

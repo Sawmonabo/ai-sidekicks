@@ -15,8 +15,8 @@ import type { ConsoleRefusal } from "../core/index.js";
 import { toReadableStore, type ConsoleReadableStore } from "./readable.js";
 import {
   DEFAULT_ROUTE,
-  isAuxiliaryRoute,
   parseRoute,
+  routeSessionId,
   routesAreEqual,
   type ConsoleRoute,
 } from "../routing/index.js";
@@ -79,14 +79,7 @@ export class FrameStore {
 
   /** The session the route names, or `undefined`. A projection, never a copy. */
   public get activeSessionId(): string | undefined {
-    const { route } = this.#store.getState();
-    if (route.kind === "workspace") {
-      return route.sessionId;
-    }
-    if (isAuxiliaryRoute(route)) {
-      return route.sessionId;
-    }
-    return undefined;
+    return routeSessionId(this.#store.getState().route);
   }
 
   public navigate(route: ConsoleRoute): void {
