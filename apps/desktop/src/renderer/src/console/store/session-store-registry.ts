@@ -14,7 +14,9 @@
 //   • the `ApplyQueue` in front of its apply chokepoint, so a burst of wire events
 //     is one transition and one render instead of N;
 //   • the `RefreshScheduler` behind its re-pull, so every read is coalesced with an
-//     absolute deadline and two reads never overlap.
+//     absolute deadline and two reads never overlap — and so the drain can ask it
+//     for the authoritative re-pull a lossy batch owes, which is how a hole repairs
+//     itself instead of waiting for an unrelated refresh.
 //
 // The three are created together and disposed together on purpose. A queue that
 // outlived its store would drain into a dead object; a scheduler that outlived its
@@ -40,7 +42,7 @@ import {
 } from "../core/index.js";
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
 import { ApplyQueue, RefreshScheduler, type RefreshReason } from "./scheduling.js";
-import { SessionStore, type SessionSnapshot } from "./session-store.js";
+import { SessionStore, type ApplyOutcome, type SessionSnapshot } from "./session-store.js";
 
 /** The origin every refusal this module raises names. */
 export const SESSION_REGISTRY_ORIGIN = "session-store-registry";
@@ -103,6 +105,26 @@ export interface SessionStoreRegistryOptions {
   readonly refreshMaxWaitMs?: number;
 }
 
+/**
+ * Whether one `applyBatch` left the projection known-incomplete, so an
+ * authoritative re-read is owed.
+ *
+ * Read off the outcome's OWN discriminants, never off the store's degraded cause —
+ * that flag is sticky until a re-pull clears it, so it would make every batch after
+ * the first look repair-worthy. These four are exactly the counts `applyBatch`
+ * raises one for. `duplicates` and `refusedForeignSession` are absent on purpose: a
+ * re-delivery costs nothing, a foreign-session event is a routing defect one layer
+ * up, and neither leaves a hole in THIS store that a read could fill.
+ */
+function needsAuthoritativeRepull(outcome: ApplyOutcome): boolean {
+  return (
+    outcome.gapDetected ||
+    outcome.droppedBeforeInitialisation > 0 ||
+    outcome.refusedDivergedSequence > 0 ||
+    outcome.projectionFailures > 0
+  );
+}
+
 /** One open session: its store and the two schedulers bound to it. */
 class OpenSessionEntry {
   public readonly store: SessionStore;
@@ -122,7 +144,13 @@ class OpenSessionEntry {
       // the console calls `applyBatch`, which is what makes the chokepoint a
       // structural property rather than a convention.
       drain: (events) => {
-        this.store.applyBatch(events);
+        const outcome = this.store.applyBatch(events);
+        if (needsAuthoritativeRepull(outcome)) {
+          // The outcome is the only notice a hole was opened, and only a completed
+          // re-pull closes it. Through the scheduler rather than a direct read, so
+          // a lossy burst costs one repair and never overlaps a read in flight.
+          this.refreshScheduler.request("gap-repull");
+        }
       },
       ...(options.applyCoalesceMs === undefined ? {} : { coalesceMs: options.applyCoalesceMs }),
     });
