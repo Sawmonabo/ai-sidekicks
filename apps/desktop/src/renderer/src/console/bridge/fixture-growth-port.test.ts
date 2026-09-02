@@ -24,6 +24,7 @@ import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { CONSOLE_SCENARIOS } from "./scenarios/index.js";
+import { REPOS_SCENARIO } from "./scenarios/repos.js";
 import { findScenarioWireTruthDefects } from "./scenarios/wire-truth.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
@@ -396,11 +397,15 @@ const BRANCH_NAMING_MEMBERS = [
 /**
  * Scenarios that state a branch anywhere — in a beat's payload or a scripted reply.
  *
- * The fixture answers the branch-context read with an absence, and this is the
- * premise that answer rests on rather than a restatement of it: no scenario carries
- * a repo mount, and no registered event payload names a branch, so there is nothing
- * to derive one from. The day a scenario does state one, this finder reports it and
- * the absence stops being the honest answer.
+ * The fixture answers the branch-context read from the SCRIPT where a scenario has
+ * one and from its own absence where none does, and this finder is what keeps the
+ * second half honest rather than a restatement of it: no registered event payload
+ * names a branch, so a scenario that scripts no `gitflow.branchContextRead` reply has
+ * nothing anywhere for a derivation to read, and the absence is the true answer for
+ * it. The repos scenario scripts one — which is why it is named below rather than
+ * merely tolerated: a scenario that quietly stopped scripting it would leave the
+ * proposal gate reachable only through the empty state again, and this assertion is
+ * what fails at that moment.
  */
 function findScenariosNamingABranch(scenarios: readonly ConsoleScenario[]): readonly string[] {
   return scenarios
@@ -412,8 +417,8 @@ function findScenariosNamingABranch(scenarios: readonly ConsoleScenario[]): read
 }
 
 describe("the fixture's gitflow reads — one answers nothing, the other refuses", () => {
-  it("plays no scenario that states a branch, which is what makes the absence honest", () => {
-    expect(findScenariosNamingABranch(CONSOLE_SCENARIOS)).toStrictEqual([]);
+  it("plays exactly one scenario that states a branch, and every other takes the absence", () => {
+    expect(findScenariosNamingABranch(CONSOLE_SCENARIOS)).toStrictEqual([REPOS_SCENARIO.id]);
   });
 
   it("negative control: reports a scenario that DOES state one", () => {

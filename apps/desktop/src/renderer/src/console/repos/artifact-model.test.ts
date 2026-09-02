@@ -10,6 +10,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  REPOS_IMPLEMENTER_RUN_ID,
+  REPOS_SESSION_ID,
+  REPOS_VIEWING_PARTICIPANT_ID,
+} from "../bridge/scenarios/repos.js";
+import {
   ARTIFACT_PAYLOAD_DISPOSITIONS,
   ARTIFACT_PAYLOAD_DISPOSITION_COPY,
   ARTIFACT_PRODUCER_ABSENT_LABEL,
@@ -30,9 +35,9 @@ import {
 function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
   return {
     id: "artifact-01",
-    sessionId: "session-repos",
-    runId: "run-01",
-    createdBy: "participant-you",
+    sessionId: REPOS_SESSION_ID,
+    runId: REPOS_IMPLEMENTER_RUN_ID,
+    createdBy: REPOS_VIEWING_PARTICIPANT_ID,
     artifactType: "file",
     digest: "sha256:3b1f0c",
     size: 4096,
@@ -112,8 +117,8 @@ describe("artifact-model — absences that are facts", () => {
   });
 
   it("negative control: a present producer is rendered and not replaced", () => {
-    expect(artifactProducerLabel(artifactRow({ createdBy: "participant-you" }))).toBe(
-      "participant-you",
+    expect(artifactProducerLabel(artifactRow({ createdBy: REPOS_VIEWING_PARTICIPANT_ID }))).toBe(
+      REPOS_VIEWING_PARTICIPANT_ID,
     );
   });
 
