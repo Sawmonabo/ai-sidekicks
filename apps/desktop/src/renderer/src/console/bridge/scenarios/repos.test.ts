@@ -11,6 +11,8 @@
 
 import { describe, expect, it } from "vitest";
 
+import type { DaemonMethod } from "@ai-sidekicks/contracts";
+
 import { createFixtureBridge } from "../fixture-bridge.js";
 import {
   REPOS_IMPLEMENTER_RUN_ID,
@@ -18,6 +20,12 @@ import {
   REPOS_SESSION_ID,
   REPOS_VIEWING_PARTICIPANT_ID,
 } from "./repos.js";
+import {
+  GIT_MOUNT_ID,
+  GIT_WORKSPACE_ID,
+  PLAIN_MOUNT_ID,
+  PLAIN_WORKSPACE_ID,
+} from "./repos-fixture-data.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
 import type { ConsoleScenario } from "../scenario.js";
 
@@ -187,5 +195,77 @@ describe("the repos scenario — the growth reads it answers", () => {
     const outcome = await bridge.growth.callerParticipantRead({ sessionId: REPOS_SESSION_ID });
 
     expect(outcome.status).toBe("unavailable");
+  });
+});
+
+/** The two entity-scoped reads, branded once — the spelling `repo-reads.ts` sends. */
+const MOUNT_READ_CALL = "repo.mountRead" as DaemonMethod;
+const CAPABILITIES_READ_CALL = "repo.executionModeCapabilitiesRead" as DaemonMethod;
+
+describe("the repos scenario — the two entity-scoped reads answer per entity", () => {
+  it("answers each mount read with the mount that read named", async () => {
+    // The two mounts the section is a LIST for. Until the reply was computed from the
+    // request, both reads returned the git mount, so the plain-directory mount never
+    // reached a card and the degraded health verdict — which only this read carries —
+    // was unreachable from any scenario at all.
+    const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
+
+    const git = await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
+      repoMountId: GIT_MOUNT_ID,
+    });
+    const plain = await bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
+      repoMountId: PLAIN_MOUNT_ID,
+    });
+
+    expect(git).toMatchObject({ id: GIT_MOUNT_ID, vcsType: "git" });
+    expect(plain).toMatchObject({ id: PLAIN_MOUNT_ID, vcsType: "none" });
+    // The two health verdicts the contract ships, one each, so the healthy card and
+    // the degraded card are both drawn from this one session.
+    expect(git).toMatchObject({ health: { status: "healthy" } });
+    expect(plain).toMatchObject({ health: { status: "unreachable" } });
+  });
+
+  it("answers each capabilities read with what that workspace may actually do", async () => {
+    // The half a mount read alone would leave incoherent: a `none` mount offered all
+    // four execution modes is a picker drawn against a mount that can host one.
+    const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
+
+    const gitModes = await bridge.sidekicks.daemon.call(CAPABILITIES_READ_CALL, {
+      workspaceId: GIT_WORKSPACE_ID,
+    });
+    const plainModes = await bridge.sidekicks.daemon.call(CAPABILITIES_READ_CALL, {
+      workspaceId: PLAIN_WORKSPACE_ID,
+    });
+
+    expect(gitModes).toMatchObject({
+      availableModes: ["read-only", "branch", "worktree", "ephemeral clone"],
+      defaultMode: "worktree",
+    });
+    expect(plainModes).toMatchObject({
+      availableModes: ["read-only"],
+      defaultMode: "read-only",
+    });
+    // Every excluded mode carries its own reason, which is the explicit gap a surface
+    // renders instead of a control it silently does not offer.
+    const { restrictions } = plainModes as {
+      readonly restrictions?: Readonly<Record<string, string>>;
+    };
+    expect(Object.keys(restrictions ?? {}).sort()).toStrictEqual([
+      "branch",
+      "ephemeral clone",
+      "worktree",
+    ]);
+  });
+
+  it("negative control: a mount this session does not hold is refused, not answered", async () => {
+    // Without this, a computation that ignored the request and returned the git mount
+    // for everything would pass the first case above.
+    const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
+
+    await expect(
+      bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
+        repoMountId: "9f2c4a10-0000-4000-8000-0000000000ff",
+      }),
+    ).rejects.toThrow();
   });
 });

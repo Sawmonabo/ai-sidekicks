@@ -123,9 +123,16 @@ describe("RepoMountsReader — the read", () => {
     expect(reading.status).toBe("read");
     expect(reading.workspaces).toHaveLength(2);
     // There is no `repo.mountList` on the wire; the roster is where the mounts come
-    // from, and the mount read is the only surface that carries `health`.
-    expect(reading.mounts).toHaveLength(1);
-    expect(reading.mounts[0]?.health.status).toBe("healthy");
+    // from, and the mount read is the only surface that carries `health`. One read per
+    // DISTINCT mount, and each answers about the mount it named — a scenario that
+    // answered both with one mount would report a session holding two as holding one.
+    expect(reading.mounts.map((mount) => mount.id)).toStrictEqual(
+      reading.workspaces.map((row) => row.repoMountId),
+    );
+    expect(reading.mounts.map((mount) => mount.health.status)).toStrictEqual([
+      "healthy",
+      "unreachable",
+    ]);
     expect(reading.refusal).toBeUndefined();
   });
 
@@ -232,7 +239,7 @@ describe("RepoMountsReader — when the answer does not come", () => {
     const reading = reader.snapshot;
     // The section as a whole answered; only the mode question did not.
     expect(reading.refusal).toBeUndefined();
-    expect(reading.mounts).toHaveLength(1);
+    expect(reading.mounts).toHaveLength(2);
     expect(Object.keys(reading.refusalByWorkspaceId).sort()).toStrictEqual(
       reading.workspaces.map((row) => row.id).sort(),
     );

@@ -28,6 +28,9 @@ const CLONE_LIST_SELECTOR = ".meridian-repo-section__clones";
 /** Both root cards render under one class, so a case scopes by container, not by card. */
 const ROOT_CARD_SELECTOR = ".meridian-root-card";
 
+/** One card per mount. Read from the container, since the list has no element of its own. */
+const MOUNT_CARD_SELECTOR = ".meridian-mount-card";
+
 /**
  * The section, open, over one scenario, inside the window's announcer.
  *
@@ -102,5 +105,45 @@ describe("RepoSection — the ephemeral clones the root read named", () => {
       { timeout: READ_TIMEOUT_MS },
     );
     expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(0);
+  });
+});
+
+describe("RepoSection — the mounts this session actually holds", () => {
+  it("draws a card per mount, each carrying its own health verdict", async () => {
+    const container = renderSection(REPOS_SCENARIO);
+
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(2);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    // Health is the axis only `repo.mountRead` carries, and it is the one that decides
+    // whether the sidebar opens this section at all. One card of each verdict, so the
+    // healthy and the degraded rendering are both reachable from one session.
+    const [healthy, unreachable] = [...container.querySelectorAll(MOUNT_CARD_SELECTOR)];
+    expect(within(healthy as HTMLElement).getByText("healthy")).toBeDefined();
+    expect(within(unreachable as HTMLElement).getByText("unreachable")).toBeDefined();
+    // Each card names the root it is about, so the two are two mounts rather than one
+    // mount drawn twice.
+    expect(healthy?.getAttribute("aria-label")).not.toBe(unreachable?.getAttribute("aria-label"));
+  });
+
+  it("negative control: a section whose mount reads are unscripted draws no card", async () => {
+    // Without this, a list that rendered a card per WORKSPACE would pass the case
+    // above while never having read a mount at all.
+    const container = renderSection({
+      ...REPOS_SCENARIO,
+      id: "repos-mount-read-refused",
+      replies: REPOS_SCENARIO.replies.filter((reply) => reply.call !== "repo.mountRead"),
+    });
+
+    await waitFor(
+      () => {
+        expect(container.querySelector(".meridian-refusal--card")).not.toBeNull();
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    expect(container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(0);
   });
 });
