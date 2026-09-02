@@ -391,3 +391,51 @@ describe("the sidekicks page — the facts it teaches without asking anything", 
     expect((container.textContent ?? "").length).toBeGreaterThan(200);
   });
 });
+
+describe("the sidekicks page — while one delete is running", () => {
+  it("stops every row's delete taking presses, and keeps the pending row legible", async () => {
+    // Delete is the one act on this page with no undo, and the carrier runs one at a
+    // time. The page is where that shows: a control that still took presses would
+    // route every one of them into a refusal, which is a belt rather than a design.
+    const stub = new RegistryStub({
+      lists: [
+        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
+        served([definition({ definitionId: "definition-2", name: "Auditor" })]),
+      ],
+      holdsDeletes: true,
+    });
+    const { container } = renderPage(stub.bridge());
+    await settle();
+
+    await press(buttonNamed(container, "Delete Reviewer"));
+    await pressWithoutSettling(confirmDeleteIn(container));
+
+    expect(buttonNamed(container, "Delete Auditor").disabled).toBe(true);
+    // The row that is going still says so, and it is the same row a person was
+    // looking at when they confirmed.
+    expect(container.textContent ?? "").toContain("Deleting…");
+    expect(stub.deletedIds).toStrictEqual(["definition-1"]);
+
+    await stub.releaseDeletes();
+    expect(stub.listCallCount).toBe(2);
+  });
+
+  it("negative control: the controls come back once the delete has settled", async () => {
+    // Without this, a page that disabled every delete on the first press and never
+    // re-enabled them would satisfy the case above and leave a person unable to
+    // delete anything else without reloading the window.
+    const stub = new RegistryStub({
+      lists: [
+        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
+        served([definition({ definitionId: "definition-2", name: "Auditor" })]),
+      ],
+    });
+    const { container } = renderPage(stub.bridge());
+    await settle();
+
+    await press(buttonNamed(container, "Delete Reviewer"));
+    await press(confirmDeleteIn(container));
+
+    expect(buttonNamed(container, "Delete Auditor").disabled).toBe(false);
+  });
+});

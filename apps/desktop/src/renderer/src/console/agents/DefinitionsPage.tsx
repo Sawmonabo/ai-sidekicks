@@ -198,6 +198,7 @@ function SavedSidekicks(props: {
             row={row}
             isArmed={snapshot.armedDeletionId === row.definitionId}
             isDeleting={snapshot.deletingId === row.definitionId}
+            isAnyDeleteInFlight={snapshot.deletingId !== undefined}
             isOpenInEditor={
               snapshot.editorSubject?.kind === "stored" &&
               snapshot.editorSubject.definitionId === row.definitionId
@@ -216,12 +217,22 @@ function SavedSidekickRow(props: {
   readonly row: SidekickDefinitionRow;
   readonly isArmed: boolean;
   readonly isDeleting: boolean;
+  /**
+   * Whether ANY row's delete is running, this one's included.
+   *
+   * Delete is the one act here with no undo and the carrier admits one at a time, so
+   * every row's delete control stops taking presses while one is in flight — the
+   * refusal the carrier raises for a press that gets through anyway is the belt, not
+   * the ordinary path. The pending row keeps its own treatment through `isDeleting`
+   * above, so a person can still see which record is going.
+   */
+  readonly isAnyDeleteInFlight: boolean;
   /** Whether the detail column's one seat is currently holding this record. */
   readonly isOpenInEditor: boolean;
   readonly refusal: ConsoleRefusal | undefined;
   readonly view: SidekickRegistryView;
 }): React.JSX.Element {
-  const { row, isArmed, isDeleting, isOpenInEditor, refusal, view } = props;
+  const { row, isArmed, isDeleting, isAnyDeleteInFlight, isOpenInEditor, refusal, view } = props;
   return (
     <article
       className={
@@ -260,6 +271,7 @@ function SavedSidekickRow(props: {
             onClick={() => {
               void view.confirmDeletion(row.definitionId);
             }}
+            disabled={isAnyDeleteInFlight}
           >
             Delete
           </button>
@@ -292,7 +304,7 @@ function SavedSidekickRow(props: {
             onClick={() => {
               view.armDeletion(row.definitionId);
             }}
-            disabled={isDeleting}
+            disabled={isAnyDeleteInFlight}
             aria-label={`Delete ${row.name}`}
           >
             {isDeleting ? "Deleting…" : "Delete"}

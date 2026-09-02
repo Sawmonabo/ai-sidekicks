@@ -67,15 +67,37 @@ export function definition(
 export class RegistryStub {
   readonly #lists: readonly ListOutcome[];
   readonly #deleteOutcome: DeleteOutcome;
+  readonly #holdsDeletes: boolean;
   #listCallCount = 0;
   #deletedIds: string[] = [];
+  #heldDeletes: (() => void)[] = [];
 
   public constructor(options: {
     readonly lists: readonly ListOutcome[];
     readonly deleteOutcome?: DeleteOutcome;
+    /**
+     * Hold every delete open until {@link releaseDeletes} is called.
+     *
+     * What a second press while the first is still running can only be driven
+     * against: with an immediate reply there is no moment at which two deletes are
+     * both in flight, so a page that ran them both would look identical to one that
+     * ran them in turn.
+     */
+    readonly holdsDeletes?: boolean;
   }) {
     this.#lists = options.lists;
     this.#deleteOutcome = options.deleteOutcome ?? { status: "served", value: { deleted: true } };
+    this.#holdsDeletes = options.holdsDeletes ?? false;
+  }
+
+  /** Let every held delete answer. Safe with none held. */
+  public async releaseDeletes(): Promise<void> {
+    const held = this.#heldDeletes;
+    this.#heldDeletes = [];
+    for (const release of held) {
+      release();
+    }
+    await settle();
   }
 
   public get listCallCount(): number {
@@ -99,7 +121,17 @@ export class RegistryStub {
         },
         sidekickDefinitionDelete: async (request: { readonly definitionId: string }) => {
           this.#deletedIds = [...this.#deletedIds, request.definitionId];
-          return await Promise.resolve(this.#deleteOutcome);
+          if (!this.#holdsDeletes) {
+            return await Promise.resolve(this.#deleteOutcome);
+          }
+          return await new Promise<DeleteOutcome>((resolve) => {
+            this.#heldDeletes = [
+              ...this.#heldDeletes,
+              () => {
+                resolve(this.#deleteOutcome);
+              },
+            ];
+          });
         },
       },
     };
