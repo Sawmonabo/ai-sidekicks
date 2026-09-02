@@ -433,25 +433,10 @@ describe("scenario wire truth — the controls", () => {
 
   it("accepts two beats at one tick that still take two log positions", () => {
     // The two claims pulled apart. Sharing a tick is ordinary — an event and the
-    // transition it triggers land together — and it does NOT make them share a
-    // position, so a rule that relaxed contiguity for equal ticks would let the gap
-    // above back in through the door this case guards.
-    const defects = findScenarioWireTruthDefects([
-      controlScenario({
-        beats: [
-          runControlBeat(40, 1, "queued", "starting"),
-          runControlBeat(40, 2, "starting", "running"),
-        ],
-      }),
-    ]);
-
-    expect(defects).toStrictEqual([]);
-  });
-
-  it("accepts two beats scripted at one tick, which is ordinary rather than a defect", () => {
-    // The other arm: nondecreasing, not strictly increasing. Without this the case
-    // above could be a blanket refusal of equal ticks, which every scenario that
-    // scripts an event and the transition it triggers would then fail.
+    // transition it triggers land together, so the tick rule is nondecreasing rather
+    // than strictly increasing — and it does NOT make them share a position, so a
+    // rule that relaxed contiguity for equal ticks would let the gap above back in
+    // through the door this case guards.
     const defects = findScenarioWireTruthDefects([
       controlScenario({
         beats: [

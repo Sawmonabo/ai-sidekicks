@@ -98,9 +98,10 @@ export function fixtureSessionSnapshot(
 
 /**
  * The position the fixture's read answers at. See the header for why it is the bottom
- * of the stream rather than the top.
+ * of the stream rather than the top. Exported for one reader: the scenario wire-truth
+ * walk derives the first admissible beat position from it, so the two cannot drift.
  */
-const BASE_STATE_CURSOR = 0;
+export const BASE_STATE_CURSOR = 0;
 
 /**
  * One participant entity per declared membership, in join order.

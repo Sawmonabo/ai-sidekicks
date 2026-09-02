@@ -2,19 +2,20 @@
 // position the store reads it at.
 
 import type { ScenarioWireTruthDefect } from "./defect.js";
+import { BASE_STATE_CURSOR } from "../../fixture-session-snapshot.js";
 import type { ConsoleScenario } from "../../scenario.js";
 
 /**
  * The log position a scenario's first beat occupies.
  *
- * One past the position the fixture's own session read answers at —
- * `fixture-session-snapshot.ts` establishes every scenario's base state at
- * `BASE_STATE_CURSOR`, which is zero, and the store's reconciler counts the rows
- * between the cursor it was re-based to and the first delivery it admits. So a
- * scenario opening anywhere else is not a scenario numbered differently: it is one
- * whose opening rows the store believes it lost.
+ * One past the position the fixture's own session read answers at — derived from
+ * `BASE_STATE_CURSOR` rather than restated, because the store's reconciler counts the
+ * rows between the cursor it was re-based to and the first delivery it admits, and a
+ * walk that pinned its own number would go quietly wrong the day the snapshot's
+ * cursor moved. A scenario opening anywhere else is not a scenario numbered
+ * differently: it is one whose opening rows the store believes it lost.
  */
-const FIRST_LOG_POSITION = 1;
+const FIRST_LOG_POSITION = BASE_STATE_CURSOR + 1;
 
 /**
  * Beats scripted out of the order the clock reaches them in, or out of the log
