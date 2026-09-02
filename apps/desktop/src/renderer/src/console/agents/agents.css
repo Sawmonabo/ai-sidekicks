@@ -188,6 +188,7 @@
 
 .meridian-attach__submit:disabled,
 .meridian-attach__arm:disabled,
+.meridian-agent-card__action:disabled,
 .meridian-switch__apply:disabled {
   cursor: not-allowed;
   color: var(--meridian-text-faint);

@@ -39,6 +39,15 @@ export interface AgentCardProps {
   readonly onChangeBinding?: ((agentId: string) => void) | undefined;
   /** Detach moves `state` to `disabled` and is reversible by re-attaching. */
   readonly onDetach?: ((agentId: string) => void) | undefined;
+  /**
+   * Whether a mutation on this agent's binding is outstanding.
+   *
+   * Detach is durable and shares its caller's latch with the binding switch, so the
+   * control is disabled and `aria-busy` while one is in flight: a press the latch
+   * will refuse is not offered silently. Follow and change-binding are navigation
+   * and are unaffected.
+   */
+  readonly isMutating?: boolean | undefined;
 }
 
 export function AgentCard(props: AgentCardProps): React.JSX.Element {
@@ -111,6 +120,8 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
           <button
             type="button"
             className="meridian-agent-card__action"
+            disabled={props.isMutating === true}
+            aria-busy={props.isMutating === true}
             onClick={() => props.onDetach?.(agent.agentId)}
           >
             Detach

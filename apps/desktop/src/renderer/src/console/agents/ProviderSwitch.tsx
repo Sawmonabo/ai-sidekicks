@@ -134,6 +134,15 @@ export interface ProviderSwitchProps {
   readonly catalog: PushDrivenReadState<DriverCatalogReading>;
   /** Submits `agent.configUpdate`. The immediate arm dispatches the interrupt. */
   readonly onApply: (axes: AxisDraft, interruptAndSwitch: boolean) => void;
+  /**
+   * Whether a mutation on this agent's binding is outstanding.
+   *
+   * This form owns no latch — the caller performs the call and holds it — but it
+   * owes the participant that the controls SAY so: disabled, because a press that
+   * the latch will refuse is not offered silently, and `aria-busy`, because a
+   * screen reader is told the act is under way rather than handed a dead control.
+   */
+  readonly isSubmitting?: boolean | undefined;
   /** The reply's `switch` member. Its presence is the wire's switch discriminator. */
   readonly settlement?: AgentSwitchSettlement | undefined;
   readonly refusal?: ConsoleRefusal | undefined;
@@ -237,7 +246,8 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
             <button
               type="button"
               className="meridian-switch__apply"
-              disabled={needsTargetModel}
+              disabled={needsTargetModel || props.isSubmitting === true}
+              aria-busy={props.isSubmitting === true}
               onClick={() => props.onApply(submitted, false)}
             >
               Switch at the next boundary
@@ -245,7 +255,8 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
             <button
               type="button"
               className="meridian-switch__apply"
-              disabled={needsTargetModel}
+              disabled={needsTargetModel || props.isSubmitting === true}
+              aria-busy={props.isSubmitting === true}
               onClick={() => props.onApply(submitted, true)}
             >
               Switch now, interrupting the run

@@ -16,6 +16,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AgentConsoleModels } from "../../agents/index.js";
+import { DRIVER_CATALOG_FIXTURE } from "../../agents/driver-catalog-fixtures.js";
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
@@ -70,8 +71,13 @@ class HeldAttachDaemon {
   }
 }
 
-/** The real fixture bridge with its daemon call replaced by the one above. */
-function bridgeCalling(daemon: HeldAttachDaemon): ConsoleBridge {
+/** What either test daemon below exposes to the bridge. */
+interface ScriptedDaemon {
+  readonly call: (method: string, params?: unknown) => Promise<unknown>;
+}
+
+/** The real fixture bridge with its daemon call replaced by a scripted one. */
+function bridgeCalling(daemon: ScriptedDaemon): ConsoleBridge {
   const fixture = fixtureBridgeWithGrowth(unscriptedScenario("agent-console-attach"), {});
   return {
     ...fixture,
@@ -152,6 +158,146 @@ async function openReadyAttachForm(
   expect(submit.disabled).toBe(false);
   return submit;
 }
+
+/**
+ * A daemon that answers the roster and catalog reads and holds `agent.configUpdate`
+ * open, counting how often it was called.
+ *
+ * The count is the whole assertion for the double press, and holding the call open
+ * is what makes the failure visible: a reply delivered on the next microtask makes
+ * every ordering look correct.
+ */
+class HeldConfigUpdateDaemon {
+  #updateCallCount = 0;
+  #release: ((reading: unknown) => void) | undefined;
+  readonly #roster: readonly unknown[];
+
+  public constructor(roster: readonly unknown[]) {
+    this.#roster = roster;
+  }
+
+  public get updateCallCount(): number {
+    return this.#updateCallCount;
+  }
+
+  public readonly call = async (method: string): Promise<unknown> => {
+    if (method === "agent.list") {
+      return { agents: this.#roster };
+    }
+    if (method === "driver.listModels") {
+      return DRIVER_CATALOG_FIXTURE.models;
+    }
+    if (method === "driver.listCapabilities") {
+      return DRIVER_CATALOG_FIXTURE.capabilities;
+    }
+    if (method === "sidekick.definitionList") {
+      return { definitions: [DEFINITION] };
+    }
+    if (method === "agent.configUpdate") {
+      this.#updateCallCount += 1;
+      return await new Promise<unknown>((resolve) => {
+        this.#release = resolve;
+      });
+    }
+    throw new Error(`the test daemon scripts no reply for ${method}`);
+  };
+
+  public async settle(reply: unknown): Promise<void> {
+    this.#release?.(reply);
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+}
+
+const AGENT_ON_CLAUDE = {
+  agentId: "agent-a",
+  name: "Scout",
+  state: "ready",
+  driverName: "claude",
+  modelId: "claude-sonnet",
+};
+
+/** The switch actions as they stand now — re-queried, never held across a render. */
+function currentSwitchActions(): HTMLButtonElement[] {
+  return [...document.querySelectorAll(".meridian-switch__apply")] as HTMLButtonElement[];
+}
+
+/** Edits the account axis, which is a plain input and needs no popup to open. */
+function editProviderAccount(container: HTMLElement, value: string): void {
+  const input = container.querySelector(".meridian-switch .meridian-axis-field__text");
+  fireEvent.change(input as HTMLInputElement, { target: { value } });
+}
+
+describe("agent binding column — moving one agent's binding", () => {
+  it("issues one config update for a double press", async () => {
+    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
+    );
+    await settleReads(bridge);
+
+    editProviderAccount(container, "account-2");
+    const [deferred] = currentSwitchActions();
+    await act(async () => {
+      fireEvent.click(deferred as HTMLButtonElement);
+      fireEvent.click(deferred as HTMLButtonElement);
+    });
+
+    expect(daemon.updateCallCount).toBe(1);
+  });
+
+  it("disables both actions and the detach control while one is outstanding", async () => {
+    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
+    );
+    await settleReads(bridge);
+
+    editProviderAccount(container, "account-2");
+    await act(async () => {
+      fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
+    });
+
+    expect(currentSwitchActions().every((action) => action.disabled)).toBe(true);
+    expect(currentSwitchActions()[0]?.getAttribute("aria-busy")).toBe("true");
+    const detach = [...container.querySelectorAll(".meridian-agent-card__action")].find(
+      (action) => action.textContent === "Detach",
+    ) as HTMLButtonElement;
+    expect(detach.disabled).toBe(true);
+
+    // Negative control for a control that goes busy and stays that way: the settled
+    // attempt has to hand it back, or one press has cost the person the surface.
+    await act(async () => {
+      await daemon.settle({ agentId: "agent-a" });
+    });
+    expect(currentSwitchActions().every((action) => action.disabled)).toBe(false);
+    expect(currentSwitchActions()[0]?.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("shows the settled reply's own settlement", async () => {
+    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
+    );
+    await settleReads(bridge);
+
+    editProviderAccount(container, "account-2");
+    await act(async () => {
+      fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
+    });
+    await act(async () => {
+      await daemon.settle({
+        agentId: "agent-a",
+        switch: { status: "pending", switchId: "switch-11", appliesAt: "run_boundary" },
+      });
+    });
+
+    expect(container.textContent ?? "").toContain("switches at the next run boundary");
+  });
+});
 
 describe("agent binding column — attaching a sidekick", () => {
   it("issues one request for a double click", async () => {
