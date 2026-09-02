@@ -6,7 +6,8 @@
 // and for most rows there is nothing to read: a browser or terminal operation names
 // no wire method because none is registered anywhere to name.
 //
-// Two blocks name one apiece for every operation they carry — workflow and sidekick.
+// Three blocks name one apiece for every operation they carry — workflow, sidekick,
+// and the session cost plane.
 // Those strings are transcriptions of registries the console does not import and
 // cannot, so the one defect worth catching here is the transcription's own failure
 // mode: a method paired with the wrong operation. That is invisible to every
@@ -168,15 +169,12 @@ describe("the growth ledger's session-cost row — two reads of one fold", () =>
     }
   });
 
-  it("names the two registered methods, each on its own operation", () => {
-    // Written out rather than folded from the ids, because these two ids
-    // deliberately do NOT carry their root — the entry's own comment says why — so
-    // the id-to-method fold the workflow and sidekick blocks check does not apply
-    // and the literal is what there is to check.
-    expect(GROWTH_OPERATIONS.costReceiptRead.expectedWireMethod).toBe(
-      "orchestration.costReceiptRead",
-    );
-    expect(GROWTH_OPERATIONS.budgetRead.expectedWireMethod).toBe("orchestration.budgetRead");
+  it("names the registered method its own id folds to, so no entry is mispaired", () => {
+    for (const operationId of operationsServingRow(COST_SLATE_ROW)) {
+      expect(GROWTH_OPERATIONS[operationId].expectedWireMethod, operationId).toBe(
+        wireMethodFoldedFrom(operationId, "orchestration"),
+      );
+    }
   });
 
   it("names no write verb, the console reading this plane and never moving it", () => {

@@ -386,8 +386,12 @@ export interface GrowthOperationSignatures {
   //
   // Two reads of one fold, and the receipt carries the budget state rather than
   // restating its figures, so the decomposition and the enforced number are the same
-  // value and cannot drift. A surface that wants only the total calls `budgetRead`;
-  // one that wants the breakdown calls `costReceiptRead` and finds the total inside it.
-  costReceiptRead: { request: { readonly sessionId: string }; value: GrowthCostReceipt };
-  budgetRead: { request: { readonly sessionId: string }; value: GrowthBudgetState };
+  // value and cannot drift. A surface that wants only the total calls
+  // `orchestrationBudgetRead`; one that wants the breakdown calls
+  // `orchestrationCostReceiptRead` and finds the total inside it.
+  orchestrationCostReceiptRead: {
+    request: { readonly sessionId: string };
+    value: GrowthCostReceipt;
+  };
+  orchestrationBudgetRead: { request: { readonly sessionId: string }; value: GrowthBudgetState };
 }
