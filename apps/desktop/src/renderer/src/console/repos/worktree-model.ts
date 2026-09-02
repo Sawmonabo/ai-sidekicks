@@ -298,6 +298,9 @@ export const EPHEMERAL_CLONE_DETAIL_COLUMNS: readonly EphemeralCloneColumnKey[] 
   "cleanedAt",
 ];
 
+/** One sentence for one sweep: both record kinds carry `cleanedAt` and both read it. */
+const CLEANUP_STAMP_ABSENT_COPY = "Not swept.";
+
 /**
  * What an omitted worktree column MEANS, per column.
  *
@@ -311,14 +314,14 @@ export const WORKTREE_ABSENT_COLUMN_COPY: Readonly<
   Record<OptionalColumnKey<WorktreeStatusRecord>, string>
 > = {
   createdByRunId: "No run — this root was prepared explicitly.",
-  cleanedAt: "Not swept.",
+  cleanedAt: CLEANUP_STAMP_ABSENT_COPY,
 };
 
 /** The same, for the one clone column the wire may omit. */
 export const EPHEMERAL_CLONE_ABSENT_COLUMN_COPY: Readonly<
   Record<OptionalColumnKey<EphemeralCloneStatusRecord>, string>
 > = {
-  cleanedAt: "Not swept.",
+  cleanedAt: CLEANUP_STAMP_ABSENT_COPY,
 };
 
 /**
