@@ -55,6 +55,25 @@ export const ENDURANCE_DIFF_SHAPE: DiffFixtureShape = {
   agentAttributionEveryNthLine: 7,
 };
 
+/**
+ * The other endurance shape: one file, one hunk, five thousand lines.
+ *
+ * The same five thousand changed lines as `ENDURANCE_DIFF_SHAPE` in the shape that
+ * shape cannot express. Forty files of five twenty-five-line hunks bounds every
+ * per-hunk cost at twenty-five, so a per-lookup flattening of a whole hunk stayed
+ * invisible there; the cost a diff pane actually meets is a generated file, a
+ * vendored lockfile, or a rewritten module, where one hunk holds the whole change.
+ * Both shapes are kept because they measure different claims — that one is about
+ * addressing across many spans, this one about the cost of addressing inside one.
+ */
+export const SINGLE_LARGE_HUNK_DIFF_SHAPE: DiffFixtureShape = {
+  fileCount: 1,
+  hunksPerFile: 1,
+  linesPerHunk: 5_000,
+  precedingContextPerHunk: 30,
+  agentAttributionEveryNthLine: 7,
+};
+
 /** A change set small enough to assert against row by row. */
 export const SMALL_DIFF_SHAPE: DiffFixtureShape = {
   fileCount: 2,

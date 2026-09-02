@@ -32,6 +32,12 @@
 
 import { DIFF_GAP_EXPANSION_LINE_COUNT } from "./diff-bounds.js";
 import type { ConsoleDiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
+import {
+  buildHunkBodyLayout,
+  hunkBodyRowAt,
+  hunkBodyRowCount,
+  type HunkBodyLayout,
+} from "./hunk-row-layout.js";
 
 // THE ROW KINDS ARE THE `DiffRow` UNION'S OWN DISCRIMINANT and are declared
 // nowhere else. There are four, and `gap` is one of them rather than an
@@ -96,72 +102,6 @@ export interface DiffLineRow {
 /** One addressable row of a rendered diff. Narrow on `kind`. */
 export type DiffRow = DiffFileHeaderRow | DiffGapRow | DiffHunkHeaderRow | DiffLineRow;
 
-/** Which of a hunk body's lines one row addresses. The pairing, without the row. */
-interface HunkBodyRow {
-  readonly lineIndex: number;
-  readonly pairedLineIndex?: number;
-}
-
-/**
- * How one hunk's body flattens into rows, under one view mode.
- *
- * ONE WALK ANSWERS BOTH QUESTIONS. The count a file's span is built from and the
- * addressing `rowAt` hands back come from this one function — the count being the
- * length of what it returns — because a hunk whose deletions and insertions are
- * uneven flattens to a row count that no arithmetic over `lines.length` predicts.
- * A second implementation for the count would agree with this one on every hunk
- * until the first uneven one, and then place every row below it at the wrong
- * offset.
- *
- * IN `unified` MODE THE FLATTENING IS THE IDENTITY — one row per line, in order,
- * which is what a unified patch is. In `split` mode the body is walked as maximal
- * runs: a run of deletions immediately followed by a run of insertions pairs
- * positionally into `max(deletions, insertions)` rows, each addressing up to one
- * base line and up to one head line, and the overhang of the longer run keeps its
- * lines unpaired. A run with no partner — an insertion block, a deletion block at
- * the end of a hunk — is one row per line, and so is every context line.
- */
-function hunkBodyRowLayout(
-  lines: readonly DiffLine[],
-  viewMode: DiffViewMode,
-): readonly HunkBodyRow[] {
-  if (viewMode === "unified") {
-    return lines.map((_line, lineIndex) => ({ lineIndex }));
-  }
-  const rows: HunkBodyRow[] = [];
-  let cursor = 0;
-  while (cursor < lines.length) {
-    if (lines[cursor]?.kind !== "delete") {
-      rows.push({ lineIndex: cursor });
-      cursor += 1;
-      continue;
-    }
-    const firstDeleteIndex = cursor;
-    while (lines[cursor]?.kind === "delete") {
-      cursor += 1;
-    }
-    const deleteCount = cursor - firstDeleteIndex;
-    const firstInsertIndex = cursor;
-    while (lines[cursor]?.kind === "insert") {
-      cursor += 1;
-    }
-    const insertCount = cursor - firstInsertIndex;
-    for (let offset = 0; offset < Math.max(deleteCount, insertCount); offset += 1) {
-      if (offset >= deleteCount) {
-        rows.push({ lineIndex: firstInsertIndex + offset });
-      } else if (offset >= insertCount) {
-        rows.push({ lineIndex: firstDeleteIndex + offset });
-      } else {
-        rows.push({
-          lineIndex: firstDeleteIndex + offset,
-          pairedLineIndex: firstInsertIndex + offset,
-        });
-      }
-    }
-  }
-  return rows;
-}
-
 /**
  * How much of each gap has been revealed, keyed by gap.
  *
@@ -219,6 +159,39 @@ interface FileRowSpan {
   readonly fileIndex: number;
   readonly startRowIndex: number;
   readonly rowCount: number;
+  /** This file's hunks, each with the rows it occupies. Built once, in the constructor. */
+  readonly hunkSpans: readonly HunkRowSpan[];
+}
+
+/**
+ * Where one hunk's rows start within its file, and everything needed to address them.
+ *
+ * THE CACHE THE FINDING ASKED FOR, AND IT IS A CACHE OF THE CONSTRUCTOR'S OWN WALK
+ * rather than a second structure beside it. The index already had to flatten every
+ * hunk to know its row count; holding what that flattening produced costs nothing
+ * extra and is what lets `rowAt` answer without rebuilding it. `rowAt` used to rebuild
+ * a hunk's whole body layout for every hunk it walked past — so one five-thousand-line
+ * hunk allocated five thousand row objects per rendered virtual row, and again on
+ * every scroll render, which is virtualization paying the cost virtualization exists
+ * to avoid.
+ *
+ * IMMUTABLE, AND SO IS ITS INVALIDATION. A `DiffRowIndex` is built per (model,
+ * expansion, view mode) and never mutated, so a changed hunk set or a changed mode
+ * produces a NEW index with new spans; there is no staleness question to answer and
+ * no invalidation hook to forget to call.
+ */
+interface HunkRowSpan {
+  readonly hunkIndex: number;
+  /** Rows before this hunk's first, counted from the file's own header at zero. */
+  readonly startRowIndex: number;
+  /** Lines the gap above this hunk still hides. A gap row exists only above zero. */
+  readonly hiddenLineCount: number;
+  /** Lines of that gap revealed so far, drawn between the gap row and the header. */
+  readonly revealedLineCount: number;
+  /** Where the revealed run starts in `precedingContext` — a gap is read outwards. */
+  readonly firstRevealedLineIndex: number;
+  readonly bodyLayout: HunkBodyLayout;
+  readonly rowCount: number;
 }
 
 /**
@@ -239,9 +212,9 @@ interface FileRowSpan {
 export class DiffRowIndex {
   readonly #model: ConsoleDiffModel;
   readonly #expansion: DiffGapExpansion;
-  readonly #viewMode: DiffViewMode;
   readonly #fileSpans: readonly FileRowSpan[];
   readonly #rowCount: number;
+  #bodyLayoutBuildCount = 0;
 
   public constructor(
     model: ConsoleDiffModel,
@@ -261,7 +234,8 @@ export class DiffRowIndex {
   ) {
     this.#model = model;
     this.#expansion = expansion;
-    this.#viewMode = viewMode;
+    // The mode is not held: it is an input to the FLATTENING, which happens here, and
+    // a field nothing reads afterwards would suggest a lookup still consults it.
 
     const fileSpans: FileRowSpan[] = [];
     let rowCursor = 0;
@@ -272,16 +246,32 @@ export class DiffRowIndex {
       const startRowIndex = rowCursor;
       // The file's own header.
       let fileRowCount = 1;
+      const hunkSpans: HunkRowSpan[] = [];
       file.hunks.forEach((hunk, hunkIndex) => {
-        const hidden = this.#hiddenLineCountFor(fileIndex, hunkIndex);
+        const available = hunk.precedingContext.length;
+        const revealed = Math.min(available, expansion.get(diffGapKey(fileIndex, hunkIndex)) ?? 0);
         // A gap row exists only while the gap still hides something.
-        fileRowCount += hidden > 0 ? 1 : 0;
-        fileRowCount += this.#revealedLineCountFor(fileIndex, hunkIndex);
-        // The hunk header, then its body — whose row count is the walk's own
-        // length rather than a second count that could disagree with it.
-        fileRowCount += 1 + hunkBodyRowLayout(hunk.lines, viewMode).length;
+        const hidden = available - revealed;
+        const bodyLayout = buildHunkBodyLayout(hunk.lines, viewMode);
+        this.#bodyLayoutBuildCount += 1;
+        // The gap row, the revealed context, the hunk header, then the body — whose
+        // row count is the flattening's own rather than a second count that could
+        // disagree with it.
+        const hunkRowCount = (hidden > 0 ? 1 : 0) + revealed + 1 + hunkBodyRowCount(bodyLayout);
+        hunkSpans.push({
+          hunkIndex,
+          startRowIndex: fileRowCount,
+          hiddenLineCount: hidden,
+          revealedLineCount: revealed,
+          // Revealed context is the TAIL of `precedingContext` — the lines nearest
+          // the hunk — because a gap is read from the hunk outwards.
+          firstRevealedLineIndex: available - revealed,
+          bodyLayout,
+          rowCount: hunkRowCount,
+        });
+        fileRowCount += hunkRowCount;
       });
-      fileSpans.push({ fileIndex, startRowIndex, rowCount: fileRowCount });
+      fileSpans.push({ fileIndex, startRowIndex, rowCount: fileRowCount, hunkSpans });
       rowCursor += fileRowCount;
     });
 
@@ -305,20 +295,35 @@ export class DiffRowIndex {
   }
 
   /**
+   * How many hunk body layouts this index has built.
+   *
+   * The caching assertion, not an inference — `RefreshScheduler.performCount`'s rule.
+   * A correct index builds exactly one per hunk it shows, in its constructor, and
+   * never another however many rows are read from it; a `rowAt` that flattened as it
+   * walked would grow this on every scroll, which is a defect no row-level assertion
+   * can see because the rows it hands back are identical either way.
+   */
+  public get bodyLayoutBuildCount(): number {
+    return this.#bodyLayoutBuildCount;
+  }
+
+  /**
    * The row at one absolute index, or `undefined` past the end.
    *
-   * Binary search over the per-file spans, then a walk of that file's hunks. The
-   * search is what keeps `rowAt` sub-linear in the change set: a forty-file diff
-   * costs about six comparisons rather than forty, and the per-file walk is
-   * bounded by that file's hunk count rather than by its line count.
+   * TWO BINARY SEARCHES AND THEN ARITHMETIC. The outer one finds the file, the inner
+   * one the hunk within it, and what is left is subtraction against the counts that
+   * hunk's span already holds. It reads nothing out of the model, builds nothing, and
+   * allocates only the row it returns — which is what makes a scroll cost the viewport
+   * rather than the change set. The walk this replaced re-flattened every hunk it
+   * passed, so reading one row near the end of a large hunk cost that hunk's whole
+   * body, once per rendered row and again on every scroll render.
    */
   public rowAt(rowIndex: number): DiffRow | undefined {
     if (rowIndex < 0 || rowIndex >= this.#rowCount) {
       return undefined;
     }
-    const span = this.#spanAt(rowIndex);
-    const file = span === undefined ? undefined : this.#model.files[span.fileIndex];
-    if (span === undefined || file === undefined) {
+    const span = spanAt(this.#fileSpans, rowIndex);
+    if (span === undefined) {
       return undefined;
     }
     const fileIndex = span.fileIndex;
@@ -326,42 +331,36 @@ export class DiffRowIndex {
     if (withinFile === 0) {
       return { kind: "file-header", fileIndex };
     }
-
-    let cursor = 1;
-    for (const [hunkIndex, hunk] of file.hunks.entries()) {
-      const hidden = this.#hiddenLineCountFor(fileIndex, hunkIndex);
-      if (hidden > 0) {
-        if (withinFile === cursor) {
-          return { kind: "gap", fileIndex, hunkIndex, hiddenLineCount: hidden };
-        }
-        cursor += 1;
-      }
-      const revealed = this.#revealedLineCountFor(fileIndex, hunkIndex);
-      if (withinFile < cursor + revealed) {
-        // Revealed context is the TAIL of `precedingContext` — the lines nearest
-        // the hunk — because a gap is read from the hunk outwards.
-        const offsetFromFirstRevealed = withinFile - cursor;
-        return {
-          kind: "line",
-          fileIndex,
-          hunkIndex,
-          source: "preceding-context",
-          lineIndex: hunk.precedingContext.length - revealed + offsetFromFirstRevealed,
-        };
-      }
-      cursor += revealed;
-      if (withinFile === cursor) {
-        return { kind: "hunk-header", fileIndex, hunkIndex };
-      }
-      cursor += 1;
-      const bodyRows = hunkBodyRowLayout(hunk.lines, this.#viewMode);
-      const bodyRow = bodyRows[withinFile - cursor];
-      if (bodyRow !== undefined) {
-        return { kind: "line", fileIndex, hunkIndex, source: "hunk-body", ...bodyRow };
-      }
-      cursor += bodyRows.length;
+    const hunkSpan = spanAt(span.hunkSpans, withinFile);
+    if (hunkSpan === undefined) {
+      return undefined;
     }
-    return undefined;
+    const hunkIndex = hunkSpan.hunkIndex;
+    let withinHunk = withinFile - hunkSpan.startRowIndex;
+
+    if (hunkSpan.hiddenLineCount > 0) {
+      if (withinHunk === 0) {
+        return { kind: "gap", fileIndex, hunkIndex, hiddenLineCount: hunkSpan.hiddenLineCount };
+      }
+      withinHunk -= 1;
+    }
+    if (withinHunk < hunkSpan.revealedLineCount) {
+      return {
+        kind: "line",
+        fileIndex,
+        hunkIndex,
+        source: "preceding-context",
+        lineIndex: hunkSpan.firstRevealedLineIndex + withinHunk,
+      };
+    }
+    withinHunk -= hunkSpan.revealedLineCount;
+    if (withinHunk === 0) {
+      return { kind: "hunk-header", fileIndex, hunkIndex };
+    }
+    const bodyRow = hunkBodyRowAt(hunkSpan.bodyLayout, withinHunk - 1);
+    return bodyRow === undefined
+      ? undefined
+      : { kind: "line", fileIndex, hunkIndex, source: "hunk-body", ...bodyRow };
   }
 
   /** The line a `line` row addresses, or `undefined` if the row does not name one. */
@@ -405,32 +404,31 @@ export class DiffRowIndex {
   public rowIndexOfFile(fileIndex: number): number | undefined {
     return this.#fileSpans.find((span) => span.fileIndex === fileIndex)?.startRowIndex;
   }
+}
 
-  /** How many of a gap's lines are revealed under this expansion. */
-  #revealedLineCountFor(fileIndex: number, hunkIndex: number): number {
-    const available = this.#model.files[fileIndex]?.hunks[hunkIndex]?.precedingContext.length ?? 0;
-    return Math.min(available, this.#expansion.get(diffGapKey(fileIndex, hunkIndex)) ?? 0);
-  }
-
-  /** How many of a gap's lines remain hidden under this expansion. */
-  #hiddenLineCountFor(fileIndex: number, hunkIndex: number): number {
-    const available = this.#model.files[fileIndex]?.hunks[hunkIndex]?.precedingContext.length ?? 0;
-    return available - this.#revealedLineCountFor(fileIndex, hunkIndex);
-  }
-
-  /** Binary search for the span that contains an absolute row index. */
-  #spanAt(rowIndex: number): FileRowSpan | undefined {
-    let low = 0;
-    let high = this.#fileSpans.length - 1;
-    while (low < high) {
-      const middle = Math.floor((low + high + 1) / 2);
-      const span = this.#fileSpans[middle];
-      if (span !== undefined && span.startRowIndex <= rowIndex) {
-        low = middle;
-      } else {
-        high = middle - 1;
-      }
+/**
+ * Binary search for the span, of either level, that contains a row index.
+ *
+ * ONE SEARCH FOR BOTH LEVELS, because the two are the same question asked of two
+ * ordered, contiguous, non-overlapping run lengths: which file a row of the diff falls
+ * in, and which hunk a row of a file falls in. A second copy for the inner level would
+ * be the same arithmetic written twice, and the off-by-one that makes the last span
+ * unreachable is exactly the kind that would be fixed in one copy and not the other.
+ */
+function spanAt<TSpan extends { readonly startRowIndex: number }>(
+  spans: readonly TSpan[],
+  rowIndex: number,
+): TSpan | undefined {
+  let low = 0;
+  let high = spans.length - 1;
+  while (low < high) {
+    const middle = Math.floor((low + high + 1) / 2);
+    const span = spans[middle];
+    if (span !== undefined && span.startRowIndex <= rowIndex) {
+      low = middle;
+    } else {
+      high = middle - 1;
     }
-    return this.#fileSpans[low];
   }
+  return spans[low];
 }

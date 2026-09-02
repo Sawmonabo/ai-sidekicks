@@ -16,6 +16,7 @@ import {
 } from "./diff-bounds.js";
 import {
   ENDURANCE_DIFF_SHAPE,
+  SINGLE_LARGE_HUNK_DIFF_SHAPE,
   SMALL_DIFF_SHAPE,
   buildDiffFixture,
   fixtureChangedLineCount,
@@ -38,6 +39,13 @@ function expectedRowCount(revealedPerGap: number): number {
   const hidden = shape.precedingContextPerHunk - revealed;
   const perHunk = (hidden > 0 ? 1 : 0) + revealed + 1 + shape.linesPerHunk;
   return shape.fileCount * (1 + shape.hunksPerFile * perHunk);
+}
+
+/** Every row an index holds, so a count and its addressing cannot disagree. */
+function everyRow(index: DiffRowIndex): readonly DiffRow[] {
+  return Array.from({ length: index.rowCount }, (_unused, rowIndex) =>
+    index.rowAt(rowIndex),
+  ).filter((row): row is DiffRow => row !== undefined);
 }
 
 describe("hunk virtualization — flattening", () => {
@@ -225,13 +233,6 @@ describe("hunk virtualization — pairing a modified line in split view", () => 
     };
   }
 
-  /** Every row this index holds, so a count and its addressing cannot disagree. */
-  function everyRow(index: DiffRowIndex): readonly DiffRow[] {
-    return Array.from({ length: index.rowCount }, (_unused, rowIndex) =>
-      index.rowAt(rowIndex),
-    ).filter((row): row is DiffRow => row !== undefined);
-  }
-
   it("pairs a deletion with the insertion that follows it into one row", () => {
     const modifiedLine = diffWithHunkBody(["delete", "insert"]);
     const split = new DiffRowIndex(modifiedLine, new Map(), undefined, "split");
@@ -312,6 +313,74 @@ describe("hunk virtualization — pairing a modified line in split view", () => 
     expect(new DiffRowIndex(modifiedLine).rowCount).toBe(
       new DiffRowIndex(modifiedLine, new Map(), undefined, "unified").rowCount,
     );
+  });
+});
+
+describe("hunk virtualization — a hunk is flattened once, not once per lookup", () => {
+  it("builds one body layout per hunk it shows, in the constructor", () => {
+    const index = new DiffRowIndex(SMALL_DIFF);
+    expect(index.bodyLayoutBuildCount).toBe(
+      SMALL_DIFF_SHAPE.fileCount * SMALL_DIFF_SHAPE.hunksPerFile,
+    );
+  });
+
+  it("builds nothing further however many rows are read from it", () => {
+    // The claim `rowAt` used to break: it re-flattened every hunk it walked past,
+    // so a scroll cost the change set rather than the viewport.
+    const index = new DiffRowIndex(SMALL_DIFF);
+    const afterConstruction = index.bodyLayoutBuildCount;
+    for (let pass = 0; pass < 3; pass += 1) {
+      for (let rowIndex = 0; rowIndex < index.rowCount; rowIndex += 1) {
+        expect(index.rowAt(rowIndex)).toBeDefined();
+      }
+    }
+    expect(index.bodyLayoutBuildCount).toBe(afterConstruction);
+  });
+
+  it("counts only the hunks a narrowed index shows", () => {
+    const shownPath = SMALL_DIFF.files[1]?.path;
+    const narrowed = new DiffRowIndex(SMALL_DIFF, new Map(), shownPath);
+    expect(narrowed.bodyLayoutBuildCount).toBe(SMALL_DIFF_SHAPE.hunksPerFile);
+  });
+
+  it("addresses inside one large hunk without flattening it again", () => {
+    // The shape the forty-file fixture cannot express: one hunk holding the whole
+    // change, which is what a generated file or a lockfile produces.
+    const oneBigHunk = buildDiffFixture(SINGLE_LARGE_HUNK_DIFF_SHAPE);
+    const index = new DiffRowIndex(oneBigHunk);
+    expect(index.bodyLayoutBuildCount).toBe(1);
+    for (let rowIndex = index.rowCount - 500; rowIndex < index.rowCount; rowIndex += 1) {
+      expect(index.rowAt(rowIndex)).toBeDefined();
+    }
+    expect(index.bodyLayoutBuildCount).toBe(1);
+  });
+
+  it("negative control: a fresh index for a new expansion does flatten again", () => {
+    // The counter would be vacuous if it never moved. It moves exactly where the
+    // index is rebuilt, which is the only place a flattening can become stale.
+    const expanded = new DiffRowIndex(
+      SMALL_DIFF,
+      expandGap(new Map(), 0, 0, SMALL_DIFF_SHAPE.precedingContextPerHunk),
+    );
+    expect(expanded.bodyLayoutBuildCount).toBeGreaterThan(0);
+  });
+
+  it("hands back the same rows in both modes as a full sweep of every index", () => {
+    // Byte-for-byte against the addressing the other cases in this file pin: every
+    // row of every mode resolves, every line row resolves to a line, and the line
+    // rows account for exactly the hunk bodies the shape holds.
+    for (const viewMode of DIFF_VIEW_MODES) {
+      const index = new DiffRowIndex(SMALL_DIFF, new Map(), undefined, viewMode);
+      const rows = everyRow(index);
+      expect(rows).toHaveLength(index.rowCount);
+      const bodyRows = rows.filter((row) => row.kind === "line" && row.source === "hunk-body");
+      for (const row of bodyRows) {
+        expect(index.lineFor(row)).toBeDefined();
+      }
+      // Unified spells every line as its own row, so the two counts agree there and
+      // split's pairing is the only thing that can make them differ.
+      expect(bodyRows.length).toBeLessThanOrEqual(fixtureChangedLineCount(SMALL_DIFF_SHAPE));
+    }
   });
 });
 
