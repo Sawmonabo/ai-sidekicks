@@ -37,6 +37,12 @@ const GIT_MOUNT_ID = "9f2c4a10-0000-4000-8000-000000000003";
 const PLAIN_MOUNT_ID = "9f2c4a10-0000-4000-8000-000000000004";
 const GIT_WORKSPACE_ID = "9f2c4a10-0000-4000-8000-000000000005";
 const PLAIN_WORKSPACE_ID = "9f2c4a10-0000-4000-8000-000000000006";
+// The people and agents in the session. Wire-declared UUIDs rather than readable
+// placeholders: the wire-truth predicate presents each beat to the strict contract
+// layer as the whole envelope it claims to be, and a beat whose actor is not the
+// UUID the contract declares is a beat no daemon could emit.
+const PARTICIPANT_YOU = "9f2c4a10-0000-4000-8000-000000000010";
+const AGENT_IMPLEMENTER = "9f2c4a10-0000-4000-8000-000000000011";
 
 export const REPOS_SCENARIO: ConsoleScenario = {
   id: REPOS_SCENARIO_ID,
@@ -44,7 +50,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
   purpose:
     "A session with a git checkout and a plain-directory mount attached, and a diff over the first. The skeleton lands here; the repos family fills in the mount cards, the worktree rows, and the diff rows.",
   sessionId: SESSION_ID,
-  participantIdsInJoinOrder: ["participant-you", "agent-implementer"],
+  participantIdsInJoinOrder: [PARTICIPANT_YOU, AGENT_IMPLEMENTER],
   startedAtIso: "2026-01-01T09:05:00.000Z",
   beats: [
     {
@@ -54,8 +60,11 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T09:05:00.000Z",
-        actorParticipantId: "participant-you",
-        payload: { title: "Repo mounts and diffs" },
+        actorParticipantId: PARTICIPANT_YOU,
+        // The registered shape, verbatim: the new session's id plus the resolved
+        // config and metadata, both open records the corpus names no key inside. A
+        // title is not on this wire.
+        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     {
@@ -65,8 +74,19 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: 2,
         kind: "agent.attached",
         occurredAt: "2026-01-01T09:05:00.080Z",
-        actorParticipantId: "agent-implementer",
-        payload: { agentId: "agent-implementer", displayName: "Implementer" },
+        // The person who attached the agent, not the agent. The payload is the full
+        // persona plus the daemon-resolved state, so the `agents` projection rebuilds
+        // from the log alone; `name` is the member — `displayName` is not on this wire.
+        actorParticipantId: PARTICIPANT_YOU,
+        payload: {
+          sessionId: SESSION_ID,
+          agentId: AGENT_IMPLEMENTER,
+          name: "Implementer",
+          driverName: "claude",
+          modelId: "claude-sonnet-5",
+          state: "ready",
+          actor: PARTICIPANT_YOU,
+        },
       },
     },
     {
@@ -76,7 +96,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: 3,
         kind: "repo.attached",
         occurredAt: "2026-01-01T09:05:00.200Z",
-        actorParticipantId: "participant-you",
+        actorParticipantId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, repoMountId: GIT_MOUNT_ID, state: "attached" },
       },
     },
@@ -89,7 +109,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: 4,
         kind: "workspace.ready",
         occurredAt: "2026-01-01T09:05:00.260Z",
-        actorParticipantId: "participant-you",
+        actorParticipantId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           repoMountId: GIT_MOUNT_ID,
@@ -105,7 +125,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: 5,
         kind: "repo.attached",
         occurredAt: "2026-01-01T09:05:00.420Z",
-        actorParticipantId: "participant-you",
+        actorParticipantId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, repoMountId: PLAIN_MOUNT_ID, state: "attached" },
       },
     },
@@ -116,7 +136,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: 6,
         kind: "workspace.ready",
         occurredAt: "2026-01-01T09:05:00.480Z",
-        actorParticipantId: "participant-you",
+        actorParticipantId: PARTICIPANT_YOU,
         payload: {
           sessionId: SESSION_ID,
           repoMountId: PLAIN_MOUNT_ID,
@@ -132,7 +152,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
         sequence: 7,
         kind: "diff.created",
         occurredAt: "2026-01-01T09:05:00.900Z",
-        actorParticipantId: "agent-implementer",
+        actorParticipantId: AGENT_IMPLEMENTER,
         payload: {
           artifactId: "artifact-diff-01",
           // The attribution axis is a first-class field and never inferred. This
