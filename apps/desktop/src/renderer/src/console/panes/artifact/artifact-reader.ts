@@ -31,9 +31,25 @@
 // under, a completion whose stamp is no longer current is dropped, and the two legs of
 // one generation publish as ONE snapshot rather than two.
 //
-// `Spec-023`'s refresh rule allows focus, reconnect, and a stale frame; a pane that
-// armed an interval would be spending the budget on a wire that refuses.
+// AND ALL FOUR OF THE REFRESH RULE'S REASONS ARE WIRED, not one. `Spec-023 §Rules
+// every console surface obeys` allows subscribe, window focus, reconnect, and the
+// terminal events the owning spec names — and this reader used to have the first and
+// a participant's press and nothing else. A pane left open through a daemon reconnect,
+// or through an `artifact.published` / `artifact.superseded` /
+// `artifact.visibility_updated` frame, held a manifest list and an effective
+// allow-list that were stale indefinitely and looked exactly like fresh ones. The
+// other three reasons now reach the same scheduler through
+// `store/refresh-triggers.ts`, which is the mechanism the repos section's two readers
+// already use; the KINDS are this pane's own, because those three frames are what
+// `Spec-006 §Artifact and Diff Publication (artifact_publication)` names as terminal
+// for an artifact. A `workspace.stale` frame is deliberately not among them: it says a
+// path went stale, which is a fact about a workspace and no evidence at all about this
+// session's artifacts.
+//
+// Still no interval, and still no timer of this reader's own: a pane that armed one
+// would be spending the budget on a wire that refuses.
 
+import type { SessionEventType } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -48,7 +64,7 @@ import {
   artifactManifestRowFromSummary,
   type ArtifactsPanelState,
 } from "../../repos/artifact-model.js";
-import { RefreshScheduler } from "../../store/index.js";
+import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
 import {
   NOTHING_READ_YET,
   SHIPPED_DEFAULT_ALLOWLIST,
@@ -62,14 +78,38 @@ import {
   type ArtifactRowActOutcome,
 } from "./artifact-pane-reading.js";
 
+/**
+ * The three frames this pane re-reads on.
+ *
+ * `satisfies SessionEventType` rather than bare strings: the type is the contract's
+ * own census (`packages/contracts/src/event.ts`), so a kind renamed on the wire fails
+ * to compile here instead of silently matching nothing for the life of the release.
+ * All three, because each changes what one of this pane's two reads would answer — a
+ * publish or a supersession changes the list, and a visibility update changes a row's
+ * class, which is a member the row draws.
+ */
+const ARTIFACT_TERMINAL_EVENT_KINDS = [
+  "artifact.published",
+  "artifact.superseded",
+  "artifact.visibility_updated",
+] satisfies readonly SessionEventType[];
+
 export interface ArtifactPaneReaderOptions {
   readonly bridge: ConsoleBridge;
   /**
-   * The session to read. ABSENT on a bare route, where the deck has a pane and no
-   * session behind it — and a reader that read anyway would have to invent a session
-   * id, so it reads nothing and the pane renders the absence that says nobody asked.
+   * The session to read, and three of the four reasons to read again.
+   *
+   * The STORE rather than a bare session id, on `repos/repo-mounts-reader.ts`'s
+   * reason: the artifact frames and the repair edge that stands for reconnect are
+   * both transitions of this object, and a reader handed only an id could observe
+   * neither. The id is read off it, so the pane and the store can never name two
+   * sessions.
+   *
+   * ABSENT on a bare route, where the deck has a pane and no session behind it — and
+   * a reader that read anyway would have to invent a session id, so it reads nothing,
+   * listens for nothing, and the pane renders the absence that says nobody asked.
    */
-  readonly sessionId: string | undefined;
+  readonly sessionStore: SessionStore | undefined;
   /** Injected so a test drives every read on frozen time with no real timers. */
   readonly clock?: ConsoleClock;
 }
@@ -78,6 +118,8 @@ export class ArtifactPaneReader {
   readonly #bridge: ConsoleBridge;
   readonly #sessionId: string | undefined;
   readonly #scheduler: RefreshScheduler;
+  /** Absent on a bare route: with no session there is nothing to observe. */
+  readonly #triggers: SessionRefreshTriggers | undefined;
   readonly #changes = new Emitter<ArtifactPaneReading>("artifact pane reading");
 
   #reading: ArtifactPaneReading = NOTHING_READ_YET;
@@ -95,7 +137,7 @@ export class ArtifactPaneReader {
 
   public constructor(options: ArtifactPaneReaderOptions) {
     this.#bridge = options.bridge;
-    this.#sessionId = options.sessionId;
+    this.#sessionId = options.sessionStore?.sessionId;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock ?? new RealClock(),
       perform: async () => {
@@ -112,6 +154,16 @@ export class ArtifactPaneReader {
         });
       },
     });
+    // The other three reasons to read again. They reach this reader only through the
+    // scheduler, so a burst of frames still costs one read pair.
+    this.#triggers =
+      options.sessionStore === undefined
+        ? undefined
+        : new SessionRefreshTriggers({
+            scheduler: this.#scheduler,
+            sessionStore: options.sessionStore,
+            terminalEventKinds: ARTIFACT_TERMINAL_EVENT_KINDS,
+          });
   }
 
   /** What the pane renders right now. Stable identity between publishes. */
@@ -129,7 +181,7 @@ export class ArtifactPaneReader {
   }
 
   /**
-   * Read once.
+   * Read once, and keep listening for the reasons to read again.
    *
    * Idempotent for React's development double-mount, which would otherwise double every
    * read in exactly the environment where the budget is being watched.
@@ -140,6 +192,7 @@ export class ArtifactPaneReader {
     }
     this.#started = true;
     this.#scheduler.request("subscribe");
+    this.#triggers?.start();
   }
 
   /**
@@ -266,11 +319,12 @@ export class ArtifactPaneReader {
     return generation === this.#generation ? { status: "settled" } : { status: "reconciling" };
   }
 
-  /** Terminal. No later completion can publish behind a pane that unmounted. */
+  /** Terminal. No later completion, frame, or focus can reach a pane that unmounted. */
   public dispose(): void {
     this.#disposed = true;
     this.#generation += 1;
     this.#scheduler.dispose();
+    this.#triggers?.dispose();
     this.#changes.clear();
   }
 
@@ -362,9 +416,12 @@ export interface ArtifactPaneBinding {
  */
 export function useArtifactPaneReading(
   bridge: ConsoleBridge,
-  sessionId: string | undefined,
+  sessionStore: SessionStore | undefined,
 ): ArtifactPaneBinding {
-  const reader = useMemo(() => new ArtifactPaneReader({ bridge, sessionId }), [bridge, sessionId]);
+  const reader = useMemo(
+    () => new ArtifactPaneReader({ bridge, sessionStore }),
+    [bridge, sessionStore],
+  );
   useEffect(() => {
     reader.start();
     return () => {

@@ -16,8 +16,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
+import { SessionStore } from "../../store/index.js";
 import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
+
+/** The one session every case here reads, named once so a store and a row agree. */
+const SESSION_ID = "session-1";
 
 interface PortScript {
   readonly listAnswer: unknown;
@@ -71,7 +75,7 @@ describe("artifact pane reader — before anything is asked", () => {
   it("starts on the absence that says nobody asked", () => {
     const reader = new ArtifactPaneReader({
       bridge: bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock: new ManualClock(),
     });
     expect(reader.snapshot.artifacts.kind).toBe("not-checked");
@@ -83,7 +87,7 @@ describe("artifact pane reader — before anything is asked", () => {
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
       bridge: bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
-      sessionId: undefined,
+      sessionStore: undefined,
       clock,
     });
     reader.start();
@@ -93,12 +97,121 @@ describe("artifact pane reader — before anything is asked", () => {
   });
 });
 
+/** One projected frame, as the store admits it. */
+function frame(sequence: number, kind: string): Parameters<SessionStore["applyBatch"]>[0][number] {
+  return {
+    id: `event-${String(sequence)}`,
+    sessionId: SESSION_ID,
+    sequence,
+    kind,
+    occurredAt: "2026-09-02T07:00:00.000Z",
+  };
+}
+
+/** A reader over a store a case drives, with the two reads refusing throughout. */
+function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactPaneReader {
+  return new ArtifactPaneReader({
+    bridge: bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+    sessionStore,
+    clock,
+  });
+}
+
+describe("artifact pane reader — the four reasons to read, and no fifth", () => {
+  it.each(["artifact.published", "artifact.superseded", "artifact.visibility_updated"])(
+    "reads again when a %s frame arrives",
+    async (kind) => {
+      const clock = new ManualClock();
+      const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+      const reader = readerOver(sessionStore, clock);
+      reader.start();
+      await readThrough(clock);
+      expect(reader.performCount).toBe(1);
+
+      sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+      sessionStore.applyBatch([frame(1, kind)]);
+      await readThrough(clock);
+
+      // The list and the effective allow-list both go stale on these three, and the
+      // pane used to hold whichever one it read first, indefinitely.
+      expect(reader.performCount).toBe(2);
+    },
+  );
+
+  it("reads again when the window is focused", async () => {
+    const clock = new ManualClock();
+    const reader = readerOver(new SessionStore({ sessionId: SESSION_ID }), clock);
+    reader.start();
+    await readThrough(clock);
+
+    window.dispatchEvent(new Event("focus"));
+    await readThrough(clock);
+
+    expect(reader.performCount).toBe(2);
+  });
+
+  it("reads again on the repair edge that stands for a reconnect", async () => {
+    // Nothing publishes a bridge-level "reconnected", so the observed edge is the
+    // store's `degradedCause` clearing: the projection is whole again after not
+    // having been, which is what the refresh policy means.
+    const clock = new ManualClock();
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const reader = readerOver(sessionStore, clock);
+    reader.start();
+    await readThrough(clock);
+
+    sessionStore.markDegraded("stream_failed");
+    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    await readThrough(clock);
+
+    expect(reader.performCount).toBe(2);
+  });
+
+  it("negative control: an unrelated frame asks for nothing", async () => {
+    // Without this every case above would pass against a reader that re-read on any
+    // store transition at all, which is interval polling with extra steps. A
+    // `workspace.stale` frame is among them on purpose: it is the repos section's
+    // terminal event and says nothing about this session's artifacts.
+    const clock = new ManualClock();
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const reader = readerOver(sessionStore, clock);
+    reader.start();
+    await readThrough(clock);
+
+    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.applyBatch([frame(1, "run.queued"), frame(2, "workspace.stale")]);
+    await readThrough(clock);
+
+    expect(reader.performCount).toBe(1);
+  });
+
+  it("negative control: nothing polls at rest, and a disposed reader hears nothing", async () => {
+    const clock = new ManualClock();
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const reader = readerOver(sessionStore, clock);
+    reader.start();
+    await readThrough(clock);
+    // No timer is armed once the read has settled: the reader owns no interval, and
+    // every reason it has arms the scheduler exactly once.
+    expect(clock.pendingCount).toBe(0);
+
+    reader.dispose();
+    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.applyBatch([frame(1, "artifact.published")]);
+    window.dispatchEvent(new Event("focus"));
+    await readThrough(clock);
+
+    expect(reader.performCount).toBe(1);
+    expect(clock.pendingCount).toBe(0);
+  });
+});
+
 describe("artifact pane reader — a refused read and a served one", () => {
   it("carries the port's refusal verbatim rather than reporting an empty list", async () => {
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
       bridge: bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.start();
@@ -115,7 +228,7 @@ describe("artifact pane reader — a refused read and a served one", () => {
         listAnswer: { status: "served", value: [SERVED_SUMMARY] },
         allowlistAnswer: REFUSAL,
       }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.start();
@@ -125,7 +238,7 @@ describe("artifact pane reader — a refused read and a served one", () => {
     expect(state.kind === "listed" ? state.rows : []).toStrictEqual([
       {
         id: "019b7b30-0280-7c11-8420-b1a5c0de2201",
-        sessionId: "session-1",
+        sessionId: SESSION_ID,
         runId: "019b7b30-0280-7c11-8420-b1a5c0de2202",
         createdBy: "019b7b30-0280-7c11-8420-b1a5c0de2203",
         artifactType: "diff",
@@ -154,7 +267,7 @@ describe("artifact pane reader — a refused read and a served one", () => {
         listAnswer: { status: "served", value: [] },
         allowlistAnswer: REFUSAL,
       }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.start();
@@ -170,7 +283,7 @@ describe("artifact pane reader — the allow-list hint", () => {
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
       bridge: bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.start();
@@ -192,7 +305,7 @@ describe("artifact pane reader — the allow-list hint", () => {
           value: { contentTypes: ["image/svg+xml"], maximumByteLength: 42 },
         },
       }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.start();
@@ -206,7 +319,7 @@ describe("artifact pane reader — the allow-list hint", () => {
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
       bridge: bridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.dispose();
@@ -226,7 +339,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     const artifactAllowlistRead = vi.fn(async () => REFUSAL);
     const reader = new ArtifactPaneReader({
       bridge: { growth: { artifactList, artifactAllowlistRead } } as unknown as ConsoleBridge,
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.start();
@@ -255,7 +368,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
           value: { contentTypes: ["text/plain"], maximumByteLength: 99 },
         },
       }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     const published: ArtifactPaneReading[] = [];
@@ -280,7 +393,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
         listAnswer: { status: "served", value: [SERVED_SUMMARY] },
         allowlistAnswer: REFUSAL,
       }),
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     const published: ArtifactPaneReading[] = [];
@@ -308,7 +421,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
           artifactAllowlistRead: async () => REFUSAL,
         },
       } as unknown as ConsoleBridge,
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.start();
@@ -335,7 +448,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
           artifactAllowlistRead: async () => REFUSAL,
         },
       } as unknown as ConsoleBridge,
-      sessionId: "session-1",
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
     reader.start();
@@ -375,7 +488,7 @@ function readerRacingADelete(clock: ManualClock): {
           }),
       },
     } as unknown as ConsoleBridge,
-    sessionId: "session-1",
+    sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });
   return {

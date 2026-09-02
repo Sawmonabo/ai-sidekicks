@@ -97,7 +97,10 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
   const announce = useAnnounce();
   const { reading, refresh, readManifest, deleteArtifact } = useArtifactPaneReading(
     context.bridge,
-    context.sessionStore?.sessionId,
+    // The STORE, not its id: the reader observes this session's artifact frames and
+    // its repair edge for three of its four refresh reasons, and an id carries
+    // neither.
+    context.sessionStore,
   );
 
   // The instant the rows were rendered against. It moves when the reading moves and on

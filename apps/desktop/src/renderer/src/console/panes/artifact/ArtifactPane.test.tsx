@@ -20,6 +20,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
+import { SessionStore } from "../../store/index.js";
 import { ArtifactPane, type ArtifactPaneProps } from "./ArtifactPane.js";
 
 /** This pane's own address arm, taken from the prop rather than restated. */
@@ -41,7 +42,13 @@ function contextFor(
     entity,
     paneId: "pane-artifact-1",
     bridge: reached.bridge,
-    sessionStore: reached.sessionId === undefined ? undefined : { sessionId: reached.sessionId },
+    // A REAL store rather than a stub carrying an id: the reader now subscribes to it
+    // for three of its four refresh reasons, and a stub with no `readable` would make
+    // every case here fail on the subscription rather than on what it asserts.
+    sessionStore:
+      reached.sessionId === undefined
+        ? undefined
+        : new SessionStore({ sessionId: reached.sessionId }),
   } as unknown as ArtifactPaneContext;
 }
 
