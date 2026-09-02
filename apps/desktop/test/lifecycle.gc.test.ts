@@ -11,11 +11,15 @@
 // What this test actually asserts:
 //   The observable lifecycle contract — across K=20 cycles of explicit GC
 //   pressure following the `.then(...)` unwind, `v8.queryObjects(BrowserWindow)`
-//   reports `>= 1` AND `window-all-closed` does not fire. Per ADR-024
+//   holds a stable count AND `window-all-closed` does not fire, and once every
+//   window is closed and the close has unwound the count drops by at least one
+//   per window (the per-window delta that distinguishes the instance from the
+//   fixed non-instance match a count-only sample cannot identify). Per ADR-024
 //   §Antithesis, the load-bearing reachability mechanism is Electron's
 //   native-side `BaseWindow::self_ref_` (`v8::Global<v8::Value>` strong-
-//   rooted from `InitWith` at `electron_api_base_window.cc:155` to native
-//   destruction at `electron_api_base_window.cc:130`). The user-side
+//   rooted in `BaseWindow::InitWith` and released only in `~BaseWindow` at
+//   native destruction; tag-exact lines in
+//   `ADR-024 §Primary sources (Electron v41.6.1)`). The user-side
 //   module-scope `let mainWindow` in `apps/desktop/src/main/index.ts` is
 //   defensive consistency with the canonical Electron community pattern,
 //   not the primary GC anchor — reverting it does NOT produce a failure
@@ -58,10 +62,14 @@
 //   `app.exit(0)`.
 //
 // Failure shapes:
-//   • Shape A — Heap-count threshold: `probe.min < 1`. Some iteration
-//     observed `queryObjects` returning zero, meaning a BrowserWindow
-//     wrapper was collected mid-loop. Asserted by
-//     `expect(probe.min).toBeGreaterThanOrEqual(1)`.
+//   • Shape A — Heap-count drift or a missing per-window delta: some
+//     iteration saw a different count from the others (`probe.max !==
+//     probe.min`), meaning a BrowserWindow wrapper was collected mid-loop; or
+//     closing every window released fewer wrappers than there were windows
+//     (`probe.openCount - probe.closedCount < probe.windowsOpened`), meaning
+//     the surviving match was never the instance. Asserted by the two
+//     `expect`s on those quantities; a bare `min >= 1` cannot tell the
+//     instance from the fixed match ADR-024 §Antithesis records.
 //   • Shape B — `allClosedFired === true`: the probe-scoped listener
 //     captured `window-all-closed` firing during the iteration loop.
 //     Per ADR-024 this should never happen while a user-created window
@@ -128,6 +136,12 @@ interface GcProbe {
   readonly counts: readonly number[];
   readonly min: number;
   readonly max: number;
+  /** Windows open when the loop ended; the per-window delta's denominator. */
+  readonly windowsOpened: number;
+  /** The loop's last sample, taken with every window still open. */
+  readonly openCount: number;
+  /** One sample after every window closed, the close unwound, and a collection. */
+  readonly closedCount: number;
   readonly allClosedFired: boolean;
 }
 
@@ -318,18 +332,27 @@ describe("BrowserWindow lifecycle reachability", () => {
       expect(probe.iterations).toBeGreaterThan(0);
       expect(probe.counts.length).toBe(probe.iterations);
 
-      // Shape A: heap-count threshold. The probe must observe at least
-      // one BrowserWindow instance on every iteration; a count of zero
-      // means a wrapper was collected mid-loop. The Step 0b empirical
-      // baseline recorded in ADR-024 §Antithesis — The Strongest Case
-      // Against shows fixed-state count is typically 2 — an internal
-      // Electron-managed instance plus the user-created window. Either
-      // way the assertion `min >= 1` is the observable contract.
+      // Shape A: the count is stable across the GC pressure cycles — no
+      // wrapper collected mid-loop — AND drops by at least one per window once
+      // every window is closed and the close has unwound. The per-window delta
+      // is what distinguishes the user-created instance from the fixed
+      // non-instance match a count-only sample cannot identify (ADR-024
+      // §Antithesis — The Strongest Case Against): a bare `min >= 1` still
+      // passes with the instance gone and that match remaining.
       expect(
-        probe.min,
-        `Probe saw queryObjects(BrowserWindow) count drop to ${String(probe.min)} (counts: ${JSON.stringify(probe.counts)}). ` +
-          `Per ADR-024, the BrowserWindow lifecycle invariant requires at least one wrapper to remain reachable across the probe loop — the proximate cause is most likely a future-Electron BaseWindow::self_ref_ semantics shift.`,
+        probe.max - probe.min,
+        `Probe saw queryObjects(BrowserWindow) drift across the loop (counts: ${JSON.stringify(probe.counts)}). ` +
+          `Per ADR-024, a reachable window's count must hold across GC pressure — the proximate cause is most likely a future-Electron BaseWindow::self_ref_ semantics shift.`,
+      ).toBe(0);
+      expect(
+        probe.windowsOpened,
+        "the probe found no open window to measure",
       ).toBeGreaterThanOrEqual(1);
+      expect(
+        probe.openCount - probe.closedCount,
+        `Closing ${String(probe.windowsOpened)} window(s) moved queryObjects(BrowserWindow) ${String(probe.openCount)} → ${String(probe.closedCount)}. ` +
+          `Per ADR-024, each open window holds exactly one reachable instance that the close releases; a smaller delta means the count was carried by something other than the instance.`,
+      ).toBeGreaterThanOrEqual(probe.windowsOpened);
 
       // Shape B: `allClosedFired === false`. The probe-scoped listener
       // captures whether `window-all-closed` fired during the iteration
