@@ -1,4 +1,4 @@
-// Which shipped Tier-1 renderer family mounts in which console slot.
+// Where the shipped Tier-1 renderer families mount, and the guard all three share.
 //
 // Three families shipped before the console existed and were rendered by the
 // renderer root directly: the session probe, the participant roster, and the
@@ -6,6 +6,16 @@
 // rendered by anything, which is not a decision anybody made — it is what happens
 // when a new mount point lands before the old surfaces are re-homed. This module
 // re-homes them.
+//
+// TWO OF THE THREE NOW MOUNT INSIDE A CONSOLE-AUTHORED SURFACE. T-023p-1C-4 built
+// the all-sessions list and the agent console, which claim the `sessions` and
+// `agent-console` slots this module used to hold. Those two families are not
+// discarded: the probe is still the only caller of `session.create` and
+// `session.join` that exists, and the node roster still answers which machines a
+// session's agents can run on, so each is absorbed into the console surface whose
+// subject it already was. What this module keeps is the SLOT for the one family
+// that has no console-authored home yet, and — for all three — the guard, which is
+// the part that must not be written twice.
 //
 // ABSORBED BY IMPORT, NOT BY CALL. A plan-owned subtree whose owner MOUNTS INTO
 // the console reaches the frame by calling `registerConsoleSurface`; the console
@@ -33,8 +43,9 @@ import { createElement, type ReactNode } from "react";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
+import { type ConsoleBridgeSource } from "../bridge/index.js";
 import { Nothing } from "../primitives/index.js";
-import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
+import { routeSessionId } from "../routing/index.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
@@ -42,21 +53,15 @@ import { SessionBootstrap } from "../../session-bootstrap/index.js";
 // through theirs. Adding one is that family's own diff, not the console's — the
 // console does not author files inside a subtree it merely absorbs.
 import { ParticipantRoster } from "../../session-members/participant-roster.js";
-import {
-  type ConsoleSurfaceContext,
-  type ConsoleSurfaceDescriptor,
-  type ConsoleSurfaceRegistry,
-} from "./surface-registry.js";
+import { type ConsoleSurfaceDescriptor, type ConsoleSurfaceRegistry } from "./surface-registry.js";
 
 /**
- * The three shipped families, and the slot each mounts in.
+ * The shipped family that still holds a slot of its own, and which slot.
  *
- * `sessions` and `workspace` are the destinations that name these surfaces; the
- * runtime-node roster takes the `agent-console` auxiliary window because it is
- * about the machines a session's agents run on, and because that slot's route
- * grammar is the only remaining one that GUARANTEES the session id the roster
- * requires — the frame resolves a bare auxiliary route through its context picker
- * before any surface renders, so the mount needs no invented empty state.
+ * The participant roster takes `workspace` because that destination names it and
+ * because no console-authored workspace surface has landed. The other two are
+ * mounted by the console surfaces that absorbed them, through the two exported
+ * helpers below.
  *
  * The components each family exports beyond these three take inputs no route
  * carries — an invite token, an attach draft — so a route cannot supply them and
@@ -64,27 +69,44 @@ import {
  */
 const LEGACY_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
   {
-    slot: "sessions",
-    owner: "session-bootstrap",
-    render: (context) => mountLegacySurface(context, () => createElement(SessionBootstrap)),
-  },
-  {
     slot: "workspace",
     owner: "session-members",
     render: (context) =>
-      mountSessionScopedLegacySurface(context, (sessionId) =>
-        createElement(ParticipantRoster, { sessionId }),
-      ),
-  },
-  {
-    slot: "agent-console",
-    owner: "runtime-node-attach",
-    render: (context) =>
-      mountSessionScopedLegacySurface(context, (sessionId) =>
-        createElement(NodeRoster, { sessionId }),
+      mountSessionScopedLegacySurface(
+        context.bridge.source,
+        routeSessionId(context.route),
+        (sessionId) => createElement(ParticipantRoster, { sessionId }),
       ),
   },
 ];
+
+/**
+ * The session probe, mounted inside the console's all-sessions list.
+ *
+ * Exported rather than registered because the list owns the `sessions` slot now and
+ * the probe is one region of it — its create and join controls. The guard travels
+ * with it: a caller cannot mount this component past the fixture check, because the
+ * check is not the caller's to make.
+ */
+export function renderAbsorbedSessionProbe(bridgeSource: ConsoleBridgeSource): ReactNode {
+  return mountLegacySurface(bridgeSource, () => createElement(SessionBootstrap));
+}
+
+/**
+ * The runtime-node roster, mounted inside the console's agent console.
+ *
+ * Takes the session id rather than a route, because the two mounts that need it
+ * carry a session differently — one from a pane's own store, one from an auxiliary
+ * address — and neither should have to build a route to reach a component.
+ */
+export function renderAbsorbedNodeRoster(
+  bridgeSource: ConsoleBridgeSource,
+  sessionId: string | undefined,
+): ReactNode {
+  return mountSessionScopedLegacySurface(bridgeSource, sessionId, (resolved) =>
+    createElement(NodeRoster, { sessionId: resolved }),
+  );
+}
 
 /**
  * Claim a slot for each shipped Tier-1 family.
@@ -109,8 +131,8 @@ export function registerLegacySurfaces(registry: ConsoleSurfaceRegistry): void {
  * assert a failure that never happened, which is the conflation the five kinds of
  * nothing exist to prevent.
  */
-function mountLegacySurface(context: ConsoleSurfaceContext, build: () => ReactNode): ReactNode {
-  if (context.bridge.source !== "live") {
+function mountLegacySurface(bridgeSource: ConsoleBridgeSource, build: () => ReactNode): ReactNode {
+  if (bridgeSource !== "live") {
     // Centred, because this fills the whole surface. Left in flow it renders as a
     // strip in the top-left corner of the pane — the shape `SurfaceAbsence` exists
     // to prevent, and the one a reader mistakes for a paint that did not finish.
@@ -137,13 +159,14 @@ function mountLegacySurface(context: ConsoleSurfaceContext, build: () => ReactNo
   return build();
 }
 
-/** The same, for a component that needs the session the route names. */
+/** The same, for a component that needs a session the caller has resolved. */
 function mountSessionScopedLegacySurface(
-  context: ConsoleSurfaceContext,
+  bridgeSource: ConsoleBridgeSource,
+  subject: string | undefined,
   build: (sessionId: SessionId) => ReactNode,
 ): ReactNode {
-  return mountLegacySurface(context, () => {
-    const sessionId = subjectSessionId(context.route);
+  return mountLegacySurface(bridgeSource, () => {
+    const sessionId = brandedSessionId(subject);
     if (sessionId === undefined) {
       return createElement(
         SurfaceAbsence,
@@ -164,7 +187,7 @@ function mountSessionScopedLegacySurface(
 }
 
 /**
- * The session a route is about, as the wire's branded id.
+ * A resolved session id, as the wire's branded id.
  *
  * The brand is compile-time nominal typing over a plain string, and the narrowing
  * happens HERE — once, named, at the one seam where an address segment becomes a
@@ -174,7 +197,6 @@ function mountSessionScopedLegacySurface(
  * renderer-side UUID check would be a second authority on that question bought
  * with a schema validator in a bundle budget measured in kilobytes.
  */
-function subjectSessionId(route: ConsoleRoute): SessionId | undefined {
-  const sessionId = routeSessionId(route);
+function brandedSessionId(sessionId: string | undefined): SessionId | undefined {
   return sessionId === undefined ? undefined : (sessionId as SessionId);
 }

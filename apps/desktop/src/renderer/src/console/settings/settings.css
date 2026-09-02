@@ -1,0 +1,145 @@
+/* The settings surface's own styles.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale,
+ * so the rail follows the scheme attribute and the density budget without a
+ * conditional in JSX.
+ *
+ * The rail's width is the one dimension named here rather than taken from the
+ * scale: it is sized to the longest section label at the UI size plus its padding,
+ * and a rail that reflowed with content would move the pane's left edge every time
+ * a section was added.
+ */
+
+.meridian-settings {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: var(--meridian-space-6);
+  align-items: start;
+  padding: var(--meridian-space-6);
+  min-height: 100%;
+}
+
+.meridian-settings__rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  position: sticky;
+  top: var(--meridian-space-6);
+}
+
+/* --- The search field ---------------------------------------------------- */
+
+.meridian-settings__search {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-settings__search:focus-within {
+  border-color: var(--meridian-accent);
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-settings__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-settings__search-input:focus-visible {
+  outline: none;
+}
+
+.meridian-settings__search-input::placeholder {
+  color: var(--meridian-text-faint);
+}
+
+/* --- The section rail ---------------------------------------------------- */
+
+.meridian-settings__sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings__section:hover {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+}
+
+.meridian-settings__section:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The current section carries a hairline in the accent rather than a fill: the
+   rail sits beside a pane that is already a surface, and a filled row would read
+   as a second panel rather than as a selection. */
+.meridian-settings__section[aria-current="page"] {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  box-shadow: inset 2px 0 0 0 var(--meridian-accent);
+}
+
+.meridian-settings__section--result .meridian-settings__result-label {
+  color: inherit;
+}
+
+.meridian-settings__result-section {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* --- The pane ------------------------------------------------------------ */
+
+.meridian-settings__pane {
+  min-width: 0;
+}
+
+.meridian-settings__page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+.meridian-settings__page-heading {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-settings__page-body {
+  min-width: 0;
+}

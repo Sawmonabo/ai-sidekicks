@@ -12,8 +12,10 @@
 // WHAT A FAMILY DOES
 //
 // A family exports `register<Family>(registry: ConsoleSurfaceRegistry): void` from
-// its own `index.ts`, claims its slots inside that function, and replaces its own
-// placeholder line below with the import and the call. That is the whole contract.
+// its own `index.ts`, claims its slots inside that function, and adds the import
+// plus one call DIRECTLY BENEATH its own reserved line. The reserved line stays, so
+// the seat order is legible whether or not a seat is filled. That is the whole
+// contract.
 //
 // WHAT A FAMILY DOES NOT DO
 //
@@ -35,6 +37,7 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+import { registerCollaborationFamily } from "./collaboration/index.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
@@ -63,6 +66,7 @@ export function registerConsoleFamilies(registry: ConsoleSurfaceRegistry): void 
   // T-023p-1C-2 ledger
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
+  registerCollaborationFamily(registry);
   // T-023p-1C-5 repos
   // T-023p-1C-6 workflows
   // T-023p-1C-7 browser-terminal

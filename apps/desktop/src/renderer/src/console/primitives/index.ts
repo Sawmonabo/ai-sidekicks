@@ -34,4 +34,6 @@ export { Nothing } from "./Nothing.js";
 
 export { RefusalBanner } from "./Refusal.js";
 
+export { DerivedFigure, WireFigure } from "./Figure.js";
+
 export { formatCount } from "./wire-figures.js";
