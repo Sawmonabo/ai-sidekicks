@@ -9,11 +9,20 @@
 // the imports between them are deep and intra-family rather than through a second
 // barrel, which would be a seam drawn where there is no boundary.
 //
-// WHAT LEAVES THE FAMILY IS ONE FUNCTION. Not the surface, not the panes, not the
-// chrome: the console composes this family by calling `registerWorkflowPanes` at
-// its pane seat, and nothing above needs a handle on a body. An export beyond that
+// WHAT LEAVES THE FAMILY IS TWO REGISTRATIONS AND NOTHING ELSE. Not the surface,
+// not the panes, not the chrome: the console composes this family by calling
+// `registerWorkflowPanes` at its pane seat and `registerWorkflowSurfaces` at its
+// surface seat, and nothing above needs a handle on a body. An export beyond those
 // would be an invitation for another family to mount a workflows surface itself,
-// which is the coupling the deck's single mount door exists to prevent.
+// which is the coupling the deck's and the frame's single mount doors exist to
+// prevent.
+//
+// TWO SEATS BECAUSE THERE ARE TWO BOARDS. The deck's board is keyed by pane kind
+// and the frame's by surface slot; this family occupies one seat on each — the two
+// pane kinds it claims, and the rail destination the spec's surface set gives it.
+// Until the surface seat was filled, pressing the rail's middle destination reached
+// the frame's reserved-slot absence, which was a true sentence about a browser this
+// family had in fact already built.
 //
 // THE STYLESHEET IS IMPORTED HERE AND NOWHERE ELSE, so the bundler sees one edge
 // into it and a surface can never render a chrome that arrived without its rules.
@@ -27,9 +36,11 @@ import "./workflows.css";
 
 import { createElement } from "react";
 
+import type { ConsoleSurfaceRegistry } from "../frame/index.js";
 import { WorkflowBuilderPane } from "../panes/workflow-builder/index.js";
 import { WorkflowRunPane } from "../panes/workflow-run/index.js";
 import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../workspace/index.js";
+import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 
 /**
  * The family's owner string, as the pane registry's duplicate policy reads it.
@@ -78,4 +89,31 @@ export function registerWorkflowPanes(registry: ConsolePaneRegistry): void {
   for (const descriptor of WORKFLOW_PANES) {
     registry.register(descriptor);
   }
+}
+
+/**
+ * Claim the rail's workflows destination against a registry.
+ *
+ * Takes the registry rather than the module-scope singleton, for
+ * `registerWorkflowPanes`' reason: a test composes the same surface into a registry
+ * it owns, and an auxiliary window composes a different subset without a second code
+ * path.
+ *
+ * The descriptor is built here rather than kept in a table beside the pane
+ * descriptors: there is exactly one of it, and a one-row table is a shape that
+ * invites a second row nobody decided to add.
+ */
+export function registerWorkflowSurfaces(registry: ConsoleSurfaceRegistry): void {
+  registry.register({
+    slot: "workflows",
+    owner: WORKFLOWS_OWNER,
+    // The two inputs the browser cannot get for itself, and no more of the context
+    // than that: handing the whole surface context down would make every later
+    // member of it reachable from a browser that needs two.
+    render: (context) =>
+      createElement(WorkflowsBrowser, {
+        growth: context.bridge.growth,
+        sessionId: context.sessionStore?.sessionId,
+      }),
+  });
 }

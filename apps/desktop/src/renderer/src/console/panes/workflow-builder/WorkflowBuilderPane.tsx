@@ -35,7 +35,7 @@
 
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
-import { WorkflowsSurface } from "../../workflows/WorkflowsSurface.js";
+import { WorkflowsBrowser } from "../../workflows/WorkflowsBrowser.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { WORKFLOW_BUILDER_PRIMARY_ACT, unregisteredAuthoringAct } from "./builder-authoring.js";
 import { DraftsSlot } from "./slots/DraftsSlot.js";
@@ -60,13 +60,15 @@ export interface WorkflowBuilderPaneProps {
 
 /** The builder pane's chrome. The canvas and the inspector inside it are Plan-017's. */
 export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.Element {
-  const { entity, uiStateStore, draftStore } = props.context;
+  const { bridge, entity, sessionStore, uiStateStore, draftStore } = props.context;
 
   if (entity === undefined) {
-    // `ready` and not `empty`: the browser HAS something to show — the three scope
-    // groups, each carrying its own absence — and the surface renders its groups on
-    // that arm. Handing it `empty` would collapse the whole browser into one line.
-    return <WorkflowsSurface state={{ kind: "ready" }} />;
+    // The browser rather than the bare chrome, and with a session behind it: a pane
+    // always names one, which is the input the definition enumeration requires and
+    // the rail's own destination does not have. So the same browser that renders
+    // three empty named groups at the rail renders what this session can actually
+    // see here.
+    return <WorkflowsBrowser growth={bridge.growth} sessionId={sessionStore?.sessionId} />;
   }
 
   return (

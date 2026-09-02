@@ -41,6 +41,7 @@
 
 import { memo } from "react";
 
+import { WORKFLOW_DEFINITION_SCOPES, type WorkflowDefinitionScope } from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
 import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../primitives/index.js";
 
@@ -49,12 +50,17 @@ import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../primit
  *
  * A tuple because the ORDER is the claim. Written as three headings in the markup,
  * the order would be a fact about where someone happened to paste a block; declared
- * here, it is a value a test can compare against the rule it encodes.
+ * as a value, it is something a test can compare against the rule it encodes.
+ *
+ * Re-exported from the bridge's own declaration of the workflow plane rather than
+ * spelled again here. The wire declares this vocabulary because the enumeration's
+ * request carries it, and a second tuple in the view family would be a closed set
+ * with two homes — they agree until one of them is widened, and the compiler sees
+ * neither drift. Consumers keep importing it from the browser, which is where a
+ * reader of this surface looks for it.
  */
-export const WORKFLOW_DEFINITION_SCOPES = ["session", "project", "shared"] as const;
-
-/** One definition scope. Derived from the enumeration, never restated. */
-export type WorkflowDefinitionScope = (typeof WORKFLOW_DEFINITION_SCOPES)[number];
+export { WORKFLOW_DEFINITION_SCOPES };
+export type { WorkflowDefinitionScope };
 
 /** What each group is, in a line, so the scope model teaches itself. */
 const SCOPE_SUMMARIES: Readonly<Record<WorkflowDefinitionScope, string>> = {

@@ -14,6 +14,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { createFixtureBridge } from "../../bridge/index.js";
+import { WORKFLOWS_SCENARIO } from "../../bridge/scenarios/workflows.js";
+import { WORKFLOWS_SESSION_ID } from "../../bridge/scenarios/workflow-fixture-data.js";
 import { WORKFLOW_DEFINITION_SCOPES } from "../../workflows/DefinitionsBrowser.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
@@ -22,14 +25,17 @@ import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
  * The fields the chrome reads, and nothing else.
  *
  * Cast rather than constructed, the idiom `WorkflowRunPane.test.tsx` established: a
- * real pane context carries a bridge and three stores, one of which opens a
- * database on construction. The two stores travel as markers because this pane only
- * hands them on — the slots' own tests are where what a body receives is checked.
+ * real pane context carries three stores, one of which opens a database on
+ * construction. The two stores travel as markers because this pane only hands them
+ * on — the slots' own tests are where what a body receives is checked. The bridge is
+ * real, because the no-subject arm is a browser that asks it for definitions.
  */
 function paneContext(entity: ConsolePaneContext["entity"]): ConsolePaneContext {
   return {
     kind: "workflow-builder",
     entity,
+    bridge: createFixtureBridge({ scenario: WORKFLOWS_SCENARIO }),
+    sessionStore: { sessionId: WORKFLOWS_SESSION_ID },
     uiStateStore: {},
     draftStore: {},
   } as unknown as ConsolePaneContext;
