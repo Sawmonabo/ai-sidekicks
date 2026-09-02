@@ -48,8 +48,6 @@
 // console's own consumption shape, on the growth port's precedent. Rows reach this
 // component from its caller and are fixture-fed until the wire registers.
 
-import "./definitions-continuation.css";
-
 import { memo } from "react";
 
 import { WORKFLOW_DEFINITION_SCOPES, type WorkflowDefinitionScope } from "../bridge/index.js";
