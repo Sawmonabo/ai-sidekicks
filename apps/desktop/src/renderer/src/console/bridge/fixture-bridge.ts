@@ -8,9 +8,14 @@
 //
 // Three fixture behaviours are deliberate:
 //
-//   • **Subscriptions come from the scenario engine.** `daemon.subscribe` hands the
-//     caller beats as they fall due on the frozen clock, so a fixture session is
-//     replayable tick-for-tick and a screenshot pins an exact frame.
+//   • **Subscriptions come from the scenario engine, filtered by what was asked
+//     for.** `daemon.subscribe` hands the caller beats as they fall due on the
+//     frozen clock, so a fixture session is replayable tick-for-tick and a
+//     screenshot pins an exact frame — and it hands them only to a subscriber that
+//     named them. A fixture that forwarded the whole script to every subscriber
+//     delivered `session.created` into a handler that had asked for `run.started`,
+//     which is a frame the live bridge cannot produce and therefore a screenshot
+//     or an end-to-end result that proves nothing about the shipped console.
 //   • **Native surfaces refuse rather than pretend.** `showOpenDialog` under the
 //     fixture cannot open a dialog, so it rejects with a fixture-scoped error. A
 //     fixture that returned a plausible path would let a surface ship with a code
@@ -30,12 +35,18 @@ import {
   type UpdateState,
 } from "@ai-sidekicks/contracts";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
-import type { ConsoleBridge } from "./console-bridge.js";
+import type { ConsoleSessionEvent } from "../store/index.js";
+import { isSessionEventStream, type ConsoleBridge } from "./console-bridge.js";
 import { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
 import { ScenarioEngine, type ConsoleScenario } from "./scenario.js";
 
 /** Why the fixture could not answer. Rendered verbatim; never swallowed. */
-export const FIXTURE_BRIDGE_REFUSAL_CODES = ["reply-unscripted", "capability-absent"] as const;
+export const FIXTURE_BRIDGE_REFUSAL_CODES = [
+  "reply-unscripted",
+  "capability-absent",
+  "reply-abandoned",
+  "reply-backlog-full",
+] as const;
 
 /** One fixture refusal code. Derived, so the vocabulary is declared exactly once. */
 export type FixtureBridgeRefusalCode = (typeof FIXTURE_BRIDGE_REFUSAL_CODES)[number];
@@ -100,13 +111,11 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
       ): Promise<DaemonResult<MethodName>> =>
         (await resolveScriptedReply(scenarioEngine, method)) as DaemonResult<MethodName>,
       subscribe: <EventName extends DaemonEvent>(
-        _event: EventName,
+        event: EventName,
         handler: (payload: DaemonEventPayload<EventName>) => void,
       ): Unsubscribe =>
-        scenarioEngine.subscribe((events) => {
-          for (const event of events) {
-            handler(event as DaemonEventPayload<EventName>);
-          }
+        subscribeToScenario(scenarioEngine, event, (delivered) => {
+          handler(delivered as DaemonEventPayload<EventName>);
         }),
     },
     controlPlane: {
@@ -114,6 +123,10 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
         procedure: ProcedureName,
       ): Promise<CpOutput<ProcedureName>> =>
         (await resolveScriptedReply(scenarioEngine, procedure)) as CpOutput<ProcedureName>,
+      // Unfiltered, and not by omission: `subscribeRelay` names a SESSION rather
+      // than an event, and a scenario scripts exactly one session — so every beat
+      // it plays belongs to the session any caller could be asking for. The
+      // filter that `daemon.subscribe` needs has nothing to key on here.
       subscribeRelay: (_sessionId, handler): Unsubscribe =>
         scenarioEngine.subscribe((events) => {
           for (const event of events) {
@@ -162,6 +175,34 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
   };
 }
 
+/**
+ * Deliver a scenario's beats to one subscriber, filtered by what it subscribed to.
+ *
+ * `daemon.subscribe(name, handler)` names either a whole-session stream or one
+ * event type, and `console-bridge.ts` owns which names are which. A stream gets
+ * every beat; anything else gets the beats whose `kind` it named.
+ *
+ * The beat's own envelope is what reaches the handler on BOTH arms, deliberately.
+ * `DaemonEventPayload<E>` is a Plan-007 stub that resolves to `unknown`, so there
+ * is no registered per-event payload shape to project a beat down to — and a
+ * fixture that invented one would be putting a wire fact into the one module that
+ * has no contract to check it against.
+ */
+function subscribeToScenario(
+  engine: ScenarioEngine,
+  subscriptionName: string,
+  deliver: (event: ConsoleSessionEvent) => void,
+): Unsubscribe {
+  const carriesWholeStream = isSessionEventStream(subscriptionName);
+  return engine.subscribe((events) => {
+    for (const event of events) {
+      if (carriesWholeStream || event.kind === subscriptionName) {
+        deliver(event);
+      }
+    }
+  });
+}
+
 async function resolveScriptedReply(engine: ScenarioEngine, call: string): Promise<unknown> {
   const reply = engine.replyFor(call);
   if (reply === undefined) {
@@ -173,8 +214,25 @@ async function resolveScriptedReply(engine: ScenarioEngine, call: string): Promi
   }
   if (reply.afterMs !== undefined && reply.afterMs > 0) {
     // Latency is scripted rather than real: the frozen clock is the only clock, so
-    // the caller advances the engine to observe the loading state.
-    engine.advance(reply.afterMs);
+    // the reply is PARKED on it and the caller advances the engine to release it.
+    // Spending the delay here instead would settle the promise on this same turn —
+    // no loading state would ever be observable — and would deliver every beat
+    // inside the delay as a side effect of a read.
+    const outcome = await engine.holdReply(reply.afterMs);
+    if (outcome === "abandoned") {
+      throw new FixtureBridgeError(
+        call,
+        "reply-abandoned",
+        "the scenario engine was torn down before the frozen clock reached this reply. Advance the engine before disposing it, or drive this surface from a scenario that scripts no latency for the call.",
+      );
+    }
+    if (outcome === "backlog-full") {
+      throw new FixtureBridgeError(
+        call,
+        "reply-backlog-full",
+        `the fixture is already holding ${String(engine.pendingReplyCount)} delayed replies and takes no more. Advance the frozen clock to release them; a backlog this size means something is issuing requests without ever moving the scenario forward.`,
+      );
+    }
   }
   return reply.result;
 }
