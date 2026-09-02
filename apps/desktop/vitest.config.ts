@@ -397,8 +397,10 @@ export default defineConfig({
       {
         // Tier: accessibility. `axe-core` runs INSIDE the browser-mode page
         // rather than through `@axe-core/playwright`, which needs a
-        // `@playwright/test` `Page` handle that Vitest browser mode does not
-        // hand out. Same engine, same rule set, one less indirection.
+        // `@playwright/test` `Page` handle that Vitest browser mode hands only to
+        // server-side custom commands, never to test code — and that handle is
+        // the orchestrator page, not the tester iframe. Same engine, same rule
+        // set, one less indirection.
         define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
         resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
         optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
