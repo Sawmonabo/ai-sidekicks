@@ -232,7 +232,7 @@ export class RunControlDispatcher {
       this.#freshComparandByRunId.set(target.runId, parsed.data.runVersion);
       return { kind: "acknowledged", control, ack: parsed.data };
     } catch (rejection) {
-      return this.#carried(control, rejection);
+      return carriedRunControlRefusal(control, rejection);
     }
   }
 
@@ -279,7 +279,7 @@ export class RunControlDispatcher {
       this.#freshComparandByRunId.set(target.runId, parsed.data.runVersion);
       return { kind: "settled", control, response: parsed.data };
     } catch (rejection) {
-      return this.#carried(control, rejection);
+      return carriedRunControlRefusal(control, rejection);
     }
   }
 
@@ -306,22 +306,29 @@ export class RunControlDispatcher {
       ),
     };
   }
+}
 
-  /**
-   * Carry a daemon rejection through without paraphrasing it.
-   *
-   * The code the daemon sent is the code a person sees; there is deliberately no
-   * table here mapping a wire code onto console prose. Every refusal §7.2 names as
-   * reachable — `run.invalid_transition`, `run.not_found`, `run.limit_exceeded`,
-   * `run.recovery_failed`, `intervention.idempotency_conflict`,
-   * `auth.principal_mismatch` — travels this one path.
-   */
-  #carried(control: RunControl, rejection: unknown): RunControlOutcome {
-    const wireError = normalizeWireRejection(rejection, { total: true });
-    return {
-      kind: "refused",
-      control,
-      refusal: refuse(RUN_CONTROL_REFUSAL_ORIGIN, wireError.name, wireError.message),
-    };
-  }
+/**
+ * Carry a rejection through without paraphrasing it.
+ *
+ * The code the daemon sent is the code a person sees; there is deliberately no
+ * table here mapping a wire code onto console prose. Every refusal §7.2 names as
+ * reachable — `run.invalid_transition`, `run.not_found`, `run.limit_exceeded`,
+ * `run.recovery_failed`, `intervention.idempotency_conflict`,
+ * `auth.principal_mismatch` — travels this one path.
+ *
+ * Module-level rather than a private method because the React binding needs the
+ * same carriage for a `perform` that rejects before the dispatcher ever runs, and
+ * one rejection deserves one reading.
+ */
+export function carriedRunControlRefusal(
+  control: RunControl,
+  rejection: unknown,
+): RunControlOutcome {
+  const wireError = normalizeWireRejection(rejection, { total: true });
+  return {
+    kind: "refused",
+    control,
+    refusal: refuse(RUN_CONTROL_REFUSAL_ORIGIN, wireError.name, wireError.message),
+  };
 }

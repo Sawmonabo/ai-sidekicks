@@ -7,6 +7,17 @@
 // lets a test drive every guard and every refusal arm against a stub bridge with no
 // rendered tree at all.
 //
+// THE SINGLE-FLIGHT LATCH IS A REF AND NOT THE STATE. `inFlightKeys` is what the
+// row RENDERS, and a handler reading it sees the value from the render that produced
+// the handler — so a double click, or repeated Enter on an intervention form before
+// React commits the busy state, reaches `dispatch` twice in one tick and both calls
+// read an empty set. Two dispatches mint two idempotency keys against one run
+// version, which makes them two distinct mutations rather than replays of one: they
+// race to apply and the loser's stale refusal can become the visible settlement. The
+// ref is read and written before `perform` is called, so the second press is a no-op
+// in the same tick — the person pressed the control for the act that is already
+// going, and there is nothing to refuse them.
+//
 // THE RECORD IS THIS WINDOW'S OWN. `Spec-023 §Console Design (Meridian)` §7.5 asks
 // for the durable intervention history, including the attempts that failed, with
 // the `origin` discriminator and the admitting principal on the participant arm.
@@ -21,6 +32,7 @@ import { type ConsoleBridge } from "../../bridge/index.js";
 import { INTERVENTION_OUTCOME_CAP } from "./runs-bounds.js";
 import {
   RunControlDispatcher,
+  carriedRunControlRefusal,
   type RunControl,
   type RunControlOutcome,
 } from "./run-control-dispatch.js";
@@ -69,6 +81,7 @@ export function useRunControlSurface(
   const [inFlightKeys, setInFlightKeys] = useState<ReadonlySet<string>>(EMPTY_KEYS);
   const nextRecordOrdinal = useRef(0);
   const isMounted = useRef(true);
+  const heldControlKeys = useRef<Set<string>>(new Set());
 
   const dispatcher = useMemo(
     () =>
@@ -92,12 +105,21 @@ export function useRunControlSurface(
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
     ) => {
       const key = inFlightKeyFor(runId, control);
+      if (heldControlKeys.current.has(key)) {
+        return;
+      }
+      heldControlKeys.current.add(key);
       setInFlightKeys((held) => {
         const next = new Set(held);
         next.add(key);
         return next;
       });
-      void perform(dispatcher).then((outcome) => {
+      const settle = (outcome: RunControlOutcome): void => {
+        // The latch is released before the mount check and never inside it: an
+        // unmounted surface writes no state, but a key left held would survive the
+        // mount/unmount/mount that development-mode React performs on one hook
+        // instance and leave that control latched for the rest of the window.
+        heldControlKeys.current.delete(key);
         if (!isMounted.current) {
           return;
         }
@@ -119,7 +141,20 @@ export function useRunControlSurface(
             ? appended
             : appended.slice(appended.length - INTERVENTION_OUTCOME_CAP);
         });
-      });
+      };
+      const settleRejection = (rejection: unknown): void => {
+        settle(carriedRunControlRefusal(control, rejection));
+      };
+      // Every settlement path, not only the resolved one. A `perform` that rejects
+      // — or that throws before it returns a promise at all — settles the dispatch
+      // just as surely as one that resolves: without these two arms the latch stays
+      // held, that control is busy for the rest of the window, and the rejection
+      // reaches no surface at all.
+      try {
+        void perform(dispatcher).then(settle, settleRejection);
+      } catch (rejection) {
+        settleRejection(rejection);
+      }
     },
     [dispatcher],
   );
