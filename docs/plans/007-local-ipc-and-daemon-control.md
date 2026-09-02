@@ -990,6 +990,76 @@ shipped:
     spec_coverage: []
     notes: |
       Backfill (BL-110 Gate 6 baseline reconciliation, 2026-07-06): follow-up PR shipped outside a plan-execution run; descriptive task label, not a DAG task id. BL-114/115/116 escalation-triad cleanup; spans Phase 2/3 surfaces, attributed to Phase 2 (dominant surface: jsonrpc-streaming + registry contracts).
+  - phase: 2
+    task: CP-007-16-substrate-legs
+    pr: 410
+    sha: e6c082d9
+    merged_at: 2026-09-02
+    files:
+      - .claude/skills/plan-execution/scripts/__tests__/preflight-gate4.test.mjs
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - docs/plans/013-live-timeline-visibility-and-reasoning-surfaces.md
+      - docs/specs/007-local-ipc-and-daemon-control.md
+      - docs/specs/013-live-timeline-visibility-and-reasoning-surfaces.md
+      - packages/contracts/src/__tests__/timeline.test.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/jsonrpc-negotiation.ts
+      - packages/contracts/src/jsonrpc.ts
+      - packages/contracts/src/runControl.ts
+      - packages/contracts/src/timeline.test-d.ts
+      - packages/contracts/src/timeline/child-run-summary.ts
+      - packages/contracts/src/timeline/index.ts
+      - packages/contracts/src/timeline/methods.ts
+      - packages/contracts/src/timeline/operations.ts
+      - packages/contracts/src/timeline/row.ts
+      - packages/runtime-daemon/src/ipc/__tests__/local-ipc-gateway.test.ts
+      - packages/runtime-daemon/src/ipc/__tests__/timeline-methods.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/index.ts
+      - packages/runtime-daemon/src/ipc/handlers/session-subscribe.ts
+      - packages/runtime-daemon/src/ipc/handlers/timeline-methods.ts
+      - packages/runtime-daemon/src/ipc/local-ipc-gateway.ts
+      - packages/runtime-daemon/src/ipc/subscription-ack-barrier.ts
+    verifies_invariant: [I-007-22]
+    spec_coverage: ["Spec-007 §Wire Format", "Spec-007 §Acceptance Criteria"]
+    notes: |
+      Cross-plan substrate record, NOT a Plan-007 task shipment. PR #410 ships
+      Plan-013 Phase 1 (its own manifest row carries T1.1-T1.5) and, under CP-007-16,
+      three touches on this plan's substrate that Plan-013 T1.5 authors. Descriptive
+      task label rather than a DAG task id - the PR #18 and PR #76 precedent on this
+      manifest. Attributed to phase 2 (dominant surface: the Phase-2 wire substrate,
+      `packages/contracts/src/jsonrpc.ts` and
+      `packages/runtime-daemon/src/ipc/local-ipc-gateway.ts`); the barrier
+      extraction's source file `handlers/session-subscribe.ts` is a Phase-3 surface,
+      the PR #76 spans-two-phases attribution shape. The three legs:
+      (a) the request-id bound - `JSON_RPC_ID_MAX_BYTES` (256, measured on the
+      JSON-encoded form) declared beside the frame cap in
+      `packages/contracts/src/jsonrpc.ts` and enforced at BOTH gateway sites, the
+      pre-dispatch refusal in `#dispatchFrame` and `extractIdSafely`'s drop-to-null
+      covering the envelope gates that answer before that refusal runs - new wire
+      behavior on this plan's framer, stated as the new I-007-22 and verified by the
+      oversized-id group of
+      `packages/runtime-daemon/src/ipc/__tests__/local-ipc-gateway.test.ts`;
+      (b) the `MAX_MESSAGE_BYTES` declaration move into
+      `packages/contracts/src/jsonrpc.ts` with `local-ipc-gateway.ts` re-exporting it
+      unchanged - a recorded no-flip mirror: the value, both enforcement sites, the
+      exported name, and every importer are unmoved; and
+      (c) `packages/runtime-daemon/src/ipc/subscription-ack-barrier.ts`, holding the
+      buffering `handlers/session-subscribe.ts` had inline, extracted verbatim on its
+      second consumer per the hoist-on-second-use rule so I-007-10 holds for
+      `timeline.subscribe` by construction. I-007-10 is deliberately NOT claimed as
+      newly verified: `session.subscribe`'s behavior and logged diagnostics are
+      byte-identical and I-007-3-T6 exercises the extracted module unmodified, so this
+      is preservation rather than new verification.
+      Phase 2B is NOT shipped and stays open. T-007p-2B-1 - the additive optional
+      daemon-resolved calling principal on `HandlerContext` under I-007-21 and
+      CP-007-17 - carries no code in this diff:
+      `packages/contracts/src/jsonrpc-registry.ts` is untouched by the PR and the
+      interface still exposes `transportId` alone, and that spec's own acceptance
+      criterion for the principal names T-007p-2B-1 as its future verifier.
+      Plan-013's born-unchecked "Plan-007 Phase 2B merged" box therefore still holds
+      its T3.2, and this row records the phase as open rather than delivered.
 ```
 
 ### Notes

@@ -302,7 +302,83 @@ preconditions:
 
 ```yaml
 manifest_schema_version: 1
-shipped: []
+shipped:
+  - phase: 1
+    task: [T1.1, T1.2, T1.3, T1.4, T1.5]
+    pr: 410
+    sha: e6c082d9
+    merged_at: 2026-09-02
+    files:
+      - .claude/skills/plan-execution/scripts/__tests__/preflight-gate4.test.mjs
+      - docs/architecture/contracts/api-payload-contracts.md
+      - docs/architecture/cross-plan-dependencies.md
+      - docs/plans/007-local-ipc-and-daemon-control.md
+      - docs/plans/013-live-timeline-visibility-and-reasoning-surfaces.md
+      - docs/specs/007-local-ipc-and-daemon-control.md
+      - docs/specs/013-live-timeline-visibility-and-reasoning-surfaces.md
+      - packages/contracts/src/__tests__/timeline.test.ts
+      - packages/contracts/src/index.ts
+      - packages/contracts/src/jsonrpc-negotiation.ts
+      - packages/contracts/src/jsonrpc.ts
+      - packages/contracts/src/runControl.ts
+      - packages/contracts/src/timeline.test-d.ts
+      - packages/contracts/src/timeline/child-run-summary.ts
+      - packages/contracts/src/timeline/index.ts
+      - packages/contracts/src/timeline/methods.ts
+      - packages/contracts/src/timeline/operations.ts
+      - packages/contracts/src/timeline/row.ts
+      - packages/runtime-daemon/src/ipc/__tests__/local-ipc-gateway.test.ts
+      - packages/runtime-daemon/src/ipc/__tests__/timeline-methods.test.ts
+      - packages/runtime-daemon/src/ipc/handlers/index.ts
+      - packages/runtime-daemon/src/ipc/handlers/session-subscribe.ts
+      - packages/runtime-daemon/src/ipc/handlers/timeline-methods.ts
+      - packages/runtime-daemon/src/ipc/local-ipc-gateway.ts
+      - packages/runtime-daemon/src/ipc/subscription-ack-barrier.ts
+    verifies_invariant: [I-013-1, I-013-3, I-013-7, I-013-10, I-013-11, I-013-12, I-013-13]
+    spec_coverage: ["Spec-013 §Timeline Entry Types", "Spec-013 §Interfaces And Contracts"]
+    notes: |
+      Phase 1 closes: T1.1-T1.5 are all recorded, so every task the phase declares is
+      shipped and Phase 2 (projection + replay-aware subscription) becomes the next
+      dispatch target - still held on its own external_plan_phase_merged gate on
+      Plan-004 Phase 3B, which has not merged. Shipped as the
+      `packages/contracts/src/timeline/` subtree - `row.ts` (the four-arm
+      `kind`-discriminated `TimelineRow`, its run-attribution triple all-or-none and
+      the three-legged general-arm refusal), `child-run-summary.ts` (the required
+      two-arm `completeness` marker over the closed cause set), `operations.ts` (the
+      three paged reads, the shared encoded-size page bound and its page-fill helper
+      flooring at one, and the page-integrity refinements), `methods.ts` (the four
+      method descriptors pairing each name with its schemas) - plus
+      `packages/contracts/src/timeline.test-d.ts` for the compile-time narrowing
+      claims, and the daemon binder
+      `packages/runtime-daemon/src/ipc/handlers/timeline-methods.ts`. That binder
+      ships BINDERS ONLY: `registerTimelineMethod` for the three queries and
+      `registerTimelineSubscription` for `timeline.subscribe`, both exported from the
+      handler barrel, carrying the request-scope, caller-window, and first-read floor
+      checks I-013-13 states. No handler is registered at bootstrap and no
+      `timeline.*` method is on the wire - the handlers arrive with the daemon
+      services they dispatch to, in Phases 2 and 3.
+      Three Plan-007 substrate legs ride this same PR under CP-007-16, authored by
+      T1.5 and recorded on that plan's own manifest row for PR #410: the
+      `MAX_MESSAGE_BYTES` declaration move into `packages/contracts/src/jsonrpc.ts`
+      (a recorded no-flip mirror), the request-id bound `JSON_RPC_ID_MAX_BYTES` (new
+      wire behavior, stated as Plan-007's I-007-22), and the verbatim extraction of
+      `packages/runtime-daemon/src/ipc/subscription-ack-barrier.ts` from
+      `handlers/session-subscribe.ts` on its second consumer.
+      Plan-007 T-007p-2B-1 did NOT ship here. The `HandlerContext` calling principal
+      under I-007-21 / CP-007-17 carries no code in this diff -
+      `packages/contracts/src/jsonrpc-registry.ts` is untouched and the interface
+      still exposes `transportId` alone - so Phase 2B stays open and this plan's
+      born-unchecked "Plan-007 Phase 2B merged" box still holds T3.2.
+      verifies_invariant is the union of the five tasks' declared invariants (T1.1
+      I-013-1 + I-013-3; T1.2 I-013-10; T1.3 I-013-7 + I-013-11; T1.4 I-013-13; T1.5
+      I-013-11 + I-013-12). I-013-2, I-013-4, I-013-5, I-013-6, I-013-8, and I-013-9
+      bind in Phases 2-4 and are deliberately not claimed here. The
+      `.claude/skills/plan-execution/scripts/__tests__/preflight-gate4.test.mjs` edit
+      is the Gate-4 invariant-reference census re-pin the six invariants this PR mints
+      across the two plans (I-013-10 through I-013-13, I-007-21, I-007-22) required in
+      the same PR. Review: codex code review completed - the round folds are recorded
+      in this plan's Preconditions audit box and its 2026-09-01 Notes entry; CI green
+      on the squash head.
 ```
 
 ### Notes
