@@ -24,6 +24,8 @@
 // this console from rows it holds, so it renders proportionally through
 // `DerivedFigure` rather than in the mono the daemon's own figures wear (rule 4).
 
+import { useEffect, useRef, type RefObject } from "react";
+
 import { DerivedFigure, Glyph } from "../../primitives/index.js";
 import {
   LEDGER_FIND_CAP_NOTE,
@@ -37,6 +39,16 @@ export interface FindInLedgerProps {
   readonly result: LedgerFindResult;
   /** Which match the walk is on, or `-1` before the first step. */
   readonly currentMatchIndex: number;
+  /**
+   * How many times the caller has asked for this field, monotonic for the mount.
+   *
+   * The chord that opens the field has to put the caret IN it — the whole point of
+   * the chord is that typing goes to the query — and it has to do that again when
+   * it is pressed while the field is already up. A mount-only effect covers the
+   * first case and not the second, so the caller supplies the press count and the
+   * effect keys on it.
+   */
+  readonly openRequestCount: number;
   readonly onQueryChange: (query: string) => void;
   readonly onStep: (direction: "next" | "previous") => void;
   /**
@@ -54,8 +66,29 @@ export interface FindInLedgerProps {
 
 const FIND_GLYPH_SIZE = 14;
 
+/**
+ * Take the caret every time the field is asked for, and select what is in it.
+ *
+ * Selecting rather than only focusing because the second press is the case that
+ * needs it: somebody re-running the chord over a field holding an old query is
+ * about to replace it, and a caret parked at one end makes them clear it by hand.
+ */
+function useCaretOnOpen(openRequestCount: number): RefObject<HTMLInputElement | null> {
+  const inputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (input === null) {
+      return;
+    }
+    input.focus();
+    input.select();
+  }, [openRequestCount]);
+  return inputRef;
+}
+
 export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
   const { result } = props;
+  const inputRef = useCaretOnOpen(props.openRequestCount);
   const hasQuery = result.query.length > 0;
   const hasMatches = result.matches.length > 0;
   const onLoadEarlier = props.onLoadEarlier;
@@ -66,6 +99,7 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
         <Glyph name="search" size={FIND_GLYPH_SIZE} />
         <span className="meridian-find__label">Find in ledger</span>
         <input
+          ref={inputRef}
           className="meridian-find__input"
           type="search"
           value={props.query}
@@ -73,6 +107,14 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
             props.onQueryChange(event.currentTarget.value);
           }}
           onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              // The field takes focus when it opens, so it owes a keyboard way out.
+              // Without one the chord would be a trap: type, and then reach for the
+              // mouse to leave.
+              event.preventDefault();
+              props.onClose();
+              return;
+            }
             if (event.key !== "Enter") {
               return;
             }

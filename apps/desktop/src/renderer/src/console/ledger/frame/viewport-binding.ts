@@ -10,7 +10,7 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { VirtualItem } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { type ConsoleClock } from "../../core/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "./frame-bounds.js";
@@ -69,6 +69,19 @@ export interface LedgerViewportBinding {
    * scroll writer.
    */
   readonly jumpToRow: (rowKey: string) => void;
+  /**
+   * Put keyboard focus back on the log itself.
+   *
+   * For a caller that took focus and is giving it back — the find field's close is
+   * the one today. Without it focus falls to `body`, which is nowhere: the next Tab
+   * restarts from the top of the document and the reading position a person was
+   * keeping is unreachable from the keyboard.
+   *
+   * The binding holds the surface element its own attach callback already receives,
+   * so no component reaches into the DOM and the view that mounts the surface is
+   * untouched.
+   */
+  readonly focusSurface: () => void;
 }
 
 export interface UseLedgerViewportOptions extends LedgerViewportConditions {
@@ -96,6 +109,10 @@ export interface UseLedgerViewportOptions extends LedgerViewportConditions {
  */
 export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerViewportBinding {
   const { clock, rows, hasActiveTurn, isRevealDraining } = options;
+  // The element the controller is attached to, kept for the one act that needs the
+  // node rather than the controller. A ref rather than state: nothing renders from
+  // it, so writing it during attach must not schedule a render.
+  const surfaceElementRef = useRef<HTMLElement | null>(null);
   const [controller, setController] = useState<LedgerViewportController>(
     () => new LedgerViewportController({ clock }),
   );
@@ -164,6 +181,7 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     isPastElementCeiling,
     attachSurface: useCallback(
       (element: HTMLElement | null) => {
+        surfaceElementRef.current = element;
         if (element === null) {
           controller.detach();
           return;
@@ -172,6 +190,9 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
       },
       [controller],
     ),
+    focusSurface: useCallback(() => {
+      surfaceElementRef.current?.focus();
+    }, []),
     attachSizer: virtualizer.containerRef,
     attachRow: virtualizer.measureElement,
     jumpToTail: useCallback(() => {

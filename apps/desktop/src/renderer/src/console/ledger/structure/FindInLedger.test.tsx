@@ -72,6 +72,8 @@ function renderField(
     readonly currentMatchIndex?: number;
     /** Whether a caller can page earlier rows at all. Absent, no affordance is drawn. */
     readonly canLoadEarlier?: boolean;
+    /** How many times the caller has asked for the field. One, unless a case re-opens it. */
+    readonly openRequestCount?: number;
   } = {},
 ): FindHarness {
   const acts: string[] = [];
@@ -84,6 +86,7 @@ function renderField(
       query={options.query ?? result.query}
       result={result}
       currentMatchIndex={options.currentMatchIndex ?? -1}
+      openRequestCount={options.openRequestCount ?? 1}
       onQueryChange={(query) => acts.push(`query:${query}`)}
       onStep={(direction) => acts.push(`step:${direction}`)}
       {...(options.canLoadEarlier === false ? {} : { onLoadEarlier: loadEarlier })}
@@ -208,6 +211,92 @@ describe("find field — the walk", () => {
     for (const name of ["Next match", "Previous match"]) {
       expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
     }
+  });
+});
+
+describe("find field — the chord puts the caret in the field", () => {
+  it("takes focus and selects the query when the field is asked for", () => {
+    // The chord's whole point is that the next keystroke enters the query. Before
+    // this the field mounted with focus still on the ledger or the palette.
+    const harness = renderField({ query: "hit" });
+    expect(document.activeElement).toBe(harness.input);
+    expect(harness.input.selectionStart).toBe(0);
+    expect(harness.input.selectionEnd).toBe("hit".length);
+  });
+
+  it("takes the caret back when the chord is pressed over an open field", () => {
+    // A mount-only effect covers the first open and not this one, which is why the
+    // press count is a prop rather than `autoFocus`.
+    const { rerender } = render(
+      <FindInLedger
+        query="hit"
+        result={matchingResult()}
+        currentMatchIndex={-1}
+        openRequestCount={1}
+        onQueryChange={() => undefined}
+        onStep={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    const input = screen.getByRole("searchbox", { name: "Find in ledger" }) as HTMLInputElement;
+    input.blur();
+    expect(document.activeElement).not.toBe(input);
+    rerender(
+      <FindInLedger
+        query="hit"
+        result={matchingResult()}
+        currentMatchIndex={-1}
+        openRequestCount={2}
+        onQueryChange={() => undefined}
+        onStep={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(document.activeElement).toBe(input);
+    expect(input.selectionEnd).toBe("hit".length);
+  });
+
+  it("negative control: a re-render that did not open the field leaves focus alone", () => {
+    // Without this the two cases above would pass over an effect with no dependency
+    // list, which would snatch focus back on every keystroke and every result
+    // recompute.
+    const { rerender } = render(
+      <FindInLedger
+        query="hit"
+        result={matchingResult()}
+        currentMatchIndex={-1}
+        openRequestCount={1}
+        onQueryChange={() => undefined}
+        onStep={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    const input = screen.getByRole("searchbox", { name: "Find in ledger" }) as HTMLInputElement;
+    input.blur();
+    rerender(
+      <FindInLedger
+        query="hit"
+        result={matchingResult()}
+        currentMatchIndex={2}
+        openRequestCount={1}
+        onQueryChange={() => undefined}
+        onStep={() => undefined}
+        onClose={() => undefined}
+      />,
+    );
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it("closes on Escape, so the caret it took has a keyboard way out", () => {
+    const harness = renderField();
+    fireEvent.keyDown(harness.input, { key: "Escape" });
+    expect(harness.acts).toStrictEqual(["close"]);
+  });
+
+  it("negative control: an ordinary keystroke does not close the field", () => {
+    const harness = renderField();
+    fireEvent.keyDown(harness.input, { key: "a" });
+    expect(harness.acts).toStrictEqual([]);
   });
 });
 

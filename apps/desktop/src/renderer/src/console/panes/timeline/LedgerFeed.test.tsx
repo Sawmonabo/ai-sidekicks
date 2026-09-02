@@ -438,6 +438,27 @@ describe("the ledger feed — the palette acts on the mounted feed", () => {
     expect(feed.querySelector(".meridian-find")).not.toBeNull();
   });
 
+  it("puts the caret in the field the palette opened, and gives it back on Escape", () => {
+    // The chord's whole point is that the next keystroke enters the query, and the
+    // field is the only thing on this surface that can hold a caret without
+    // scrolling the log. Before this focus stayed on the ledger or the palette.
+    withLaidOutViewport();
+    contributeLedgerCommands();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    dispatchConsoleCommand("ledger.find");
+    const input = feed.querySelector<HTMLInputElement>(".meridian-find__input");
+    expect(input).not.toBeNull();
+    expect(document.activeElement).toBe(input);
+
+    act(() => {
+      fireEvent.keyDown(input as HTMLInputElement, { key: "Escape" });
+    });
+    expect(feed.querySelector(".meridian-find")).toBeNull();
+    // Not `body`: the log is where the reader was, and it is focusable for exactly
+    // this reason.
+    expect(document.activeElement).toBe(feed.querySelector(".meridian-ledger-viewport__surface"));
+  });
+
   it("reveals the replay dock when the palette starts playback", () => {
     // Playing from idle parks the position at zero, so the ledger collapses to the
     // rows sharing the window's first instant. Behind a hidden dock there is no

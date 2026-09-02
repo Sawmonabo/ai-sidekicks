@@ -56,6 +56,7 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindSt
     open: () => {
       trace.push("open");
     },
+    openRequestCount: 0,
     close: () => {
       trace.push("close");
     },

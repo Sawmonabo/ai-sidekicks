@@ -83,9 +83,9 @@ export interface VisibleLedgerWindow {
    * records — and deliberately NOT when replay is merely holding rows back, which
    * would draw an unloaded segment over a complete window and make find state a
    * boundary that is not there. It was a hard-coded `false` until now, on the
-   * reasoning that no
-   * registered read pages a session's log backwards — but that reasoning answers a
-   * different question. Whether anybody can FETCH earlier rows and whether earlier
+   * reasoning that no registered read pages a session's log backwards — but that
+   * reasoning answers a different question. Whether anybody can FETCH earlier rows
+   * and whether earlier
    * rows EXIST are two facts, and collapsing them made the rail draw a complete
    * session over a window the cap had already truncated, and told the find result
    * it had searched a whole log.
@@ -186,6 +186,15 @@ export interface LedgerFindState {
    * and reset a walk the reader was already in the middle of.
    */
   readonly open: () => void;
+  /**
+   * How many times `open` has been pressed, monotonic for the mount's life.
+   *
+   * The field is conditionally mounted, so a mount IS one open — but the chord
+   * pressed while the field is already up has to put the caret back and select what
+   * is there, and a mount-only effect cannot see that press. One counter covers both
+   * entries and stays drivable by a unit test, which `autoFocus` is not.
+   */
+  readonly openRequestCount: number;
   readonly close: () => void;
   readonly step: (direction: "next" | "previous") => ReturnType<typeof stepFindMatch>;
 }
@@ -204,6 +213,7 @@ export interface LedgerFindState {
  */
 export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
   const [isOpen, setIsOpen] = useState(false);
+  const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
   const [selectedMatchRowId, setSelectedMatchRowId] = useState<string | undefined>(undefined);
 
@@ -262,6 +272,9 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
 
   const open = useCallback(() => {
     setIsOpen(true);
+    // Bumped rather than set, so the field can tell a fresh press from a re-render
+    // and take the caret on both the first open and every one after it.
+    setOpenRequestCount((count) => count + 1);
   }, []);
 
   const close = useCallback(() => {
@@ -279,6 +292,7 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     currentMatchIndex,
     setQuery,
     open,
+    openRequestCount,
     close,
     step,
   };

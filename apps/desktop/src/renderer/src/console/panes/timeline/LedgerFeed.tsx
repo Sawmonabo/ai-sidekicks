@@ -153,6 +153,16 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     [find, jumpToRow],
   );
 
+  const closeFind = find.close;
+  const focusLedgerSurface = viewport.focusSurface;
+  const onCloseFind = useCallback(() => {
+    closeFind();
+    // The field took focus when it opened, and it is unmounted by the close — so
+    // without this focus falls to `body` and the next Tab restarts from the top of
+    // the document, well away from the log somebody was reading.
+    focusLedgerSurface();
+  }, [closeFind, focusLedgerSurface]);
+
   const concealReplayDock = replay.conceal;
   const concealReplayDockOnFocusLeaving = useCallback(
     (event: React.FocusEvent<HTMLDivElement>) => {
@@ -188,9 +198,10 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           query={find.query}
           result={find.result}
           currentMatchIndex={find.currentMatchIndex}
+          openRequestCount={find.openRequestCount}
           onQueryChange={find.setQuery}
           onStep={onStepFind}
-          onClose={find.close}
+          onClose={onCloseFind}
         />
       ) : null}
       <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
