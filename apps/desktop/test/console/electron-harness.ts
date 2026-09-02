@@ -43,6 +43,8 @@ import { fileURLToPath } from "node:url";
 import { _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 
+import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");
 
@@ -168,7 +170,17 @@ export async function launchConsole(
   try {
     application = await electron.launch({
       args: [`--user-data-dir=${userDataDirectory}`, MAIN_ENTRY_PATH],
-      env: { ...process.env, ...options.env, ...scenarioEnvironment } as Record<string, string>,
+      env: {
+        ...process.env,
+        ...options.env,
+        ...scenarioEnvironment,
+        // Every automated launch asks for an unobtrusive window: on macOS an
+        // ordinary reveal activates the application, steals focus, and switches
+        // the operator to the Space the window opened on — a dozen times per
+        // aggregate run. A fixture build honours this; a release build cannot
+        // (see `src/main/window-reveal.ts`).
+        [UNOBTRUSIVE_WINDOWS_ENV]: "1",
+      } as Record<string, string>,
       timeout: WINDOW_APPEAR_TIMEOUT_MS,
     });
   } catch (error: unknown) {
@@ -198,6 +210,19 @@ export async function launchConsole(
     // has mounted anything, so waiting on the document would let a test assert
     // against an empty body and call it a pass.
     await window.waitForSelector(".meridian-frame", { timeout: WINDOW_APPEAR_TIMEOUT_MS });
+    // A measurement from a throttled renderer is a false one. The window is
+    // revealed inactive, so it can be occluded, and Chromium answers occlusion
+    // by throttling timers and frames and reporting the document hidden — unless
+    // the build switched background throttling off for this launch. The tiers
+    // assert the state they measure in rather than trust it.
+    const visibilityState = await window.evaluate(() => document.visibilityState);
+    if (visibilityState !== "visible") {
+      throw new Error(
+        `the console document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +
+          "nothing measured in it would describe the console; the launched build must honour " +
+          `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
+      );
+    }
     return { application, window, close };
   } catch (error: unknown) {
     await close();
