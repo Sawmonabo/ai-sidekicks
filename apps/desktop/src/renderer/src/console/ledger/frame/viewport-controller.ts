@@ -157,6 +157,7 @@ export class LedgerViewportController {
    */
   public reconcile(conditions: LedgerViewportConditions): void {
     const previousTailKey = this.#rowKeys[this.#rowKeys.length - 1];
+    const readingFloorRowKey = this.#readingFloorRowKey();
     this.window.ingest(conditions.rows);
     this.#lastPrune = this.window.prune({
       hasActiveTurn: conditions.hasActiveTurn,
@@ -164,7 +165,14 @@ export class LedgerViewportController {
       revealDrainInFlight: conditions.isRevealDraining,
       pinnedRootCursor: this.anchor.state.pinnedRootCursor,
       heldRowKeys: this.anchor.heldRowKeys(),
+      readingFloorRowKey,
     });
+    // Summed BEFORE the priors are dropped: after the loop below there is nothing
+    // left to ask how tall the pruned rows were.
+    const prunedHeightPx = this.#lastPrune.prunedKeys.reduce(
+      (heightPx, prunedKey) => heightPx + this.measurements.heightOf(prunedKey),
+      0,
+    );
     for (const prunedKey of this.#lastPrune.prunedKeys) {
       this.measurements.forget(prunedKey);
     }
@@ -176,7 +184,11 @@ export class LedgerViewportController {
     if (appendedCount > 0) {
       this.anchor.noteAppendedRows(appendedCount);
     }
-    this.holdReadingPosition();
+    const compensated =
+      readingFloorRowKey !== undefined && this.#compensateForPrunedHeight(prunedHeightPx);
+    if (!compensated) {
+      this.holdReadingPosition();
+    }
     this.#publish();
   }
 
@@ -199,6 +211,11 @@ export class LedgerViewportController {
    * While following, the tail is the position, so the frame glides there instead —
    * which is the one case where the ledger moves the offset on its own, and it does
    * it only because the reader asked for it by being at the tail.
+   *
+   * Called from `reconcile` only where no prune compensation ran. Its index lookup
+   * reads the virtualizer, which is still in the PRE-prune index space until React
+   * re-renders, so after a prune it would name the wrong row; the arithmetic
+   * compensation is the answer there and this is the answer everywhere else.
    */
   public holdReadingPosition(): void {
     const reading = this.anchor.state;
@@ -303,6 +320,36 @@ export class LedgerViewportController {
       rowKey,
       offsetWithinViewportPx: (topItem?.start ?? this.#offsetOfIndex(index)) - geometry.scrollTop,
     });
+  }
+
+  /**
+   * The row the prune may not walk past, or `undefined` while following.
+   *
+   * While following there is no reading position to protect — the tail is the
+   * position, and the frame glides back to it — so the window is free to take
+   * every row the cap allows.
+   */
+  #readingFloorRowKey(): string | undefined {
+    const reading = this.anchor.state;
+    return reading.mode === "following" ? undefined : reading.anchorPoint?.rowKey;
+  }
+
+  /**
+   * Move the offset up by exactly what prune took from above the reader.
+   *
+   * Arithmetic rather than a second anchor glide: React has not re-rendered yet, so
+   * the virtualizer still answers in the pre-prune offset space. What was dropped is
+   * known exactly and the reading floor guarantees every pixel of it sat above the
+   * reader, so subtracting the sum leaves their row under the same pixel with no
+   * measurement read at all. Returns whether the offset moved, so the caller can
+   * fall back to the anchor glide when there was nothing or nowhere to compensate.
+   */
+  #compensateForPrunedHeight(prunedHeightPx: number): boolean {
+    const scrollTop = this.scroll.geometry?.scrollTop;
+    if (prunedHeightPx <= 0 || scrollTop === undefined) {
+      return false;
+    }
+    return this.scroll.glideTo("prune-compensation", scrollTop - prunedHeightPx) !== undefined;
   }
 
   #buildSnapshot(): LedgerViewportSnapshot {
