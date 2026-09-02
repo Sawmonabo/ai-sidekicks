@@ -1,0 +1,152 @@
+/*
+ * The workflows family's composition. Values are read back from the generated
+ * token sheet; there is no literal colour and no literal length off the space
+ * scale below.
+ *
+ * `Spec-023 §Console Design (Meridian)` governs every rule here:
+ *   • rule 7  — density: one primary action in the header, nothing beside it; the
+ *               version chain, the hashes and the schema marker are one click away
+ *               and so appear in no rule below.
+ *   • rule 8  — the absence blocks are the primitives' and are not restyled here;
+ *               this file gives them the box they stand in.
+ *   • rule 5  — nothing animates. A chrome that moves while a read settles is a
+ *               chrome that draws attention to its own arrival rather than to what
+ *               arrived.
+ */
+
+.meridian-workflow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  block-size: 100%;
+  padding: var(--meridian-space-5);
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------------ header */
+
+/*
+ * The glyph sits on the first text line rather than centred on the block: the
+ * heading group is two lines and a centred glyph would float between them, which
+ * reads as decoration rather than as the surface's kind mark.
+ */
+.meridian-workflow__header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--meridian-space-3);
+  padding-block-end: var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow__heading-group {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+.meridian-workflow__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+.meridian-workflow__summary {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow__primary-action {
+  flex: none;
+}
+
+/* -------------------------------------------------------------------- body */
+
+.meridian-workflow__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-block-size: 0;
+}
+
+/*
+ * The scope groups are an ordered list because the ORDER is the content: a run
+ * resolves session, then project, then shared, and a reader who cannot see that
+ * sequence cannot read which definition would win. The markers are suppressed
+ * visually and the element stays an `ol`, so the order survives for a reader who
+ * is not looking at it.
+ */
+.meridian-workflow__scopes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-workflow__scope {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-4);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/*
+ * The scope name is a wire value — it is the string the daemon resolves against —
+ * so it wears rule 4's mono signature rather than being title-cased into prose.
+ */
+.meridian-workflow__scope-heading {
+  margin: 0;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow__scope-summary {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-faint);
+}
+
+/*
+ * A slot standing empty is a dotted boundary rather than a filled panel: the
+ * treatment says "reserved" at a glance and does not compete with the surfaces
+ * around it that hold something.
+ */
+.meridian-workflow__slot {
+  display: flex;
+  flex-direction: column;
+  padding: var(--meridian-space-4);
+  border: 1px dashed var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* ----------------------------------------------------------------- actions */
+
+.meridian-workflow__action {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-accent-text);
+  cursor: pointer;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-workflow__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

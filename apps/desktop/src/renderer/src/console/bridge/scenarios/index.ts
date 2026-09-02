@@ -19,6 +19,7 @@
 
 import { FIRST_RUN_SCENARIO } from "./first-run.js";
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
+import { WORKFLOWS_SCENARIO } from "./workflows.js";
 import type { ConsoleScenario } from "../scenario.js";
 
 /** Every scenario the fixture bridge can play, in picker order. */
@@ -29,7 +30,7 @@ export const CONSOLE_SCENARIOS: readonly ConsoleScenario[] = [
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
-  // T-023p-1C-6 workflows
+  WORKFLOWS_SCENARIO,
   // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery
 ];
