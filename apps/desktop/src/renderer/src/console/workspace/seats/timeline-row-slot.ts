@@ -54,7 +54,6 @@ export const TIMELINE_ROW_DENSITIES = ["collapsed", "expanded"] as const;
 /** One row's collapse state. Derived from the enumeration, never restated. */
 export type TimelineRowDensity = (typeof TIMELINE_ROW_DENSITIES)[number];
 
-// Consumed by T-023p-1C-2
 /** What the timeline list hands each row. */
 export interface TimelineRowSlotProps {
   /** The projected row, wire-verbatim, as `@ai-sidekicks/contracts` defines it. */

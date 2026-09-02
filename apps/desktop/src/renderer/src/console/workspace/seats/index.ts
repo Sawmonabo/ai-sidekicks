@@ -82,7 +82,6 @@ export {
   unregisterTimelineRowRenderer,
   type TimelineRowDensity,
   type TimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowSlotProps,
 } from "./timeline-row-slot.js";
 
@@ -91,9 +90,7 @@ export {
   INLINE_CARD_KINDS,
   /** @consumedBy T-023p-1C-2 */
   InlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardSeatRegistry,
   /** @consumedBy T-023p-1C-5 */
   registerInlineCardBody,
@@ -111,7 +108,6 @@ export {
   type InlineCardKind,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardPropsByKind,
-  /** @consumedBy T-023p-1C-2 */
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
