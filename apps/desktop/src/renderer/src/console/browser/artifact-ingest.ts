@@ -104,9 +104,10 @@ export function isIngestRangeDeterminate(
  * whether the separator is a slash, the word "of", or an em dash.
  *
  * An indeterminate range says so in words rather than printing the total it was
- * handed. "512 KiB of 0 B" is not a smaller reading of the same fact — it is a claim
- * that the producer declared nothing at all, rendered as a claim that it declared
- * zero, beside a bar this same predicate has already reset to empty.
+ * handed. A received figure rendered over a declared zero is not a smaller reading of
+ * the same fact — it is a claim that the producer declared nothing at all, rendered
+ * as a claim that it declared zero, beside a bar this same predicate has already
+ * reset to empty.
  */
 export function formatIngestProgress(
   receivedByteLength: number,

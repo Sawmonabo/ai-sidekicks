@@ -26,11 +26,11 @@
 //     pipeline with `Spec-014`'s own code, and that refusal is what renders.
 //
 //     QUOTING IT MEANS KEEPING THE NUMBER. Rendered only as its rounded reading, a
-//     ceiling of 8,388,609 bytes and one of 8,388,608 are the same `8.0 MiB` on
-//     screen, and an operator comparing two nodes' enforced limits cannot tell them
-//     apart. So the ceiling goes through the same exact-value path as this card's
-//     other byte figures — `WireFigure`, with the pipeline's own count in its
-//     `title` — which is the rule that component exists to keep.
+//     ceiling of 8,388,609 bytes and one of 8,388,608 are the same figure on screen,
+//     and an operator comparing two nodes' enforced limits cannot tell them apart.
+//     So the ceiling goes through the same exact-value path as this card's other
+//     byte figures — `WireFigure`, with the pipeline's own count in its `title` —
+//     which is the rule that component exists to keep.
 //
 // The state vocabulary is `artifact-ingest.ts`'s, shared with the capture card,
 // because one pipeline produced both.
