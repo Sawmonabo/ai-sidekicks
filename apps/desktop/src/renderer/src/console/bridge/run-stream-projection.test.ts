@@ -28,7 +28,11 @@ import type { ConsoleSessionEvent } from "../store/index.js";
 import { PROBE_RUN_ID, runTransitionBeat } from "./fixture-bridge.test-support.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
-import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
+import {
+  RUN_QUEUE_EVENT_STREAM,
+  RUN_STATE_EVENT_STREAM,
+  SESSION_EVENT_STREAM,
+} from "./session-event-streams.js";
 
 /** A session the branded schema accepts that is not the one the beats are delivered on. */
 const OTHER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
@@ -248,6 +252,95 @@ describe("run-stream projection — the rollback arm's session, which the payloa
     });
     expect(RunRolledBackEventSchema.parse(projection.delivery)).toStrictEqual(projection.delivery);
   });
+});
+
+/** The queue item every queue beat below is about, and the row the scripted read carries. */
+const PROBE_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1150092";
+const PROBE_QUEUE_ROW_READ: Readonly<Record<string, unknown>> = {
+  items: [
+    {
+      id: PROBE_QUEUE_ITEM_ID,
+      priority: 0,
+      createdAt: "2026-01-01T14:20:00.420Z",
+    },
+  ],
+};
+
+/** One `queue_item.created` beat, whose kind announces the `queued` state. */
+function queueBeatEvent(overrides: Readonly<Record<string, unknown>> = {}): ConsoleSessionEvent {
+  const beat = runTransitionBeat({
+    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    queueItemId: PROBE_QUEUE_ITEM_ID,
+    state: "queued",
+    ...overrides,
+  });
+  return { ...beat.event, kind: "queue_item.created" };
+}
+
+describe("run-stream projection — the session every arm's payload names", () => {
+  // The rollback arm carried this cross-check alone. The two arms beside it are the
+  // ones where a disagreement is UNRECOVERABLE afterwards: neither
+  // `RunStateChangeEvent` nor `QueueItemSummary` carries a `sessionId` member, so the
+  // projection dropped the payload's value on the floor and the narrowed subscriber
+  // received a valid-looking update about a session it never asked for, with nothing
+  // left on the delivered shape to notice it by.
+  const stateArm = {
+    name: "state-transition",
+    project: (payload: Readonly<Record<string, unknown>>) =>
+      projectRunStreamDelivery(RUN_STATE_EVENT_STREAM, runTransitionBeat(payload).event),
+    wellFormed: transitionPayload(),
+  };
+  const queueArm = {
+    name: "queue",
+    project: (payload: Readonly<Record<string, unknown>>) =>
+      projectRunStreamDelivery(
+        RUN_QUEUE_EVENT_STREAM,
+        queueBeatEvent(payload),
+        PROBE_QUEUE_ROW_READ,
+      ),
+    wellFormed: {},
+  };
+
+  for (const arm of [stateArm, queueArm]) {
+    it(`refuses a ${arm.name} beat whose payload names no session`, () => {
+      const projection = arm.project({ ...arm.wellFormed, sessionId: undefined });
+
+      expect(projection?.status).toBe("unprojectable");
+      if (projection?.status !== "unprojectable") {
+        return;
+      }
+      expect(projection.detail).toContain("sessionId");
+    });
+
+    it(`refuses a ${arm.name} beat whose payload names a different session, naming both`, () => {
+      const projection = arm.project({ ...arm.wellFormed, sessionId: OTHER_SESSION_ID });
+
+      expect(projection?.status).toBe("unprojectable");
+      if (projection?.status !== "unprojectable") {
+        return;
+      }
+      expect(projection.detail).toContain(FLAGSHIP_SCENARIO.sessionId);
+      expect(projection.detail).toContain(OTHER_SESSION_ID);
+    });
+
+    it(`refuses a ${arm.name} beat whose payload names a session that is not a string`, () => {
+      // A number cannot be compared against the envelope's identifier, and admitting
+      // it would leave the arm delivering on an identifier nothing ever checked.
+      const projection = arm.project({ ...arm.wellFormed, sessionId: 42 });
+
+      expect(projection?.status).toBe("unprojectable");
+      if (projection?.status !== "unprojectable") {
+        return;
+      }
+      expect(projection.detail).toContain("sessionId");
+    });
+
+    it(`negative control: the agreeing ${arm.name} beat is delivered`, () => {
+      // Without this the three cases above would hold over an arm that refused every
+      // beat, which is the failure a fail-closed guard makes easy to ship.
+      expect(arm.project(arm.wellFormed)?.status).toBe("projected");
+    });
+  }
 });
 
 describe("run-stream projection — a member it will not compose", () => {
