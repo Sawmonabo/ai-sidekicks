@@ -26,10 +26,13 @@ import { createElement } from "react";
 
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
 import { registerApplicationPage } from "./pages/ApplicationPage.js";
+import { registerCostReceiptPage } from "./pages/CostReceiptPage.js";
+import { registerMcpServersPage } from "./pages/McpServersPage.js";
 import { registerNotificationsPage } from "./pages/NotificationsPage.js";
+import { registerProviderAccountsPage } from "./pages/ProviderAccountsPage.js";
 import { registerRuntimeNodesPage } from "./pages/RuntimeNodesPage.js";
 import { registerSidekicksPage } from "./pages/sidekicks-page.js";
-import { SettingsPageRegistry, registerReservedSettingsPages } from "./settings-page-registry.js";
+import { SettingsPageRegistry } from "./settings-page-registry.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 
 /**
@@ -40,9 +43,6 @@ import { SettingsSurface } from "./SettingsSurface.js";
  * it owns, and a second window composes a subset without a second code path.
  */
 export function registerSettingsPages(registry: SettingsPageRegistry): void {
-  // The two pages whose body another plan authors. Chrome plus a typed slot; the
-  // shell is deleted by the task that fills it, not left beside the body.
-  registerReservedSettingsPages(registry);
   // T-023p-1C-4 L4.6 nodes, notifications, application
   registerRuntimeNodesPage(registry);
   registerNotificationsPage(registry);
@@ -50,7 +50,12 @@ export function registerSettingsPages(registry: SettingsPageRegistry): void {
   // The sidekicks page: this seam's entry, the agents family's body.
   registerSidekicksPage(registry);
   // T-023p-1C-4 L4.7 keyboard, appearance, mounts
-  // T-023p-1C-4 L4.8 diagnostics, data, browser, cost
+  // T-023p-1C-4 L4.8 accounts, MCP servers, cost — the first two are chrome plus a
+  // typed slot, and the shell is deleted by the task that fills it rather than left
+  // standing beside the body.
+  registerProviderAccountsPage(registry);
+  registerMcpServersPage(registry);
+  registerCostReceiptPage(registry);
 }
 
 /**
