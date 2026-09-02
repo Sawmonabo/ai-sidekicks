@@ -6,12 +6,19 @@
 // One reader holds one worktree's gate state, so the two roots of a two-agent session
 // carry two independent gates and neither can publish the other's refusal.
 //
-// EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER. `Spec-023 §Console Design
-// (Meridian)` §10.1 fixes the policy in a sentence — on panel focus, on reconnect,
-// and on a `workspace.stale` frame, with no interval polling — so this class arms no
-// timer of its own and re-reads on exactly the reasons `repo-mounts-reader.ts` beside
-// it re-reads on: the first subscribe, a window focus, and the terminal event of an
-// act the daemon accepted.
+// EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER, AND EVERY REASON THROUGH ONE
+// TRIGGER CLASS. `Spec-023 §Console Design (Meridian)` §10.1 fixes the policy in a
+// sentence — on panel focus, on reconnect, and on a `workspace.stale` frame, with no
+// interval polling — so this class arms no timer of its own and owns no listener of
+// its own either: it builds a `RepoRefreshTriggers` over its own scheduler exactly as
+// `repo-mounts-reader.ts` beside it does, which is what makes all three reasons reach
+// a gate rather than only the first. A daemon that reconnected, or a `workspace.stale`
+// frame arriving in an already-focused window, used to leave the branch context and
+// the prepared proposal standing with `push` still offered against them.
+//
+// The reader adds one reason of its own on top of the three: the terminal event of an
+// act the daemon accepted, which it requests directly because it is the only observer
+// of that act.
 //
 // ALL THREE OPERATIONS ARE GROWTH-PORT OPERATIONS, AND ALL THREE ARE UNREGISTERED.
 // `bridge/growth-signatures.ts` carries the branch-context read, the preparation
@@ -51,7 +58,7 @@ import {
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../core/index.js";
-import { RefreshScheduler } from "../store/index.js";
+import { RefreshScheduler, type SessionStore } from "../store/index.js";
 import type { BranchContextReading } from "./branch-context-model.js";
 import {
   GATE_SETTLEMENT_COPY,
@@ -63,6 +70,7 @@ import {
 import type { PreparedProposal } from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
+import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
 /**
  * Everything one worktree's gate renders from, in one immutable value.
@@ -100,6 +108,8 @@ const NOTHING_ASKED: ProposalGateReading = {
 export interface ProposalGateReaderOptions {
   readonly bridge: ConsoleBridge;
   readonly subject: ProposalGateSubject;
+  /** The session whose repair edge and whose frames are two of the three reasons to re-read. */
+  readonly sessionStore: SessionStore;
   /** Injected so a test drives every read on frozen time with no real timers. */
   readonly clock?: ConsoleClock;
 }
@@ -108,6 +118,7 @@ export class ProposalGateReader {
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
   readonly #scheduler: RefreshScheduler;
+  readonly #triggers: RepoRefreshTriggers;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
 
   #reading: ProposalGateReading = NOTHING_ASKED;
@@ -124,7 +135,6 @@ export class ProposalGateReader {
   #hasEnteredPreparing = false;
   #started = false;
   #disposed = false;
-  #detachWindowFocus: (() => void) | undefined;
 
   public constructor(options: ProposalGateReaderOptions) {
     this.#bridge = options.bridge;
@@ -145,6 +155,11 @@ export class ProposalGateReader {
           settlement: GATE_SETTLEMENT_COPY.refused,
         });
       },
+    });
+    // The three reasons to read again. They reach this reader only through the scheduler.
+    this.#triggers = new RepoRefreshTriggers({
+      scheduler: this.#scheduler,
+      sessionStore: options.sessionStore,
     });
   }
 
@@ -175,16 +190,7 @@ export class ProposalGateReader {
     }
     this.#started = true;
     this.#scheduler.request("subscribe");
-    if (typeof window === "undefined") {
-      return;
-    }
-    const onWindowFocus = (): void => {
-      this.#scheduler.request("window-focus");
-    };
-    window.addEventListener("focus", onWindowFocus);
-    this.#detachWindowFocus = () => {
-      window.removeEventListener("focus", onWindowFocus);
-    };
+    this.#triggers.start();
   }
 
   /**
@@ -223,8 +229,7 @@ export class ProposalGateReader {
   public dispose(): void {
     this.#disposed = true;
     this.#scheduler.dispose();
-    this.#detachWindowFocus?.();
-    this.#detachWindowFocus = undefined;
+    this.#triggers.dispose();
     this.#changes.clear();
   }
 

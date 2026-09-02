@@ -26,6 +26,7 @@ import { useEffect, useRef } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { Nothing, RefusalCard, useAnnounce } from "../primitives/index.js";
+import type { SessionStore } from "../store/index.js";
 import { ProposalGate } from "./ProposalGate.js";
 import { WorktreeCard } from "./WorktreeCard.js";
 import { useProposalGate } from "./proposal-gate-binding.js";
@@ -45,6 +46,8 @@ export interface WorktreeGateRowProps {
   /** The sentence an absent subject renders, composed by the pairing module. */
   readonly unpairedReason: string;
   readonly bridge: ConsoleBridge;
+  /** The session the gate's own refresh triggers listen to. Passed down, never reached for. */
+  readonly sessionStore: SessionStore;
   /** The instant the section read at, so an age moves on a re-read and never on a render. */
   readonly nowMilliseconds: number;
 }
@@ -61,7 +64,11 @@ export function WorktreeGateRow(props: WorktreeGateRowProps): React.JSX.Element 
           detail={props.unpairedReason}
         />
       ) : (
-        <WorktreeProposalGate bridge={props.bridge} subject={props.subject} />
+        <WorktreeProposalGate
+          bridge={props.bridge}
+          subject={props.subject}
+          sessionStore={props.sessionStore}
+        />
       )}
     </div>
   );
@@ -78,8 +85,13 @@ export function WorktreeGateRow(props: WorktreeGateRowProps): React.JSX.Element 
 function WorktreeProposalGate(props: {
   readonly bridge: ConsoleBridge;
   readonly subject: ProposalGateSubject;
+  readonly sessionStore: SessionStore;
 }): React.JSX.Element {
-  const { reading, requestAction } = useProposalGate(props.bridge, props.subject);
+  const { reading, requestAction } = useProposalGate(
+    props.bridge,
+    props.subject,
+    props.sessionStore,
+  );
   useAnnounceOnce(reading.settlement);
   return (
     <details className="meridian-worktree-gate">

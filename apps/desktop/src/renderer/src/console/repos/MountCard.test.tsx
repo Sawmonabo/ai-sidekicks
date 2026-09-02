@@ -10,6 +10,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
+import { SessionStore } from "../store/index.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
 
@@ -75,6 +76,7 @@ function renderCard(
         worktreeRefusal={undefined}
         nowMilliseconds={Date.parse("2026-01-01T09:05:02.000Z")}
         bridge={REFUSING_BRIDGE}
+        sessionStore={new SessionStore({ sessionId: "session-repos" })}
         onCopyCanonicalRoot={() => undefined}
         onSelectExecutionMode={() => undefined}
         {...overrides}

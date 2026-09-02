@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
+import type { SessionStore } from "../store/index.js";
 import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
 import type { ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
@@ -32,16 +33,24 @@ export interface ProposalGateBinding {
  *
  * The subject is destructured into the dependency list rather than depended on as an
  * object, because a caller composing it inline would otherwise mint a new reader on
- * every render.
+ * every render. The session store is the reader's own collaborator rather than the
+ * surface's: it is what carries the reconnect edge and the `workspace.stale` frame,
+ * two of the three reasons §10.1 says a gate re-reads on.
  */
 export function useProposalGate(
   bridge: ConsoleBridge,
   subject: ProposalGateSubject,
+  sessionStore: SessionStore,
 ): ProposalGateBinding {
   const { workspaceId, worktreeId, executionMode } = subject;
   const reader = useMemo(
-    () => new ProposalGateReader({ bridge, subject: { workspaceId, worktreeId, executionMode } }),
-    [bridge, workspaceId, worktreeId, executionMode],
+    () =>
+      new ProposalGateReader({
+        bridge,
+        subject: { workspaceId, worktreeId, executionMode },
+        sessionStore,
+      }),
+    [bridge, workspaceId, worktreeId, executionMode, sessionStore],
   );
   useEffect(() => {
     reader.start();

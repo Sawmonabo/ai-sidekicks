@@ -51,6 +51,7 @@ import {
   WireFigure,
   formatClockTime,
 } from "../primitives/index.js";
+import type { SessionStore } from "../store/index.js";
 import {
   bindControlPosture,
   mountHealthReading,
@@ -81,6 +82,8 @@ export interface MountCardProps {
   readonly nowMilliseconds: number;
   /** The bridge each root's gate reads its own branch context through. */
   readonly bridge: ConsoleBridge;
+  /** The session each root's gate takes its reconnect and stale-frame triggers from. */
+  readonly sessionStore: SessionStore;
   /** Put the resolved root on the clipboard; the host's own refusal is the caller's to render. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
   readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
@@ -241,6 +244,7 @@ function renderRoots(props: MountCardProps): React.JSX.Element {
           subject={row.subject}
           unpairedReason={unpairedReason}
           bridge={props.bridge}
+          sessionStore={props.sessionStore}
           nowMilliseconds={props.nowMilliseconds}
         />
       ))}

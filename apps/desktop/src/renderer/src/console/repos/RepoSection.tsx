@@ -44,6 +44,7 @@ import { useCallback, useState } from "react";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { type ConsoleRefusal } from "../core/index.js";
 import { Nothing, RefusalCard } from "../primitives/index.js";
+import type { SessionStore } from "../store/index.js";
 import { type SidebarSectionContext } from "../workspace/index.js";
 import { EphemeralCloneCard } from "./EphemeralCloneCard.js";
 import { MountCard } from "./MountCard.js";
@@ -110,6 +111,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
         <MountList
           reading={reading}
           bridge={bridge}
+          sessionStore={sessionStore}
           onCopy={copyCanonicalRoot}
           onSelect={requestModeSelection}
         />
@@ -197,6 +199,8 @@ interface MountListProps {
   readonly reading: RepoMountsReading;
   /** Passed down rather than reached for: each root's gate performs its own read. */
   readonly bridge: ConsoleBridge;
+  /** Passed down for the same reason: each root's gate arms its own refresh triggers. */
+  readonly sessionStore: SessionStore;
   readonly onCopy: (canonicalRoot: string) => void;
   readonly onSelect: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
 }
@@ -217,6 +221,7 @@ function MountList(props: MountListProps): React.JSX.Element {
             worktreeRefusal={reading.worktreeRefusal}
             nowMilliseconds={reading.readAtMilliseconds}
             bridge={props.bridge}
+            sessionStore={props.sessionStore}
             onCopyCanonicalRoot={props.onCopy}
             onSelectExecutionMode={props.onSelect}
           />

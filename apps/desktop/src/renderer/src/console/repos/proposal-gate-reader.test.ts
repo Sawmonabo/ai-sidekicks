@@ -17,6 +17,7 @@ import {
   IMPLEMENTER_WORKTREE_ID,
 } from "../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
+import { SessionStore } from "../store/index.js";
 import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 
@@ -96,10 +97,20 @@ function openReader(
   bridge: ConsoleBridge,
   clock: ManualClock,
   subject = SUBJECT,
+  // Defaulted, so a case that only cares about the READ says nothing about the store.
+  // The trigger cases below construct their own and drive it.
+  sessionStore: SessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
 ): ProposalGateReader {
-  const reader = new ProposalGateReader({ bridge, subject, clock });
+  const reader = new ProposalGateReader({ bridge, subject, sessionStore, clock });
   readers.push(reader);
   return reader;
+}
+
+/** A store with a base state, which is what makes a later frame a frame and not history. */
+function initialisedStore(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
+  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  return sessionStore;
 }
 
 /**
@@ -318,6 +329,93 @@ describe("ProposalGateReader — the acts", () => {
 
     expect(reader.performCount).toBe(2);
     expect(reader.snapshot.actionRefusals.size).toBe(0);
+  });
+});
+
+describe("ProposalGateReader — the reasons it reads again", () => {
+  it("re-reads when the session's projection is repaired", async () => {
+    // §10.1's second refresh trigger, and the gate had none of it: a daemon that
+    // reconnected while the window stayed focused left the branch context and the
+    // prepared proposal standing, with `push` still offered against them.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reader = openReader(
+      bridgeAnswering({ branchContext: SERVED_CONTEXT }),
+      clock,
+      SUBJECT,
+      sessionStore,
+    );
+    reader.start();
+    await settle(clock, reader);
+    expect(reader.performCount).toBe(1);
+
+    sessionStore.markDegraded("subscription-closed");
+    await settle(clock, reader);
+    expect(reader.performCount).toBe(1);
+
+    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    await settle(clock, reader);
+
+    expect(reader.performCount).toBe(2);
+  });
+
+  it("re-reads on a `workspace.stale` frame", async () => {
+    // §10.1's third trigger. A path that went stale in an already-focused window used
+    // to leave the gate reporting a context the daemon had stopped standing behind.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reader = openReader(
+      bridgeAnswering({ branchContext: SERVED_CONTEXT }),
+      clock,
+      SUBJECT,
+      sessionStore,
+    );
+    reader.start();
+    await settle(clock, reader);
+    expect(reader.performCount).toBe(1);
+
+    sessionStore.applyBatch([
+      {
+        sessionId: REPOS_SCENARIO.sessionId,
+        sequence: 1,
+        kind: "workspace.stale",
+        occurredAt: "2026-01-01T09:05:01.900Z",
+      },
+    ]);
+    await settle(clock, reader);
+
+    expect(reader.performCount).toBe(2);
+  });
+
+  it("negative control: a disposed gate re-reads on no later transition", async () => {
+    // Without this the two cases above would pass against a reader whose triggers
+    // outlived the component holding them, which is a read behind an unmounted gate.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore();
+    const reader = openReader(
+      bridgeAnswering({ branchContext: SERVED_CONTEXT }),
+      clock,
+      SUBJECT,
+      sessionStore,
+    );
+    reader.start();
+    await settle(clock, reader);
+    const performedBeforeDispose = reader.performCount;
+
+    reader.dispose();
+    sessionStore.markDegraded("subscription-closed");
+    sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    sessionStore.applyBatch([
+      {
+        sessionId: REPOS_SCENARIO.sessionId,
+        sequence: 1,
+        kind: "workspace.stale",
+        occurredAt: "2026-01-01T09:05:02.900Z",
+      },
+    ]);
+    await settle(clock, reader);
+
+    expect(reader.performCount).toBe(performedBeforeDispose);
   });
 });
 
