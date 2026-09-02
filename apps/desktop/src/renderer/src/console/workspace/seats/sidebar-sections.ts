@@ -51,7 +51,6 @@ export const SIDEBAR_SECTION_IDS = [
 /** One sidebar section. Derived from the enumeration, never restated. */
 export type SidebarSectionId = (typeof SIDEBAR_SECTION_IDS)[number];
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** Everything a section body is handed. */
 export interface SidebarSectionContext {
   readonly sessionStore: SessionStore;
@@ -112,11 +111,9 @@ export class SidebarSectionRegistry {
   }
 }
 
-// Consumed by T-023p-1C-3
 /** The process-wide registry the four contributing families call at module scope. */
 export const sidebarSectionRegistry: SidebarSectionRegistry = new SidebarSectionRegistry();
 
-// Consumed by T-023p-1C-3, T-023p-1C-4, T-023p-1C-5
 /** The call a family makes to fill one sidebar section. */
 export function registerSidebarSection(descriptor: SidebarSectionDescriptor): void {
   sidebarSectionRegistry.register(descriptor);
