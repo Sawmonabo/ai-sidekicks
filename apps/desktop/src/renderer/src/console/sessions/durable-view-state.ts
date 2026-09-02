@@ -22,6 +22,16 @@
 // for reasons a person cannot see, while a recorded refusal is a sentence they can
 // read. `Spec-023 §Console Design (Meridian)` rule 9 — controls are offered,
 // refusals are rendered.
+//
+// A LATE HYDRATION NEVER OVERWRITES A NEWER LOCAL ACT. The durable read is
+// asynchronous and a person can pin a session or set an invitation aside while it
+// is still in flight; `commit` installs immediately, so the record that then comes
+// back is older than what is on screen. The mutation generation is the ordering the
+// store itself supplies — `hydrate` captures it before its read and applies the
+// record only if it is still current, exactly as `settings/pages/shell-preferences.ts`
+// ignores a superseded reply. It still marks the state hydrated, because the read
+// DID settle and a remount must not re-ask; what is discarded is the value, not the
+// fact that the question was answered.
 
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import type { UiStateStore } from "../persistence/index.js";
@@ -62,6 +72,12 @@ export class DurableViewState<TValue extends PersistedValue> {
   #value: TValue;
   #hydrated = false;
   #lastRefusal: ConsoleRefusal | undefined;
+  /**
+   * How many local acts have installed a value, so a hydration that started before
+   * one of them can tell that it is answering an older question. A counter rather
+   * than a timestamp: two acts inside one clock tick are still two acts.
+   */
+  #mutationGeneration = 0;
 
   public constructor(options: DurableViewStateOptions<TValue>) {
     this.#store = options.store;
@@ -98,13 +114,22 @@ export class DurableViewState<TValue extends PersistedValue> {
    * throws — `UiStateStore.read` answers `undefined` on failure by contract, which
    * is the same answer as "nothing was stored", and both leave the initial value
    * in place.
+   *
+   * A record that arrives after a local act is DISCARDED rather than installed: it
+   * is the value from before that act, and installing it would put a pin or a hide
+   * back the way a person had just changed it, with nothing on screen to explain
+   * why. The state is still marked hydrated, so the question is not asked again.
    */
   public async hydrate(): Promise<void> {
     if (this.#hydrated) {
       return;
     }
+    const generationAtRead = this.#mutationGeneration;
     const record = await this.#store.readGlobal(this.#key);
     this.#hydrated = true;
+    if (generationAtRead !== this.#mutationGeneration) {
+      return;
+    }
     const narrowed = record === undefined ? undefined : this.#narrow(record.value);
     if (narrowed !== undefined) {
       this.#value = narrowed;
@@ -114,6 +139,7 @@ export class DurableViewState<TValue extends PersistedValue> {
 
   /** Replace the value and write it. The refusal is recorded and returned. */
   public async commit(next: TValue): Promise<PersistenceWriteOutcome> {
+    this.#mutationGeneration += 1;
     this.#value = next;
     this.#changes.emit();
     const outcome = await this.#store.writeGlobal(this.#key, this.#valueClass, next);

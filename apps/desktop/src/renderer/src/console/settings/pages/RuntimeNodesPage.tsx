@@ -40,7 +40,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page
 const OWNER = "collaboration-settings-nodes";
 
 export function RuntimeNodesPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const { bridge, activeSessionId } = props.context;
+  const { bridge, retainedSessionId } = props.context;
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
@@ -58,15 +58,15 @@ export function RuntimeNodesPage(props: { readonly context: SettingsPageContext 
 
       <section className="meridian-settings-page__block" aria-label="Attached runtime nodes">
         <h3 className="meridian-settings-page__block-title">Attached nodes</h3>
-        {activeSessionId === undefined ? (
+        {retainedSessionId === undefined ? (
           <Nothing
             kind="empty"
             placement="surface"
-            title="The node roster belongs to a session, and this address names none."
-            detail="Open a session from the Sessions list and its nodes render here. Nothing was asked of the control plane for a session nobody named."
+            title="The node roster belongs to a session, and this window has opened none."
+            detail="Open a session from the Sessions list and its nodes render here. Nothing was asked of the control plane for a session nobody has opened."
           />
         ) : (
-          renderAbsorbedNodeRoster(bridge, activeSessionId)
+          renderAbsorbedNodeRoster(bridge, retainedSessionId)
         )}
       </section>
 

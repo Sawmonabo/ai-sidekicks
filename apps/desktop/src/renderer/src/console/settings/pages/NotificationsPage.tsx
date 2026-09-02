@@ -136,7 +136,7 @@ export function NotificationsPage(props: { readonly context: SettingsPageContext
         </p>
         <StoredPreferences
           binding={stored}
-          hasSession={props.context.activeSessionId !== undefined}
+          hasSession={props.context.retainedSessionId !== undefined}
         />
       </section>
     </div>
@@ -151,7 +151,7 @@ export function NotificationsPage(props: { readonly context: SettingsPageContext
  * on this one.
  */
 function useStoredAttentionPreferences(context: SettingsPageContext): StoredPreferenceBinding {
-  const { bridge, activeSessionId } = context;
+  const { bridge, retainedSessionId } = context;
   const announce = useAnnounce();
   const [participantOutcome, setParticipantOutcome] = useState<
     CallerParticipantOutcome | undefined
@@ -170,7 +170,7 @@ function useStoredAttentionPreferences(context: SettingsPageContext): StoredPref
   const participantIdRef = useRef<string | undefined>(undefined);
 
   useEffect(() => {
-    if (activeSessionId === undefined) {
+    if (retainedSessionId === undefined) {
       return undefined;
     }
     let isAttached = true;
@@ -179,7 +179,7 @@ function useStoredAttentionPreferences(context: SettingsPageContext): StoredPref
     setParticipantOutcome(undefined);
     setReadOutcome(undefined);
     hasAnnouncedRef.current = false;
-    void bridge.growth.callerParticipantRead({ sessionId: activeSessionId }).then((result) => {
+    void bridge.growth.callerParticipantRead({ sessionId: retainedSessionId }).then((result) => {
       if (!isAttached) {
         return;
       }
@@ -194,7 +194,7 @@ function useStoredAttentionPreferences(context: SettingsPageContext): StoredPref
     return () => {
       isAttached = false;
     };
-  }, [bridge, activeSessionId, announce]);
+  }, [bridge, retainedSessionId, announce]);
 
   const participantId =
     participantOutcome?.status === "served" ? participantOutcome.value.participantId : undefined;
@@ -283,7 +283,7 @@ function StoredPreferences(props: {
         kind="not-checked"
         placement="surface"
         title="Your preferences have not been read yet."
-        detail="Reading them starts with knowing which participant you are, and this address does not name one. Nothing was asked — so nothing here is a reading, and a default would look like your answer."
+        detail="Reading them starts with knowing which participant you are, and this window has opened no session to resolve one from. Nothing was asked — so nothing here is a reading, and a default would look like your answer."
       />
     );
   }

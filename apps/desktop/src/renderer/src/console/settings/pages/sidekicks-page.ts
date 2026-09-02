@@ -37,7 +37,7 @@ const OWNER = "collaboration-settings-sidekicks";
  *
  * The body takes the BRIDGE and nothing else from the page context. It reads the
  * saved-sidekick registry on mount and deletes through the same port, so the seam
- * hands it the one member those calls need; `openSection` and `activeSessionId` are
+ * hands it the one member those calls need; `openSection` and `retainedSessionId` are
  * deliberately not threaded, because the page navigates nowhere and its subject is
  * node-local rather than scoped to whichever session this window happens to hold.
  */

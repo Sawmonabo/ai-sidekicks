@@ -190,14 +190,15 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
 
   it("has no axe violation on the settings nodes page with a roster served", async () => {
     // The page rather than the `#/settings/nodes` destination: its roster is
-    // session-scoped and a settings address carries none, so the destination would
-    // audit the "belongs to a session" absence and never a rendered roster.
+    // session-scoped and a window opened straight at a settings address has opened
+    // none, so the destination would audit the "belongs to a session" absence and
+    // never a rendered roster.
     const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
     bridge.scenarioEngine?.advance(ROSTER_AXES_DISAGREE_MS);
     const pageContext: SettingsPageContext = {
       bridge,
       openSection: () => undefined,
-      activeSessionId: COLLABORATION_SCENARIO.sessionId,
+      retainedSessionId: COLLABORATION_SCENARIO.sessionId,
     };
     const { container } = await renderSettled(<RuntimeNodesPage context={pageContext} />);
     // An audit of the loading arm would be an audit of a spinner: assert the roster

@@ -84,11 +84,11 @@ function balancedReceipt(): CostReceipt {
   };
 }
 
-function contextWith(bridge: ConsoleBridge, activeSessionId: string | undefined) {
+function contextWith(bridge: ConsoleBridge, retainedSessionId: string | undefined) {
   return {
     bridge,
     openSection: () => undefined,
-    activeSessionId,
+    retainedSessionId,
   } satisfies SettingsPageContext;
 }
 
@@ -126,10 +126,10 @@ async function settle(): Promise<void> {
   }
 }
 
-function renderPage(bridge: ConsoleBridge, activeSessionId: string | undefined): HTMLElement {
+function renderPage(bridge: ConsoleBridge, retainedSessionId: string | undefined): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
-      <CostReceiptPage context={contextWith(bridge, activeSessionId)} />
+      <CostReceiptPage context={contextWith(bridge, retainedSessionId)} />
     </LiveAnnouncerProvider>,
   );
   return container;
@@ -137,9 +137,9 @@ function renderPage(bridge: ConsoleBridge, activeSessionId: string | undefined):
 
 async function renderSettledPage(
   bridge: ConsoleBridge,
-  activeSessionId: string | undefined,
+  retainedSessionId: string | undefined,
 ): Promise<HTMLElement> {
-  const container = renderPage(bridge, activeSessionId);
+  const container = renderPage(bridge, retainedSessionId);
   await settle();
   return container;
 }
@@ -188,7 +188,7 @@ describe("the cost page — what the receipt is", () => {
 });
 
 describe("the cost page — the absence it renders", () => {
-  it("says the receipt belongs to a session when the address names none", async () => {
+  it("says the receipt belongs to a session when this window has opened none", async () => {
     const container = await renderSettledPage(bridgeServing(balancedReceipt()), undefined);
     expect(container.textContent ?? "").toContain("belongs to a session");
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();

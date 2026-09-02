@@ -59,11 +59,11 @@ function servedPreferences(
   return { status: "served", value: { preferences } };
 }
 
-function contextWith(bridge: ConsoleBridge, activeSessionId: string | undefined) {
+function contextWith(bridge: ConsoleBridge, retainedSessionId: string | undefined) {
   return {
     bridge,
     openSection: () => undefined,
-    activeSessionId,
+    retainedSessionId,
   } satisfies SettingsPageContext;
 }
 
@@ -77,7 +77,7 @@ async function settle(): Promise<void> {
 }
 
 /**
- * Mount at an address that names a session.
+ * Mount in a window that has opened a session.
  *
  * The session id is not a default parameter: passing `undefined` to one would take
  * the default rather than the absence, which is precisely the case the
@@ -89,10 +89,10 @@ async function renderSettledPage(bridge: ConsoleBridge): Promise<HTMLElement> {
   return container;
 }
 
-function renderPageAt(bridge: ConsoleBridge, activeSessionId: string | undefined): HTMLElement {
+function renderPageAt(bridge: ConsoleBridge, retainedSessionId: string | undefined): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
-      <NotificationsPage context={contextWith(bridge, activeSessionId)} />
+      <NotificationsPage context={contextWith(bridge, retainedSessionId)} />
     </LiveAnnouncerProvider>,
   );
   return container;
@@ -179,7 +179,7 @@ describe("the notifications page — the tier it never offers", () => {
 });
 
 describe("the notifications page — the chain that starts with who you are", () => {
-  it("asks nothing when the address names no session to resolve an identity from", async () => {
+  it("asks nothing when this window has opened no session to resolve an identity from", async () => {
     const identityRead = vi.fn(async () => await Promise.resolve(SERVED_PARTICIPANT));
     const container = renderPageAt(bridgeWith({ callerParticipantRead: identityRead }), undefined);
     await settle();

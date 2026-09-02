@@ -27,9 +27,9 @@ const BOTH_MACHINES_ONLINE_MS = 200;
 
 function contextFor(
   bridge: ConsoleBridge,
-  activeSessionId: string | undefined,
+  retainedSessionId: string | undefined,
 ): SettingsPageContext {
-  return { bridge, openSection: () => undefined, activeSessionId };
+  return { bridge, openSection: () => undefined, retainedSessionId };
 }
 
 /** The real fixture bridge over the scenario whose script names two machines. */
@@ -49,7 +49,7 @@ describe("runtime nodes page", () => {
     expect(text).toContain("Heartbeat presence");
   });
 
-  it("says the roster belongs to a session when the address names none", () => {
+  it("says the roster belongs to a session when this window has opened none", () => {
     const { container } = render(
       <RuntimeNodesPage context={contextFor(bridgeWithRoster(), undefined)} />,
     );

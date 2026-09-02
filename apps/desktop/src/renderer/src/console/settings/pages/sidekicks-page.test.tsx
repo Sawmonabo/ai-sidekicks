@@ -43,7 +43,7 @@ const CONTEXT: SettingsPageContext = {
     },
   }),
   openSection: () => undefined,
-  activeSessionId: undefined,
+  retainedSessionId: undefined,
 };
 
 /** The page speaks its settlement, so it is mounted inside the console's announcer. */

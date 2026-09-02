@@ -88,7 +88,7 @@ describe("a settings page whose body another plan authors", () => {
   const CONTEXT = {
     bridge: undefined as never,
     openSection: () => undefined,
-    activeSessionId: undefined,
+    retainedSessionId: undefined,
   } satisfies SettingsPageContext;
 
   const RESERVED: OwnerSlotPage = {

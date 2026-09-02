@@ -99,18 +99,24 @@ export interface SettingsPageContext {
   /** Renderer-local rail navigation — the deep-link grammar's other half. */
   readonly openSection: (section: SettingsSectionId) => void;
   /**
-   * The session this window has open, or `undefined` where the address names none.
+   * The session this window most recently opened, or `undefined` where it has
+   * opened none.
    *
-   * A projection of the route, taken from the frame store and never a second record
-   * of it — the same value `routeSessionId` answers everywhere else in the console.
-   * It is here rather than absent because one shipped page is genuinely
-   * session-scoped: the node roster is read per session, and a page that ASKED and
-   * was told nothing renders an honest absence, while a page holding a hardcoded
-   * `undefined` renders a constant. It is deliberately NOT the session STORE: a
-   * settings page that could reach the projection could hold session state, and the
-   * settings surface has no session to hold it for.
+   * The frame store's RETAINED id and deliberately not its route projection. Every
+   * settings address is `kind: "settings"` and names no session, so the projection
+   * is `undefined` on every one of them — a session-scoped page handed it would
+   * render its no-session arm forever, which is a constant wearing an absence's
+   * clothes rather than a reading. The retained id is the fact that answers the
+   * question these pages are actually asking: which session this window is working
+   * in, whether or not the address it is parked on says so.
+   *
+   * `undefined` stays a real answer: a window that has opened no session hands the
+   * pages nothing, and a page that ASKED and was told nothing renders an honest
+   * absence. It is deliberately NOT the session STORE: a settings page that could
+   * reach the projection could hold session state, and the settings surface has no
+   * session to hold it for.
    */
-  readonly activeSessionId: string | undefined;
+  readonly retainedSessionId: string | undefined;
 }
 
 /** What a page renders. A function rather than a component type, as the seats are. */

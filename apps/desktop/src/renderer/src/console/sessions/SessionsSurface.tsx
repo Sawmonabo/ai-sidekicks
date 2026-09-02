@@ -55,7 +55,7 @@ import type { SessionDirectoryState } from "../frame/session-directory.js";
 import { useSessionDirectory } from "../frame/session-directory.js";
 import { renderAbsorbedSessionProbe } from "../frame/legacy-surfaces.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
-import type { AttentionSeverity } from "../bridge/index.js";
+import type { AttentionSeverity, GrowthPort } from "../bridge/index.js";
 import {
   NotificationCenter,
   attentionProjectionReaderFor,
@@ -106,18 +106,21 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);
 
-  // The invites read is scoped to one session and this address names none, so the
-  // reader answers an empty fan-out and the shelf renders "nothing was asked"
-  // rather than an empty inbox. `growth` and the identifier are both stable, so the
-  // shelf's one-shot read fires once per mount.
+  // The invites read is scoped to one session on the wire and this destination is
+  // not, so it fans out over THE SAME session set the attention read asks about —
+  // the one `attentionSessionIds` already merged. Keyed on the route's session
+  // instead, this read asked about nothing at all: every address that mounts this
+  // surface is `kind: "sessions"` and names no session, so the projection was always
+  // `undefined` and every invitation the console could name was reported unasked.
+  //
+  // An empty set stays an empty fan-out, and the shelf renders "nothing was asked"
+  // rather than an empty inbox. Each session's outcome travels on its own, so one
+  // session's refusal cannot hide another's answer — the shelf merges them and
+  // reports a refusal only when nothing at all was served.
   const { growth } = context.bridge;
-  const activeSessionId = context.frameStore.activeSessionId;
   const readInvites = useMemo<InviteShelfReader>(
-    () => () =>
-      activeSessionId === undefined
-        ? Promise.resolve([])
-        : Promise.all([growth.invitesList({ sessionId: activeSessionId })]),
-    [activeSessionId, growth],
+    () => inviteShelfReaderFor(growth, attentionSessionIds),
+    [growth, attentionSessionIds],
   );
 
   const startControl = (
@@ -177,6 +180,27 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
       )}
     </section>
   );
+}
+
+/**
+ * The invitations read, fanned out over the sessions this destination can name.
+ *
+ * The mirror of `attentionProjectionReaderFor`, and deliberately its shape: both
+ * wires are session-scoped, this destination is not, and both are asked about the
+ * same merged set. It differs in what it does with a partial answer — the attention
+ * reader drops refusals because a projection is one reading of many sessions, while
+ * every outcome is carried here so the shelf can tell a refused read from an empty
+ * inbox for itself.
+ *
+ * An empty set answers an empty array rather than a refusal: nothing was asked, and
+ * the shelf has its own sentence for that.
+ */
+function inviteShelfReaderFor(
+  growth: GrowthPort,
+  sessionIds: readonly string[],
+): InviteShelfReader {
+  return async () =>
+    await Promise.all(sessionIds.map(async (sessionId) => await growth.invitesList({ sessionId })));
 }
 
 /** What both row sources are handed. The store is the only thing that differs. */
