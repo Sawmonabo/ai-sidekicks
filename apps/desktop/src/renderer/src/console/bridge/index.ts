@@ -28,8 +28,11 @@ export { consoleClockFor } from "./console-bridge.js";
 
 // The subscribe seam's own vocabulary. Exported because the binder one family up
 // passes it to `daemon.subscribe` and the fixture answers it — two sides of one
-// seam reading one declaration rather than two spellings of one string.
-export { SESSION_EVENT_STREAM } from "./console-bridge.js";
+// seam reading one declaration rather than two spellings of one string. The two
+// `run.*` streams beside it in that table are NOT re-exported: their consumers so
+// far are in this family, which reaches them directly, and a barrel specifier no
+// cross-family import uses is a dead export rather than a convenience.
+export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 
 export {
   SidekicksBridgeProvider,
