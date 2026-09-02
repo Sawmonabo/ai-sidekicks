@@ -110,9 +110,15 @@ async function plant(tree: PlantedTree): Promise<void> {
 async function violationsFor(tree: PlantedTree): Promise<readonly string[]> {
   await plant(tree);
   const configuration = await extractDepcruiseConfig(CONFIG_PATH);
+  const { forbidden } = configuration;
+  if (forbidden === undefined) {
+    // The loader types the set as optional, and a run over an empty rule set would
+    // report clean for every tree — the failure this whole file exists to prevent.
+    throw new TypeError("the layering config declares no forbidden rules");
+  }
   const cruised = await cruise(["src"], {
     ...configuration.options,
-    ruleSet: { forbidden: configuration.forbidden },
+    ruleSet: { forbidden },
     validate: true,
     baseDir: plantRoot,
   });
