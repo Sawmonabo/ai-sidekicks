@@ -86,7 +86,10 @@ export type {
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   DerivedFigure,
-  // Not gated: the frame renders session ids with it, so it has a consumer today.
+  // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and
+  // `frame/WireChoiceList.tsx` both render identifiers through it — so the tag that
+  // stood here was the half of the marker its importing change owed and did not
+  // pay. `--treat-tag-hints-as-errors` is what reported the debt.
   WireFigure,
 } from "./Figure.js";
 
