@@ -16,53 +16,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../core/index.js";
+import { installFakeResizeObserver } from "./element-motion.test-support.js";
 import { OVERLAY_KINDS, PaneOcclusionRegistry } from "./occlusion-registry.js";
 import type { PaneRect } from "./pane-geometry.js";
 
 const SOMEWHERE: PaneRect = { x: 0, y: 0, width: 10, height: 10 };
-
-interface FakeResizeObserverControl {
-  deliverAll(): void;
-  disconnectCount(): number;
-}
-
-function installFakeResizeObserver(): FakeResizeObserverControl {
-  const deliverers: (() => void)[] = [];
-  let disconnectCount = 0;
-
-  class FakeResizeObserver {
-    readonly #callback: () => void;
-
-    public constructor(callback: () => void) {
-      this.#callback = callback;
-      deliverers.push(() => {
-        this.#callback();
-      });
-    }
-
-    public observe(): void {
-      // Nothing to record: the registry's contract here is that it disconnects.
-    }
-
-    public unobserve(): void {
-      // Present so the fake is the shape the platform declares.
-    }
-
-    public disconnect(): void {
-      disconnectCount += 1;
-    }
-  }
-
-  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
-  return {
-    deliverAll: () => {
-      for (const deliver of deliverers) {
-        deliver();
-      }
-    },
-    disconnectCount: () => disconnectCount,
-  };
-}
 
 const attachedRoots: Element[] = [];
 

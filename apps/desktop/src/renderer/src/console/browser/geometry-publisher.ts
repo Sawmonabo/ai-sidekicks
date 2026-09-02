@@ -24,6 +24,7 @@ import {
   type Unsubscribe,
 } from "../core/index.js";
 import { SCHEME_ATTRIBUTE } from "../tokens/index.js";
+import { observeElementResize } from "./element-motion.js";
 import {
   composePaneGeometrySample,
   type GeometryInvalidationReason,
@@ -229,18 +230,20 @@ export class PaneGeometryPublisher {
     this.#outcomeEmitter.emit();
   }
 
+  /**
+   * The size source, through the family's one resize seam.
+   *
+   * `element-motion.ts` owns the observer construction, its feature detection, and
+   * its disconnect; a second construction here would be the same four lines free to
+   * drift from those. A platform with no `ResizeObserver` degrades inside the helper
+   * and hands back a disposer that does nothing, so this arm never branches on it.
+   */
   #armResizeObserver(hostElement: HTMLElement): void {
-    const ObserverConstructor = globalThis.ResizeObserver as typeof ResizeObserver | undefined;
-    if (ObserverConstructor === undefined) {
-      return;
-    }
-    const observer = new ObserverConstructor(() => {
-      this.invalidate("resize-observer");
-    });
-    observer.observe(hostElement);
-    this.#detachers.push(() => {
-      observer.disconnect();
-    });
+    this.#detachers.push(
+      observeElementResize(hostElement, () => {
+        this.invalidate("resize-observer");
+      }),
+    );
   }
 
   #armViewportListeners(): void {

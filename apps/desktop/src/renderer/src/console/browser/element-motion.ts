@@ -19,9 +19,10 @@
 // it. One capture-phase pair on the document hears all three, and the caller
 // decides which of its subjects the moving node belongs to.
 //
-// KNOWN DUPLICATE. `geometry-publisher.ts` arms its own resize observer over the
-// pane's host element with the same four lines. It belongs here, and it is not
-// moved here because this change does not own that file.
+// ONE CONSTRUCTION SITE PER SEAM. Both consumers — the overlay registry and the
+// pane geometry publisher — arm their size source through `observeElementResize`
+// here rather than constructing an observer of their own, so the feature detection
+// and the disconnect-on-dispose cannot drift apart between them.
 
 import type { Unsubscribe } from "../core/index.js";
 

@@ -14,54 +14,7 @@ import {
   observeMotionStarts,
   sharesMotionWith,
 } from "./element-motion.js";
-
-interface FakeResizeObserverControl {
-  deliverAll(): void;
-  observedCount(): number;
-  disconnectCount(): number;
-}
-
-/** The minimal `ResizeObserver` the module's arming path needs, under test control. */
-function installFakeResizeObserver(): FakeResizeObserverControl {
-  const deliverers: (() => void)[] = [];
-  let observedCount = 0;
-  let disconnectCount = 0;
-
-  class FakeResizeObserver {
-    readonly #callback: () => void;
-
-    public constructor(callback: () => void) {
-      this.#callback = callback;
-      deliverers.push(() => {
-        this.#callback();
-      });
-    }
-
-    public observe(): void {
-      observedCount += 1;
-    }
-
-    public unobserve(): void {
-      // The module disconnects rather than unobserving; present so the fake is the
-      // shape the platform declares rather than the subset one caller happens to use.
-    }
-
-    public disconnect(): void {
-      disconnectCount += 1;
-    }
-  }
-
-  vi.stubGlobal("ResizeObserver", FakeResizeObserver);
-  return {
-    deliverAll: () => {
-      for (const deliver of deliverers) {
-        deliver();
-      }
-    },
-    observedCount: () => observedCount,
-    disconnectCount: () => disconnectCount,
-  };
-}
+import { installFakeResizeObserver } from "./element-motion.test-support.js";
 
 function fakeAnimation(playState: AnimationPlayState): Animation {
   return { playState } as unknown as Animation;
