@@ -10,11 +10,15 @@
 // Four behaviours are worth stating because they are decisions rather than
 // mechanics:
 //
-//   1. **Refuse; never repair.** A disallowed value class, a wrong shape, a string
-//      that is not identifier-shaped, an over-large value — each returns a typed
-//      refusal and fires the `persistence-value-class` tripwire. The store does not
-//      truncate, coerce, or drop a member to make the write fit, because a store
-//      that quietly fixes its callers hides the caller that was wrong.
+//   1. **Refuse; never repair.** An address that is not identifier-shaped, a
+//      disallowed value class, a wrong shape, a string that is not
+//      identifier-shaped, an over-large record — each returns a typed refusal and
+//      fires the `persistence-value-class` tripwire. The store does not truncate,
+//      coerce, or drop a member to make the write fit, because a store that
+//      quietly fixes its callers hides the caller that was wrong. The ADDRESS is
+//      checked with the value and against the same cap: `partition` and `key` are
+//      stored verbatim, so a chokepoint that read only the value would let a
+//      caller persist a sentence or a path in the key beside a valid boolean.
 //   2. **Trim before failing on quota.** A `quota-exceeded` write triggers one LRU
 //      partition trim and one retry. A second failure is surfaced. Retrying forever
 //      would turn a full disk into a spin. The trim, the partition count it needs,
@@ -31,8 +35,8 @@
 //      begin on memory, swap in the durable adapter later — loses writes.
 
 import {
+  PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
-  PERSISTENCE_VALUE_BYTE_CAP,
   RealClock,
   reportTripwire,
   type ConsoleClock,
@@ -49,7 +53,9 @@ import {
 import { MemoryPersistenceAdapter } from "./memory-adapter.js";
 import { openConsoleDatabase, type OpenConsoleDatabaseOptions } from "./indexeddb-adapter.js";
 import {
+  measureRecordByteLength,
   refusePersistence,
+  validatePersistedAddress,
   validatePersistedValue,
   type PersistableValue,
   type PersistedValueClass,
@@ -68,6 +74,7 @@ import {
  * that line it falls on, which an `if` would have let it slip past silently.
  */
 const IS_CALLER_FAULT_REFUSAL: Readonly<Record<PersistenceRefusalCode, boolean>> = {
+  "address-not-identifier-shaped": true,
   "value-class-unknown": true,
   "value-shape-invalid": true,
   "value-not-identifier-shaped": true,
@@ -75,6 +82,18 @@ const IS_CALLER_FAULT_REFUSAL: Readonly<Record<PersistenceRefusalCode, boolean>>
   "adapter-unavailable": false,
   "quota-exceeded": false,
 };
+
+/**
+ * The site a refused ADDRESS is reported under.
+ *
+ * Every other arm reports `partition/key`, which names the record the breach was
+ * about. That is the one thing an address refusal cannot do: the address IS what
+ * was wrong, and a tripwire report quoting it would carry the prose the store
+ * just refused into the report — one layer further out than the chokepoint that
+ * stopped it. The refusal's own detail names the offending component and its
+ * length, which is what an author needs to find the call site.
+ */
+const REFUSED_ADDRESS_SITE = "<address>";
 
 /** The outcome of a write. A refusal is a value, not an exception. */
 export type PersistenceWriteResult =
@@ -109,7 +128,7 @@ export interface UiStateStoreOptions {
    */
   readonly adapter: PersistenceAdapter | Promise<PersistenceAdapter>;
   readonly sessionPartitionCap?: number;
-  readonly valueByteCap?: number;
+  readonly recordByteCap?: number;
   /**
    * The clock every record's `updatedAt` is stamped from. Defaults to `RealClock`.
    *
@@ -123,7 +142,7 @@ export interface UiStateStoreOptions {
 export class UiStateStore {
   readonly #adapterReady: Promise<PersistenceAdapter>;
   readonly #sessionPartitionCap: number;
-  readonly #valueByteCap: number;
+  readonly #recordByteCap: number;
   readonly #clock: ConsoleClock;
   readonly #refusalCounts = new Map<string, number>();
   #failedReadCount = 0;
@@ -135,7 +154,7 @@ export class UiStateStore {
   public constructor(options: UiStateStoreOptions) {
     this.#adapterReady = Promise.resolve(options.adapter);
     this.#sessionPartitionCap = options.sessionPartitionCap ?? PERSISTENCE_SESSION_PARTITION_CAP;
-    this.#valueByteCap = options.valueByteCap ?? PERSISTENCE_VALUE_BYTE_CAP;
+    this.#recordByteCap = options.recordByteCap ?? PERSISTENCE_RECORD_BYTE_CAP;
     this.#clock = options.clock ?? new RealClock();
   }
 
@@ -163,25 +182,38 @@ export class UiStateStore {
     });
   }
 
-  /** The single durable write path. Validates, then persists, then trims. */
+  /**
+   * The single durable write path. Validates the address, then the value, then
+   * the record's size; then persists, then trims.
+   *
+   * The address goes first because it is the record's identity: a caller that
+   * cannot say WHERE a value belongs has not asked a question the value's
+   * validity could answer, and every arm below reports its refusal under a site
+   * built from that address — which a refused address may not supply.
+   */
   public async write(
     partition: string,
     key: string,
     valueClass: PersistedValueClass,
     value: PersistableValue,
   ): Promise<PersistenceWriteResult> {
+    const addressRefusal = validatePersistedAddress(partition, key);
+    if (addressRefusal !== undefined) {
+      return this.#refuse(addressRefusal, REFUSED_ADDRESS_SITE);
+    }
+
     const site = `${partition}/${key}`;
     const classRefusal = validatePersistedValue(valueClass, value);
     if (classRefusal !== undefined) {
       return this.#refuse(classRefusal, site);
     }
 
-    const serialisedByteLength = JSON.stringify(value)?.length ?? 0;
-    if (serialisedByteLength > this.#valueByteCap) {
+    const recordByteLength = measureRecordByteLength(partition, key, valueClass, value);
+    if (recordByteLength > this.#recordByteCap) {
       return this.#refuse(
         refusePersistence(
           "value-too-large",
-          `${valueClass}/${key} serialises to ${String(serialisedByteLength)} bytes, past the ${String(this.#valueByteCap)}-byte ceiling for one UI-state value`,
+          `${valueClass} at ${site} serialises to ${String(recordByteLength)} bytes including its address, past the ${String(this.#recordByteCap)}-byte ceiling for one UI-state record`,
         ),
         site,
       );
