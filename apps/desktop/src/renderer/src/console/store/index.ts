@@ -14,15 +14,36 @@
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
 
+// `ConsoleEntity` joins its ref on the door with `useSessionPartition` below: a
+// partition is a map OF entities, so a consumer that can subscribe to one and
+// cannot name what it holds would have to restate the shape to read it.
 export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 
-export { SessionStore } from "./session-store.js";
+export { SessionStore, type SessionStoreState } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
 
 export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
 
+// `useSessionPartition` joins the door with its first cross-family consumer: the
+// composer reads the `agent`, `run`, and `channel` partitions to resolve what a
+// send is addressed to. It is the partitioned subscription rule 6 asks for — a
+// surface that reached for `useSessionStore` with a selector of its own would be
+// the second subscription path this module exists to prevent.
+// `useSessionStore` ships beside them for the reason stated above: it is the ONE
+// selector-shaped read of a session store, and a surface that could not reach it
+// through this door would reach for `useSyncExternalStore` and become the second
+// subscription path with its own equality rule. `SessionStoreState` travels with
+// it because a caller hoisting a selector to module scope has to name the state
+// it selects from.
+//
+// `useSessionInitialised` and `useSessionDegradedCause` are the two absences a
+// partition read cannot express: a map with no rows means one thing before the
+// read has answered, another when the daemon has said the projection is
+// incomplete, and a third when the session simply has none of that kind. A
+// surface that could reach only the partition would have to render all three as
+// "empty", which is the collapse rule 8 forbids.
 export {
   useFrameStore,
   useLocationHash,
@@ -30,4 +51,5 @@ export {
   useSessionDegradedCause,
   useSessionInitialised,
   useSessionPartition,
+  useSessionStore,
 } from "./hooks.js";

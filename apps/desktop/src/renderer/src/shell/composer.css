@@ -45,3 +45,89 @@
   gap: var(--meridian-space-2);
   align-items: center;
 }
+
+/* The directive line. One line that grows to the cap `composer-bounds.ts` names,
+   then scrolls inside its own box so the ledger above it keeps its room. */
+.meridian-composer__line {
+  width: 100%;
+  min-height: calc(var(--meridian-space-5) + var(--meridian-space-2));
+  padding: var(--meridian-space-2);
+  color: var(--meridian-text);
+  font: inherit;
+  font-family: var(--meridian-font-sans);
+  background: var(--meridian-ground);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  resize: none;
+}
+
+.meridian-composer__line:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-composer__line[readonly] {
+  color: var(--meridian-text-muted);
+  background: var(--meridian-surface-sunken);
+}
+
+/* The row under the line: the path label on the left, the controls on the right.
+   The label is quiet because it reports rather than instructs. */
+.meridian-composer__send-row {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  margin-top: var(--meridian-space-2);
+}
+
+.meridian-composer__path {
+  flex: 1;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  font-family: var(--meridian-font-mono);
+}
+
+/* One primary action per surface (rule 1), so exactly one control carries the
+   accent and every other control on the composer is quiet. */
+.meridian-composer__primary {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-accent-text);
+  font: inherit;
+  background: var(--meridian-accent);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-composer__primary[disabled] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.meridian-composer__stop,
+.meridian-composer__resend {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  color: var(--meridian-text);
+  font: inherit;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  cursor: pointer;
+}
+
+.meridian-composer__primary:focus-visible,
+.meridian-composer__stop:focus-visible,
+.meridian-composer__resend:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+/* The two chip groups sit on one line and wrap together, so the address and the
+   posture never separate onto different rows while one of them has room. */
+.meridian-composer__target,
+.meridian-composer__posture {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-1);
+  align-items: center;
+}
