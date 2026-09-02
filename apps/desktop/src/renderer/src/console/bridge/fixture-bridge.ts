@@ -34,7 +34,10 @@
 //     boundary came to read fixture-local names and refuse every live delivery with
 //     every fixture test green. `session-event-streams.ts` routes,
 //     `run-stream-projection.ts` projects, `scenario-envelope.ts` composes, and all
-//     four defects are gone from the three tables between them.
+//     four defects are gone from the three tables between them. The relay
+//     subscription is routed by the same discipline on its own key: it names a
+//     SESSION rather than an event, so it delivers only to a subscriber that
+//     asked for the session the scenario plays.
 //   • **Native surfaces refuse rather than pretend.** `showOpenDialog` under the
 //     fixture cannot open a dialog, so it rejects with a fixture-scoped error. A
 //     fixture that returned a plausible path would let a surface ship with a code
@@ -51,6 +54,7 @@ import {
   type DaemonMethod,
   type DaemonParams,
   type DaemonResult,
+  type RelayEventHandler,
   type SidekicksBridge,
   type Unsubscribe,
   type UpdateState,
@@ -166,22 +170,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
         input: CpInput<ProcedureName>,
       ): Promise<CpOutput<ProcedureName>> =>
         (await resolveScriptedReply(scenarioEngine, procedure, input)) as CpOutput<ProcedureName>,
-      // Unfiltered, and not by omission: `subscribeRelay` names a SESSION rather
-      // than an event, and a scenario scripts exactly one session — so every beat
-      // it plays belongs to the session any caller could be asking for. The
-      // filter that `daemon.subscribe` needs has nothing to key on here.
-      //
-      // Composed rather than forwarded raw for the same reason the two envelope
-      // arms above are: the relay frame is a Plan-008 stub the corpus has not
-      // shaped yet, and whatever it turns out to be, it is not this console's own
-      // projection type. Handing that type out here would leave one door through
-      // which the fixture still teaches a surface a shape no wire sends.
-      subscribeRelay: (_sessionId, handler): Unsubscribe =>
-        scenarioEngine.subscribe((events) => {
-          for (const event of events) {
-            handler(composeScenarioEventEnvelope(event));
-          }
-        }),
+      subscribeRelay: (sessionId, handler): Unsubscribe =>
+        subscribeToScenarioRelay(scenarioEngine, sessionId, handler),
     },
     native: {
       showOpenDialog: () => refuseAbsentCapability("native.showOpenDialog"),
@@ -284,6 +274,50 @@ function subscribeToScenario(
         throw new FixtureBridgeError(subscriptionName, "beat-unprojectable", projection.detail);
       }
       deliver(projection.delivery);
+    }
+  });
+}
+
+/**
+ * Deliver a scenario's beats to one relay subscriber, scoped to its session.
+ *
+ * `packages/contracts/src/desktop-bridge.ts` declares
+ * `subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe`,
+ * and the session id is the whole of that subscription's scope: main negotiates and
+ * opens the relay for THAT session and forwards its frames, so a subscriber for one
+ * session never receives another's. The fixture ignored the argument and forwarded
+ * every beat to every handler, so a multi-session or auxiliary-window test could
+ * consume a stranger session's log and pass against behaviour production does not
+ * exhibit.
+ *
+ * DECIDED ONCE AT ATTACH, NOT PER DELIVERY, and that follows from the live contract
+ * rather than shortcutting it. A scenario names exactly one session and an engine's
+ * scenario is fixed for its life, so every beat this engine will ever play belongs to
+ * `scenario.sessionId`: the predicate cannot change between one delivery and the
+ * next, and a per-event filter would re-derive one constant per beat and answer the
+ * same way each time. A subscription for any other session therefore attaches
+ * nothing and hands back a no-op disposer — the silence the live bridge answers with
+ * for a session whose relay carries no traffic, which is a reading rather than a
+ * refusal: the fixture is not declining to serve that session, it holds nothing of
+ * that session's to serve.
+ *
+ * Composed rather than forwarded raw for the reason the two envelope arms above are:
+ * the relay frame is a Plan-008 stub the corpus has not shaped yet, and whatever it
+ * turns out to be, it is not this console's own projection type. Handing that type
+ * out here would leave one door through which the fixture still teaches a surface a
+ * shape no wire sends.
+ */
+function subscribeToScenarioRelay(
+  engine: ScenarioEngine,
+  sessionId: string,
+  handler: RelayEventHandler,
+): Unsubscribe {
+  if (sessionId !== engine.scenario.sessionId) {
+    return () => undefined;
+  }
+  return engine.subscribe((events) => {
+    for (const event of events) {
+      handler(composeScenarioEventEnvelope(event));
     }
   });
 }
