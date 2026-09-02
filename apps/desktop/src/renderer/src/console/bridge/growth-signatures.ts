@@ -13,7 +13,7 @@
 // (`growth-port.ts`), because those are one construction over whatever this table
 // says. What a call ANSWERS with (`growth-outcome.ts`), because a surface narrowing
 // a result should not have to reach for the table it will never read. And the named
-// reply values (`growth-values.ts`), because several have readers this table does
+// reply values (`growth-values/`), because several have readers this table does
 // not — the fixture port constructs one and the family barrel publishes it — and a
 // table interrupted by the declarations of the things it refers to stops reading as
 // a table.
@@ -23,6 +23,17 @@
 // document named on the operation's slate row. Where a shape is genuinely unknown to
 // the console it is stated as a named empty request rather than `unknown`, so a
 // caller that starts passing something has to come here and say what.
+//
+// THIS MODULE IS A DECLARED DATA TABLE, AND ITS LENGTH IS ITS ROW COUNT. The
+// package's "a file over about 400 lines is doing two jobs" rule is a heuristic for
+// a module that grew a second job; this one has exactly one — say what each growth
+// operation takes and gives back — and its size is the number of wires the console
+// does not yet have, one member each. There is no second responsibility here to
+// lift out, and splitting the interface would split one closed set across two
+// files: `growth-port.ts` maps every `GrowthOperationId` through this table, so a
+// member that landed in neither half is a compile error today and would become a
+// silently absent one the moment there were two tables to look in. It shrinks when
+// a slate row lands and its operations stop being growth.
 
 import type { HydratedSessionEvent } from "@ai-sidekicks/contracts";
 
@@ -30,6 +41,8 @@ import type { AttentionProjection } from "./attention-projection.js";
 import type { GrowthStream } from "./growth-outcome.js";
 import type { SidekickDefinition, SidekickDefinitionDraft } from "./sidekick-definition.js";
 import type {
+  GrowthArtifactDeleteReceipt,
+  GrowthArtifactRead,
   GrowthArtifactSummary,
   GrowthAttachmentIngestCompletion,
   GrowthAttentionPreference,
@@ -46,7 +59,7 @@ import type {
   GrowthSessionSummary,
   GrowthTerminalChunk,
   GrowthToolCall,
-} from "./growth-values.js";
+} from "./growth-values/index.js";
 import type { SessionSnapshot } from "../store/index.js";
 import type {
   WorkflowDefinitionScope,
@@ -136,8 +149,24 @@ export interface GrowthOperationSignatures {
     request: { readonly sessionId: string };
     value: readonly GrowthArtifactSummary[];
   };
-  artifactRead: { request: { readonly artifactId: string }; value: GrowthArtifactSummary };
-  artifactDelete: { request: { readonly artifactId: string }; value: void };
+  // The read is TWO reads behind one method, told apart by `includePayload`: the
+  // pane's manifest read leaves it absent and gets the envelope, and its payload
+  // fetch sets it and gets the bytes beside the envelope. The member is the wire's
+  // own discriminator rather than a console convenience — without it here the
+  // second read had no request to make and no member to receive an answer on, so
+  // the pane could render an artifact's metadata and never its content.
+  artifactRead: {
+    request: { readonly artifactId: string; readonly includePayload?: boolean };
+    value: GrowthArtifactRead;
+  };
+  // The receipt, not `void`. A delete settles two facts nothing can recover afterwards
+  // — where the payload's bytes went, and whether destroying the retained relay key has
+  // foreclosed re-publish — and a `void` reply left a surface able to say only that the
+  // call returned.
+  artifactDelete: {
+    request: { readonly artifactId: string };
+    value: GrowthArtifactDeleteReceipt;
+  };
   artifactAllowlistRead: {
     request: { readonly sessionId: string };
     value: { readonly contentTypes: readonly string[]; readonly maximumByteLength: number };

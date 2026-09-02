@@ -22,25 +22,32 @@ import { createElement } from "react";
 
 import type { ConsoleSurfaceRegistry } from "../../frame/surface-registry.js";
 import { routeSessionId } from "../../routing/index.js";
-import type { ConsolePaneRegistry } from "../../workspace/index.js";
+import type { ConsolePaneRegistry } from "../../seats/index.js";
 import { AgentConsolePane } from "./AgentConsolePane.js";
 
 /**
  * Claim the `agent-console` pane kind.
  *
- * `openInWindow` is `true`: this is one of the two kinds the spec's surface set
- * admits into an auxiliary window, and the surface registration below is what that
- * window mounts.
+ * Whether the kind may be torn off is `isDetachablePaneKind`'s single answer,
+ * derived from the window model — this registration makes no claim about it. It is
+ * one of the two kinds the spec's surface set admits into an auxiliary window, and
+ * the surface registration below is what that window mounts.
  */
 export function registerAgentConsolePane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "agent-console",
     owner: "collaboration-agent-console",
-    openInWindow: true,
     render: (context) =>
       createElement(AgentConsolePane, {
         sessionId: context.sessionStore?.sessionId,
-        agentId: context.entity?.kind === "agent" ? context.entity.id : undefined,
+        // The context is the whole address union, so it is narrowed on the kind this
+        // descriptor claims before its entity is read: `entity` is not a member of
+        // every arm, and the arms that have one carry a reference to something an
+        // agent console is not a view of. The registry dispatches by kind, so no
+        // other arm reaches this body — and a context that somehow arrived at the
+        // wrong door settles as the pane's own "no agent named" reading, which the
+        // body already draws, rather than as a throw inside a render.
+        agentId: context.kind === "agent-console" ? context.entity?.id : undefined,
         bridge: context.bridge,
         sessionStore: context.sessionStore,
       }),

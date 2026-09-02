@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { sidebarSectionRegistry } from "../workspace/seats/sidebar-sections.js";
+import { sidebarSectionRegistry } from "../seats/index.js";
 import { registerCollaborationSections } from "./sections.js";
 import { CollaborationSessionModelHolder } from "./session-models.js";
 

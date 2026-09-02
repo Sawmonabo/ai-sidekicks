@@ -101,6 +101,9 @@ const CLIENT_VERSION_BELOW_FLOOR = "1.3" as EventEnvelopeVersion;
 const RUNTIME_NODES = [
   {
     nodeId: NODE_WORKSTATION,
+    registrationEventId: "019b7892-1c00-7ea1-8120-cca0117a0552",
+    declarationEventId: "019b7892-1c00-7ea1-8140-cca0117a0554",
+    arrivalEventId: "019b7892-1c00-7ea1-8160-cca0117a0556",
     nodeVersion: "1.4.2",
     // Composite `platform+arch` values are exactly what this bounded free string is
     // for; it is deliberately not an enum, because no source enumerates the set.
@@ -109,9 +112,14 @@ const RUNTIME_NODES = [
     registeredAtMs: 40,
     onlineAtMs: 120,
     degradesAtMs: undefined,
+    degradeEventId: undefined,
   },
   {
     nodeId: NODE_BUILDER,
+    registrationEventId: "019b7892-1c00-7ea1-8130-cca0117a0553",
+    declarationEventId: "019b7892-1c00-7ea1-8150-cca0117a0555",
+    arrivalEventId: "019b7892-1c00-7ea1-8170-cca0117a0557",
+    degradeEventId: "019b7892-1c00-7ea1-8180-cca0117a0558",
     nodeVersion: "1.3.9",
     platform: "linux-x64",
     capability: "provider-driver",
@@ -123,6 +131,9 @@ const RUNTIME_NODES = [
     degradesAtMs: 320,
   },
 ] as const;
+
+/** One row of the table above, so the degrade beat can name what it narrows to. */
+type SettingsRuntimeNode = (typeof RUNTIME_NODES)[number];
 
 /** The instant a millisecond offset lands on, as the frozen clock reports it. */
 function occurredAt(offsetMs: number): string {
@@ -285,24 +296,26 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
     {
       atMs: 0,
       event: {
+        id: "019b7892-1c00-7ea1-8110-cca0117a0551",
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",
         occurredAt: occurredAt(0),
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     ...RUNTIME_NODES.map((node, nodeIndex) => ({
       atMs: node.registeredAtMs,
       event: {
+        id: node.registrationEventId,
         sessionId: SESSION_ID,
         sequence: 2 + nodeIndex,
         kind: "runtime_node.registered",
         occurredAt: occurredAt(node.registeredAtMs),
         // The node's owning participant acted; the daemon did not decide to admit a
         // machine on its own.
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The registered shape, verbatim: the lifecycle base plus the three members
         // registration adds. `newState` is `registering` and there is no
         // `previousState`, because a node being admitted has no state it came from.
@@ -319,11 +332,12 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
     ...RUNTIME_NODES.map((node, nodeIndex) => ({
       atMs: node.registeredAtMs + 20,
       event: {
+        id: node.declarationEventId,
         sessionId: SESSION_ID,
         sequence: 4 + nodeIndex,
         kind: "runtime_node.capability_declared",
         occurredAt: occurredAt(node.registeredAtMs + 20),
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The REDUCED base — no `previousState` / `newState` at all. A capability
         // declaration is not a node-state transition, and the registered shape says
         // so by leaving both members off.
@@ -338,6 +352,7 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
     ...RUNTIME_NODES.map((node, nodeIndex) => ({
       atMs: node.onlineAtMs,
       event: {
+        id: node.arrivalEventId,
         sessionId: SESSION_ID,
         sequence: 6 + nodeIndex,
         kind: "runtime_node.online",
@@ -353,13 +368,17 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
         },
       },
     })),
-    ...RUNTIME_NODES.filter((node) => node.degradesAtMs !== undefined).map((node) => ({
-      atMs: node.degradesAtMs ?? 0,
+    ...RUNTIME_NODES.filter(
+      (node): node is Extract<SettingsRuntimeNode, { degradesAtMs: number }> =>
+        node.degradesAtMs !== undefined,
+    ).map((node) => ({
+      atMs: node.degradesAtMs,
       event: {
+        id: node.degradeEventId,
         sessionId: SESSION_ID,
         sequence: 8,
         kind: "runtime_node.degraded",
-        occurredAt: occurredAt(node.degradesAtMs ?? 0),
+        occurredAt: occurredAt(node.degradesAtMs),
         payload: {
           sessionId: SESSION_ID,
           nodeId: node.nodeId,

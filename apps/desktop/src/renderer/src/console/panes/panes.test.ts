@@ -25,7 +25,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry } from "../workspace/index.js";
+import { ConsolePaneRegistry } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {
@@ -185,12 +185,7 @@ describe("pane seat board — composing it today", () => {
     // over an implementation that always answered `[]`.
     const registry = new ConsolePaneRegistry();
     expect(registry.registeredPaneKinds()).not.toContain("timeline");
-    registry.register({
-      kind: "timeline",
-      owner: "panes-test",
-      render: () => null,
-      openInWindow: true,
-    });
+    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
     expect(registry.registeredPaneKinds()).toContain("timeline");
   });
 });

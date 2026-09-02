@@ -45,7 +45,7 @@ import {
   WireFigure,
   formatCount,
 } from "../primitives/index.js";
-import type { SidebarSectionContext } from "../workspace/seats/index.js";
+import type { SidebarSectionContext } from "../seats/index.js";
 import {
   useChannelActivity,
   type ActivityIndicatorRegistry,

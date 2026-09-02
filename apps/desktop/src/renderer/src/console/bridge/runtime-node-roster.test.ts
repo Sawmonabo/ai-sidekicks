@@ -42,7 +42,8 @@ import {
   readRuntimeNodeRosterFromScenario,
   type RuntimeNodeRosterOutcome,
 } from "./runtime-node-roster.js";
-import { ScenarioEngine, type ConsoleScenario } from "./scenario.js";
+import { ScenarioEngine } from "./scenario-engine.js";
+import type { ConsoleScenario } from "./scenario.js";
 
 /** A session id no scenario plays, for the wrong-session arm. */
 const FOREIGN_SESSION_ID = "019b7904-8ce0-75e5-8510-000000000000" as SessionId;

@@ -76,6 +76,7 @@ function registryHolding(clock: ManualClock): SessionStoreRegistry {
 function settleSessionEvent(registry: SessionStoreRegistry, sequence: number): void {
   registry.enqueue(FIRST_SESSION_ID, [
     {
+      id: `event-${String(sequence)}`,
       sessionId: FIRST_SESSION_ID,
       sequence,
       kind: "run.queued",

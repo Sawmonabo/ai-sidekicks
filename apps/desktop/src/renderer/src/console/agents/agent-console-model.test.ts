@@ -53,6 +53,7 @@ function eventOfKind(
   sequence: number,
 ): ConsoleSessionEvent {
   return {
+    id: `event-${String(sequence)}`,
     sessionId: sessionStore.sessionId,
     sequence,
     kind,

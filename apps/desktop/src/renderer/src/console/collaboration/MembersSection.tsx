@@ -19,7 +19,7 @@
 
 import { useMemo } from "react";
 
-import type { SidebarSectionContext } from "../workspace/seats/index.js";
+import type { SidebarSectionContext } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
 import { Memberships } from "./Memberships.js";
 import { usePushDrivenRead } from "./push-driven-read.js";

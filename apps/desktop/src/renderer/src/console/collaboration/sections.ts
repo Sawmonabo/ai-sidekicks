@@ -17,7 +17,7 @@
 
 import { createElement } from "react";
 
-import { registerSidebarSection } from "../workspace/seats/index.js";
+import { registerSidebarSection } from "../seats/index.js";
 import { ChannelsSection } from "./ChannelsSection.js";
 import { MembersSection } from "./MembersSection.js";
 import { CollaborationSessionModelHolder } from "./session-models.js";

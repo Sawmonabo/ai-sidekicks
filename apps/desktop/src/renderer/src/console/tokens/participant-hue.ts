@@ -112,6 +112,17 @@ export class ParticipantHueAllocator {
    * Admit a participant in join-log order and return its assignment. Idempotent:
    * re-admitting a participant already on the wheel returns the same assignment
    * and allocates nothing, which is what makes a re-join keep its color.
+   *
+   * AN AGENT'S ID IS ADMITTED EXACTLY AS A PARTICIPANT'S IS, and that is deliberate
+   * rather than incidental. The store feeds this wheel from each event's `actorId`,
+   * which the wire registers as a participant id, an agent id, or nobody, with no
+   * discriminator between the first two — so the wheel is keyed on WHOEVER an event is
+   * attributed to, and both kinds get a colour by the same hash, on the same wheel,
+   * with the same re-admission rule. It has to be one wheel: two people and an agent
+   * are three speakers on one timeline, and colouring agents from a second wheel would
+   * let one collide with a participant it sits next to. The parameter keeps the
+   * `participantId` spelling every caller and helper here already uses; what it names
+   * is an identity on the wheel, not a claim about which kind it is.
    */
   public admit(participantId: string): ParticipantHueAssignment {
     const existing = this.#assignmentsByParticipantId.get(participantId);

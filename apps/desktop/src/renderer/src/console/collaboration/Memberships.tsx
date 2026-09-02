@@ -45,7 +45,7 @@ import type { MembershipUpdate, MembershipUpdateResponse } from "@ai-sidekicks/c
 
 import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../primitives/index.js";
 import { useSessionPartition } from "../store/index.js";
-import type { SidebarSectionContext } from "../workspace/index.js";
+import type { SidebarSectionContext } from "../seats/index.js";
 import { InviteConfirmation, type PendingInviteConfirmation } from "./InviteConfirmation.js";
 import { MembershipActionsMenu } from "./MembershipActionsMenu.js";
 import {

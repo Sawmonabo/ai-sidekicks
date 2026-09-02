@@ -10,7 +10,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { OwnerSlotProps } from "../workspace/index.js";
+import type { OwnerSlotProps } from "../seats/index.js";
 import {
   SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT,
   SidekickDefinitionRecordEditorMount,
@@ -98,7 +98,7 @@ describe("the sidekick editor's seat — once a body has arrived", () => {
 
 describe("the sidekick editor's seat — what its contract may not do", () => {
   it("reaches no screen", () => {
-    // The contract is developer-facing in terms (`workspace/seats/owner-slot.ts`),
+    // The contract is developer-facing in terms (`seats/owner-slot.ts`),
     // and every member of it names governance work, which a participant never reads.
     const { contract } = SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT;
     const { container } = render(
@@ -129,7 +129,7 @@ describe("the sidekick editor's seat — what its contract may not do", () => {
 
   it("answers all three of the questions a seat exists to answer", () => {
     // A seat that cannot say who owns the body, what the mount owes it, and where
-    // the shell dies has not decided what it is (`workspace/seats/owner-slot.ts`).
+    // the shell dies has not decided what it is (`seats/owner-slot.ts`).
     const { contract } = SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT;
     expect(contract.owningTask.length).toBeGreaterThan(0);
     expect(contract.mountObligation.length).toBeGreaterThan(0);

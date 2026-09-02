@@ -17,7 +17,7 @@ import {
   sidebarSectionRegistry,
   type SidebarSectionContext,
   type SidebarSectionId,
-} from "../workspace/seats/sidebar-sections.js";
+} from "../seats/index.js";
 import { registerCollaborationSections } from "./sections.js";
 
 const SESSION_ID = "session-members-section";

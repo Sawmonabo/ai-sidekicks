@@ -80,8 +80,24 @@ interface CollaborationRuntimeNode {
   readonly clientVersion: EventEnvelopeVersion;
   readonly registeredAtMs: number;
   readonly onlineAtMs: number;
-  /** Absent means the machine came up and stayed. */
-  readonly departsAtMs?: number;
+  /**
+   * The identifiers the three beats every machine plays travel under.
+   *
+   * On the machine rather than composed at the beat site, for the table's own reason:
+   * an event id names one row of one session's log, and a beat builder that minted
+   * them from an index would answer with a different id the day a beat is inserted
+   * ahead of it.
+   */
+  readonly registrationEventId: string;
+  readonly declarationEventId: string;
+  readonly arrivalEventId: string;
+  /**
+   * When and under which id the machine left. Absent means it came up and stayed.
+   *
+   * One member rather than two optionals, so a machine cannot carry an instant with
+   * no id or an id with no instant — and so the beat builder narrows both at once.
+   */
+  readonly departure?: { readonly atMs: number; readonly eventId: string };
 }
 
 /**
@@ -101,6 +117,9 @@ function machinesOf(script: CollaborationRuntimeNodeScript): readonly Collaborat
   return [
     {
       nodeId: NODE_LAPTOP,
+      registrationEventId: "019b7904-8ce0-7ea1-8310-cca0117a0421",
+      declarationEventId: "019b7904-8ce0-7ea1-8320-cca0117a0424",
+      arrivalEventId: "019b7904-8ce0-7ea1-8330-cca0117a0427",
       participantId: laptopOwnerId,
       // Composite `platform+arch` values are exactly what this bounded free string
       // is for; it is deliberately not an enum, because no source enumerates the set.
@@ -113,6 +132,9 @@ function machinesOf(script: CollaborationRuntimeNodeScript): readonly Collaborat
     },
     {
       nodeId: NODE_DESKTOP,
+      registrationEventId: "019b7904-8ce0-7ea1-8340-cca0117a0422",
+      declarationEventId: "019b7904-8ce0-7ea1-8350-cca0117a0425",
+      arrivalEventId: "019b7904-8ce0-7ea1-8360-cca0117a0428",
       participantId: desktopOwnerId,
       platform: "linux-x64",
       nodeVersion: "1.4.1",
@@ -123,6 +145,9 @@ function machinesOf(script: CollaborationRuntimeNodeScript): readonly Collaborat
     },
     {
       nodeId: NODE_RUNNER,
+      registrationEventId: "019b7904-8ce0-7ea1-8370-cca0117a0423",
+      declarationEventId: "019b7904-8ce0-7ea1-8380-cca0117a0426",
+      arrivalEventId: "019b7904-8ce0-7ea1-8390-cca0117a0429",
       participantId: runnerOwnerId,
       platform: "linux-arm64",
       nodeVersion: "1.2.7",
@@ -130,7 +155,7 @@ function machinesOf(script: CollaborationRuntimeNodeScript): readonly Collaborat
       clientVersion: CLIENT_VERSION_BELOW_FLOOR,
       registeredAtMs: 480,
       onlineAtMs: 580,
-      departsAtMs: 640,
+      departure: { atMs: 640, eventId: "019b7904-8ce0-7ea1-83a0-cca0117a0430" },
     },
   ];
 }
@@ -156,13 +181,14 @@ export function collaborationRuntimeNodeBeats(
   const registrations: readonly ScenarioBeat[] = machines.map((machine, machineIndex) => ({
     atMs: machine.registeredAtMs,
     event: {
+      id: machine.registrationEventId,
       sessionId,
       sequence: firstSequence + machineIndex,
       kind: "runtime_node.registered",
       occurredAt: occurredAt(machine.registeredAtMs),
       // The machine's owner acted; the daemon did not decide to admit somebody
       // else's hardware into the room on its own.
-      actorParticipantId: machine.participantId,
+      actorId: machine.participantId,
       // `newState` is `registering` and there is no `previousState`, because a
       // machine being admitted has no state it came from.
       payload: {
@@ -178,11 +204,12 @@ export function collaborationRuntimeNodeBeats(
   const declarations: readonly ScenarioBeat[] = machines.map((machine, machineIndex) => ({
     atMs: machine.registeredAtMs + 20,
     event: {
+      id: machine.declarationEventId,
       sessionId,
       sequence: firstSequence + machines.length + machineIndex,
       kind: "runtime_node.capability_declared",
       occurredAt: occurredAt(machine.registeredAtMs + 20),
-      actorParticipantId: machine.participantId,
+      actorId: machine.participantId,
       payload: {
         sessionId,
         nodeId: machine.nodeId,
@@ -194,6 +221,7 @@ export function collaborationRuntimeNodeBeats(
   const arrivals: readonly ScenarioBeat[] = machines.map((machine, machineIndex) => ({
     atMs: machine.onlineAtMs,
     event: {
+      id: machine.arrivalEventId,
       sessionId,
       sequence: firstSequence + machines.length * 2 + machineIndex,
       kind: "runtime_node.online",
@@ -210,18 +238,24 @@ export function collaborationRuntimeNodeBeats(
     },
   }));
   const departures: readonly ScenarioBeat[] = machines
-    .filter((machine) => machine.departsAtMs !== undefined)
-    .map((machine, machineIndex) => ({
-      atMs: machine.departsAtMs ?? 0,
+    // Narrowed before it is indexed rather than filtered and then read back through a
+    // fallback: `?? 0` would have scripted a departure at tick zero for a machine that
+    // never left, and the id has no honest fallback at all.
+    .flatMap((machine) =>
+      machine.departure === undefined ? [] : [{ machine, departure: machine.departure }],
+    )
+    .map(({ machine, departure }, departureIndex) => ({
+      atMs: departure.atMs,
       event: {
+        id: departure.eventId,
         sessionId,
-        sequence: firstSequence + machines.length * 3 + machineIndex,
+        sequence: firstSequence + machines.length * 3 + departureIndex,
         kind: "runtime_node.offline",
-        occurredAt: occurredAt(machine.departsAtMs ?? 0),
+        occurredAt: occurredAt(departure.atMs),
         // A person shut this machine down, so a person is the actor — unlike the two
         // departure reasons the registered enum also carries, which a sweep derives
         // and which no V1 producer authors.
-        actorParticipantId: machine.participantId,
+        actorId: machine.participantId,
         // `lastHeartbeatAt` is the same instant the roster frame at this tick
         // reports, because they describe one heartbeat: the beat says the attachment
         // ended, and the read says the sweep still finds the machine healthy.

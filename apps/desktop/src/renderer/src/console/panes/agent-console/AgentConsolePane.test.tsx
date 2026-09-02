@@ -259,6 +259,7 @@ describe("agent console — the run this agent's linkage is keyed by", () => {
 
     await act(async () => {
       sessionStore.apply({
+        id: "event-1",
         sessionId: OWNED_SESSION_ID,
         sequence: 1,
         kind: "run.queued",
@@ -283,6 +284,7 @@ describe("agent console — the run this agent's linkage is keyed by", () => {
 
     await act(async () => {
       sessionStore.apply({
+        id: "event-1",
         sessionId: OWNED_SESSION_ID,
         sequence: 1,
         kind: "run.queued",
@@ -352,6 +354,7 @@ async function projectRun(
 ): Promise<void> {
   await act(async () => {
     sessionStore.apply({
+      id: `event-${String(sequence)}`,
       sessionId: OWNED_SESSION_ID,
       sequence,
       kind: "run.queued",
@@ -421,6 +424,7 @@ describe("agent console — the linkage read's lifetime", () => {
     // so it is the event that would wake a read the re-key should have disposed.
     await act(async () => {
       sessionStore.apply({
+        id: "event-3",
         sessionId: OWNED_SESSION_ID,
         sequence: 3,
         kind: "orchestration.rejected",

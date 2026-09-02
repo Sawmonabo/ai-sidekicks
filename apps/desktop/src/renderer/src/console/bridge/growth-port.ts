@@ -65,7 +65,10 @@ export function growthUnavailable(operationId: GrowthOperationId): GrowthUnavail
   return buildGrowthUnavailable(
     operationId,
     "wire-unregistered",
-    `Not checked — ${row.wire} is not registered yet (${row.owningDocument} owns it).`,
+    // Product vocabulary only: the owning document travels as the structured
+    // `owningDocument` member for the ledger, never inside the sentence a person
+    // reads, which names the wire and the fact that this build does not carry it.
+    `Not checked — ${row.wire} is not registered on this build yet.`,
   );
 }
 

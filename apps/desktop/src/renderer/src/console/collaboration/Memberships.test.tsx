@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { SessionStore } from "../store/index.js";
-import type { SidebarSectionContext } from "../workspace/index.js";
+import type { SidebarSectionContext } from "../seats/index.js";
 import { Memberships } from "./Memberships.js";
 import type { PendingInviteConfirmation } from "./InviteConfirmation.js";
 

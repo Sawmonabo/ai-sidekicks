@@ -119,6 +119,8 @@ const COLLABORATION_PARTICIPANTS = [
   {
     participantId: PARTICIPANT_PRIYA,
     identityHandle: "priya",
+    membershipEventId: "019b7904-8ce0-7ea1-8120-cca0117a0402",
+    presenceEventId: "019b7904-8ce0-7ea1-8220-cca0117a0409",
     role: "collaborator",
     membershipId: MEMBERSHIP_PRIYA,
     joinedAtMs: 60,
@@ -129,6 +131,8 @@ const COLLABORATION_PARTICIPANTS = [
   {
     participantId: PARTICIPANT_TOMAS,
     identityHandle: "tomas",
+    membershipEventId: "019b7904-8ce0-7ea1-8130-cca0117a0403",
+    presenceEventId: "019b7904-8ce0-7ea1-8230-cca0117a0410",
     // `viewer` is the wire's read-only role. There is no `observer` on this wire,
     // and the members model refuses one, so a fixture that played it would be
     // scripting a role no session can hold.
@@ -142,6 +146,8 @@ const COLLABORATION_PARTICIPANTS = [
   {
     participantId: PARTICIPANT_NOAH,
     identityHandle: "noah",
+    membershipEventId: "019b7904-8ce0-7ea1-8140-cca0117a0404",
+    presenceEventId: "019b7904-8ce0-7ea1-8240-cca0117a0411",
     role: "collaborator",
     membershipId: MEMBERSHIP_NOAH,
     joinedAtMs: 160,
@@ -150,6 +156,9 @@ const COLLABORATION_PARTICIPANTS = [
     lastSeenIso: "2026-01-01T10:05:00.180Z",
   },
 ] as const;
+
+/** One row of the roster above, so the two beat subsets can name what they narrow to. */
+type CollaborationParticipant = (typeof COLLABORATION_PARTICIPANTS)[number];
 
 /**
  * The channels, as `channel.list` serves them and `channel.created` announces them.
@@ -162,9 +171,27 @@ const COLLABORATION_PARTICIPANTS = [
  * archived as two regions and a list with no archived row leaves one of them dead.
  */
 const COLLABORATION_CHANNELS = [
-  { channelId: CHANNEL_MAIN, name: "main", state: "active", participantCount: 4 },
-  { channelId: CHANNEL_REVIEW, name: "review", state: "active", participantCount: 3 },
-  { channelId: CHANNEL_HANDOFF, name: "handoff", state: "archived", participantCount: 2 },
+  {
+    channelId: CHANNEL_MAIN,
+    eventId: "019b7904-8ce0-7ea1-8150-cca0117a0405",
+    name: "main",
+    state: "active",
+    participantCount: 4,
+  },
+  {
+    channelId: CHANNEL_REVIEW,
+    eventId: "019b7904-8ce0-7ea1-8160-cca0117a0406",
+    name: "review",
+    state: "active",
+    participantCount: 3,
+  },
+  {
+    channelId: CHANNEL_HANDOFF,
+    eventId: "019b7904-8ce0-7ea1-8170-cca0117a0407",
+    name: "handoff",
+    state: "archived",
+    participantCount: 2,
+  },
 ] as const;
 
 /**
@@ -204,24 +231,27 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
     {
       atMs: 0,
       event: {
+        id: "019b7904-8ce0-7ea1-8110-cca0117a0401",
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T10:05:00.000Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     ...COLLABORATION_PARTICIPANTS.filter(
-      (participant) => participant.membershipId !== undefined,
+      (participant): participant is Extract<CollaborationParticipant, { membershipId: string }> =>
+        participant.membershipId !== undefined,
     ).map((participant, joinIndex) => ({
       atMs: participant.joinedAtMs ?? 0,
       event: {
+        id: participant.membershipEventId,
         sessionId: SESSION_ID,
         sequence: 2 + joinIndex,
         kind: "membership.created",
         occurredAt: participant.joinedAtIso ?? "2026-01-01T10:05:00.000Z",
-        actorParticipantId: participant.participantId,
+        actorId: participant.participantId,
         payload: {
           membershipId: participant.membershipId,
           participantId: participant.participantId,
@@ -233,11 +263,12 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
     ...COLLABORATION_CHANNELS.map((channel, channelIndex) => ({
       atMs: 200 + channelIndex * 40,
       event: {
+        id: channel.eventId,
         sessionId: SESSION_ID,
         sequence: 5 + channelIndex,
         kind: "channel.created",
         occurredAt: `2026-01-01T10:05:00.${String(200 + channelIndex * 40)}Z`,
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The registered shape, verbatim: `{channelId, name?}`. A channel's state
         // and its participant count reach the console from `channel.list`, never
         // from the creation event, so neither is carried here.
@@ -247,11 +278,12 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
     {
       atMs: 340,
       event: {
+        id: "019b7904-8ce0-7ea1-8180-cca0117a0408",
         sessionId: SESSION_ID,
         sequence: 8,
         kind: "channel.archived",
         occurredAt: "2026-01-01T10:05:00.340Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // One of the four kinds `collaboration/channel-model.ts` re-reads on, so
         // this beat is what proves the directory refreshes from a signal rather
         // than from a timer. The census registers no payload variant for it, so the
@@ -260,15 +292,19 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
       },
     },
     ...COLLABORATION_PARTICIPANTS.filter(
-      (participant) => participant.presenceState !== "online",
+      (
+        participant,
+      ): participant is Exclude<CollaborationParticipant, { presenceState: "online" }> =>
+        participant.presenceState !== "online",
     ).map((participant, presenceIndex) => ({
       atMs: 380 + presenceIndex * 20,
       event: {
+        id: participant.presenceEventId,
         sessionId: SESSION_ID,
         sequence: 9 + presenceIndex,
         kind: `presence.${participant.presenceState}` as const,
         occurredAt: participant.lastSeenIso,
-        actorParticipantId: participant.participantId,
+        actorId: participant.participantId,
         // Opaque BY CONTRACT. The roster treats every presence push as a change
         // signal and answers it with a fresh `presence.read`, so this payload is
         // never decoded by anything — which is exactly why it carries the two

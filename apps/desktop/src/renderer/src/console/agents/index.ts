@@ -14,7 +14,7 @@
 // surface that happens to mount the editor today (the agent console) is one of
 // several that eventually will. A seat declared at the mount point would have to be
 // re-declared at the second one, and two declarations of one contract is exactly
-// what `workspace/seats/owner-slot.ts` exists to prevent.
+// what `seats/owner-slot.ts` exists to prevent.
 //
 // THE STYLESHEET IS IMPORTED HERE AND NOWHERE ELSE, so a surface can never render one
 // of these components without the CSS that makes it legible, and the bundler sees one
@@ -22,7 +22,7 @@
 
 import "./agents.css";
 
-import type { OwnerSlotProps } from "../workspace/index.js";
+import type { OwnerSlotProps } from "../seats/index.js";
 
 // The sidekicks page, which the settings surface mounts. It is a page rather than a
 // pane because the design puts a saved sidekick's configuration in settings and

@@ -56,7 +56,8 @@ import type {
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
-import type { ScenarioEngine, ScenarioRuntimeNodeRosterFrame } from "./scenario.js";
+import type { ScenarioEngine } from "./scenario-engine.js";
+import type { ScenarioRuntimeNodeRosterFrame } from "./scenario.js";
 
 /**
  * The registered control-plane procedure that reads a session's node roster.

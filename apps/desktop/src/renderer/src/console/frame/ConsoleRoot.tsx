@@ -57,7 +57,12 @@ import { DraftStore } from "../persistence/index.js";
 import { Nothing } from "../primitives/index.js";
 import { CONSOLE_CHORD_PLATFORM, consoleCommands } from "./command-surface.js";
 import { registerConsoleFamilies } from "../families.js";
-import { FrameStore, useFrameStore, useLocationHash } from "../store/index.js";
+import {
+  FrameStore,
+  consoleEntityProjectorRegistry,
+  useFrameStore,
+  useLocationHash,
+} from "../store/index.js";
 import { applyConsoleScheme, installMeridianTokens } from "./token-installation.js";
 import { AppFrame } from "./AppFrame.js";
 import { describeScope, useFrameCommandSurface } from "./frame-commands.js";
@@ -69,6 +74,7 @@ import { useActiveSessionStore, useSessionStoreRegistry } from "./session-lifecy
 import { useUiStateStore } from "./ui-state-lifecycle.js";
 import { parseRoute, railDestinationFor } from "../routing/index.js";
 import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
+import { consolePaneRegistry } from "../seats/index.js";
 
 // Composition, at module scope, before any window renders.
 //
@@ -85,7 +91,23 @@ import { consoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-re
 // surface does not exist. Registration is idempotent per module graph, and the
 // registry refuses a second OWNER on one slot, so a hot reload replaces and a
 // collision raises.
-registerConsoleFamilies(consoleSurfaceRegistry);
+//
+// All three process-wide registries are named HERE rather than reached for inside
+// the composition, which is what makes this the composition site: a test or an
+// auxiliary window calls the same function with registries of its own and touches
+// none of these.
+//
+// The projector board is the third, and its ORDER against the window below is the
+// reason it is composed at module scope with the other two: a family claims the
+// event kinds it folds here, and a window opens its first session store during
+// render, which is strictly after. A store therefore opens with the fold the
+// composition claimed rather than with whatever had registered by the time the
+// first event arrived.
+registerConsoleFamilies(
+  consoleSurfaceRegistry,
+  consolePaneRegistry,
+  consoleEntityProjectorRegistry,
+);
 
 export interface ConsoleRootProps {
   /** Which fixture scenario to play. Ignored when fixtures are compiled out. */
@@ -203,7 +225,9 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
   draftStoreRef.current ??= new DraftStore();
   const draftStore = draftStoreRef.current;
 
-  const sessionStoreRegistry = useSessionStoreRegistry();
+  // The window's stores fold with what the composition above claimed, handed in
+  // rather than reached for — the same rule the two boards beside it follow.
+  const sessionStoreRegistry = useSessionStoreRegistry(consoleEntityProjectorRegistry);
 
   const route = useFrameStore(frameStore, (state) => state.route);
   const banners = useFrameStore(frameStore, (state) => state.banners);

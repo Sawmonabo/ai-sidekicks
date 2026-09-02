@@ -28,7 +28,7 @@ import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { scoreSubsequence } from "../palette/subsequence-score.js";
 import { Nothing } from "../primitives/index.js";
-import type { OwnerSlotProps } from "../workspace/index.js";
+import type { OwnerSlotProps } from "../seats/index.js";
 
 /**
  * Every settings section, in rail order.
@@ -239,7 +239,7 @@ export function matchSettingsEntries(
 // Two settings sections are holes another plan fills: the provider-account
 // registry and the MCP server inventory. Each is a PAGE this repository builds the
 // chrome for and a BODY it does not author at all, so the arrangement is the seat
-// contract `workspace/seats/owner-slot.ts` declares — who owns the body, what the
+// contract `seats/owner-slot.ts` declares — who owns the body, what the
 // mount owes it, and where the shell dies.
 //
 // WHY THE RENDERER IS HERE AND THE SLOTS ARE NOT
@@ -251,7 +251,7 @@ export function matchSettingsEntries(
 // the second use, and this module is the lowest one both pages already import.
 //
 // The reservation copy names the FEATURE and never the governance work — a slot
-// contract is developer-facing (`workspace/seats/owner-slot.ts` says so in terms),
+// contract is developer-facing (`seats/owner-slot.ts` says so in terms),
 // and the repository's standing rule keeps governance identifiers out of what a
 // participant reads.
 

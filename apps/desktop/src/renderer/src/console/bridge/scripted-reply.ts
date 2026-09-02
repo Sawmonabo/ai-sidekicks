@@ -19,6 +19,13 @@
 //
 // WHAT IS SHARED, AND WHY IT IS NOT TWO VOCABULARIES
 //
+// A COMPUTED REPLY IS SETTLED HERE TOO, and for the same reason the classification
+// is: `replyFor` matches on the method name and the REQUEST reaches only this seam,
+// so a scenario that answers an entity-scoped read per entity has exactly one place
+// to be read. The request is optional because the growth port's operations carry no
+// wire request at all — see `settleScriptedReply` — rather than because a caller may
+// forget to pass one.
+//
 // The two codes a reply that never arrived refuses with are declared here, once, and
 // both refusal sets spread them in. They describe one fact — the scenario engine had
 // nothing to answer with — and two independent spellings of `reply-abandoned` in two
@@ -27,7 +34,7 @@
 // properties of what the engine did, not of which surface asked.
 
 import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
-import type { ScenarioEngine } from "./scenario.js";
+import type { ScenarioEngine } from "./scenario-engine.js";
 
 /**
  * The codes a scripted reply that never arrived refuses with.
@@ -67,6 +74,12 @@ export type ScriptedReplySettlement =
 /**
  * Look up one call's scripted reply and settle it on the frozen clock.
  *
+ * `request` is what the caller sent, and it is what a `ScenarioComputedReply` reads to
+ * answer an entity-scoped call per entity. OPTIONAL because the growth port answers
+ * operations that have no wire request to pass — a computed reply reached that way is
+ * asked about `undefined` and settles `unscripted` like any other request the scenario
+ * does not answer for, which is the honest result rather than a special case.
+ *
  * Never rejects, on any arm. A scripted daemon refusal travels back as a value here
  * and is thrown by the caller, which is what keeps the wire's own `{code, message}`
  * envelope unwrapped: this module would otherwise have to choose between rejecting
@@ -83,6 +96,7 @@ export type ScriptedReplySettlement =
 export async function settleScriptedReply(
   engine: ScenarioEngine,
   call: string,
+  request?: unknown,
 ): Promise<ScriptedReplySettlement> {
   const reply = engine.replyFor(call);
   if (reply === undefined) {
@@ -99,10 +113,22 @@ export async function settleScriptedReply(
     }
   }
   // Read AFTER the hold, so a scripted refusal is preceded by exactly the loading
-  // window a resolving reply of the same `afterMs` would have had.
-  return reply.refusal === undefined
-    ? { status: "resolved", value: reply.result }
-    : { status: "refused", refusal: reply.refusal };
+  // window a resolving reply of the same `afterMs` would have had — and so a computed
+  // reply is asked about the request in the same position a constant one is read from,
+  // rather than earlier, which would spend the latency on an answer already chosen.
+  if (reply.refusal !== undefined) {
+    return { status: "refused", refusal: reply.refusal };
+  }
+  if (reply.resultFor !== undefined) {
+    const computed = reply.resultFor(request);
+    // A request the scenario does not answer for is `unscripted` and not an empty
+    // resolution: the scenario scripts the METHOD and not this entity, which is the
+    // authoring gap that arm exists to name.
+    return computed === undefined
+      ? { status: "unscripted" }
+      : { status: "resolved", value: computed };
+  }
+  return { status: "resolved", value: reply.result };
 }
 
 /** The diagnosis and the remedy for a reply the frozen clock never released. */

@@ -150,6 +150,7 @@ const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
 const ATTACHED_AGENTS = [
   {
     agentId: AGENT_ARCHITECT,
+    eventId: "019b7952-5ec0-7ea1-8120-e5e0d1150442",
     name: "Architect",
     driverName: "claude",
     modelId: "claude-opus-5[1m]",
@@ -161,6 +162,7 @@ const ATTACHED_AGENTS = [
   },
   {
     agentId: AGENT_IMPLEMENTER,
+    eventId: "019b7952-5ec0-7ea1-8130-e5e0d1150443",
     name: "Implementer",
     driverName: "codex",
     modelId: "gpt-5.6-sol",
@@ -189,24 +191,26 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
     {
       atMs: 0,
       event: {
+        id: "019b7952-5ec0-7ea1-8110-e5e0d1150441",
         sessionId: SESSION_ID,
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T11:30:00.000Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     ...ATTACHED_AGENTS.map((agent, agentIndex) => ({
       atMs: agent.attachedAtMs,
       event: {
+        id: agent.eventId,
         sessionId: SESSION_ID,
         sequence: 2 + agentIndex,
         kind: "agent.attached",
         occurredAt: agent.attachedAtIso,
         // The person who attached the agent, not the agent. An agent does not attach
         // itself, and the envelope actor is who acted.
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The full persona plus the daemon-resolved resulting state, so the `agents`
         // projection rebuilds from the log alone. `name` is the member —
         // `displayName` is not on this wire.
@@ -224,11 +228,12 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
     {
       atMs: 320,
       event: {
+        id: "019b7952-5ec0-7ea1-8140-e5e0d1150444",
         sessionId: SESSION_ID,
         sequence: 4,
         kind: "agent.config_updated",
         occurredAt: "2026-01-01T11:30:00.320Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The signal that a roster re-read is owed. The census registers no payload
         // variant for this type, so the payload names the agent the mutation
         // addressed and nothing else — the settlement itself travels on the
@@ -240,11 +245,12 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
     {
       atMs: 420,
       event: {
+        id: "019b7952-5ec0-7ea1-8150-e5e0d1150445",
         sessionId: SESSION_ID,
         sequence: 5,
         kind: "agent.config_updated",
         occurredAt: "2026-01-01T11:30:00.420Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         payload: { sessionId: SESSION_ID, agentId: AGENT_ARCHITECT },
       },
     },

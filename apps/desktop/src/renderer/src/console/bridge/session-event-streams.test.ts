@@ -46,6 +46,16 @@ const QUEUE_ITEM_EVENT_ROOT = "queue_item.";
 const ROLLED_BACK_KIND = "run.rolled_back";
 
 /**
+ * The registered row that records a run's CREATION rather than a transition.
+ *
+ * `queued` is the state a run is created in and the destination of no row in
+ * `docs/domain/run-state-machine.md`'s transition table, so no `RunStateChangeEvent`
+ * can name it as a `currentState` — the shape requires a `previousState`, and the
+ * vocabulary has no member for a state a run has not been in yet.
+ */
+const RUN_CREATION_KIND = "run.queued";
+
+/**
  * The three registered run rows that record no state and no rollback.
  *
  * Named here so the state stream's exclusion of them is asserted rather than
@@ -85,10 +95,10 @@ function registeredKindsIn(category: EventCategory): readonly string[] {
 }
 
 /** The kinds one narrowed stream carries, as the table declares them. */
-function carriedKindsOf(subscriptionName: ConsoleSessionEventStreamName): ReadonlySet<string> {
+function carriedKindsOf(subscriptionName: ConsoleSessionEventStreamName): readonly string[] {
   const stream = sessionEventStreamFor(subscriptionName);
   if (stream === undefined || stream.scope !== "selected-kinds") {
-    throw new Error(`${subscriptionName} is not a narrowed stream, so it carries no kind set`);
+    throw new Error(`${subscriptionName} is not a narrowed stream, so it carries no kind list`);
   }
   return stream.carriedKinds;
 }
@@ -121,17 +131,30 @@ describe("session-event streams — the table carries what the wire registers", 
     expect(CATEGORY_BY_REGISTERED_KIND.has(UNREGISTERED_KIND)).toBe(false);
   });
 
-  it("gives the state stream one kind per canonical run state, plus the rollback arm", () => {
+  it("gives the state stream one kind per state a transition can end in, plus the rollback arm", () => {
     // Re-derived from the census by the registration's own rule — one event per
-    // canonical run state — rather than from the table under test.
-    const stateTransitionKinds = registeredKindsIn("run_lifecycle").filter(
+    // canonical run state — rather than from the table under test, then less the
+    // creation row, which is the one state no transition ends in.
+    const runStateKinds = registeredKindsIn("run_lifecycle").filter(
       (kind) => RunStateSchema.safeParse(kind.slice(RUN_EVENT_ROOT.length)).success,
     );
+    const transitionKinds = runStateKinds.filter((kind) => kind !== RUN_CREATION_KIND);
 
-    expect(stateTransitionKinds).toHaveLength(9);
+    expect(runStateKinds).toHaveLength(9);
+    expect(transitionKinds).toHaveLength(8);
     expect(sorted(carriedKindsOf(RUN_STATE_EVENT_STREAM))).toStrictEqual(
-      sorted([...stateTransitionKinds, ROLLED_BACK_KIND]),
+      sorted([...transitionKinds, ROLLED_BACK_KIND]),
     );
+  });
+
+  it("leaves the run's creation off the state stream, and hands it to the whole session", () => {
+    // A registered run-lifecycle row that neither wire arm of this stream can
+    // represent: a `RunStateChangeEvent` for it would need a `previousState` naming
+    // a state the run has not been in. A subscriber learns the run exists from the
+    // whole-session stream, where the run-lifecycle projector folds the row in.
+    expect(CATEGORY_BY_REGISTERED_KIND.get(RUN_CREATION_KIND)).toBe("run_lifecycle");
+    expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, RUN_CREATION_KIND)).toBe(false);
+    expect(subscriptionDeliversEventKind(SESSION_EVENT_STREAM, RUN_CREATION_KIND)).toBe(true);
   });
 
   it("leaves the forward, non-state run rows off the state stream", () => {
@@ -141,7 +164,7 @@ describe("session-event streams — the table carries what the wire registers", 
       // Registered rows, deliberately uncarried: neither `RunStateChangeEvent` nor
       // `RunRolledBackEvent` can represent one, so a subscriber never sees them.
       expect(CATEGORY_BY_REGISTERED_KIND.get(kind)).toBe("run_lifecycle");
-      expect(carried.has(kind)).toBe(false);
+      expect(carried.includes(kind)).toBe(false);
     }
   });
 
@@ -155,7 +178,7 @@ describe("session-event streams — the table carries what the wire registers", 
     // The intervention, driver-ask, and user-message rows share that category and
     // ride no queue projection; a stream derived from the category alone would
     // have handed all of them to a queue subscriber.
-    expect(carriedKindsOf(RUN_QUEUE_EVENT_STREAM).has("intervention.requested")).toBe(false);
+    expect(carriedKindsOf(RUN_QUEUE_EVENT_STREAM).includes("intervention.requested")).toBe(false);
   });
 
   it("announces a registered queue state for every queue row it carries", () => {
@@ -194,5 +217,68 @@ describe("session-event streams — what a subscription name delivers", () => {
     for (const kind of CATEGORY_BY_REGISTERED_KIND.keys()) {
       expect(subscriptionDeliversEventKind(UNREGISTERED_STREAM, kind)).toBe(false);
     }
+  });
+});
+
+// The routing table is a process-wide CONSTANT and not per-bridge state, so
+// "two bridges do not share routing state" is not the property to assert — there
+// is no state to share, and asserting it would pass over the exact defect this
+// closes. The stronger claim is asserted instead: nothing in the process can
+// change the table at all, so no subscription, and no bridge, can re-route
+// another.
+describe("session-event streams — the table cannot be re-routed at runtime", () => {
+  it("refuses to grow a kind on an exported stream row", () => {
+    // The defect this closes: the rows were `ReadonlySet` views over mutable
+    // `Set`s, and `ReadonlySet` is a compiler view and nothing else. One
+    // `carriedKinds.add(…)` anywhere in the process re-routed every subscription
+    // in the renderer for the rest of its life, silently and permanently.
+    const carried = carriedKindsOf(RUN_QUEUE_EVENT_STREAM);
+
+    expect(() => {
+      // @ts-expect-error `carriedKinds` is a frozen `readonly string[]`, so the
+      // compiler refuses `push` before the runtime does — both halves matter,
+      // because the type view alone is what used to be relied on.
+      carried.push("run.starting");
+    }).toThrow(TypeError);
+    expect(subscriptionDeliversEventKind(RUN_QUEUE_EVENT_STREAM, "run.starting")).toBe(false);
+  });
+
+  it("refuses to swap a whole stream row out of the exported table", () => {
+    expect(() => {
+      (CONSOLE_SESSION_EVENT_STREAMS as Record<string, unknown>)[RUN_STATE_EVENT_STREAM] = {
+        scope: "whole-session",
+      };
+    }).toThrow(TypeError);
+    // The routing the swap tried to install: a whole-session row answers `true`
+    // for every kind, so this is what a successful mutation would have looked like.
+    expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, "queue_item.created")).toBe(false);
+  });
+
+  it("freezes the table, every row on it, and every kind list", () => {
+    expect(Object.isFrozen(CONSOLE_SESSION_EVENT_STREAMS)).toBe(true);
+    for (const stream of Object.values(CONSOLE_SESSION_EVENT_STREAMS)) {
+      expect(Object.isFrozen(stream)).toBe(true);
+      if (stream.scope === "selected-kinds") {
+        expect(Object.isFrozen(stream.carriedKinds)).toBe(true);
+      }
+    }
+  });
+
+  it("negative control: the frozen check distinguishes a copy of the same data", () => {
+    // Without it, an `isFrozen` that answered `true` for everything would pass the
+    // case above — and a copy is exactly what a caller who wants to mutate should
+    // have to make, so it must read as unfrozen.
+    expect(Object.isFrozen([...carriedKindsOf(RUN_STATE_EVENT_STREAM)])).toBe(false);
+    expect(Object.isFrozen({ ...CONSOLE_SESSION_EVENT_STREAMS })).toBe(false);
+  });
+
+  it("answers a lookup for an inherited property name as no row at all", () => {
+    // A subscription name and an event kind both arrive wire-verbatim, so
+    // `"constructor"` reaches these lookups exactly as a registered string does. An
+    // indexed read would answer it with something off `Object.prototype`, which is
+    // a truthy value where the caller asked whether the table has a row.
+    expect(sessionEventStreamFor("constructor")).toBeUndefined();
+    expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, "toString")).toBe(false);
+    expect(subscriptionDeliversEventKind("constructor", "constructor")).toBe(true);
   });
 });
