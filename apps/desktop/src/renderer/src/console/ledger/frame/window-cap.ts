@@ -13,6 +13,14 @@
 //   • **Only top-level rows count.** A chapter with two hundred tool rows under it
 //     is one row against the cap. Counting children would make a busy run evict the
 //     entire conversation around it.
+//
+//     TOP-LEVEL IS A FACT ABOUT THIS WINDOW, not about the row. A row whose
+//     `parentKey` names no row the window holds is top-level HERE, because there is
+//     no head for it to be counted against and nothing the cap could drop instead
+//     of it. Reading "has a parent key" as "is a child" is what let a run-only log
+//     grow without bound: every row named its run, no row WAS its run, and the cap
+//     counted nobody. The orphan is also its own cut unit — dropping it drops its
+//     own subtree and no sibling's, so a run does not lose its middle.
 //   • **Prune is a REQUEST, not an act.** Four conditions can refuse it, each with
 //     a name the caller can read back. A prune that silently did nothing would be
 //     indistinguishable from a window that was already under cap.
@@ -101,6 +109,8 @@ export class LedgerWindow {
   readonly #topLevelCap: number;
   readonly #parkedLeaseCap: number;
   readonly #childKeysByParentKey = new Map<string, string[]>();
+  /** Every retained row key, so "is this row's parent here?" costs no scan. */
+  readonly #presentRowKeys = new Set<string>();
   readonly #leaseByRowKey = new Map<string, LedgerRowLease>();
   /** Insertion-ordered, so the cap evicts the least recently parked. */
   readonly #parkedLeaseBySyntheticKey = new Map<string, LedgerRowLease>();
@@ -138,6 +148,10 @@ export class LedgerWindow {
   public ingest(rows: readonly LedgerWindowRow[]): void {
     this.#rows = [...rows];
     this.#childKeysByParentKey.clear();
+    this.#presentRowKeys.clear();
+    for (const row of this.#rows) {
+      this.#presentRowKeys.add(row.key);
+    }
     for (const row of this.#rows) {
       if (row.parentKey === undefined) {
         continue;
@@ -156,11 +170,22 @@ export class LedgerWindow {
     return [...this.#rows];
   }
 
-  /** Retained top-level rows — the only ones the cap counts. */
+  /**
+   * Retained top-level rows — the only ones the cap counts.
+   *
+   * A row is top-level when it names no parent OR when the parent it names is not
+   * in this window. See the second bullet in this file's header for why the second
+   * arm is not a leniency: without it a log whose every row hangs off a run header
+   * the projection never emits counts zero rows against the cap forever.
+   */
   public topLevelRowKeys(): readonly string[] {
-    return this.rows()
-      .filter((row) => row.parentKey === undefined)
-      .map((row) => row.key);
+    const topLevelKeys: string[] = [];
+    for (const row of this.#rows) {
+      if (row.parentKey === undefined || !this.#presentRowKeys.has(row.parentKey)) {
+        topLevelKeys.push(row.key);
+      }
+    }
+    return topLevelKeys;
   }
 
   public get size(): number {
@@ -224,6 +249,7 @@ export class LedgerWindow {
     this.#rows = this.#rows.filter((row) => !removedKeys.has(row.key));
     for (const removedKey of removedKeys) {
       this.#childKeysByParentKey.delete(removedKey);
+      this.#presentRowKeys.delete(removedKey);
     }
     return {
       applied: true,

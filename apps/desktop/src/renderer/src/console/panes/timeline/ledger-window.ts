@@ -17,13 +17,14 @@
 // THE THREE THINGS THE LIST DECIDES AND A ROW NEVER KNOWS, which is the timeline row
 // seat's own contract:
 //
-//   • `participantHue` — allocated over a join order. This console holds no
-//     participant join log: no projector claims the membership events, so the
-//     store's participant partition is empty in every build today. What the LOG
-//     supports is the order in which it first attributes a row to somebody, which is
-//     the same order for the same log and therefore stable across replays of it. The
-//     allocator is idempotent, so re-admitting costs nothing and a re-joining
-//     participant keeps its step.
+//   • `participantHue` — allocated over a join order, and NOT here. The session
+//     store owns the wheel (`SessionStore.hueAllocator`): it admits the read's
+//     participant join log first and then every actor the log attributes a row to,
+//     which is the order rule 2 fixes. A second allocator over first-event
+//     appearance was the same algorithm over a different order, so a participant
+//     who joined early and spoke late wore one hue on their cast chip and another
+//     on their rows — which defeats hue as an identity channel exactly where it is
+//     supposed to work. The feed reads the store's assignment at the row it draws.
 //   • `isSuperseded` — a rollback ranking over the rows AROUND a row, which is
 //     `SupersededIndex`'s answer and never a member the row carries.
 //   • `density` — the list's collapse state, which is `Spec-023 §Console Design
@@ -38,12 +39,10 @@ import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 import {
   LedgerChapterIndex,
   LedgerSeamIndex,
-  ProvenanceRailModel,
   SupersededIndex,
   type LedgerSeam,
 } from "../../ledger/structure/index.js";
 import { useSessionStore, type ConsoleSessionEvent, type SessionStore } from "../../store/index.js";
-import { ParticipantHueAllocator, type ParticipantHueAssignment } from "../../tokens/index.js";
 import { type TimelineRowDensity } from "../../workspace/index.js";
 
 /** Everything one render of the ledger needs, derived once per store revision. */
@@ -52,22 +51,25 @@ export interface LedgerWindowModel {
   readonly viewportRows: readonly LedgerViewportRow[];
   /** The projected row behind each viewport key. */
   readonly rowsByKey: ReadonlyMap<string, TimelineRow>;
-  /** The author's place on the wheel, by participant. Absent for an unattributed row. */
-  readonly hueByParticipantId: ReadonlyMap<string, ParticipantHueAssignment>;
   /** Which rows a rollback boundary later in the log supersedes. */
   readonly supersededRowIds: ReadonlySet<string>;
   /** Which rows are collapsed, under rule 7's terminal-chapter fold. */
   readonly collapsedRowIds: ReadonlySet<string>;
-  /** The rail's derivation over this window. */
-  readonly railModel: ProvenanceRailModel;
   /** Every seam in log order — what the replay dock's next-seam jump walks. */
   readonly seams: readonly LedgerSeam[];
   /** The rows in log order, for find, the chapter fold, and the replay scrub. */
   readonly rows: readonly TimelineRow[];
   /** Events the registered census carries no category for. Rendered, never hidden. */
   readonly unprojectableEventCount: number;
-  /** Whether the store knows of rows it has not got. Drives the rail's dotted head. */
-  readonly hasEarlierRows: boolean;
+  /**
+   * Whether the store recorded sequences it never received.
+   *
+   * A HOLE in what arrived, which is not the same fact as "rows exist before this
+   * window's head" and is deliberately no longer used as one: the console holds one
+   * live subscription and no range read, so the head of the window is the head of
+   * everything it can reach. The feed names the hole in words instead.
+   */
+  readonly hasUnreceivedEntries: boolean;
   /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
   readonly hasActiveTurn: boolean;
 }
@@ -94,20 +96,6 @@ function cutUnitFor(row: TimelineRow): string {
  */
 function chapterKeyFor(row: TimelineRow): string | undefined {
   return row.kind === "general" ? undefined : row.runId;
-}
-
-/** Admit every attributed actor to the wheel, in the order the log first names one. */
-function allocateHues(rows: readonly TimelineRow[]): ReadonlyMap<string, ParticipantHueAssignment> {
-  const allocator = new ParticipantHueAllocator();
-  const assignments = new Map<string, ParticipantHueAssignment>();
-  for (const row of rows) {
-    const actor = row.actor;
-    if (actor === undefined || assignments.has(actor)) {
-      continue;
-    }
-    assignments.set(actor, allocator.admit(actor));
-  }
-  return assignments;
 }
 
 /**
@@ -144,14 +132,16 @@ export function densityFor(
  */
 export function deriveLedgerWindow(
   timeline: readonly ConsoleSessionEvent[],
-  hasEarlierRows: boolean,
+  hasUnreceivedEntries: boolean,
 ): LedgerWindowModel {
   const projection = projectFixtureShellRows(timeline);
   const { rows } = projection;
   const chapterIndex = new LedgerChapterIndex(rows);
   const supersededIndex = new SupersededIndex(rows);
-  // One classifier, shared by the rail and the seam list, rather than two indexes
-  // deriving the same vocabulary twice over the same rows.
+  // The seam vocabulary has one classifier; this is the instance that reads the
+  // whole log, which is what replay's next-seam jump walks. The rail's own instance
+  // reads the pruned window in `ledger-feed-model.ts`, because the rail marks what
+  // is on screen.
   const seamIndex = new LedgerSeamIndex();
   const rowsByKey = new Map<string, TimelineRow>();
   const viewportRows: LedgerViewportRow[] = [];
@@ -170,14 +160,12 @@ export function deriveLedgerWindow(
   return {
     viewportRows,
     rowsByKey,
-    hueByParticipantId: allocateHues(rows),
     supersededRowIds,
     collapsedRowIds: collapsedRowIdsOf(chapterIndex),
-    railModel: new ProvenanceRailModel({ rows, hasEarlierRows }, seamIndex),
     seams: seamIndex.seams(rows),
     rows,
     unprojectableEventCount: projection.unprojectableEventCount,
-    hasEarlierRows,
+    hasUnreceivedEntries,
     // A chapter with no terminal is a run the log has not seen end. That is the
     // same question the viewport asks before it prunes, and it is answered from the
     // fold that already exists rather than from a second read of the run partition.
@@ -195,8 +183,11 @@ export function deriveLedgerWindow(
  */
 export function useLedgerWindow(sessionStore: SessionStore): LedgerWindowModel {
   const timeline = useSessionStore(sessionStore, readTimeline);
-  const hasEarlierRows = useSessionStore(sessionStore, readHasGaps);
-  return useMemo(() => deriveLedgerWindow(timeline, hasEarlierRows), [timeline, hasEarlierRows]);
+  const hasUnreceivedEntries = useSessionStore(sessionStore, readHasGaps);
+  return useMemo(
+    () => deriveLedgerWindow(timeline, hasUnreceivedEntries),
+    [timeline, hasUnreceivedEntries],
+  );
 }
 
 /** The log this window holds. A named function, so the selector identity is stable. */

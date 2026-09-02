@@ -17,15 +17,18 @@
 // measurement ledger, and the real `@tanstack/react-virtual` instance — is the
 // shipped one.
 
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock, refuse } from "../../core/index.js";
+import { ManualClock, refuse, type ConsoleClock } from "../../core/index.js";
 import { LedgerViewport } from "./LedgerViewport.js";
+import { useLedgerViewport, type LedgerViewportBinding } from "./viewport-binding.js";
 import type { LedgerViewportRow } from "./viewport-snapshot.js";
 
 const LONG_LOG_ROW_COUNT = 500;
 const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
+const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 
 /**
  * Give every element a viewport height, for the length of one case.
@@ -37,6 +40,103 @@ const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 function withLaidOutViewport(): void {
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
     LAID_OUT_VIEWPORT_HEIGHT_PX,
+  );
+}
+
+/**
+ * Give the box content taller than itself, for the length of one case.
+ *
+ * Separate from the layout stub above because the chokepoint clamps every write to
+ * `scrollHeight - clientHeight`: without this a scroll assertion passes over a
+ * ledger that could not have moved, and with it every case would pay for a
+ * geometry only the two scroll cases read.
+ */
+function withScrollableContent(): void {
+  vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
+    LAID_OUT_CONTENT_HEIGHT_PX,
+  );
+}
+
+/** Somewhere for a case to keep the binding the harness minted. */
+interface BindingHolder {
+  binding: LedgerViewportBinding | undefined;
+}
+
+interface BoundLedgerViewportProps {
+  readonly clock: ConsoleClock;
+  readonly rows: readonly LedgerViewportRow[];
+  readonly renderRow: (row: LedgerViewportRow) => React.ReactNode;
+  readonly feedLabel: string;
+  readonly hasActiveTurn?: boolean;
+  readonly errorEntries?: React.ComponentProps<typeof LedgerViewport>["errorEntries"];
+  /** Filled on every commit, so a case can act on the binding the viewport got. */
+  readonly holder?: BindingHolder;
+}
+
+/**
+ * The composition every caller of the viewport performs: mint one binding, hand it
+ * down.
+ *
+ * The harness exists because the viewport no longer mints its own — which is the
+ * property under test — so a case that rendered it bare would be asserting against
+ * a component that cannot be rendered at all.
+ */
+function BoundLedgerViewport(props: BoundLedgerViewportProps): React.JSX.Element {
+  const binding = useLedgerViewport({
+    clock: props.clock,
+    rows: props.rows,
+    hasActiveTurn: props.hasActiveTurn ?? false,
+    isRevealDraining: false,
+  });
+  const { holder } = props;
+  useEffect(() => {
+    if (holder !== undefined) {
+      holder.binding = binding;
+    }
+  });
+  return (
+    <LedgerViewport
+      binding={binding}
+      renderRow={props.renderRow}
+      feedLabel={props.feedLabel}
+      {...(props.hasActiveTurn === undefined ? {} : { hasActiveTurn: props.hasActiveTurn })}
+      {...(props.errorEntries === undefined ? {} : { errorEntries: props.errorEntries })}
+    />
+  );
+}
+
+interface DetachedBindingProps {
+  readonly clock: ConsoleClock;
+  readonly rows: readonly LedgerViewportRow[];
+  readonly holder: BindingHolder;
+}
+
+/**
+ * A viewport, and beside it a binding nobody handed to it.
+ *
+ * This is the shape the ledger used to have: one binding held by the surrounding
+ * surface for the rail and the find walk, and a second one — the viewport's own —
+ * holding the element. The case below acts on the held one and watches the element
+ * not move.
+ */
+function DetachedBindingBeside(props: DetachedBindingProps): React.JSX.Element {
+  const detachedBinding = useLedgerViewport({
+    clock: props.clock,
+    rows: props.rows,
+    hasActiveTurn: false,
+    isRevealDraining: false,
+  });
+  const { holder } = props;
+  useEffect(() => {
+    holder.binding = detachedBinding;
+  });
+  return (
+    <BoundLedgerViewport
+      clock={props.clock}
+      rows={props.rows}
+      renderRow={renderRow}
+      feedLabel="Session timeline"
+    />
   );
 }
 
@@ -60,7 +160,7 @@ describe("the ledger viewport — the feed", () => {
   it("names the feed, and mounts far fewer rows than the log holds", () => {
     withLaidOutViewport();
     const { container } = render(
-      <LedgerViewport
+      <BoundLedgerViewport
         clock={new ManualClock()}
         rows={syntheticRows(LONG_LOG_ROW_COUNT)}
         renderRow={renderRow}
@@ -81,7 +181,7 @@ describe("the ledger viewport — the feed", () => {
     withLaidOutViewport();
     const rows = syntheticRows(LONG_LOG_ROW_COUNT);
     const { container } = render(
-      <LedgerViewport
+      <BoundLedgerViewport
         clock={new ManualClock()}
         rows={rows}
         renderRow={renderRow}
@@ -100,7 +200,7 @@ describe("the ledger viewport — the feed", () => {
 
   it("teaches rather than blames when the session has done nothing yet", () => {
     render(
-      <LedgerViewport
+      <BoundLedgerViewport
         clock={new ManualClock()}
         rows={[]}
         renderRow={renderRow}
@@ -114,7 +214,7 @@ describe("the ledger viewport — the feed", () => {
     withLaidOutViewport();
     const clock = new ManualClock();
     render(
-      <LedgerViewport
+      <BoundLedgerViewport
         clock={clock}
         rows={syntheticRows(20)}
         renderRow={renderRow}
@@ -132,7 +232,7 @@ describe("the ledger viewport — the feed", () => {
   it("renders the ranked error slot above the feed", () => {
     withLaidOutViewport();
     render(
-      <LedgerViewport
+      <BoundLedgerViewport
         clock={new ManualClock()}
         rows={syntheticRows(4)}
         renderRow={renderRow}
@@ -155,7 +255,7 @@ describe("the ledger viewport — the feed", () => {
       { key: "row-0", parentKey: undefined, rootCursor: "cursor-1" },
     ];
     const { container } = render(
-      <LedgerViewport
+      <BoundLedgerViewport
         clock={new ManualClock()}
         rows={rows}
         renderRow={renderRow}
@@ -168,5 +268,50 @@ describe("the ledger viewport — the feed", () => {
     // two, because the library's caches are keyed by item key.
     expect(screen.getByText("Some entries share an identifier.")).toBeDefined();
     expect(container.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(2);
+  });
+  it("scrolls the surface through the binding its caller owns", () => {
+    withLaidOutViewport();
+    withScrollableContent();
+    const holder: BindingHolder = { binding: undefined };
+    const { container } = render(
+      <BoundLedgerViewport
+        clock={new ManualClock()}
+        rows={syntheticRows(LONG_LOG_ROW_COUNT)}
+        renderRow={renderRow}
+        feedLabel="Session timeline"
+        holder={holder}
+      />,
+    );
+    const surface = container.querySelector<HTMLElement>(".meridian-ledger-viewport__surface");
+    expect(surface).not.toBeNull();
+    expect(surface?.scrollTop).toBe(0);
+    act(() => {
+      holder.binding?.jumpToTail();
+    });
+    // The caller's binding reaches the element the caller can see. Before the
+    // viewport took its binding as a prop, this was the binding the surrounding
+    // surface held and the element belonged to a second one nobody else could name.
+    expect(surface?.scrollTop).toBeGreaterThan(0);
+  });
+
+  it("negative control: a binding the viewport was not handed scrolls nothing", () => {
+    // The assertion above is only worth having if an unattached binding is visibly
+    // inert — which is exactly what a second `useLedgerViewport` beside the tree is.
+    withLaidOutViewport();
+    withScrollableContent();
+    const detachedHolder: BindingHolder = { binding: undefined };
+    const { container } = render(
+      <DetachedBindingBeside
+        clock={new ManualClock()}
+        rows={syntheticRows(LONG_LOG_ROW_COUNT)}
+        holder={detachedHolder}
+      />,
+    );
+    const surface = container.querySelector<HTMLElement>(".meridian-ledger-viewport__surface");
+    expect(surface).not.toBeNull();
+    act(() => {
+      detachedHolder.binding?.jumpToTail();
+    });
+    expect(surface?.scrollTop).toBe(0);
   });
 });

@@ -32,6 +32,15 @@ function syntheticLog(topLevelCount: number): readonly LedgerWindowRow[] {
   return rows;
 }
 
+/** A log whose every row names one run, and where no row IS that run. */
+function runOnlyLog(entryCount: number): readonly LedgerWindowRow[] {
+  return Array.from({ length: entryCount }, (_unused, index) => ({
+    key: `run-1-entry-${String(index)}`,
+    parentKey: "run-1",
+    rootCursor: `cursor-${String(index)}`,
+  }));
+}
+
 const PRUNABLE: PruneConditions = {
   hasActiveTurn: false,
   scrollControllerVetoes: false,
@@ -181,5 +190,47 @@ describe("the ledger window — leases and cursors", () => {
       { key: "chapter-0", parentKey: undefined, rootCursor: "cursor-1" },
     ]);
     expect(window.rows()).toHaveLength(2);
+  });
+
+  it("counts a row whose parent is not in the window, so a run-only log is capped", () => {
+    // The shape the ledger actually produces: every row names its run, and the run
+    // itself is not a row. Read as "has a parent, therefore a child", the window
+    // counted nobody and a session that never left one run grew without a ceiling.
+    const window = new LedgerWindow({ topLevelCap: 10 });
+    window.ingest(runOnlyLog(50));
+    expect(window.topLevelRowKeys()).toHaveLength(50);
+    const outcome = window.prune(PRUNABLE);
+    expect(outcome.applied).toBe(true);
+    expect(outcome.topLevelRetained).toBe(10);
+    expect(window.size).toBe(10);
+    // Oldest first, so what survives is the tail of the run rather than its head.
+    expect(window.rows()[0]?.key).toBe("run-1-entry-40");
+  });
+
+  it("negative control: the same rows under a parent the window holds count once", () => {
+    // Without this the case above would pass over a window that had simply stopped
+    // honouring parents at all. Give the run a row of its own and the fifty entries
+    // collapse into one countable head — the property the cap has always had.
+    const window = new LedgerWindow({ topLevelCap: 10 });
+    window.ingest([
+      { key: "run-1", parentKey: undefined, rootCursor: "cursor-run-1" },
+      ...runOnlyLog(50),
+    ]);
+    expect(window.topLevelRowKeys()).toEqual(["run-1"]);
+    expect(window.prune(PRUNABLE).deferredBecause).toBe("under-cap");
+    expect(window.size).toBe(51);
+  });
+
+  it("drops an orphan alone, never the siblings that share its absent parent", () => {
+    // An orphan is its own cut unit. Dropping the whole absent-parent group would
+    // evict a run's entire middle to make room for one row.
+    const window = new LedgerWindow({ topLevelCap: 3 });
+    window.ingest(runOnlyLog(5));
+    window.prune(PRUNABLE);
+    expect(window.rows().map((row) => row.key)).toEqual([
+      "run-1-entry-2",
+      "run-1-entry-3",
+      "run-1-entry-4",
+    ]);
   });
 });

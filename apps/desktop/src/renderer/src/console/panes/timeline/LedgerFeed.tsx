@@ -17,17 +17,25 @@
 //
 //   • The rail's tick and find's walk both JUMP, and both jump through the
 //     viewport's `jumpToRow` — the ledger's one scroll writer. Neither touches an
-//     element.
+//     element. There is exactly ONE binding, minted here and handed to
+//     `<LedgerViewport>`: a second one would leave the rail and the find walk
+//     reading a virtualizer with no element under it, which is a jump that reports
+//     success and scrolls nothing.
 //   • The replay dock's reveal is the caller's, per §5.5: the dock is hidden until
 //     the rail is hovered or focused, because both triggers are facts about this
-//     surface rather than about replay.
-//   • Find's result is derived from the same window the feed renders, so the
-//     boundary it states — rows searched, and whether earlier rows exist — is the
-//     boundary that is actually true of what is on screen.
+//     surface rather than about replay. What the dock's POSITION reveals is the
+//     rows: the viewport is given the rows the position has reached, so playing or
+//     scrubbing moves the ledger rather than only its timestamp.
+//   • Find's result and the rail's marks are derived from the same window the feed
+//     renders — the viewport's own reconciled snapshot, after the cap — so the
+//     boundary find states is the boundary that is actually true of what is on
+//     screen, and every tick the rail draws is a row the viewport can scroll to.
+//     Matches the cap has taken out of the window are counted beside the field
+//     rather than walked into and lost.
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback } from "react";
 
 import { useConsoleClock } from "../../bridge/index.js";
 import {
@@ -35,21 +43,18 @@ import {
   type LedgerViewportRow,
   useLedgerViewport,
 } from "../../ledger/frame/index.js";
-import {
-  FindInLedger,
-  ProvenanceRail,
-  ReplayControls,
-  ReplayEngine,
-  emptyFindResult,
-  findInLedger,
-  stepFindMatch,
-  type ReplayPosition,
-  type ReplaySpeed,
-} from "../../ledger/structure/index.js";
+import { FindInLedger, ProvenanceRail, ReplayControls } from "../../ledger/structure/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../workspace/index.js";
-import { densityFor, useLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
+import {
+  useLedgerFind,
+  useLedgerReplay,
+  useRailGeometry,
+  useReplayRevealedRows,
+  useVisibleLedgerWindow,
+} from "./ledger-feed-model.js";
+import { densityFor, useLedgerWindow } from "./ledger-window.js";
 
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
@@ -62,15 +67,22 @@ export interface LedgerFeedProps {
 export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const clock = useConsoleClock();
   const ledgerWindow = useLedgerWindow(props.sessionStore);
-  const find = useLedgerFind(ledgerWindow);
   const replay = useLedgerReplay(ledgerWindow);
+  // What the replay position has reached. The whole window while nobody is
+  // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
+  const revealedViewportRows = useReplayRevealedRows(ledgerWindow, replay.position);
 
   const viewport = useLedgerViewport({
     clock,
-    rows: ledgerWindow.viewportRows,
+    rows: revealedViewportRows,
     hasActiveTurn: ledgerWindow.hasActiveTurn,
     isRevealDraining: false,
   });
+
+  // Read back off the viewport's own reconciled snapshot, so find and the rail are
+  // looking at the window on screen rather than at the log behind it.
+  const visible = useVisibleLedgerWindow(ledgerWindow, viewport.snapshot.rows);
+  const find = useLedgerFind(visible);
 
   const renderRow = useCallback(
     (row: LedgerViewportRow) => {
@@ -85,10 +97,15 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       }
       return props.renderTimelineRow({
         row: projected,
+        // The STORE's wheel, which is the one the cast bar reads. A row asks the
+        // session who somebody is rather than deciding it again from the order this
+        // window happened to meet them in. `undefined` for an actor the wheel has
+        // never admitted is the honest answer: the seat renders the unattributed
+        // shape rather than being handed a colour nobody else would agree with.
         participantHue:
           projected.actor === undefined
             ? undefined
-            : ledgerWindow.hueByParticipantId.get(projected.actor),
+            : props.sessionStore.hueAllocator.assignmentFor(projected.actor),
         isSuperseded: ledgerWindow.supersededRowIds.has(projected.id),
         density: densityFor(projected.id, ledgerWindow.collapsedRowIds),
       });
@@ -96,7 +113,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     [ledgerWindow, props],
   );
 
-  const geometry = useRailGeometry(viewport.virtualItems, ledgerWindow.viewportRows.length);
+  const geometry = useRailGeometry(viewport.virtualItems, viewport.snapshot.rows.length);
   const jumpToRow = viewport.jumpToRow;
   const onStepFind = useCallback(
     (direction: "next" | "previous") => {
@@ -121,10 +138,10 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           onClose={find.close}
         />
       ) : null}
+      <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
       <div className="meridian-ledger__body">
         <LedgerViewport
-          clock={clock}
-          rows={ledgerWindow.viewportRows}
+          binding={viewport}
           renderRow={renderRow}
           feedLabel={props.feedLabel}
           hasActiveTurn={ledgerWindow.hasActiveTurn}
@@ -137,7 +154,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           onBlur={replay.conceal}
         >
           <ProvenanceRail
-            model={ledgerWindow.railModel}
+            model={visible.railModel}
             viewportPosition={geometry.position}
             viewportExtent={geometry.extent}
             isFollowing={viewport.snapshot.reading.mode === "following"}
@@ -156,199 +173,104 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           />
         </div>
       </div>
-      <LedgerUnprojectableNotice count={ledgerWindow.unprojectableEventCount} />
+      <LedgerWindowAbsences
+        unprojectableEventCount={ledgerWindow.unprojectableEventCount}
+        droppedRowCount={visible.prunedAwayRows.length}
+        hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
+      />
     </div>
   );
 }
 
 /**
- * What "load earlier" does while the console holds no timeline read.
+ * The "load earlier" handler both controls require, and neither can reach.
  *
- * A named no-op rather than an inline arrow, so the two call sites share one and a
- * reader meets the reason once: this console subscribes and never pages, so there is
- * nothing earlier to fetch. The control still renders — `hasEarlierRows` is what
- * says whether anything is missing, and it is derived from the store's gap list.
+ * The control it belongs to is not rendered: `NO_HISTORY_READ_EXISTS` in
+ * `ledger-feed-model.ts` is what both the rail's clip and the find result carry, and
+ * both draw their button only when that is true. So this is the argument a required
+ * prop demands rather than a control's behaviour, and the case in this component's
+ * test file is what keeps that true — it asserts neither button is in the document
+ * over a log the cap has already pruned.
+ *
+ * It stays a no-op rather than becoming a refusal for the same reason: a refusal is
+ * something a person is shown, and there is nothing here for them to press.
  */
 function NO_EARLIER_ROWS_TO_LOAD(): void {
   // Intentionally empty; see this function's own contract above.
 }
 
-/** Events the contract package registers no category for, named rather than hidden. */
-function LedgerUnprojectableNotice(props: { readonly count: number }): React.JSX.Element | null {
+/** Matches the query found in rows the cap has taken out of this window. */
+function LedgerMatchesOutsideWindowNotice(props: {
+  readonly count: number;
+}): React.JSX.Element | null {
   if (props.count === 0) {
     return null;
   }
   return (
     <Nothing
-      kind="not-checked"
-      placement="surface"
-      title="Some entries could not be placed."
-      detail={`${String(props.count)} event${props.count === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown.`}
+      kind="not-loaded"
+      placement="inline"
+      title="Some matches are outside this window."
+      detail={`${String(props.count)} more entr${props.count === 1 ? "y" : "ies"} match, in older rows this window no longer holds. The walk steps only through rows the feed can scroll to.`}
     />
   );
 }
 
-/** The find field's state, and the walk over one window's matches. */
-interface LedgerFindState {
-  readonly isOpen: boolean;
-  readonly query: string;
-  readonly result: ReturnType<typeof findInLedger>;
-  readonly currentMatchIndex: number;
-  readonly setQuery: (query: string) => void;
-  readonly close: () => void;
-  readonly step: (direction: "next" | "previous") => ReturnType<typeof stepFindMatch>;
-}
-
-function useLedgerFind(ledgerWindow: LedgerWindowModel): LedgerFindState {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQueryValue] = useState("");
-  const [currentMatchIndex, setCurrentMatchIndex] = useState(-1);
-
-  const result = useMemo(
-    () =>
-      query.trim().length === 0
-        ? emptyFindResult(ledgerWindow.rows.length, ledgerWindow.hasEarlierRows)
-        : findInLedger(ledgerWindow.rows, query, ledgerWindow.hasEarlierRows),
-    [ledgerWindow, query],
-  );
-
-  const setQuery = useCallback((next: string) => {
-    setQueryValue(next);
-    // A new query restarts the walk. Keeping the index would step from a position
-    // inside a match list that no longer exists.
-    setCurrentMatchIndex(-1);
-    setIsOpen(true);
-  }, []);
-
-  const step = useCallback(
-    (direction: "next" | "previous") => {
-      const outcome = stepFindMatch(result, currentMatchIndex, direction);
-      if (outcome !== undefined) {
-        setCurrentMatchIndex(outcome.index);
-      }
-      return outcome;
-    },
-    [result, currentMatchIndex],
-  );
-
-  const close = useCallback(() => {
-    setIsOpen(false);
-    setQueryValue("");
-    setCurrentMatchIndex(-1);
-  }, []);
-
-  return { isOpen, query, result, currentMatchIndex, setQuery, close, step };
-}
-
-/** The replay dock's engine, its reveal, and the position it renders. */
-interface LedgerReplayState {
-  readonly position: ReplayPosition;
-  readonly isRevealed: boolean;
-  readonly reveal: () => void;
-  readonly conceal: () => void;
-  readonly play: () => void;
-  readonly pause: () => void;
-  readonly setSpeed: (speed: ReplaySpeed) => void;
-  readonly scrub: (elapsedMs: number) => void;
-  readonly jumpToNextSeam: () => void;
-}
-
-function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplayState {
-  const clock = useConsoleClock();
-  const [isRevealed, setIsRevealed] = useState(false);
-
-  // One engine per loaded window. Re-minted when the window changes because the
-  // engine's whole ordering is built from the rows at construction, and disposed on
-  // the way out so a playing replay never outlives the rows it was revealing.
-  const [position, setPosition] = useState<ReplayPosition | undefined>(undefined);
-  const engine = useMemo(
-    () =>
-      new ReplayEngine({
-        clock,
-        rows: ledgerWindow.rows.map((row) => ({ rowId: row.id, occurredAt: row.timestamp })),
-        // The engine publishes rather than being polled: playback advances on its own
-        // armed handle, so a surface reading `position()` per render would show the
-        // frame before last on every tick the render did not coincide with.
-        onPositionChange: setPosition,
-      }),
-    [clock, ledgerWindow],
-  );
-
-  useEffect(() => {
-    setPosition(engine.position());
-    return () => {
-      engine.dispose();
-    };
-  }, [engine]);
-
-  return {
-    // Before the first publication the engine's own current position is the truth,
-    // and it is a pure read — there is no state to hold that would not be a copy.
-    position: position ?? engine.position(),
-    isRevealed,
-    reveal: useCallback(() => {
-      setIsRevealed(true);
-    }, []),
-    conceal: useCallback(() => {
-      setIsRevealed(false);
-    }, []),
-    play: useCallback(() => {
-      engine.play();
-    }, [engine]),
-    pause: useCallback(() => {
-      engine.pause();
-    }, [engine]),
-    setSpeed: useCallback(
-      (speed: ReplaySpeed) => {
-        engine.setSpeed(speed);
-      },
-      [engine],
-    ),
-    scrub: useCallback(
-      (elapsedMs: number) => {
-        engine.scrubTo(elapsedMs);
-      },
-      [engine],
-    ),
-    jumpToNextSeam: useCallback(() => {
-      engine.jumpToNextSeam(ledgerWindow.seams);
-    }, [engine, ledgerWindow]),
-  };
-}
-
-/** Where the reader is in the window, and how much of it they can see. */
-interface RailGeometry {
-  readonly position: number;
-  readonly extent: number;
+interface LedgerWindowAbsencesProps {
+  /** Events the contract package registers no category for. */
+  readonly unprojectableEventCount: number;
+  /** Rows the log holds and this window does not, because the cap took them. */
+  readonly droppedRowCount: number;
+  /** The store recorded sequences it never received. */
+  readonly hasUnreceivedEntries: boolean;
 }
 
 /**
- * The rail's two fractions, in ROW space.
+ * The three ways this window is not the whole session, each said out loud.
  *
- * Row space rather than pixel space because that is the space the rail lays its own
- * marks out in: a tick sits at its row's place in the window, so a thumb measured in
- * pixels would drift away from the marks it is supposed to point at wherever rows
- * differ in height — which, with tool cards and streamed prose in the same log, is
- * everywhere. Read off the virtualizer's own rendered range, so there is no second
- * measurement of what is on screen.
+ * Three separate sentences because a person's next move differs for each: an
+ * unrecognised type is this build's limit, a dropped row is the window's cap, and a
+ * sequence that never arrived is the stream's. Collapsing any two would tell
+ * somebody the console failed where it merely stopped holding, or the reverse.
+ *
+ * Each of them names the read that is missing rather than offering a control for
+ * it, which is what replaced the "load earlier" button: this console holds one live
+ * subscription and a whole-session snapshot read, and neither takes a cursor.
  */
-function useRailGeometry(
-  virtualItems: readonly { readonly index: number }[],
-  rowCount: number,
-): RailGeometry {
-  return useMemo(() => {
-    if (rowCount === 0 || virtualItems.length === 0) {
-      return { position: 0, extent: 1 };
-    }
-    const firstIndex = virtualItems[0]?.index ?? 0;
-    const lastIndex = virtualItems[virtualItems.length - 1]?.index ?? firstIndex;
-    const visibleCount = lastIndex - firstIndex + 1;
-    // Divided by the last INDEX rather than by the count, so a viewport sitting on
-    // the final row reports 1 rather than falling short of the rail's own end.
-    const lastPossibleIndex = Math.max(1, rowCount - 1);
-    return {
-      position: Math.min(1, firstIndex / lastPossibleIndex),
-      extent: Math.min(1, visibleCount / rowCount),
-    };
-  }, [virtualItems, rowCount]);
+function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JSX.Element | null {
+  if (
+    props.unprojectableEventCount === 0 &&
+    props.droppedRowCount === 0 &&
+    !props.hasUnreceivedEntries
+  ) {
+    return null;
+  }
+  return (
+    <>
+      {props.unprojectableEventCount === 0 ? null : (
+        <Nothing
+          kind="not-checked"
+          placement="surface"
+          title="Some entries could not be placed."
+          detail={`${String(props.unprojectableEventCount)} event${props.unprojectableEventCount === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown.`}
+        />
+      )}
+      {props.droppedRowCount === 0 ? null : (
+        <Nothing
+          kind="not-loaded"
+          placement="surface"
+          title="Older entries are no longer in this window."
+          detail={`${String(props.droppedRowCount)} entr${props.droppedRowCount === 1 ? "y" : "ies"} left the window as the session grew. This console subscribes to the log and holds no read that fetches a range of it, so there is nothing to press here.`}
+        />
+      )}
+      {props.hasUnreceivedEntries ? (
+        <Nothing
+          kind="not-loaded"
+          placement="surface"
+          title="Some entries never arrived."
+          detail="The session numbered entries this window did not receive. They come back only when the whole session is read again, which the store asks for on its own; no read here fetches a range."
+        />
+      ) : null}
+    </>
+  );
 }
