@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "../../core/index.js";
 import { countingSurface } from "./scroll-surface-fixture.js";
 import { LedgerViewportController } from "./viewport-controller.js";
-import type { LedgerViewportRow } from "./viewport-controller.js";
+import type { LedgerViewportRow } from "./viewport-snapshot.js";
 
 /**
  * A surface whose scroll listeners can be counted, at fixed geometry.

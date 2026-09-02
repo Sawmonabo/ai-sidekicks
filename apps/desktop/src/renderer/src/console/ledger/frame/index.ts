@@ -40,4 +40,4 @@
 export { LedgerRowGroup } from "./ErrorSlot.js";
 export { LedgerViewport } from "./LedgerViewport.js";
 export { useLedgerViewport } from "./viewport-binding.js";
-export { type LedgerViewportRow } from "./viewport-controller.js";
+export { type LedgerViewportRow } from "./viewport-snapshot.js";

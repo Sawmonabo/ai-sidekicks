@@ -98,7 +98,14 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 
 ## Budgets and tripwires
 
-- A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job, and its `measuredBy` names a harness that holds the subject it bounds. If it is not wired, its status is `n/a` naming the wiring task — never `enforced` and unrun. The two `enforced` rows today are `renderer-initial-bundle`, reached through the `console-bundle` tier, and `renderer-heap-at-rest`, reached through the `console-endurance` tier; both tiers are on both.
+- A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job, and its `measuredBy` names a harness that holds the subject it bounds. If it is not wired, its status is `n/a` naming the wiring task — never `enforced` and unrun. One line per gated row, so two lanes flipping two different rows merge as a union rather than as a rewritten sentence:
+  - `renderer-initial-bundle` — the `console-bundle` tier.
+  - `renderer-heap-at-rest` — the `console-endurance` tier.
+  - `time-to-first-ledger-row` — the `console-endurance` tier.
+  - `frame-time-p95-four-lanes` — the `console-endurance` tier, and the one row that does not gate everywhere: it is hardware-dependent, so it prints its figure on every runner and compares it only on the pinned CI runner class, which `test/console/endurance/pinned-runner-class.ts` decides for the whole tier. Off that class the reading is reported and gates nothing — which is not the same as `n/a`, and is never written as one.
+
+  Both tiers are on the aggregate `test` script and on a CI job.
+
 - Every console PR runs every tier whose subject is in-tree; an absent subject is reported `n/a`, never silently skipped. Every tripwire asserts it matched at least one site; zero matches fails.
 
 ## Pre-PR self-audit

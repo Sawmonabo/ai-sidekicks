@@ -26,6 +26,11 @@
 //     demands a stable reference between changes, and recomputing one per render
 //     would tear the tree. Every producer routes through `#publish`, which rebuilds
 //     the snapshot once and notifies once.
+//
+// WHAT IT NO LONGER DECLARES. The value vocabulary a render speaks — the row alias,
+// the reading state, the snapshot, the conditions folded into it — and the two pure
+// rules over that vocabulary live in `viewport-snapshot.ts`, which states why the
+// cut is there. This file holds the objects; that one holds the values.
 
 import {
   Emitter,
@@ -33,54 +38,22 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../../core/index.js";
-import { ReadingAnchor, type ReadingAnchorState } from "./reading-anchor.js";
-import { RowMeasurementLedger, type RowKeyProjection } from "./row-measurement-ledger.js";
+import { ReadingAnchor } from "./reading-anchor.js";
+import { RowMeasurementLedger } from "./row-measurement-ledger.js";
 import {
   LedgerScrollController,
   type LedgerGeometry,
   type LedgerScrollSurface,
 } from "./scroll-chokepoint.js";
+import {
+  compensatesForGrowth,
+  countAppendedAfter,
+  type LedgerViewportConditions,
+  type LedgerViewportRow,
+  type LedgerViewportSnapshot,
+} from "./viewport-snapshot.js";
 import { LedgerVirtualizerSeams, type LedgerRowVirtualizer } from "./virtualizer-seams.js";
-import { LedgerWindow, type LedgerWindowRow, type PruneOutcome } from "./window-cap.js";
-
-/**
- * One row, as the viewport addresses it.
- *
- * The window's own row type under the name the view uses for it — an alias rather
- * than a second declaration, because the viewport and the window must agree about
- * what a row IS or the cap applies to a different set than the list renders.
- */
-export type LedgerViewportRow = LedgerWindowRow;
-
-/**
- * The reading state a render draws, which is deliberately not all of it.
- *
- * `anchorPoint` is bookkeeping — where the reader is standing, so a height change
- * beneath them can be undone — and it changes on every pixel of every scroll. It is
- * omitted here because a snapshot that carried it would notify React sixty times a
- * second while somebody was simply scrolling, which is the render this frame's
- * budget and the library's `directDomUpdates` both exist to avoid.
- */
-export type LedgerReadingState = Omit<ReadingAnchorState, "anchorPoint">;
-
-/** Everything a render of the viewport needs, in one stable value. */
-export interface LedgerViewportSnapshot {
-  readonly rows: readonly LedgerViewportRow[];
-  readonly rowKeys: readonly string[];
-  /** One distinct key per row, and the repeats projecting them cost. */
-  readonly keyProjection: RowKeyProjection;
-  readonly reading: LedgerReadingState;
-  readonly lastPrune: PruneOutcome | undefined;
-}
-
-/** What the surrounding surface tells the frame each render. */
-export interface LedgerViewportConditions {
-  readonly rows: readonly LedgerViewportRow[];
-  /** A turn is mid-flight, so prune waits rather than moving rows under a stream. */
-  readonly hasActiveTurn: boolean;
-  /** The reveal engine still has characters queued for this frame. */
-  readonly isRevealDraining: boolean;
-}
+import { LedgerWindow, type PruneOutcome } from "./window-cap.js";
 
 export interface LedgerViewportControllerOptions {
   readonly clock: ConsoleClock;
@@ -171,7 +144,7 @@ export class LedgerViewportController {
   public bindVirtualizer(virtualizer: LedgerRowVirtualizer): void {
     this.#virtualizer = virtualizer;
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
-      this.#compensatesForGrowth(item.end, instance.scrollOffset ?? 0);
+      compensatesForGrowth(this.anchor.state.mode, item.end, instance.scrollOffset ?? 0);
   }
 
   /**
@@ -196,7 +169,7 @@ export class LedgerViewportController {
       this.measurements.forget(prunedKey);
     }
     const retained = this.window.rows();
-    const appendedCount = this.#countAppendedAfter(retained, previousTailKey);
+    const appendedCount = countAppendedAfter(retained, previousTailKey);
     this.#rows = retained;
     this.#rowKeys = retained.map((row) => row.key);
     this.#virtualKeys = this.measurements.projectKeys(this.#rowKeys).virtualKeys;
@@ -281,26 +254,6 @@ export class LedgerViewportController {
   }
 
   /**
-   * Whether the library may subtract a measurement's delta from the offset.
-   *
-   * Two conjuncts, and BOTH are load-bearing:
-   *
-   *   • The reader is not following. While following, the tail glide already puts
-   *     them at the bottom and a compensation would fight it. While reading, holding
-   *     the offset across a measurement is exactly the reading anchor's promise, and
-   *     the library can keep it a frame earlier than the next reconcile can.
-   *   • The measured row sits ENTIRELY above the fold. A row the reader can see is
-   *     growing below their eyes, not above them, so subtracting its delta would drag
-   *     the viewport down on every frame of a stream — and, because each drag moves
-   *     the anchor, would re-enter through the anchor's own change notification and
-   *     never settle. Dropping this conjunct is measurable as an unbounded render
-   *     loop rather than as a subtle drift.
-   */
-  #compensatesForGrowth(rowEndOffsetPx: number, scrollOffsetPx: number): boolean {
-    return this.anchor.state.mode !== "following" && rowEndOffsetPx <= scrollOffsetPx;
-  }
-
-  /**
    * Where a row's top edge sits, from measurements the library already holds.
    *
    * No element is read, so this is affordable on the scroll path — which is the
@@ -350,18 +303,6 @@ export class LedgerViewportController {
       rowKey,
       offsetWithinViewportPx: (topItem?.start ?? this.#offsetOfIndex(index)) - geometry.scrollTop,
     });
-  }
-
-  /** How many rows arrived after the row that used to be last. */
-  #countAppendedAfter(
-    rows: readonly LedgerViewportRow[],
-    previousTailKey: string | undefined,
-  ): number {
-    if (previousTailKey === undefined) {
-      return 0;
-    }
-    const previousTailIndex = rows.findIndex((row) => row.key === previousTailKey);
-    return previousTailIndex < 0 ? 0 : rows.length - previousTailIndex - 1;
   }
 
   #buildSnapshot(): LedgerViewportSnapshot {

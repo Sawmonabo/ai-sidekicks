@@ -14,11 +14,8 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import { type ConsoleClock } from "../../core/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "./frame-bounds.js";
-import {
-  LedgerViewportController,
-  type LedgerViewportConditions,
-  type LedgerViewportSnapshot,
-} from "./viewport-controller.js";
+import { LedgerViewportController } from "./viewport-controller.js";
+import { type LedgerViewportConditions, type LedgerViewportSnapshot } from "./viewport-snapshot.js";
 
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */
 export interface LedgerViewportBinding {
