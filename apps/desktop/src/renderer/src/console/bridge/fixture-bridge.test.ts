@@ -29,10 +29,14 @@ import { describe, expect, it } from "vitest";
 
 import type { DaemonEvent, DaemonMethod } from "@ai-sidekicks/contracts";
 
-import { SESSION_EVENT_STREAM } from "./console-bridge.js";
 import { createFixtureBridge, FixtureBridgeError } from "./fixture-bridge.js";
 import type { ConsoleScenario, ScenarioEngine } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
+import {
+  RUN_QUEUE_EVENT_STREAM,
+  RUN_STATE_EVENT_STREAM,
+  SESSION_EVENT_STREAM,
+} from "./session-event-streams.js";
 import { SCENARIO_PENDING_REPLY_CAP } from "../core/index.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import {
@@ -186,6 +190,128 @@ describe("fixture bridge — a subscription delivers only the event it named", (
       "agent.attached",
       "agent.attached",
     ]);
+  });
+});
+
+describe("fixture bridge — a registered stream delivers the kinds it carries", () => {
+  /** The tick the probe's queue beat falls due at. Past the flagship's last. */
+  const QUEUE_BEAT_MS = 440;
+
+  /** The tick the probe's rollback beat falls due at. */
+  const ROLLBACK_BEAT_MS = 460;
+
+  /**
+   * The flagship script plus one queue row and one rollback row.
+   *
+   * The flagship alone leaves both narrowed streams half-tested: it plays two run
+   * transitions and no queue row at all, so a queue subscriber's empty result
+   * would be indistinguishable from a filter that drops everything. Both added
+   * beats name registered event types and carry the payload members their
+   * registrations name, so the probe is a script the daemon could have produced.
+   */
+  function scenarioWithQueueAndRollbackBeats(): ConsoleScenario {
+    const lastFlagshipBeat = FLAGSHIP_SCENARIO.beats[FLAGSHIP_SCENARIO.beats.length - 1];
+    if (lastFlagshipBeat === undefined) {
+      throw new Error("the flagship scenario plays no beats, so there is nothing to extend");
+    }
+    const { sessionId } = lastFlagshipBeat.event;
+    const nextSequence = lastFlagshipBeat.event.sequence + 1;
+    return {
+      ...FLAGSHIP_SCENARIO,
+      id: "flagship-stream-routing-probe",
+      beats: [
+        ...FLAGSHIP_SCENARIO.beats,
+        {
+          atMs: QUEUE_BEAT_MS,
+          event: {
+            sessionId,
+            sequence: nextSequence,
+            kind: "queue_item.created",
+            occurredAt: "2026-01-01T14:20:00.440Z",
+            payload: {
+              sessionId,
+              queueItemId: "queue-item-stream-routing-probe",
+              state: "queued",
+            },
+          },
+        },
+        {
+          atMs: ROLLBACK_BEAT_MS,
+          event: {
+            sessionId,
+            sequence: nextSequence + 1,
+            kind: "run.rolled_back",
+            occurredAt: "2026-01-01T14:20:00.460Z",
+            // The forward, non-state arm the same stream carries: no transition,
+            // and the landing position the run came to rest at.
+            payload: {
+              sessionId,
+              runId: "run-stream-routing-probe",
+              runVersion: 3,
+              targetPosition: 1,
+            },
+          },
+        },
+      ],
+    };
+  }
+
+  it("hands the run-state stream the script's run transitions and no other kind", () => {
+    const fixture = createFixture();
+    const received = subscribeThroughBridge(fixture, RUN_STATE_EVENT_STREAM);
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    // The flagship plays five kinds and two of them are run transitions. Before
+    // this table the fixture recognised one stream name, so this subscriber — the
+    // one the runs surface makes — received nothing at all.
+    expect(received.map((event) => event.kind)).toStrictEqual(["run.queued", "run.starting"]);
+  });
+
+  it("carries both registered arms of the run-state stream", () => {
+    const fixture = createFixture(scenarioWithQueueAndRollbackBeats());
+    const received = subscribeThroughBridge(fixture, RUN_STATE_EVENT_STREAM);
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(received.map((event) => event.kind)).toStrictEqual([
+      "run.queued",
+      "run.starting",
+      "run.rolled_back",
+    ]);
+  });
+
+  it("hands the queue stream its own rows and no run beat", () => {
+    const fixture = createFixture(scenarioWithQueueAndRollbackBeats());
+    const received = subscribeThroughBridge(fixture, RUN_QUEUE_EVENT_STREAM);
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(received.map((event) => event.kind)).toStrictEqual(["queue_item.created"]);
+  });
+
+  it("negative control: the whole-session stream still receives every beat of the probe", () => {
+    // Without this, a table that routed nothing anywhere would satisfy both
+    // exact-set cases above by delivering the empty set twice.
+    const probe = scenarioWithQueueAndRollbackBeats();
+    const fixture = createFixture(probe);
+    const received = subscribeThroughBridge(fixture, SESSION_EVENT_STREAM);
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    expect(received).toHaveLength(probe.beats.length);
+  });
+
+  it("negative control: a stream name nothing registers receives nothing", () => {
+    const fixture = createFixture(scenarioWithQueueAndRollbackBeats());
+    const received = subscribeThroughBridge(fixture, "run.subscribeStates");
+
+    fixture.engine.advance(PAST_EVERY_BEAT_MS);
+
+    // A misspelled stream is not a stream, and it names no event type either, so
+    // it matches nothing — the same silence the daemon answers with, rather than
+    // the whole script a fall-through would deliver.
+    expect(received).toStrictEqual([]);
   });
 });
 
