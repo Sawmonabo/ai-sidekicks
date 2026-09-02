@@ -195,7 +195,7 @@ export type WorkflowRunSnapshot = ProjectedFrom<
   readonly definitionLatestWorkflowVersionId?: string;
 };
 
-/** A parked phase, paired with the park that made it one. */
+/** A parked phase, paired with the park that made it one and what that park says. */
 export interface WorkflowParkedPhase {
   readonly phaseId: string;
   /**
@@ -206,6 +206,67 @@ export interface WorkflowParkedPhase {
    */
   readonly phaseName?: string | undefined;
   readonly park: WorkflowPhasePark;
+  /**
+   * What this park says about the end of the wait, classified once.
+   *
+   * Beside the park rather than derived from it at each reader, because the
+   * classification is not `autoResumeAt === undefined`: a present instant that no
+   * parser accepts is unscheduled too, and a surface that re-derived from presence
+   * alone rendered a park as scheduled and then had no time to show for it.
+   */
+  readonly schedule: WorkflowParkSchedule;
+}
+
+/**
+ * An instant in milliseconds, or nothing when the string does not parse.
+ *
+ * Deliberately NOT a numeric sentinel. The list's two orderings read an instant in
+ * opposite directions — runs sort descending and armed resumes pick ascending — so a
+ * floor that sends an unreadable value last in one sends it first in the other. Each
+ * caller states its own rule against this `undefined` instead.
+ *
+ * Exported because the park classification below and the run sort next door are the
+ * only two readers of a wire instant in this family, and two parsers would be two
+ * answers to "is this readable".
+ */
+export function instantMilliseconds(iso: string): number | undefined {
+  const milliseconds = Date.parse(iso);
+  return Number.isNaN(milliseconds) ? undefined : milliseconds;
+}
+
+/**
+ * What a park says about when, if ever, the engine picks the phase back up.
+ *
+ * Three arms and no boolean, because the three are three different things to draw. A
+ * park that armed a readable boundary resumes itself and asks nobody for anything. A
+ * park that armed nothing waits for a person. And a park that armed an instant this
+ * console cannot read waits for a person too — the fail-closed reading of "we cannot
+ * tell when this resumes" — but it is not the same fact, and a surface that folded it
+ * into the second would drop the only evidence a daemon sent something malformed.
+ */
+export type WorkflowParkSchedule =
+  /**
+   * The wire's instant, and the reading of it that made this arm the armed one.
+   *
+   * The parsed milliseconds ride the arm because the classification already had to
+   * parse to reach it, and the earliest-resume pick next door would otherwise parse
+   * the same string a second time to compare it — two parses of one value, which is
+   * the shape that eventually disagrees with itself.
+   */
+  | { readonly kind: "armed"; readonly autoResumeAt: string; readonly atMilliseconds: number }
+  | { readonly kind: "unscheduled" }
+  | { readonly kind: "unreadable"; readonly autoResumeAt: string };
+
+/** How one park's armed boundary reads. The one place the classification is made. */
+export function parkSchedule(park: WorkflowPhasePark): WorkflowParkSchedule {
+  const armed = park.autoResumeAt;
+  if (armed === undefined) {
+    return { kind: "unscheduled" };
+  }
+  const atMilliseconds = instantMilliseconds(armed);
+  return atMilliseconds === undefined
+    ? { kind: "unreadable", autoResumeAt: armed }
+    : { kind: "armed", autoResumeAt: armed, atMilliseconds };
 }
 
 /**

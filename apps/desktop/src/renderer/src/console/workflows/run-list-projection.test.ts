@@ -156,7 +156,10 @@ describe("what a row reads off its parks", () => {
       }),
     ]);
     expect(projection.rows[0]?.earliestAutoResumeAt).toBe("2026-09-01T11:30:00.000Z");
-    expect(projection.rows[0]?.hasUnscheduledPark).toBe(false);
+    expect(projection.rows[0]?.parkedPhases.map((parked) => parked.schedule.kind)).toStrictEqual([
+      "armed",
+      "armed",
+    ]);
   });
 
   it("reports no armed resume and an unscheduled park where nothing was armed", () => {
@@ -176,7 +179,12 @@ describe("what a row reads off its parks", () => {
     // One park armed a schedule and one did not: the run still needs a person, and
     // reporting only the armed one would say it resumes itself.
     expect(projection.rows[0]?.earliestAutoResumeAt).toBe("2026-09-01T13:00:00.000Z");
-    expect(projection.rows[0]?.hasUnscheduledPark).toBe(true);
+    // The classification is per PARK, because the badge that draws it draws one park
+    // at a time: a row-level "something here is unscheduled" cannot say which.
+    expect(projection.rows[0]?.parkedPhases.map((parked) => parked.schedule.kind)).toStrictEqual([
+      "unscheduled",
+      "armed",
+    ]);
   });
 
   it("counts the runs that hold a park", () => {
@@ -269,8 +277,12 @@ describe("an instant the console cannot read", () => {
       }),
     ]);
     expect(projection.rows[0]?.earliestAutoResumeAt).toBeUndefined();
-    expect(projection.rows[0]?.hasUnscheduledPark).toBe(true);
-    expect(projection.rows[0]?.unreadableAutoResumePhaseIds).toStrictEqual(["phase-malformed"]);
+    // Classified `unreadable` rather than folded into `unscheduled`: the malformed
+    // value is the only evidence the engine armed anything, and the badge reports it.
+    expect(projection.rows[0]?.parkedPhases[0]?.schedule).toStrictEqual({
+      kind: "unreadable",
+      autoResumeAt: UNREADABLE_INSTANT,
+    });
   });
 
   it("negative control: a readable armed resume is neither unscheduled nor named", () => {
@@ -285,8 +297,11 @@ describe("an instant the console cannot read", () => {
         ],
       }),
     ]);
-    expect(projection.rows[0]?.hasUnscheduledPark).toBe(false);
-    expect(projection.rows[0]?.unreadableAutoResumePhaseIds).toStrictEqual([]);
+    expect(projection.rows[0]?.parkedPhases[0]?.schedule).toStrictEqual({
+      kind: "armed",
+      autoResumeAt: "2026-09-01T11:30:00.000Z",
+      atMilliseconds: Date.parse("2026-09-01T11:30:00.000Z"),
+    });
   });
 
   it("still sorts a run with an unreadable start last inside its band", () => {
