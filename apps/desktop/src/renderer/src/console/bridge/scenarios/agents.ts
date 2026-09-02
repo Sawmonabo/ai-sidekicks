@@ -186,6 +186,11 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
   // whichever machine, and reading it as "me" is a fabrication a role gate would
   // then be rendered from.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The one membership in the room, and only the one. Both agents are in the join
+  // order because each takes a hue; an agent is attached rather than admitted and
+  // holds no membership, so naming one here would put a row in the participant
+  // partition that resolves to a role no daemon granted.
+  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T11:30:00.000Z",
   beats: [
     {

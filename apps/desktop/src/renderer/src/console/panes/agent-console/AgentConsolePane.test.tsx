@@ -264,7 +264,12 @@ describe("agent console — the run this agent's linkage is keyed by", () => {
         sequence: 1,
         kind: "run.queued",
         occurredAt: "2026-01-01T10:06:00.000Z",
-        payload: { runId: "run-7", newState: "queued", agentId: OWNED_AGENT_ID },
+        payload: {
+          sessionId: OWNED_SESSION_ID,
+          runId: "run-7",
+          newState: "queued",
+          agentId: OWNED_AGENT_ID,
+        },
       });
     });
 
@@ -289,7 +294,12 @@ describe("agent console — the run this agent's linkage is keyed by", () => {
         sequence: 1,
         kind: "run.queued",
         occurredAt: "2026-01-01T10:06:00.000Z",
-        payload: { runId: "run-8", newState: "queued", agentId: "agent-other" },
+        payload: {
+          sessionId: OWNED_SESSION_ID,
+          runId: "run-8",
+          newState: "queued",
+          agentId: "agent-other",
+        },
       });
     });
 
@@ -345,7 +355,13 @@ function linkageCountingBridge(): LinkageCountingBridge {
   };
 }
 
-/** Project one run of this pane's agent, so the linkage has a run to be keyed by. */
+/**
+ * Project one run of this pane's agent, so the linkage has a run to be keyed by.
+ *
+ * The payload names the session as well as the run: `sessionId` is a registered
+ * member of the durable `run_lifecycle` row, and the fold refuses a beat that omits
+ * it rather than writing another session's run into this store's partition.
+ */
 async function projectRun(
   sessionStore: SessionStore,
   runId: string,
@@ -359,7 +375,7 @@ async function projectRun(
       sequence,
       kind: "run.queued",
       occurredAt,
-      payload: { runId, newState: "queued", agentId: OWNED_AGENT_ID },
+      payload: { sessionId: OWNED_SESSION_ID, runId, newState: "queued", agentId: OWNED_AGENT_ID },
     });
   });
 }

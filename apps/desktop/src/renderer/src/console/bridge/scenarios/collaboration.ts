@@ -225,6 +225,16 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
   // control, which is why the owner is the honest choice: an owner's row is the one
   // whose role controls are all reachable.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The role every gated control resolves the viewer through, derived from the roster
+  // above rather than restated beside it. Each row already carries the role its
+  // `membership.created` beat plays, so a second hand-written table here would be the
+  // same fact twice and free to disagree with itself. Every id in the join order is a
+  // person: this scenario attaches no agent, so the map is total over the roster.
+  membershipRoleByParticipantId: Object.fromEntries(
+    COLLABORATION_PARTICIPANTS.map(
+      (participant) => [participant.participantId, participant.role] as const,
+    ),
+  ),
   startedAtIso: "2026-01-01T10:05:00.000Z",
   runtimeNodeRoster: collaborationRuntimeNodeRoster(RUNTIME_NODE_SCRIPT),
   beats: [

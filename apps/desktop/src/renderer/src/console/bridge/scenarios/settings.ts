@@ -290,6 +290,11 @@ export const SETTINGS_SCENARIO: ConsoleScenario = {
   // and a surface that read the coincidence as the rule would be wrong everywhere
   // else.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The viewer is an owner, which is what lets this scenario drive the role-gated
+  // controls the settings surfaces put behind one: the identity read answers
+  // `PARTICIPANT_YOU`, and the role a surface gates on is this entry, looked up in
+  // the roster the session read establishes.
+  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T08:00:00.000Z",
   runtimeNodeRoster: RUNTIME_NODE_ROSTER_FRAMES,
   beats: [
