@@ -22,13 +22,19 @@
 // honouring that rather than adding a third one; conceal is unchanged, and the next
 // pointer-leave or focus-out concludes it.
 //
-// TWO OF THE EIGHT REFUSE, AND THAT IS THE HONEST ANSWER RATHER THAN A GAP.
+// ONE OF THE EIGHT REFUSES, AND THAT IS THE HONEST ANSWER RATHER THAN A GAP.
 // `Spec-023 §Console Design (Meridian)` rule 8 says a surface never renders a
 // default in place of a reading, and the same holds for an act: "clear filters" over
-// a ledger with no filter control, and "collapse all finished run chapters" over one
-// whose chapters fold by derivation and can be opened by nothing, are both presses
-// that could only pretend. A no-op would report success for work that did not
-// happen, so each states rule 9's banner instead, naming what is missing.
+// a ledger with no filter control is a press that could only pretend, and a no-op
+// would report success for work that did not happen — so it states rule 9's banner
+// instead, naming what is missing.
+//
+// "Collapse all finished run chapters" USED TO BE THE SECOND, on the reasoning that
+// every finished chapter was already folded and no control opened one. That
+// reasoning was true of a ledger that drew no chapter header and false the moment
+// one existed: the headers are disclosures, a person can open any of them, and this
+// act now folds exactly the ones they opened. A typed refusal for a thing that
+// exists is worse than no refusal at all.
 
 import { useEffect, useMemo, useRef } from "react";
 
@@ -61,21 +67,6 @@ export const LEDGER_NO_FILTER_SURFACE_REFUSAL: ConsoleRefusal = refuse(
   "This ledger is not filtered. It offers no participant or event-family narrowing yet, so there is nothing to clear.",
 );
 
-/**
- * What "collapse all finished run chapters" answers when none is open.
- *
- * Rule 7 folds a terminal chapter by derivation — `ledger-window.ts` collapses every
- * row of every chapter the index reports terminal, on every pass — and the row seat
- * carries no control that opens one back up. So every finished chapter is already
- * folded whenever this act could run, and the fold that would answer it has nothing
- * to do.
- */
-export const LEDGER_NO_OPENED_CHAPTER_REFUSAL: ConsoleRefusal = refuse(
-  "ledger",
-  "ledger.no_opened_chapter",
-  "Every finished run chapter here is already folded, and this ledger offers no control that opens one.",
-);
-
 /** The state one window's acts are built over. */
 export interface LedgerFeedActInputs {
   readonly find: LedgerFindState;
@@ -83,6 +74,8 @@ export interface LedgerFeedActInputs {
   /** The ledger's one scroll writer, for the walk's jumps. */
   readonly jumpToRow: (rowId: string) => void;
   readonly jumpToTail: () => void;
+  /** Fold every terminal chapter the feed has open. */
+  readonly collapseAllTerminalChapters: () => void;
 }
 
 /**
@@ -111,9 +104,7 @@ export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStr
       raiseConsoleActRefusal(LEDGER_NO_FILTER_SURFACE_REFUSAL);
     },
     scrollToTail: inputs.jumpToTail,
-    collapseAllTerminalChapters: () => {
-      raiseConsoleActRefusal(LEDGER_NO_OPENED_CHAPTER_REFUSAL);
-    },
+    collapseAllTerminalChapters: inputs.collapseAllTerminalChapters,
     // One discriminator over the four-state union rather than a second boolean:
     // `paused` and `at-tail` both resume, and `idle` starts, so "playing" is the
     // only arm the press turns off.
@@ -146,10 +137,17 @@ export function buildLedgerStructureActs(inputs: LedgerFeedActInputs): LedgerStr
  * cost the feed avoids rather than a correctness the seat depends on.
  */
 export function useLedgerStructureActs(inputs: LedgerFeedActInputs): void {
-  const { find, replay, jumpToRow, jumpToTail } = inputs;
+  const { find, replay, jumpToRow, jumpToTail, collapseAllTerminalChapters } = inputs;
   const acts = useMemo(
-    () => buildLedgerStructureActs({ find, replay, jumpToRow, jumpToTail }),
-    [find, replay, jumpToRow, jumpToTail],
+    () =>
+      buildLedgerStructureActs({
+        find,
+        replay,
+        jumpToRow,
+        jumpToTail,
+        collapseAllTerminalChapters,
+      }),
+    [find, replay, jumpToRow, jumpToTail, collapseAllTerminalChapters],
   );
   useMountedLedger(acts);
 }

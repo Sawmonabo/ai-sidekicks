@@ -89,6 +89,15 @@ export interface LedgerChapter {
    * never paraphrases the state the daemon reported.
    */
   readonly terminalEventType: ChapterTerminalEventType | undefined;
+  /**
+   * The row that ENDED it, or `undefined` while live.
+   *
+   * Carried as a row id rather than re-derived from the terminal event type,
+   * because a folded chapter renders its header and that row and nothing else —
+   * and a fold that had to scan for its own receipt would be a second reading of
+   * the terminal that the seal already performed.
+   */
+  readonly terminalRowId: string | undefined;
   readonly firstSequence: number;
   readonly lastSequence: number;
   readonly firstTimestamp: string;
@@ -118,6 +127,7 @@ interface ChapterAccumulator {
   readonly rowIds: string[];
   actorId: string | undefined;
   terminalEventType: ChapterTerminalEventType | undefined;
+  terminalRowId: string | undefined;
   firstSequence: number;
   lastSequence: number;
   firstTimestamp: string;
@@ -226,6 +236,7 @@ function newAccumulator(runId: string, row: TimelineRow): ChapterAccumulator {
     rowIds: [],
     actorId: undefined,
     terminalEventType: undefined,
+    terminalRowId: undefined,
     firstSequence: row.sequence,
     lastSequence: row.sequence,
     firstTimestamp: row.timestamp,
@@ -242,7 +253,10 @@ function absorbRow(accumulator: ChapterAccumulator, row: TimelineRow): void {
   // chapter's header onto the person who interrupted it.
   accumulator.actorId ??= row.actor;
   if (isTerminalEventType(row.type)) {
+    // LAST terminal wins, in the same act for both members so the type and the row
+    // it was read from can never name two different rows.
     accumulator.terminalEventType = row.type;
+    accumulator.terminalRowId = row.id;
   }
   if (row.childRunSummary?.completeness.state === "incomplete") {
     accumulator.hasIncompleteChildExpand = true;
@@ -267,6 +281,7 @@ function sealChapter(accumulator: ChapterAccumulator): LedgerChapter {
     actorId: accumulator.actorId,
     lifecycle: accumulator.terminalEventType === undefined ? "live" : "terminal",
     terminalEventType: accumulator.terminalEventType,
+    terminalRowId: accumulator.terminalRowId,
     firstSequence: accumulator.firstSequence,
     lastSequence: accumulator.lastSequence,
     firstTimestamp: accumulator.firstTimestamp,
@@ -381,8 +396,14 @@ export class ChapterCollapseState {
     return this.#openedTerminalRunIds.delete(chapter.runId);
   }
 
-  /** Terminal chapters a person has opened. Read by the tier that asserts folding. */
-  public get openedTerminalCount(): number {
-    return this.#openedTerminalRunIds.size;
+  /**
+   * Terminal chapters a person has opened.
+   *
+   * The SET rather than a count, because the caller that renders the fold needs to
+   * ask about one chapter and the caller that reports on it needs `.size` — and two
+   * accessors over one field is two things to keep agreeing.
+   */
+  public get openedTerminalRunIds(): ReadonlySet<string> {
+    return this.#openedTerminalRunIds;
   }
 }

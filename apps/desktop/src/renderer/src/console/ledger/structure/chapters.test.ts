@@ -183,7 +183,7 @@ describe("chapters — collapse state never folds the live chapter", () => {
     const state = new ChapterCollapseState();
     state.open(terminal);
     expect(state.collapseAllTerminal([live, terminal])).toBe(1);
-    expect(state.openedTerminalCount).toBe(0);
+    expect(state.openedTerminalRunIds.size).toBe(0);
   });
 });
 
