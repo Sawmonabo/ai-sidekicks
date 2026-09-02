@@ -141,7 +141,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     [hueForActor, ledgerWindow, props],
   );
 
-  const geometry = useRailGeometry(viewport.virtualItems, viewport.snapshot.rows.length);
+  const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
   const jumpToRow = viewport.jumpToRow;
   const onStepFind = useCallback(
     (direction: "next" | "previous") => {

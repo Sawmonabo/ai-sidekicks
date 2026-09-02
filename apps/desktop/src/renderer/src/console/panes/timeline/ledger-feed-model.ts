@@ -44,6 +44,10 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { useConsoleClock } from "../../bridge/index.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
+// The frame's door carries the four symbols a stranger holds; this range is the
+// binding's own shape, reached by module path the way this family's other subtrees
+// reach the frame's internals.
+import { type LedgerVisibleRowRange } from "../../ledger/frame/viewport-binding.js";
 import {
   ProvenanceRailModel,
   ReplayEngine,
@@ -382,19 +386,25 @@ export interface RailGeometry {
  * marks out in: a tick sits at its row's place in the window, so a thumb measured in
  * pixels would drift away from the marks it is supposed to point at wherever rows
  * differ in height — which, with tool cards and streamed prose in the same log, is
- * everywhere. Read off the virtualizer's own rendered range, so there is no second
- * measurement of what is on screen.
+ * everywhere.
+ *
+ * Measured off the binding's `visibleRange` and NOT off `virtualItems`, which is
+ * that range widened by the overscan at both edges: at the estimated row height a
+ * 400px box intersects about five rows and mounts about seventeen, so a thumb sized
+ * off the mount range is more than three times too tall and starts six rows early —
+ * a thumb that no longer points at the ticks under it. An absent range is a box
+ * nothing has measured, and the honest answer for one is the whole rail.
  */
 export function useRailGeometry(
-  virtualItems: readonly { readonly index: number }[],
+  visibleRange: LedgerVisibleRowRange | undefined,
   rowCount: number,
 ): RailGeometry {
+  const firstIndex = visibleRange?.startIndex;
+  const lastIndex = visibleRange?.endIndex;
   return useMemo(() => {
-    if (rowCount === 0 || virtualItems.length === 0) {
+    if (rowCount === 0 || firstIndex === undefined || lastIndex === undefined) {
       return { position: 0, extent: 1 };
     }
-    const firstIndex = virtualItems[0]?.index ?? 0;
-    const lastIndex = virtualItems[virtualItems.length - 1]?.index ?? firstIndex;
     const visibleCount = lastIndex - firstIndex + 1;
     // Divided by the last INDEX rather than by the count, so a viewport sitting on
     // the final row reports 1 rather than falling short of the rail's own end.
@@ -403,5 +413,9 @@ export function useRailGeometry(
       position: Math.min(1, firstIndex / lastPossibleIndex),
       extent: Math.min(1, visibleCount / rowCount),
     };
-  }, [virtualItems, rowCount]);
+    // The two indices rather than the range object: the virtualizer recomputes that
+    // object whenever the scroll offset moves, so keying on its identity would
+    // re-derive the geometry on scrolls that did not change which rows are on
+    // screen.
+  }, [firstIndex, lastIndex, rowCount]);
 }

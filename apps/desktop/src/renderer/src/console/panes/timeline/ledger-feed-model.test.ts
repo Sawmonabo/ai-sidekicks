@@ -9,11 +9,13 @@
 import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { LEDGER_OVERSCAN_ROWS } from "../../ledger/frame/frame-bounds.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 import { ProvenanceRailModel } from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   useLedgerFind,
+  useRailGeometry,
   useVisibleLedgerWindow,
   type LedgerFindState,
   type VisibleLedgerWindow,
@@ -229,6 +231,55 @@ describe("cap retention and replay visibility are two facts", () => {
     expect(result.current.beyondWindowMatchCount).toBe(LOG_EVENT_COUNT - RETAINED_ROW_COUNT);
     expect(result.current.notYetReplayedMatchCount).toBe(0);
     expect(result.current.result.hasEarlierRows).toBe(true);
+  });
+});
+
+describe("the rail's two fractions", () => {
+  const RAIL_WINDOW_ROW_COUNT = 300;
+  const VISIBLE_ROW_COUNT = 5;
+  const FIRST_VISIBLE_INDEX = 100;
+
+  it("measures the range the box intersects, not the range it mounts", () => {
+    const { result } = renderHook(() =>
+      useRailGeometry(
+        {
+          startIndex: FIRST_VISIBLE_INDEX,
+          endIndex: FIRST_VISIBLE_INDEX + VISIBLE_ROW_COUNT - 1,
+        },
+        RAIL_WINDOW_ROW_COUNT,
+      ),
+    );
+    expect(result.current.extent).toBeCloseTo(VISIBLE_ROW_COUNT / RAIL_WINDOW_ROW_COUNT, 6);
+    expect(result.current.position).toBeCloseTo(
+      FIRST_VISIBLE_INDEX / (RAIL_WINDOW_ROW_COUNT - 1),
+      6,
+    );
+  });
+
+  it("negative control: the overscanned mount range gives a different, wrong answer", () => {
+    // The mounted range is the visible one widened by the overscan at both edges,
+    // which is exactly what the geometry used to be handed. Feeding it here shows
+    // the two readings are not the same number, so the case above is discriminating
+    // rather than passing over either.
+    const { result } = renderHook(() =>
+      useRailGeometry(
+        {
+          startIndex: FIRST_VISIBLE_INDEX - LEDGER_OVERSCAN_ROWS,
+          endIndex: FIRST_VISIBLE_INDEX + VISIBLE_ROW_COUNT - 1 + LEDGER_OVERSCAN_ROWS,
+        },
+        RAIL_WINDOW_ROW_COUNT,
+      ),
+    );
+    expect(result.current.extent).toBeCloseTo(
+      (VISIBLE_ROW_COUNT + 2 * LEDGER_OVERSCAN_ROWS) / RAIL_WINDOW_ROW_COUNT,
+      6,
+    );
+    expect(result.current.position).toBeLessThan(FIRST_VISIBLE_INDEX / (RAIL_WINDOW_ROW_COUNT - 1));
+  });
+
+  it("negative control: an unmeasured box claims the whole rail rather than the head", () => {
+    const { result } = renderHook(() => useRailGeometry(undefined, RAIL_WINDOW_ROW_COUNT));
+    expect(result.current).toStrictEqual({ position: 0, extent: 1 });
   });
 });
 

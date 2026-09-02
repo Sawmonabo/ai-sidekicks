@@ -24,7 +24,7 @@ import {
   publishConsoleActRefusalSink,
 } from "../../frame/command-surface.js";
 import { projectFixtureShellRows } from "../../ledger/cards/index.js";
-import { LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
+import { LEDGER_OVERSCAN_ROWS, LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
 import {
   LEDGER_COMMAND_OWNER,
   ProvenanceRail,
@@ -113,17 +113,24 @@ afterEach(() => {
 });
 
 describe("the ledger feed — one binding", () => {
-  it("sizes the rail from the virtualizer that holds the mounted surface", () => {
+  it("sizes the rail from the rows the box intersects, not the rows it mounts", () => {
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithLog(LONG_LOG_EVENT_COUNT));
     const thumb = feed.querySelector<HTMLElement>(".meridian-rail__thumb");
     expect(thumb).not.toBeNull();
-    // A rendered range is a range: the thumb covers the fraction of the log that is
-    // on screen. While the rail read a SECOND binding — one that was handed no
-    // element — that binding's virtualizer had no range at all, so the extent fell
-    // back to the whole rail and the thumb claimed the reader could see everything.
-    expect(thumb?.style.height).not.toBe("100%");
-    expect(Number.parseFloat(thumb?.style.height ?? "100")).toBeLessThan(50);
+    // Both readings come off the DOM, so this discriminates rather than restating a
+    // constant. At the head there is no leading overscan, so the mounted rows are
+    // the intersected ones plus one trailing overscan band; `aria-setsize` carries
+    // the window's whole length. "Under 50%" passed at BOTH readings.
+    const mountedRows = [...feed.querySelectorAll(".meridian-ledger-viewport__row")];
+    const windowRowCount = Number(mountedRows[0]?.getAttribute("aria-setsize"));
+    const intersectedRowCount = mountedRows.length - LEDGER_OVERSCAN_ROWS;
+    expect(intersectedRowCount).toBeGreaterThan(0);
+    const thumbHeightPercent = Number.parseFloat(thumb?.style.height ?? "100");
+    expect(thumbHeightPercent).toBeCloseTo((intersectedRowCount / windowRowCount) * 100, 4);
+    // And the reading the mount range would have produced is a different number,
+    // which is what makes the assertion above a claim about the overscan.
+    expect(thumbHeightPercent).toBeLessThan((mountedRows.length / windowRowCount) * 100);
   });
 
   it("negative control: with no laid-out box there is no range, and the rail says so", () => {

@@ -17,10 +17,35 @@ import { LEDGER_OVERSCAN_ROWS } from "./frame-bounds.js";
 import { LedgerViewportController } from "./viewport-controller.js";
 import { type LedgerViewportConditions, type LedgerViewportSnapshot } from "./viewport-snapshot.js";
 
+/**
+ * The half-open row range the viewport box actually intersects, inclusive at both
+ * ends, or `undefined` before anything has been measured.
+ *
+ * NOT the mounted range: `virtualItems` is this range widened by
+ * `LEDGER_OVERSCAN_ROWS` at both edges, which is what makes a scroll meet measured
+ * rows instead of a blank band. Anything reporting where the reader IS — the rail's
+ * thumb is the one caller today — needs the un-widened one, because an overscanned
+ * thumb is several times too tall and starts a screenful early.
+ */
+export interface LedgerVisibleRowRange {
+  readonly startIndex: number;
+  readonly endIndex: number;
+}
+
 /** What the view gets back: a snapshot, the refs, and the acts it offers. */
 export interface LedgerViewportBinding {
   readonly snapshot: LedgerViewportSnapshot;
   readonly virtualItems: readonly VirtualItem[];
+  /**
+   * The range the box intersects, straight off the virtualizer's own computation
+   * over the measurements, the outer size, and the scroll offset.
+   *
+   * Read from the library rather than re-derived by subtracting the overscan, which
+   * is exact nowhere near either end of the list, and taken here rather than
+   * published on the viewport snapshot, which deliberately carries no scroll
+   * geometry — putting it there would notify React on every scrolled pixel.
+   */
+  readonly visibleRange: LedgerVisibleRowRange | undefined;
   /** True when the log has outgrown the tallest box a browser will place. */
   readonly isPastElementCeiling: boolean;
   readonly attachSurface: (element: HTMLElement | null) => void;
@@ -131,6 +156,11 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
   return {
     snapshot,
     virtualItems,
+    // Read AFTER `getVirtualItems()`, which is what drives the range computation:
+    // the field is `null` until that pass has run over a box with a non-zero outer
+    // size, and `null` is the honest "nothing measured yet" answer rather than a
+    // range starting at zero.
+    visibleRange: virtualizer.range ?? undefined,
     isPastElementCeiling,
     attachSurface: useCallback(
       (element: HTMLElement | null) => {
