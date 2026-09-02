@@ -187,15 +187,25 @@ export class ManualClock implements ConsoleClock {
   }
 
   /**
-   * Move time forward, running everything that falls due in order. Work armed by
-   * a callback during the advance runs too, if it falls due inside the window —
+   * Move time forward, running every TIMEOUT that falls due, in order. Work armed
+   * by a callback during the advance runs too, if it falls due inside the window —
    * which is what makes a re-arming scheduler observable rather than invisible.
+   *
+   * Frames are excluded, and that exclusion is the whole reason `runFrame` exists
+   * beside this method. A frame is armed with `dueAt` equal to the current time,
+   * so selecting work on due time alone would make EVERY pending frame due on any
+   * advance at all, including `advance(0)`. Time and paint are two controls here
+   * precisely because the real clock has two sources — `setTimeout` and
+   * `requestAnimationFrame` — and a scenario beat that painted implicitly would
+   * report a frame the caller never released, which is the one thing a frozen
+   * clock is for. A timeout a frame callback arms is ordinary timeout work and the
+   * next advance owns it.
    */
   public advance(deltaMs: number): void {
     const target = this.#currentTime + deltaMs;
     for (;;) {
       const due = this.#entries
-        .filter((entry) => entry.dueAt <= target)
+        .filter((entry) => !entry.isFrame && entry.dueAt <= target)
         .sort((left, right) => left.dueAt - right.dueAt || left.handle - right.handle);
       const next = due[0];
       if (next === undefined) {
