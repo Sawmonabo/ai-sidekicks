@@ -131,6 +131,77 @@ describe("the rows", () => {
   });
 });
 
+/*
+ * One wire member, two facts. `failureReason` is preserved on any bound breach AND
+ * carries the reason a cancel supplied, so the run's status is the only thing that
+ * says which arrived — and the row used to render both in the failure treatment,
+ * presenting an outcome somebody asked for as a breach.
+ *
+ * The cancelled run's sentence is the committed workflows fixture's own, so the case
+ * reads what a person actually sees on that scenario. It is built through this file's
+ * factory rather than imported from the scenario, on the header's rule: the seam
+ * under test is the projection's, and a unit case reaching into the fixture module
+ * would be a second import edge for a string.
+ */
+describe("the reason a run carries", () => {
+  function reasonOf(root: HTMLElement, className: string): string | undefined {
+    return root.querySelector(`.${className}`)?.textContent?.trim();
+  }
+
+  it("says a cancellation is one, in prose rather than in the failure treatment", () => {
+    const root = renderList([
+      run({
+        state: "cancelled",
+        failureReason: "Cancelled: the incident was resolved out of band.",
+      }),
+    ]);
+
+    expect(reasonOf(root, "meridian-run-row__reason")).toBe(
+      "Cancellation reason Cancelled: the incident was resolved out of band.",
+    );
+    // The daemon's sentence verbatim, with only the name in front of it added.
+    expect(root.querySelector(".meridian-run-row__reason")?.textContent).toContain(
+      "Cancelled: the incident was resolved out of band.",
+    );
+    expect(root.querySelector(".meridian-run-row__failure")).toBeNull();
+  });
+
+  it("keeps the failure treatment, unlabelled, for a run that failed", () => {
+    // Negative control for the case above: it would pass over a row that had dropped
+    // the failure arm entirely and called every reason a cancellation.
+    const root = renderList([
+      run({ state: "failed", failureReason: "Quality gate rejected the phase output." }),
+    ]);
+
+    expect(reasonOf(root, "meridian-run-row__failure")).toBe(
+      "Quality gate rejected the phase output.",
+    );
+    expect(root.querySelector(".meridian-run-row__reason")).toBeNull();
+  });
+
+  it("renders neither shape for a run that carries no reason", () => {
+    // The second control: both cases above read a class off a row, and a list that
+    // rendered an empty paragraph for every run would satisfy neither claim honestly.
+    const root = renderList([run({ state: "completed" })]);
+
+    expect(root.querySelector(".meridian-run-row__reason")).toBeNull();
+    expect(root.querySelector(".meridian-run-row__failure")).toBeNull();
+  });
+
+  it("spends the status chip's tone on the status and the treatment on the reason", () => {
+    // A cancelled run is settled rather than broken, so neither the chip nor the
+    // reason wears the failure hue — the two facts are told apart by words here.
+    const root = renderList([
+      run({ state: "cancelled", failureReason: "Cancelled: superseded by a newer run." }),
+    ]);
+
+    expect(root.querySelector(".meridian-chip--failure")).toBeNull();
+    expect(root.querySelector(".meridian-run-row__reason-label")?.textContent).toBe(
+      "Cancellation reason",
+    );
+  });
+});
+
 describe("the frozen-definition state", () => {
   it("marks a run whose pin is behind its definition, and shows the pin it is on", () => {
     const root = renderList([

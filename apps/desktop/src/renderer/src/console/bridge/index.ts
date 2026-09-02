@@ -57,11 +57,12 @@ export type { GrowthUnavailable } from "./growth-outcome.js";
 // The workflow plane's read shapes, for the family that renders them. Declared on
 // this substrate because no code package registers a `workflow.*` type yet, and
 // re-exported here rather than deep-imported because a view family reaches another
-// family only through its door. All three go when `packages/contracts` registers
-// the plane and `workflow-projection.ts` is deleted with its slate row.
+// family only through its door. Every one of them goes when `packages/contracts`
+// registers the plane and `workflow-projection.ts` is deleted with its slate row.
 export { WORKFLOW_DEFINITION_SCOPES } from "./workflow-projection.js";
 export type {
   WorkflowDefinitionScope,
+  WorkflowDefinitionSummary,
   WorkflowPhaseState,
   WorkflowRunListEntry,
   WorkflowRunSnapshot,
