@@ -240,6 +240,86 @@ describe("diff pane — expanding a gap in a file that is not the first", () => 
   });
 });
 
+describe("diff pane — reused for a different diff", () => {
+  /** A change set whose files share no path with the fixture's. */
+  const OTHER_DIFF: ConsoleDiffModel = (() => {
+    const whole = buildDiffFixture(SMALL_DIFF_SHAPE);
+    return {
+      ...whole,
+      files: whole.files.map((file) => ({ ...file, path: `other/${file.path}` })),
+    };
+  })();
+
+  it("drops a selection the new diff does not contain, instead of reporting no changes", () => {
+    // The defect this whole block exists for. A path absent from the new model
+    // narrows the index to no file, `rowCount` is zero, and the renderer states
+    // that two states are identical over a change set that has changes.
+    const { container, getByRole, rerender } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    fireEvent.click(getByRole("button", { name: /module-01\.ts/u }));
+    rerender(<DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={OTHER_DIFF} />);
+    expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+    expect(container.querySelectorAll(".meridian-diff__row").length).toBeGreaterThan(0);
+    // And the file list opens on the whole change set again, not on a path that
+    // is no longer in it.
+    expect(
+      container.querySelector('.meridian-diff-files__entry[aria-current="true"]')?.textContent,
+    ).toContain("All files");
+  });
+
+  it("drops the previous diff's gap expansion rather than inheriting it by index", () => {
+    // The expansion is keyed by `(fileIndex, hunkIndex)`. Those indices exist in
+    // the new diff too and address different hunks, so an inherited expansion
+    // opens somebody else's gaps.
+    const { container, getAllByRole, rerender } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    const gapCountBefore = container.querySelectorAll(".meridian-diff__row--gap").length;
+    fireEvent.click(getAllByRole("button", { name: /Expand \d+ hidden lines/u })[0]!);
+    expect(container.querySelectorAll(".meridian-diff__row--gap").length).toBeLessThan(
+      gapCountBefore,
+    );
+
+    rerender(<DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={OTHER_DIFF} />);
+    expect(container.querySelectorAll(".meridian-diff__row--gap").length).toBe(gapCountBefore);
+  });
+
+  it("negative control: the SAME model object keeps the selection and the expansion", () => {
+    // Without this, the two cases above would pass over a pane that reset its
+    // view state on every render — which would take the selection away the
+    // instant anything else in the console moved.
+    const sameDiff = buildDiffFixture(SMALL_DIFF_SHAPE);
+    const { container, getAllByRole, getByRole, rerender } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={sameDiff} />,
+    );
+    fireEvent.click(getByRole("button", { name: /module-01\.ts/u }));
+    fireEvent.click(getAllByRole("button", { name: /Expand \d+ hidden lines/u })[0]!);
+    const gapCountAfterExpanding = container.querySelectorAll(".meridian-diff__row--gap").length;
+
+    rerender(<DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={sameDiff} />);
+    expect(container.querySelector(".meridian-diff__row--file")?.textContent).toContain(
+      "module-01.ts",
+    );
+    expect(container.querySelectorAll(".meridian-diff__row--gap").length).toBe(
+      gapCountAfterExpanding,
+    );
+  });
+
+  it("keeps the toolbar's reading preferences across a model change", () => {
+    // View mode, wrap, whitespace and attribution marks are preferences over the
+    // PANE. Resetting them with the model would undo a person's toggle every time
+    // the subject moved.
+    const { container, getByRole, rerender } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={buildDiffFixture(SMALL_DIFF_SHAPE)} />,
+    );
+    fireEvent.click(getByRole("button", { name: "Wrap long lines" }));
+    expect(container.querySelector(".meridian-diff--wrap")).not.toBeNull();
+    rerender(<DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={OTHER_DIFF} />);
+    expect(container.querySelector(".meridian-diff--wrap")).not.toBeNull();
+  });
+});
+
 describe("diff pane — the toolbar", () => {
   it("offers the four renderer-local controls, with marks on by default", () => {
     // §10.6's density rule: attribution marks are ON in the pane and OFF in the

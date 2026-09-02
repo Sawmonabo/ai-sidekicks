@@ -36,7 +36,7 @@
 // panes has focus and this body does not. A body that painted its own ring would
 // be a second answer to a question the deck already owns.
 
-import { useCallback, useId, useState } from "react";
+import { useId } from "react";
 
 import { Chip, Glyph, Nothing } from "../../primitives/index.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
@@ -48,7 +48,7 @@ import {
   type ConsoleDiffModel,
   type DiffAttributionMode,
 } from "./diff-model.js";
-import { expandGap, type DiffGapExpansion } from "./hunk-virtualization.js";
+import { useDiffModelViewState } from "./diff-view-state.js";
 
 export interface DiffPaneProps {
   readonly context: ConsolePaneContext;
@@ -72,25 +72,17 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const { context, diff } = props;
   const headingId = useId();
   const viewControls = useDiffViewControls({ showAttributionMarks: true });
-  const [expansion, setExpansion] = useState<DiffGapExpansion>(() => new Map());
-  const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>(undefined);
-
   // §10.6's density rule: the pane opens on the changed-file list with the first
   // file expanded. Selecting a file narrows the rows to it; selecting none reads
   // the whole change set, which is what "the first file expanded" degrades to
   // once a reader has scrolled past it.
   //
-  // THE NARROWING IS THE RENDERER'S AND NOT A FILTERED MODEL, which is what makes
-  // the handler below correct. A filtered model renumbers its files, so a gap in
-  // the second file arrives here as file zero and this lookup would resolve the
-  // FIRST file's context — expanding by the wrong count, or by nothing.
-  const handleExpandGap = useCallback(
-    (fileIndex: number, hunkIndex: number) => {
-      const available = diff?.files[fileIndex]?.hunks[hunkIndex]?.precedingContext.length ?? 0;
-      setExpansion((previous) => expandGap(previous, fileIndex, hunkIndex, available));
-    },
-    [diff],
-  );
+  // BOTH PIECES ARE THE MODEL'S AND NOT THE PANE'S, so they live in a hook that
+  // drops them when the diff does — a selected path the next diff does not
+  // contain would narrow the rows to nothing, and the renderer would report two
+  // identical states over a change set that has changes. The toolbar's four
+  // toggles are the pane's and are deliberately not reset with them.
+  const modelViewState = useDiffModelViewState(diff);
 
   return (
     <section
@@ -134,18 +126,18 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
           <div className="meridian-diff-pane__content">
             <DiffFileList
               diff={diff}
-              selectedFilePath={selectedFilePath}
-              onSelectFilePath={setSelectedFilePath}
+              selectedFilePath={modelViewState.selectedFilePath}
+              onSelectFilePath={modelViewState.selectFilePath}
             />
             <DiffRenderer
               model={diff}
-              shownFilePath={selectedFilePath}
+              shownFilePath={modelViewState.selectedFilePath}
               viewMode={viewControls.viewMode}
               showAttributionMarks={viewControls.showAttributionMarks}
               wrapLongLines={viewControls.wrapLongLines}
               showWhitespaceChanges={viewControls.showWhitespaceChanges}
-              expansion={expansion}
-              onExpandGap={handleExpandGap}
+              expansion={modelViewState.expansion}
+              onExpandGap={modelViewState.expandGapAt}
               label={`Diff, ${diff.baseRef} to ${diff.headRef}`}
             />
           </div>
