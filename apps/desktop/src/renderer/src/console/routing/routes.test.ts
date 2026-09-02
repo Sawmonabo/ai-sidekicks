@@ -35,6 +35,7 @@ import {
 const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
   { kind: "sessions" },
   { kind: "workspace", sessionId: "session-1" },
+  { kind: "workflows" },
   { kind: "settings", page: undefined },
   { kind: "settings", page: "providers" },
   { kind: "not-found", attempted: "#/nowhere" },
@@ -88,7 +89,19 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
       attempted: "#/sessions/extra",
     });
     expect(parseRoute("#/session/one/two").kind).toBe("not-found");
+    expect(parseRoute("#/workflows/extra").kind).toBe("not-found");
     expect(parseRoute("#/settings/one/two").kind).toBe("not-found");
+  });
+
+  it("names no address of its own for the session workspace's rail destination", () => {
+    // `workspace` is a ROUTE kind reached from the sessions destination, not a
+    // rail destination with an address. `#/workspace` therefore names nothing —
+    // the session workspace is `#/session/<id>` — and a grammar that answered it
+    // would be a second address for a surface that already has one.
+    expect(parseRoute("#/workspace")).toStrictEqual({
+      kind: "not-found",
+      attempted: "#/workspace",
+    });
   });
 
   it("refuses a session route with no session id", () => {
@@ -104,6 +117,7 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
   it("negative control: a well-formed hash of each main-window kind is NOT not-found", () => {
     expect(parseRoute("#/sessions").kind).toBe("sessions");
     expect(parseRoute("#/session/session-1").kind).toBe("workspace");
+    expect(parseRoute("#/workflows").kind).toBe("workflows");
     expect(parseRoute("#/settings").kind).toBe("settings");
   });
 });
@@ -164,8 +178,25 @@ describe("routes — the auxiliary arm is the shared grammar, not a second copy"
 describe("railDestinationFor — which rail icon is current", () => {
   it("names a destination for each main-window route", () => {
     expect(railDestinationFor({ kind: "sessions" })).toBe("sessions");
-    expect(railDestinationFor({ kind: "workspace", sessionId: "session-1" })).toBe("workspace");
+    expect(railDestinationFor({ kind: "workflows" })).toBe("workflows");
     expect(railDestinationFor({ kind: "settings", page: undefined })).toBe("settings");
+  });
+
+  it("keeps a session workspace under the sessions destination", () => {
+    // The workspace is reached FROM the sessions destination, so the rail
+    // highlights that one while a person is inside a session. The alternative —
+    // a `workspace` destination of its own — names an icon the rail does not
+    // render, which reads as the highlight going out on the busiest surface in
+    // the console.
+    expect(railDestinationFor({ kind: "workspace", sessionId: "session-1" })).toBe("sessions");
+  });
+
+  it("negative control: the workspace is not itself a rail destination", () => {
+    // Without this, the case above would pass over a `RAIL_DESTINATIONS` that
+    // still carried `workspace` beside the mapping, which is the exact state this
+    // pair was in: three destinations declared, and the spec's second one absent.
+    expect([...RAIL_DESTINATIONS]).not.toContain("workspace");
+    expect([...RAIL_DESTINATIONS]).toStrictEqual(["sessions", "workflows", "settings"]);
   });
 
   it("reaches every destination the rail declares, so no icon is unreachable", () => {

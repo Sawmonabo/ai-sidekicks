@@ -22,6 +22,12 @@
 // rather than asserted. `SessionStoreRegistry` is what constructs both in the
 // running console; nothing else in the tree may arm a timer.
 //
+// Neither loses work to a callback that fails. The read side surfaces a rejected
+// `perform` through `onError`; the write side keeps its batch when `drain` throws
+// and never lets the exception reach the clock, because the clock removes a due
+// callback before invoking it and one escaping throw would take every other
+// session's pending drain with it.
+//
 // Both are terminal on `dispose()`. A pane that unmounts mid-stream must not be
 // able to re-arm a timer from a late event — "a timer that outlives its pane" is
 // one of the failure modes this substrate exists to make unrepresentable, and a
@@ -200,15 +206,31 @@ export interface ApplyQueueOptions {
    * frozen time. Defaults to `APPLY_COALESCE_MS`, one 60 Hz frame.
    */
   readonly coalesceMs?: number;
+  /**
+   * Called when `drain` throws. The batch is kept either way.
+   *
+   * Deliberately NOT the `RefreshScheduler.onError` contract, whose absent arm
+   * re-throws: that scheduler's failure surfaces from an `async` function, where
+   * a rejection reaches the host as an unhandled rejection and disturbs nothing
+   * else. This drain runs inside a frame or timeout callback the console's clock
+   * is iterating, and `ManualClock.runFrame` takes its due entries out of the
+   * queue BEFORE invoking them — so an escaping throw does not defer the other
+   * pending callbacks, it drops them, and one defective session's drain would
+   * silently cancel every other session's. So the queue never re-throws; it keeps
+   * the batch, counts the failure, and tells this sink.
+   */
+  readonly onDrainError?: (error: unknown) => void;
 }
 
 export class ApplyQueue {
   readonly #clock: ConsoleClock;
   readonly #drain: ApplyDrain;
   readonly #coalesceMs: number;
+  readonly #onDrainError: ((error: unknown) => void) | undefined;
   #buffer: ConsoleSessionEvent[] = [];
   #armedHandle: ScheduledHandle | undefined;
   #drainCount = 0;
+  #failedDrainCount = 0;
   #droppedAfterDisposeCount = 0;
   #disposed = false;
 
@@ -216,11 +238,24 @@ export class ApplyQueue {
     this.#clock = options.clock;
     this.#drain = options.drain;
     this.#coalesceMs = options.coalesceMs ?? APPLY_COALESCE_MS;
+    this.#onDrainError = options.onDrainError;
   }
 
   /** Drains performed. One per window that held events; the coalescing assertion. */
   public get drainCount(): number {
     return this.#drainCount;
+  }
+
+  /**
+   * Drains that threw and whose batch was kept.
+   *
+   * Counted rather than merely handled, on the posture `droppedAfterDisposeCount`
+   * already takes: keeping the events is the correct response, but a drain that
+   * rejects a batch is a defect below this queue, and a count is how it becomes
+   * visible without an exception that would cost the clock's whole pass.
+   */
+  public get failedDrainCount(): number {
+    return this.#failedDrainCount;
   }
 
   /** Events waiting for the next drain. */
@@ -257,7 +292,15 @@ export class ApplyQueue {
     this.#arm();
   }
 
-  /** Drain now, synchronously. The teardown and test path. */
+  /**
+   * Drain now, synchronously. The teardown and test path.
+   *
+   * A batch is taken out of the buffer before the drain runs so a re-entrant
+   * enqueue lands behind it rather than inside it — and put BACK, in front of
+   * whatever arrived meanwhile, if the drain throws. Nothing is lost and nothing
+   * escapes: the retry rides the next enqueue rather than a re-arm here, so a
+   * drain that fails deterministically cannot spin a frame loop.
+   */
   public flush(): void {
     if (this.#armedHandle !== undefined) {
       this.#clock.cancel(this.#armedHandle);
@@ -268,8 +311,14 @@ export class ApplyQueue {
     }
     const batch = this.#buffer;
     this.#buffer = [];
-    this.#drainCount += 1;
-    this.#drain(batch);
+    try {
+      this.#drain(batch);
+      this.#drainCount += 1;
+    } catch (error) {
+      this.#buffer = [...batch, ...this.#buffer];
+      this.#failedDrainCount += 1;
+      this.#onDrainError?.(error);
+    }
   }
 
   /**

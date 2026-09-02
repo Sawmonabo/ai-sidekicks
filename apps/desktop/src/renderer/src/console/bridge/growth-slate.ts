@@ -21,6 +21,7 @@ export type GrowthSlateRowId =
   | "terminal-pane"
   | "dev-server-probe"
   | "session-lifecycle-verbs"
+  | "session-directory-read"
   | "daemon-control-methods"
   | "onboarding-methods"
   | "shell-config-preferences"
@@ -39,7 +40,12 @@ export type GrowthSlateRowId =
   | "approval-amendment-arm"
   | "session-search"
   | "window-control-namespace"
-  | "provider-session-import";
+  | "provider-session-import"
+  | "attention-plane"
+  | "workflow-run-control"
+  | "caller-participant-identity"
+  | "callback-tool-registry-read"
+  | "sidekick-definition-registry";
 
 export interface GrowthSlateRow {
   readonly id: GrowthSlateRowId;
@@ -109,6 +115,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     consumingSurface: "all-sessions list, workspace header",
     wireRegistered: false,
   },
+  "session-directory-read": {
+    id: "session-directory-read",
+    wire: "typed session snapshot read for a store's base state, and the participant's session directory read, over the daemon method union",
+    owningDocument:
+      "Spec-007 (the daemon method union); Spec-001 (the session.read payloads; no directory read is registered)",
+    consumingSurface: "session-store initialisation, all-sessions list, auxiliary context picker",
+    wireRegistered: false,
+  },
   "daemon-control-methods": {
     id: "daemon-control-methods",
     wire: "daemon status-read, stop, and restart method strings",
@@ -153,7 +167,7 @@ const GROWTH_SLATE_ROWS_BY_ID: {
   },
   "gitflow-actions": {
     id: "gitflow-actions",
-    wire: "the git action-execute vocabulary and the gitflow error namespace",
+    wire: "the branch-context read, the PR-preparation call, the git action-execute vocabulary, and the gitflow error namespace",
     owningDocument: "Spec-011",
     consumingSurface: "repos, diffs, and pull-request surfaces",
     wireRegistered: false,
@@ -240,6 +254,46 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "provider-session import ingest",
     owningDocument: "a new spec",
     consumingSurface: "import flow",
+    wireRegistered: false,
+  },
+  "attention-plane": {
+    id: "attention-plane",
+    wire: "the attention projection read and the notification preference pair, with the `AttentionItem` trigger and severity domains they carry",
+    owningDocument:
+      "Spec-019 §Interfaces And Contracts (the three operations); Plan-019 (the `packages/contracts/src/attention/` schemas, which no code package carries)",
+    consumingSurface: "notification centre, icon-rail attention marker",
+    wireRegistered: false,
+  },
+  "workflow-run-control": {
+    id: "workflow-run-control",
+    wire: "nine of the thirteen workflow method strings — the definition enumeration, the run start and read, the operator cancel and resume pair, the phase-output read, the gate resolve, the human-form submit, and the gate-chain verify — with the run, phase, definition, and output shapes they carry",
+    owningDocument:
+      "Spec-017 §Interfaces And Contracts (the definition, run, gate, phase-output, and human-form operations) + §Operator run control (SA-45) (the cancel and resume pair); Plan-017 (the shared-contracts and client-SDK registration, which no code package carries)",
+    consumingSurface: "workflow-run pane, workflow builder",
+    wireRegistered: false,
+  },
+  "caller-participant-identity": {
+    id: "caller-participant-identity",
+    wire: "the caller's own participant identity — which of a session's projected participants this window IS",
+    owningDocument:
+      "api-payload-contracts.md §Authenticated Principal And Authorization Model (the resolved principal's outbound disposition, which that section does not yet carry); Spec-018 §Interfaces And Contracts (the reply shape)",
+    consumingSurface: "members surface (invite create), approvals pane (the role-gated control)",
+    wireRegistered: false,
+  },
+  "callback-tool-registry-read": {
+    id: "callback-tool-registry-read",
+    wire: "a read of a session's registered callback-tool set, which rides only the spawn and resume parameters and has no read seam",
+    owningDocument:
+      "Spec-005 §Required Behavior (the session callback-tool registry); api-payload-contracts.md §Plan-005 — Provider Driver Contract (Internal Interface) (the SessionCallbackTool shape and the client-facing driver namespace a read verb would join)",
+    consumingSurface: "approvals pane",
+    wireRegistered: false,
+  },
+  "sidekick-definition-registry": {
+    id: "sidekick-definition-registry",
+    wire: "four of the five sidekick method strings — the definition list, create, update, and delete — with the saved-definition shape and the five definition-plane refusal codes they carry",
+    owningDocument:
+      "Spec-030 §Interfaces And Contracts; Plan-030 §API And Transport Changes (the shapes are registered in api-payload-contracts.md and the codes in error-contracts.md, and no code package carries either)",
+    consumingSurface: "sidekick-definitions page",
     wireRegistered: false,
   },
 };

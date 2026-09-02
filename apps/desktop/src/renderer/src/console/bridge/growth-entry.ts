@@ -70,6 +70,8 @@ export type GrowthOperationId =
   | "sessionArchive"
   | "sessionClose"
   | "sessionReactivate"
+  | "sessionRead"
+  | "sessionList"
   | "daemonStatusRead"
   | "daemonStop"
   | "daemonRestart"
@@ -97,7 +99,34 @@ export type GrowthOperationId =
   | "windowCloseAuxiliary"
   | "windowSubscribePaneErrors"
   | "providerSessionImportBegin"
-  | "providerSessionImportSubscribe";
+  | "providerSessionImportSubscribe"
+  | "attentionProjectionRead"
+  | "attentionPreferenceRead"
+  | "attentionPreferenceUpdate"
+  // workflow — in the registered method registry's own order, so a reader comparing
+  // the two reads them top to bottom. Each id is its wire method's tail with the
+  // root folded in, which `growth-operations.test.ts` holds every entry to.
+  | "workflowDefinitionList"
+  | "workflowRunStart"
+  | "workflowRunRead"
+  | "workflowRunCancel"
+  | "workflowRunResume"
+  | "workflowPhaseOutputRead"
+  | "workflowGateResolve"
+  | "workflowHumanFormSubmit"
+  | "workflowGateChainVerify"
+  // gitflow
+  | "gitflowBranchContextRead"
+  | "gitflowPrPrepare"
+  // identity, and the callback-tool registry the approvals pane reads
+  | "callerParticipantRead"
+  | "callbackToolRegistryRead"
+  // sidekick — the registry's own order; each id is its wire method's tail with the
+  // root folded in, which `growth-operations.test.ts` holds every entry to.
+  | "sidekickDefinitionList"
+  | "sidekickDefinitionCreate"
+  | "sidekickDefinitionUpdate"
+  | "sidekickDefinitionDelete";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

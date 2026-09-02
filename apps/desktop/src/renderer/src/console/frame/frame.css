@@ -25,6 +25,17 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* The shell's `inert` carrier while a modal overlay is open. See `AppFrame.tsx`.
+   `display: contents` for the same reason the boundary's remount carrier uses it:
+   the element exists to hold an attribute, and a box here would sit between the
+   frame's grid and the two children it places, so the rail would lose its 52px
+   track and the column its `minmax(0, 1fr)` one. Inertness is a property of the
+   node tree rather than of layout, so removing the box costs the attribute
+   nothing. */
+.meridian-frame__background {
+  display: contents;
+}
+
 .meridian-frame__column {
   display: flex;
   flex-direction: column;
@@ -234,7 +245,37 @@
   letter-spacing: -0.01em;
 }
 
-.meridian-context-picker__list {
+/* The session already chosen, shown while the second step asks for the agent, so
+   the window never asks about a subject it has not named. */
+.meridian-context-picker__subject {
+  margin: 0 0 var(--meridian-space-4);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-context-picker__back {
+  margin-top: var(--meridian-space-4);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-context-picker__back:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- Open-session list -------------------------------------------------- */
+
+/* One list, three surfaces: the sessions destination offers sessions to open in
+   place, and the auxiliary picker asks first which session a window should follow
+   and then which agent inside it. All three render the identical row, so the row
+   is styled once. */
+
+.meridian-choice-list {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -243,7 +284,7 @@
   list-style: none;
 }
 
-.meridian-context-picker__choice {
+.meridian-choice-list__choice {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
@@ -259,21 +300,11 @@
   transition: border-color var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
-.meridian-context-picker__choice:hover {
+.meridian-choice-list__choice:hover {
   border-color: var(--meridian-edge-strong);
 }
 
-.meridian-context-picker__choice:focus-visible {
+.meridian-choice-list__choice:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
-}
-
-.meridian-context-picker__title {
-  font-weight: 600;
-}
-
-.meridian-context-picker__detail {
-  font-family: var(--meridian-font-mono);
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
 }

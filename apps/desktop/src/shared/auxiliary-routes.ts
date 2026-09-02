@@ -288,3 +288,53 @@ export function parseAuxiliaryFragment(fragment: string): AuxiliaryRouteTarget |
     }
   }
 }
+
+/**
+ * The context a surface has collected so far, on its way to a target.
+ *
+ * Every key optional and none of them meaning "this route does not take one":
+ * a caller collects what it can and asks {@link auxiliaryRouteTargetFor} whether
+ * that is yet enough, rather than deciding for itself which route wants what.
+ */
+export interface PartialAuxiliaryContext {
+  readonly sessionId?: string;
+  readonly agentId?: string;
+}
+
+/**
+ * The target for `route` given the context collected so far, or `null` when that
+ * route's grammar still wants a key the caller has not supplied.
+ *
+ * The PRODUCER counterpart of {@link parseAuxiliaryFragment}, beside it for the
+ * reason that function gives: two sides of one grammar in two files drift, and
+ * the drift is invisible. Same per-arm construction and the same `never`
+ * fallthrough, because building a member of a discriminated union is the one step
+ * that genuinely needs per-route code — and because `null` for "not yet complete"
+ * is what lets a surface that collects context in steps stay on itself instead of
+ * navigating to something {@link formatAuxiliaryFragment} will refuse by throwing.
+ *
+ * `null` is not a refusal. A target that is complete but malformed — an empty id,
+ * a key the route does not take — is still the producer's business, and it is
+ * still refused there, loudly.
+ */
+export function auxiliaryRouteTargetFor(
+  route: AuxiliaryRouteName,
+  context: PartialAuxiliaryContext,
+): AuxiliaryRouteTarget | null {
+  switch (route) {
+    case "timeline": {
+      const { sessionId } = context;
+      return sessionId === undefined ? null : { route, sessionId };
+    }
+    case "agent-console": {
+      const { sessionId, agentId } = context;
+      return sessionId === undefined || agentId === undefined
+        ? null
+        : { route, sessionId, agentId };
+    }
+    default: {
+      const unhandled: never = route;
+      return unhandled;
+    }
+  }
+}
