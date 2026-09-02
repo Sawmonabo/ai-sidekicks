@@ -275,9 +275,17 @@ export class RunListProjection {
     return this.#rows;
   }
 
-  /** How many runs hold at least one parked phase. The list header's own reading. */
+  /**
+   * How many runs the list is showing in its parked band. The header's own reading.
+   *
+   * Counted off the BAND rather than off the parked phases, because the band is the
+   * one derivation and the two do not agree: an older daemon emits none of the four
+   * park members, so a `suspended` run lands in the parked band with no parked phase
+   * on it. Counting phases reported no parked runs while drawing one under the
+   * heading that says there are none.
+   */
   public get parkedRunCount(): number {
-    return this.#rows.filter((row) => row.parkedPhases.length > 0).length;
+    return this.#rows.filter((row) => row.attentionBand === "parked").length;
   }
 
   /** How many runs are pinned to a version their definition has moved past. */

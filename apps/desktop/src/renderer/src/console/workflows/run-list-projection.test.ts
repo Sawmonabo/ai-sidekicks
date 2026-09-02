@@ -189,6 +189,29 @@ describe("what a row reads off its parks", () => {
     ]);
     expect(projection.parkedRunCount).toBe(1);
   });
+
+  it("counts a suspended run with no park members, which the band already shows", () => {
+    // An older daemon emits none of the four live park members, so this run has no
+    // parked phase and still bands `parked` on its status alone. Counting phases
+    // reported nothing parked while the list drew this row under the parked heading;
+    // the count and the band are one derivation now.
+    const projection = new RunListProjection([
+      run({ workflowRunId: "run-suspended", state: "suspended", phaseStates: [phase()] }),
+    ]);
+    expect(projection.rows[0]?.attentionBand).toBe("parked");
+    expect(projection.rows[0]?.parkedPhases).toStrictEqual([]);
+    expect(projection.parkedRunCount).toBe(1);
+  });
+
+  it("negative control: a settled run with no parks is counted by neither reading", () => {
+    // Without this the case above would pass over a count that answered `rows.length`
+    // — which agrees with the band on a one-run list and on nothing else.
+    const projection = new RunListProjection([
+      run({ workflowRunId: "run-done", state: "completed", phaseStates: [phase()] }),
+      run({ workflowRunId: "run-suspended", state: "suspended", phaseStates: [phase()] }),
+    ]);
+    expect(projection.parkedRunCount).toBe(1);
+  });
 });
 
 describe("an instant the console cannot read", () => {
