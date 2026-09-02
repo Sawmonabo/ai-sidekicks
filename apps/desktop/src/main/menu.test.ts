@@ -181,15 +181,18 @@ describe("the application menu", () => {
     ]);
   });
 
-  // Phase 1B's own contract, asserted against the REAL module rather than the
-  // fixture: this phase ships the main-process half only, so no route is
-  // implemented. Phase 1C's route bodies are what flip this.
-  it("implements no auxiliary route at Phase 1B", async () => {
+  // The build's own contract, asserted against the REAL module rather than the
+  // fixture. Phase 1B shipped the main-process half only and implemented no
+  // route; a Phase-1C route body is what adds one, and `timeline` is the first —
+  // the console's ledger family claims that surface slot, so `#/window/timeline`
+  // resolves to a rendered pane. `agent-console` is still absent because its body
+  // has not landed, which is the claim that makes this assertion worth having.
+  it("implements exactly the auxiliary routes whose bodies have landed", async () => {
     const actual = await vi.importActual<typeof import("../shared/auxiliary-routes.js")>(
       "../shared/auxiliary-routes.js",
     );
 
-    expect(actual.IMPLEMENTED_AUXILIARY_ROUTES).toEqual([]);
+    expect(actual.IMPLEMENTED_AUXILIARY_ROUTES).toEqual(["timeline"]);
     // ...while the closed set itself is unchanged: "implemented" is a claim
     // about this build, not about which routes exist.
     expect(actual.AUXILIARY_ROUTE_NAMES).toEqual(["timeline", "agent-console"]);

@@ -1,0 +1,261 @@
+/* The workspace family's styles — the session shell, the cast bar, and the deck.
+ *
+ * Imported from `workspace/index.ts` and nowhere else, so the sheet lands once per
+ * bundle and its rules cascade after the primitives' and the frame's.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale,
+ * so the family follows the scheme attribute with no conditional in JSX and its
+ * rhythm is a decision made once in `tokens/palette.ts`.
+ */
+
+/* --- The session shell -------------------------------------------------- */
+
+/*
+ * Three rows: the cast bar, the deck, and the composer's seat. The deck is the
+ * only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
+ * the things that scroll rather than pushing the composer off the bottom.
+ */
+.meridian-workspace {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 100%;
+  background: var(--meridian-ground);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+}
+
+.meridian-workspace__composer {
+  border-top: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+}
+
+/* --- The cast bar ------------------------------------------------------- */
+
+/*
+ * One line, and it stays one line: the members list scrolls sideways rather than
+ * wrapping, because a cast bar that grows to two rows moves the deck under a
+ * person's cursor every time somebody joins.
+ */
+.meridian-cast-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-cast-bar__identity {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 0 0 auto;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-cast-bar__members {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+
+.meridian-cast-bar__all-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  /* Right-aligned, per §4.1: the all-clear line is the last thing on the bar and
+   * the one a person's eye should be able to find without reading the rest. */
+  margin-inline-start: auto;
+  flex: 0 0 auto;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-cast-bar__all-clear-line {
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-cast-bar__fold {
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* --- One participant chip ----------------------------------------------- */
+
+/*
+ * `--meridian-cast-hue` is set per chip from the participant's wheel step. It is
+ * read only by the ring below: the hue answers "who" and never "how urgent", so
+ * nothing here uses an attention colour and the ring never changes with state.
+ *
+ * The ring TREATMENT carries the wrap lap (`data-ring`), which is what tells two
+ * participants who share a step apart past twelve — rule 2's own answer, and the
+ * reason the chip does not dim or brighten a repeated hue.
+ */
+.meridian-cast-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  max-width: 22ch;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-cast-hue);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-cast-chip:hover {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-cast-chip:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-cast-chip[data-ring="dashed"] {
+  border-inline-start-style: dashed;
+}
+
+.meridian-cast-chip[data-ring="double"] {
+  border-inline-start-style: double;
+}
+
+.meridian-cast-chip[data-ring="dotted"] {
+  border-inline-start-style: dotted;
+}
+
+.meridian-cast-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The verb truncates to one clause in CSS rather than in JavaScript: a wire-derived
+ * string put through a transformation would break the figure rules, and an ellipsis
+ * the browser draws is not a change to the value.
+ */
+.meridian-cast-chip__verb {
+  overflow: hidden;
+  max-width: 14ch;
+  color: var(--meridian-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* A frozen verb reads as frozen: the projection is known-incomplete and says so. */
+.meridian-cast-chip__verb[data-stale="true"] {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+}
+
+/* --- The deck ----------------------------------------------------------- */
+
+.meridian-deck {
+  display: flex;
+  align-items: stretch;
+  min-width: 0;
+  min-height: 0;
+  overflow-x: auto;
+}
+
+.meridian-deck__refusals {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+}
+
+/*
+ * One pane's frame. `flex-grow` carries the pane's permille share and `min-width`
+ * carries the density preset's floor, so the two halves of the layout maths meet
+ * in the layout engine rather than in a resize listener.
+ */
+.meridian-deck__pane {
+  display: flex;
+  flex-direction: column;
+  flex-basis: 0;
+  min-width: 0;
+  min-height: 0;
+  border-inline-start: 1px solid transparent;
+}
+
+.meridian-deck__pane:first-child {
+  border-inline-start-color: transparent;
+}
+
+/*
+ * The focused pane is marked on its own edge rather than by dimming its
+ * neighbours: a deck where the unfocused panes fade reads as a deck where they
+ * have stopped working.
+ */
+.meridian-deck__pane[data-focused="true"] {
+  border-inline-start-color: var(--meridian-accent);
+}
+
+/*
+ * The separator is a real widget: focusable, arrow-operable, and wide enough to
+ * hit. It is drawn as a hairline and hit as a bar — the padding is the target and
+ * the background is the line.
+ */
+.meridian-deck__separator {
+  flex: 0 0 auto;
+  width: var(--meridian-space-2);
+  border: 0;
+  background: linear-gradient(
+    to right,
+    transparent 40%,
+    var(--meridian-edge) 40% 60%,
+    transparent 60%
+  );
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.meridian-deck__separator:hover,
+.meridian-deck__separator:focus-visible {
+  background: linear-gradient(
+    to right,
+    transparent 30%,
+    var(--meridian-accent) 30% 70%,
+    transparent 70%
+  );
+}
+
+.meridian-deck__separator:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* --- Density presets ---------------------------------------------------- */
+
+/*
+ * The preset decides a minimum WIDTH, which the pane carries inline because the
+ * number comes from `density.ts`. What lives here is the rhythm that goes with it:
+ * a tighter deck sets its chrome tighter, so the extra pane a person bought is
+ * spent on content rather than on padding.
+ */
+.meridian-deck[data-density="comfortable"] .meridian-pane__header {
+  padding-block: var(--meridian-space-3);
+}
+
+.meridian-deck[data-density="compact"] .meridian-pane__header {
+  padding-block: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+}

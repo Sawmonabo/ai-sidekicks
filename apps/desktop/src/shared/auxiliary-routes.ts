@@ -55,20 +55,25 @@ export const AUXILIARY_ROUTE_LABELS: Record<AuxiliaryRouteName, string> = {
 /**
  * The routes this build actually implements, in presentation order.
  *
- * EMPTY at Phase 1B: that phase ships the main-process half only, and an entry
- * that opened `#/window/timeline` before Phase 1C's route body existed would
- * open a hardened window onto a hash route with nothing behind it — a blank
- * frame the user has to close, offered by a menu that claimed it did something.
- * That is the capability-claimed-but-not-implemented shape
+ * It was EMPTY at Phase 1B: that phase shipped the main-process half only, and an
+ * entry that opened `#/window/timeline` before Phase 1C's route body existed
+ * would have opened a hardened window onto a hash route with nothing behind it —
+ * a blank frame the user has to close, offered by a menu that claimed it did
+ * something. That is the capability-claimed-but-not-implemented shape
  * `Spec-023 §Console Design (Meridian)` §Copy forbids, and the same
  * absent-not-disabled rule that keeps Plan-026's `Session` entries out of the
  * menu until its walkthrough host exists.
+ *
+ * `timeline` joins it in the same commit as its route body: the console's ledger
+ * family claims the `timeline` surface slot, so `#/window/timeline` now resolves
+ * to a rendered pane rather than to nothing. `agent-console` is still absent for
+ * the reason above — its route body has not landed.
  *
  * Order here IS the menu's order. An array rather than a `Set` because a `Set`'s
  * iteration order is its insertion order, which would make the menu's order an
  * accident.
  */
-export const IMPLEMENTED_AUXILIARY_ROUTES: readonly AuxiliaryRouteName[] = [];
+export const IMPLEMENTED_AUXILIARY_ROUTES: readonly AuxiliaryRouteName[] = ["timeline"];
 
 /**
  * Whether `value` names a route in the closed set.

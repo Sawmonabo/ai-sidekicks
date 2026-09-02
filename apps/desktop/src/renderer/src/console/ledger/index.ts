@@ -22,12 +22,14 @@
 // the same reason. `surface-registry.ts` imports nothing above `bridge/`, so this
 // edge stays a strict descent through the DAG.
 //
-// THE TWO SLOTS. `workspace` is the session's own surface and `timeline` is the
-// full-screen ledger window (`Spec-023 §Console Design (Meridian)` §5.20: "the same
-// pane at full width with the rail, replay, and find, and no composer"). Both mount
-// the same pane today, which is the design's own empty deck state — "no panes: the
-// workspace shows the ledger alone, full width". The rail, replay, find, and the
-// composer's absence arrive with the lanes that author them.
+// THE TWO SLOTS, AND WHY THEY NO LONGER MOUNT THE SAME THING. `workspace` is the
+// session's own surface: the cast bar, the deck, and the composer's seat, which is
+// `workspace/Workspace.tsx`. `timeline` is the full-screen ledger WINDOW
+// (`Spec-023 §Console Design (Meridian)` §5.20: "the same pane at full width with
+// the rail, replay, and find, and no composer"), so it mounts the pane alone —
+// no deck around it, because an auxiliary window holds one pane by definition
+// (§4.5), and no composer, because that spec sentence says so in terms. The rail,
+// replay, and find arrive with the lanes that author them.
 
 import { createElement, type ReactNode } from "react";
 
@@ -38,7 +40,7 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../frame/surface-registry.js";
 import { Nothing } from "../primitives/index.js";
-import { consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
+import { Workspace, consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
 
 import "./ledger.css";
 
@@ -66,8 +68,8 @@ const LEDGER_SURFACE_OWNER = "ledger";
 const LEDGER_PANE_ID = "ledger-timeline";
 
 const LEDGER_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
-  { slot: "workspace", owner: LEDGER_SURFACE_OWNER, render: mountLedgerDeck },
-  { slot: "timeline", owner: LEDGER_SURFACE_OWNER, render: mountLedgerDeck },
+  { slot: "workspace", owner: LEDGER_SURFACE_OWNER, render: mountWorkspace },
+  { slot: "timeline", owner: LEDGER_SURFACE_OWNER, render: mountLedgerPane },
 ];
 
 /**
@@ -84,7 +86,28 @@ export function registerLedger(registry: ConsoleSurfaceRegistry): void {
 }
 
 /**
- * Mount the ledger through the deck's own door.
+ * Mount the session workspace: the cast bar, the deck, and the composer's seat.
+ *
+ * The wrapper keeps the surface's full-height grid, which is what lets the deck
+ * inside it be the thing that scrolls rather than the window.
+ */
+function mountWorkspace(context: ConsoleSurfaceContext): ReactNode {
+  return createElement(
+    "div",
+    { className: "meridian-ledger-surface" },
+    createElement(Workspace, {
+      bridge: context.bridge,
+      frameStore: context.frameStore,
+      sessionStore: context.sessionStore,
+      uiStateStore: context.uiStateStore,
+      draftStore: context.draftStore,
+      route: context.route,
+    }),
+  );
+}
+
+/**
+ * Mount the ledger's pane alone, through the deck's own door.
  *
  * The pane body is resolved from the pane registry rather than imported, which is
  * `Spec-023 §Console Design (Meridian)` §4.2's "one entity, one pane … a single
@@ -96,7 +119,7 @@ export function registerLedger(registry: ConsoleSurfaceRegistry): void {
  * board is composed at module scope before any window renders, so a descriptor is
  * there to be looked up on the first pass.
  */
-function mountLedgerDeck(context: ConsoleSurfaceContext): ReactNode {
+function mountLedgerPane(context: ConsoleSurfaceContext): ReactNode {
   const descriptor = consolePaneRegistry.descriptorFor("timeline");
   if (descriptor === undefined) {
     // Reserved, not stubbed. Unreachable while the pane seat board composes this

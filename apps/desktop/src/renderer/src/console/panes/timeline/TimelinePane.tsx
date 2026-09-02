@@ -14,23 +14,29 @@
 //
 // WHY THE TWO CONTROLS ARE HOST-SUPPLIED AND ABSENT WITHOUT A HOST. Closing a pane
 // and tearing one off into a window are both the DECK's acts — it owns which panes
-// exist and in what window — and the deck has not shipped. The honest rendering of a
-// control whose act nobody can perform is to leave it out, not to draw it disabled:
-// that is the same absent-not-disabled rule `src/shared/auxiliary-routes.ts` applies
-// to the Window menu, and it is why neither handler is defaulted to a no-op. The
-// mount in `index.ts` supplies neither today; the deck supplies both.
+// exist and in what window. The honest rendering of a control whose act nobody can
+// perform is to leave it out, not to draw it disabled: that is the same
+// absent-not-disabled rule `src/shared/auxiliary-routes.ts` applies to the Window
+// menu, and it is why neither handler is defaulted to a no-op. Inside the deck the
+// acts arrive through `workspace/deck/pane-controls.ts`; outside it — the auxiliary
+// timeline window, the full-width surface — no host is mounted and no control
+// renders. Explicit props still win, for a host that owns this pane's lifetime and
+// is not a deck.
 //
-// The header is a `<header>` inside a `<section>` named by the pane's own heading, so
-// a screen reader walking the window hears which pane it entered before it hears the
-// log inside it.
+// THE HEADER ITSELF IS `workspace/deck/PaneHeader.tsx` AND NOT THIS FILE'S. Eleven
+// pane kinds across six view families want the same strip, and written per family it
+// is six breadcrumbs and six sets of accessible names that agree until one of them
+// ships. What this pane supplies is what genuinely differs: its kind, its name, and
+// the heading id its own `<section>` points at.
 
 import { useId } from "react";
 
-import { Glyph, Nothing, WireFigure } from "../../primitives/index.js";
+import { Nothing } from "../../primitives/index.js";
 import { routeSessionId } from "../../routing/index.js";
 import { useFrameStore } from "../../store/index.js";
 import { tokenReference } from "../../tokens/index.js";
 import {
+  PaneHeader,
   timelineRowRenderer,
   type ConsolePaneContext,
   type OwnerSlotContract,
@@ -67,9 +73,6 @@ export interface TimelinePaneProps {
   readonly onOpenInWindow?: () => void;
 }
 
-const PANE_CONTROL_GLYPH_SIZE = 14;
-const PANE_KIND_GLYPH_SIZE = 16;
-
 export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
   const headingId = useId();
   const { context } = props;
@@ -89,80 +92,17 @@ export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
       style={focusStyle}
       aria-labelledby={headingId}
     >
-      <header className="meridian-pane__header">
-        <span className="meridian-pane__kind">
-          <Glyph name="timeline" size={PANE_KIND_GLYPH_SIZE} />
-          <span className="meridian-pane__heading" id={headingId}>
-            Timeline
-          </span>
-        </span>
-        <PaneBreadcrumb sessionId={routeSessionId(route)} entity={context.entity} />
-        <span className="meridian-pane__controls">
-          {props.onOpenInWindow === undefined ? null : (
-            <button
-              type="button"
-              className="meridian-pane__control"
-              onClick={props.onOpenInWindow}
-              aria-label="Open this timeline in its own window"
-            >
-              <Glyph name="external" size={PANE_CONTROL_GLYPH_SIZE} />
-            </button>
-          )}
-          {props.onClose === undefined ? null : (
-            <button
-              type="button"
-              className="meridian-pane__control"
-              onClick={props.onClose}
-              aria-label="Close this pane"
-            >
-              <Glyph name="close" size={PANE_CONTROL_GLYPH_SIZE} />
-            </button>
-          )}
-        </span>
-      </header>
+      <PaneHeader
+        kind="timeline"
+        title="Timeline"
+        headingId={headingId}
+        sessionId={routeSessionId(route)}
+        entity={context.entity}
+        {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
+        {...(props.onOpenInWindow === undefined ? {} : { onOpenInWindow: props.onOpenInWindow })}
+      />
       <TimelineRowHost contract={TIMELINE_ROW_SLOT} body={timelineRowRenderer()} />
     </section>
-  );
-}
-
-interface PaneBreadcrumbProps {
-  readonly sessionId: string | undefined;
-  readonly entity: ConsolePaneContext["entity"];
-}
-
-/**
- * Session › channel › run › entity, as far as the pane's address reaches.
- *
- * Every crumb is a wire string and wears the provenance signature that says so
- * (rule 4), through the one module allowed to format one. A crumb the address does
- * not carry is left out rather than rendered as a placeholder — the breadcrumb
- * describes where this pane is, and an em dash standing in for a channel would say
- * the pane is scoped to a channel it has not got.
- */
-function PaneBreadcrumb(props: PaneBreadcrumbProps): React.JSX.Element {
-  const crumbs: readonly string[] = [
-    ...(props.sessionId === undefined ? [] : [props.sessionId]),
-    ...(props.entity === undefined ? [] : [props.entity.id]),
-  ];
-  if (crumbs.length === 0) {
-    // Reachable: the auxiliary timeline window opens on a bare route and the frame
-    // resolves its subject through the context picker. Saying so beats an empty
-    // strip that reads as a breadcrumb that failed to render.
-    return (
-      <nav className="meridian-pane__breadcrumb" aria-label="Pane context">
-        <span className="meridian-pane__crumb-absent">No session</span>
-      </nav>
-    );
-  }
-  return (
-    <nav className="meridian-pane__breadcrumb" aria-label="Pane context">
-      {crumbs.map((crumb, position) => (
-        <span className="meridian-pane__crumb" key={crumb}>
-          {position === 0 ? null : <Glyph name="chevron-right" size={PANE_CONTROL_GLYPH_SIZE} />}
-          <WireFigure value={crumb} />
-        </span>
-      ))}
-    </nav>
   );
 }
 

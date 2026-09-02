@@ -44,11 +44,9 @@ export const PANE_KINDS = [
   "agent-console",
 ] as const;
 
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
 /** One pane kind. Derived from the enumeration, never restated. */
 export type PaneKind = (typeof PANE_KINDS)[number];
 
-// Consumed by T-023p-1C-2
 /**
  * Whether an arbitrary value names a pane kind.
  *
