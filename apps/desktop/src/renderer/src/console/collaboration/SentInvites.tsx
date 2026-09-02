@@ -33,7 +33,12 @@
 //
 // REVOKE IS DRAWN, because both of its inputs exist: the session comes from the
 // store this section is scoped to, and the invite id is on the served row. It is
-// offered on every pending row and the daemon's refusal renders in place.
+// offered on every pending row and the daemon's refusal renders in place — and when
+// it SETTLES, the reply moves the row. `invite.revoke` answers `{inviteId, state}`,
+// which is the row itself, so the ledger consumes that projection rather than
+// re-reading `invitesList`: a row left saying "pending" beside a re-enabled Revoke
+// control would be this surface contradicting the answer it just received.
+// `invite-ledger.ts` owns the fold and says why no second read is put.
 //
 // REVOCATION IS SILENT AND THE SENDER IS TOLD SO (`Spec-002 §Invite Revocation`).
 // There is no decline column either — `InviteState` is exactly
@@ -69,6 +74,13 @@ import {
 } from "../primitives/index.js";
 import { SETTLED_INVITE_VISIBLE_CAP } from "./constants.js";
 import {
+  partitionInvites,
+  withSettledInvite,
+  type InviteLedger,
+  type InvitesListOutcome,
+  type SentInvite,
+} from "./invite-ledger.js";
+import {
   WireMutationCoordinator,
   daemonMutation,
   useWireMutation,
@@ -77,39 +89,10 @@ import {
 /** The wire method the revoke control calls, through the daemon gateway. */
 const INVITE_REVOKE_METHOD = "invite.revoke";
 
-/**
- * What one `invitesList` call answers.
- *
- * Derived off the port rather than restated, for the received shelf's reason: the
- * bridge door exports the bridge and not the port's vocabulary, and a hand-written
- * copy of an outcome shape is a second declaration nothing checks against the
- * first.
- */
-type InvitesListOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["invitesList"]>>;
-
-/** One sent invitation as the port serves it. */
-export type SentInvite = Extract<
-  InvitesListOutcome,
-  { readonly status: "served" }
->["value"][number];
-
 export interface SentInvitesProps {
   readonly bridge: ConsoleBridge;
   /** The session whose invites these are. `undefined` means nothing was asked. */
   readonly sessionId: string | undefined;
-}
-
-/** Pending first, then everything that has already settled. */
-interface InviteLedger {
-  readonly pending: readonly SentInvite[];
-  readonly settled: readonly SentInvite[];
-}
-
-function partitionInvites(invites: readonly SentInvite[]): InviteLedger {
-  return {
-    pending: invites.filter((invite) => invite.state === "pending"),
-    settled: invites.filter((invite) => invite.state !== "pending"),
-  };
 }
 
 export function SentInvites(props: SentInvitesProps): React.JSX.Element {
@@ -171,14 +154,23 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
           if (sessionId === undefined) {
             return;
           }
-          void revokeCoordinator.run(inviteId, {
-            // The two brands are compile-time nominal typing over plain strings and
-            // the narrowing happens at this one seam, per `frame/legacy-surfaces.ts`:
-            // whether either id names a live row is the daemon's answer, and this
-            // surface renders that answer verbatim.
-            sessionId: sessionId as SessionId,
-            inviteId: inviteId as InviteId,
-          });
+          void revokeCoordinator
+            .run(inviteId, {
+              // The two brands are compile-time nominal typing over plain strings and
+              // the narrowing happens at this one seam, per `frame/legacy-surfaces.ts`:
+              // whether either id names a live row is the daemon's answer, and this
+              // surface renders that answer verbatim.
+              sessionId: sessionId as SessionId,
+              inviteId: inviteId as InviteId,
+            })
+            .then((settlement) => {
+              // `undefined` is the refused arm, and its reason is already on the
+              // coordinator's snapshot beside the control that asked. Nothing moves.
+              if (settlement === undefined) {
+                return;
+              }
+              setOutcome((held) => withSettledInvite(held, settlement));
+            });
         }}
         onDismissRefusal={(inviteId) => {
           revokeCoordinator.dismiss(inviteId);

@@ -101,6 +101,8 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
       () => attentionProjectionReaderFor(context.bridge.growth, attentionSessionIds),
       [context.bridge.growth, attentionSessionIds],
     ),
+    context.bridge,
+    context.sessionStoreRegistry,
   );
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.

@@ -1,6 +1,6 @@
 // The sidebar's members section: the presence roster's mount.
 //
-// It resolves this session's models from the family's holder, subscribes to the
+// It leases this session's models from the family's holder, subscribes to the
 // presence read, orders the rows against the session's hue wheel, and hands
 // `Roster` plain values. Ordering happens here rather than inside the roster so the
 // roster stays a pure render and the ordering rule stays drivable on its own.
@@ -12,15 +12,24 @@
 // arrived. Each reads its own source — presence from the wire, memberships from
 // the session's own projection, invitations from the growth port — so a body that
 // cannot be read is one absence and not three.
+//
+// THE MODELS ARE NOT ACQUIRED IN THIS RENDER, for `ChannelsSection`'s reason: the
+// lease is taken in a mount effect, and the one frame before it lands renders as the
+// `not-loaded` kind of nothing rather than as an empty room.
 
 import { useMemo } from "react";
 
 import type { SidebarSectionContext } from "../workspace/seats/index.js";
+import { Nothing } from "../primitives/index.js";
 import { Memberships } from "./Memberships.js";
 import { usePushDrivenRead } from "./push-driven-read.js";
 import { rosterRowsFrom } from "./presence-model.js";
 import { Roster } from "./Roster.js";
-import type { CollaborationSessionModelHolder } from "./session-models.js";
+import {
+  useSessionModels,
+  type CollaborationSessionModelHolder,
+  type CollaborationSessionModels,
+} from "./session-models.js";
 
 export interface MembersSectionProps {
   readonly context: SidebarSectionContext;
@@ -37,10 +46,27 @@ export interface MembersSectionProps {
 
 export function MembersSection(props: MembersSectionProps): React.JSX.Element {
   const { context, holder, selfParticipantId } = props;
-  const models = useMemo(
-    () => holder.modelsFor(context.bridge, context.sessionStore),
-    [holder, context.bridge, context.sessionStore],
+  const models = useSessionModels(holder, context.bridge, context.sessionStore);
+  if (models === undefined) {
+    return <Nothing kind="not-loaded" placement="surface" title="Opening this session's room." />;
+  }
+  return (
+    <MembersSectionBody context={context} models={models} selfParticipantId={selfParticipantId} />
   );
+}
+
+/**
+ * The three bodies, mounted only once the models exist.
+ *
+ * A separate component for `ChannelsSection`'s reason: the presence read has to be
+ * subscribed to through a hook, and a hook cannot be called conditionally.
+ */
+function MembersSectionBody(props: {
+  readonly context: SidebarSectionContext;
+  readonly models: CollaborationSessionModels;
+  readonly selfParticipantId: string | undefined;
+}): React.JSX.Element {
+  const { context, models, selfParticipantId } = props;
   const state = usePushDrivenRead(models.presenceRoster);
   const hueAllocator = context.sessionStore.hueAllocator;
 

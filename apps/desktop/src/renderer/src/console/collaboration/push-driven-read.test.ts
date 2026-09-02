@@ -8,7 +8,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ConsoleRefusalError, ManualClock, refuse } from "../core/index.js";
-import { PushDrivenRead } from "./push-driven-read.js";
+import { PUSH_DRIVEN_READ_FAILURE_CODES, PushDrivenRead } from "./push-driven-read.js";
 
 /** Let the scheduler's in-flight promise settle without advancing the clock. */
 async function settle(): Promise<void> {
@@ -200,5 +200,106 @@ describe("push-driven read — teardown is terminal", () => {
     clock.advance(200);
     await settle();
     expect(read).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("push-driven read — a subscription that cannot be opened", () => {
+  it("names the two failure codes it mints and no third", () => {
+    // The read arm and the subscribe arm are acted on differently, so the set is
+    // asserted by name rather than described.
+    expect([...PUSH_DRIVEN_READ_FAILURE_CODES]).toStrictEqual(["read-failed", "subscribe-failed"]);
+  });
+
+  it("settles failed with the thrower's own words when subscribe throws synchronously", async () => {
+    const clock = new ManualClock();
+    const read = vi.fn(async () => "value");
+    // The installed Tier-1 preload bridge throws exactly this way from every daemon
+    // method, and the presence roster's subscribe is that call.
+    const model = new PushDrivenRead<string>({
+      clock,
+      origin: "presence-roster",
+      read,
+      subscribe: () => {
+        throw new Error("daemon.subscribe is not available in this build");
+      },
+    });
+
+    model.start();
+    clock.advance(5000);
+    await settle();
+
+    expect(model.state).toStrictEqual({
+      kind: "failed",
+      refusal: {
+        code: "subscribe-failed",
+        detail: "daemon.subscribe is not available in this build",
+        origin: "presence-roster",
+      },
+    });
+    // No read behind a subscription that never opened, and no timer left armed for
+    // one — a value fetched here could never be refreshed.
+    expect(read).not.toHaveBeenCalled();
+    expect(model.isSubscribed).toBe(false);
+    expect(clock.pendingCount).toBe(0);
+  });
+
+  it("keeps the daemon's own refusal when the subscribe seam raises one", async () => {
+    const clock = new ManualClock();
+    const model = new PushDrivenRead<string>({
+      clock,
+      origin: "presence-roster",
+      read: async () => "value",
+      subscribe: () => {
+        throw new ConsoleRefusalError(
+          refuse("daemon", "session.not_found", "That session is not open here."),
+        );
+      },
+    });
+
+    model.start();
+    await settle();
+
+    expect(model.state).toStrictEqual({
+      kind: "failed",
+      refusal: {
+        code: "session.not_found",
+        detail: "That session is not open here.",
+        origin: "daemon",
+      },
+    });
+  });
+
+  it("stays disposable after a refused subscription, and disposal stays idempotent", async () => {
+    const clock = new ManualClock();
+    const model = new PushDrivenRead<string>({
+      clock,
+      origin: "presence-roster",
+      read: async () => "value",
+      subscribe: () => {
+        throw new Error("daemon.subscribe is not available in this build");
+      },
+    });
+
+    model.start();
+    model.dispose();
+    model.dispose();
+    model.refresh("reconnect");
+    clock.advance(5000);
+    await settle();
+
+    expect(model.state.kind).toBe("failed");
+    expect(clock.pendingCount).toBe(0);
+  });
+
+  it("negative control: a subscribe that returns instead of throwing reads normally", async () => {
+    // Without this, the cases above would pass over a `start()` that had stopped
+    // reading altogether.
+    const clock = new ManualClock();
+    const harness = buildRead({ clock, read: async () => "value" });
+    harness.model.start();
+    clock.advance(200);
+    await settle();
+    expect(harness.model.state).toStrictEqual({ kind: "loaded", value: "value" });
+    expect(harness.model.isSubscribed).toBe(true);
   });
 });

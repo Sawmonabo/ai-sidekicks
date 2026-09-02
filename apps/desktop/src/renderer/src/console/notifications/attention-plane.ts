@@ -22,6 +22,9 @@
 // than an empty projection, because "we did not ask" and "there is none" are
 // different facts and an empty array asserts the second.
 //
+// WHEN that seam is read, and what re-reads it, is `attention-read.ts` next door:
+// this module owns the vocabulary and the fold, and holds no lifetime at all.
+//
 // THE SHAPES HERE ARE RENDERER-LOCAL PROJECTION CONTRACTS, not wire types — the
 // posture `store/entities.ts` sets for `ConsoleSessionEvent`, and for its reason:
 // the payload arriving from any reader is `unknown` until the contracts package
@@ -31,8 +34,7 @@
 // coerced, because an unknown trigger rendered as a known one is the console
 // asserting a fact the daemon never sent.
 
-import { useEffect, useMemo, useState } from "react";
-
+import type { ConsoleRefusal } from "../core/index.js";
 import {
   ATTENTION_SEVERITIES,
   ATTENTION_TRIGGERS,
@@ -277,66 +279,20 @@ function groupBySession(items: readonly AttentionItem[]): readonly AttentionSess
 /**
  * What one projection read produced, as a value a view narrows on.
  *
- * Three phases and not two: a read in flight, a read that was never put, and a
- * read that answered. Collapsing the middle one into the last would let the
- * all-clear line stand for a question nobody asked, which is exactly the
- * conflation the five kinds of nothing exist to prevent.
+ * Four phases and not two: a read in flight, a read that was never put, a read that
+ * answered, and a read that FAILED. Collapsing the second into the third would let
+ * the all-clear line stand for a question nobody asked, which is exactly the
+ * conflation the five kinds of nothing exist to prevent — and collapsing the fourth
+ * into the second would report a reader that broke as a reader that was never asked,
+ * which is the same conflation from the other side.
  */
 export type AttentionReading =
   | { readonly phase: "reading" }
   | { readonly phase: "not-asked" }
+  | { readonly phase: "refused"; readonly refusal: ConsoleRefusal }
   | {
       readonly phase: "read";
       readonly plane: AttentionPlane;
       /** Members the boundary refused. A fact about the reader, not about attention. */
       readonly droppedCount: number;
     };
-
-/**
- * Perform the projection read once and hold its result.
- *
- * ONE read for the whole destination. The notification center renders it and the
- * all-sessions list takes each row's severity off the same plane, so the two
- * cannot disagree about what needs a person — which two reads, however carefully
- * written, eventually would.
- *
- * There is no interval and no scheduler behind it. `Spec-023 §Console Design
- * (Meridian)` §The eight rules forbids interval polling outright, and live updates
- * ride the session subscription the console already holds rather than a socket of
- * this plane's own — there is no `attention.subscribe` to open. When a re-read
- * becomes meaningful it goes through `store/scheduling.ts`, the console's one
- * refresh chokepoint, and not through a timer added here.
- */
-export function useAttentionProjection(read: AttentionProjectionReader): AttentionReading {
-  const [members, setMembers] = useState<readonly unknown[] | undefined>(undefined);
-  const [hasRead, setHasRead] = useState(false);
-
-  useEffect(() => {
-    let isAttached = true;
-    void read().then((result) => {
-      if (!isAttached) {
-        return;
-      }
-      setMembers(result);
-      setHasRead(true);
-    });
-    return () => {
-      isAttached = false;
-    };
-  }, [read]);
-
-  return useMemo<AttentionReading>(() => {
-    if (!hasRead) {
-      return { phase: "reading" };
-    }
-    if (members === undefined) {
-      return { phase: "not-asked" };
-    }
-    const narrowed = narrowAttentionProjection(members);
-    return {
-      phase: "read",
-      plane: new AttentionPlane(narrowed.items),
-      droppedCount: narrowed.droppedCount,
-    };
-  }, [hasRead, members]);
-}

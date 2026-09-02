@@ -8,7 +8,7 @@
 // claimed and not implemented, which is the shape the whole surface set forbids.
 
 import { act, render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   fixtureBridgeWithGrowth,
@@ -17,7 +17,9 @@ import {
   unscriptedScenario,
 } from "../bridge/fixture-bridge-overrides.test-support.js";
 import type { ConsoleBridge } from "../bridge/index.js";
-import { SentInvites, type SentInvite } from "./SentInvites.js";
+import type { ConsoleScenario } from "../bridge/scenario.js";
+import type { SentInvite } from "./invite-ledger.js";
+import { SentInvites } from "./SentInvites.js";
 
 /**
  * A scenario with nothing scripted.
@@ -54,6 +56,41 @@ function bridgeRefusingInvites(): ConsoleBridge {
 /** The real fixture bridge, with the one growth operation this surface reads served. */
 function bridgeServing(invites: readonly SentInvite[]): ConsoleBridge {
   return fixtureBridgeWithGrowth(EMPTY_SCENARIO, { invitesList: growthServing(invites) });
+}
+
+/**
+ * A scenario whose only scripted reply is the one `invite.revoke` answers with.
+ *
+ * The reply is the shipped `InviteRevokeResponse` shape — `{inviteId, state}` and
+ * nothing else — so what the ledger consumes here is what the daemon actually sends.
+ */
+function scenarioSettlingRevoke(inviteId: string): ConsoleScenario {
+  return {
+    ...unscriptedScenario("collaboration-invites-revoke-test"),
+    replies: [{ call: "invite.revoke", result: { inviteId, state: "revoked" } }],
+  };
+}
+
+/** The bridge for a revoke that settles, with every `invitesList` call counted. */
+function bridgeSettlingRevoke(invites: readonly SentInvite[]): {
+  readonly bridge: ConsoleBridge;
+  readonly invitesListCallCount: () => number;
+} {
+  const invitesList = vi.fn(growthServing(invites));
+  return {
+    bridge: fixtureBridgeWithGrowth(scenarioSettlingRevoke("invite-1"), { invitesList }),
+    invitesListCallCount: () => invitesList.mock.calls.length,
+  };
+}
+
+/** Press the one revoke control on screen and let its reply land. */
+async function pressRevoke(container: HTMLElement): Promise<void> {
+  const revoke = container.querySelector<HTMLButtonElement>(".meridian-invites__row-action");
+  await act(async () => {
+    revoke?.click();
+    await Promise.resolve();
+  });
+  await settle();
 }
 
 /** Let the one-shot read and the effects it schedules land. */
@@ -214,5 +251,52 @@ describe("sent invites — what a person reads", () => {
     );
     await settle();
     expect(container.textContent ?? "").not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP)-\d/u);
+  });
+});
+
+describe("sent invites — a revoke that settles", () => {
+  it("moves the row into the settled ledger from the reply itself", async () => {
+    const served = bridgeSettlingRevoke([invite()]);
+    const { container } = render(<SentInvites bridge={served.bridge} sessionId="session-1" />);
+    await settle();
+    expect(container.querySelector(".meridian-invites__row-action")).not.toBeNull();
+
+    await pressRevoke(container);
+
+    // The row is in the fold now, carrying the state the daemon sent — and the
+    // pending half says so rather than still offering a control on it.
+    const fold = container.querySelector("details");
+    expect(fold?.textContent ?? "").toContain("invite-1");
+    expect(fold?.textContent ?? "").toContain("revoked");
+    expect(container.textContent ?? "").toContain("No invitation is still waiting");
+    expect(container.querySelector(".meridian-invites__row-action")).toBeNull();
+  });
+
+  it("puts no second read on the wire, because the reply carried the row", async () => {
+    const served = bridgeSettlingRevoke([invite()]);
+    const { container } = render(<SentInvites bridge={served.bridge} sessionId="session-1" />);
+    await settle();
+    expect(served.invitesListCallCount()).toBe(1);
+
+    await pressRevoke(container);
+
+    expect(served.invitesListCallCount()).toBe(1);
+  });
+
+  it("negative control: a refused revoke leaves the row pending and offers the control again", async () => {
+    // Without this, the two cases above would pass over a ledger that settled every
+    // row it was asked about, refusal or not.
+    const { container } = render(
+      <SentInvites bridge={bridgeServing([invite()])} sessionId="session-1" />,
+    );
+    await settle();
+
+    await pressRevoke(container);
+
+    expect(container.textContent ?? "").toContain("reply-unscripted");
+    const action = container.querySelector<HTMLButtonElement>(".meridian-invites__row-action");
+    expect(action).not.toBeNull();
+    expect(action?.disabled).toBe(false);
+    expect(container.querySelector("details")).toBeNull();
   });
 });
