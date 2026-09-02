@@ -36,11 +36,113 @@ export interface GrowthTerminalChunk {
   readonly data: string;
 }
 
+/**
+ * The artifact families the manifest discriminates. Closed, declared once, derived
+ * below — `docs/architecture/contracts/api-payload-contracts.md` §ArtifactManifest's
+ * `ArtifactType`, which is the five families `Spec-014 §Required Behavior` enumerates
+ * plus the workflow phase-output type.
+ */
+export const GROWTH_ARTIFACT_TYPES = [
+  "file",
+  "diff",
+  "summary",
+  "log",
+  "design",
+  "workflow_output",
+] as const;
+
+/** One artifact family. Derived, so the vocabulary has exactly one home. */
+export type GrowthArtifactType = (typeof GROWTH_ARTIFACT_TYPES)[number];
+
+/**
+ * The visibility classes an artifact carries.
+ *
+ * Two, and the distinction is the one `Spec-014 §Required Behavior` makes load-bearing:
+ * visibility is explicit and `local-only` is a different fact from shared-visible.
+ * Partial per-participant redaction is deliberately absent — that spec puts it out of
+ * V1 scope, and a third value here would let a surface offer a state nothing serves.
+ */
+export const GROWTH_ARTIFACT_VISIBILITIES = ["local-only", "shared"] as const;
+
+/** One visibility class. Derived, so the vocabulary has exactly one home. */
+export type GrowthArtifactVisibility = (typeof GROWTH_ARTIFACT_VISIBILITIES)[number];
+
+/** The lifecycle states a manifest row is in. */
+export const GROWTH_ARTIFACT_STATES = ["pending", "published", "superseded"] as const;
+
+/** One manifest lifecycle state. Derived, so the vocabulary has exactly one home. */
+export type GrowthArtifactState = (typeof GROWTH_ARTIFACT_STATES)[number];
+
+/**
+ * Where this node's copy of a shared artifact's payload stands.
+ *
+ * Read as PERSISTED, never recomputed from live relay state — which is exactly what
+ * makes it renderable: an unresolved-attachment marker carries a non-`pinned` status
+ * verbatim as its cause, and `expired` reads as "payload not obtainable, remedy is a
+ * re-publish" rather than narrowly as "TTL elapsed".
+ */
+export const GROWTH_ARTIFACT_REPLICATION_STATUSES = [
+  "pending_replication",
+  "pinned",
+  "over_cap",
+  "quota_exceeded",
+  "expired",
+] as const;
+
+/** One replication status. Derived, so the vocabulary has exactly one home. */
+export type GrowthArtifactReplicationStatus = (typeof GROWTH_ARTIFACT_REPLICATION_STATUSES)[number];
+
+/**
+ * One artifact as the manifest envelope carries it.
+ *
+ * Mirrored member-for-member from the registered `ArtifactManifest` in
+ * `docs/architecture/contracts/api-payload-contracts.md` §ArtifactManifest — the
+ * OCI-inspired envelope `Spec-014 §Interfaces And Contracts` states, plus the
+ * daemon-persisted `visibility` / `state` / `metadata` fields the wire shape adds.
+ * `packages/contracts` registers no artifact schema yet (Plan-014 Task 1 mints it in
+ * `packages/contracts/src/artifacts/`), so the architecture contract is the source,
+ * named here so the mirror is checkable by reading one section rather than by memory.
+ *
+ * ONE MEMBER IS SPELLED DIFFERENTLY, AND ONLY ONE. The envelope's `id` is
+ * `artifactId` here, because a bare `id` on a value a renderer passes around says
+ * nothing about what it identifies and the console's own request shapes already name
+ * this scalar `artifactId`. Every other member keeps the envelope's spelling exactly,
+ * including the two maps whose whole point is that they are distinct: `annotations`
+ * is the OCI string-to-string map and `metadata` is freeform daemon-side provenance.
+ *
+ * WHAT THE OLD SHAPE HAD, AND WHERE IT WENT. `byteLength` is the envelope's `size`;
+ * `contentType` is not a member at all — a media type is daemon-side provenance and
+ * rides `metadata` — and `name` likewise has no envelope member: a file's declared
+ * name reaches the manifest through `annotations`. The thin shape refused a served
+ * list as an unmapped list shape, which is what a summary that is three members of a
+ * fourteen-member record does the first time a surface needs the rest of them.
+ */
 export interface GrowthArtifactSummary {
   readonly artifactId: string;
-  readonly name: string;
-  readonly byteLength: number;
-  readonly contentType: string;
+  readonly sessionId: string;
+  /** Absent when no run produced the artifact. */
+  readonly runId?: string;
+  /**
+   * The publishing caller, absent when the daemon itself produced the artifact with
+   * no attributable one. Optional for that reason rather than for convenience: the
+   * delete-own-artifacts scope evaluates the column this mirrors fail-closed, so an
+   * absent value matches no collaborator.
+   */
+  readonly createdBy?: string;
+  readonly artifactType: GrowthArtifactType;
+  /** The OCI `digest` (SHA-256). Required: a content-addressed manifest always has one. */
+  readonly digest: string;
+  /** The payload's byte length. Server-derived, so always present. */
+  readonly size: number;
+  readonly annotations: Readonly<Record<string, string>>;
+  /** Present only on a derivative manifest, naming the source it was derived from. */
+  readonly subject?: string;
+  readonly visibility: GrowthArtifactVisibility;
+  readonly state: GrowthArtifactState;
+  /** Absent on a local-only artifact, which has no replication to report. */
+  readonly replicationStatus?: GrowthArtifactReplicationStatus;
+  readonly metadata: Readonly<Record<string, unknown>>;
+  readonly createdAt: string;
 }
 
 export interface GrowthSessionSummary {
@@ -150,3 +252,115 @@ export const GROWTH_PR_PREPARATION_STATES = ["draft", "ready"] as const;
 
 /** One prepared-pull-request state. Derived, so the vocabulary has one home. */
 export type GrowthPrPreparationState = (typeof GROWTH_PR_PREPARATION_STATES)[number];
+
+// session cost
+
+/**
+ * Whether a figure is fully priced. Aggregate reuse of the row-level usage vocabulary.
+ *
+ * A type alias rather than a value list because nothing here enumerates it: the wire
+ * supplies the reading and the console renders it, and `Spec-016 §Cost Figure Display
+ * Consistency` makes it observability only — a surface that branched enforcement on it
+ * would be a second trust regime over a number the daemon already settled.
+ */
+export type GrowthCostStatus = "priced" | "unpriced";
+
+/**
+ * How a provider account is billed. Labels the figure; never changes how it is derived.
+ *
+ * `unknown` is a real member rather than an absence: it says the operator has not
+ * labelled the account, which is a different fact from "we did not read the account"
+ * and must not be presented as billed dollars.
+ */
+export type GrowthBillingMode = "subscription" | "metered" | "unknown";
+
+/**
+ * The session's limits and its committed spend, mirrored member-for-member from
+ * `OrchestrationBudgetState` in
+ * `docs/architecture/contracts/api-payload-contracts.md` (the budget read and update
+ * replies carry this same shape, and the cost receipt's session total IS it).
+ *
+ * Mirrored rather than imported because no code package carries the type — the shape
+ * is registered in that document and nowhere else, which is the whole of what this
+ * row's slate entry says. The four decomposition members at the end are not new
+ * arithmetic: `observedPricedCostCents + observedUnpricedDebitCents` is
+ * `observedCostCents`, and `observedCostCents + reservedCostCents` is
+ * `committedSpendCents`, which is the enforced figure every surfaced session cost
+ * renders — never a sum the renderer takes over a visible run list.
+ */
+export interface GrowthBudgetState {
+  readonly sessionId: string;
+  readonly costLimitCents: number;
+  readonly turnLimitPerAgent: number;
+  readonly maxExecutingChannels: number;
+  readonly maxQueueDepthPerChannel: number;
+  readonly maxPendingOrchestrationRuns: number;
+  readonly activeChildLimit: number;
+  readonly unpricedFamilyCaps: readonly GrowthUnpricedFamilyCap[];
+  readonly observedCostCents: number;
+  readonly reservedCostCents: number;
+  readonly observedPricedCostCents: number;
+  readonly observedUnpricedDebitCents: number;
+  readonly committedSpendCents: number;
+  readonly costStatus: GrowthCostStatus;
+}
+
+/** One owner-supplied escape for a model family the wire prices at nothing. */
+export interface GrowthUnpricedFamilyCap {
+  readonly modelFamily: string;
+  readonly hardCapUsdCents: number;
+}
+
+/**
+ * The party a unit of work is attributed to — the turn-scoped effective principal,
+ * carried verbatim from the metered rows the receipt folds.
+ *
+ * Two closed arms with the participant reference required on the participant arm and
+ * absent on the system arm, rather than one nullable id: an unstamped value and a
+ * deliberately-unattributed one would otherwise be the same shape, and spend no
+ * participant caused — a sweep, an idle settlement, a recovery turn — is a real answer
+ * rather than a missing one.
+ */
+export type GrowthEffectivePrincipal =
+  | { readonly kind: "participant"; readonly participantId: string }
+  | { readonly kind: "system" };
+
+/**
+ * The receipt: one session figure, decomposed three ways.
+ *
+ * Each axis is a PARTITION of the same spend, so each totals to
+ * `sessionTotal.committedSpendCents`. A surface asserting that is asserting no row was
+ * double-counted or dropped, which is the one property a receipt is for.
+ */
+export interface GrowthCostReceipt {
+  readonly sessionTotal: GrowthBudgetState;
+  readonly runs: readonly GrowthCostReceiptRunRow[];
+  readonly causedBy: readonly GrowthCostReceiptCausedByRow[];
+  readonly byAccount: readonly GrowthCostReceiptAccountRow[];
+}
+
+export interface GrowthCostReceiptRunRow {
+  readonly runId: string;
+  readonly costCents: number;
+  readonly costStatus: GrowthCostStatus;
+  /**
+   * Required and closed at one literal. The receipt is the one surface emitting
+   * run-scoped cost figures, and every row carrying the declaration is what makes that
+   * verifiable positively rather than by nobody having added a second scope.
+   */
+  readonly aggregationScope: "run-only";
+}
+
+export interface GrowthCostReceiptCausedByRow {
+  readonly party: GrowthEffectivePrincipal;
+  readonly costCents: number;
+  readonly costStatus: GrowthCostStatus;
+}
+
+export interface GrowthCostReceiptAccountRow {
+  readonly providerAccountId: string;
+  readonly displayLabel: string;
+  readonly billingMode: GrowthBillingMode;
+  readonly costCents: number;
+  readonly costStatus: GrowthCostStatus;
+}
