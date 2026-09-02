@@ -43,6 +43,10 @@ import {
 } from "./baseline-platform.js";
 
 import "../../../src/renderer/src/console/collaboration/index.js";
+// The settings family's door, for its stylesheet: the nodes page below is mounted as
+// a component, and a page rendered without its family sheet would pin a layout
+// nobody ships. Same reason as the collaboration door above it.
+import "../../../src/renderer/src/console/settings/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import {
   ConsoleRoot,
@@ -61,11 +65,24 @@ import { ChannelList } from "../../../src/renderer/src/console/collaboration/Cha
 import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/presence-model.js";
 import { Roster } from "../../../src/renderer/src/console/collaboration/Roster.js";
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/SentInvites.js";
+import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";
+import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
 import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
 
 /** The instant the roster's "last seen" figures are relative to. Fixed, so the capture is. */
 const CAPTURE_INSTANT_MILLISECONDS = Date.parse("2026-01-01T10:00:00.000Z");
+
+/**
+ * The tick this scenario's two machine-health axes disagree at.
+ *
+ * The runner's attachment has ended while the heartbeat sweep still reads it
+ * healthy, which is the reading the never-mask rule exists for — and the one a page
+ * that collapsed the two axes into a single scalar could not draw. The capture is
+ * taken here rather than at an earlier frame precisely because a picture of two
+ * agreeing axes would look the same either way.
+ */
+const ROSTER_AXES_DISAGREE_MS = 640;
 
 /** Identifiers render as themselves here: a capture must not depend on a name read. */
 const LABELS: ChannelActivityLabels = {
@@ -227,6 +244,32 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
 
     await expect(requireCapturedElement(container, ".meridian-invites")).toMatchScreenshot(
       "collaboration-invites-light",
+    );
+  });
+
+  it("renders the settings nodes page with the roster its bridge served", async (context) => {
+    // The page rather than the destination, for the reason the ledger above gives
+    // one level down: this page's roster is session-scoped and a settings ADDRESS
+    // carries no session, so a capture through `#/settings/nodes` would pin the
+    // "belongs to a session" absence and never the roster. Mounted with a session,
+    // over the real fixture bridge, it renders what a person opening it on a session
+    // sees — both health axes, side by side, disagreeing.
+    skipOffPinnedPlatform(context);
+    await emulateSystemScheme("light");
+    const bridge = createFixtureBridge({ scenario: COLLABORATION_SCENARIO });
+    bridge.scenarioEngine?.advance(ROSTER_AXES_DISAGREE_MS);
+    const pageContext: SettingsPageContext = {
+      bridge,
+      openSection: () => undefined,
+      activeSessionId: COLLABORATION_SCENARIO.sessionId,
+    };
+    const { container } = await renderSettled(<RuntimeNodesPage context={pageContext} />);
+    // Throws rather than capturing a spinner: a picture of the loading arm would
+    // compare clean against itself forever and prove nothing about the roster.
+    requireCapturedElement(container, '[aria-label="node-roster-loaded"]');
+
+    await expect(requireCapturedElement(container, ".meridian-settings-page")).toMatchScreenshot(
+      "collaboration-runtime-nodes-light",
     );
   });
 });
