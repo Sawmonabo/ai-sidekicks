@@ -26,13 +26,7 @@
 // module carries the same claim as a `// Consumed by` line. Both go in the PR that
 // imports the symbol — a tag that outlives its consumer fails the run.
 
-export {
-  PANE_KINDS,
-  /** @consumedBy T-023p-1C-2 */
-  isPaneKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  type PaneKind,
-} from "./pane-kinds.js";
+export { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 
 export {
   ConsolePaneRegistry,
@@ -41,7 +35,6 @@ export {
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   type ConsolePaneContext,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -51,7 +44,6 @@ export {
 } from "./pane-registry.js";
 
 export {
-  /** @consumedBy T-023p-1C-2 */
   composerSeatRenderer,
   /** @consumedBy T-023p-1C-3 */
   registerComposerSeat,

@@ -13,7 +13,7 @@ import { isValidElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "../frame/surface-registry.js";
-import { consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
+import { Workspace, consolePaneRegistry, type ConsolePaneContext } from "../workspace/index.js";
 import { registerLedger } from "./index.js";
 
 const PANE_TEST_OWNER = "ledger-test";
@@ -91,9 +91,10 @@ describe("the ledger — which slots it holds", () => {
 });
 
 describe("the ledger — what it mounts", () => {
-  it("mounts the registered timeline pane, at full width", () => {
-    // `Spec-023 §Console Design (Meridian)` §4.2's empty-deck state: with no panes
-    // open, "the workspace shows the ledger alone, full width".
+  it("mounts the registered timeline pane in the full-screen window, at full width", () => {
+    // `Spec-023 §Console Design (Meridian)` §5.20: the auxiliary window is "the same
+    // pane at full width … and no composer", so this slot mounts the pane ALONE —
+    // no deck around it, since an auxiliary window holds exactly one pane (§4.5).
     consolePaneRegistry.register({
       kind: "timeline",
       owner: PANE_TEST_OWNER,
@@ -102,9 +103,20 @@ describe("the ledger — what it mounts", () => {
     });
     const registry = registeredLedger();
     const paneContext = paneContextHandedTo(
-      registry.descriptorFor("workspace")?.render(surfaceContext()),
+      registry.descriptorFor("timeline")?.render(surfaceContext()),
     );
     expect(paneContext.kind).toBe("timeline");
+  });
+
+  it("mounts the session workspace — the cast bar, the deck, and the composer's seat", () => {
+    // The two slots stopped mounting the same thing when the deck landed: the
+    // session surface is the workspace, and the pane alone is the window.
+    const registry = registeredLedger();
+    const shell = renderedElement(registry.descriptorFor("workspace")?.render(surfaceContext()));
+    expect(shell.props["className"]).toBe("meridian-ledger-surface");
+    const workspace = renderedElement(shell.props["children"] as ReactNode);
+    expect(workspace.type).toBe(Workspace);
+    expect(workspace.props["route"]).toStrictEqual({ kind: "workspace", sessionId: "session-7" });
   });
 
   it("hands the pane a session-scoped address and no actor to attribute it to", () => {
@@ -131,7 +143,7 @@ describe("the ledger — what it mounts", () => {
     // family, and asserted anyway: the descriptor is resolved from a registry
     // anything holding it can compose differently.
     const registry = registeredLedger();
-    const absence = renderedElement(registry.descriptorFor("workspace")?.render(surfaceContext()));
+    const absence = renderedElement(registry.descriptorFor("timeline")?.render(surfaceContext()));
     const nothing = renderedElement(absence.props["children"] as ReactNode);
     expect(nothing.props["kind"]).toBe("empty");
     expect(nothing.props["placement"]).toBe("surface");
