@@ -238,7 +238,7 @@ export function PaletteOverlay(props: PaletteOverlayProps): React.JSX.Element {
               />
             </Combobox.Empty>
 
-            <Combobox.Status className="console-palette__status">
+            <Combobox.Status className="meridian-visually-hidden">
               {results.length === 0 ? "" : resultCountLabel}
             </Combobox.Status>
 

@@ -89,15 +89,17 @@ describe("one refusal value reaches all three renderings untranslated", () => {
 });
 
 describe("the shapes announce themselves without talking over the message", () => {
-  it("announces the inline and banner shapes politely", () => {
+  it("announces the inline shape politely and leaves the banner to the announcer", () => {
     expect(renderShape(<InlineRefusal {...REFUSAL} />).getAttribute("role")).toBe("status");
 
+    // The frame announces every banner raise through the one live announcer, so
+    // the banner itself is a plain group: a second live region — inserted already
+    // carrying its text, which most screen readers never read — would at best
+    // double-read the sentence. `role="status"` implies a live region on its own,
+    // so the role is the control here, not only the attribute.
     const banner = renderShape(<RefusalBanner {...REFUSAL} />);
-    expect(banner.getAttribute("role")).toBe("status");
-    // Assertive interrupts a screen reader mid-sentence — including the sentence it
-    // is announcing. This is the control for a "make it louder" change.
-    expect(banner.getAttribute("aria-live")).toBe("polite");
-    expect(banner.getAttribute("aria-live")).not.toBe("assertive");
+    expect(banner.getAttribute("role")).toBe("group");
+    expect(banner.getAttribute("aria-live")).toBeNull();
   });
 
   it("leaves the ledger card out of the live regions", () => {
