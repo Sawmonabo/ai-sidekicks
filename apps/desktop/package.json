@@ -13,7 +13,7 @@
     "build": "electron-vite build && node --experimental-strip-types build/assert-webprefs.ts",
     "build:smoke": "electron-vite build --mode=smoke && node --experimental-strip-types build/assert-webprefs.ts",
     "build:fixtures": "electron-vite build --mode=fixtures && node --experimental-strip-types build/assert-webprefs.ts",
-    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.console-browser-test.json && tsc -p tsconfig.console-electron-test.json && tsc -p tsconfig.build.json && tsc -p tsconfig.scripts.json",
+    "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.console-architecture-test.json && tsc -p tsconfig.console-browser-test.json && tsc -p tsconfig.console-electron-test.json && tsc -p tsconfig.build.json && tsc -p tsconfig.scripts.json",
     "lint": "eslint build scripts src test",
     "test:renderer": "vitest run --project=renderer",
     "test:coverage": "vitest run --project=renderer --coverage",

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  // Typechecks the ARCHITECTURE console tier.
+  //
+  // It used to sit under `tsconfig.test.json` with the rest of `test/**`, and that
+  // worked for exactly as long as the tier only ever READ console source as text.
+  // `scenario-wire-truth.test.ts` imports it instead — it has to, because the rule
+  // it asserts is a shipped predicate and a test that reimplemented it would be
+  // checking its own copy — and importing the scenario manifest pulls the console's
+  // module graph into the program. Part of that graph is `store/hooks.ts`, which
+  // reaches `window`, so under the Node-context config the tier fails with five
+  // TS2304s about a global it never mentions.
+  //
+  // The answer is the one `tsconfig.console-electron-test.json` already gives for
+  // the identical shape — a Node driver that pulls renderer modules in — rather
+  // than widening `tsconfig.test.json`, which would hand the DOM to
+  // `launch.smoke.test.ts` and every `src/main/**` unit, where reaching for
+  // `document` is a defect the compiler should still catch. That is that config's
+  // own stated reasoning, and it applies here unchanged.
+  "extends": "../../tsconfig.node22.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The `isolatedDeclarations` pairing `tsconfig.test.json` documents: the base
+    // sets it, it needs `declaration` or `composite`, so `declaration` stays on
+    // beside `noEmit` (TS5069) while `composite: false` keeps this config out of
+    // the project-references graph.
+    "composite": false,
+    "declaration": true,
+    "declarationMap": false,
+    "sourceMap": false,
+    // DOM joins the Node lib rather than replacing it — the tier's own files are
+    // Node (they read directories and files), and the console modules they import
+    // are renderer code. Kept in step with the renderer project's lib set.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    // A console family barrel re-exports `.tsx` components, so the console's React
+    // modules are in this program whether or not a test file mentions one. Without
+    // `jsx` they fail TS6142 at the barrel. Same option the Electron-tier config
+    // carries, for the same reason; nothing here emits, and no `.tsx` is authored
+    // under `test/console/architecture/`.
+    "jsx": "react-jsx"
+  },
+  "include": [
+    "test/console/architecture/**/*",
+    // The console's build-time signals. Imported console modules read them at
+    // module scope, and this file is where they are declared.
+    "src/renderer/src/console/console-env.d.ts"
+  ],
+  "exclude": ["dist", "node_modules"]
+}

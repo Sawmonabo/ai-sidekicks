@@ -72,12 +72,18 @@ export const MAX_REPAIRABLE_SEQUENCE_GAP = 1024;
 export const PERSISTENCE_SESSION_PARTITION_CAP = 40;
 
 /**
- * Bytes one persisted UI-state value may occupy once serialised. A layout
- * snapshot or an expansion set is kilobytes; anything past this is content that
- * does not belong in the store, so the cap is a second line of defence behind the
- * value-class enumeration rather than a performance knob.
+ * Bytes one persisted UI-state RECORD may occupy: its partition, its key, its
+ * class, and its serialised value together. A layout snapshot or an expansion set
+ * is kilobytes; anything past this is content that does not belong in the store,
+ * so the cap is a second line of defence behind the value-class enumeration
+ * rather than a performance knob.
+ *
+ * The address is inside the cap rather than beside it because the address is
+ * stored too — a ceiling over the value alone would leave the key unbounded by
+ * anything but the identifier grammar, and the key is the part an index holds a
+ * second copy of.
  */
-export const PERSISTENCE_VALUE_BYTE_CAP: number = 64 * 1024;
+export const PERSISTENCE_RECORD_BYTE_CAP: number = 64 * 1024;
 
 /**
  * Fraction of the storage quota at which the gauge reports pressure. Reported,

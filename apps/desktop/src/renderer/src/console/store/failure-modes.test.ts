@@ -55,7 +55,7 @@ function eventAt(
   return {
     sessionId: "session-1",
     sequence,
-    kind: "run.started",
+    kind: "run.starting",
     occurredAt: occurredAtFor(sequence),
     ...overrides,
   };
@@ -444,7 +444,7 @@ describe("failure matrix — a registered projector throws on an event", () => {
     return new SessionStore({
       sessionId: "session-1",
       projectors: {
-        "run.started": (event) => {
+        "run.starting": (event) => {
           if (event.sequence === sequence) {
             throw new TypeError("the payload was not the shape this projector claims");
           }
@@ -487,7 +487,7 @@ describe("failure matrix — a registered projector throws on an event", () => {
     const store = new SessionStore({
       sessionId: "session-1",
       projectors: {
-        "run.started": () => [
+        "run.starting": () => [
           { operation: "upsert", entity: { kind: "run", id: "run-half-applied" } },
           {
             operation: "upsert",

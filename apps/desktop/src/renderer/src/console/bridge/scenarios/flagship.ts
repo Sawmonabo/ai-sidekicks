@@ -12,28 +12,112 @@
 // `participantIdsInJoinOrder` below is what the hue allocator consumes and what a
 // screenshot baseline depends on. Reordering it is a visual change, not a cosmetic
 // one — which is why it is stated here once and read everywhere.
+//
+// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD. The census is
+// `SESSION_EVENT_CATEGORY_BY_TYPE` and the payload shapes are `SessionEventSchema`
+// and `Spec-006`'s per-family rows, both in `packages/contracts/src/event.ts` and
+// `docs/specs/006-session-event-taxonomy-and-audit-log.md`; `scenarios/wire-truth.ts`
+// holds this file to them. That is not tidiness — a fixture that plays a type no
+// daemon emits produces screenshots, geometry readings, and end-to-end results
+// about a wire that does not exist, and every one of them looks like a pass.
+//
+// TWO CONSEQUENCES A READER WILL NOTICE FIRST:
+//
+//   • **The identifiers are UUIDs.** `SessionId`, `ParticipantId`, `MembershipId`,
+//     `AgentId`, and `RunId` are branded UUIDs (`§Branded ID Types` in
+//     `docs/architecture/contracts/api-payload-contracts.md`), and the strict layer
+//     refuses anything else. A readable `"agent-scout"` would also have rendered at
+//     a third of the width a real one does, which is a design lie in a fixture
+//     whose whole job is to be measured.
+//   • **`session.created` carries no title.** Its registered payload is
+//     `{sessionId, config, metadata}` and it is `.strict()`, so a `title` member is
+//     rejected outright. A session's display name reaches the console from the
+//     session read, and `session.renamed` is where a later change to it would
+//     arrive — never from the creation event.
 
 import type { ConsoleScenario } from "../scenario.js";
 
 export const FLAGSHIP_SCENARIO_ID = "flagship";
 
-const SESSION_ID = "session-flagship";
+// Wire identifiers, spelled as the wire spells them. UUID v7 values, whose leading
+// bytes are the scenario's own start instant, so a reader scanning a rendered id
+// can still tell one fixture apart from another.
+const SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a11a5";
+const PARTICIPANT_YOU = "019b79ee-0280-79a4-8110-cca0117a0110";
+const PARTICIPANT_PRIYA = "019b79ee-0280-79a4-8120-cca0117a0120";
+const MEMBERSHIP_PRIYA = "019b79ee-0280-7e3b-8110-cca0117a0130";
+const AGENT_ARCHITECT = "019b79ee-0280-7a6e-8110-d1a4c1150001";
+const AGENT_IMPLEMENTER = "019b79ee-0280-7a6e-8120-d1a4c1150002";
+const AGENT_REVIEWER = "019b79ee-0280-7a6e-8130-d1a4c1150003";
+const AGENT_SCOUT = "019b79ee-0280-7a6e-8140-d1a4c1150004";
+const FIRST_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1150011";
+
+/**
+ * The four lanes, as the `agents` projection carries them.
+ *
+ * One table rather than a literal per beat and a second literal per reply: the
+ * `agent.attached` payload and the `agent.list` row are two views of one record
+ * (`Spec-006 §Channel and Agent Lifecycle (session_lifecycle)` makes the event replay-complete
+ * precisely so the projection can be rebuilt from it), and two hand-written copies
+ * of one agent would drift in exactly the direction nothing catches.
+ *
+ * The drivers and models are deliberately mixed. A fixture whose whole cast runs
+ * one provider cannot show a surface what a two-provider session looks like, and
+ * that is the session this console is for.
+ */
+const FLAGSHIP_AGENTS = [
+  {
+    agentId: AGENT_ARCHITECT,
+    name: "Architect",
+    driverName: "claude",
+    modelId: "claude-opus-5[1m]",
+    attachedAtMs: 120,
+    attachedAtIso: "2026-01-01T14:20:00.120Z",
+  },
+  {
+    agentId: AGENT_IMPLEMENTER,
+    name: "Implementer",
+    driverName: "claude",
+    modelId: "claude-sonnet-5",
+    attachedAtMs: 160,
+    attachedAtIso: "2026-01-01T14:20:00.160Z",
+  },
+  {
+    agentId: AGENT_REVIEWER,
+    name: "Reviewer",
+    driverName: "codex",
+    modelId: "gpt-5.6-sol",
+    attachedAtMs: 200,
+    attachedAtIso: "2026-01-01T14:20:00.200Z",
+  },
+  {
+    agentId: AGENT_SCOUT,
+    name: "Scout",
+    driverName: "codex",
+    modelId: "gpt-5.4-mini",
+    attachedAtMs: 240,
+    attachedAtIso: "2026-01-01T14:20:00.240Z",
+  },
+] as const;
+
+/** The sequence the first `agent.attached` beat takes. Two beats precede it. */
+const FIRST_AGENT_SEQUENCE = 3;
 
 export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   id: FLAGSHIP_SCENARIO_ID,
   label: "Four lanes",
   purpose:
-    "A live session with four agents working at once. The skeleton lands here; T-023p-1C-2 fills in the streaming lanes, the mid-stream approval, and the run thread.",
+    "A live session with four agents working at once. The skeleton lands here; the streaming lanes, the mid-stream approval, and the run thread arrive with the surfaces that render them.",
   sessionId: SESSION_ID,
   // Join order IS the hue order. Two people first, then the agents in the order
   // they were attached — which is what a real session's join log looks like.
   participantIdsInJoinOrder: [
-    "participant-you",
-    "participant-priya",
-    "agent-architect",
-    "agent-implementer",
-    "agent-reviewer",
-    "agent-scout",
+    PARTICIPANT_YOU,
+    PARTICIPANT_PRIYA,
+    AGENT_ARCHITECT,
+    AGENT_IMPLEMENTER,
+    AGENT_REVIEWER,
+    AGENT_SCOUT,
   ],
   startedAtIso: "2026-01-01T14:20:00.000Z",
   beats: [
@@ -44,8 +128,12 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T14:20:00.000Z",
-        actorParticipantId: "participant-you",
-        payload: { title: "Rate-limit wiring" },
+        actorParticipantId: PARTICIPANT_YOU,
+        // The registered shape, verbatim: the new session's id plus the resolved
+        // config and metadata. Both are open records and both are empty here,
+        // because nothing in the corpus names a key inside either — a fixture that
+        // invented one would be teaching a surface to read a member no daemon sets.
+        payload: { sessionId: SESSION_ID, config: {}, metadata: {} },
       },
     },
     {
@@ -53,56 +141,44 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
       event: {
         sessionId: SESSION_ID,
         sequence: 2,
-        kind: "participant.joined",
+        kind: "membership.created",
         occurredAt: "2026-01-01T14:20:00.040Z",
-        actorParticipantId: "participant-priya",
-        payload: { displayName: "Priya" },
+        actorParticipantId: PARTICIPANT_PRIYA,
+        // A person joining a session is a membership event, not a participant one:
+        // `participant.*` is not in the census at all, and this is the type the
+        // owner's own admission rides too.
+        payload: {
+          membershipId: MEMBERSHIP_PRIYA,
+          participantId: PARTICIPANT_PRIYA,
+          role: "collaborator",
+          identityHandle: "priya",
+        },
       },
     },
-    {
-      atMs: 120,
+    ...FLAGSHIP_AGENTS.map((agent, agentIndex) => ({
+      atMs: agent.attachedAtMs,
       event: {
         sessionId: SESSION_ID,
-        sequence: 3,
+        sequence: FIRST_AGENT_SEQUENCE + agentIndex,
         kind: "agent.attached",
-        occurredAt: "2026-01-01T14:20:00.120Z",
-        actorParticipantId: "agent-architect",
-        payload: { agentId: "agent-architect", displayName: "Architect" },
+        occurredAt: agent.attachedAtIso,
+        // The person who attached the agent, not the agent. An agent does not
+        // attach itself, and the envelope actor is who acted.
+        actorParticipantId: PARTICIPANT_YOU,
+        // `Spec-006 §Channel and Agent Lifecycle (session_lifecycle)`: the full persona plus the
+        // daemon-resolved resulting state, so the `agents` projection rebuilds from
+        // the log alone. `name` is the member — `displayName` is not on this wire.
+        payload: {
+          sessionId: SESSION_ID,
+          agentId: agent.agentId,
+          name: agent.name,
+          driverName: agent.driverName,
+          modelId: agent.modelId,
+          state: "ready",
+          actor: PARTICIPANT_YOU,
+        },
       },
-    },
-    {
-      atMs: 160,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 4,
-        kind: "agent.attached",
-        occurredAt: "2026-01-01T14:20:00.160Z",
-        actorParticipantId: "agent-implementer",
-        payload: { agentId: "agent-implementer", displayName: "Implementer" },
-      },
-    },
-    {
-      atMs: 200,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 5,
-        kind: "agent.attached",
-        occurredAt: "2026-01-01T14:20:00.200Z",
-        actorParticipantId: "agent-reviewer",
-        payload: { agentId: "agent-reviewer", displayName: "Reviewer" },
-      },
-    },
-    {
-      atMs: 240,
-      event: {
-        sessionId: SESSION_ID,
-        sequence: 6,
-        kind: "agent.attached",
-        occurredAt: "2026-01-01T14:20:00.240Z",
-        actorParticipantId: "agent-scout",
-        payload: { agentId: "agent-scout", displayName: "Scout" },
-      },
-    },
+    })),
     {
       atMs: 320,
       event: {
@@ -110,8 +186,18 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         sequence: 7,
         kind: "run.queued",
         occurredAt: "2026-01-01T14:20:00.320Z",
-        actorParticipantId: "agent-implementer",
-        payload: { runId: "run-01", agentId: "agent-implementer" },
+        actorParticipantId: PARTICIPANT_YOU,
+        // A run-lifecycle payload is a STATE TRANSITION carrying the progression
+        // counter, not a bare id. `previousState` is absent here and only here: a
+        // queued run is being born, and no document names a value for the state it
+        // came from — so none is invented.
+        payload: {
+          sessionId: SESSION_ID,
+          runId: FIRST_RUN_ID,
+          runVersion: 1,
+          newState: "queued",
+          agentId: AGENT_IMPLEMENTER,
+        },
       },
     },
     {
@@ -119,29 +205,53 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
       event: {
         sessionId: SESSION_ID,
         sequence: 8,
-        kind: "run.started",
+        kind: "run.starting",
         occurredAt: "2026-01-01T14:20:00.400Z",
-        actorParticipantId: "agent-implementer",
-        payload: { runId: "run-01" },
+        // No actor. The daemon moves a run from `queued` to `starting`; a
+        // participant id here would attribute a system transition to a person.
+        payload: {
+          sessionId: SESSION_ID,
+          runId: FIRST_RUN_ID,
+          runVersion: 2,
+          previousState: "queued",
+          newState: "starting",
+        },
       },
     },
   ],
   replies: [
     {
-      call: "session.list",
+      // `session.read`, not a `session.list`: the registry carries no list method,
+      // and a fixture answering one would put a call in front of a surface that
+      // has nowhere to send it.
+      call: "session.read",
       result: {
-        sessions: [{ sessionId: SESSION_ID, title: "Rate-limit wiring", state: "active" }],
+        session: {
+          id: SESSION_ID,
+          state: "active",
+          config: {},
+          metadata: {},
+          createdAt: "2026-01-01T14:20:00.000Z",
+          updatedAt: "2026-01-01T14:20:00.400Z",
+        },
+        timelineCursors: { latest: "flagship-cursor-8" },
       },
     },
     {
       call: "agent.list",
       result: {
-        agents: [
-          { agentId: "agent-architect", displayName: "Architect", state: "idle" },
-          { agentId: "agent-implementer", displayName: "Implementer", state: "running" },
-          { agentId: "agent-reviewer", displayName: "Reviewer", state: "idle" },
-          { agentId: "agent-scout", displayName: "Scout", state: "idle" },
-        ],
+        agents: FLAGSHIP_AGENTS.map((agent) => ({
+          agentId: agent.agentId,
+          name: agent.name,
+          driverName: agent.driverName,
+          modelId: agent.modelId,
+          config: {},
+          // `AgentState` is the four-state lifecycle — `configured` / `ready` /
+          // `disabled` / `archived`. A run being in flight is a RUN state and is
+          // read from the run, never folded into the agent row.
+          state: "ready",
+          createdAt: agent.attachedAtIso,
+        })),
       },
     },
   ],
