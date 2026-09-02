@@ -123,20 +123,36 @@ export function expandGap(
   return grown;
 }
 
-/** Where one file's rows start, and how many rows each of its hunks contributes. */
+/**
+ * Where one file's rows start, and which file of the MODEL they belong to.
+ *
+ * `fileIndex` is carried rather than implied by the span's own position, because
+ * a narrowed index holds a span only for the file it shows while every row it
+ * hands out still addresses the model. A file's index is what a gap expansion is
+ * keyed by and what the pane resolves a hunk's available context from, so an
+ * index that renumbered its files under a filter would key one file's expansion
+ * against another file's context.
+ */
 interface FileRowSpan {
+  readonly fileIndex: number;
   readonly startRowIndex: number;
   readonly rowCount: number;
-  /** Row index, relative to the file's own start, at which each hunk begins. */
-  readonly hunkStartRowIndices: readonly number[];
 }
 
 /**
- * The flattened row index of one diff, under one expansion state.
+ * The flattened row index of one diff, under one expansion state, narrowed to at
+ * most one of its files.
  *
  * Immutable: an expansion produces a NEW index, which is what makes a memoised
  * renderer correct — a mutated index would report new rows against an unchanged
  * identity and the rows on screen would not move.
+ *
+ * NARROWING IS A VIEW OVER THE WHOLE MODEL AND NEVER A SMALLER MODEL. §10.6 has
+ * the pane open on its file list and narrow the rows to the file a person picks;
+ * doing that by filtering `model.files` renumbers them, and every index the rows
+ * then hand back — to the expansion key, and to the host resolving how much
+ * context a gap still holds — addresses the wrong file. So the file stays where
+ * it is and the flattening skips the others.
  */
 export class DiffRowIndex {
   readonly #model: ConsoleDiffModel;
@@ -144,19 +160,25 @@ export class DiffRowIndex {
   readonly #fileSpans: readonly FileRowSpan[];
   readonly #rowCount: number;
 
-  public constructor(model: ConsoleDiffModel, expansion: DiffGapExpansion = new Map()) {
+  public constructor(
+    model: ConsoleDiffModel,
+    expansion: DiffGapExpansion = new Map(),
+    /** Show only the file at this wire-verbatim path. Absent shows every file. */
+    shownFilePath?: string,
+  ) {
     this.#model = model;
     this.#expansion = expansion;
 
     const fileSpans: FileRowSpan[] = [];
     let rowCursor = 0;
     model.files.forEach((file, fileIndex) => {
+      if (shownFilePath !== undefined && file.path !== shownFilePath) {
+        return;
+      }
       const startRowIndex = rowCursor;
       // The file's own header.
       let fileRowCount = 1;
-      const hunkStartRowIndices: number[] = [];
       file.hunks.forEach((hunk, hunkIndex) => {
-        hunkStartRowIndices.push(fileRowCount);
         const hidden = this.#hiddenLineCountFor(fileIndex, hunkIndex);
         // A gap row exists only while the gap still hides something.
         fileRowCount += hidden > 0 ? 1 : 0;
@@ -164,7 +186,7 @@ export class DiffRowIndex {
         // The hunk header, then its body.
         fileRowCount += 1 + hunk.lines.length;
       });
-      fileSpans.push({ startRowIndex, rowCount: fileRowCount, hunkStartRowIndices });
+      fileSpans.push({ fileIndex, startRowIndex, rowCount: fileRowCount });
       rowCursor += fileRowCount;
     });
 
@@ -199,12 +221,12 @@ export class DiffRowIndex {
     if (rowIndex < 0 || rowIndex >= this.#rowCount) {
       return undefined;
     }
-    const fileIndex = this.#fileIndexAt(rowIndex);
-    const span = this.#fileSpans[fileIndex];
-    const file = this.#model.files[fileIndex];
+    const span = this.#spanAt(rowIndex);
+    const file = span === undefined ? undefined : this.#model.files[span.fileIndex];
     if (span === undefined || file === undefined) {
       return undefined;
     }
+    const fileIndex = span.fileIndex;
     const withinFile = rowIndex - span.startRowIndex;
     if (withinFile === 0) {
       return { kind: "file-header", fileIndex };
@@ -265,9 +287,16 @@ export class DiffRowIndex {
       : hunk.lines[row.lineIndex];
   }
 
-  /** The absolute row index a file's header sits at, or `undefined`. */
+  /**
+   * The absolute row index a file's header sits at, or `undefined` where this
+   * index does not show that file.
+   *
+   * A scan over the spans rather than a lookup by position: the spans are the
+   * files this index SHOWS and the argument names a file of the model, and the
+   * two are the same list only when nothing is narrowed.
+   */
   public rowIndexOfFile(fileIndex: number): number | undefined {
-    return this.#fileSpans[fileIndex]?.startRowIndex;
+    return this.#fileSpans.find((span) => span.fileIndex === fileIndex)?.startRowIndex;
   }
 
   /** How many of a gap's lines are revealed under this expansion. */
@@ -282,8 +311,8 @@ export class DiffRowIndex {
     return available - this.#revealedLineCountFor(fileIndex, hunkIndex);
   }
 
-  /** Binary search for the file whose span contains an absolute row index. */
-  #fileIndexAt(rowIndex: number): number {
+  /** Binary search for the span that contains an absolute row index. */
+  #spanAt(rowIndex: number): FileRowSpan | undefined {
     let low = 0;
     let high = this.#fileSpans.length - 1;
     while (low < high) {
@@ -295,6 +324,6 @@ export class DiffRowIndex {
         high = middle - 1;
       }
     }
-    return low;
+    return this.#fileSpans[low];
   }
 }

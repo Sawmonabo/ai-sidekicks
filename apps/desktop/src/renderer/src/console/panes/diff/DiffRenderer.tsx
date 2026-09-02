@@ -77,6 +77,14 @@ export interface DiffRendererProps {
    */
   readonly showWhitespaceChanges: boolean;
   readonly expansion: DiffGapExpansion;
+  /**
+   * Show only this file of the model, by its wire-verbatim path.
+   *
+   * A narrowing rather than a smaller model, so `fileIndex` on every row this
+   * renderer hands back — and on every `onExpandGap` call — still addresses
+   * `model.files`. The pane narrows; the card shows the whole change set.
+   */
+  readonly shownFilePath?: string | undefined;
   readonly onExpandGap: (fileIndex: number, hunkIndex: number) => void;
   /**
    * Height the scroller is capped at, in CSS pixels. The inline card supplies
@@ -123,8 +131,8 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   // tick: the index is what a scroll READS and a scroll changes neither of its
   // inputs.
   const index = useMemo(
-    () => new DiffRowIndex(props.model, props.expansion),
-    [props.model, props.expansion],
+    () => new DiffRowIndex(props.model, props.expansion, props.shownFilePath),
+    [props.model, props.expansion, props.shownFilePath],
   );
 
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({

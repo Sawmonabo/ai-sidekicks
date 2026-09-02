@@ -18,6 +18,7 @@ import {
   buildDiffFixture,
 } from "./diff-fixture.js";
 import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
+import { type ConsoleDiffModel } from "./diff-model.js";
 
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { DiffPane } from "./DiffPane.js";
@@ -172,6 +173,70 @@ describe("diff pane — the file list and the rows", () => {
     expect(container.querySelectorAll(".meridian-diff-files__entry").length).toBe(2);
     fireEvent.change(getByRole("searchbox"), { target: { value: "no-such-path" } });
     expect(container.querySelector(".meridian-diff-files__no-match")).not.toBeNull();
+  });
+});
+
+describe("diff pane — expanding a gap in a file that is not the first", () => {
+  /**
+   * Two files whose gaps differ in size.
+   *
+   * The generated shape gives every file the same hidden-line count, and a pane
+   * that resolved the wrong file's count would be indistinguishable from one that
+   * resolved the right file's. Trimming the FIRST file's context is what makes the
+   * difference observable, because the first file is the one a renumbered index
+   * would have reached for.
+   */
+  const UNEVEN_GAP_DIFF: ConsoleDiffModel = (() => {
+    const whole = buildDiffFixture(SMALL_DIFF_SHAPE);
+    return {
+      ...whole,
+      files: whole.files.map((file, fileIndex) =>
+        fileIndex === 0
+          ? {
+              ...file,
+              hunks: file.hunks.map((hunk) => ({
+                ...hunk,
+                precedingContext: hunk.precedingContext.slice(-1),
+              })),
+            }
+          : file,
+      ),
+    };
+  })();
+
+  /** How the gap row labels the context it still hides. One writer, one reader. */
+  const gapLabelFor = (hiddenLineCount: number): string =>
+    `Expand ${String(hiddenLineCount)} hidden lines`;
+
+  it("reveals the selected file's whole gap, because it read that file's count", () => {
+    const { container, getAllByRole, getByRole } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={UNEVEN_GAP_DIFF} />,
+    );
+    fireEvent.click(getByRole("button", { name: /module-01\.ts/u }));
+    // The label is the second file's own count, not the first file's.
+    const gaps = getAllByRole("button", {
+      name: gapLabelFor(SMALL_DIFF_SHAPE.precedingContextPerHunk),
+    });
+    expect(gaps).toHaveLength(SMALL_DIFF_SHAPE.hunksPerFile);
+    fireEvent.click(gaps[0]!);
+    // One activation reveals a whole four-line gap, so that hunk's gap row is
+    // gone and only the file's other hunk still has one. Had the FIRST file's
+    // single line been used, three would still be hidden and both would remain.
+    expect(container.querySelectorAll(".meridian-diff__row--gap")).toHaveLength(
+      SMALL_DIFF_SHAPE.hunksPerFile - 1,
+    );
+  });
+
+  it("negative control: the first file's gap really is the smaller one", () => {
+    // Without this the case above would pass over a fixture whose two files were
+    // identical, which is the shape the defect is invisible in.
+    const { getAllByRole, getByRole } = render(
+      <DiffPane context={contextFor(WORKSPACE_ENTITY)} diff={UNEVEN_GAP_DIFF} />,
+    );
+    fireEvent.click(getByRole("button", { name: /module-00\.ts/u }));
+    expect(getAllByRole("button", { name: gapLabelFor(1) })).toHaveLength(
+      SMALL_DIFF_SHAPE.hunksPerFile,
+    );
   });
 });
 

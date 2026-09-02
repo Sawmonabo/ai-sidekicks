@@ -96,6 +96,42 @@ describe("hunk virtualization — flattening", () => {
   });
 });
 
+describe("hunk virtualization — narrowing to one file", () => {
+  const secondFilePath = SMALL_DIFF.files[1]?.path ?? "";
+
+  it("keeps the model's own file index on every row it hands out", () => {
+    // The whole point of narrowing rather than filtering. A renumbered index
+    // would call the shown file zero, and the host resolving how much context a
+    // gap holds would resolve the FIRST file's.
+    const narrowed = new DiffRowIndex(SMALL_DIFF, new Map(), secondFilePath);
+    expect(narrowed.rowAt(0)).toStrictEqual({ kind: "file-header", fileIndex: 1 });
+    expect(narrowed.rowAt(1)).toStrictEqual({
+      kind: "gap",
+      fileIndex: 1,
+      hunkIndex: 0,
+      hiddenLineCount: SMALL_DIFF_SHAPE.precedingContextPerHunk,
+    });
+  });
+
+  it("holds only the named file's rows, and reports the whole model unchanged", () => {
+    const narrowed = new DiffRowIndex(SMALL_DIFF, new Map(), secondFilePath);
+    expect(narrowed.rowCount).toBe(expectedRowCount(0) / SMALL_DIFF_SHAPE.fileCount);
+    // The model is not narrowed with the rows — a row's `fileIndex` addresses it,
+    // and a smaller model would make that address mean something else.
+    expect(narrowed.model.files).toHaveLength(SMALL_DIFF_SHAPE.fileCount);
+    expect(narrowed.rowIndexOfFile(1)).toBe(0);
+    expect(narrowed.rowIndexOfFile(0)).toBeUndefined();
+  });
+
+  it("negative control: unnarrowed, the same row indices address the first file", () => {
+    // Without this the case above would pass over an index that ignored the path
+    // and always started at the file it was given first.
+    const whole = new DiffRowIndex(SMALL_DIFF);
+    expect(whole.rowAt(0)).toStrictEqual({ kind: "file-header", fileIndex: 0 });
+    expect(whole.rowIndexOfFile(0)).toBe(0);
+  });
+});
+
 describe("hunk virtualization — gap expansion with predecessor retention", () => {
   it("reveals one band, and the gap row survives while anything is hidden", () => {
     const expansion = expandGap(new Map(), 0, 0, SMALL_DIFF_SHAPE.precedingContextPerHunk);

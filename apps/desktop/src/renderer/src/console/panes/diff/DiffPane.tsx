@@ -36,7 +36,7 @@
 // panes has focus and this body does not. A body that painted its own ring would
 // be a second answer to a question the deck already owns.
 
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useId, useState } from "react";
 
 import { Chip, Glyph, Nothing } from "../../primitives/index.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
@@ -75,6 +75,15 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
   const [expansion, setExpansion] = useState<DiffGapExpansion>(() => new Map());
   const [selectedFilePath, setSelectedFilePath] = useState<string | undefined>(undefined);
 
+  // §10.6's density rule: the pane opens on the changed-file list with the first
+  // file expanded. Selecting a file narrows the rows to it; selecting none reads
+  // the whole change set, which is what "the first file expanded" degrades to
+  // once a reader has scrolled past it.
+  //
+  // THE NARROWING IS THE RENDERER'S AND NOT A FILTERED MODEL, which is what makes
+  // the handler below correct. A filtered model renumbers its files, so a gap in
+  // the second file arrives here as file zero and this lookup would resolve the
+  // FIRST file's context — expanding by the wrong count, or by nothing.
   const handleExpandGap = useCallback(
     (fileIndex: number, hunkIndex: number) => {
       const available = diff?.files[fileIndex]?.hunks[hunkIndex]?.precedingContext.length ?? 0;
@@ -82,17 +91,6 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
     },
     [diff],
   );
-
-  // §10.6's density rule: the pane opens on the changed-file list with the first
-  // file expanded. Selecting a file narrows the rows to it; selecting none reads
-  // the whole change set, which is what "the first file expanded" degrades to
-  // once a reader has scrolled past it.
-  const shownDiff = useMemo<ConsoleDiffModel | undefined>(() => {
-    if (diff === undefined || selectedFilePath === undefined) {
-      return diff;
-    }
-    return { ...diff, files: diff.files.filter((file) => file.path === selectedFilePath) };
-  }, [diff, selectedFilePath]);
 
   return (
     <section
@@ -120,7 +118,7 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
           </span>
         )}
       </header>
-      {diff === undefined || shownDiff === undefined ? (
+      {diff === undefined ? (
         <div className="meridian-repos-pane__body">
           <Nothing
             kind="not-checked"
@@ -140,7 +138,8 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
               onSelectFilePath={setSelectedFilePath}
             />
             <DiffRenderer
-              model={shownDiff}
+              model={diff}
+              shownFilePath={selectedFilePath}
               viewMode={viewControls.viewMode}
               showAttributionMarks={viewControls.showAttributionMarks}
               wrapLongLines={viewControls.wrapLongLines}
