@@ -8,8 +8,10 @@
 //     current reading and appended to its status history.
 //   • `RunRolledBackEvent` — deliberately NOT a transition. It carries no
 //     `previousState` and no `currentState`, because a rollback is not one, and
-//     §7.1's Never list forbids fabricating one. So the fold advances the run's
-//     version and its rewind position and LEAVES THE STATE ALONE.
+//     §7.1's Never list forbids fabricating one. So the fold appends a status row
+//     carrying NEITHER STATE, advances the run's version and its rewind position,
+//     and reads the run as `paused` — which is where the rollback contract lands a
+//     confirmed rewind, for every run and not only for one this pane has not seen.
 //
 // The two arms share one stream with no wire tag and stay unambiguous structurally:
 // both registered schemas are `.strict()`, so a state change fails the rollback
@@ -191,12 +193,27 @@ export class RunStateProjection {
   /**
    * A rewind, which is not a transition.
    *
-   * The run's `state` is carried forward untouched — §7.1: "Never fabricates a
-   * transition for a rewind." A run this pane has not seen a transition for still
-   * gets a row, because the rewind is real and dropping it would leave a person
-   * looking at a run whose position moved with nothing on screen saying so; its
-   * state reads `paused`, which is where `Spec-004` lands a confirmed rollback and
-   * is the only state the wire's own contract establishes for this arm.
+   * The run reads `paused` afterwards — every run, not only one this pane has not
+   * seen before. `Spec-004`'s absorption rule states it directly ("after a rollback
+   * has re-opened the run in `paused`"), and `RunRolledBackEventSchema` is
+   * `{sessionId, runId, runVersion, channelId?, targetPosition}` and strict, so the
+   * state comes from the contract rather than from a member. Carrying the held
+   * state forward instead would leave a run this pane had already seen `completed`,
+   * `failed`, or `waiting_for_approval` looking terminal or blocked indefinitely —
+   * this event is the operation's only state-stream notification — and would
+   * withhold the controls the rewound run now has.
+   *
+   * The metadata that described the pre-rewind epoch goes with it: a trigger, a
+   * clean-close marking, and a failure category all describe a run that no longer
+   * exists at this position, and rendering them beside `paused` would be reporting
+   * a stop that has been undone.
+   *
+   * Still NO fabricated transition — §7.1: "Never fabricates a transition for a
+   * rewind." The appended row keeps `subtype: "rewound"` with both states
+   * `undefined`, so the history says a rewind happened and never says from what to
+   * what. A run this pane meets through a rewind alone still gets a row, because
+   * the rewind is real and dropping it would leave a person looking at a run whose
+   * position moved with nothing on screen saying so.
    */
   #acceptRewind(event: RunRolledBackEvent): void {
     const held = this.#runsById.get(event.runId);
@@ -211,11 +228,11 @@ export class RunStateProjection {
     this.#store({
       runId: event.runId,
       runVersion: event.runVersion,
-      state: held?.state ?? "paused",
-      trigger: held?.trigger,
-      intendedClose: held?.intendedClose ?? false,
-      failureCategory: held?.failureCategory,
-      providerFailureDetail: held?.providerFailureDetail,
+      state: "paused",
+      trigger: undefined,
+      intendedClose: false,
+      failureCategory: undefined,
+      providerFailureDetail: undefined,
       rewoundToPosition: event.targetPosition,
       firstSeenAtIso: held?.firstSeenAtIso ?? UNTIMED_FIRST_SEEN,
       updatedAtIso: held?.updatedAtIso ?? UNTIMED_FIRST_SEEN,

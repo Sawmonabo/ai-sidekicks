@@ -183,7 +183,7 @@ describe("the row states the wire's own figures", () => {
 });
 
 describe("the rewind arm never fabricates a transition", () => {
-  it("advances the version and leaves the state alone", () => {
+  it("advances the version and re-opens the run in paused", () => {
     // Asserted on the fold rather than through the tree, because the claim is about
     // what the projection DOES with an arm that carries no states at all.
     const fold = new RunStateProjection();
@@ -197,9 +197,12 @@ describe("the rewind arm never fabricates a transition", () => {
       }),
     ).toBe(true);
     const run = fold.runs()[0];
-    expect(run?.state).toBe("running");
+    expect(run?.state).toBe("paused");
     expect(run?.runVersion).toBe(3);
     expect(run?.rewoundToPosition).toBe(11);
+    // No transition was invented: the appended row still carries neither state.
+    expect(run?.statusRows.at(-1)?.previousState).toBeUndefined();
+    expect(run?.statusRows.at(-1)?.currentState).toBeUndefined();
   });
 
   it("negative control: a delivery that parses as neither arm is counted, not guessed", () => {
