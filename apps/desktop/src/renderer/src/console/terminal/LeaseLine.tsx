@@ -99,12 +99,21 @@ export interface LeaseLineProps {
  */
 const TERMINAL_LEASE_REFUSAL_ORIGIN = "terminal-lease";
 
-/** What the chip says for each holding. Total over the closed set. */
+/**
+ * What the chip says for each holding. Total over the closed set.
+ *
+ * `unrecognized-transition` is the one amber row, and rule 3's amber is spent on
+ * exactly what it means: a person is needed. The daemon moved the shell under a
+ * transition this build cannot read, so nobody can be told who holds it until
+ * somebody updates this console or looks at the log — which is a different thing
+ * from the neutral "not checked", where the console simply has not asked.
+ */
 const HOLDING_CHIPS: Readonly<Record<TerminalLeaseHolding, { label: string; tone: ChipTone }>> = {
   "not-checked": { label: "Not checked", tone: "neutral" },
   unheld: { label: "Free", tone: "neutral" },
   "held-by-you": { label: "You hold it", tone: "accent" },
   "held-by-another": { label: "Held", tone: "neutral" },
+  "unrecognized-transition": { label: "Unread transition", tone: "attention" },
 };
 
 export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
@@ -166,6 +175,19 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
         <p className="meridian-lease-line__degraded">
           The holding node <WireFigure value={state.unvouchedNodeId} /> is offline, so the shell
           reads as free and stays read-only here.
+        </p>
+      )}
+
+      {state.unreadTransition === undefined ? null : (
+        <p className="meridian-lease-line__unread">
+          The shell changed hands under a transition this build cannot read, so nobody is shown as
+          holding it and the surface stays read-only.
+          {state.unreadTransition.reason === undefined ? null : (
+            <>
+              {" "}
+              The wire called it <WireFigure value={state.unreadTransition.reason} />.
+            </>
+          )}
         </p>
       )}
 
@@ -233,6 +255,12 @@ function HolderName(props: {
 }): React.JSX.Element {
   if (props.holding === "not-checked") {
     return <DerivedFigure text="The lease has not been read." />;
+  }
+  // Before the null-holder arm, which would otherwise render this state as the free
+  // lease — the one sentence that is certainly wrong here. The holder is null
+  // because the fold refused to guess, not because the wire said nobody holds it.
+  if (props.holding === "unrecognized-transition") {
+    return <DerivedFigure text="The console cannot read who holds the shell." />;
   }
   if (props.participantId === null) {
     return <DerivedFigure text="Nobody holds the shell." />;

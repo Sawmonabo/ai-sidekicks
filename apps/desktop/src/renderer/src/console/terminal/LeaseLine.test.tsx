@@ -19,6 +19,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../bridge/scenarios/terminal.js";
 import { LeaseLine, type TerminalParticipantMark } from "./LeaseLine.js";
 import {
+  TERMINAL_LEASE_HOLDINGS,
   UNREAD_TERMINAL_LEASE,
   type TerminalLeaseState,
   type TerminalLeaseTransition,
@@ -246,7 +247,50 @@ describe("the holder line — every state 8.8 names", () => {
     expect(container.textContent).not.toContain("Held by");
   });
 
-  it("negative control: the four holdings do not all render the same sentence", () => {
+  it("says the lease is unreadable when a transition arrived this build cannot read", () => {
+    const { container } = renderLease(
+      leaseState({
+        holding: "unrecognized-transition",
+        holderVouching: "vouched",
+        unreadTransition: {
+          sequence: 9,
+          occurredAtIso: "2026-01-01T16:40:09.000Z",
+          reason: "auto_released_quota_exhausted",
+        },
+      }),
+    );
+    expect(container.textContent).toContain("Unread transition");
+    expect(container.textContent).toContain("The console cannot read who holds the shell.");
+    // The reason travels verbatim and in mono, because it is a wire string the
+    // operator pastes into a search rather than prose this console wrote.
+    expect(container.textContent).toContain("auto_released_quota_exhausted");
+    // The two sentences that would be lies here: nobody said the lease is free, and
+    // nobody said this participant may type.
+    expect(container.textContent).not.toContain("Nobody holds the shell.");
+    expect(container.textContent).not.toContain("You may type into the shared shell.");
+  });
+
+  it("says it plainly when the unread transition named no reason at all", () => {
+    const { container } = renderLease(
+      leaseState({
+        holding: "unrecognized-transition",
+        holderVouching: "vouched",
+        unreadTransition: {
+          sequence: 9,
+          occurredAtIso: "2026-01-01T16:40:09.000Z",
+          reason: undefined,
+        },
+      }),
+    );
+    expect(container.textContent).toContain("this build cannot read");
+    // No dangling "The wire called it ." where there was nothing to name.
+    expect(container.textContent).not.toContain("The wire called it");
+  });
+
+  it("negative control: every holding renders its own sentence", () => {
+    // Counted off the closed set rather than written down, so a sixth holding added
+    // without a sentence of its own fails here instead of quietly reading like one
+    // of the five.
     const sentences = new Set(
       (
         [
@@ -262,10 +306,19 @@ describe("the holder line — every state 8.8 names", () => {
             holderParticipantId: VIEWER,
             holderVouching: "vouched",
           }),
+          leaseState({
+            holding: "unrecognized-transition",
+            holderVouching: "vouched",
+            unreadTransition: {
+              sequence: 9,
+              occurredAtIso: "2026-01-01T16:40:09.000Z",
+              reason: "auto_released_quota_exhausted",
+            },
+          }),
         ] as const
       ).map((state) => renderLease(state).container.textContent),
     );
-    expect(sentences.size).toBe(4);
+    expect(sentences.size).toBe(TERMINAL_LEASE_HOLDINGS.length);
   });
 });
 

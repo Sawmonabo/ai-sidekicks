@@ -62,9 +62,31 @@ function storeThrough(transitionOrdinal: number): SessionStore {
   return store;
 }
 
-function renderPane(sessionStore: SessionStore | undefined): HTMLElement {
+/**
+ * A bridge whose output subscribe REJECTS with whatever the caller hands it.
+ *
+ * `LeaseLine.test.tsx`'s shape, applied to the other bridge-facing read on this
+ * pane. The growth port ANSWERS a refusal, so a rejection means the bridge itself
+ * failed — and the standard wire envelope is what a failing bridge sends across
+ * the preload boundary (`src/shared/wire-errors.ts` owns that shape).
+ */
+function bridgeRejectingOutputWith(rejection: unknown): ConsoleBridge {
+  const base = bridge();
+  return {
+    ...base,
+    growth: {
+      ...base.growth,
+      terminalSubscribeOutput: () => Promise.reject(rejection),
+    },
+  };
+}
+
+function renderPane(
+  sessionStore: SessionStore | undefined,
+  consoleBridge: ConsoleBridge = bridge(),
+): HTMLElement {
   const { container } = render(
-    <TerminalPane paneId="pane-terminal" bridge={bridge()} sessionStore={sessionStore} />,
+    <TerminalPane paneId="pane-terminal" bridge={consoleBridge} sessionStore={sessionStore} />,
   );
   const region = container.querySelector("section");
   if (!(region instanceof HTMLElement)) {
@@ -154,5 +176,65 @@ describe("terminal pane — bound to a session", () => {
       // are claims this pane has no read behind.
       expect(absence.className).not.toContain("meridian-nothing--empty");
     }
+  });
+});
+
+describe("terminal pane — a rejected output subscribe keeps its diagnosis", () => {
+  it("renders the wire's own code when the subscribe REJECTED rather than refused", async () => {
+    const region = renderPane(
+      storeThrough(1),
+      bridgeRejectingOutputWith({
+        code: "permission_denied",
+        message: "You may not watch this session's shell.",
+      }),
+    );
+    await waitFor(() => {
+      expect(region.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    });
+    // The half a person acts on. The old arm reduced this to a generic title with
+    // the envelope serialized into the detail, so a denied permission and a torn
+    // transport read the same.
+    expect(region.textContent).toContain("permission_denied");
+    expect(region.textContent).toContain("You may not watch this session's shell.");
+    expect(region.textContent).not.toContain("could not be reached");
+  });
+
+  it("names the next move when the rejection carried no code of its own", async () => {
+    const region = renderPane(
+      storeThrough(1),
+      bridgeRejectingOutputWith(new Error("the preload went away")),
+    );
+    await waitFor(() => {
+      expect(region.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    });
+    // The normalizer's fourth arm, and the only one this pane's fallback reaches:
+    // a rejection with nothing to say gets a sentence that says what to do.
+    expect(region.textContent).toContain("terminal-output-unreachable");
+    expect(region.textContent).toContain("Reopening this pane asks again.");
+  });
+
+  it("negative control: the refusal displaces the absence rather than joining it", async () => {
+    // Without this the cases above would pass against a pane that rendered both,
+    // leaving "No output stream" on screen beside a refusal that contradicts it.
+    const region = renderPane(
+      storeThrough(1),
+      bridgeRejectingOutputWith({ code: "permission_denied", message: "no" }),
+    );
+    await waitFor(() => {
+      expect(region.querySelector(".meridian-refusal--inline")).not.toBeNull();
+    });
+    expect(region.textContent).not.toContain("No output stream");
+    expect(region.textContent).not.toContain("Asking for the output stream");
+  });
+
+  it("negative control: the served-and-refused paths still render an absence", async () => {
+    // And without this the cases above would pass against a pane that had turned
+    // every output reading into a refusal, which would make the port's own typed
+    // absence unreachable.
+    const region = renderPane(storeThrough(1));
+    await waitFor(() => {
+      expect(region.textContent).toContain("No output stream");
+    });
+    expect(region.querySelector(".meridian-refusal--inline")).toBeNull();
   });
 });

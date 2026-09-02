@@ -4,7 +4,14 @@
 // `Spec-023 §Console Libraries` ADOPTS `@xterm/xterm` 6.0.0 with the WebGL, fit,
 // search, unicode11, and serialize addons and OWN-BUILDS the React wrapper and the
 // renderer pool, under five constraints. Each one is a decision this module makes
-// rather than a note a reviewer has to remember:
+// rather than a note a reviewer has to remember.
+//
+// A SIXTH ADDON FROM THE SAME PROJECT is loaded below — `@xterm/addon-web-links`,
+// pinned exactly, MIT, no dependencies — under constraint 4, which is where the
+// reasoning for it is. It is the ADOPT-over-OWN-BUILD side of the same axis: the
+// alternative is this module reimplementing the library's own buffer index
+// back-mapping, and the guard the constraint is about runs on the activation path
+// either way.
 //
 //   1. **Bound the CONTEXTS this page creates, not the terminals drawing on one.**
 //      `WebglAddon.dispose()` does not release its WebGL2 context — the addon
@@ -22,8 +29,27 @@
 //      destroyed the context rather than this code letting go of one.
 //   3. **`allowProposedApi` only for Unicode 11.** Only the `unicode` getter calls
 //      `_checkProposedApi()`; every other API here is stable.
-//   4. **Own link provider with the scheme guard.** `link-guard.ts` owns the rule;
-//      `allowNonHttpProtocols` stays false beside it.
+//   4. **Every activatable link passes the scheme guard.** `link-guard.ts` owns
+//      the rule, `allowNonHttpProtocols` stays false beside it, and the two ways
+//      a link can reach a person share one activation method rather than two
+//      copies of the same check.
+//
+//      TWO WAYS, because there are two kinds of link in a terminal and xterm.js
+//      handles exactly one of them itself. `linkHandler` governs OSC 8 hyperlinks
+//      — text a program explicitly marked as a link — and governs nothing else,
+//      so an ordinary `https://…` a shell simply PRINTED was inert: no link
+//      provider was registered, and a provider is the only thing that turns
+//      printed text into something clickable. That is the common case, and it was
+//      the one that did nothing.
+//
+//      `@xterm/addon-web-links` is the xterm.js project's own answer to it and is
+//      ADOPTED here rather than reimplemented: its provider carries the buffer
+//      index back-mapping a hand-written one would have to get right — wrapped
+//      lines, early-wrapped wide characters, the 2048-character expansion bound —
+//      and its default matcher admits `http://` and `https://` only, which is the
+//      same closed set `link-guard.ts` allows, so it decorates nothing the guard
+//      would then refuse. The addon's own default handler (`window.open`) is
+//      never used; this adapter passes its own, and that handler runs the guard.
 //   5. **`disableStdin` plus wire-level gating for watchers.** Watch mode is the
 //      default, so stdin starts disabled and opens only when the lease says this
 //      participant holds the shell — and the keystrokes go to the wire, never into
@@ -47,6 +73,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { SerializeAddon } from "@xterm/addon-serialize";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
+import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
@@ -301,10 +328,7 @@ export class XtermTerminalAdapter {
         // The library's own gate: a non-HTTP link never reaches `activate`.
         allowNonHttpProtocols: false,
         activate: (_event: MouseEvent, text: string): void => {
-          const href = allowedTerminalLinkHref(text);
-          if (href !== undefined) {
-            this.#onActivateLink?.(href);
-          }
+          this.#activateAllowedLink(text);
         },
       },
     };
@@ -317,6 +341,18 @@ export class XtermTerminalAdapter {
     terminal.loadAddon(this.#serializeAddon);
     terminal.loadAddon(new Unicode11Addon());
     terminal.unicode.activeVersion = "11";
+    if (this.#onActivateLink !== undefined) {
+      // Gated on the sink, the way `onData` below is: a surface with nowhere to
+      // send a link would otherwise underline printed URLs and swallow the click,
+      // which is an affordance that lies. Not held as a field — nothing calls it
+      // again, and an addon kept as one keeps the emulator reachable past
+      // `dispose()`; `Terminal.dispose()` disposes what it loaded.
+      terminal.loadAddon(
+        new WebLinksAddon((_event: MouseEvent, uri: string): void => {
+          this.#activateAllowedLink(uri);
+        }),
+      );
+    }
     if (this.#onKeystroke !== undefined) {
       this.#subscriptions.push(
         terminal.onData((data: string) => {
@@ -331,6 +367,25 @@ export class XtermTerminalAdapter {
     }
     this.#terminal = terminal;
     return terminal;
+  }
+
+  /**
+   * The one place a link reaches the surface that owns the opener.
+   *
+   * Both link paths — the OSC 8 hyperlink xterm.js handles itself, and the printed
+   * URL the web-links provider detects — end here, so the scheme allow-list is run
+   * once against one rule. Two call sites each running their own check is the
+   * shape `apps/desktop/AGENTS.md` names: two copies of one normalization that
+   * agree until somebody edits one.
+   *
+   * The href handed on is the PARSED one, so what the opener receives is a
+   * normalized URL rather than whatever a program happened to print.
+   */
+  #activateAllowedLink(text: string): void {
+    const href = allowedTerminalLinkHref(text);
+    if (href !== undefined) {
+      this.#onActivateLink?.(href);
+    }
   }
 
   /**

@@ -77,16 +77,19 @@ export interface TerminalLeaseTransition {
 /**
  * Who holds the shell, from the viewer's seat.
  *
- * `not-checked` is a fifth answer and not a synonym for `unheld`: 8.8 makes a free
- * lease an explicit state that reads differently from a suppressed one, and "no
- * transition has ever been read" is neither. Declared as a tuple for the reason
- * every closed set here is.
+ * `not-checked` is not a synonym for `unheld`: 8.8 makes a free lease an explicit
+ * state that reads differently from a suppressed one, and "no transition has ever
+ * been read" is neither. `unrecognized-transition` is a fifth answer for the same
+ * kind of reason — the log carried a transition this build cannot read, so the
+ * holder is neither the free lease nor whoever held it before. Declared as a tuple
+ * for the reason every closed set here is.
  */
 export const TERMINAL_LEASE_HOLDINGS = [
   "not-checked",
   "unheld",
   "held-by-you",
   "held-by-another",
+  "unrecognized-transition",
 ] as const;
 
 export type TerminalLeaseHolding = (typeof TERMINAL_LEASE_HOLDINGS)[number];
@@ -106,6 +109,27 @@ export const TERMINAL_HOLDER_VOUCHINGS = ["not-checked", "vouched", "unvouched"]
 
 export type TerminalHolderVouching = (typeof TERMINAL_HOLDER_VOUCHINGS)[number];
 
+/**
+ * A lease transition the console could not read, kept so the surface can say so.
+ *
+ * The wire moved the lease and this build does not understand the move. Skipping it
+ * would leave the previous holder standing as the newest state, which is the one
+ * reading that lets a person keep typing into a shell the daemon has taken from
+ * them — so the transition is carried in its own right, with whatever the wire
+ * called it, and the projection settles into the arm that writes nothing.
+ */
+export interface TerminalLeaseUnreadTransition {
+  /** The event's position in the session log. Stable across a replay. */
+  readonly sequence: number;
+  readonly occurredAtIso: string;
+  /**
+   * The reason the wire sent, when it sent a non-empty string — verbatim, for the
+   * operator to paste somewhere. `undefined` when the payload named none at all,
+   * which is the same fact with less to say about it.
+   */
+  readonly reason: string | undefined;
+}
+
 export interface TerminalLeaseState {
   readonly holding: TerminalLeaseHolding;
   /** The holder the wire named, or `null` for a free lease. Never inferred. */
@@ -116,9 +140,19 @@ export interface TerminalLeaseState {
    * the degraded line names it rather than saying "somewhere".
    */
   readonly unvouchedNodeId: string | undefined;
+  /**
+   * The newest transition the fold could not read, when one arrived after every
+   * transition it could. Present means the lease state is unknown rather than
+   * stale, and the surface says which transition lost it.
+   */
+  readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
   /** Newest last, capped at `TERMINAL_LEASE_LEDGER_CAP`. */
   readonly transitions: readonly TerminalLeaseTransition[];
-  /** Every transition the fold saw, including the ones the cap dropped. */
+  /**
+   * Every transition the fold could READ, including the ones the cap dropped. An
+   * unreadable one is counted nowhere here — it has no sentence and no ledger row,
+   * and it is reported through `unreadTransition` instead.
+   */
   readonly transitionCount: number;
 }
 
@@ -143,6 +177,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
   holderParticipantId: null,
   holderVouching: "not-checked",
   unvouchedNodeId: undefined,
+  unreadTransition: undefined,
   transitions: [],
   transitionCount: 0,
 };
@@ -150,11 +185,19 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
 /**
  * Fold a session's events into the lease state.
  *
- * Total and pure. Events of other kinds are skipped; a `pty.control_changed`
- * whose payload carries a reason outside the closed set is skipped too rather
- * than rendered as a nameless transition — an unrecognised reason is a wire the
- * console does not understand, and inventing a sentence for it is how a surface
- * starts asserting things nobody sent.
+ * Total and pure. Events of other kinds are skipped. A `pty.control_changed` this
+ * build cannot read — a reason outside the closed set, a payload that carries
+ * none — is NOT skipped: it is recorded as the unread transition and the
+ * projection settles into the arm that shows no holder and writes nothing.
+ *
+ * That direction is the whole point. Skipping it left the transition before it
+ * standing as the newest state, so a daemon that moved the lease under a reason a
+ * later release introduced would leave this surface reading `held-by-you` and
+ * stdin open for somebody who no longer holds the shell. An unread transition is
+ * ignorance, and ignorance about a write lease reads as no lease at all.
+ *
+ * A later transition the fold CAN read clears it: the console understands the
+ * current state again, and the state it understands is that transition's.
  */
 export function projectTerminalLease(
   events: readonly ConsoleSessionEvent[],
@@ -162,6 +205,7 @@ export function projectTerminalLease(
 ): TerminalLeaseState {
   const transitions: TerminalLeaseTransition[] = [];
   let transitionCount = 0;
+  let unreadTransition: TerminalLeaseUnreadTransition | undefined;
 
   for (const event of events) {
     if (event.kind !== TERMINAL_LEASE_EVENT_KIND) {
@@ -169,8 +213,10 @@ export function projectTerminalLease(
     }
     const transition = readTransition(event);
     if (transition === undefined) {
+      unreadTransition = readUnreadTransition(event);
       continue;
     }
+    unreadTransition = undefined;
     transitionCount += 1;
     transitions.push(transition);
     if (transitions.length > TERMINAL_LEASE_LEDGER_CAP) {
@@ -182,16 +228,24 @@ export function projectTerminalLease(
   const wireHolderParticipantId = newest === undefined ? null : newest.holderParticipantId;
   const vouching = readVouching(input.holdingNode);
 
-  // Fail-closed, and in this order: an unvouchable holder collapses to the free
-  // lease BEFORE the viewer comparison, so a surface can never show "you hold it"
-  // on the strength of a node the control plane cannot reach.
-  const holderParticipantId = vouching === "unvouched" ? null : wireHolderParticipantId;
+  // Fail-closed, and in this order: an unvouchable holder AND an unread transition
+  // each collapse to the free lease BEFORE the viewer comparison, so a surface can
+  // never show "you hold it" on the strength of a node the control plane cannot
+  // reach or a transition this build could not read.
+  const holderParticipantId =
+    vouching === "unvouched" || unreadTransition !== undefined ? null : wireHolderParticipantId;
 
   return {
-    holding: readHolding(transitionCount, holderParticipantId, input.viewerParticipantId),
+    holding: readHolding({
+      transitionCount,
+      unreadTransition,
+      holderParticipantId,
+      viewerParticipantId: input.viewerParticipantId,
+    }),
     holderParticipantId,
     holderVouching: vouching,
     unvouchedNodeId: vouching === "unvouched" ? input.holdingNode?.nodeId : undefined,
+    unreadTransition,
     transitions,
     transitionCount,
   };
@@ -229,6 +283,24 @@ export function terminalLeaseTransitionSentence(
     case "auto_released_run_idle":
       return `${previous}'s run left its running state, so the shell was released.`;
   }
+}
+
+/**
+ * Read one unreadable transition off its event.
+ *
+ * Separate from {@link readTransition} because the two answer different questions:
+ * that one asks whether the console understands the move, this one records the
+ * move it does not understand. The reason is carried verbatim and only when the
+ * wire sent a non-empty string — anything else is a payload with nothing to name,
+ * and a stringified object would be the surface inventing a vocabulary.
+ */
+function readUnreadTransition(event: ConsoleSessionEvent): TerminalLeaseUnreadTransition {
+  const reason = event.payload?.["reason"];
+  return {
+    sequence: event.sequence,
+    occurredAtIso: event.occurredAt,
+    reason: typeof reason === "string" && reason !== "" ? reason : undefined,
+  };
 }
 
 /** Read one transition off an event, or `undefined` when the payload is not one. */
@@ -272,16 +344,30 @@ function readVouching(
   return holdingNode.isReachable ? "vouched" : "unvouched";
 }
 
-function readHolding(
-  transitionCount: number,
-  holderParticipantId: string | null,
-  viewerParticipantId: string | undefined,
-): TerminalLeaseHolding {
-  if (transitionCount === 0) {
+/**
+ * Which holding the fold settled on. Ordered fail-closed, hardest fact last.
+ *
+ * The unread arm comes first because it is a statement about the READING and not
+ * about the lease: with a transition the console could not understand, neither
+ * "nobody holds it" nor "you hold it" is something this surface knows, and the
+ * only honest answers left are the two that disable writing.
+ */
+function readHolding(state: {
+  readonly transitionCount: number;
+  readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
+  readonly holderParticipantId: string | null;
+  readonly viewerParticipantId: string | undefined;
+}): TerminalLeaseHolding {
+  if (state.unreadTransition !== undefined) {
+    return "unrecognized-transition";
+  }
+  if (state.transitionCount === 0) {
     return "not-checked";
   }
-  if (holderParticipantId === null) {
+  if (state.holderParticipantId === null) {
     return "unheld";
   }
-  return holderParticipantId === viewerParticipantId ? "held-by-you" : "held-by-another";
+  return state.holderParticipantId === state.viewerParticipantId
+    ? "held-by-you"
+    : "held-by-another";
 }
