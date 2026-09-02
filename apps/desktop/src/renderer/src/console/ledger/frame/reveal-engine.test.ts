@@ -155,6 +155,29 @@ describe("the reveal engine — the visible text never regresses", () => {
     expect(engine.publishedText("lane-1")).toHaveLength(2400);
   });
 
+  it("never leaves a published prefix ending on half a character", () => {
+    // The budget is spent as a UTF-16 code-unit count, so an emoji-dense lane is
+    // where a frame boundary falls inside a character. Reading the lead half alone
+    // would put a replacement glyph on screen for one frame — a flicker the reveal
+    // gate cannot catch, because a lone surrogate is not one of its volatile
+    // characters.
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const grinningFace = "😀";
+    const leadUnit = grinningFace.slice(0, 1);
+    // One leading letter, so the frame's even code-unit budget lands INSIDE a pair
+    // rather than tidily between two of them.
+    const emojiLane = `a${grinningFace.repeat(REVEAL_FRAME_CHARACTER_BUDGET)}`;
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: emojiLane });
+    while (!(engine.laneState("lane-1")?.isSettled ?? true)) {
+      clock.runFrame();
+      const published = engine.publishedText("lane-1");
+      expect(published.endsWith(leadUnit)).toBe(false);
+      expect(emojiLane.startsWith(published)).toBe(true);
+    }
+    expect(engine.publishedText("lane-1")).toBe(emojiLane);
+  });
+
   it("appends an authoritative commit that extends what it holds", () => {
     const clock = new ManualClock();
     const engine = engineOn(clock);
