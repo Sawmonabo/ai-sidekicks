@@ -23,9 +23,19 @@
 // is what keeps this a one-attribute change rather than a layout one. `overlays`
 // stays OUTSIDE it — inerting the dialog along with the background would leave a
 // person nothing to reach at all.
+//
+// THE WINDOW'S ONE LIVE ANNOUNCER IS MOUNTED HERE, for the same reason and one
+// more. `LiveAnnouncerProvider` renders its two regions above the frame root, so
+// they are outside the `inert` wrapper and keep speaking while a dialog is open —
+// which is when a refusal is most likely to be raised. And the frame is the widest
+// thing that exists once per window: an announcer per surface would be N regions
+// competing to be the one a reader hears, which is the defect the primitive exists
+// to make unrepresentable. The frame is also its first consumer — see
+// `banner-announcements.ts`.
 
-import { RefusalBanner } from "../primitives/index.js";
+import { LiveAnnouncerProvider, RefusalBanner } from "../primitives/index.js";
 import { type FrameBanner } from "../store/index.js";
+import { useRefusalBannerAnnouncements } from "./banner-announcements.js";
 import { SurfaceErrorBoundary } from "./ErrorBoundary.js";
 import { IconRail, type RailEntry } from "./IconRail.js";
 import {
@@ -58,8 +68,24 @@ export interface AppFrameProps {
   readonly modalOverlayOpen?: boolean;
 }
 
+/**
+ * The window's chrome, wrapped in the announcer that outlives every surface in it.
+ *
+ * Two components rather than one because the announcement hook has to run BELOW the
+ * provider — context is read by tree position — and a component cannot consume a
+ * provider it renders itself.
+ */
 export function AppFrame(props: AppFrameProps): React.JSX.Element {
+  return (
+    <LiveAnnouncerProvider>
+      <FrameChrome {...props} />
+    </LiveAnnouncerProvider>
+  );
+}
+
+function FrameChrome(props: AppFrameProps): React.JSX.Element {
   const isAuxiliary = isAuxiliaryRoute(props.route);
+  useRefusalBannerAnnouncements(props.banners);
   return (
     <div className={isAuxiliary ? "meridian-frame meridian-frame--auxiliary" : "meridian-frame"}>
       <div className="meridian-frame__background" inert={props.modalOverlayOpen === true}>
