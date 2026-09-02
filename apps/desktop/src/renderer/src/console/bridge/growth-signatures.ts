@@ -23,6 +23,17 @@
 // document named on the operation's slate row. Where a shape is genuinely unknown to
 // the console it is stated as a named empty request rather than `unknown`, so a
 // caller that starts passing something has to come here and say what.
+//
+// THIS MODULE IS A DECLARED DATA TABLE, AND ITS LENGTH IS ITS ROW COUNT. The
+// package's "a file over about 400 lines is doing two jobs" rule is a heuristic for
+// a module that grew a second job; this one has exactly one — say what each growth
+// operation takes and gives back — and its size is the number of wires the console
+// does not yet have, one member each. There is no second responsibility here to
+// lift out, and splitting the interface would split one closed set across two
+// files: `growth-port.ts` maps every `GrowthOperationId` through this table, so a
+// member that landed in neither half is a compile error today and would become a
+// silently absent one the moment there were two tables to look in. It shrinks when
+// a slate row lands and its operations stop being growth.
 
 import type { HydratedSessionEvent } from "@ai-sidekicks/contracts";
 

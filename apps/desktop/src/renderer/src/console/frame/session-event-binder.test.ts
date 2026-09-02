@@ -14,7 +14,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, growthUnavailable } from "../bridge/index.js";
-import type { ConsoleScenario, ScenarioEngine } from "../bridge/scenario.js";
+import type { ScenarioEngine } from "../bridge/scenario-engine.js";
+import type { ConsoleScenario } from "../bridge/scenario.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { APPLY_COALESCE_MS, ManualClock, consoleTripwires } from "../core/index.js";
 import { SessionStoreRegistry, type ConsoleSessionEvent } from "../store/index.js";

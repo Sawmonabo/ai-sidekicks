@@ -52,7 +52,8 @@ import {
   FIXTURE_SERVED_GROWTH_OPERATION_IDS,
   createFixtureGrowthPort,
 } from "./fixture-growth-port.js";
-import { ScenarioEngine, type ConsoleScenario } from "./scenario.js";
+import { ScenarioEngine } from "./scenario-engine.js";
+import type { ConsoleScenario } from "./scenario.js";
 import { SCRIPTED_REPLY_REFUSAL_CODES, settleScriptedReply } from "./scripted-reply.js";
 import { subscriptionDeliversEventKind } from "./session-event-streams.js";
 
