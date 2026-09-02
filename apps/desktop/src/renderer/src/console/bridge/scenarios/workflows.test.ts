@@ -217,16 +217,28 @@ describe("the workflows scenario — the four runs", () => {
     }
   });
 
-  it("folds exactly two runs onto one provider-account attention key", () => {
-    const keys = everyPhase()
-      .map((phase) => phase.parkAttentionKey)
-      .filter((key): key is string => key !== undefined);
-    const runsWithKey = WORKFLOWS_SCENARIO_RUNS.filter((run) =>
-      run.phaseStates.some((phase) => phase.parkAttentionKey !== undefined),
-    );
+  it("arms the attention key only where the resume instant is armed beside it", () => {
+    // The registered shape gives `parkAttentionKey` the same presence rule as
+    // `autoResumeAt`: both are armed by the park and cleared on exit, so a row
+    // carrying one without the other is a response no daemon has the state to build.
+    // The suite above checks `parkCause` against `parkReason` and checked this pair
+    // nowhere — the presence rules were transcribed one member at a time, and a rule
+    // that binds TWO members has no home in a per-member loop. That is how a fixture
+    // row carrying the key with no instant validated, folded, and screenshotted.
+    for (const phase of everyPhase()) {
+      expect(phase.parkAttentionKey === undefined, phase.phaseId).toBe(
+        phase.autoResumeAt === undefined,
+      );
+    }
+  });
 
-    expect(new Set(keys).size).toBe(1);
-    expect(runsWithKey).toHaveLength(2);
+  it("negative control: one park arms both members, so the pair rule is not vacuous", () => {
+    // Without this, a table that armed no park anywhere would satisfy the rule above
+    // by holding neither member at all — and the countdown arm would have no subject.
+    const armed = everyPhase().filter((phase) => phase.autoResumeAt !== undefined);
+
+    expect(armed).toHaveLength(1);
+    expect(armed[0]?.parkAttentionKey).toBeDefined();
   });
 
   it("carries the cancellation reason where the contract puts it", () => {
