@@ -56,14 +56,54 @@
   --meridian-phase-graph-mark-stroke: 2;
 
   /* A floor so a parent that states no height still shows a graph: two ranks and
-     most of a third at 1×, rather than a collapsed hairline. */
+     most of a third at 1×, rather than a collapsed hairline. Declared once and
+     applied to the canvas, which is the box that draws; this wrapper derives its
+     own minimum from that child rather than restating the length, because two
+     copies of one number are two numbers as soon as one of them is edited. */
   --meridian-phase-graph-min-block-size: 20rem;
 
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-block-size: 0;
-  block-size: 100%;
+
+  /*
+   * THE WRAPPER MAY NOT SHRINK BELOW WHAT IT PAINTS. `min-block-size: 0` is the
+   * usual companion to `flex: 1` — it lets an item give up space to its siblings —
+   * and it is wrong here, because the canvas inside carries a floor and keeps
+   * painting at it. Under the surface's own scroll container this box is one of
+   * five children competing for a bounded height, so a wrapper allowed to collapse
+   * left a full-height canvas overflowing its own bottom edge and covering the
+   * first park card beneath it: an operator saw a graph sitting on top of the very
+   * card the pane exists to surface.
+   *
+   * `auto` is the automatic minimum size — the content's own minimum, which is the
+   * canvas's floor plus the caption when one is shown. Naming the token here
+   * instead would be short by exactly the caption's height, and the overflow would
+   * come back the moment a topology could not be drawn. The surface scrolls
+   * (`.meridian-workflow` is `overflow-y: auto`), so growing past the viewport is
+   * the intended outcome and covering a sibling never was.
+   *
+   * There is deliberately no `block-size` here either: `flex: 1` already states
+   * this box's main-axis size, and a second statement for one axis is a rule that
+   * is inert in a column parent and wrong everywhere else.
+   */
+  min-block-size: auto;
+}
+
+/*
+ * What the canvas cannot say for itself: that it is drawing states and not a graph.
+ *
+ * A run read carries no dependencies, so a graph mounted without its definition
+ * paints disconnected boxes — which looks exactly like a workflow whose phases
+ * genuinely depend on nothing. The caption is the difference, so it is ordinary
+ * readable prose in the muted text role rather than a decoration: it is read every
+ * time the picture is incomplete, which on a build with no definition read is every
+ * time.
+ */
+.meridian-phase-graph__caption {
+  margin: var(--meridian-space-2) 0 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
 }
 
 .meridian-phase-graph__canvas {

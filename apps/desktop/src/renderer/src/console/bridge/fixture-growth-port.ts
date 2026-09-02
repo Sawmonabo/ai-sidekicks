@@ -107,6 +107,31 @@
 //     `callerParticipantRead` takes for a scenario that names no viewer: the question
 //     reached nothing that could answer it.
 //
+// EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. A scripted
+// reply is matched by CALL NAME alone, so a handler that passed its request through
+// untouched answered `workflow.runRead` for ANY run id with the one run its scenario
+// states, and both enumerations for any session with that session's rows. That is one
+// session's workflow data displayed under another session's name, and a parked run
+// returned for a run that is not it — a fixture teaching a surface that the daemon
+// does not scope its answers.
+//
+// The two kinds of read part company over the same thing they part company over
+// above: whether the value has an empty form.
+//
+//   • The two ENUMERATIONS are session-scoped, and a session this scenario is not
+//     playing is answered with the EMPTY enumeration rather than with a refusal or
+//     with this scenario's rows. That is `attentionProjectionRead`'s rule one
+//     function up, and for the same reason: the operation IS served and what it
+//     found for that session here is nothing.
+//   • The two SNAPSHOT reads have no empty form, so an out-of-scope run or phase is
+//     REFUSED with the daemon's own registered code. The refusal is a
+//     `WireErrorEnvelope` thrown verbatim, which is the shape a SCRIPTED daemon
+//     refusal already takes through this seam and the shape the live bridge will
+//     throw the day these become ordinary calls. `workflow.not_found` is the workflow
+//     namespace's only registered not-found row; minting a run-scoped one here would
+//     be a fixture teaching a surface a code the corpus does not register, which is
+//     the one thing a fixture must never do.
+//
 // NO MUTATION IS ROUTED, and that is the scenario's rule rather than this port's: a
 // scripted reply is a fixed value and not a state machine, so a cancel that answered
 // would sit beside a run read still reporting `suspended`. The six workflow
@@ -181,6 +206,7 @@
 // branch finder pins its own, and pins the identity premise from the other side: no
 // scenario states a viewer under any name but the one field the port reads.
 
+import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 import type {
   AttentionItem,
   AttentionProjection,
@@ -259,40 +285,78 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
             { items: [] },
     }),
     // workflow
-    workflowDefinitionList: async () =>
-      // Served empty for a scenario that scripts nothing. An enumeration has an empty
-      // form and it is a real answer — this context resolves no definitions — so the
-      // browser draws the EMPTY kind of nothing rather than the "not checked" kind.
-      // `nextCursor` stays absent, the scripted reply's own note beside it saying why.
-      answerFromScriptedReply(engine, "workflow.definitionList", "workflowDefinitionList", () => ({
-        status: "served",
-        value: { definitions: [] },
-      })),
-    workflowRunRead: async () =>
+    workflowDefinitionList: async (request) => {
+      // Served empty on BOTH out-of-scope arms — a scenario that scripts nothing, and
+      // a session this scenario is not playing. An enumeration has an empty form and
+      // it is a real answer, so the browser draws the EMPTY kind of nothing rather
+      // than the "not checked" kind; what it must never draw is another session's
+      // definitions under the session a person is looking at. `nextCursor` stays
+      // absent, the scripted reply's own note beside it saying why.
+      const emptyEnumeration = { status: "served", value: { definitions: [] } } as const;
+      if (request.sessionId !== engine.scenario.sessionId) {
+        return emptyEnumeration;
+      }
+      return answerFromScriptedReply(
+        engine,
+        "workflow.definitionList",
+        "workflowDefinitionList",
+        () => emptyEnumeration,
+      );
+    },
+    workflowRunRead: async (request) => {
+      // The run this scenario can project is the one its own reply carries, and the
+      // reply is where the id is read from rather than a second copy kept beside it.
+      // Any other run id is one this fixture holds no snapshot for, and answering it
+      // from the scripted reply would put one run's phases, parks and controls on
+      // screen under another run's name.
+      requireScenarioWorkflowSubject(
+        declaredWorkflowScope(engine.scenario).snapshotRunId,
+        request.workflowRunId,
+        "run",
+      );
       // Refused for a scenario that scripts nothing, and the split from the read above
       // is the value's rather than this port's: `WorkflowRunSnapshot` requires a run
       // id, a session, a pinned version, a state, and a start instant, so an "empty"
       // run would be five invented facts, and a pane offers controls on what it holds.
-      answerFromScriptedReply(engine, "workflow.runRead", "workflowRunRead", () =>
+      return answerFromScriptedReply(engine, "workflow.runRead", "workflowRunRead", () =>
         growthUnavailable("workflowRunRead"),
-      ),
-    workflowPhaseOutputRead: async () =>
+      );
+    },
+    workflowPhaseOutputRead: async (request) => {
+      // Both identifiers, because the read is addressed by both: the outputs this
+      // scenario states belong to one phase of the one run it projects, and either id
+      // arriving different is a read this fixture cannot answer. Served under the
+      // wrong run, a completed phase's outputs would read as that run's work.
+      const scope = declaredWorkflowScope(engine.scenario);
+      requireScenarioWorkflowSubject(scope.snapshotRunId, request.workflowRunId, "run");
+      requireScenarioWorkflowSubject(scope.phaseOutputPhaseId, request.phaseId, "phase");
       // Refused on the same ground. This read reports a phase that reached a terminal
       // state, so there is no phase the fixture could name here without stating that
       // a phase it knows nothing about has finished and left outputs behind.
-      answerFromScriptedReply(engine, "workflow.phaseOutputRead", "workflowPhaseOutputRead", () =>
-        growthUnavailable("workflowPhaseOutputRead"),
-      ),
-    workflowRunList: async () =>
-      // Served empty for a scenario that scripts nothing, with the definition
-      // enumeration above rather than with the two snapshot reads below it: an
-      // enumeration HAS an empty form and it is a real answer — this session holds no
-      // runs — so the surface draws the EMPTY kind of nothing rather than the
-      // "not checked" kind.
-      answerFromScriptedReply(engine, "workflow.runList", "workflowRunList", () => ({
-        status: "served",
-        value: { runs: [] },
-      })),
+      return answerFromScriptedReply(
+        engine,
+        "workflow.phaseOutputRead",
+        "workflowPhaseOutputRead",
+        () => growthUnavailable("workflowPhaseOutputRead"),
+      );
+    },
+    workflowRunList: async (request) => {
+      // Session-scoped exactly as the definition enumeration is, and empty on both
+      // out-of-scope arms for the same reason: an enumeration HAS an empty form and
+      // it is a real answer — this session holds no runs here — while this scenario's
+      // four runs served under a session that owns none of them is a list of runs a
+      // person cannot open, cancel, or account for.
+      const emptyEnumeration = { status: "served", value: { runs: [] } } as const;
+      if (request.sessionId !== engine.scenario.sessionId) {
+        return emptyEnumeration;
+      }
+      return answerFromScriptedReply(
+        engine,
+        "workflow.runList",
+        "workflowRunList",
+        () => emptyEnumeration,
+      );
+    },
     // gitflow
     gitflowBranchContextRead: async () =>
       // Routed through the scripted-reply seam so a repos scenario that DOES script
@@ -354,7 +418,7 @@ function declaredSessionState(scenario: ConsoleScenario): string | undefined {
   // reads a beat's payload: a scenario's `result` is deliberately untyped so a
   // scenario can carry any registered reply, and a cast here would assert a shape
   // the type system was never given.
-  return readSessionState(readMember(readMember(sessionRead?.result, "session"), "state"));
+  return readStringMember(readMember(sessionRead?.result, "session"), "state");
 }
 
 /** One member of a value that may not be an object at all. */
@@ -364,8 +428,81 @@ function readMember(value: unknown, member: string): unknown {
     : undefined;
 }
 
-function readSessionState(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
+/**
+ * One STRING member of a value that may not be an object at all.
+ *
+ * The narrowing every reply reader here needs, written once: a scenario's `result`
+ * is deliberately untyped, so each id or state lifted out of one has to be checked
+ * rather than asserted, and a second copy of `typeof value === "string"` beside this
+ * one is how two readers of the same replies come to disagree about what counts.
+ */
+function readStringMember(value: unknown, member: string): string | undefined {
+  const read = readMember(value, member);
+  return typeof read === "string" ? read : undefined;
+}
+
+/**
+ * The workflow identifiers one scenario's script can actually answer for.
+ *
+ * A scenario's replies ARE this fixture's daemon state. The run it can project is
+ * the one its `workflow.runRead` reply carries and the phase whose outputs it can
+ * serve is the one its `workflow.phaseOutputRead` reply names — both read out of the
+ * reply rather than restated beside it, so a scenario that re-points either one
+ * cannot leave a stale id behind for a request to be validated against.
+ *
+ * `undefined` on a member means the scenario scripts that read not at all. There is
+ * then nothing to hold a request to, and the unscripted arm answers — which is the
+ * refusal both snapshot reads already take.
+ */
+interface DeclaredWorkflowScope {
+  readonly snapshotRunId: string | undefined;
+  readonly phaseOutputPhaseId: string | undefined;
+}
+
+function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkflowScope {
+  const runRead = scenario.replies.find((reply) => reply.call === "workflow.runRead");
+  const phaseOutputRead = scenario.replies.find(
+    (reply) => reply.call === "workflow.phaseOutputRead",
+  );
+  return {
+    snapshotRunId: readStringMember(runRead?.result, "workflowRunId"),
+    phaseOutputPhaseId: readStringMember(phaseOutputRead?.result, "phaseId"),
+  };
+}
+
+/** What a workflow read is addressed by, where the two refuse differently. */
+type WorkflowSubjectKind = "run" | "phase";
+
+/**
+ * Refuse a run or a phase this scenario projects nothing for.
+ *
+ * Thrown rather than returned: the growth outcome union has no arm for a daemon
+ * refusal on purpose — one would paraphrase the wire's own envelope — so a refusal
+ * travels as a rejection here exactly as a scripted one does and as the live seam's
+ * will once these become ordinary bridge calls.
+ *
+ * `declared` absent means the scenario scripts the read not at all, so there is
+ * nothing to check and the unscripted arm — a refusal in both cases — answers
+ * instead. A scenario that DOES script one is held to exactly the identifier its own
+ * reply carries.
+ */
+function requireScenarioWorkflowSubject(
+  declared: string | undefined,
+  requested: string,
+  kind: WorkflowSubjectKind,
+): void {
+  if (declared === undefined || declared === requested) {
+    return;
+  }
+  throw wireRefusal(
+    "workflow.not_found",
+    `No workflow ${kind} \`${requested}\` exists on this node.`,
+  );
+}
+
+/** The wire's refusal envelope, built in one place so both codes read alike. */
+function wireRefusal(code: string, message: string): WireErrorEnvelope {
+  return { code, message };
 }
 
 /**

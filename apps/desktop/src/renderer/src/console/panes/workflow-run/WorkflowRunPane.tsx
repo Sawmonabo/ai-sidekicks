@@ -56,7 +56,7 @@ import type { ConsolePaneContext } from "../../workspace/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { unregisteredRunControl } from "./run-controls.js";
 import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
-import type { PhaseGraphNode } from "./phase-graph/phase-sequence-layout.js";
+import type { PhaseGraphNode } from "./phase-graph/phase-topology.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 import { ChatStartSlot } from "./slots/ChatStartSlot.js";
 import { HumanFormSlot, type HumanFormMount } from "./slots/HumanFormSlot.js";
@@ -97,6 +97,30 @@ function openHumanFormFor(phases: readonly WorkflowPhaseState[]): HumanFormMount
 }
 
 /**
+ * How one phase is named wherever this pane names one.
+ *
+ * ONE DERIVATION FOR TWO SURFACES, which is the point of the function rather than an
+ * incidental tidiness: the graph labels a node and the park card names a phase, and
+ * an operator reading a card is matching it against a node. Two call sites each
+ * reaching for a member would be two chances to disagree, and a disagreement here is
+ * invisible — both would render a plausible string.
+ *
+ * IT IS THE PHASE ID BECAUSE NOTHING ELSE IS READABLE FROM HERE. The projection
+ * carries an optional `phaseName` for surfaces that have one; the run read this pane
+ * puts is not such a surface, because the authored name lives on the definition body
+ * and no read reachable from this build serves it (the graph's own comment
+ * enumerates why). So the id travels, exactly as the wire sent it — composing a
+ * prettier label out of it, title-casing it or splitting it on separators, would put
+ * an invented name on screen that is indistinguishable from an authored one. The
+ * graph renders the same value as a node's label, so a card and a node agree by
+ * construction, and the day a definition read lands this function is the single
+ * place its `name` replaces the id and both surfaces move together.
+ */
+function phaseDisplayLabel(phase: WorkflowPhaseState): string {
+  return phase.phaseId;
+}
+
+/**
  * What stands above the slots for one read state.
  *
  * Every arm is a different fact and none of them is the others: nobody asked, the
@@ -133,11 +157,33 @@ function RunReadState(props: { readonly snapshot: WorkflowRunSnapshotState }): R
 /**
  * The run's phases as a picture, in the order the run read carried them.
  *
- * THE LABEL IS THE PHASE ID AND NOT A NAME, because no registered read carries a
- * name: it lives in the definition body one of the workflow methods the growth row
- * does not carry would serve. A graph that composed a readable label from the id
- * would be inventing exactly the fact this family renders the absence of, and an
- * invented name is indistinguishable on screen from an authored one.
+ * NO TOPOLOGY IS HANDED OVER, SO NO EDGE IS DRAWN, and that is a fact about what this
+ * console can read rather than a choice about what to show. `workflow.runRead`
+ * answers with an ordered `phaseStates` array, a `workflowVersionId`, and no
+ * dependencies at all; the sequence edges, the fan-out and the joins live on the
+ * pinned definition's `dependsOn` lists. NO registered read reachable from here
+ * yields that definition:
+ *
+ *   • `workflow.definitionRead` and `workflow.versionRead` are the two that serve a
+ *     definition BODY, and they are among the four registered workflow methods the
+ *     growth row does not carry — neither is on the port, so neither can be called.
+ *   • `workflow.definitionList` IS on the port, and its entries carry no phase
+ *     definitions at all. Its `latestWorkflowVersionId` also matches a run's pin only
+ *     while the run is on the latest version, which is false for exactly the
+ *     frozen-pin runs whose topology an operator most needs to see.
+ *   • The run enumeration answers with the same run shape as the read, so it carries
+ *     no definition reference to resolve either.
+ *
+ * So the only way to draw a connector today is to infer one from array order, which
+ * is what this pane used to do and what presented a parallel run as a serial chain.
+ * The graph draws the states and captions the absence instead; the day a definition
+ * read lands on the port, this is the one call site that grows a `topology` prop.
+ *
+ * THE LABEL IS THE PHASE ID AND NOT A NAME, for the same reason at one remove: the
+ * name lives in that same unreachable definition body. A graph that composed a
+ * readable label from the id would be inventing exactly the fact this family renders
+ * the absence of, and an invented name is indistinguishable on screen from an
+ * authored one.
  *
  * THE PARK IS READ FROM `parkReason` AND NEVER FROM A PHASE'S STATE, the same rule
  * the park banner beneath obeys: the status union has no suspended arm, and the park
@@ -148,7 +194,7 @@ function RunPhaseGraph(props: {
 }): React.JSX.Element {
   const nodes: readonly PhaseGraphNode[] = props.phases.map((phase) => ({
     phaseId: phase.phaseId,
-    label: phase.phaseId,
+    label: phaseDisplayLabel(phase),
     state: phase.state,
     gateState: phase.gateState,
     isParked: phase.parkReason !== undefined,
@@ -167,6 +213,13 @@ function RunPhaseGraph(props: {
  *
  * A run with nothing parked says so rather than rendering an empty region: "nothing
  * is waiting on anyone" is the answer an operator opened this pane for.
+ *
+ * EVERY CARD NAMES ITS PHASE. A run that branches parks more than one phase at a
+ * time, and a stack of cards carrying only reason, cause and schedule leaves an
+ * operator unable to tell which branch stopped — the two cards of a fan-out read
+ * identically. The identity is the same value the node above the cards is labelled
+ * with, so a person reads one key in two places rather than matching a card to a
+ * node by position.
  */
 function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): React.JSX.Element {
   const parked = props.phases.flatMap<WorkflowParkedPhase>((phase) => {
@@ -175,9 +228,20 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
     // the badge four wire members: whether a park resumes itself is not
     // `autoResumeAt`'s presence, and a second derivation of it here would be the
     // second authority the badge stopped being.
+    //
+    // `phaseName` is the badge's identity slot, and it is fed rather than left
+    // empty: a badge handed nothing renders nothing for it, which is the stack of
+    // indistinguishable cards this arm exists to fix.
     return park === undefined
       ? []
-      : [{ phaseId: phase.phaseId, park, schedule: parkSchedule(park) }];
+      : [
+          {
+            phaseId: phase.phaseId,
+            phaseName: phaseDisplayLabel(phase),
+            park,
+            schedule: parkSchedule(park),
+          },
+        ];
   });
   if (parked.length === 0) {
     return (
@@ -192,9 +256,8 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
   return (
     <div className="meridian-workflow__parks">
       {parked.map((entry) => (
-        // Keyed by the phase, which is the run's own identity for it. No phase name
-        // reaches the console from any registered read, so the badge is given none
-        // rather than one composed here.
+        // Keyed by the phase, which is the run's own identity for it, and named by
+        // the same derivation the graph labels that phase's node with.
         <ParkBadge key={entry.phaseId} parked={entry} />
       ))}
     </div>

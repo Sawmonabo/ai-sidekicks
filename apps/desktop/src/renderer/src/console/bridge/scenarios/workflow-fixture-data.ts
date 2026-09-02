@@ -59,12 +59,20 @@ const PHASE_SIGN_OFF = "019b7a10-0280-7e44-8100-9ba5e1150004";
 const PHASE_PUBLISH = "019b7a10-0280-7e44-8100-9ba5e1150005";
 
 /**
- * The provider account two of the four runs are parked against.
+ * The provider account the one SCHEDULED park in this table is parked against.
  *
- * One key shared by two runs is what makes the attention fold reachable at all:
- * concurrently parked runs sharing a `parkAttentionKey` render as ONE entry carrying
- * its affected-run count, and a fixture whose parks all carried distinct keys could
- * only ever drive the unfolded arm.
+ * The key travels with the armed resume instant and never without it — the registered
+ * shape gives `parkAttentionKey` the same presence rule as `autoResumeAt`, because
+ * both are armed by the park and cleared on exit. A second park carrying the key
+ * while omitting the instant would be a response no daemon can build: the fold would
+ * have two entries to group and one of them would exist nowhere on the wire.
+ *
+ * So the fold's multi-park arm is unreachable from this fixture, and that is a real
+ * cost paid on purpose. The alternative was arming a resume on the unscheduled
+ * usage-limit park below, which would have contradicted that park's own cause
+ * sentence — the provider reported no reset boundary — and left the console with no
+ * subject at all for the park a banner must read as awaiting a run control rather
+ * than as scheduled.
  */
 const PARK_ATTENTION_KEY = "019b7a10-0280-7f55-8100-acc0117a0001";
 
@@ -287,8 +295,9 @@ export const WORKFLOWS_PARKED_RUN: WorkflowRunSnapshot = {
  *   3. Cancelled — the cancellation reason on `failureReason` where the contract puts
  *      it, and its completed phase's outputs still addressable.
  *   4. Frozen pin — suspended and pinned to `Ship pipeline` version 1 while that
- *      definition's latest is version 3. Its park shares the attention key with the
- *      parked run, which is what gives the fold two runs to fold.
+ *      definition's latest is version 3. Its park is the unscheduled usage-limit one:
+ *      no reset boundary was reported, so it arms neither of the two members a park
+ *      arms together and a banner has to read it as awaiting a run control.
  *
  * EVERY RUN STARTS AFTER THE SESSION DOES. A run is owned by the session it belongs
  * to, so no instant in this table precedes the creation beat in `scenarios/workflows.ts`
@@ -378,11 +387,13 @@ export const WORKFLOWS_SCENARIO_RUNS: readonly WorkflowRunSnapshot[] = [
         parkReason: "provider-usage-limited",
         parkCause:
           "The provider account reached its weekly usage window. No reset boundary was reported, so no resume is scheduled.",
-        // Deliberately no `autoResumeAt`. A usage-limit park with no armed instant is
-        // the case a banner must read as parked awaiting resume rather than as
-        // scheduled — a client that invented a time here would be the display half of
-        // a guess the engine refused to make.
-        parkAttentionKey: PARK_ATTENTION_KEY,
+        // Deliberately no `autoResumeAt`, and therefore no `parkAttentionKey` either.
+        // A usage-limit park with no armed instant is the case a banner must read as
+        // parked awaiting resume rather than as scheduled — a client that invented a
+        // time here would be the display half of a guess the engine refused to make.
+        // The two members are armed together and cleared together, so a row carrying
+        // the key alone would be a response the daemon has no state to produce, and a
+        // screenshot of it would pin a picture of an impossible run.
       },
     ],
   },

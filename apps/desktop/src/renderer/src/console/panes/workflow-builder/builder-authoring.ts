@@ -29,6 +29,7 @@
 // wire renders instead of a button that would do nothing.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import type { ConsoleEntityRef } from "../../store/index.js";
 
 /**
  * Every act that writes a definition, and exactly five.
@@ -63,12 +64,24 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
 /**
  * The refusals this surface raises on its own, and no others.
  *
- * One member, deliberately: every shape the canvas refuses is refused at the point
- * it is drawn, in the body's own words at the cursor, and every save-time refusal
- * is the daemon's typed code rendered verbatim. What is left for the chrome is the
- * case where there is no daemon in the loop at all — a wire that does not exist.
+ * Two members, and they refuse at two different moments. Every shape the canvas
+ * refuses is refused at the point it is drawn, in the body's own words at the
+ * cursor, and every save-time refusal is the daemon's typed code rendered verbatim
+ * — neither of those is here. What is left for the chrome is the pair of cases with
+ * no daemon in the loop at all:
+ *
+ *   • `wire-unregistered` — there is a subject and no wire. The question is
+ *     well-formed and nothing can be asked, because the operation is not on the
+ *     bridge.
+ *   • `pane-address-invalid` — there is no well-formed question. The pane was
+ *     handed an entity of a kind it does not author, so it refuses BEFORE composing
+ *     a read rather than passing a run id off as a definition id and asking about
+ *     something that does not exist.
  */
-export const WORKFLOW_BUILDER_REFUSAL_CODES = ["wire-unregistered"] as const;
+export const WORKFLOW_BUILDER_REFUSAL_CODES = [
+  "wire-unregistered",
+  "pane-address-invalid",
+] as const;
 
 /** One locally-raised refusal code. Derived from the tuple, never restated. */
 export type WorkflowBuilderRefusalCode = (typeof WORKFLOW_BUILDER_REFUSAL_CODES)[number];
@@ -100,5 +113,38 @@ export function unregisteredAuthoringAct(act: WorkflowAuthoringAct): ConsoleRefu
     WORKFLOW_BUILDER_ORIGIN,
     code,
     `${ACT_PROSE[act]} is not reachable from this build — the operation is not on the bridge yet.`,
+  );
+}
+
+/**
+ * The one entity kind this pane authors.
+ *
+ * `CONSOLE_ENTITY_KINDS` registers `workflow-definition` and `workflow-run` as two
+ * kinds on purpose — a definition is authored, versioned and scoped and outlives
+ * every run of it — and this surface edits the first. A binding rather than a
+ * literal at the guard, so the kind the pane accepts and the kind its refusal names
+ * cannot come apart.
+ */
+export const WORKFLOW_BUILDER_SUBJECT_KIND: ConsoleEntityRef["kind"] = "workflow-definition";
+
+/**
+ * The state of a pane handed an entity it does not author.
+ *
+ * REFUSED AND NEVER THROWN, and never quietly read either. Both of the other
+ * dispositions are worse than this one: a throw takes the whole deck down over one
+ * mis-addressed pane, and treating any id as a definition id is what this guard
+ * replaces — the pane would compose a read for a definition that does not exist and
+ * present whatever came back as the definition a person asked to edit.
+ *
+ * The kind is named in the detail because it is the whole content of the refusal: a
+ * person looking at a pane that will not open needs to know it was pointed at the
+ * wrong thing, and the deck's own address is the thing to fix.
+ */
+export function misaddressedBuilderPane(addressedKind: ConsoleEntityRef["kind"]): ConsoleRefusal {
+  const code: WorkflowBuilderRefusalCode = "pane-address-invalid";
+  return refuse(
+    WORKFLOW_BUILDER_ORIGIN,
+    code,
+    `This pane authors a ${WORKFLOW_BUILDER_SUBJECT_KIND} and was opened on a ${addressedKind}. Nothing was read for it.`,
   );
 }

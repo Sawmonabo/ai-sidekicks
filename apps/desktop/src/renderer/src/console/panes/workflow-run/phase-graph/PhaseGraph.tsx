@@ -1,12 +1,20 @@
 // The phase graph's mount point: everything between a caller's phase list and a
 // canvas, and nothing else.
 //
-// WHAT THIS COMPONENT OWNS. The caller hands over wire-shaped phases and a name for
-// the region. This file places them, decides whether the sequence can be drawn at
-// all, fetches the renderer's code, and stands an absence in the box until it lands.
-// The drawing itself belongs to `PhaseGraphCanvas.tsx` on the far side of an
-// `import()`, so a surface that mounts this component never names the graph library
-// and never pulls a byte of it into the initial bundle.
+// WHAT THIS COMPONENT OWNS. The caller hands over wire-shaped phases, the pinned
+// definition's topology where it has one, and a name for the region. This file
+// places them, decides whether the sequence can be drawn at all, fetches the
+// renderer's code, and stands an absence in the box until it lands. The drawing
+// itself belongs to `PhaseGraphCanvas.tsx` on the far side of an `import()`, so a
+// surface that mounts this component never names the graph library and never pulls a
+// byte of it into the initial bundle.
+//
+// A GRAPH WITH NO EDGES SAYS SO IN WORDS. A run read carries no topology, so a
+// caller with no definition to hand over gets placed phases and no connectors — and
+// a picture of disconnected boxes is indistinguishable on screen from a workflow
+// whose phases genuinely depend on nothing. The caption beneath the canvas is what
+// tells those two apart, and it names which of the two absences occurred: nothing to
+// read, or a definition whose topology could not be drawn.
 //
 // FOUR ABSENCES, AND THEY ARE FOUR BECAUSE THE OPERATOR'S NEXT MOVE DIFFERS:
 //
@@ -44,22 +52,41 @@ import {
   type PhaseGraphLoader,
   type PhaseGraphModule,
 } from "./phase-graph-loader.js";
-import {
-  PhaseSequenceLayoutCache,
-  type PhaseGraphNode,
-  type PhaseSequenceLayout,
-} from "./phase-sequence-layout.js";
+import { PhaseSequenceLayoutCache, type PhaseSequenceLayout } from "./phase-sequence-layout.js";
+import type { PhaseGraphNode, PhaseTopology, PhaseTopologyAbsence } from "./phase-topology.js";
 
 export interface PhaseGraphProps {
   /** The run's phases in sequence order. Empty renders nothing rather than an empty canvas. */
   readonly phases: readonly PhaseGraphNode[];
+  /**
+   * The pinned definition's phases, where the surface holds one.
+   *
+   * Absent draws no edges at all, which is the honest picture rather than a degraded
+   * one: a run's dependencies are the definition's, and there is no inferring them
+   * from the order a run read happens to carry.
+   */
+  readonly topology?: PhaseTopology;
   /** The region's accessible name, supplied by the surface that mounts it. */
   readonly label: string;
 }
 
+/**
+ * What the caption says for each reason a picture carries no connectors.
+ *
+ * A table rather than two ternaries at the call site, because the set is closed by
+ * the layout's own union: a third reason fails to compile here until it has a
+ * sentence, which is where the operator finds out what happened.
+ */
+const TOPOLOGY_ABSENCE_CAPTIONS: Readonly<Record<PhaseTopologyAbsence, string>> = {
+  "not-supplied":
+    "Dependencies unavailable — this run's definition has not been read here, so the phases are shown in the order the run reports them and nothing is connected.",
+  "not-drawable":
+    "Dependencies unavailable — the definition that was read does not declare a topology this run can be drawn from, so the phases are shown in the order the run reports them.",
+};
+
 /** One run's phase sequence, read-only, drawn once its renderer arrives. */
 export function PhaseGraph(props: PhaseGraphProps): React.JSX.Element {
-  const layout = usePhaseSequenceLayout(props.phases);
+  const layout = usePhaseSequenceLayout(props.phases, props.topology);
   // The chunk is asked for only when there is a picture to fetch it for. Both of the
   // conditions are named: an empty run lays out cleanly — a drawable sequence of no
   // phases — so `drawn` alone would fetch a renderer for a canvas with nothing on it.
@@ -102,6 +129,11 @@ export function PhaseGraph(props: PhaseGraphProps): React.JSX.Element {
   return (
     <div className="meridian-phase-graph">
       <LoadedPhaseGraphCanvas layout={layout} label={props.label} />
+      {layout.topologyAbsence === undefined ? null : (
+        <p className="meridian-phase-graph__caption">
+          {TOPOLOGY_ABSENCE_CAPTIONS[layout.topologyAbsence]}
+        </p>
+      )}
     </div>
   );
 }
@@ -153,10 +185,13 @@ function renderModuleAbsence(
  * cache every render would memoise nothing, and constructing one in a render body is
  * the construction React may discard.
  */
-function usePhaseSequenceLayout(phases: readonly PhaseGraphNode[]): PhaseSequenceLayout {
+function usePhaseSequenceLayout(
+  phases: readonly PhaseGraphNode[],
+  topology: PhaseTopology | undefined,
+): PhaseSequenceLayout {
   const cacheRef = useRef<PhaseSequenceLayoutCache | undefined>(undefined);
   const cache = (cacheRef.current ??= new PhaseSequenceLayoutCache());
-  return cache.layoutFor(phases);
+  return cache.layoutFor(phases, topology);
 }
 
 /**

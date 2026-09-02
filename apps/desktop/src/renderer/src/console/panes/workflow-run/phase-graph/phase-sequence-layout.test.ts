@@ -14,10 +14,17 @@ import {
   PHASE_NODE_HEIGHT_PX,
   PHASE_RANK_PITCH_PX,
   PhaseSequenceLayoutCache,
-  type PhaseGraphNode,
   layoutPhaseSequence,
   phaseSequenceSignature,
 } from "./phase-sequence-layout.js";
+import type { PhaseGraphNode, PhaseTopology } from "./phase-topology.js";
+
+/** The definition for `THREE_PHASES`, declaring the chain its order implies. */
+const THREE_PHASE_TOPOLOGY: PhaseTopology = [
+  { phaseId: "plan", dependsOn: [] },
+  { phaseId: "build", dependsOn: ["plan"] },
+  { phaseId: "review", dependsOn: ["build"] },
+];
 
 /** A phase with everything named, so a case perturbs exactly one member. */
 function phase(overrides: Partial<PhaseGraphNode> & { readonly phaseId: string }): PhaseGraphNode {
@@ -36,8 +43,8 @@ const THREE_PHASES: readonly PhaseGraphNode[] = [
   phase({ phaseId: "review", isParked: true }),
 ];
 
-function drawn(phases: readonly PhaseGraphNode[]) {
-  const layout = layoutPhaseSequence(phases);
+function drawn(phases: readonly PhaseGraphNode[], topology?: PhaseTopology) {
+  const layout = layoutPhaseSequence(phases, topology);
   if (layout.status !== "drawn") {
     throw new Error(`expected a drawn sequence, got ${layout.status}`);
   }
@@ -71,8 +78,23 @@ describe("the layered layout", () => {
     expect(PHASE_RANK_PITCH_PX).toBeGreaterThan(PHASE_NODE_HEIGHT_PX);
   });
 
-  it("derives one sequence edge per adjacent pair, and no other edge", () => {
+  it("draws no edge at all when no definition was handed over", () => {
+    // The whole of this fold: a run read carries an ordered array and no
+    // dependencies, so a layout given only that array has nothing to connect. The
+    // previous behaviour — an edge per adjacent pair — asserted a chain a parallel
+    // run never declared.
     const layout = drawn(THREE_PHASES);
+
+    expect(layout.edges).toStrictEqual([]);
+    expect(layout.topologyAbsence).toBe("not-supplied");
+  });
+
+  it("draws the definition's edges when one was, and marks the picture complete", () => {
+    // The other arm, and the negative control for the case above: handed a topology,
+    // the same phases connect. `topologyAbsence` absent is what tells a surface the
+    // edges it is looking at are the definition's own.
+    const layout = drawn(THREE_PHASES, THREE_PHASE_TOPOLOGY);
+
     expect(layout.edges.map((edge) => [edge.sourcePhaseId, edge.targetPhaseId])).toStrictEqual([
       ["plan", "build"],
       ["build", "review"],
@@ -82,7 +104,22 @@ describe("the layered layout", () => {
       "Phase build",
       "Phase review",
     ]);
-    expect(new Set(layout.edges.map((edge) => edge.edgeId)).size).toBe(layout.edges.length);
+    expect(layout.topologyAbsence).toBeUndefined();
+  });
+
+  it("names a topology it cannot draw rather than drawing part of it", () => {
+    // A definition that supplies `dependsOn` on some phases and not others is one
+    // the daemon refuses at author time. The picture carries no edges AND says which
+    // of the two reasons applies, so the surface does not report "nothing to read"
+    // for a definition it did read.
+    const layout = drawn(THREE_PHASES, [
+      { phaseId: "plan", dependsOn: [] },
+      { phaseId: "build" },
+      { phaseId: "review", dependsOn: ["build"] },
+    ]);
+
+    expect(layout.edges).toStrictEqual([]);
+    expect(layout.topologyAbsence).toBe("not-drawable");
   });
 
   it("draws a one-phase run with no edges, and an empty run with neither", () => {
@@ -96,7 +133,9 @@ describe("the layered layout", () => {
     // Value equality of two independent runs, which is what a second process would
     // compute. A layout that consulted a clock, a random source or a measured box
     // would diverge here.
-    expect(layoutPhaseSequence(THREE_PHASES)).toStrictEqual(layoutPhaseSequence(THREE_PHASES));
+    expect(layoutPhaseSequence(THREE_PHASES, THREE_PHASE_TOPOLOGY)).toStrictEqual(
+      layoutPhaseSequence(THREE_PHASES, THREE_PHASE_TOPOLOGY),
+    );
   });
 
   it("carries the caller's phase through untouched", () => {
@@ -184,5 +223,17 @@ describe("the layout memo", () => {
   it("negative control: the signature holds still when nothing moved", () => {
     const base = phase({ phaseId: "one" });
     expect(phaseSequenceSignature([{ ...base }])).toBe(phaseSequenceSignature([base]));
+  });
+
+  it("the signature moves when the topology arrives, and the memo follows it", () => {
+    // Without this a graph whose definition lands a commit after its run would hold
+    // the edgeless layout it computed first and never draw a dependency at all.
+    const cache = new PhaseSequenceLayoutCache();
+    const edgeless = cache.layoutFor(THREE_PHASES);
+
+    expect(phaseSequenceSignature(THREE_PHASES, THREE_PHASE_TOPOLOGY)).not.toBe(
+      phaseSequenceSignature(THREE_PHASES),
+    );
+    expect(cache.layoutFor(THREE_PHASES, THREE_PHASE_TOPOLOGY)).not.toBe(edgeless);
   });
 });

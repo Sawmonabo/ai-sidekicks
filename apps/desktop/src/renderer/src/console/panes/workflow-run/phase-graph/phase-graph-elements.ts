@@ -28,9 +28,8 @@ import {
   PHASE_NODE_HEIGHT_PX,
   PHASE_NODE_WIDTH_PX,
   type DrawnPhaseSequence,
-  type PhaseGraphNode,
-  type PhaseSequenceEdge,
 } from "./phase-sequence-layout.js";
+import type { PhaseGraphNode, PhaseSequenceEdge } from "./phase-topology.js";
 
 /**
  * What a node carries into its own renderer.
