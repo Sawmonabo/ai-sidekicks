@@ -1,0 +1,134 @@
+/*
+ * The definitions browser: the three scope groups and the definition rows inside them.
+ *
+ * Owned by `DefinitionsBrowser.tsx` and `WorkflowsBrowser.tsx`, and reached through
+ * `workflows.css`, which is the family's one stylesheet edge. Meridian tokens only —
+ * `Spec-023 §Console Design (Meridian)` rules 3, 4 and 7 are cited in place below.
+ */
+
+/*
+ * The scope groups are an ordered list because the ORDER is the content: a run
+ * resolves session, then project, then shared, and a reader who cannot see that
+ * sequence cannot read which definition would win. The markers are suppressed
+ * visually and the element stays an `ol`, so the order survives for a reader who
+ * is not looking at it.
+ */
+.meridian-workflow__scopes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-workflow__scope {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-4);
+  background: var(--meridian-surface-sunken);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/*
+ * The scope name is a wire value — it is the string the daemon resolves against —
+ * so it wears rule 4's mono signature rather than being title-cased into prose.
+ */
+.meridian-workflow__scope-heading {
+  margin: 0;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow__scope-summary {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-faint);
+}
+
+/* ------------------------------------------------------ the scope consequence */
+
+/*
+ * The copy-on-write sentence on the `shared` group. It is a warning about what an
+ * edit does and not an error, so it reads as prose on the group's own ground rather
+ * than borrowing the amber a person-needed state owns (rule 3).
+ */
+.meridian-workflow__scope-consequence {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+  border-inline-start: 2px solid var(--meridian-edge-strong);
+  padding-inline-start: var(--meridian-space-3);
+}
+
+/* ------------------------------------------------------------ definition rows */
+
+.meridian-definition-rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/*
+ * A row is one line at rest: name, scope, version, and the resolution mark. The
+ * marked row carries the accent on its leading edge rather than as a background —
+ * a tint behind the name would put colour under text, which rule 3 forbids, and the
+ * edge says "this one" at the same glance.
+ */
+.meridian-definition-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-inline-start: 2px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-definition-row[aria-current="true"] {
+  border-inline-start-color: var(--meridian-accent);
+  background: var(--meridian-surface);
+}
+
+.meridian-definition-row__name {
+  flex: 1;
+  min-inline-size: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  text-align: start;
+}
+
+/*
+ * The open control is the name itself. A separate button beside it would be the
+ * second visible control rule 7 keeps off the row, and a name that is not the way in
+ * is a name a person clicks anyway.
+ */
+.meridian-definition-row__open {
+  padding: 0;
+  cursor: pointer;
+  background: none;
+  border: none;
+}
+
+.meridian-definition-row__open:hover {
+  color: var(--meridian-accent-text);
+}
+
+.meridian-definition-row__open:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-definition-row__version {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
