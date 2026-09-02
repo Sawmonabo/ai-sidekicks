@@ -26,6 +26,15 @@ function renderDownload(props: BrowserDownloadCardProps): HTMLElement {
   return card;
 }
 
+const REFUSED_UNSTORABLE: BrowserDownloadCardProps = {
+  ...BASE,
+  ingest: {
+    status: "refused",
+    refusal: refuse("ingest", "artifact.too_large", "Larger than this node accepts."),
+    remedy: "none",
+  },
+};
+
 describe("download card — where the bytes went", () => {
   it("says the artifact store, and says it was not the page's destination", () => {
     const text = renderDownload(BASE).textContent ?? "";
@@ -85,6 +94,42 @@ describe("download card — the ceiling is quoted, never minted", () => {
   });
 });
 
+describe("download card — the destination is claimed in each arm's own tense", () => {
+  it("claims the store in the past tense only once the pipeline has stored the bytes", () => {
+    expect(renderDownload(BASE).textContent).toContain("Stored in this session");
+  });
+
+  it("names the store as an intention while nobody has asked what became of them", () => {
+    const card = renderDownload({ ...BASE, ingest: { status: "not-checked" } });
+
+    expect(card.textContent).toContain("Destined for this session");
+    expect(card.textContent).not.toContain("Stored in this session");
+  });
+
+  it("names the store as an intention while the bytes are still arriving", () => {
+    const card = renderDownload({
+      ...BASE,
+      ingest: { status: "in-flight", receivedByteLength: 1048576, declaredByteLength: 5242880 },
+    });
+
+    expect(card.textContent).toContain("Destined for this session");
+    expect(card.textContent).not.toContain("Stored in this session");
+  });
+
+  it("negative control: a refusal is not told the bytes are in the store", () => {
+    // The sentence this replaces rendered on every arm, so a refused download — and on
+    // the `none` remedy, one the pipeline had said in terms it would not store — told
+    // the operator the bytes were in the artifact store two lines above the refusal
+    // that kept them out of it.
+    const card = renderDownload(REFUSED_UNSTORABLE);
+
+    expect(card.textContent).not.toContain("Stored in this session");
+    expect(card.textContent).not.toContain("Destined for this session");
+    expect(card.textContent).toContain("These bytes will not be stored.");
+    expect(card.textContent).toContain("artifact.too_large");
+  });
+});
+
 describe("download card — the ingest states", () => {
   it("shows received against declared, and marks the row as waiting", () => {
     const card = renderDownload({
@@ -116,14 +161,7 @@ describe("download card — the ingest states", () => {
     // The two modifiers carry different meanings — red for failed, amber for a
     // person is needed — and a card that stacked them would spend both hues on one
     // fact.
-    const card = renderDownload({
-      ...BASE,
-      ingest: {
-        status: "refused",
-        refusal: refuse("ingest", "artifact.too_large", "Larger than this node accepts."),
-        remedy: "none",
-      },
-    });
+    const card = renderDownload(REFUSED_UNSTORABLE);
     expect(card.className).toContain("meridian-browser-card--refused");
     expect(card.className).not.toContain("meridian-browser-card--waiting");
   });
