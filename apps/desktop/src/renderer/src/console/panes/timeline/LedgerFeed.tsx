@@ -23,7 +23,9 @@
 //     success and scrolls nothing.
 //   • The replay dock's reveal is the caller's, per §5.5: the dock is hidden until
 //     the rail is hovered or focused, because both triggers are facts about this
-//     surface rather than about replay.
+//     surface rather than about replay. What the dock's POSITION reveals is the
+//     rows: the viewport is given the rows the position has reached, so playing or
+//     scrubbing moves the ledger rather than only its timestamp.
 //   • Find's result and the rail's marks are derived from the same window the feed
 //     renders — the viewport's own reconciled snapshot, after the cap — so the
 //     boundary find states is the boundary that is actually true of what is on
@@ -49,6 +51,7 @@ import {
   useLedgerFind,
   useLedgerReplay,
   useRailGeometry,
+  useReplayRevealedRows,
   useVisibleLedgerWindow,
 } from "./ledger-feed-model.js";
 import { densityFor, useLedgerWindow } from "./ledger-window.js";
@@ -65,10 +68,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const clock = useConsoleClock();
   const ledgerWindow = useLedgerWindow(props.sessionStore);
   const replay = useLedgerReplay(ledgerWindow);
+  // What the replay position has reached. The whole window while nobody is
+  // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
+  const revealedViewportRows = useReplayRevealedRows(ledgerWindow, replay.position);
 
   const viewport = useLedgerViewport({
     clock,
-    rows: ledgerWindow.viewportRows,
+    rows: revealedViewportRows,
     hasActiveTurn: ledgerWindow.hasActiveTurn,
     isRevealDraining: false,
   });

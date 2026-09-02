@@ -13,7 +13,7 @@
 // needs the virtualizer to have a range stubs the two reads the chokepoint makes —
 // `LedgerViewport.test.tsx`' stub, for its reason.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
@@ -186,6 +186,64 @@ describe("the ledger feed — one wheel", () => {
     const sessionStore = openStoreWhereJoinOrderIsNotEventOrder();
     expect(byFirstEvent.assignmentFor(EARLY_JOINER)?.step).not.toBe(
       sessionStore.hueAllocator.assignmentFor(EARLY_JOINER)?.step,
+    );
+  });
+});
+
+const REPLAY_LOG_EVENT_COUNT = 10;
+const SCRUB_TO_FIFTH_ROW_MS = 4000;
+
+describe("the ledger feed — replay reveals", () => {
+  it("shows the rows the position has reached and no more", () => {
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(
+      REPLAY_LOG_EVENT_COUNT,
+    );
+
+    const scrub = feed.querySelector<HTMLInputElement>(".meridian-replay__scrub");
+    expect(scrub).not.toBeNull();
+    fireEvent.change(scrub as HTMLInputElement, {
+      target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },
+    });
+
+    // The log is one row per second, so four seconds in is five rows: the wire
+    // ordered prefix the position has reached, and nothing behind it. The timestamp
+    // and the slider used to be the only things that moved.
+    const revealed = [...feed.querySelectorAll(".meridian-ledger-viewport__row")];
+    expect(revealed).toHaveLength(5);
+    expect(revealed.map((row) => row.getAttribute("data-index"))).toEqual([
+      "0",
+      "1",
+      "2",
+      "3",
+      "4",
+    ]);
+  });
+
+  it("gives the window back when the scrub reaches the tail", () => {
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const scrub = feed.querySelector<HTMLInputElement>(".meridian-replay__scrub");
+    fireEvent.change(scrub as HTMLInputElement, {
+      target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },
+    });
+    fireEvent.change(scrub as HTMLInputElement, {
+      target: { value: String((REPLAY_LOG_EVENT_COUNT - 1) * 1000) },
+    });
+    expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(
+      REPLAY_LOG_EVENT_COUNT,
+    );
+  });
+
+  it("negative control: an untouched dock withholds nothing", () => {
+    // Without this the case above would pass over a feed that filtered by the idle
+    // position too — which reveals only the rows sharing the window's first instant
+    // and would hide almost every session behind a control nobody had touched.
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    expect(feed.querySelectorAll(".meridian-ledger-viewport__row")).toHaveLength(
+      REPLAY_LOG_EVENT_COUNT,
     );
   });
 });

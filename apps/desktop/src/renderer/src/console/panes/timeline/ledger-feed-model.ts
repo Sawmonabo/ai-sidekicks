@@ -22,6 +22,12 @@
 // reconciled snapshot rather than off the log — one window on screen, one window
 // searched, one window marked. What falls outside it is not silently dropped: the
 // rows are counted, and the feed says so.
+//
+// Replay sits BETWEEN the two: it plays over the log and decides which of its rows
+// the viewport is given, so a scrub moves the rows on screen and find and the rail
+// follow them down. That ordering is what keeps the derivation acyclic — the window
+// replay reads is the log, and the window find reads is whatever the viewport made
+// of replay's answer.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -38,6 +44,7 @@ import {
   type LedgerFindResult,
   type ReplayPosition,
   type ReplaySpeed,
+  type ReplayState,
 } from "../../ledger/structure/index.js";
 import { type LedgerWindowModel } from "./ledger-window.js";
 
@@ -231,6 +238,44 @@ export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplaySt
       engine.jumpToNextSeam(ledgerWindow.seams);
     }, [engine, ledgerWindow]),
   };
+}
+
+/**
+ * Whether replay is holding the window back.
+ *
+ * Derived from the state union rather than restated as a second enumeration, and
+ * `idle` is the only arm that is not engaged: an idle replay sits at elapsed zero,
+ * where the revealed set is the rows that share the window's first instant, so
+ * treating it as engaged would hide the whole session behind a control nobody had
+ * touched.
+ */
+export function isReplayEngaged(state: ReplayState): boolean {
+  return state !== "idle";
+}
+
+/**
+ * The rows a replay has reached, in the log's own order.
+ *
+ * A FILTER over the window's own identity list, never a re-ordering of it. The
+ * engine orders by `occurredAt` because that is what §5.5 plays in, and the ledger
+ * renders in wire order; sorting the viewport by the engine's order would make a
+ * replay silently rearrange a log wherever the daemon admitted rows out of
+ * wall-clock order.
+ *
+ * While replay is idle the window's own array is returned by identity, so the
+ * viewport does not reconcile and a ledger nobody is replaying pays nothing.
+ */
+export function useReplayRevealedRows(
+  ledgerWindow: LedgerWindowModel,
+  position: ReplayPosition,
+): readonly LedgerViewportRow[] {
+  return useMemo(() => {
+    if (!isReplayEngaged(position.state)) {
+      return ledgerWindow.viewportRows;
+    }
+    const revealedRowIds = new Set(position.revealedRowIds);
+    return ledgerWindow.viewportRows.filter((row) => revealedRowIds.has(row.key));
+  }, [ledgerWindow, position]);
 }
 
 /** Where the reader is in the window, and how much of it they can see. */
