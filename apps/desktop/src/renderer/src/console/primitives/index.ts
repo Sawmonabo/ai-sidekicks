@@ -41,6 +41,18 @@ export {
 // the second speaker this module exists to prevent.
 export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 
+// The announcer itself, because `LiveAnnouncerProvider`'s `announcer` prop is part of
+// that component's public shape: a caller that supplies one — the frame does not, a
+// surface's own tier does — has to be able to build one, and reaching past the barrel
+// for the class while taking the provider through it would be one seam entered two ways.
+export { LiveAnnouncer } from "./live-announcer.js";
+
+// The one way a surface says its read landed. Through this door beside the announcer
+// itself, because the two are one seam: a family that reached for `useAnnounce`
+// directly to say a settlement would be re-writing the once-per-sentence rule, and
+// the rule is the whole reason this hook exists rather than a bare call.
+export { useSettlementAnnouncement } from "./settlement-announcement.js";
+
 export { Nothing } from "./Nothing.js";
 
 export { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";

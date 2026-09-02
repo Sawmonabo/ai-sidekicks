@@ -4,8 +4,10 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { SidekicksBridge, UpdateState } from "@ai-sidekicks/contracts";
+import type { SidekicksBridge, UpdateState, Unsubscribe } from "@ai-sidekicks/contracts";
 
+import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
+import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
 import {
   fixtureBridgeWithGrowth,
   growthRefusing,
@@ -66,31 +68,96 @@ function bridgeWithNoUpdater(): ConsoleBridge {
   });
 }
 
-async function renderSettled(bridge: ConsoleBridge): Promise<HTMLElement> {
-  let container: HTMLElement | undefined;
+/**
+ * A bridge whose updater pushes on demand, so a case can drive a second transition.
+ *
+ * The handler is captured rather than replayed from a script, because what these
+ * cases need is a push that lands AFTER the first read settled — which is exactly the
+ * moment a page that announced on every state change would speak a second time.
+ */
+function bridgePushing(initial: UpdateState): {
+  readonly bridge: ConsoleBridge;
+  readonly push: (state: UpdateState) => void;
+} {
+  let deliver: ((state: UpdateState) => void) | undefined;
+  const bridge = bridgeWithUpdater({
+    getState: () => Promise.resolve(initial),
+    subscribe: (handler): Unsubscribe => {
+      deliver = handler;
+      return () => undefined;
+    },
+    requestCheck: () => Promise.resolve(),
+    requestRestart: () => Promise.resolve(),
+  });
+  return {
+    bridge,
+    push: (state) => {
+      deliver?.(state);
+    },
+  };
+}
+
+/** The block's own element, so a case never reads the announcer's regions by accident. */
+function updatesBlockOf(root: HTMLElement): HTMLElement {
+  const block = root.querySelector<HTMLElement>('section[aria-label="Application updates"]');
+  if (block === null) {
+    throw new Error("the updates block did not render");
+  }
+  return block;
+}
+
+/**
+ * Mount the block under the console's real announcer and let its read settle.
+ *
+ * The announcer runs on a `ManualClock` so its hold window is frozen: whether a
+ * sentence was said a second time is otherwise a question about how fast the runner
+ * happened to be. The BLOCK is returned rather than the render container, because the
+ * two live regions are the provider's siblings above it and one of them carries
+ * `role="alert"` — a case asserting this block raises no alert would otherwise be
+ * reading the announcer's.
+ */
+async function renderSettled(bridge: ConsoleBridge): Promise<{
+  readonly page: HTMLElement;
+  readonly clock: ManualClock;
+  readonly politeText: () => string;
+}> {
+  const clock = new ManualClock();
+  const announcer = new LiveAnnouncer({ clock });
+  let root: HTMLElement | undefined;
   await act(async () => {
-    container = render(<UpdatesPage bridge={bridge} />).container;
+    root = render(
+      <LiveAnnouncerProvider announcer={announcer}>
+        <UpdatesPage bridge={bridge} />
+      </LiveAnnouncerProvider>,
+    ).container;
     await Promise.resolve();
     await Promise.resolve();
   });
-  return container as HTMLElement;
+  const mounted = root as HTMLElement;
+  return {
+    page: updatesBlockOf(mounted),
+    clock,
+    politeText: () => mounted.querySelector('[data-live-region="polite"]')?.textContent ?? "",
+  };
 }
 
 describe("updates page — the five arms", () => {
   it("renders idle as nothing waiting", async () => {
-    const container = await renderSettled(bridgeReporting({ status: "idle" }));
+    const { page: container } = await renderSettled(bridgeReporting({ status: "idle" }));
     expect(container.textContent ?? "").toContain("No update is waiting");
   });
 
   it("renders downloading with its own percent and a bar", async () => {
-    const container = await renderSettled(bridgeReporting({ status: "downloading", percent: 42 }));
+    const { page: container } = await renderSettled(
+      bridgeReporting({ status: "downloading", percent: 42 }),
+    );
     const progress = container.querySelector("progress");
     expect(progress?.getAttribute("value")).toBe("42");
     expect(container.textContent ?? "").toContain("42%");
   });
 
   it("renders the error arm's message verbatim", async () => {
-    const container = await renderSettled(
+    const { page: container } = await renderSettled(
       bridgeReporting({ status: "error", message: "the feed returned 503" }),
     );
     expect(container.textContent ?? "").toContain("the feed returned 503");
@@ -100,7 +167,7 @@ describe("updates page — the five arms", () => {
     // The section is explicit — "A feed that cannot be reached is not an error arm
     // and does not render as one." Without this, an `unreachable` folded into
     // `error` would look identical to a real updater failure.
-    const container = await renderSettled(bridgeWithNoUpdater());
+    const { page: container } = await renderSettled(bridgeWithNoUpdater());
     const text = container.textContent ?? "";
     expect(text).toContain("update feed was not reached");
     expect(text).not.toContain("The updater reported a failure");
@@ -110,7 +177,7 @@ describe("updates page — the five arms", () => {
 
 describe("updates page — nothing restarts without a press", () => {
   it("offers the restart only once the download has finished", async () => {
-    const ready = await renderSettled(bridgeReporting({ status: "ready" }));
+    const { page: ready } = await renderSettled(bridgeReporting({ status: "ready" }));
     const labels = [...ready.querySelectorAll("button")].map((button) => button.textContent ?? "");
     expect(labels).toContain("Restart to apply");
   });
@@ -118,7 +185,7 @@ describe("updates page — nothing restarts without a press", () => {
   it("negative control: a download in progress offers no restart", async () => {
     // Without this, the case above would pass over a page that always drew the
     // control — which would let a person restart into an incomplete download.
-    const downloading = await renderSettled(
+    const { page: downloading } = await renderSettled(
       bridgeReporting({ status: "downloading", percent: 99 }),
     );
     const labels = [...downloading.querySelectorAll("button")].map(
@@ -129,7 +196,9 @@ describe("updates page — nothing restarts without a press", () => {
 
   it("restarts only when the control is pressed", async () => {
     const requestRestart = vi.fn(() => Promise.resolve());
-    const container = await renderSettled(bridgeReporting({ status: "ready" }, { requestRestart }));
+    const { page: container } = await renderSettled(
+      bridgeReporting({ status: "ready" }, { requestRestart }),
+    );
     expect(requestRestart).not.toHaveBeenCalled();
     const restart = [...container.querySelectorAll("button")].find(
       (button) => button.textContent === "Restart to apply",
@@ -142,7 +211,7 @@ describe("updates page — nothing restarts without a press", () => {
   });
 
   it("renders a refused check beside the controls rather than swallowing it", async () => {
-    const container = await renderSettled(
+    const { page: container } = await renderSettled(
       bridgeReporting(
         { status: "idle" },
         { requestCheck: () => Promise.reject(new Error("the updater is disabled in this build")) },
@@ -157,5 +226,46 @@ describe("updates page — nothing restarts without a press", () => {
       await Promise.resolve();
     });
     expect(container.textContent ?? "").toContain("the updater is disabled in this build");
+  });
+});
+
+describe("updates page — the read says it landed, once", () => {
+  it("announces what the updater answered", async () => {
+    const { politeText } = await renderSettled(bridgeReporting({ status: "idle" }));
+    expect(politeText()).toBe("Update state read. No update is waiting.");
+  });
+
+  it("announces an unreachable feed in the words the failure arrived in", async () => {
+    const { politeText } = await renderSettled(bridgeWithNoUpdater());
+    const spoken = politeText();
+    expect(spoken).toContain("The update feed was not reached from this window.");
+    // The SUBSCRIBE rejection, not the read's: the block opens the subscription
+    // first, so that is the message the unreachable arm actually settles on.
+    expect(spoken).toContain("update.subscribe is not implemented");
+  });
+
+  it("negative control: a second push inside the same arm says nothing again", async () => {
+    // Without this, a sentence carrying the download percent would satisfy the case
+    // above and then announce once per percentage point — which fills the polite
+    // queue with one condition and sheds every other announcement behind it.
+    const pushing = bridgePushing({ status: "downloading", percent: 42 });
+    const { page, clock, politeText } = await renderSettled(pushing.bridge);
+    expect(politeText()).toBe("Update state read. An update is downloading.");
+
+    await act(async () => {
+      clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
+      await Promise.resolve();
+    });
+    expect(politeText()).toBe("");
+
+    await act(async () => {
+      pushing.push({ status: "downloading", percent: 43 });
+      await Promise.resolve();
+    });
+
+    // The block really did re-render on the push, so the silence is the hook's doing
+    // rather than a component that stopped listening.
+    expect(page.textContent ?? "").toContain("43%");
+    expect(politeText()).toBe("");
   });
 });

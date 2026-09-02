@@ -4,6 +4,8 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ManualClock } from "../../core/index.js";
+import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
 import {
   fixtureBridgeWithGrowth,
   growthRefusing,
@@ -46,14 +48,32 @@ function contextFor(): SettingsPageContext {
   };
 }
 
+/**
+ * Mount the page under the console's real announcer and let both blocks settle.
+ *
+ * The provider is here because the updates block announces its settlement and
+ * `useAnnounce` refuses to be called without one — which is the wiring bug that
+ * primitive exists to make loud rather than silent. The PAGE element is returned
+ * rather than the render container, so the announcer's two regions never land inside
+ * an assertion about what this page rendered.
+ */
 async function renderSettled(): Promise<HTMLElement> {
-  let container: HTMLElement | undefined;
+  const announcer = new LiveAnnouncer({ clock: new ManualClock() });
+  let root: HTMLElement | undefined;
   await act(async () => {
-    container = render(<ApplicationPage context={contextFor()} />).container;
+    root = render(
+      <LiveAnnouncerProvider announcer={announcer}>
+        <ApplicationPage context={contextFor()} />
+      </LiveAnnouncerProvider>,
+    ).container;
     await Promise.resolve();
     await Promise.resolve();
   });
-  return container as HTMLElement;
+  const page = (root as HTMLElement).querySelector<HTMLElement>(".meridian-settings-page");
+  if (page === null) {
+    throw new Error("the application page did not render");
+  }
+  return page;
 }
 
 describe("application page", () => {

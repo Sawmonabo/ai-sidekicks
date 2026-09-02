@@ -30,7 +30,13 @@ import { useCallback, useEffect, useId, useState, type ReactNode } from "react";
 
 import type { UpdateState } from "@ai-sidekicks/contracts";
 
-import { DerivedFigure, Nothing, WireFigure, formatPercent } from "../../primitives/index.js";
+import {
+  DerivedFigure,
+  Nothing,
+  WireFigure,
+  formatPercent,
+  useSettlementAnnouncement,
+} from "../../primitives/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { PreferenceToggleRow } from "./PreferenceToggleRow.js";
 import { useShellPreferences } from "./shell-preferences.js";
@@ -95,9 +101,57 @@ function useUpdateReading(bridge: ConsoleBridge): UpdateReading {
   return reading;
 }
 
+/**
+ * What each settled arm of the updater's read SAYS, for the person who cannot see it.
+ *
+ * TOTAL over `UpdateState`'s own union, so a sixth arm landing upstream is a compile
+ * error here rather than a settlement that lands silently.
+ *
+ * Deliberately carries no percent. The `downloading` arm re-settles on every push the
+ * updater sends, and a sentence carrying the figure would be a different sentence each
+ * time — which the announcer would dutifully say, once per percentage point, over the
+ * top of everything else in the window. The bar on screen is where a moving number
+ * belongs; the announcement is that the read landed and what it found.
+ */
+const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>> = {
+  idle: "Update state read. No update is waiting.",
+  checking: "Update state read. A check is running.",
+  downloading: "Update state read. An update is downloading.",
+  ready: "Update state read. An update has downloaded and installs on the next restart.",
+  error: "Update state read. The updater reported a failure.",
+};
+
+/**
+ * The one sentence this block announces, or `undefined` while nothing has settled.
+ *
+ * The `unreachable` arm carries the thrown message rather than a sentence of this
+ * console's own, which is the same rule the read-out beside it renders under: the
+ * words are whoever refused's, never a paraphrase. The `error` arm appends the
+ * updater's message for the same reason — it is a served reading whose content is a
+ * failure, and dropping the message would announce that something failed while
+ * withholding what.
+ */
+function updateSettlementSentence(reading: UpdateReading): string | undefined {
+  switch (reading.kind) {
+    case "not-read":
+      return undefined;
+    case "unreachable":
+      return `The update feed was not reached from this window. ${reading.detail}`;
+    case "state":
+      return reading.state.status === "error"
+        ? `${UPDATE_STATUS_SETTLEMENTS.error} ${reading.state.message}`
+        : UPDATE_STATUS_SETTLEMENTS[reading.state.status];
+  }
+}
+
 export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNode {
   const { bridge } = props;
   const reading = useUpdateReading(bridge);
+  // Said once, when the updater read lands. The preference carrier this block also
+  // reaches is NOT announced from here: it renders nothing of its own on either
+  // outcome — the toggle falls back to its default and the row looks identical — so
+  // there is no settlement on screen for an announcement to be the spoken half of.
+  useSettlementAnnouncement(updateSettlementSentence(reading));
   const preferences = useShellPreferences(bridge);
   const [requestRefusal, setRequestRefusal] = useState<string | undefined>(undefined);
   const isAutomatic = preferences.isEnabled(AUTOMATIC_UPDATE_KEY);
