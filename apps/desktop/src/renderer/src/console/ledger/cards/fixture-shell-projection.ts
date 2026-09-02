@@ -57,6 +57,16 @@
 //     actually carries rather than composing a sentence the daemon never said,
 //     and the real summary arrives with the read that brings the real rows.
 //
+// A ROLLBACK RESETS THE COUNT, WHICH IS WHAT "RE-EXECUTION REUSES ORDINALS" MEANS.
+// A rewind advances the epoch AND returns the run to the anchor the wire named, so
+// the row after a boundary is at `targetPosition` — in the new epoch — and the rows
+// after it count up from there. Letting the count run on instead would put
+// re-executed rows at ordinals no rewind ever reached, and `superseded-bands.ts`
+// ranks a row against the cutoff of a boundary IN ITS OWN EPOCH: a second rewind to
+// the same anchor would then find every row of the new epoch above its cutoff and
+// dim the whole of it. That comparison is already epoch-scoped; what it needs from
+// here is that both sides of it are measured from one origin.
+//
 // The `SessionId` / `RunId` casts are the same one `row-fixtures.ts` takes: the
 // brand is a compile-time nominal tag over `string` with no runtime witness, and
 // the value under it is the wire's own.
@@ -146,6 +156,15 @@ interface RunProgression {
   epoch: number;
 }
 
+/**
+ * The boundary arm alone, so a caller can read the cutoff it landed on.
+ *
+ * Extracted from the contract's own union rather than declared beside it: the arm
+ * is `TimelineRow`'s, and a second hand-written shape here would be a second claim
+ * about what a boundary row carries.
+ */
+type RollbackBoundaryRow = Extract<TimelineRow, { readonly kind: "rollback_boundary" }>;
+
 /** The members every arm spreads, all of them wire-verbatim but `id` and `summary`. */
 function commonRowFields(
   event: ConsoleSessionEvent,
@@ -185,7 +204,7 @@ function commonRowFields(
 function projectRollbackBoundary(
   event: ConsoleSessionEvent,
   progression: RunProgression,
-): TimelineRow | undefined {
+): RollbackBoundaryRow | undefined {
   const parsed = RunRolledBackEventSchema.safeParse(event.payload);
   if (!parsed.success) {
     return undefined;
@@ -257,6 +276,12 @@ export function projectFixtureShellRows(
       // exactly what an epoch is — and why the increment lands AFTER the boundary
       // is pushed rather than before: the boundary belongs to the epoch it ended.
       progression.epoch += 1;
+      // And the count returns to the anchor the rewind landed on, so the first
+      // re-executed row takes the boundary's own position in the new epoch. The
+      // value is the wire's `targetPosition`, read off the row rather than out of
+      // the payload a second time, so the boundary a reader sees and the origin the
+      // rows after it count from can never be two different numbers.
+      progression.nextPosition = boundary.position;
       continue;
     }
 
