@@ -23,6 +23,16 @@
 // Two facts, both true at once: nobody has read this definition in this window, and
 // the bodies that would draw it are reserved and unbuilt.
 //
+// AN ADDRESS IS CHECKED BEFORE IT IS USED. A pane carries a `ConsoleEntityRef`, and
+// the store registers `workflow-definition` and `workflow-run` as two kinds
+// deliberately — a definition is authored, versioned and scoped and outlives every
+// run of it. This pane authors the first. It used to read `entity.id` on any kind at
+// all, so a run id addressed here would have been carried into the definition read
+// and whatever came back would have been presented as the definition a person asked
+// to edit. The guard is a typed refusal rather than a throw, because one
+// mis-addressed pane must not take the deck down with it, and rather than a silent
+// empty arm, because a surface that renders nothing tells nobody what is wrong.
+//
 // GEOMETRY IS NOT DEFINITION BYTES. Canvas layout is client-local: dragging a node
 // changes no byte, mints no content hash and creates no version. The chrome states it
 // here because the chrome is what frames the canvas and would otherwise be the
@@ -36,9 +46,15 @@
 
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
+import { refusedWorkflowChrome } from "../../workflows/chrome-state.js";
 import { WorkflowsBrowser } from "../../workflows/WorkflowsBrowser.js";
 import type { ConsolePaneContext } from "../../workspace/index.js";
-import { WORKFLOW_BUILDER_PRIMARY_ACT, unregisteredAuthoringAct } from "./builder-authoring.js";
+import {
+  WORKFLOW_BUILDER_PRIMARY_ACT,
+  WORKFLOW_BUILDER_SUBJECT_KIND,
+  misaddressedBuilderPane,
+  unregisteredAuthoringAct,
+} from "./builder-authoring.js";
 import { DraftsSlot } from "./slots/DraftsSlot.js";
 import { NodeGraphSlot } from "./slots/NodeGraphSlot.js";
 
@@ -70,6 +86,22 @@ export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.
     // three empty named groups at the rail renders what this session can actually
     // see here.
     return <WorkflowsBrowser growth={bridge.growth} sessionId={sessionStore?.sessionId} />;
+  }
+
+  if (entity.kind !== WORKFLOW_BUILDER_SUBJECT_KIND) {
+    // The chrome's own `refused` arm, which renders the refusal and NOT the
+    // children — so the two reserved bodies stay unmounted and no read is composed
+    // for an id this surface cannot use. A banner across the surface rather than a
+    // card in the ledger, because nothing entered the session's history here: what
+    // changed is what this whole surface can do, which is nothing.
+    return (
+      <WorkflowChrome
+        glyph="workflow"
+        heading={HEADING}
+        summary={SUMMARY}
+        state={refusedWorkflowChrome(misaddressedBuilderPane(entity.kind))}
+      />
+    );
   }
 
   return (

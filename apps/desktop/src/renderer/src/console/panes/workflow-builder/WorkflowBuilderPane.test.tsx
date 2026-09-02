@@ -50,11 +50,15 @@ function renderPane(context: ConsolePaneContext): HTMLElement {
   return section;
 }
 
-// `CONSOLE_ENTITY_KINDS` registers `workflow-run` and no definition kind, so a
-// definition is addressed under the nearest registered kind rather than under one
-// this test invents. Wire truth over design wish: minting a kind here would be a
-// closed set widened from a test.
-const ADDRESSED = { kind: "workflow-run", id: "definition-01" } as const;
+// The kind this pane authors, and the kind it does not.
+//
+// `CONSOLE_ENTITY_KINDS` registers BOTH `workflow-definition` and `workflow-run`,
+// and has since the set was written — this file used to address a definition under
+// `workflow-run` on the stated grounds that no definition kind existed, which was
+// simply false and had the suite asserting the pane's behaviour on the one address
+// it must now refuse. The misaddress is kept, as the subject of its own cases.
+const ADDRESSED = { kind: "workflow-definition", id: "definition-01" } as const;
+const MISADDRESSED = { kind: "workflow-run", id: "run-01" } as const;
 
 describe("workflow builder pane — with no definition to open", () => {
   it("renders the definitions browser's scope groups", () => {
@@ -97,5 +101,34 @@ describe("workflow builder pane — with a definition to open", () => {
     expect(authoring).not.toBeNull();
     expect(authoring?.querySelector("button")).toBeNull();
     expect(section.textContent ?? "").toContain("wire-unregistered");
+  });
+});
+
+describe("workflow builder pane — with an address it does not author", () => {
+  it("refuses the address rather than reading a run id as a definition id", () => {
+    // The defect: the pane took `entity.id` off any kind at all, so a run id
+    // addressed here was carried into the definition read and whatever came back
+    // would have been presented as the definition a person asked to edit.
+    const section = renderPane(paneContext(MISADDRESSED));
+    expect(section.querySelector(".meridian-refusal--banner")).not.toBeNull();
+    expect(section.textContent ?? "").toContain("pane-address-invalid");
+  });
+
+  it("mounts no body and offers no save for a subject it will not open", () => {
+    // The refusal has to be the whole surface. A pane that refused in a banner and
+    // still mounted its two slots would have composed the read the banner says it
+    // did not, and would still offer to save it.
+    const section = renderPane(paneContext(MISADDRESSED));
+    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(0);
+    expect(section.querySelector(".meridian-workflow__authoring")).toBeNull();
+    expect(section.querySelector(".meridian-nothing--not-checked")).toBeNull();
+  });
+
+  it("negative control: the same pane opens on the kind it does author", () => {
+    // Without this, both cases above pass over a pane that refused every address,
+    // which would make the builder unreachable rather than fail-closed.
+    const section = renderPane(paneContext(ADDRESSED));
+    expect(section.querySelector(".meridian-refusal--banner")).toBeNull();
+    expect(section.querySelectorAll(".meridian-workflow__slot")).toHaveLength(2);
   });
 });
