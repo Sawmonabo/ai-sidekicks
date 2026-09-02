@@ -165,28 +165,46 @@ const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
 /**
  * How close a capture has to be to its reference to count as the same image.
  *
- * Vitest's default is ZERO allowed mismatched pixels, and after the pins above the
- * only thing left that a byte-exact rule catches is the residue of two hosts
- * rasterising the same glyph outlines through different Skia/CoreText builds. That
- * residue is measured, not assumed: the run this number was derived from is
- * recorded in `test/console/screenshot/frame.test.tsx`'s header beside the runner
- * that minted the references.
+ * ZERO, which is Vitest's default — pinned here rather than inherited, and pinned
+ * on measurement rather than on caution. The measurements are worth carrying,
+ * because they are what refuses a tolerance rather than what sizes one.
  *
- * `allowedMismatchedPixels` rather than `allowedMismatchedPixelRatio` because the
- * quantity being bounded is a per-glyph-edge count, which does not scale with the
- * image — a ratio would silently grant the palette reference (1440×900) a bigger
- * budget than a frame-scoped one for the same physical smudge.
+ * After the pins above, this tier's residue is exactly SIX pixels: one in
+ * `frame-first-run-light`, six in `palette-open-light`, none in
+ * `frame-first-run-dark`, comparing a macOS 26.6.1 host against references minted
+ * on GitHub's `macos-15` image (2026-09-02). Every one of them sits on the corner
+ * of a `⌘` keycap glyph — (645,552) in the frame, (992..993, 493..533) in the
+ * palette — which is the one character on these surfaces no stack in
+ * `tokens/palette.ts` supplies: nothing self-hosts IBM Plex yet, so `system-ui`
+ * and `ui-monospace` resolve to the host's own face and its outline moves with the
+ * operating system. So the residue is real and it is bounded and it is six.
  *
- * The budget is deliberately far below anything a person could see. The smallest
- * real regression this tier has actually caught — two command rows appearing in the
- * palette — moved 26 016 pixels, three orders of magnitude above this. pixelmatch's
- * own `threshold` and `includeAA` defaults (0.1, AA pixels excluded) are left alone:
- * they discount antialiasing per pixel, and raising either is how a tolerance stops
- * being a tolerance and starts being a blindfold.
+ * A budget above it would have to fit UNDER the smallest change worth catching,
+ * and that ceiling was measured too, by planting regressions and reading the count
+ * at zero: a one-pixel rail move (`52px` → `53px`) is 3 690 and 4 594 pixels; the
+ * stale palette reference this lane found — a two-command Help group that had
+ * appeared since the capture — is 26 016; but a SINGLE changed glyph in a palette
+ * label is **20**. Six and twenty is a window 3.3× wide, and a punctuation glyph
+ * is smaller than a letter, so any budget inside it is a coin-flip on both edges.
+ * There is no number here that is both useful and safe, so the tier takes none.
+ *
+ * What that costs is named rather than hidden: a developer Mac running this tier
+ * goes red on those six pixels. That is the advisory status
+ * `test/console/screenshot/frame.test.tsx`'s header describes, and the fix for a
+ * reference that genuinely needs to move is to regenerate it on the runner that
+ * owns it — never to widen this.
+ *
+ * pixelmatch's own `threshold` and `includeAA` defaults (0.1, AA pixels excluded)
+ * are left alone, and one consequence of `threshold` is worth stating because it is
+ * NOT this budget's doing: a 3% lightness change to `surface-raised` — the token
+ * that paints the whole palette dialog — registers zero mismatched pixels here,
+ * while a 20% one registers 257 070. This tier sees geometry and text far more
+ * sharply than it sees a small colour delta, and lowering `threshold` to change
+ * that would have to be paid for in residue.
  */
 const SCREENSHOT_TIER_MATCH_OPTIONS = {
   comparatorName: "pixelmatch",
-  comparatorOptions: { allowedMismatchedPixels: 48 },
+  comparatorOptions: { allowedMismatchedPixels: 0 },
 } as const;
 
 export default defineConfig({

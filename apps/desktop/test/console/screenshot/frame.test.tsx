@@ -48,24 +48,21 @@
 //
 // A developer Mac is a LATER macOS with a different system UI face — the console's
 // sans stack names IBM Plex Sans first, nothing self-hosts it yet, and the fallback
-// is whatever `system-ui` resolves to on the host. So a local run is ADVISORY. It
-// is a genuine check of everything above the rasteriser — a moved control, a
-// changed colour, a command that appeared or vanished — and it is not a verdict on
-// the last few pixels of a glyph edge. What keeps it usable rather than merely
-// permitted is the tier's measured pixel budget, declared beside its evidence in
-// `vitest.config.ts` (`SCREENSHOT_TIER_MATCH_OPTIONS`).
+// is whatever `system-ui` resolves to on the host. So a local run is ADVISORY, and
+// it is advisory in a specific and small way: measured 2026-09-02 on macOS 26.6.1
+// against `macos-15` references, the whole disagreement is SIX pixels — one in
+// `frame-first-run-light`, six in `palette-open-light`, none in the dark frame —
+// and every one of them is a corner of a `⌘` keycap glyph, the one character on
+// these surfaces that comes from the host's font rather than the console's.
 //
-// MEASUREMENTS THIS TIER'S NUMBERS COME FROM (2026-09-02, PR #416 lane)
-//
-//   • Runner (`macos-15`) against references minted on macOS 26.6.1, both at the
-//     pre-pin 0.8 iframe scale: frame-first-run-light 3 px, frame-first-run-dark
-//     2 px, of 829 440. The same two comparisons were byte-exact on the machine
-//     that minted them, which is what identifies the residue as cross-host
-//     rasterisation rather than run-to-run noise.
-//   • `palette-open-light` differed by 26 016 px on the runner and 26 015 px on
-//     the minting machine — a STALE reference, not a rendering difference: the
-//     palette had gained a two-command Help group since it was captured. That is
-//     the tier working, and it is the regression scale the budget sits under.
+// The tier allows none of them. `vitest.config.ts`'s `SCREENSHOT_TIER_MATCH_OPTIONS`
+// records why: a single changed glyph in a palette label moves only 20 pixels, so a
+// budget large enough to absorb six is close enough to twenty to hide a punctuation
+// change, and the tier would rather be red on a developer's machine than blind on
+// the runner's. So read a local red the way the numbers make it readable — a
+// handful of pixels on a keycap is the known residue; anything else is yours. A
+// one-pixel rail move is 3 690 pixels; the stale palette reference this lane found
+// (a Help group that had appeared since the capture) was 26 016.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { TestContext } from "vitest";
