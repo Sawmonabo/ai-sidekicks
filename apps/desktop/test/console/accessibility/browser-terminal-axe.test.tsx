@@ -42,7 +42,7 @@ const AUDITED_SURFACES: readonly {
 }[] = [
   { label: "the browser pane's chrome", mount: mountBrowserPane },
   { label: "a stored capture card", mount: mountBrowserCaptureCard },
-  { label: "the terminal pane on a held lease", mount: mountTerminalPane },
+  { label: "the terminal pane on a degraded lease", mount: mountTerminalPane },
 ];
 
 beforeEach(() => {

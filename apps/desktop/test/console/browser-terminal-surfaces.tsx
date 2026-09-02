@@ -16,9 +16,10 @@
 // person would see.
 //
 // THE TERMINAL IS DRIVEN BY THE SCENARIO, NOT BY A HAND-BUILT LOG. `TERMINAL_SCENARIO`
-// ends on a `taken`, which is the state its own header says a baseline should pin —
-// the pane's busiest frame rather than its emptiest. So the store here is fed the
-// scenario's beats verbatim and the held lease is the fixture's, not this file's.
+// ends on its host going silent under a lease that had just been taken, which is the
+// frame its own header says a baseline should pin: 8.8's degraded state, standing
+// over the whole transition ledger. So the store here is fed the scenario's beats
+// verbatim and the degraded reading is the fixture's, not this file's.
 
 import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
@@ -111,8 +112,9 @@ function paneBinding(
  * A store holding every beat the terminal scenario scripts.
  *
  * The whole log rather than a prefix: the scenario reaches all five transition
- * reasons and ends held, so the pane folded off it carries a named holder and a
- * full transition ledger — the surface these tiers are for.
+ * reasons and then loses the host holding the lease, so the pane folded off it
+ * carries the degraded reading over a full transition ledger — the surface these
+ * tiers are for.
  */
 function terminalSessionStore(): SessionStore {
   const store = new SessionStore({ sessionId: TERMINAL_SCENARIO.sessionId });

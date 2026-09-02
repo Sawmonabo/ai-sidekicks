@@ -16,10 +16,12 @@
 //     reads only one attribute of;
 //   • a stored capture card, the object 12.6 says a capture "lands as", collapsed to
 //     name, kind, and size with the preview one click away;
-//   • the terminal pane on a HELD lease, which is the frame `bridge/scenarios/
-//     terminal.ts` says a baseline should pin — its own header: a scenario that ran
-//     to a free lease "would pin the emptiest frame the surface has instead of its
-//     busiest".
+//   • the terminal pane on a DEGRADED lease, which is the frame `bridge/scenarios/
+//     terminal.ts` says a baseline should pin — its own header: the script ends on
+//     the host going silent under a lease that had just been taken, which "carries
+//     everything the held frame carried plus the reading that took the keyboard
+//     away", while a script ending on a free lease "would pin the emptiest frame the
+//     surface has".
 //
 // Three surfaces and two schemes is six references, and every one of them is minted
 // on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
@@ -53,7 +55,7 @@ const PINNED_SURFACES: readonly {
 }[] = [
   { referenceName: "browser-pane-chrome", mount: mountBrowserPane },
   { referenceName: "browser-capture-card", mount: mountBrowserCaptureCard },
-  { referenceName: "terminal-pane-held-lease", mount: mountTerminalPane },
+  { referenceName: "terminal-pane-degraded-lease", mount: mountTerminalPane },
 ];
 
 beforeEach(() => {
