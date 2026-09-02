@@ -24,3 +24,13 @@ export { FrameStore } from "./frame-store.js";
 export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-store-registry.js";
 
 export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";
+
+// The selector hook, and the state its selector reads.
+//
+// `useOpenSessionStore` hands a caller the store; reading it is a second act, and
+// until T-023p-1C-7 every caller of that second act lived inside this family. A
+// view family that reached for `useSyncExternalStore` itself would be the second
+// subscription path this family's header exists to prevent — so the one path
+// ships through the door beside the store it reads.
+export type { SessionStoreState } from "./session-store.js";
+export { useSessionStore } from "./hooks.js";

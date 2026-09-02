@@ -1,6 +1,11 @@
 // The terminal family's registration terms, and the lease transitions its fixture
 // plays.
 //
+// The event kind and the reason vocabulary are IMPORTED from the fold rather than
+// restated here, so this file checks the fixture against the set the surface
+// actually renders. A second copy of the list would pass while the two drifted,
+// which is the failure the check exists to prevent.
+//
 // The second half is the one that earns a test. `Spec-023 §Console Design
 // (Meridian)` 8.8 requires every transition to render as a ledger line naming its
 // reason, with the three AUTOMATIC reasons kept distinct — a surface that collapsed
@@ -13,23 +18,11 @@ import { describe, expect, it } from "vitest";
 
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_ID } from "../bridge/scenarios/terminal.js";
 import { ConsolePaneRegistry } from "../workspace/index.js";
+import {
+  TERMINAL_LEASE_EVENT_KIND as LEASE_TRANSITION_KIND,
+  TERMINAL_LEASE_TRANSITION_REASONS as LEASE_TRANSITION_REASONS,
+} from "./lease-model.js";
 import { registerTerminalPanes } from "./index.js";
-
-/** The wire event a lease transition arrives on. */
-const LEASE_TRANSITION_KIND = "pty.control_changed";
-
-/**
- * The transition reasons, as `Spec-006` closes the set. Written here rather than
- * imported because no contract package exports it yet — the fixture is what stands
- * in for that registration, and this list is the claim it is held to.
- */
-const LEASE_TRANSITION_REASONS: readonly string[] = [
-  "taken",
-  "released",
-  "auto_released_disconnect",
-  "auto_released_authorization_lost",
-  "auto_released_run_idle",
-];
 
 function leaseTransitionReasons(): readonly unknown[] {
   return TERMINAL_SCENARIO.beats

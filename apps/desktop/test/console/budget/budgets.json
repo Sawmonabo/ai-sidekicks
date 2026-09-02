@@ -145,8 +145,8 @@
       "status": "n/a",
       "producedBy": "T-023p-1C-7",
       "measuredBy": null,
-      "notMeasurableReason": "The `terminal` pane kind does not exist, and neither does the renderer pool whose per-instance cost this budget bounds. T-023p-1C-7 builds both over fixtures.",
-      "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget)."
+      "notMeasurableReason": "The reading is taken — `test/console/budget/heap-terminal.test.ts` measures a real `@xterm/xterm` instance at the default scrollback against this row — but the tier it lives in is not a gate: `test:console-bundle` reaches neither the aggregate `test` script nor a CI job, and `apps/desktop/AGENTS.md` requires both before a row may read `enforced`. Wiring that tier flips this row and fills `measuredBy`.",
+      "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget). The measuring harness exists at `apps/desktop/test/console/budget/heap-terminal.test.ts`; it is named here rather than in `measuredBy`, which this revision holds null because the row is not yet a gate."
     },
     {
       "id": "time-to-first-ledger-row",
