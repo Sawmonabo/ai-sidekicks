@@ -12,6 +12,14 @@
 // the rail does not compute whether compaction is allowed, and where it has not read
 // the answer it says so rather than guessing either way.
 //
+// WHERE THE COMPACTION CONTROL'S TWO INPUTS COME FROM. The addressed run is the
+// composer's own address — the same resolution the chip rail renders and the send
+// bar acts on, so a person reading "steer Ada's turn" and pressing Compact reach the
+// same run — and the capability is the BOUND driver's declaration, resolved per
+// driver from the capability read. A composer addressed to a channel has no run to
+// compact and offers nothing, which is the absent-not-disabled discipline rather
+// than a `not-checked` block on every session composer in the console.
+//
 // THE SLOTS ARE `body: undefined` BY CONSTRUCTION, NOT BY OVERSIGHT. Neither seat
 // has a registry to be read out of: a body arrives by its owning plan mounting it
 // here, and until then the seat renders the reserved state.
@@ -24,7 +32,9 @@ import {
   type ConsoleSessionEvent,
   type SessionStoreState,
 } from "../../../console/store/index.js";
+import { useComposerAddress } from "../composer-address.js";
 import { CompactionControl } from "./CompactionControl.js";
+import { compactionCapabilityFor, useDeclaredCapabilitiesByDriver } from "./driver-capabilities.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
 import { PlusMenu } from "./PlusMenu.js";
@@ -65,6 +75,9 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   const compactionBoundary = useMemo(() => newestCompactionBoundarySequence(timeline), [timeline]);
   const queueFeed = useQueueFeed(props.bridge, props.sessionStore.sessionId);
   const clock = props.bridge.scenarioEngine?.clock ?? HOST_CLOCK;
+  const address = useComposerAddress(props.sessionStore, props.focusedPane);
+  const capabilitiesByDriver = useDeclaredCapabilitiesByDriver(props.bridge);
+  const addressedRun = address.target.path === "provider-bound" ? address.target : undefined;
 
   return (
     <div className="meridian-composer__rail">
@@ -77,17 +90,15 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
         <div className="meridian-composer__meters">
           <ContextMeter reading={contextReading} />
           <RateChips readings={rateReadings} nowMilliseconds={clock.now()} />
-          <CompactionControl
-            bridge={props.bridge}
-            sessionId={props.sessionStore.sessionId}
-            // The capability is a driver declaration the console has no read for:
-            // no bridge namespace and no growth-port operation serves the driver's
-            // capability flags. `unknown` is therefore the true value, and the
-            // control renders "nobody asked" rather than a disabled button.
-            capability="unknown"
-            targetRunId={undefined}
-            completedBoundarySequence={compactionBoundary}
-          />
+          {addressedRun === undefined ? null : (
+            <CompactionControl
+              bridge={props.bridge}
+              sessionId={props.sessionStore.sessionId}
+              capability={compactionCapabilityFor(capabilitiesByDriver, addressedRun.driverName)}
+              targetRunId={addressedRun.targetRunId}
+              completedBoundarySequence={compactionBoundary}
+            />
+          )}
         </div>
         <div className="meridian-composer__actions">
           {/* `body: undefined` is not a lookup this file skipped — the workflow

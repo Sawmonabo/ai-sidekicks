@@ -10,12 +10,31 @@
 // line and marks the control busy — deliberately, so a second Enter cannot queue a
 // second turn — and Sent is the wire's own row appearing in the ledger rather than
 // a row this hook draws, which is why there is no `sent` member here to render.
+//
+// THE SINGLE-FLIGHT LATCH IS A REF AND NOT THE STATUS. `status` is what the surface
+// RENDERS, and a handler reading it sees the value from the render that produced
+// the handler — so two Enter presses inside one frame both read `idle` and both
+// dispatch, queueing two turns from one intent. The ref is set before the await and
+// cleared in `finally`, which makes the second press a no-op in the same tick.
+//
+// THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
+// workspace hands the composer seat a window-lifetime store, keyed per address; a
+// `useState` string here would be a second home for the same text, and the two
+// differ exactly where it matters — a remount loses the local copy, and a prop-only
+// address change keeps it, so the person's words reappear under a target they did
+// not write them for. Reading through the store is also what makes the store's own
+// restart disclosure reachable: it is armed at construction and cleared the first
+// time a composer is focused, which is a sentence somebody has to render.
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
+import type { CommandExecutor } from "./command-executor.js";
+import { composerDraftKey } from "./draft-key.js";
+import { composerRefusal } from "./send-refusals.js";
 import {
   DirectiveHistory,
   caretAtEnd,
@@ -25,10 +44,47 @@ import {
   type DirectiveCaret,
   type DirectivePathLabel,
 } from "./directive-line.js";
-import { ComposerSendRouter } from "./send-router.js";
+import { ComposerSendRouter, type ClientCommandPredicate } from "./send-router.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
 export type SendControllerStatus = "idle" | "sending";
+
+/**
+ * What a recognised command with nowhere to run says.
+ *
+ * Names the state rather than the wiring: a person cannot act on "no executor was
+ * supplied", and can act on knowing their text is still there and the command did
+ * not run.
+ */
+const NO_EXECUTOR_DETAIL =
+  "That command was recognised but nothing here can run it, so nothing happened. Your message is still in the line.";
+
+/** What the composer is built from. One object, so a new dependency is one edit. */
+export interface SendControllerDependencies {
+  readonly bridge: ConsoleBridge;
+  readonly target: ComposerTarget;
+  /** The window-lifetime draft store the composer seat is handed. */
+  readonly draftStore: DraftStore;
+  /**
+   * Whether a name is a registered client command.
+   *
+   * Travels with the executor because the two are one decision split in half: the
+   * router will not intercept a name nothing claims, so a recogniser without an
+   * executor intercepts into a refusal and an executor without a recogniser is
+   * never called. The composer's command zone supplies both or neither.
+   */
+  readonly recognizeClientCommand?: ClientCommandPredicate | undefined;
+  /**
+   * Runs a recognised client command, when this composer has one to run with.
+   *
+   * Optional because the command family is a separate zone that mounts its own
+   * recogniser and executor together. Absent, an intercepted line REFUSES: the
+   * router only intercepts a name a recogniser claimed, so reaching this arm with
+   * no executor means the two halves were wired apart, and clearing the line would
+   * report success for an act nothing performed.
+   */
+  readonly commandExecutor?: CommandExecutor | undefined;
+}
 
 /** Everything the send bar renders and every act it offers. */
 export interface SendController {
@@ -41,6 +97,13 @@ export interface SendController {
   readonly refusal: ConsoleRefusal | undefined;
   /** The most recent sent message, so a tripped run can be resent without retyping. */
   readonly resendableText: string | undefined;
+  /**
+   * The store's restart disclosure, until a composer has been focused once.
+   *
+   * The sentence is the store's own — fixed text carrying no participant content —
+   * so the composer renders what the store says rather than a second wording of it.
+   */
+  readonly restartNotice: string | undefined;
   changeText(next: string): void;
   send(): Promise<void>;
   /** Send one exact body again. The tripwire card's offer; never a silent retry. */
@@ -50,29 +113,69 @@ export interface SendController {
   recallOlder(caret: DirectiveCaret): boolean;
   /** Walk one message newer. `false` when the caret is not at the end edge. */
   recallNewer(caret: DirectiveCaret): boolean;
+  /** Called the first time the line takes focus, which is what clears the notice. */
+  acknowledgeRestartNotice(): void;
 }
 
 /** Build the controller for one addressed composer. */
-export function useSendController(bridge: ConsoleBridge, target: ComposerTarget): SendController {
-  const router = useMemo(() => new ComposerSendRouter({ bridge }), [bridge]);
+export function useSendController(dependencies: SendControllerDependencies): SendController {
+  const { bridge, target, draftStore, commandExecutor, recognizeClientCommand } = dependencies;
+  const router = useMemo(
+    () =>
+      new ComposerSendRouter(
+        recognizeClientCommand === undefined ? { bridge } : { bridge, recognizeClientCommand },
+      ),
+    [bridge, recognizeClientCommand],
+  );
   // A ref rather than state: the walk's own cursor is not rendered, and putting it
   // in state would re-render the whole bar on a keystroke that changed nothing a
   // person can see.
   const historyRef = useRef<DirectiveHistory>(new DirectiveHistory());
-  const [text, setText] = useState("");
+  // Set before the await and cleared in `finally`, so every settlement — sent,
+  // intercepted, refused, or a rejection the router turned into a refusal — releases
+  // it on exactly one path rather than on the arms an author remembered.
+  const isDispatchInFlight = useRef(false);
   const [status, setStatus] = useState<SendControllerStatus>("idle");
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const [resendableText, setResendableText] = useState<string | undefined>(undefined);
+  // Mirrors the store's own flag so clearing it re-renders. The store stays the
+  // source: this hook never decides the notice is owed, it only reads and clears.
+  const [isRestartNoticePending, setRestartNoticePending] = useState(
+    () => draftStore.restartNoticePending,
+  );
 
-  const changeText = useCallback((next: string) => {
-    setText(next);
-    // A refusal answers the act that produced it, so the next edit clears it: leaving
-    // it up would make a stale refusal read as a verdict on text nobody has sent.
-    setRefusal(undefined);
-  }, []);
+  const draftKey = composerDraftKey(target);
+  const subscribeToDraft = useCallback(
+    (onDraftChanged: () => void) => draftStore.subscribe(draftKey, onDraftChanged),
+    [draftStore, draftKey],
+  );
+  // Returns a plain string rather than the entry, so the snapshot is value-stable
+  // across renders and `useSyncExternalStore` has nothing to loop on.
+  const readDraftText = useCallback(
+    () => draftStore.read(draftKey)?.text ?? "",
+    [draftStore, draftKey],
+  );
+  const text = useSyncExternalStore(subscribeToDraft, readDraftText, readDraftText);
+
+  const changeText = useCallback(
+    (next: string) => {
+      draftStore.write(draftKey, next);
+      // A refusal answers the act that produced it, so the next edit clears it: leaving
+      // it up would make a stale refusal read as a verdict on text nobody has sent.
+      setRefusal(undefined);
+    },
+    [draftStore, draftKey],
+  );
 
   const dispatch = useCallback(
     async (body: string) => {
+      if (isDispatchInFlight.current) {
+        // Silent rather than refused: the person pressed Send for the message that
+        // is already going, and a refusal card would report a failure where the
+        // only thing that happened is that they were early.
+        return;
+      }
+      isDispatchInFlight.current = true;
       setStatus("sending");
       try {
         const outcome = await router.send(body, target);
@@ -80,29 +183,45 @@ export function useSendController(bridge: ConsoleBridge, target: ComposerTarget)
           case "sent":
             historyRef.current.recordSent(body);
             setResendableText(body);
-            setText("");
+            draftStore.clear(draftKey);
             setRefusal(undefined);
             return;
-          case "intercepted":
+          case "intercepted": {
+            if (commandExecutor === undefined) {
+              setRefusal(composerRefusal("command-unexecutable", NO_EXECUTOR_DETAIL));
+              return;
+            }
+            const settled = await commandExecutor({
+              commandName: outcome.commandName,
+              text: body.trim(),
+            });
+            if (settled.status === "refused") {
+              // The line is kept: the command did not run, and the text is the one
+              // thing the person would otherwise have to retype to try again.
+              setRefusal(settled.refusal);
+              return;
+            }
             // A registered command never composes into a message: the line is
             // cleared because the act happened, and nothing was sent.
-            setText("");
+            draftStore.clear(draftKey);
             setRefusal(undefined);
             return;
+          }
           case "refused":
             setRefusal(outcome.refusal);
             return;
         }
       } finally {
+        isDispatchInFlight.current = false;
         setStatus("idle");
       }
     },
-    [router, target],
+    [router, target, draftStore, draftKey, commandExecutor],
   );
 
   const send = useCallback(async () => {
-    await dispatch(text);
-  }, [dispatch, text]);
+    await dispatch(readDraftText());
+  }, [dispatch, readDraftText]);
 
   const resend = useCallback(
     async (body: string) => {
@@ -121,27 +240,35 @@ export function useSendController(bridge: ConsoleBridge, target: ComposerTarget)
       if (!caretAtStart(caret)) {
         return false;
       }
-      const recalled = historyRef.current.recallOlder(text);
+      const recalled = historyRef.current.recallOlder(readDraftText());
       if (recalled === undefined) {
         return false;
       }
-      setText(recalled);
+      draftStore.write(draftKey, recalled);
       return true;
     },
-    [text],
+    [draftStore, draftKey, readDraftText],
   );
 
-  const recallNewer = useCallback((caret: DirectiveCaret) => {
-    if (!caretAtEnd(caret)) {
-      return false;
-    }
-    const recalled = historyRef.current.recallNewer();
-    if (recalled === undefined) {
-      return false;
-    }
-    setText(recalled);
-    return true;
-  }, []);
+  const recallNewer = useCallback(
+    (caret: DirectiveCaret) => {
+      if (!caretAtEnd(caret)) {
+        return false;
+      }
+      const recalled = historyRef.current.recallNewer();
+      if (recalled === undefined) {
+        return false;
+      }
+      draftStore.write(draftKey, recalled);
+      return true;
+    },
+    [draftStore, draftKey],
+  );
+
+  const acknowledgeRestartNotice = useCallback(() => {
+    draftStore.acknowledgeRestartNotice();
+    setRestartNoticePending(false);
+  }, [draftStore]);
 
   const resolution = useMemo(() => router.resolve(text, target), [router, text, target]);
 
@@ -152,11 +279,13 @@ export function useSendController(bridge: ConsoleBridge, target: ComposerTarget)
     status,
     refusal,
     resendableText,
+    restartNotice: isRestartNoticePending ? draftStore.restartNoticeText : undefined,
     changeText,
     send,
     resend,
     stop,
     recallOlder,
     recallNewer,
+    acknowledgeRestartNotice,
   };
 }

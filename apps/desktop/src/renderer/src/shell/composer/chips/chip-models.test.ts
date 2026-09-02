@@ -57,6 +57,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
       sessionId: "session-1",
       agentId: AGENT.id,
       agentName: "Ada",
+      driverName: "claude",
       targetRunId: RUN.id,
       expectedRunVersion: 4,
       runState: "running",
@@ -103,6 +104,39 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
       }),
     );
     expect(target.path === "provider-bound" && target.targetRunId).toBe(RUN.id);
+  });
+
+  it("passes over a settled run touched later in favour of the one still going", () => {
+    const settled: ConsoleEntity = {
+      ...RUN,
+      id: "run-02",
+      state: "completed",
+      touchedAt: "2026-01-01T12:00:00.000Z",
+    };
+    const target = resolveComposerTarget(
+      input({
+        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        agents: { [AGENT.id]: AGENT },
+        runs: { [RUN.id]: RUN, [settled.id]: settled },
+      }),
+    );
+    expect(target.path === "provider-bound" && target.targetRunId).toBe(RUN.id);
+  });
+
+  it("addresses the channel once every run this agent has is terminal", () => {
+    // The steer path would resolve to a run the daemon will not move again, so every
+    // send would be refused and the new-turn path would be unreachable for the rest
+    // of the session. The negative control is the case above: the same pane and the
+    // same agent, with one run still going, still takes the provider-bound path.
+    const settled: ConsoleEntity = { ...RUN, state: "failed" };
+    const target = resolveComposerTarget(
+      input({
+        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        agents: { [AGENT.id]: AGENT },
+        runs: { [settled.id]: settled },
+      }),
+    );
+    expect(target.path).toBe("channel-message");
   });
 });
 

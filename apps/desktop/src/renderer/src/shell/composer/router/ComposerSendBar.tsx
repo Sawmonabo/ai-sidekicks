@@ -11,9 +11,21 @@
 // is a control offered against nothing. Neither derives eligibility: Stop is offered
 // on the ADDRESS and refuses through the daemon, which is the fail-closed direction.
 //
+// THE DISABLED BUTTON COVERS THE POINTER PATH AND ONLY THAT PATH. A read-only
+// textarea still receives key events, so an Enter repeat or a second press before
+// settlement reaches this handler with nothing in the DOM to stop it. The keyboard
+// gate below is the render-state half of the guard; the half that holds inside one
+// frame is the controller's synchronous latch, because this handler reads the status
+// from the render that produced it.
+//
 // The component renders and does nothing else — the state, the router, and the
 // history walk are `send-controller.ts`'s, so what is left here is markup, keyboard
 // wiring, and the two absences this surface can honestly show.
+//
+// THE LINE'S TEXT IS THE DRAFT STORE'S. The seat is handed a window-lifetime store
+// and this bar neither owns the body nor copies it; the one thing it owns about the
+// draft is WHEN the store's restart disclosure is acknowledged, which the store
+// documents as the first focus of a composer.
 
 import { useCallback, useId } from "react";
 
@@ -26,7 +38,11 @@ import { useSendController } from "./send-controller.js";
 
 export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
-  const controller = useSendController(props.bridge, address.target);
+  const controller = useSendController({
+    bridge: props.bridge,
+    target: address.target,
+    draftStore: props.draftStore,
+  });
   const pathLabelId = useId();
   const isSending = controller.status === "sending";
   const isProviderBound = address.target.path === "provider-bound";
@@ -40,7 +56,13 @@ export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
         textLength: line.value.length,
       };
       if (event.key === "Enter" && !event.shiftKey) {
+        // Always swallowed, sending or not: a read-only textarea still receives key
+        // events, so letting the default through while a send is in flight would put
+        // a newline into a line the person believes is locked.
         event.preventDefault();
+        if (isSending) {
+          return;
+        }
         void controller.send();
         return;
       }
@@ -55,7 +77,7 @@ export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
         event.preventDefault();
       }
     },
-    [controller],
+    [controller, isSending],
   );
 
   const neutralization = readTextNeutralization(
@@ -78,8 +100,18 @@ export function ComposerSendBar(props: ComposerSeatProps): React.JSX.Element {
         onChange={(event) => {
           controller.changeText(event.currentTarget.value);
         }}
+        // The store arms its restart disclosure at construction and clears it the
+        // first time a composer is focused, so focus is where it is acknowledged —
+        // not a timer, and not the first keystroke, which would clear a sentence
+        // somebody was still reading.
+        onFocus={() => {
+          controller.acknowledgeRestartNotice();
+        }}
         onKeyDown={onKeyDown}
       />
+      {controller.restartNotice === undefined ? null : (
+        <p className="meridian-composer__notice">{controller.restartNotice}</p>
+      )}
       <div className="meridian-composer__send-row">
         {controller.pathLabel === undefined ? (
           <span className="meridian-composer__path" />
