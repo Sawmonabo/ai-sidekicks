@@ -80,6 +80,54 @@ describe("the boundary narrowing", () => {
   });
 });
 
+describe("an optional member that is present and unreadable", () => {
+  // The defect this covers is silent by construction: a producer that TRIED to say
+  // something the boundary could not read is otherwise indistinguishable from one
+  // that said nothing, and both optional members here carry meaning in absence — no
+  // `resolvedAt` is "still outstanding", no `runId` is "the whole session".
+
+  for (const [description, malformed] of [
+    ["an empty string", ""],
+    ["a number", 42],
+    ["a null", null],
+  ] as const) {
+    it(`drops an item whose \`resolvedAt\` is ${description}`, () => {
+      expect(narrowAttentionItem({ ...item(), resolvedAt: malformed })).toBeUndefined();
+    });
+
+    it(`drops an item whose \`runId\` is ${description}`, () => {
+      expect(narrowAttentionItem({ ...item(), runId: malformed })).toBeUndefined();
+    });
+  }
+
+  it("admits an item that omits them, because absence is the meaningful value", () => {
+    // The negative control for all six above: without it they would pass over a
+    // narrowing that rejected every item carrying neither member, which is every
+    // session-scoped item the projection sends.
+    const narrowed = narrowAttentionItem(item());
+    expect(narrowed).not.toBeUndefined();
+    expect(narrowed?.resolvedAt).toBeUndefined();
+    expect(narrowed?.runId).toBeUndefined();
+  });
+
+  it("admits a VALID one and the fold then reads it as resolved", () => {
+    // The other half of the control: the rejection above is about the value being
+    // unreadable, not about the member being present at all.
+    const resolvedAt = "2026-01-01T10:05:00.000Z";
+    const narrowed = narrowAttentionItem({ ...item(), resolvedAt, runId: "run-7" });
+    expect(narrowed).toStrictEqual({ ...item(), runId: "run-7", resolvedAt });
+    expect(new AttentionPlane(narrowed === undefined ? [] : [narrowed]).liveItems).toStrictEqual(
+      [],
+    );
+  });
+
+  it("counts a rejected optional member as a drop, so the center reports it", () => {
+    const narrowed = narrowAttentionProjection([item(), { ...item(), resolvedAt: "" }]);
+    expect(narrowed.items).toHaveLength(1);
+    expect(narrowed.droppedCount).toBe(1);
+  });
+});
+
 describe("the fold over one read", () => {
   it("drops a resolved item, because it is not waiting on anybody", () => {
     const plane = new AttentionPlane([

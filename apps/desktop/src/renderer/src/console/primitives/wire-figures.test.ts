@@ -31,6 +31,7 @@ import {
   formatByteQuantity,
   formatClockTime,
   formatCount,
+  formatDateTime,
   formatDuration,
   formatMoney,
   formatRate,
@@ -286,6 +287,42 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
 
   it("renders a dash for an instant it cannot parse", () => {
     expect(formatClockTime("nope", "en-US")).toBe("—");
+  });
+});
+
+describe("formatDateTime — the reading for a surface with no day divider", () => {
+  // Two instants three days apart at the same wall-clock time, in January so no
+  // zone this runner might be in shifts between them. The pair is the point: the
+  // defect this formatter exists for is two figures that read identically.
+  const firstInstant = "2026-01-05T13:04:05Z";
+  const threeDaysLater = "2026-01-08T13:04:05Z";
+
+  it("distinguishes two instants that differ only in the day", () => {
+    expect(formatDateTime(threeDaysLater, "en-US")).not.toBe(formatDateTime(firstInstant, "en-US"));
+  });
+
+  it("negative control: the date-free clock reading renders both the same", () => {
+    // This is the whole finding. Without it the assertion above would pass over a
+    // formatter that differed for some other reason, and it would not say why the
+    // ledger's own formatter cannot serve this surface.
+    expect(formatClockTime(threeDaysLater, "en-US")).toBe(formatClockTime(firstInstant, "en-US"));
+  });
+
+  it("carries a calendar date and a wall-clock time, in a pinned locale", () => {
+    // Pinned so the assertion is about the fields rather than the runner's
+    // preferences; the zone is still the runner's, so the day is read out of the
+    // rendered string rather than asserted as a literal.
+    const rendered = formatDateTime(firstInstant, "en-US");
+    expect(rendered).toMatch(/^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{2}:\d{2}$/u);
+  });
+
+  it("is 24-hour, like the clock reading it sits beside", () => {
+    expect(formatDateTime(firstInstant, "en-US")).not.toMatch(/AM|PM/u);
+  });
+
+  it("renders the same dash as its neighbours for an instant it cannot parse", () => {
+    expect(formatDateTime("not an instant", "en-US")).toBe("—");
+    expect(formatDateTime("", "en-US")).toBe("—");
   });
 });
 

@@ -116,12 +116,25 @@ function ProjectionBody(props: {
   }
   const { plane, droppedCount } = props.reading;
   if (plane.groups.length === 0) {
-    return (
+    // Nothing survived the boundary. WHY nothing survived decides which absence
+    // this is: a read that answered with an empty projection is an all-clear, and
+    // a read every member of which the boundary rejected is the console failing to
+    // recognise an answer it did receive. Reporting the second as the first is the
+    // conflation the five kinds of nothing exist to prevent — it tells a person
+    // they are free on the strength of a read nobody could parse.
+    return droppedCount === 0 ? (
       <Nothing
         kind="empty"
         placement="surface"
         title="Nothing needs you."
         detail="Approvals, questions, finished runs, invitations, and mentions all appear here while they are unresolved."
+      />
+    ) : (
+      <Nothing
+        kind="not-checked"
+        placement="surface"
+        title="Nothing in that read could be recognised."
+        detail={unrecognisedItemsSentence(droppedCount)}
       />
     );
   }
@@ -140,13 +153,27 @@ function ProjectionBody(props: {
       </ul>
       {droppedCount === 0 ? null : (
         <p className="meridian-attention__dropped" role="status">
-          {droppedCount === 1
-            ? "One item in that read carried a trigger or a severity this console does not recognise, and was not shown."
-            : `${formatCount(droppedCount)} items in that read carried a trigger or a severity this console does not recognise, and were not shown.`}
+          {unrecognisedItemsSentence(droppedCount)}
         </p>
       )}
     </>
   );
+}
+
+/**
+ * What the console says about members its boundary refused.
+ *
+ * One sentence with two homes — beside the groups a partial read produced, and as
+ * the whole body of a read that produced none — so the two can never drift into
+ * saying different things about one number. It names the SHAPE rather than one
+ * cause, because the boundary drops on several: a trigger or severity outside its
+ * closed set, a missing required member, and an optional member the producer sent
+ * that could not be read.
+ */
+function unrecognisedItemsSentence(droppedCount: number): string {
+  return droppedCount === 1
+    ? "One item in that read did not match the shape this console recognises, and was not shown."
+    : `${formatCount(droppedCount)} items in that read did not match the shape this console recognises, and were not shown.`;
 }
 
 /**

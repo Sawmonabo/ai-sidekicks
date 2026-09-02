@@ -28,8 +28,8 @@ import {
   InlineRefusal,
   Nothing,
   WireFigure,
-  formatClockTime,
   formatCount,
+  formatDateTime,
 } from "../primitives/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { UiStateStore } from "../persistence/index.js";
@@ -68,11 +68,38 @@ export interface InviteShelfProps {
   readonly uiStateStore: UiStateStore;
 }
 
-/** The invitations worth showing, and the refusal to render when none could be read. */
+/**
+ * A refusal this read carried, and what it is the answer TO.
+ *
+ * The scope is decided where the outcomes are counted and never re-derived in a
+ * render body: two views would eventually disagree about whether one refusal is
+ * the shelf's result or a note beside one, and the disagreement would show as a
+ * refusal rendered twice or not at all.
+ */
+interface ShelfRefusalReading {
+  /**
+   * `whole-answer` when NO session answered — the refusal is all the shelf knows.
+   * `beside-an-answer` when at least one did — the served result renders and this
+   * renders with it, because a refusal is never hidden and never overstated.
+   */
+  readonly scope: "whole-answer" | "beside-an-answer";
+  readonly refusal: InvitesListRefusal;
+}
+
+/** The invitations worth showing, and what the sessions that were asked answered. */
 interface ShelfReading {
   readonly pending: readonly ReceivedInvite[];
-  readonly refusal: InvitesListRefusal | undefined;
+  readonly refusal: ShelfRefusalReading | undefined;
   readonly askedCount: number;
+  /**
+   * How many of them ANSWERED, whatever they answered with.
+   *
+   * The count that decides the refusal's scope, and it is deliberately not the
+   * number of pending invitations that survived filtering: a session returning an
+   * empty ledger, or only settled invitations, answered — and reading its answer
+   * as silence would report another session's refusal as the whole shelf.
+   */
+  readonly servedCount: number;
 }
 
 /**
@@ -82,15 +109,21 @@ interface ShelfReading {
  * and a shelf showing it twice would be counting rather than reading. Only
  * `pending` invitations survive: an accepted, revoked, or expired one is not
  * waiting on anybody, and the state is the wire's own word for that.
+ *
+ * It tracks OUTCOMES rather than survivors, which is what makes the partial-read
+ * rule hold in the case that breaks it: one session answering with nothing beside
+ * another that refused.
  */
 function readShelf(outcomes: readonly InvitesListOutcome[]): ShelfReading {
   const byInviteId = new Map<string, ReceivedInvite>();
   let refusal: InvitesListRefusal | undefined;
+  let servedCount = 0;
   for (const outcome of outcomes) {
     if (outcome.status === "unavailable") {
       refusal ??= outcome;
       continue;
     }
+    servedCount += 1;
     for (const invite of outcome.value) {
       if (invite.state === "pending") {
         byInviteId.set(invite.inviteId, invite);
@@ -99,12 +132,25 @@ function readShelf(outcomes: readonly InvitesListOutcome[]): ShelfReading {
   }
   return {
     pending: [...byInviteId.values()],
-    // A refusal is reported only when NOTHING was served. One session's refusal
-    // beside another's answer is a partial read, and reporting it as the shelf's
-    // state would hide the invitations that did arrive.
-    refusal: byInviteId.size === 0 ? refusal : undefined,
+    refusal:
+      refusal === undefined
+        ? undefined
+        : { scope: servedCount === 0 ? "whole-answer" : "beside-an-answer", refusal },
     askedCount: outcomes.length,
+    servedCount,
   };
+}
+
+/**
+ * Whether every session that was asked answered.
+ *
+ * The hide set prunes only against a COMPLETE read: a session that refused may
+ * hold an invitation the pending list does not name, and pruning against a partial
+ * answer would clear a person's set-aside invitations on the strength of a question
+ * that half of the sessions never answered.
+ */
+function isCompleteRead(reading: ShelfReading): boolean {
+  return reading.servedCount === reading.askedCount;
 }
 
 export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
@@ -134,10 +180,10 @@ export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
   );
 
   useEffect(() => {
-    if (reading === undefined || reading.refusal !== undefined) {
-      // A refused or unasked read is not evidence that an invitation is gone, so
-      // it prunes nothing. Pruning against it would clear the whole hide set on a
-      // wire that never answered.
+    if (reading === undefined || !isCompleteRead(reading)) {
+      // A read that any session did not answer is not evidence that an invitation
+      // is gone, so it prunes nothing — stated as the condition it is rather than
+      // inferred from the refusal field, which is a different question.
       return;
     }
     pruneAgainst(reading.pending.map((invite) => invite.inviteId));
@@ -202,33 +248,39 @@ function ShelfBody(props: {
       />
     );
   }
-  if (reading.refusal !== undefined) {
-    return <InlineRefusal {...reading.refusal} />;
+  if (reading.refusal?.scope === "whole-answer") {
+    return <InlineRefusal {...reading.refusal.refusal} />;
   }
-  if (props.visible.length === 0) {
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="Nothing is waiting for you to join."
-        detail="An invitation appears here while it is pending, with the date it stops working."
-      />
-    );
-  }
+  // Past this point any refusal is `beside-an-answer` by construction, so it
+  // renders under whatever the sessions that DID answer produced — an empty
+  // shelf included, since "one session has nothing for you and another would not
+  // say" is two facts and the shelf owes a person both of them.
   return (
-    <ul className="meridian-invite-shelf__rows">
-      {props.visible.map((invite) => (
-        <li key={invite.inviteId}>
-          <InviteRow
-            invite={invite}
-            actionLabel="Not now"
-            onAct={() => {
-              props.onSetAside(invite.inviteId);
-            }}
-          />
-        </li>
-      ))}
-    </ul>
+    <>
+      {props.visible.length === 0 ? (
+        <Nothing
+          kind="empty"
+          placement="surface"
+          title="Nothing is waiting for you to join."
+          detail="An invitation appears here while it is pending, with the date it stops working."
+        />
+      ) : (
+        <ul className="meridian-invite-shelf__rows">
+          {props.visible.map((invite) => (
+            <li key={invite.inviteId}>
+              <InviteRow
+                invite={invite}
+                actionLabel="Not now"
+                onAct={() => {
+                  props.onSetAside(invite.inviteId);
+                }}
+              />
+            </li>
+          ))}
+        </ul>
+      )}
+      {reading.refusal === undefined ? null : <InlineRefusal {...reading.refusal.refusal} />}
+    </>
   );
 }
 
@@ -238,6 +290,13 @@ function ShelfBody(props: {
  * The action is one button whose label is the act, because both acts this shelf
  * has — setting aside and bringing back — are local and reversible, and a control
  * that is safe to press twice needs no confirmation between the presses.
+ *
+ * The expiry carries its DATE. This shelf has no day divider, so the ledger's
+ * date-free clock reading would render two invitations expiring days apart
+ * identically — while the empty-state copy beside it promises the date the
+ * invitation stops working. The raw instant stays on `title` as the verbatim wire
+ * value, but it is hover-only and reaches nobody reading with a keyboard or a
+ * screen reader, so it is a second copy rather than the answer.
  */
 function InviteRow(props: {
   readonly invite: ReceivedInvite;
@@ -250,7 +309,7 @@ function InviteRow(props: {
       <div className="meridian-invite-shelf__row-facts">
         <WireFigure value={invite.inviteId} />
         <Chip label={invite.state} mono />
-        <WireFigure value={formatClockTime(invite.expiresAt)} title={invite.expiresAt} />
+        <WireFigure value={formatDateTime(invite.expiresAt)} title={invite.expiresAt} />
       </div>
       <button type="button" className="meridian-invite-shelf__row-action" onClick={props.onAct}>
         {props.actionLabel}

@@ -87,6 +87,37 @@ describe("what the shelf says before it has an answer", () => {
     expect(text).not.toContain("Nothing is waiting for you to join.");
   });
 
+  it("reports one session's refusal beside another's empty answer, not instead of it", async () => {
+    // The refusal arm used to turn on how many PENDING invitations survived
+    // filtering, so a session that answered with nothing was indistinguishable
+    // from one that never answered — and the shelf reported the other session's
+    // refusal as its whole result, hiding a served answer.
+    const { container } = await renderShelf([served([]), REFUSED]);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Nothing is waiting for you to join.");
+    expect(text).toContain("wire-unregistered");
+  });
+
+  it("does the same when the served session carried only settled invitations", async () => {
+    const { container } = await renderShelf([
+      served([invite({ inviteId: "gone", state: "expired" })]),
+      REFUSED,
+    ]);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Nothing is waiting for you to join.");
+    expect(text).toContain("wire-unregistered");
+  });
+
+  it("negative control: with nothing served the refusal IS the whole answer", async () => {
+    // Without this, both cases above would pass over a shelf that had simply
+    // stopped distinguishing the two — rendering the empty state beside every
+    // refusal, including one that answers for every session that was asked.
+    const { container } = await renderShelf([REFUSED, REFUSED]);
+    const text = container.textContent ?? "";
+    expect(text).toContain("wire-unregistered");
+    expect(text).not.toContain("Nothing is waiting for you to join.");
+  });
+
   it("negative control: a served read with no invitations DOES say the inbox is empty", async () => {
     // Without this, both cases above would pass over a shelf that rendered an
     // absence for every outcome.
@@ -116,11 +147,12 @@ describe("what the shelf shows", () => {
     expect(container.querySelectorAll(".meridian-invite-shelf__row")).toHaveLength(1);
   });
 
-  it("prefers what was served over a refusal from a session that answered nothing", async () => {
+  it("shows what was served AND says one session would not answer", async () => {
     const { container } = await renderShelf([REFUSED, served([invite()])]);
     const text = container.textContent ?? "";
     expect(text).toContain("invite-1");
-    expect(text).not.toContain("wire-unregistered");
+    expect(text).toContain("wire-unregistered");
+    expect(container.querySelectorAll(".meridian-invite-shelf__row")).toHaveLength(1);
   });
 });
 
@@ -178,8 +210,22 @@ describe("what a refusal must not do to a person's hides", () => {
     expect(record?.value).toStrictEqual(["invite-1"]);
   });
 
+  it("leaves them alone when only SOME sessions answered", async () => {
+    // The partial read is the case the served result now renders through, and it
+    // is still not evidence an invitation is gone: the session that refused may
+    // hold the very one the pending list does not name.
+    const adapter = new MemoryPersistenceAdapter();
+    const seeded = new UiStateStore({ adapter });
+    await seeded.writeGlobal(HIDDEN_INVITES_KEY, "expansion", ["invite-1"]);
+
+    await renderShelf([served([]), REFUSED], new UiStateStore({ adapter }));
+
+    const record = await seeded.readGlobal(HIDDEN_INVITES_KEY);
+    expect(record?.value).toStrictEqual(["invite-1"]);
+  });
+
   it("negative control: a served read that no longer lists it DOES prune the hide", async () => {
-    // Without this, the case above would pass over a shelf that never pruned at
+    // Without this, the cases above would pass over a shelf that never pruned at
     // all, which is a different defect wearing the same green tick.
     const adapter = new MemoryPersistenceAdapter();
     const seeded = new UiStateStore({ adapter });
