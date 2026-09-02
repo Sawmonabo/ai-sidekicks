@@ -1,9 +1,19 @@
-// The three things that make the approvals surface re-read, and nothing else.
+// The four things that make the approvals surface re-read, and nothing else.
 //
 // `Spec-023 §Console Design (Meridian)` §The eight rules: "Reads happen on
 // subscribe, on window focus, on reconnect, and on the terminal events the owning
 // spec names". This module wires exactly those, through `ApprovalsReader`'s one
 // scheduler. There is no interval, no `setTimeout`, and no second subscription.
+//
+// WHAT RECONNECT IS, HERE. The console has no wire-level connection state to read —
+// what it has is the session store's own sticky degraded flag, which is raised for a
+// stream that stopped and is cleared by nothing except a completed re-pull. So the
+// moment this surface treats as a reconnect is that flag CLEARING: the stream was
+// interrupted and a read has since re-established the session. It matters because
+// the five lifecycle events are the only thing that tells this pane an approval was
+// created or resolved, and events raised while the stream was down are events this
+// pane never saw — leaving a resolved request rendered as pending, with an approve
+// button under it, until an unrelated focus or a later event happened to arrive.
 //
 // HOW A LIFECYCLE SIGNAL REACHES A PANE WITHOUT THE PANE SUBSCRIBING TO THE BRIDGE.
 // The console's rule is that exactly one thing subscribes to the wire — the apply
@@ -25,6 +35,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { RealClock, refuse, type ConsoleClock, type ConsoleRefusal } from "../../core/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import {
+  useSessionDegradedCause,
   useSessionStore,
   type ConsoleSessionEvent,
   type SessionStore,
@@ -81,6 +92,31 @@ class ApprovalSignalCursor {
   }
 }
 
+/**
+ * Whether the session store just came back from a degraded stream.
+ *
+ * A class with a private field rather than a bare ref because the reading is a
+ * TRANSITION and not a value: only the move from a standing cause to none is a
+ * reconnect, and a component holding the current cause alone would either re-read on
+ * every render while degraded or never read at all.
+ *
+ * Presence is the whole reading. The cause vocabulary is the store's, and nothing
+ * here branches on a member of it — a stream that diverged and a subscription that
+ * closed are repaired by the same completed re-pull, and this surface's answer to
+ * both is the same read.
+ */
+class SessionRepairWatcher {
+  #wasDegraded = false;
+
+  /** True exactly on the pass where a standing cause became none. */
+  public observe(degradedCause: string | undefined): boolean {
+    const isDegraded = degradedCause !== undefined;
+    const isRepaired = this.#wasDegraded && !isDegraded;
+    this.#wasDegraded = isDegraded;
+    return isRepaired;
+  }
+}
+
 function selectTimeline(state: SessionStoreState): readonly ConsoleSessionEvent[] {
   return state.timeline;
 }
@@ -126,6 +162,19 @@ export function useApprovalsReader(
       window.removeEventListener("focus", onFocus);
     };
   }, [reader]);
+
+  // The reconnect read. Subscribed to in the render body like the timeline, and
+  // examined in an effect for the same reason: advancing the watcher is a mutation,
+  // and a mutation in a render body runs twice under React's strict double-invoke.
+  const degradedCause = useSessionDegradedCause(sessionStore);
+  const repairWatcherRef = useRef<SessionRepairWatcher>(undefined);
+
+  useEffect(() => {
+    repairWatcherRef.current ??= new SessionRepairWatcher();
+    if (repairWatcherRef.current.observe(degradedCause)) {
+      reader.requestRead("reconnect");
+    }
+  }, [reader, degradedCause]);
 
   // The timeline is subscribed to in the render body and EXAMINED in an effect.
   // Reading a store through its selector is what a render does; advancing a cursor
