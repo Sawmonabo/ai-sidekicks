@@ -107,6 +107,21 @@ export interface ConsoleScenario {
   readonly sessionId: string;
   /** Participants in join order — the hue allocator's input (rule 2). */
   readonly participantIdsInJoinOrder: readonly string[];
+  /**
+   * Which of those participants this window IS, where the scenario states one.
+   *
+   * OPTIONAL, and the optionality is the point: join order is who opened the session
+   * and who followed, on any machine, so reading its head as "me" is a fabrication —
+   * and a surface handed a fabricated identity renders a role gate as though it had
+   * been checked. A scenario that does not say leaves this absent and the fixture
+   * refuses the caller-identity read, which is the honest "not checked" answer.
+   *
+   * When present it must be a member of `participantIdsInJoinOrder`: an identity
+   * outside the roster is a viewer of some other session, and every surface that
+   * resolves a role would look it up and find nothing. `scenarios/wire-truth.ts`
+   * holds every scenario to that, the substrate's own two included.
+   */
+  readonly viewingParticipantId?: string;
   readonly beats: readonly ScenarioBeat[];
   readonly replies: readonly ScenarioReply[];
   /** Wall-clock instant the frozen clock reports as "now" at tick zero. */

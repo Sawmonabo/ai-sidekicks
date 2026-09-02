@@ -126,7 +126,11 @@ export type GrowthOperationId =
   | "sidekickDefinitionList"
   | "sidekickDefinitionCreate"
   | "sidekickDefinitionUpdate"
-  | "sidekickDefinitionDelete";
+  | "sidekickDefinitionDelete"
+  // the hydrated event read, and the session cost plane's two reads
+  | "hydratedEventRead"
+  | "orchestrationCostReceiptRead"
+  | "orchestrationBudgetRead";
 
 export type GrowthPrerequisiteId =
   | "browserPaneKindDeclaration"

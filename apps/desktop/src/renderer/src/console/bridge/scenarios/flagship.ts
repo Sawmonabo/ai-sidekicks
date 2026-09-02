@@ -119,6 +119,10 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
     AGENT_REVIEWER,
     AGENT_SCOUT,
   ],
+  // Which of the six this window is. Stated rather than inferred from the head of
+  // the join order — that entry is whoever opened the session, on whichever machine,
+  // and the two facts coincide here only because this scenario chose to make them.
+  viewingParticipantId: PARTICIPANT_YOU,
   startedAtIso: "2026-01-01T14:20:00.000Z",
   beats: [
     {

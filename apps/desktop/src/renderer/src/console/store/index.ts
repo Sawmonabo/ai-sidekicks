@@ -18,6 +18,11 @@
 // partition is a map OF entities, so a consumer that can subscribe to one and
 // cannot name what it holds would have to restate the shape to read it.
 export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
+// The projection contract leaves the family with its first producer: the
+// composition root's run-lifecycle projector. A projector reads WIRE member names
+// and this family deliberately knows none, so the type travels out and the
+// implementation stays where the wire is already understood.
+export type { EntityMutation, EntityProjector, EntityProjectorRegistry } from "./entities.js";
 
 // The entity vocabulary itself joins the door with its first consumer outside this
 // family: the inspector keys one record body per kind and its table is total over
