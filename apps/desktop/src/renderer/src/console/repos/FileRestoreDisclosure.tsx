@@ -41,7 +41,7 @@
 //     chapter 7's run-control surface. This file fixes only where the FILE half is
 //     disclosed, which is why it takes a result rather than an intervention.
 
-import { useId } from "react";
+import { useId, useState } from "react";
 
 import {
   Chip,
@@ -52,6 +52,7 @@ import {
   formatCount,
 } from "../primitives/index.js";
 import type { ChipTone } from "../primitives/index.js";
+import { RestorePathList } from "./RestorePathList.js";
 import type { RollbackInterventionResult } from "@ai-sidekicks/contracts";
 
 /** The glyph size every head in this surface draws at, matching the family's cards. */
@@ -273,25 +274,32 @@ function RestoreEnumerationLists(props: {
 /**
  * One enumeration: its count, then its paths.
  *
- * The count is always visible and the list is a `<details>` — §10.5's density note —
- * so a long enumeration costs one row until somebody opens it, which is what keeps
- * this surface inside its budget while closed.
+ * The count is always visible and the list is a `<details>` — §10.5's density note.
  *
- * NO VIRTUALIZER, AND THE REASON IS NOT LAZINESS. §10.5's leverage note reaches for
- * `@tanstack/react-virtual`, which is a dependency of no package in this workspace;
- * the family's own diff pane virtualizes with an own-built row index because a diff
- * is a nested structure, and its flat changed-file list settles for a scroll
- * container past a threshold instead. This is the flat case, and the scroll container
- * would need a height bound that the sheet's own no-literal-lengths rule has no token
- * for — so an OPEN enumeration renders every path it holds. That is the residual, and
- * it is stated rather than hidden: the bound belongs with the token that would express
- * it, and neither is this file's to mint.
+ * THE CLOSED LIST HOLDS NO ROW, AND THAT IS STATE RATHER THAN MARKUP. A `<details>`
+ * hides its children; it does not stop React from putting them in the document, so
+ * the density note's whole point — a long enumeration costing one row until somebody
+ * opens it — was being claimed by a comment and paid for by nobody. The open state is
+ * therefore tracked and the list is rendered only while it is open.
+ *
+ * THE OPEN LIST WINDOWS PAST A THRESHOLD. `@tanstack/react-virtual` is a dependency of
+ * this package and `RestorePathList.tsx` beside this file calls it directly. There is
+ * no wrapper to reuse from the family's diff pane — that pane's virtualization is a
+ * row index over a nested structure with a wrap-scoped measurement effect and its own
+ * two-box layout, none of which a flat path list shares — so the adopted library is
+ * the shared implementation and a generic wrapper over it would be a second
+ * abstraction with two callers and no common behaviour.
+ *
+ * The residual is the sheet's inter-row gap, which the windowed mode drops because the
+ * window arithmetic does not account for it. Nothing else differs between the two
+ * modes, and below the threshold the list is drawn exactly as it always was.
  */
 function PathEnumeration(props: {
   readonly label: string;
   readonly paths: readonly string[];
   readonly onOpenPath: ((path: string) => void) | undefined;
 }): React.JSX.Element {
+  const [isOpen, setIsOpen] = useState(false);
   if (props.paths.length === 0) {
     return (
       <p className="meridian-restore-disclosure__count">
@@ -301,27 +309,18 @@ function PathEnumeration(props: {
     );
   }
   return (
-    <details className="meridian-restore-disclosure__detail">
+    <details
+      className="meridian-restore-disclosure__detail"
+      onToggle={(event) => {
+        setIsOpen(event.currentTarget.open);
+      }}
+    >
       <summary className="meridian-restore-disclosure__detail-summary">
         {props.label} <DerivedFigure text={formatCount(props.paths.length)} />
       </summary>
-      <ul className="meridian-restore-disclosure__paths">
-        {props.paths.map((path) => (
-          <li key={path}>
-            {props.onOpenPath === undefined ? (
-              <WireFigure value={path} />
-            ) : (
-              <button
-                type="button"
-                className="meridian-restore-disclosure__path-link"
-                onClick={() => props.onOpenPath?.(path)}
-              >
-                <WireFigure value={path} />
-              </button>
-            )}
-          </li>
-        ))}
-      </ul>
+      {isOpen ? (
+        <RestorePathList label={props.label} paths={props.paths} onOpenPath={props.onOpenPath} />
+      ) : null}
     </details>
   );
 }

@@ -5,6 +5,12 @@
 // pass if the surface stopped doing the thing: "never silent" is only meaningful
 // beside the empty pair that must still render, and the partial/unrestored split is
 // only meaningful beside the two sentences that must differ.
+//
+// A CLOSED DISCLOSURE HOLDS NO ROW, so a case that asserts on a path opens the
+// disclosure first through `openEnumerations`. That is not scaffolding around the
+// component — it is the density claim: `<details>` hides its children rather than
+// keeping them out of the document, so the rows are rendered on the toggle and on
+// nothing else.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -15,6 +21,16 @@ import { FileRestoreDisclosure } from "./FileRestoreDisclosure.js";
 
 const OVERWRITTEN_PATH = "build/.env.local";
 const DIVERGENT_GITLINK = "vendor/upstream";
+
+/** Open every enumeration on the surface, which is what puts its rows in the document. */
+function openEnumerations(container: HTMLElement): void {
+  for (const disclosure of container.querySelectorAll("details")) {
+    disclosure.open = true;
+    // `toggle` has no `fireEvent` shorthand and does not bubble, so it is dispatched
+    // on the disclosure itself — which is where React attaches this listener.
+    fireEvent(disclosure, new Event("toggle"));
+  }
+}
 
 function appliedRestore(
   overrides: Partial<Extract<RollbackInterventionResult, { disposition: "files-restored" }>> = {},
@@ -32,6 +48,7 @@ describe("FileRestoreDisclosure — the two enumerations are never silent", () =
     const { container } = render(<FileRestoreDisclosure result={appliedRestore()} />);
     expect(container.textContent).toContain("Overwritten ignored paths");
     expect(container.textContent).toContain("Divergent gitlinks");
+    openEnumerations(container);
     expect(container.textContent).toContain(OVERWRITTEN_PATH);
     expect(container.textContent).toContain(DIVERGENT_GITLINK);
   });
@@ -76,8 +93,9 @@ describe("FileRestoreDisclosure — the two enumerations are never silent", () =
         }}
       />,
     );
-    expect(container.textContent).toContain(OVERWRITTEN_PATH);
     expect(container.textContent).toContain("Divergent gitlinks");
+    openEnumerations(container);
+    expect(container.textContent).toContain(OVERWRITTEN_PATH);
   });
 
   it("carries the enumerations on resend-unapplied, which displaces a completed file leg", () => {
@@ -91,8 +109,9 @@ describe("FileRestoreDisclosure — the two enumerations are never silent", () =
         }}
       />,
     );
-    expect(container.textContent).toContain(OVERWRITTEN_PATH);
     expect(container.textContent).toContain("Overwritten ignored paths");
+    openEnumerations(container);
+    expect(container.textContent).toContain(OVERWRITTEN_PATH);
   });
 
   it("negative control: a disposition that mutated nothing carries no enumerations", () => {
@@ -208,6 +227,7 @@ describe("FileRestoreDisclosure — a read surface that offers nothing", () => {
     const { container } = render(
       <FileRestoreDisclosure result={appliedRestore()} onOpenPath={onOpenPath} />,
     );
+    openEnumerations(container);
     const pathButtons = within(container).getAllByRole("button");
     expect(pathButtons).toHaveLength(2);
     fireEvent.click(pathButtons[0] as HTMLElement);
@@ -218,6 +238,7 @@ describe("FileRestoreDisclosure — a read surface that offers nothing", () => {
     // "Offers: nothing." The path link exists only where the mount can honour it, so
     // a disclosure with no diff behind it renders text rather than a dead control.
     const { container } = render(<FileRestoreDisclosure result={appliedRestore()} />);
+    openEnumerations(container);
     expect(within(container).queryAllByRole("button")).toHaveLength(0);
   });
 
@@ -226,5 +247,34 @@ describe("FileRestoreDisclosure — a read surface that offers nothing", () => {
     const { container } = render(<FileRestoreDisclosure result={appliedRestore()} />);
     expect(container.textContent).not.toContain("refs/");
     expect(container.textContent?.toLowerCase()).not.toContain("branch");
+  });
+});
+
+describe("FileRestoreDisclosure — a closed enumeration costs one row", () => {
+  it("puts no path row in the document while the disclosure is closed", () => {
+    // `<details>` HIDES its children; it does not keep them out of the document. So
+    // the density note — a long enumeration costing one row until somebody opens it —
+    // is a property of this component's own state and of nothing the markup gives it.
+    const { container } = render(<FileRestoreDisclosure result={appliedRestore()} />);
+    expect(container.querySelectorAll("li")).toHaveLength(0);
+    expect(container.textContent).not.toContain(OVERWRITTEN_PATH);
+  });
+
+  it("negative control: the same enumeration puts its rows in the document once opened", () => {
+    // Without this, a component that never rendered a path at all would pass the case
+    // above while hiding the enumeration entirely.
+    const { container } = render(<FileRestoreDisclosure result={appliedRestore()} />);
+    openEnumerations(container);
+    expect(container.querySelectorAll("li")).toHaveLength(2);
+    expect(container.textContent).toContain(OVERWRITTEN_PATH);
+  });
+
+  it("keeps the counts on the face while the lists stay closed", () => {
+    // The count is what the closed state is FOR: a reader learns how many paths were
+    // overwritten without the surface paying a node for each of them.
+    const { container } = render(<FileRestoreDisclosure result={appliedRestore()} />);
+    const summaries = container.querySelectorAll(".meridian-restore-disclosure__detail-summary");
+    expect(summaries).toHaveLength(2);
+    expect(summaries[0]?.textContent).toContain("Overwritten ignored paths");
   });
 });

@@ -71,11 +71,11 @@ export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
 /**
  * Everything the section renders from, in one immutable value.
  *
- * `status` is the read's own position and is deliberately three-valued, matching the
- * three absences rule 8 separates: `not-checked` before the first read,
- * `computing` while one is in flight, and the answer afterwards. A fourth "failed"
- * member would collapse the refusal into the status; the refusal is its own field so
- * a partial answer — some mounts read, one refused — is representable.
+ * `status` is the read's own position, three-valued for the three absences rule 8
+ * separates: `not-read` before the first read, `reading` while one is in flight,
+ * `read` afterwards — this reader's spelling, not the `not-checked` the pure models
+ * use for a question never put. A fourth "failed" member would collapse the refusal
+ * in; it is its own field, so a partial answer — some read, one refused — survives.
  */
 export interface RepoMountsReading {
   readonly status: "not-read" | "reading" | "read";
