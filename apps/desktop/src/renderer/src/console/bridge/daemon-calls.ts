@@ -22,6 +22,13 @@
 // through the registered schema in `@ai-sidekicks/contracts` before rendering a
 // figure from it. Nothing here invents a method name — each constant below is a row
 // of a registry the corpus already publishes, quoted verbatim.
+//
+// WHY THE CALL SEAM IS TOTAL. The widening already claims the reply is `unknown`
+// and that the call may fail; a seam that could ALSO fail before returning a
+// promise would be two failure shapes for one call, and every caller would have to
+// handle both. So `callDaemon` is `async` — an `async` function's synchronous throw
+// is already a rejection — and a bridge that throws in the caller's own frame
+// reaches the caller's `.catch` rather than escaping from a mount effect.
 
 import type { RunQueueSubscribeRequest, RunStateSubscribeRequest } from "@ai-sidekicks/contracts";
 
@@ -96,8 +103,13 @@ export const RUN_STATE_SUBSCRIBE_STREAM = "run.subscribeState";
  * Takes the bridge rather than the raw namespace so `window.sidekicks` stays inside
  * `bridge/BridgeProvider.tsx` and every surface reaches the wire through a value it
  * was handed.
+ *
+ * `async` carries the totality claim above, and it is the whole reason for the
+ * keyword: the shipped live preload is a Tier-1 stub that throws on every method,
+ * so a non-`async` wrapper would invoke it in the caller's frame and every `.catch`
+ * in the console would be unreachable against the one bridge that ships.
  */
-export function callDaemon(
+export async function callDaemon(
   bridge: ConsoleBridge,
   method: string,
   params: unknown,
