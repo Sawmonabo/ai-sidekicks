@@ -34,6 +34,14 @@
 //     `run.queueCancel` answering confirms the request; the row changes state when
 //     the daemon says it did, on the snapshot or on the tail.
 //
+// AN UNOPENABLE STREAM IS A REFUSAL AND NOT A CRASH. Opening the tail is the first
+// thing this reading does, and on the shipped live bridge every daemon method throws
+// — so the open is a call that fails synchronously in the ordinary case, not an
+// exceptional one. It settles the reading `refused` with the thrown refusal's own
+// code rather than unwinding out of whichever surface happened to mount first, which
+// is the difference between a pane that renders a refusal and a window that renders
+// nothing at all.
+//
 // WHAT THE WIRE DOES NOT CARRY. §7.4 asks the row to say which run it is bound to.
 // The registered `QueueItemSummary` — `{ id, state, priority, channelId?,
 // createdAt, updatedAt }`, parsed `.strict()` — has no run member, so there is
@@ -48,7 +56,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
-import { refuse, type ConsoleRefusal } from "../core/index.js";
+import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
 import {
   QUEUE_CANCEL_METHOD,
   QUEUE_LIST_METHOD,
@@ -163,6 +171,27 @@ function isStrictlyNewer(candidate: QueueItemSummary, held: QueueItemSummary): b
 }
 
 /**
+ * The refusal an unopenable stream settles as.
+ *
+ * A `ConsoleRefusalError` raised by the subscription wrapper's own unscoped-open
+ * guard already carries a refusal naming its origin and its code; re-wrapping it
+ * would replace both with this module's origin and a stringified message, and the
+ * code is what a person pastes into a search. Anything else is a wire rejection and
+ * goes through the one normalizer this file already uses on the snapshot's path —
+ * there is no second normalization here.
+ */
+function streamRefusalFor(rejection: unknown): ConsoleRefusal {
+  if (typeof rejection === "object" && rejection !== null) {
+    const carried = (rejection as { readonly refusal?: unknown }).refusal;
+    if (isConsoleRefusal(carried)) {
+      return carried;
+    }
+  }
+  const wireError = normalizeWireRejection(rejection, { total: true });
+  return refuse(QUEUE_REFUSAL_ORIGIN, wireError.name, wireError.message);
+}
+
+/**
  * One session's live queue reading, and everyone watching it.
  *
  * A class with private fields rather than a hook's state, because every surface in
@@ -235,19 +264,28 @@ class SessionQueueReading {
       return;
     }
 
-    this.#closeStream = subscribeDaemon(
-      this.#bridge,
-      { method: QUEUE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
-      (payload) => {
-        const parsed = QueueItemSummarySchema.safeParse(payload);
-        if (!parsed.success || !this.#isOpen) {
-          return;
-        }
-        this.#order.merge(parsed.data);
-        this.#items = this.#order.items();
-        this.#publish();
-      },
-    );
+    try {
+      this.#closeStream = subscribeDaemon(
+        this.#bridge,
+        { method: QUEUE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
+        (payload) => {
+          const parsed = QueueItemSummarySchema.safeParse(payload);
+          if (!parsed.success || !this.#isOpen) {
+            return;
+          }
+          this.#order.merge(parsed.data);
+          this.#items = this.#order.items();
+          this.#publish();
+        },
+      );
+    } catch (streamRejection: unknown) {
+      // The snapshot is deliberately NOT attempted after this. The tail is what
+      // keeps the list current, and a list read once off a bridge that could not
+      // open a stream is a reading that stops being true the moment it lands — the
+      // same reason the unscoped-open arm above returns rather than reading on.
+      this.#settleRefused(streamRefusalFor(streamRejection));
+      return;
+    }
 
     void callDaemon(this.#bridge, QUEUE_LIST_METHOD, { sessionId: this.#sessionId })
       .then((reply) => {
@@ -286,6 +324,14 @@ class SessionQueueReading {
   }
 
   #cancelItem = (queueItemId: string): void => {
+    if (this.#pendingCancelIds.has(queueItemId)) {
+      // Silent rather than refused: the person pressed Cancel for the cancel that is
+      // already going, and a refusal card would report a failure where the only
+      // thing that happened is that they were early. This is the chokepoint and not
+      // the button, because the set the button disables from is published one render
+      // behind — two presses inside one frame both read a control that was live.
+      return;
+    }
     this.#pendingCancelIds = withId(this.#pendingCancelIds, queueItemId);
     this.#publish();
     void callDaemon(this.#bridge, QUEUE_CANCEL_METHOD, { queueItemId })

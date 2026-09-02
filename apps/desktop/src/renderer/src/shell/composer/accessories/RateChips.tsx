@@ -18,6 +18,11 @@
 // a computed one; a missing label yields no reading at all (`usage-readings.ts`
 // refuses it); quotas are never summed across accounts or windows, because two
 // windows of one account are two independent limits and their sum bounds nothing.
+//
+// A FIXTURE SHELL, AND THE SEAT BESIDE IT SAYS SO. The indicator the usage plan
+// owns mounts into `RateLimitSlot`; this body is what that seat renders until it
+// does, and it is DELETED by the PR that mounts the owning body rather than being
+// left behind as a second answer to the same question.
 
 import {
   DerivedFigure,

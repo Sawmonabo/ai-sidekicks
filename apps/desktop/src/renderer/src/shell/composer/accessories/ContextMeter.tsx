@@ -16,6 +16,13 @@
 //     registered payload variant, so a payload missing a member yields no reading
 //     at all and this renders the "not checked" absence — which is a different
 //     fact from an empty conversation and is rendered differently (rule 8).
+//
+// A FIXTURE SHELL, AND THE SEAT BESIDE IT SAYS SO. The meter the usage plan owns
+// mounts into `ContextMeterSlot`; this body is what that seat renders while nobody
+// has filled it, so the rail is never a blank strip while the owning work is in
+// flight. It is DELETED by the PR that mounts the owning body — a shell is not
+// superseded quietly, because a shell left in place is a second meter that will
+// eventually disagree with the first.
 
 import { Nothing, WireFigure, formatCount } from "../../../console/primitives/index.js";
 import { CONTEXT_HINT_PERCENT } from "./accessory-bounds.js";

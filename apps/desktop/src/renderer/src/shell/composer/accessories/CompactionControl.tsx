@@ -15,6 +15,13 @@
 // actually compacted is the `usage.context_compacted` row and nothing else, which
 // is why the completed line below is driven by a boundary the ledger recorded
 // rather than by the reply that came back.
+//
+// A FIXTURE SHELL, AND THE SEAT BESIDE IT SAYS SO. The control the usage plan owns
+// mounts into `CompactionSlot`; this body is what that seat renders until it does,
+// and it is DELETED by the PR that mounts the owning body. It keeps its dispatch of
+// the registered compaction verb rather than standing inert, because the settlement
+// rule stated above is the behaviour this console is bound to and a shell that only
+// looked like the control would prove none of it.
 
 import { InlineRefusal, Nothing, WireFigure } from "../../../console/primitives/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
@@ -38,10 +45,12 @@ export interface CompactionControlProps {
   readonly targetRunId: string | undefined;
   readonly capability: CompactionCapabilityState;
   /**
-   * The newest `usage.context_compacted` position, when the session has one.
+   * The newest `usage.context_compacted` position recorded for THIS run.
    *
    * The ONLY evidence a compaction happened. Passed in rather than read here so the
-   * control cannot mistake its own reply for this fact.
+   * control cannot mistake its own reply for this fact — and scoped to the addressed
+   * run rather than to the session, because a session with two runs would otherwise
+   * report another run's boundary as this one's.
    */
   readonly completedBoundarySequence: number | undefined;
 }
