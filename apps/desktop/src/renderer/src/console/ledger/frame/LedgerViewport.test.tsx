@@ -22,7 +22,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock, refuse } from "../../core/index.js";
 import { LedgerViewport } from "./LedgerViewport.js";
-import type { LedgerViewportRow } from "./viewport-controller.js";
+import type { LedgerViewportRow } from "./viewport-snapshot.js";
 
 const LONG_LOG_ROW_COUNT = 500;
 const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;

@@ -57,10 +57,23 @@ const EXPECTED_BUDGET_IDS: readonly string[] = [
  * engine has delivered into, and reads that renderer's own heap. Re-listing this
  * id against any harness that holds no renderer restores the false green rather
  * than the gate, which `heap-budget.test.ts` refuses by name.
+ *
+ * `time-to-first-ledger-row` and `frame-time-p95-four-lanes` joined the list once
+ * the ledger existed to paint a row and the flagship scenario existed to deliver
+ * into it. Both are taken by the endurance tier for the reason the heap row is:
+ * their subject is a running renderer, and no process without one holds it. The
+ * second is the registry's first HARDWARE-DEPENDENT row to be measured at all —
+ * it prints its figure on every runner and compares it only on the pinned class,
+ * which `test/console/endurance/pinned-runner-class.ts` decides. That is a
+ * different thing from `"n/a"`, and the distinction is the point: an `"n/a"` row
+ * is one nothing measures, while this one is measured everywhere and adjudicated
+ * where the reading is comparable.
  */
 const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "renderer-heap-at-rest",
+  "time-to-first-ledger-row",
+  "frame-time-p95-four-lanes",
 ];
 
 /** How each declared unit reduces to its canonical unit. */
