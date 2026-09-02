@@ -126,6 +126,22 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
   const chip = HOLDING_CHIPS[state.holding];
   const isHeldByViewer = state.holding === "held-by-you";
 
+  // The health line is about the node a HOLDER sits on, so it is rendered only when
+  // there is a holder. A `released` transition nulls the holder and the chip beside
+  // it already reads Free, and "the console cannot say whether the holding node is
+  // reachable" there discusses a machine the same line says nobody is using.
+  //
+  // The `unrecognized-transition` arm nulls the holder too, and this gate silences
+  // the health line there as well — which reads correctly: what is unknown in that
+  // state is the transition, and its own paragraph below says so, while a second
+  // sentence about an unread roster would answer a question nobody asked.
+  //
+  // The gate is HERE and not in `readVouching`. `holderVouching` is a fact about
+  // whether a roster read happened, and a fold that answered `vouched` because
+  // nobody holds the lease would be reporting a read it never performed.
+  const isHolderHealthUnread =
+    state.holderParticipantId !== null && state.holderVouching === "not-checked";
+
   const onToggleLedger = useCallback(() => {
     setIsLedgerOpen((wasOpen) => !wasOpen);
   }, []);
@@ -162,7 +178,7 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
         </div>
       </div>
 
-      {state.holderVouching === "not-checked" ? (
+      {isHolderHealthUnread ? (
         <Nothing
           kind="not-checked"
           placement="inline"
