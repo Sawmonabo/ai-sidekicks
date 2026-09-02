@@ -52,6 +52,37 @@ const CAPTURE_SCOPE_LABELS: Readonly<Record<BrowserCaptureScope, string>> = {
   "full-page": "Full page",
 };
 
+/**
+ * Where the displaced capture is, in the tense each ingest arm can claim.
+ *
+ * The displacement and the ingest are two different facts about the same object —
+ * the tool result could not carry the image, and the pipeline did or did not store
+ * it — and the note used to state the second while reading only the first. So a card
+ * showing a refusal said in one line that the bytes were kept out of the store and in
+ * the next that the full capture was here, and on the `none` remedy, which says in
+ * terms that they never will be, it contradicted itself twice.
+ *
+ * Total over the ingest states by construction — a fifth state fails to compile here
+ * before it can reach a card that says the wrong thing about it. The `refused` entry
+ * is the sentence a recoverable refusal takes; the terminal remedy overrides it
+ * below, because "was not stored" and "will not be stored" are different facts and
+ * only the producer knows which one applies.
+ */
+const DISPLACED_CAPTURE_NOTES: Readonly<Record<BrowserIngestState["status"], string>> = {
+  stored: "The full capture is here.",
+  "in-flight": "The full capture is being stored now.",
+  "not-checked": "Whether the full capture was stored is a question nobody has put.",
+  refused: "The full capture was not stored.",
+};
+
+/** What became of the capture the tool result could not carry. */
+function displacedCaptureNote(ingest: BrowserIngestState): string {
+  if (ingest.status === "refused" && ingest.remedy === "none") {
+    return "The full capture will not be stored.";
+  }
+  return DISPLACED_CAPTURE_NOTES[ingest.status];
+}
+
 export interface BrowserCaptureCardProps {
   /** The capture's own name, composed by whoever asked for it. Not a wire figure. */
   readonly captureName: string;
@@ -153,7 +184,7 @@ export function BrowserCaptureCard(props: BrowserCaptureCardProps): React.JSX.El
       {props.displacedFromToolResult === true ? (
         <p className="meridian-browser-card__note">
           The tool result carried this capture&rsquo;s id and the reason it did not fit, rather than
-          the image. The full capture is here.
+          the image. {displacedCaptureNote(props.ingest)}
         </p>
       ) : null}
     </article>

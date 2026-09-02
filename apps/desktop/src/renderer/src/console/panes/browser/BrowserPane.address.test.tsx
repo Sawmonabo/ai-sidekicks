@@ -97,6 +97,32 @@ describe("browser pane address field follows reported navigation", () => {
     expect(addressField().value).toBe(FIRST);
   });
 
+  it("stops presenting the last page as live once the producer ends", async () => {
+    // A subscription that finishes is not a subscription that failed, and it is not
+    // one that is still reporting either. The chrome used to keep the final frame —
+    // a selectable URL and an enabled Back control over a page nothing was watching.
+    const { bridge, report, endReporting } = navigationReportingBridge();
+    const { region } = await renderBrowserPane(bridge);
+    report(reportedState(FIRST, { canGoBack: true }));
+    await waitFor(() => {
+      expect(addressField().value).toBe(FIRST);
+    });
+
+    endReporting();
+
+    const reading = await waitFor(() => {
+      const line = region.querySelector(".meridian-browser-pane__reading");
+      expect(line).not.toBeNull();
+      return line as HTMLElement;
+    });
+    expect(reading.getAttribute("role")).toBe("status");
+    expect(reading.textContent).toContain("no longer being told where the page is");
+    expect(addressField().value).toBe("");
+    expect(screen.getByRole("button", { name: "Back" })).toHaveProperty("disabled", true);
+    // And it is a receipt rather than a refusal: nothing here failed.
+    expect(region.querySelector(".meridian-refusal--banner")).toBeNull();
+  });
+
   it("negative control: with nothing reported the field is empty and takes typing", async () => {
     // Every case above would hold vacuously against a field that ignored the person
     // entirely and only ever mirrored the wire — which would make the chrome unable

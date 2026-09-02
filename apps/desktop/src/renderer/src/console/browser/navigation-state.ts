@@ -73,11 +73,26 @@ type NavigationState = NavigationStream extends { readonly events: AsyncIterable
 /** What any one navigation act answers with. Every chrome control dispatches one. */
 export type NavigationActOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["browserGoBack"]>>;
 
-/** What the pane knows about the page right now. Both fields absent until a read answers. */
-export interface NavigationReading {
-  readonly state: NavigationState | undefined;
-  readonly refusal: ConsoleRefusal | undefined;
-}
+/**
+ * What the pane knows about the page right now.
+ *
+ * Four arms rather than a pair of optional fields, because the fourth is a fact and
+ * not the absence of one: a subscription that ENDED cleanly is neither a reading nor
+ * a refusal, and a pane holding the last state it was sent presents a URL, a title,
+ * and two history flags as current while nothing is reporting them any more. The
+ * closed union is what makes that arm impossible to leave unhandled — a consumer
+ * switching over it stops compiling until it says what an ended subscription renders.
+ *
+ * `ended` deliberately carries no last state. It is exactly the value a chrome must
+ * not present as live, and an arm that carried it would be an invitation to.
+ */
+export type NavigationReading =
+  /** Nothing has answered yet. Not "no page" — no question has come back. */
+  | { readonly status: "unread" }
+  | { readonly status: "reported"; readonly state: NavigationState }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
+  /** The producer finished. The pane was being told, and is not being told now. */
+  | { readonly status: "ended" };
 
 /**
  * Subscribe to the view's reported navigation state for the life of the pane.
@@ -86,17 +101,20 @@ export interface NavigationReading {
  * served arm drains the stream and closes it on unmount — so the day the wire lands the
  * pane is not meeting its own subscription for the first time.
  *
- * THREE WAYS IT CAN END, and all three are handled here: the port refuses, the call
- * rejects, or the served iterator throws part-way through. The last two are one
- * `catch`, because a subscription that broke and a subscription that never opened
- * leave the pane in the same place — with no reading — and the only honest thing to
- * put on screen for either is the refusal saying so.
+ * FOUR WAYS IT CAN END, and all four are handled here: the port refuses, the call
+ * rejects, the served iterator throws part-way through, or the producer simply
+ * FINISHES. The middle two are one `catch`, because a subscription that broke and a
+ * subscription that never opened leave the pane in the same place — with no reading —
+ * and the only honest thing to put on screen for either is the refusal saying so.
+ *
+ * The fourth is not a failure and is not nothing. Falling out of the loop left the
+ * bridge handle allocated for the life of the mount and left the chrome presenting
+ * the last URL, title, and history flags as current — a pane acting on a page nobody
+ * is reporting. So the same close the failing path runs happens here too, and the
+ * reading says the subscription is over rather than staying on its final frame.
  */
 export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): NavigationReading {
-  const [reading, setReading] = useState<NavigationReading>({
-    state: undefined,
-    refusal: undefined,
-  });
+  const [reading, setReading] = useState<NavigationReading>({ status: "unread" });
 
   useEffect(() => {
     let stream: NavigationStream | undefined;
@@ -123,7 +141,7 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
           return;
         }
         if (outcome.status === "unavailable") {
-          setReading({ state: undefined, refusal: outcome });
+          setReading({ status: "refused", refusal: outcome });
           return;
         }
         stream = outcome.value;
@@ -131,7 +149,14 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
           if (cancelled) {
             return;
           }
-          setReading({ state, refusal: undefined });
+          setReading({ status: "reported", state });
+        }
+        // The producer finished. The stream goes for the same reason it goes on the
+        // failing path — a handle nobody will read again is a handle to close — and
+        // the reading stops claiming the frame it stopped on.
+        closeStream();
+        if (!cancelled) {
+          setReading({ status: "ended" });
         }
       } catch (failure) {
         // The stream goes first and unconditionally: a producer that threw part-way
@@ -139,7 +164,7 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
         // has gone publishes nothing — there is no surface left to read it.
         closeStream();
         if (!cancelled) {
-          setReading({ state: undefined, refusal: navigationSubscriptionRefusal(failure) });
+          setReading({ status: "refused", refusal: navigationSubscriptionRefusal(failure) });
         }
       }
     })();

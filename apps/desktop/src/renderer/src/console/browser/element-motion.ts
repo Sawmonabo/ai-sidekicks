@@ -123,11 +123,42 @@ export function hasRunningMotion(element: Element): boolean {
   return false;
 }
 
+/**
+ * Whether ANYTHING in this document is animating right now.
+ *
+ * The wide reading, for the subject whose position no containment test can bound: a
+ * fixed-size sibling animating its width — a rail collapsing, a sidebar dragging —
+ * moves the boxes beside it while neither it nor they change size and while nothing
+ * containing either of them is animating at all. Asking "does this motion carry my
+ * element" answers no for exactly that case, so a subject that cares about its
+ * POSITION asks the document instead and measures the answer.
+ *
+ * `document.getAnimations()` rather than a walk, because the document is where the
+ * platform already holds the set; absent on a DOM shim, where the caller's
+ * element-scoped reading still runs and the degrade is a coarser answer rather than
+ * a wrong one.
+ */
+export function hasRunningDocumentMotion(): boolean {
+  if (typeof document === "undefined" || typeof document.getAnimations !== "function") {
+    return false;
+  }
+  return isAnyRunning(document.getAnimations());
+}
+
 export interface MotionFrameSamplerOptions {
-  readonly element: Element;
+  /**
+   * Whether motion that could still be moving this caller's subject is running.
+   *
+   * The PREDICATE rather than the element, because the two callers bound motion
+   * differently and the loop is the same either way: an overlay yields to what
+   * carries it, and a pane has to watch a document that can move it from anywhere.
+   * Handing the loop an element would put that judgment here, where neither caller
+   * could state it.
+   */
+  readonly isMotionRunning: () => boolean;
   /** The frame source. A real clock unless a test says otherwise. */
   readonly clock: ConsoleClock;
-  /** Called once per frame while the element is moving, and once as it comes to rest. */
+  /** Called once per frame while the subject is moving, and once as it comes to rest. */
   readonly onFrame: () => void;
 }
 
@@ -148,13 +179,13 @@ export interface MotionFrameSamplerOptions {
  * rather than promised.
  */
 export class MotionFrameSampler {
-  readonly #element: Element;
+  readonly #isMotionRunning: () => boolean;
   readonly #clock: ConsoleClock;
   readonly #onFrame: () => void;
   #queuedFrame: ScheduledHandle | undefined;
 
   public constructor(options: MotionFrameSamplerOptions) {
-    this.#element = options.element;
+    this.#isMotionRunning = options.isMotionRunning;
     this.#clock = options.clock;
     this.#onFrame = options.onFrame;
   }
@@ -188,7 +219,7 @@ export class MotionFrameSampler {
     // Report BEFORE re-reading the animation state, so the frame that finds the
     // motion finished still reports the position the element came to rest at.
     this.#onFrame();
-    if (hasRunningMotion(this.#element)) {
+    if (this.#isMotionRunning()) {
       this.startIfIdle();
     }
   }
@@ -215,9 +246,21 @@ export interface ElementPositionObserverOptions {
  *      that shrinks moves this element while neither this element nor any ancestor
  *      changes size in the way a naive reading expects; what the platform reports is
  *      the ancestor's own content box being relaid, which is exactly this arm.
- *   3. TRANSFORMS AND TRANSITIONS — motion starting anywhere that carries this
- *      element arms the shared frame sampler, which stops the moment nothing is
- *      running.
+ *   3. TRANSFORMS AND TRANSITIONS — motion starting ANYWHERE in the document arms
+ *      the shared frame sampler, which reads where this element actually is and
+ *      stops the moment nothing is running.
+ *
+ * SOURCE 3 DELIBERATELY DOES NOT ASK WHETHER THE MOTION CARRIES THIS ELEMENT. The
+ * containment test the overlay registry uses answers "no" for the case this observer
+ * exists for: a fixed-size flex or grid sibling animating its width is neither an
+ * ancestor nor a descendant, and it moves this element while every box involved —
+ * this one, the sibling, and the container holding both — keeps the size it had. No
+ * resize callback fires, no containment test matches, and the native view stays at
+ * coordinates the pane left. So the arm is a POSITION measurement rather than a
+ * prediction: while anything animates, look; the reading itself decides whether
+ * anything moved, and the publisher above already drops a rectangle that did not
+ * change. What that costs is a frame read per animating frame, and what it buys is
+ * the one class of movement nothing else in this module can see.
  *
  * THE ANCESTOR WALK STOPS AT THE DOCUMENT BODY. No console surface declares a
  * pane-deck root today, so the body is the outermost box whose reordering can move a
@@ -232,18 +275,20 @@ export function observeElementPosition(options: ElementPositionObserverOptions):
   for (const ancestor of ancestors) {
     detachers.push(observeElementResize(ancestor, onMove));
   }
-  const sampler = new MotionFrameSampler({ element, clock, onFrame: onMove });
+  // The document reading covers the element's own subtree and ancestors wherever the
+  // platform implements it; the element-scoped one is what a DOM shim that omits
+  // `document.getAnimations` still answers, so neither is redundant.
+  const isMotionRunning = (): boolean => hasRunningDocumentMotion() || hasRunningMotion(element);
+  const sampler = new MotionFrameSampler({ isMotionRunning, clock, onFrame: onMove });
   detachers.push(
-    observeMotionStarts((movingNode) => {
-      if (sharesMotionWith(element, movingNode)) {
-        sampler.startIfIdle();
-      }
+    observeMotionStarts(() => {
+      sampler.startIfIdle();
     }),
     () => {
       sampler.stop();
     },
   );
-  if (hasRunningMotion(element)) {
+  if (isMotionRunning()) {
     // Observed mid-animation — the case a start event has already been and gone for.
     sampler.startIfIdle();
   }

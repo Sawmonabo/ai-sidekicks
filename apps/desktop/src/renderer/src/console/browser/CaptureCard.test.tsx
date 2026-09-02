@@ -128,3 +128,67 @@ describe("capture card — the ingest states", () => {
     expect(card.textContent).toContain("The full capture is here");
   });
 });
+
+// The displacement note against the ingest state beside it.
+//
+// Two facts about one object: the tool result could not carry the image, and the
+// pipeline did or did not keep it. The note read only the first and asserted the
+// second, so a refused card said the bytes were kept out of the store and then said
+// the full capture was here — and on the terminal remedy it said "here" beside a
+// sentence stating they never would be.
+describe("capture card — a displaced capture says what became of it", () => {
+  const DISPLACED_REFUSAL = refuse("browser-ingest", "ingest.capacity", "No room right now.");
+
+  function displacedNote(ingest: BrowserCaptureCardProps["ingest"]): string {
+    const card = renderCapture({ ...BASE, ingest, displacedFromToolResult: true });
+    return card.textContent ?? "";
+  }
+
+  it("claims the capture is here only on the arm the pipeline stored", () => {
+    expect(displacedNote(BASE.ingest)).toContain("The full capture is here");
+  });
+
+  it("says the storing is still happening while the bytes are moving", () => {
+    const note = displacedNote({
+      status: "in-flight",
+      receivedByteLength: 1024,
+      declaredByteLength: 262_144,
+    });
+    expect(note).toContain("being stored now");
+    expect(note).not.toContain("The full capture is here");
+  });
+
+  it("says nobody asked rather than answering for the pipeline", () => {
+    const note = displacedNote({ status: "not-checked" });
+    expect(note).toContain("nobody has put");
+    expect(note).not.toContain("The full capture is here");
+  });
+
+  it("says it was not stored beside a refusal the operator can retry", () => {
+    const note = displacedNote({
+      status: "refused",
+      refusal: DISPLACED_REFUSAL,
+      remedy: "retry-later",
+    });
+    expect(note).toContain("was not stored");
+    expect(note).not.toContain("The full capture is here");
+  });
+
+  it("says it will not be stored beside the remedy that says these bytes are gone", () => {
+    // The two sentences have to agree: `none` says the bytes will not be stored, and
+    // a past tense beside it would read as a store that merely has not happened yet.
+    // Named in full rather than by its tail, because the remedy sentence beside it
+    // ends in the same words and would satisfy a looser match on its own.
+    const note = displacedNote({ status: "refused", refusal: DISPLACED_REFUSAL, remedy: "none" });
+    expect(note).toContain("The full capture will not be stored");
+    expect(note).toContain("These bytes will not be stored");
+  });
+
+  it("negative control: an undisplaced card says nothing about the tool result", () => {
+    // Without this, a card that rendered the note unconditionally would satisfy every
+    // case above and would explain a displacement to every capture that never had one.
+    const card = renderCapture(BASE);
+    expect(card.textContent).not.toContain("The tool result carried");
+    expect(card.textContent).not.toContain("The full capture is here");
+  });
+});

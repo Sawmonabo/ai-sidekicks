@@ -66,6 +66,48 @@ describe("the browser ingest meter", () => {
     // one — the one reading this meter exists to make honest.
     const bar = renderMeter(524_288, 0);
     expect(bar.firstElementChild).toHaveProperty("style.inlineSize", "0%");
-    expect(bar.getAttribute("aria-valuenow")).toBe("524288");
+  });
+});
+
+// What the bar says when there is no scale to place a value on.
+//
+// An undeclared total is the case `ingestFillWidth` has always supported and the
+// value pair never did: the fill reset to empty while `aria-valuenow` stayed at the
+// received count and `aria-valuemax` took the undeclared zero, which is a position
+// past the end of its own range. A progressbar with no `aria-valuenow` is
+// indeterminate, which is what this is, so the numeric pair goes and the words stay.
+describe("the browser ingest meter — an undeclared total", () => {
+  it("omits the numeric pair rather than emitting a value past its own maximum", () => {
+    const bar = renderMeter(524_288, 0);
+    expect(bar.getAttribute("aria-valuenow")).toBeNull();
+    expect(bar.getAttribute("aria-valuemax")).toBeNull();
+  });
+
+  it("says what arrived and that the total is unknown, in the same words as the note", () => {
+    const bar = renderMeter(524_288, 0);
+    const note = bar.parentElement?.querySelector(".meridian-browser-card__note");
+    expect(collapseUnicodeSpaces(bar.getAttribute("aria-valuetext") ?? "")).toBe(
+      "512 KiB of an undeclared total received",
+    );
+    expect(collapseUnicodeSpaces(note?.textContent ?? "")).toBe(
+      "512 KiB of an undeclared total received.",
+    );
+  });
+
+  it("treats a denominator that is not a number the same way", () => {
+    const bar = renderMeter(524_288, Number.NaN);
+    expect(bar.getAttribute("aria-valuenow")).toBeNull();
+    expect(bar.getAttribute("aria-valuetext")).toContain("undeclared total");
+  });
+
+  it("negative control: a declared total still carries the numeric pair and no valuetext", () => {
+    // Without this, a meter that went indeterminate unconditionally would satisfy
+    // every case above and would take the scale away from every honest transfer —
+    // including the one where nothing has arrived yet, which is a known range with a
+    // received figure of zero rather than a range nobody declared.
+    const bar = renderMeter(0, 1_048_576);
+    expect(bar.getAttribute("aria-valuenow")).toBe("0");
+    expect(bar.getAttribute("aria-valuemax")).toBe("1048576");
+    expect(bar.getAttribute("aria-valuetext")).toBeNull();
   });
 });

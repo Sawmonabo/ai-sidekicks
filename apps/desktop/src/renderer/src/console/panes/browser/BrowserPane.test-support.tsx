@@ -117,6 +117,8 @@ export function reportedState(
 export function navigationReportingBridge(): {
   readonly bridge: ConsoleBridge;
   readonly report: (state: NavigationEvent) => void;
+  /** End the producer's side, the way a daemon that has finished reporting would. */
+  readonly endReporting: () => void;
 } {
   const base = createFixtureBridge({ scenario: BROWSER_SCENARIO });
   const queued: NavigationEvent[] = [];
@@ -145,6 +147,13 @@ export function navigationReportingBridge(): {
   return {
     report: (state) => {
       queued.push(state);
+      wake?.();
+      wake = undefined;
+    },
+    endReporting: () => {
+      // The producer's own end rather than the consumer's `close`: the iterator runs
+      // out, which is the case a pane holding the last frame gets wrong.
+      closed = true;
       wake?.();
       wake = undefined;
     },

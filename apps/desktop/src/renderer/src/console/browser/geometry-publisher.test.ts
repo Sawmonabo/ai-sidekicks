@@ -10,7 +10,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock, refuse, type ConsoleRefusal } from "../core/index.js";
-import { installFakeResizeObserver, settleMutationRecords } from "./element-motion.test-support.js";
+import {
+  installFakeResizeObserver,
+  movingAnimation,
+  settleMutationRecords,
+  withAnimations,
+  withDocumentAnimations,
+} from "./element-motion.test-support.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
 import { PaneOcclusionRegistry } from "./occlusion-registry.js";
 import type { PaneGeometrySample, PaneRect } from "./pane-geometry.js";
@@ -370,6 +376,7 @@ describe("PaneGeometryPublisher — the move source", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    withDocumentAnimations(undefined);
     for (const sibling of insertedSiblings.splice(0)) {
       sibling.remove();
     }
@@ -433,6 +440,40 @@ describe("PaneGeometryPublisher — the move source", () => {
     // The move arrived last, so it is the reading that got written — a second
     // queued frame would have written the scroll's stale rectangle first.
     expect(host.samples.at(-1)?.reason).toBe("layout-mover");
+    publisher.dispose();
+  });
+
+  it("publishes the pane's new rectangle while a fixed-size sibling animates beside it", () => {
+    // A rail collapsing next to the pane. Nothing resizes — the rail, the pane, and
+    // the row holding both keep the boxes they had — and nothing containing the pane
+    // animates, so neither the size source nor a containment test sees anything. The
+    // pane is nevertheless somewhere else on the screen for the whole animation, and
+    // the native view is painted over whatever it moved away from until this arm
+    // reads where it actually is.
+    const sibling = document.createElement("div");
+    insertedSiblings.push(sibling);
+    document.body.append(sibling);
+    const hostElement = elementWithRect(rect(240, 0, 100, 100));
+    withAnimations(hostElement, []);
+    const { publisher, clock, host } = publishingPublisherOver(hostElement);
+    expect(publisher.publishCount).toBe(1);
+
+    const motion = movingAnimation();
+    withDocumentAnimations([motion.animation]);
+    sibling.dispatchEvent(new Event("transitionrun", { bubbles: true }));
+    moveElementRect(hostElement, rect(120, 0, 100, 100));
+    clock.runFrame();
+    clock.runFrame();
+
+    expect(publisher.publishCount).toBe(2);
+    expect(host.samples.at(-1)?.reason).toBe("layout-mover");
+    expect(host.samples.at(-1)?.rect).toStrictEqual(rect(120, 0, 100, 100));
+    motion.settle();
+    clock.runFrame();
+    clock.runFrame();
+    // And it comes to rest: the idle-CPU budget says nothing samples once the
+    // animation is over, and a loop that kept running would satisfy the case above.
+    expect(clock.pendingCount).toBe(0);
     publisher.dispose();
   });
 

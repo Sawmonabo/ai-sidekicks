@@ -334,6 +334,20 @@
   margin-inline-start: auto;
 }
 
+/*
+ * The pipeline's byte ceiling, labelled rather than glyphed. A lone quantity in this
+ * row would be read as the download's own size; the word says which number it is,
+ * and the figure beside it is a wire figure so the exact count the pipeline reported
+ * survives the rounding its visible text performs.
+ */
+.meridian-browser-card__ceiling {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
 .meridian-browser-card__note {
   margin: 0;
   font-size: var(--meridian-text-sm);
@@ -467,6 +481,19 @@
 
 .meridian-browser-pane__strip {
   padding: var(--meridian-space-2) var(--meridian-space-2) 0;
+}
+
+/*
+ * The receipt a finished subscription leaves, sitting under the controls it has just
+ * made inert. A quiet line rather than a banner, on the partitions reading's terms: a
+ * producer that ended cleanly refused nothing, and dressing it as a refusal would put
+ * an alert edge around a page that simply stopped being watched.
+ */
+.meridian-browser-pane__reading {
+  margin: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-2) 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
 }
 
 /*
