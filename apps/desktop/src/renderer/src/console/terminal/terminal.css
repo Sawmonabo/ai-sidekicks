@@ -161,6 +161,7 @@
 }
 
 .meridian-lease-line__degraded,
+.meridian-lease-line__unread,
 .meridian-lease-line__aside {
   margin: 0;
   color: var(--meridian-text-muted);

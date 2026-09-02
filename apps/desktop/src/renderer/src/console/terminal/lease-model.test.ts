@@ -114,7 +114,7 @@ describe("the lease fold — what the wire said, and only that", () => {
     );
   });
 
-  it("skips a reason outside the closed set rather than rendering a nameless transition", () => {
+  it("gives a reason outside the closed set no ledger row and no sentence", () => {
     const state = projectTerminalLease(
       [
         transitionEvent(1, "taken", OTHER),
@@ -122,8 +122,12 @@ describe("the lease fold — what the wire said, and only that", () => {
       ],
       { viewerParticipantId: VIEWER },
     );
+    // One READABLE transition, so one row and one count. The other is reported as
+    // the unread transition rather than rendered as a nameless one — inventing a
+    // sentence for it is how a surface starts asserting things nobody sent.
     expect(state.transitionCount).toBe(1);
-    expect(state.holderParticipantId).toBe(OTHER);
+    expect(state.transitions).toHaveLength(1);
+    expect(state.unreadTransition?.sequence).toBe(2);
   });
 
   it("ignores every event that is not a lease transition", () => {
@@ -160,7 +164,92 @@ describe("the lease fold — what the wire said, and only that", () => {
       viewerParticipantId: VIEWER,
     });
     expect(state.holderParticipantId).toBeNull();
-    expect(state.holding).toBe("not-checked");
+    expect(state.holding).toBe("unrecognized-transition");
+  });
+});
+
+describe("an unread transition — ignorance about a write lease is not the old holder", () => {
+  /**
+   * The take that granted the VIEWER the lease, followed by a move this build
+   * cannot read. This is the shape the surface has to get right: the console saw
+   * itself take the shell, and then saw the daemon do something to it.
+   */
+  const grantedThenUnread = [
+    transitionEvent(1, "taken", VIEWER),
+    transitionEvent(2, "auto_released_quota_exhausted", null, VIEWER),
+  ];
+
+  it("stops reporting the viewer as the holder the moment a transition cannot be read", () => {
+    const state = projectTerminalLease(grantedThenUnread, { viewerParticipantId: VIEWER });
+    // The one reading that would keep stdin open for somebody who no longer holds
+    // the shell. `TerminalPane` opens the write gate on exactly this value.
+    expect(state.holding).not.toBe("held-by-you");
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holderParticipantId).toBeNull();
+  });
+
+  it("negative control: the same grant WITHOUT the unread move does hold", () => {
+    // Without this the case above would pass against a fold that never reported
+    // `held-by-you` at all, which is a different bug and not a fix.
+    const state = projectTerminalLease(grantedThenUnread.slice(0, 1), {
+      viewerParticipantId: VIEWER,
+    });
+    expect(state.holding).toBe("held-by-you");
+    expect(state.holderParticipantId).toBe(VIEWER);
+  });
+
+  it("carries the reason the wire sent, so the operator has something to paste", () => {
+    const state = projectTerminalLease(grantedThenUnread, { viewerParticipantId: VIEWER });
+    expect(state.unreadTransition?.reason).toBe("auto_released_quota_exhausted");
+    expect(state.unreadTransition?.sequence).toBe(2);
+  });
+
+  it("reports a transition with no reason at all as unread, with nothing to name", () => {
+    // A `pty.control_changed` this build cannot read is unread whether the payload
+    // named something outside the set or named nothing — both are the daemon moving
+    // the lease somewhere this console cannot follow.
+    const state = projectTerminalLease(
+      [
+        transitionEvent(1, "taken", VIEWER),
+        {
+          sessionId: "session-terminal",
+          sequence: 2,
+          kind: TERMINAL_LEASE_EVENT_KIND,
+          occurredAt: "2026-01-01T16:40:02.000Z",
+          payload: { holderParticipantId: OTHER },
+        },
+      ],
+      { viewerParticipantId: VIEWER },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.unreadTransition?.reason).toBeUndefined();
+  });
+
+  it("recovers on the next transition it CAN read", () => {
+    const state = projectTerminalLease(
+      [...grantedThenUnread, transitionEvent(3, "taken", VIEWER)],
+      { viewerParticipantId: VIEWER },
+    );
+    // The console understands the current state again, and the state it understands
+    // is that transition's — an unread transition is not a latch.
+    expect(state.unreadTransition).toBeUndefined();
+    expect(state.holding).toBe("held-by-you");
+    expect(state.transitionCount).toBe(2);
+  });
+
+  it("stays unread when the readable transition came FIRST", () => {
+    // Order is the whole claim: a readable transition before the unread one says
+    // nothing about the state after it.
+    const state = projectTerminalLease(
+      [
+        ...grantedThenUnread,
+        transitionEvent(3, "taken", VIEWER),
+        transitionEvent(4, "seized", OTHER),
+      ],
+      { viewerParticipantId: VIEWER },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.unreadTransition?.sequence).toBe(4);
   });
 });
 
