@@ -16,6 +16,7 @@ import {
 import {
   SHELL_PREFERENCE_DEFAULTS,
   ShellPreferenceStore,
+  consoleShellPreferences,
   effectivePreference,
 } from "./shell-preferences.js";
 import type { GrowthPort } from "../../bridge/index.js";
@@ -141,5 +142,61 @@ describe("shell preferences — a carrier that answers", () => {
     );
     await store.choose("updates.automatic", false);
     expect(store.snapshot().heldLocally).toStrictEqual({});
+  });
+});
+
+describe("shell preferences — the store belongs to the window, not to a page", () => {
+  it("hands one bridge the same store however many pages ask", async () => {
+    // The defect this is the negative control for: a store built per calling
+    // component died with the page, so a choice made on the updates section was
+    // gone by the time the notifications section asked for it — while the row said
+    // it was held for the window.
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+    const firstPagesStore = consoleShellPreferences.storeFor(bridge);
+    await firstPagesStore.choose("updates.automatic", false);
+
+    const secondPagesStore = consoleShellPreferences.storeFor(bridge);
+
+    expect(secondPagesStore).toBe(firstPagesStore);
+    expect(effectivePreference(secondPagesStore.snapshot(), "updates.automatic")).toBe(false);
+    expect(Object.hasOwn(secondPagesStore.snapshot().heldLocally, "updates.automatic")).toBe(true);
+  });
+
+  it("gives two bridges two stores, and disposes the one it superseded", async () => {
+    // The fixture's scenario swap replaces the bridge. A store built against the old
+    // one would keep answering with the old one's reading, so it is superseded
+    // rather than reused — and it is dropped, so asking again mints a live store
+    // rather than returning a terminal one whose replies write nothing.
+    const firstBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+    const secondBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+    const firstStore = consoleShellPreferences.storeFor(firstBridge);
+
+    const secondStore = consoleShellPreferences.storeFor(secondBridge);
+
+    expect(secondStore).not.toBe(firstStore);
+    expect(firstStore.isDisposed).toBe(true);
+    expect(secondStore.isDisposed).toBe(false);
+
+    const rebuilt = consoleShellPreferences.storeFor(firstBridge);
+    expect(rebuilt).not.toBe(firstStore);
+    expect(rebuilt.isDisposed).toBe(false);
+    await rebuilt.choose("updates.automatic", false);
+    expect(effectivePreference(rebuilt.snapshot(), "updates.automatic")).toBe(false);
+  });
+
+  it("negative control: a superseded store's own reply writes nothing", async () => {
+    // Without this, the disposal above would be a flag nobody reads — and a reply
+    // landing after the swap would publish the old bridge's answer over the new
+    // bridge's store, which is the state a person cannot debug.
+    const firstBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+    const firstStore = consoleShellPreferences.storeFor(firstBridge);
+    consoleShellPreferences.storeFor(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
+
+    await firstStore.choose("updates.automatic", false);
+
+    expect(firstStore.snapshot().heldLocally).toStrictEqual({});
+    expect(effectivePreference(firstStore.snapshot(), "updates.automatic")).toBe(
+      SHELL_PREFERENCE_DEFAULTS["updates.automatic"],
+    );
   });
 });
