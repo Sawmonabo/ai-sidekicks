@@ -155,23 +155,49 @@ describe("rail — every offer is reachable without a pointer", () => {
     expect(jumps).toStrictEqual(["ha", "m1"]);
   });
 
-  it("walks one kind on its digit, and back on Shift plus the same digit", () => {
+  it("walks one kind on its digit, and back on shift plus the same digit", () => {
     // Digit 3 is the third entry of `RAIL_TICK_KINDS`, which is `tool-error`;
     // digit 1 is `participant-message`. The mapping is derived from that tuple,
     // so this also pins that a kind added there becomes walkable with no second
     // table edited.
+    //
+    // Both events carry what a real keyboard reports: `code` is the physical key
+    // and `key` is whatever the layout and the shift state made of it. Shift plus
+    // the digit-1 key reports `"!"` on a US layout, which is the whole reason the
+    // walk reads `code`.
     const { slider, jumps } = renderRail();
-    fireEvent.keyDown(slider, { key: "3" });
+    fireEvent.keyDown(slider, { code: "Digit3", key: "3" });
     expect(jumps).toStrictEqual(["te"]);
-    fireEvent.keyDown(slider, { key: "1", shiftKey: true });
+    fireEvent.keyDown(slider, { code: "Digit1", key: "!", shiftKey: true });
     expect(jumps).toStrictEqual(["te", "m1"]);
+  });
+
+  it("negative control: a shifted digit with no physical key behind it walks nothing", () => {
+    // `{ key: "1", shiftKey: true }` is the combination no browser produces, and
+    // reading the digit out of `key` is what made it look like a working shortcut.
+    // A layout that reports punctuation on the same press must not walk either.
+    const { slider, jumps } = renderRail();
+    // Land on the tool-error mark first, so a previous-kind walk WOULD have
+    // somewhere to go if either synthesized shape were still admitted.
+    fireEvent.keyDown(slider, { code: "Digit3", key: "3" });
+    fireEvent.keyDown(slider, { key: "1", shiftKey: true });
+    fireEvent.keyDown(slider, { key: "!", shiftKey: true });
+    expect(jumps).toStrictEqual(["te"]);
+  });
+
+  it("negative control: the numpad keeps its navigation rather than walking a kind", () => {
+    // With NumLock off `Numpad1` reports `key: "End"`. The walk binds the digit
+    // row only, so that press reaches the rail's end the way `End` always does.
+    const { slider, jumps } = renderRail();
+    fireEvent.keyDown(slider, { code: "Numpad1", key: "End" });
+    expect(jumps).toStrictEqual(["ha"]);
   });
 
   it("negative control: a key the rail does not bind moves nothing", () => {
     const { slider, jumps } = renderRail();
-    fireEvent.keyDown(slider, { key: "a" });
-    fireEvent.keyDown(slider, { key: "ArrowLeft" });
-    fireEvent.keyDown(slider, { key: "0" });
+    fireEvent.keyDown(slider, { code: "KeyA", key: "a" });
+    fireEvent.keyDown(slider, { code: "ArrowLeft", key: "ArrowLeft" });
+    fireEvent.keyDown(slider, { code: "Digit0", key: "0" });
     expect(jumps).toStrictEqual([]);
   });
 
