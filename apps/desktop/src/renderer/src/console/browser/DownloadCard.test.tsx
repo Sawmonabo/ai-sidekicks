@@ -69,20 +69,46 @@ describe("download card — where the bytes went", () => {
 });
 
 describe("download card — the ceiling is quoted, never minted", () => {
+  /** The ceiling as it is rendered, or nothing where no bound was read. */
+  function ceilingOf(props: BrowserDownloadCardProps): HTMLElement | null {
+    return renderDownload(props).querySelector(".meridian-browser-card__ceiling");
+  }
+
+  /** The exact count the pipeline reported, off the ceiling's own wire figure. */
+  function exactCountOf(ceiling: HTMLElement | null): string | null {
+    return ceiling?.querySelector(".meridian-figure--wire")?.getAttribute("title") ?? null;
+  }
+
   it("renders the pipeline's bound when it was read", () => {
-    const card = renderDownload({ ...BASE, ingestCeilingByteLength: 104857600 });
-    expect(card.textContent).toContain("100 MiB");
+    expect(ceilingOf({ ...BASE, ingestCeilingByteLength: 104857600 })?.textContent).toContain(
+      "100\u00A0MiB",
+    );
   });
 
   it("names no bound when none was read", () => {
-    // Asserted on the ceiling CHIP rather than on the card's text: the stored size
+    // Asserted on the ceiling ELEMENT rather than on the card's text: the stored size
     // is a byte figure too, so a text search would pass for the wrong reason.
-    expect(renderDownload(BASE).querySelectorAll(".meridian-chip--mono")).toHaveLength(0);
-    expect(
-      renderDownload({ ...BASE, ingestCeilingByteLength: 104857600 }).querySelectorAll(
-        ".meridian-chip--mono",
-      ),
-    ).toHaveLength(1);
+    expect(ceilingOf(BASE)).toBeNull();
+    expect(ceilingOf({ ...BASE, ingestCeilingByteLength: 104857600 })).not.toBeNull();
+  });
+
+  it("keeps the pipeline's exact count behind the rounded reading", () => {
+    // 8,388,609 bytes is not representable in the scaled unit, so the visible text is
+    // a reading of the bound rather than the bound. The count the pipeline reported
+    // rides the figure's title, the way this card's stored size already does.
+    const ceiling = ceilingOf({ ...BASE, ingestCeilingByteLength: 8388609 });
+    expect(ceiling?.querySelector(".meridian-figure--wire")?.textContent).toBe("8.0\u00A0MiB");
+    expect(exactCountOf(ceiling)).toBe("8388609");
+  });
+
+  it("negative control: two bounds that read alike are still told apart", () => {
+    // Without this, the case above would pass over a title that merely echoed the
+    // rounded text. The collision is the whole reason the exact count is carried: an
+    // operator comparing two nodes' enforced limits sees one figure for two numbers.
+    const larger = ceilingOf({ ...BASE, ingestCeilingByteLength: 8388609 });
+    const smaller = ceilingOf({ ...BASE, ingestCeilingByteLength: 8388608 });
+    expect(larger?.textContent).toBe(smaller?.textContent);
+    expect(exactCountOf(larger)).not.toBe(exactCountOf(smaller));
   });
 
   it("negative control: an over-ceiling download is not refused by the card", () => {

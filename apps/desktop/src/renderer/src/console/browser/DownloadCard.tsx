@@ -25,6 +25,13 @@
 //     compares nothing against it — an over-ceiling download is refused by the
 //     pipeline with `Spec-014`'s own code, and that refusal is what renders.
 //
+//     QUOTING IT MEANS KEEPING THE NUMBER. Rendered only as its rounded reading, a
+//     ceiling of 8,388,609 bytes and one of 8,388,608 are the same `8.0 MiB` on
+//     screen, and an operator comparing two nodes' enforced limits cannot tell them
+//     apart. So the ceiling goes through the same exact-value path as this card's
+//     other byte figures — `WireFigure`, with the pipeline's own count in its
+//     `title` — which is the rule that component exists to keep.
+//
 // The state vocabulary is `artifact-ingest.ts`'s, shared with the capture card,
 // because one pipeline produced both.
 
@@ -97,11 +104,13 @@ export function BrowserDownloadCard(props: BrowserDownloadCardProps): React.JSX.
         <div className="meridian-browser-card__meta">
           <Chip label={props.sourcePageLabel} glyph="browser" />
           {props.ingestCeilingByteLength === undefined ? null : (
-            <Chip
-              mono
-              label={formatByteQuantity(props.ingestCeilingByteLength).text}
-              glyph="artifact"
-            />
+            <span className="meridian-browser-card__ceiling">
+              Ceiling{" "}
+              <WireFigure
+                value={formatByteQuantity(props.ingestCeilingByteLength).text}
+                title={String(props.ingestCeilingByteLength)}
+              />
+            </span>
           )}
         </div>
       </div>
