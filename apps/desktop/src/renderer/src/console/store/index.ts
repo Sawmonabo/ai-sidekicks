@@ -30,4 +30,9 @@ export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-stor
 // would route around rather than through.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
-export { useFrameStore, useLocationHash, useOpenSessionStore } from "./hooks.js";
+export {
+  useFrameStore,
+  useLocationHash,
+  useOpenSessionStore,
+  useSessionPartition,
+} from "./hooks.js";
