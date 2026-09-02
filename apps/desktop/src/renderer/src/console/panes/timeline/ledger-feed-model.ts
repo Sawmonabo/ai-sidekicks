@@ -48,31 +48,30 @@ import {
 } from "../../ledger/structure/index.js";
 import { type LedgerWindowModel } from "./ledger-window.js";
 
-/**
- * Whether a "load earlier" affordance may be offered. It may not.
- *
- * Settled against the wire rather than against a wish. The console reaches the
- * daemon through one live subscription plus a whole-session snapshot read, and
- * neither takes a cursor or a sequence bound: `sessionRead` is keyed by session and
- * `hydratedEventRead` by a single event id, whose own registration says a range
- * read "would be a batching decision made ahead of the surface that would need it".
- * `timeline.read` is registered in the corpus and on no bridge namespace and on no
- * growth-slate row, so this console cannot call it.
- *
- * Both structural controls draw their "load earlier" button from this flag, so the
- * honest value makes the button ABSENT — and the feed states the two real gaps, the
- * rows the cap took and the sequences that never arrived, in words that say which
- * read is missing. A control whose press cannot do anything is the one shape rule 8
- * refuses.
- */
-const NO_HISTORY_READ_EXISTS = false;
-
 /** The window the viewport is showing, and what fell outside it. */
 export interface VisibleLedgerWindow {
   /** The projected rows the viewport holds, in log order. */
   readonly rows: readonly TimelineRow[];
   /** Rows the log has and this window does not — what the cap took. */
   readonly prunedAwayRows: readonly TimelineRow[];
+  /**
+   * Whether rows sit before this window's head — the CLIP, measured rather than
+   * declared.
+   *
+   * True exactly when the cap took something, which is what `prunedAwayRows`
+   * records. It was a hard-coded `false` until now, on the reasoning that no
+   * registered read pages a session's log backwards — but that reasoning answers a
+   * different question. Whether anybody can FETCH earlier rows and whether earlier
+   * rows EXIST are two facts, and collapsing them made the rail draw a complete
+   * session over a window the cap had already truncated, and told the find result
+   * it had searched a whole log.
+   *
+   * So the two are separated: this is the fact, and an absent `onLoadEarlier`
+   * handler is the offer. The rail's dotted segment and the find result's boundary
+   * read the fact; the "load earlier" button reads both, which is why it is never
+   * drawn on this build.
+   */
+  readonly hasEarlierRows: boolean;
   /** The rail's derivation over the rows on screen. */
   readonly railModel: ProvenanceRailModel;
 }
@@ -96,15 +95,14 @@ export function useVisibleLedgerWindow(
     for (const row of ledgerWindow.rows) {
       (visibleKeys.has(row.id) ? rows : prunedAwayRows).push(row);
     }
+    // One measurement, read by the rail and by find, so the two can never disagree
+    // about whether this window is the whole session.
+    const hasEarlierRows = prunedAwayRows.length > 0;
     return {
       rows,
       prunedAwayRows,
-      // `false`, and it is a claim about this console rather than about this log:
-      // the rail's unloaded extent is also what draws its "load earlier" control,
-      // and no read the console can perform returns rows before the window's head.
-      // The rows the cap took are named in words by the feed instead, which is the
-      // honest half of what the dotted segment was standing in for.
-      railModel: new ProvenanceRailModel({ rows, hasEarlierRows: NO_HISTORY_READ_EXISTS }),
+      hasEarlierRows,
+      railModel: new ProvenanceRailModel({ rows, hasEarlierRows }),
     };
   }, [ledgerWindow, viewportRows]);
 }
@@ -118,6 +116,15 @@ export interface LedgerFindState {
   readonly beyondWindowMatchCount: number;
   readonly currentMatchIndex: number;
   readonly setQuery: (query: string) => void;
+  /**
+   * Reveal the field without touching the query or the walk.
+   *
+   * Separate from `setQuery`, which also opens: the palette's "Find in ledger" row
+   * and the chord behind it open a field somebody is about to type into, and
+   * folding that into the query setter would have made the act pass an empty string
+   * and reset a walk the reader was already in the middle of.
+   */
+  readonly open: () => void;
   readonly close: () => void;
   readonly step: (direction: "next" | "previous") => ReturnType<typeof stepFindMatch>;
 }
@@ -138,8 +145,8 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
   const result = useMemo(
     () =>
       query.trim().length === 0
-        ? emptyFindResult(visible.rows.length, NO_HISTORY_READ_EXISTS)
-        : findInLedger(visible.rows, query, NO_HISTORY_READ_EXISTS),
+        ? emptyFindResult(visible.rows.length, visible.hasEarlierRows)
+        : findInLedger(visible.rows, query, visible.hasEarlierRows),
     [visible, query],
   );
 
@@ -170,6 +177,10 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     [result, currentMatchIndex],
   );
 
+  const open = useCallback(() => {
+    setIsOpen(true);
+  }, []);
+
   const close = useCallback(() => {
     setIsOpen(false);
     setQueryValue("");
@@ -183,6 +194,7 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     beyondWindowMatchCount,
     currentMatchIndex,
     setQuery,
+    open,
     close,
     step,
   };
