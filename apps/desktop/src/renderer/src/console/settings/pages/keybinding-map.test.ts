@@ -5,8 +5,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleCommand, KeyBinding } from "../../palette/index.js";
+import { composeEffectiveBindings } from "../../frame/keybinding-overrides.js";
 import {
   composeKeybindingRows,
+  composeStaleOverrideRows,
   matchKeybindingRows,
   readChordFromEvent,
   type ChordRecording,
@@ -190,5 +192,83 @@ describe("filtering rows", () => {
   it("negative control: a query nothing matches narrows to nothing", () => {
     // A filter that always answered everything would satisfy the assertions above.
     expect(matchKeybindingRows(rows, "zzzqqq")).toHaveLength(0);
+  });
+});
+
+describe("composing the overrides that belong to no command", () => {
+  const commands = [command("frame.goToSessions", "Go to sessions")];
+  const shippedBindings: readonly KeyBinding[] = [
+    { chord: "$mod+1", commandId: "frame.goToSessions" },
+  ];
+
+  it("reports an override whose command this build does not have, with its chord", () => {
+    const stale = composeStaleOverrideRows({
+      commands,
+      shippedBindings,
+      overrides: { "frame.goToSessions": "Alt+KeyS", "retired.oldCommand": "Alt+KeyQ" },
+    });
+    expect(stale).toStrictEqual([{ commandId: "retired.oldCommand", chord: "Alt+KeyQ" }]);
+  });
+
+  it("proves the entry it reports really does reserve its chord", () => {
+    // Which is why it has to be drawn at all: the effective table appends the unknown
+    // command's binding, so the chord is live and refuses somebody else's rebinding
+    // while the rows above — built from the registered commands — cannot show it.
+    const overrides = { "retired.oldCommand": "Alt+KeyQ" };
+    const effective = composeEffectiveBindings(shippedBindings, overrides);
+    expect(effective).toContainEqual({ chord: "Alt+KeyQ", commandId: "retired.oldCommand" });
+    expect(composeStaleOverrideRows({ commands, shippedBindings, overrides })).toHaveLength(1);
+  });
+
+  it("negative control: an override on a registered command is not stale", () => {
+    // Without this, the cases above would pass over a function that called every
+    // override stale — which would offer a Remove control for every chord a person
+    // had deliberately chosen.
+    expect(
+      composeStaleOverrideRows({
+        commands,
+        shippedBindings,
+        overrides: { "frame.goToSessions": "Alt+KeyS" },
+      }),
+    ).toStrictEqual([]);
+  });
+
+  it("stops reporting a command as stale the moment that command registers", () => {
+    // Hydration is deliberately permissive because families register at module scope
+    // as they load, so an override read before its family registered is legitimate.
+    // The same map, read once each side of that registration, must answer differently.
+    const overrides = { "late.family.act": "Alt+KeyQ" };
+    expect(composeStaleOverrideRows({ commands, shippedBindings, overrides })).toHaveLength(1);
+    expect(
+      composeStaleOverrideRows({
+        commands: [...commands, command("late.family.act", "A late act")],
+        shippedBindings,
+        overrides,
+      }),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: a cleared override is not stale, because it reserves nothing", () => {
+    // `null` is a person saying a command should have no chord. It appends no
+    // binding, so there is no chord to be in anybody's way and nothing to remove.
+    expect(
+      composeStaleOverrideRows({
+        commands,
+        shippedBindings,
+        overrides: { "retired.oldCommand": null },
+      }),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: an override the shipped table binds is not stale", () => {
+    // A command the table binds but the registry has not registered yet is a real
+    // shipped chord being rebound, not a leftover.
+    expect(
+      composeStaleOverrideRows({
+        commands: [],
+        shippedBindings,
+        overrides: { "frame.goToSessions": "Alt+KeyS" },
+      }),
+    ).toStrictEqual([]);
   });
 });

@@ -28,6 +28,16 @@
 // Widening that set is a spec amendment rather than a page's decision, so a held
 // value lives for this window's lifetime and every consumer renders the note rather
 // than implying a durable write nothing performed.
+//
+// WHICH IS WHY THE STORE IS THE WINDOW'S AND NOT A PAGE'S
+//
+// That note is a promise, and a store built per calling component cannot keep it:
+// three pages read these keys, each would own a separate store, and the store would
+// die with the page — so switching settings sections destroyed a choice while the
+// row still said it was held for the window. {@link consoleShellPreferences} is the
+// one holder, on the precedent `frame/keybinding-override-store.ts` states in its
+// own words: module scope IS window scope here, because an auxiliary window is its
+// own renderer process and no channel joins two windows' module graphs.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
@@ -161,6 +171,11 @@ export class ShellPreferenceStore {
     this.#disposed = true;
   }
 
+  /** Whether this store has been superseded. Read by the holder's own test. */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
   /**
    * Choose one preference.
    *
@@ -276,19 +291,65 @@ export interface ShellPreferenceBinding {
 }
 
 /**
- * Bind one window's shell preferences.
+ * Who owns this window's preference store.
  *
- * The store is constructed in a `useMemo` keyed on the bridge and started in an
- * effect — never in a render body — which is the shape the sibling ledgers already
- * take for their own coordinators.
+ * A holder rather than a bare module-level `let`, which `apps/desktop/AGENTS.md`
+ * rejects: the supersession rule below is an invariant over two fields moving
+ * together, and an invariant is only checkable when the state has one owner.
+ *
+ * EXACTLY ONE STORE IS LIVE, AND THE BRIDGE IS STILL THE KEY. The fixture's
+ * scenario swap replaces the bridge, and a store built against the old one would
+ * keep answering with the old one's reading — so a different bridge disposes the
+ * store before it, and the disposed one is dropped rather than kept: asking again
+ * for a bridge that has been superseded mints a fresh store instead of handing back
+ * a terminal one whose replies write nothing.
+ */
+class ShellPreferenceStoreHolder {
+  #bridge: ConsoleBridge | undefined;
+  #store: ShellPreferenceStore | undefined;
+
+  /** The store for this bridge, minting one on first ask and on a bridge change. */
+  public storeFor(bridge: ConsoleBridge): ShellPreferenceStore {
+    const held = this.#store;
+    if (held !== undefined && this.#bridge === bridge) {
+      return held;
+    }
+    held?.dispose();
+    const minted = new ShellPreferenceStore(bridge);
+    this.#bridge = bridge;
+    this.#store = minted;
+    return minted;
+  }
+}
+
+/**
+ * This window's shell preferences.
+ *
+ * Module scope IS window scope here, for the reason
+ * `frame/keybinding-override-store.ts` gives about the overrides it holds the same
+ * way: an auxiliary window is its own renderer process, so no channel joins two
+ * windows' module graphs — and a choice held for this window then outlives the page
+ * that was open when it was made, which is what the row's own note promises.
+ */
+export const consoleShellPreferences: ShellPreferenceStoreHolder = new ShellPreferenceStoreHolder();
+
+/**
+ * Bind this window's shell preferences.
+ *
+ * The store is RESOLVED from the holder rather than constructed here, and the effect
+ * starts it WITHOUT a teardown. Both halves are the fix for one defect: a store
+ * built per calling component died with the page, so leaving a settings section
+ * destroyed a choice the row said was held for the window. The `useMemo` is now a
+ * per-render lookup rather than a construction, so a memo React discards costs a
+ * lookup and no state.
  */
 export function useShellPreferences(bridge: ConsoleBridge): ShellPreferenceBinding {
-  const store = useMemo(() => new ShellPreferenceStore(bridge), [bridge]);
+  const store = useMemo(() => consoleShellPreferences.storeFor(bridge), [bridge]);
   useEffect(() => {
+    // Idempotent, so strict mode's second mount asks nothing twice — and no
+    // teardown, because this store's lifetime is the window's and a page unmount is
+    // not the window closing.
     store.start();
-    return () => {
-      store.dispose();
-    };
   }, [store]);
   const subscribe = useCallback(
     (onStoreChange: () => void) => store.subscribe(onStoreChange),

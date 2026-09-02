@@ -25,7 +25,7 @@
 import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import { useSettlementAnnouncement } from "../primitives/index.js";
 import {
   describeDefinitionSettlement,
@@ -56,12 +56,25 @@ const NOTHING_READ: SidekickRegistrySnapshot = {
   revision: 0,
 };
 
+/** The subsystem name the refusals this view raises on its own carry. */
+export const SIDEKICK_REGISTRY_REFUSAL_ORIGIN = "sidekick-registry-view";
+
 /**
  * The carrier.
  *
- * THE TWO GENERATIONS ARE SEPARATE COUNTERS. A read and a delete are independent
- * calls, and one counter shared between them would let a delete pressed while the
- * first read was still in flight discard that read's own reply.
+ * THE READ HAS A GENERATION AND THE DELETE HAS A LOCK, and the two stay apart. They
+ * are independent calls, and one counter shared between them would let a delete
+ * pressed while the first read was still in flight discard that read's own reply.
+ *
+ * A READ SUPERSEDES AND A DELETE DOES NOT. A re-read asked while one is in flight is
+ * the newer question, so the older reply writes nothing — which is what the counter
+ * is for. A delete is the one act on this page with no undo, so a second confirm
+ * while one is running is refused rather than run: under a counter, the second
+ * delete's settlement would win and the first's re-read would be skipped, so a
+ * record the daemon really did remove would sit on screen for the life of the page
+ * with the OTHER row's refusal as the only thing explaining it. `deletingId` is
+ * therefore both the lock and the record of which delete is running — one field, so
+ * the guard and the page's own disabled controls cannot disagree.
  */
 export class SidekickRegistryView {
   readonly #bridge: ConsoleBridge;
@@ -70,7 +83,6 @@ export class SidekickRegistryView {
   #hasStarted = false;
   #isDisposed = false;
   #readGeneration = 0;
-  #deleteGeneration = 0;
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
@@ -124,9 +136,25 @@ export class SidekickRegistryView {
    * The list the page renders is the registry's answer and never a copy the page
    * edits: removing the row here would make the screen agree with a delete the
    * daemon may have applied differently, or not at all.
+   *
+   * ONE AT A TIME, and the second press is answered rather than dropped. The page
+   * disables every delete control while one is running, so a press that reaches here
+   * is one that surface could not intercept — and doing nothing at all would be
+   * indistinguishable from a broken control, so the row it was aimed at gets this
+   * view's own refusal saying what is in the way.
    */
   public async confirmDeletion(definitionId: string): Promise<void> {
-    const generation = (this.#deleteGeneration += 1);
+    const runningDefinitionId = this.#snapshot.deletingId;
+    if (runningDefinitionId !== undefined) {
+      this.#publish({
+        armedDeletionId: undefined,
+        refusalByDefinitionId: this.#refusalsWith(
+          definitionId,
+          deleteAlreadyRunning(runningDefinitionId === definitionId),
+        ),
+      });
+      return;
+    }
     this.#publish({
       armedDeletionId: undefined,
       deletingId: definitionId,
@@ -135,7 +163,9 @@ export class SidekickRegistryView {
       refusalByDefinitionId: this.#refusalsWithout(definitionId),
     });
     const outcome = await this.#bridge.growth.sidekickDefinitionDelete({ definitionId });
-    if (this.#isDisposed || generation !== this.#deleteGeneration) {
+    // The lock is still this record's, or this settlement is no longer the page's
+    // to fold in — the same belt the disposal flag beside it is.
+    if (this.#isDisposed || this.#snapshot.deletingId !== definitionId) {
       return;
     }
     if (outcome.status === "unavailable") {
@@ -195,6 +225,23 @@ export class SidekickRegistryView {
     this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
     this.#changes.emit(this.#snapshot);
   }
+}
+
+/**
+ * Why this view declined a delete it never sent.
+ *
+ * Two sentences under one code, because what a person does next differs: their own
+ * row is already on its way out, and another row's delete is in front of theirs.
+ * Neither names the record in the way, which would say nothing they can act on.
+ */
+function deleteAlreadyRunning(isTheSameRecord: boolean): ConsoleRefusal {
+  return refuse(
+    SIDEKICK_REGISTRY_REFUSAL_ORIGIN,
+    "delete-already-running",
+    isTheSameRecord
+      ? "This sidekick is already being deleted. It is asked once, and the row changes when the registry answers."
+      : "Another sidekick is being deleted. Wait for that one to settle, then press Delete again.",
+  );
 }
 
 /** Close a seat open on a record that has just been deleted; leave any other. */

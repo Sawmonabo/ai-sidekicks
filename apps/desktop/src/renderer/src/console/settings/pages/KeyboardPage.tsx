@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import type { ConsoleRefusal } from "../../core/index.js";
-import { consoleCommands } from "../../frame/command-surface.js";
+import { FRAME_KEY_BINDINGS, consoleCommands } from "../../frame/command-surface.js";
 import { auditKeybindings } from "../../frame/keybinding-audit.js";
 import {
   consoleKeybindingOverrides,
@@ -41,11 +41,14 @@ import {
   useAnnounce,
 } from "../../primitives/index.js";
 import { KeybindingRowBody } from "./KeybindingRowBody.js";
+import { StaleKeybindingOverrides } from "./StaleKeybindingOverrides.js";
 import {
   composeKeybindingRows,
+  composeStaleOverrideRows,
   matchKeybindingRows,
   type AppliedChordRecording,
   type KeybindingRow,
+  type StaleKeybindingOverrideRow,
 } from "./keybinding-map.js";
 import type { SettingsPageRegistry } from "../settings-page-registry.js";
 import "./keyboard.css";
@@ -88,6 +91,18 @@ export function KeyboardPage(): ReactNode {
     [commands, keybindingSurface],
   );
   const audit = useMemo(() => auditKeybindings(keybindingSurface.bindings), [keybindingSurface]);
+  // The chords this window is holding for commands it cannot find. Composed from the
+  // SHIPPED table rather than the effective one, which is that table with these very
+  // entries already appended.
+  const staleOverrideRows = useMemo(
+    () =>
+      composeStaleOverrideRows({
+        commands,
+        shippedBindings: FRAME_KEY_BINDINGS,
+        overrides: consoleKeybindingOverrides.overrides,
+      }),
+    [commands, keybindingSurface],
+  );
   const visibleRows = useMemo(() => matchKeybindingRows(rows, query), [rows, query]);
   const overriddenRowCount = rows.filter((row) => row.overridden).length;
 
@@ -131,6 +146,19 @@ export function KeyboardPage(): ReactNode {
         unsaved === undefined
           ? `${row.title} is back to the chord the console ships.`
           : `${row.title} is back to the chord the console ships for this window only. ${unsaved.detail}`,
+      );
+    },
+    [announce],
+  );
+
+  const removeStaleOverride = useCallback(
+    async (staleRow: StaleKeybindingOverrideRow): Promise<void> => {
+      const unsaved = await consoleKeybindingOverrides.reset(staleRow.commandId);
+      setReport(undefined);
+      announce(
+        unsaved === undefined
+          ? `The chord kept for ${staleRow.commandId} has been removed.`
+          : `The chord kept for ${staleRow.commandId} has been removed for this window only. ${unsaved.detail}`,
       );
     },
     [announce],
@@ -214,6 +242,17 @@ export function KeyboardPage(): ReactNode {
           </ul>
         )}
       </section>
+
+      {/* Absent when there are none: a region explaining a failure nobody has is a
+          failure a person then goes looking for. */}
+      {staleOverrideRows.length === 0 ? null : (
+        <StaleKeybindingOverrides
+          rows={staleOverrideRows}
+          onRemove={(staleRow) => {
+            void removeStaleOverride(staleRow);
+          }}
+        />
+      )}
 
       <section className="meridian-settings-page__block" aria-label="Changing a chord">
         <h3 className="meridian-settings-page__block-title">Changing a chord</h3>

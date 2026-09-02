@@ -290,3 +290,72 @@ describe("keyboard page — what it changes", () => {
     expect(politeAnnouncement(container)).toBe("");
   });
 });
+
+describe("keyboard page — a chord kept for a command this build does not have", () => {
+  /** The id no command in this window registers. Removed by the shared `resetAll`. */
+  const RETIRED_COMMAND_ID = "retired.commandThatLeft";
+
+  it("draws the entry, its chord, and the control that removes it", async () => {
+    // The entry is invisible without this region and its chord is live anyway, so a
+    // person is refused a rebinding by an id they cannot find anywhere on the page.
+    await consoleKeybindingOverrides.bind(RETIRED_COMMAND_ID, "Alt+KeyQ");
+    const { container } = renderPage();
+
+    // The reservation is real: the effective table this window installs carries it.
+    expect(consoleKeybindingOverrides.surface.bindings).toContainEqual({
+      chord: "Alt+KeyQ",
+      commandId: RETIRED_COMMAND_ID,
+    });
+    const region = container.querySelector(
+      'section[aria-label="Chords kept for commands this build does not have"]',
+    );
+    expect(region).not.toBeNull();
+    expect(region?.querySelectorAll(".meridian-keymap__stale-row")).toHaveLength(1);
+    expect(region?.textContent ?? "").toContain(RETIRED_COMMAND_ID);
+    expect(region?.querySelectorAll("kbd").length).toBeGreaterThan(0);
+  });
+
+  it("removes the entry, and frees the chord it was holding", async () => {
+    await consoleKeybindingOverrides.bind(RETIRED_COMMAND_ID, "Alt+KeyQ");
+    const { container } = renderPage();
+    const remove = container.querySelector<HTMLButtonElement>(
+      `button[aria-label="Remove the chord kept for ${RETIRED_COMMAND_ID}"]`,
+    );
+
+    await act(async () => {
+      remove?.click();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(
+        container.querySelector(
+          'section[aria-label="Chords kept for commands this build does not have"]',
+        ),
+      ).toBeNull();
+    });
+    expect(consoleKeybindingOverrides.overrides[RETIRED_COMMAND_ID]).toBeUndefined();
+    expect(
+      consoleKeybindingOverrides.surface.bindings.some(
+        (binding) => binding.commandId === RETIRED_COMMAND_ID,
+      ),
+    ).toBe(false);
+    expect(politeAnnouncement(container)).toContain(RETIRED_COMMAND_ID);
+  });
+
+  it("negative control: with no such entry the region is absent, not a count of zero", async () => {
+    // Without this, a page that always drew the region would satisfy both cases above
+    // and then explain, to every person who has none, a failure they do not have.
+    await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyQ");
+    const { container } = renderPage();
+
+    expect(
+      container.querySelector(
+        'section[aria-label="Chords kept for commands this build does not have"]',
+      ),
+    ).toBeNull();
+    // The rebinding really did land, so the silence is about staleness rather than
+    // about a page that read no overrides at all.
+    expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyQ");
+  });
+});

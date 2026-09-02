@@ -134,14 +134,25 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
   const [requestRefusal, setRequestRefusal] = useState<string | undefined>(undefined);
   const isAutomatic = preferences.isEnabled(AUTOMATIC_UPDATE_KEY);
   const isReady = reading.kind === "state" && reading.state.status === "ready";
-  // One place a control's rejection becomes a line on screen. The two controls
-  // below reach the same bridge namespace and fail the same way, so the handling is
+  // One place a control's failure becomes a line on screen. The two controls below
+  // reach the same bridge namespace and fail the same way, so the handling is
   // written once rather than duplicated per button.
-  const runControl = useCallback((perform: () => Promise<void>): void => {
+  //
+  // THE INVOCATION IS INSIDE THE BOUNDARY, and that is the whole point of the
+  // `await`. The shipped Tier-1 bridge implements every updater method as a
+  // synchronous `throw`, while the fixture's refusals arrive as rejected promises —
+  // so a shape that attached a handler to the RETURNED promise would catch the
+  // fixture and let the release build's throw escape the React event handler, with
+  // the refusal line never drawn on the one build a person actually runs. Calling
+  // `perform` inside the `try` puts both failures on one path, so there is one
+  // handler here rather than two branches saying the same sentence.
+  const runControl = useCallback(async (perform: () => Promise<void>): Promise<void> => {
     setRequestRefusal(undefined);
-    void perform().catch((rejection: unknown) => {
+    try {
+      await perform();
+    } catch (rejection: unknown) {
       setRequestRefusal(normalizeWireRejection(rejection, { total: true }).message);
-    });
+    }
   }, []);
 
   return (
@@ -171,7 +182,7 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
           type="button"
           className="meridian-settings-page__action"
           onClick={() => {
-            runControl(() => bridge.sidekicks.update.requestCheck());
+            void runControl(() => bridge.sidekicks.update.requestCheck());
           }}
         >
           Check now
@@ -181,7 +192,7 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
             type="button"
             className="meridian-settings-page__action meridian-settings-page__action--primary"
             onClick={() => {
-              runControl(() => bridge.sidekicks.update.requestRestart());
+              void runControl(() => bridge.sidekicks.update.requestRestart());
             }}
           >
             Restart to apply
