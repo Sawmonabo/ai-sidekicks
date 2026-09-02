@@ -72,12 +72,41 @@ export type BrowserIngestState =
   | { readonly status: "not-checked" };
 
 /**
+ * Whether these two figures form a range at all.
+ *
+ * ONE PREDICATE FOR EVERY READING OF THE METER. The fill, the sentence under it, and
+ * the value pair assistive technology reads are three renderings of the same
+ * question, and each answering it its own way is how a bar reset to empty came to
+ * carry `aria-valuenow` past its own `aria-valuemax` — an invalid determinate range,
+ * announced as a position on a scale that does not exist.
+ *
+ * A denominator has to be finite and positive to divide by, and a numerator has to
+ * be finite to place. Nothing here is about how far along the transfer is: a
+ * received figure of zero is a perfectly good reading of a range that is known.
+ */
+export function isIngestRangeDeterminate(
+  receivedByteLength: number,
+  declaredByteLength: number,
+): boolean {
+  return (
+    Number.isFinite(receivedByteLength) &&
+    Number.isFinite(declaredByteLength) &&
+    declaredByteLength > 0
+  );
+}
+
+/**
  * The sentence the ingest meter is read against: what arrived, of what was declared.
  *
  * One implementation for both cards, and it performs no arithmetic of its own — both
  * figures go through the console's single formatting chokepoint and are joined. A
  * card that composed this itself would be two call sites deciding independently
  * whether the separator is a slash, the word "of", or an em dash.
+ *
+ * An indeterminate range says so in words rather than printing the total it was
+ * handed. "512 KiB of 0 B" is not a smaller reading of the same fact — it is a claim
+ * that the producer declared nothing at all, rendered as a claim that it declared
+ * zero, beside a bar this same predicate has already reset to empty.
  */
 export function formatIngestProgress(
   receivedByteLength: number,
@@ -85,6 +114,9 @@ export function formatIngestProgress(
   locale?: string,
 ): string {
   const received = formatByteQuantity(receivedByteLength, locale).text;
+  if (!isIngestRangeDeterminate(receivedByteLength, declaredByteLength)) {
+    return `${received} of an undeclared total`;
+  }
   const declared = formatByteQuantity(declaredByteLength, locale).text;
   return `${received} of ${declared}`;
 }
@@ -101,10 +133,10 @@ export function ingestFillWidth(
   receivedByteLength: number,
   declaredByteLength: number,
 ): `${number}%` {
-  if (!Number.isFinite(receivedByteLength) || !Number.isFinite(declaredByteLength)) {
+  if (!isIngestRangeDeterminate(receivedByteLength, declaredByteLength)) {
     return "0%";
   }
-  if (declaredByteLength <= 0 || receivedByteLength <= 0) {
+  if (receivedByteLength <= 0) {
     return "0%";
   }
   const ratio = Math.min(1, receivedByteLength / declaredByteLength);

@@ -16,7 +16,11 @@
 // only prop that names them: everything else is the same fact about the same
 // pipeline.
 
-import { formatIngestProgress, ingestFillWidth } from "./artifact-ingest.js";
+import {
+  formatIngestProgress,
+  ingestFillWidth,
+  isIngestRangeDeterminate,
+} from "./artifact-ingest.js";
 import { WireFigure } from "../primitives/index.js";
 
 export interface BrowserIngestMeterProps {
@@ -26,6 +30,30 @@ export interface BrowserIngestMeterProps {
   readonly declaredByteLength: number;
 }
 
+/**
+ * The bar's value attributes, which are two different sets rather than one set with
+ * a hole in it.
+ *
+ * A progressbar carrying no `aria-valuenow` is INDETERMINATE under WAI-ARIA, which is
+ * exactly the state an undeclared total leaves this bar in — and it is the only
+ * honest one, because the alternative the component shipped was a `valuenow` past its
+ * own `valuemax`, a range assistive technology cannot place and a reading no operator
+ * could act on. The determinate arm keeps the numeric pair; the indeterminate arm
+ * says in words what arrived and that the total is not known, through the same
+ * sentence printed under the bar so the two readings cannot disagree.
+ */
+function meterValueAttributes(props: BrowserIngestMeterProps): React.AriaAttributes {
+  if (!isIngestRangeDeterminate(props.receivedByteLength, props.declaredByteLength)) {
+    return {
+      "aria-valuetext": `${formatIngestProgress(props.receivedByteLength, props.declaredByteLength)} received`,
+    };
+  }
+  return {
+    "aria-valuenow": props.receivedByteLength,
+    "aria-valuemax": props.declaredByteLength,
+  };
+}
+
 export function BrowserIngestMeter(props: BrowserIngestMeterProps): React.JSX.Element {
   return (
     <>
@@ -33,9 +61,8 @@ export function BrowserIngestMeter(props: BrowserIngestMeterProps): React.JSX.El
         className="meridian-browser-meter"
         role="progressbar"
         aria-label={props.label}
-        aria-valuenow={props.receivedByteLength}
         aria-valuemin={0}
-        aria-valuemax={props.declaredByteLength}
+        {...meterValueAttributes(props)}
       >
         <div
           className="meridian-browser-meter__fill"
