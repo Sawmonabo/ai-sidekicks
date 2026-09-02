@@ -25,6 +25,8 @@ import { availableParallelism, loadavg, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -840,6 +842,11 @@ export function spawnElectron(): Promise<SpawnResult> {
         // invocation for the same reason the probe itself is: the main process
         // must never take a test-only code path it was not explicitly asked to.
         SIDEKICKS_SMOKE_TRACE_READINESS: "1",
+        // Reveal the window without activating the application: an ordinary
+        // reveal on macOS steals focus and switches the operator's Space on
+        // every spawn. Honoured by the smoke build only (see
+        // `src/main/window-reveal.ts`).
+        [UNOBTRUSIVE_WINDOWS_ENV]: "1",
         // Give Chromium a session-bus address that fails FAST rather than
         // leaving it unset. With `DBUS_SESSION_BUS_ADDRESS` unset, libdbus
         // attempts an X11/autolaunch fallback to find a bus; on a hosted runner

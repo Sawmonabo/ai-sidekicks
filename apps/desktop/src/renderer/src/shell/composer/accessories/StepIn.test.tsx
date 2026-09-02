@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
-import { RUN_PAUSE_METHOD } from "./daemon-calls.js";
+import { RUN_PAUSE_METHOD } from "../../../console/bridge/index.js";
 import { StepIn } from "./StepIn.js";
 
 /** A real UUID, because the registered run identifier is a branded UUID. */

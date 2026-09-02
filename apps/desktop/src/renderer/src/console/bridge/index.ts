@@ -20,10 +20,23 @@
 
 export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
-// The two branded-signature widenings every caller of the daemon namespace needs.
-// They live in this family because it owns the bridge and sits below every view
-// family; `daemon-call.ts` says why they were hoisted out of the first caller.
-export { callDaemon, subscribeDaemon } from "./daemon-call.js";
+// The one widening of the daemon's branded `call` / `subscribe` signatures, and the
+// registered method-name constants the console reaches through it. Here rather than
+// beside a caller because two families need it and neither may import the other —
+// `daemon-calls.ts` records the whole reasoning.
+export {
+  COMPACT_CONTEXT_METHOD,
+  DRIVER_LIST_CAPABILITIES_METHOD,
+  QUEUE_CANCEL_METHOD,
+  QUEUE_LIST_METHOD,
+  QUEUE_SUBSCRIBE_STREAM,
+  RUN_INTERVENE_METHOD,
+  RUN_PAUSE_METHOD,
+  RUN_RESUME_METHOD,
+  RUN_STATE_SUBSCRIBE_STREAM,
+  callDaemon,
+  subscribeDaemon,
+} from "./daemon-calls.js";
 
 export {
   SidekicksBridgeProvider,
