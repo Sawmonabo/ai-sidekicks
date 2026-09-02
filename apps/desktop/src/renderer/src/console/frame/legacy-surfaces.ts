@@ -36,10 +36,11 @@
 // fixture data in the same window, which is worse than answering nothing. So the
 // frame says the question was not put, which is exactly what happened.
 
-import { createElement, type ReactNode } from "react";
+import { createElement, type ComponentType, type ReactNode } from "react";
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
+import { type ConsoleBridge } from "../bridge/index.js";
 import { Nothing } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
@@ -51,6 +52,23 @@ import {
   type ConsoleSurfaceDescriptor,
   type ConsoleSurfaceRegistry,
 } from "./surface-registry.js";
+
+/**
+ * What the composition root supplies this file, because this file may not import it.
+ *
+ * The composed-session control is a VIEW FAMILY's component, and a view family sits
+ * above the frame in the console DAG — so the frame cannot import it, the way it
+ * cannot import any of the six subtrees that reach it through
+ * `registerConsoleSurface`. It arrives as a parameter instead, named by
+ * `families.ts`, which sits above every family and is where composition belongs.
+ *
+ * The COMPONENT rather than a built element: which component mounts is the root's
+ * decision, and which props it takes is this file's — the bridge comes off the
+ * surface context, which the root has no access to when it registers.
+ */
+export interface LegacySurfaceComposition {
+  readonly newSessionControl: ComponentType<{ readonly bridge: ConsoleBridge }>;
+}
 
 /**
  * The shipped families still mounted here, and the slot each holds.
@@ -73,30 +91,40 @@ import {
  * invite token, an attach draft — so a route cannot supply them and a slot for them
  * would be a slot nothing could ever fill.
  */
-const LEGACY_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
-  {
-    slot: "sessions",
-    owner: "session-bootstrap",
-    render: (context) =>
-      createElement(SessionsSurface, {
-        frameStore: context.frameStore,
-        sessionStoreRegistry: context.sessionStoreRegistry,
-        // The port comes off the surface context's bridge rather than out of React
-        // context, so the surface stays a function of what it is handed and its
-        // tests need no provider to render it.
-        growth: context.bridge.growth,
-        startSession: () => mountLegacySurface(context, () => createElement(SessionBootstrap)),
-      }),
-  },
-  {
-    slot: "agent-console",
-    owner: "runtime-node-attach",
-    render: (context) =>
-      mountSessionScopedLegacySurface(context, (sessionId) =>
-        createElement(NodeRoster, { sessionId }),
-      ),
-  },
-];
+function legacySurfaceDescriptors(
+  composition: LegacySurfaceComposition,
+): readonly ConsoleSurfaceDescriptor[] {
+  return [
+    {
+      slot: "sessions",
+      owner: "session-bootstrap",
+      render: (context) =>
+        createElement(SessionsSurface, {
+          frameStore: context.frameStore,
+          sessionStoreRegistry: context.sessionStoreRegistry,
+          // The port comes off the surface context's bridge rather than out of React
+          // context, so the surface stays a function of what it is handed and its
+          // tests need no provider to render it.
+          growth: context.bridge.growth,
+          startSession: () => mountLegacySurface(context, () => createElement(SessionBootstrap)),
+          // NOT behind `mountLegacySurface`'s bridge-source guard, and that is the
+          // difference between the two: the probe reaches `window.sidekicks` directly,
+          // so the fixture cannot stand in for it, while the composed draft is
+          // console-authored and takes the bridge it is handed. It runs on the
+          // fixture exactly as it runs on the live preload.
+          newSession: createElement(composition.newSessionControl, { bridge: context.bridge }),
+        }),
+    },
+    {
+      slot: "agent-console",
+      owner: "runtime-node-attach",
+      render: (context) =>
+        mountSessionScopedLegacySurface(context, (sessionId) =>
+          createElement(NodeRoster, { sessionId }),
+        ),
+    },
+  ];
+}
 
 /**
  * Claim a slot for each shipped Tier-1 family.
@@ -106,8 +134,11 @@ const LEGACY_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
  * test can compose into a registry it owns and an auxiliary window can compose a
  * subset without a second code path.
  */
-export function registerLegacySurfaces(registry: ConsoleSurfaceRegistry): void {
-  for (const descriptor of LEGACY_SURFACES) {
+export function registerLegacySurfaces(
+  registry: ConsoleSurfaceRegistry,
+  composition: LegacySurfaceComposition,
+): void {
+  for (const descriptor of legacySurfaceDescriptors(composition)) {
     registry.register(descriptor);
   }
 }

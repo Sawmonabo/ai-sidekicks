@@ -30,7 +30,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { DECK_RESTORED_PANE_CAP, refuse, type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
-import { RefusalBanner } from "../primitives/index.js";
+import { RefusalBanner, useAnnounce } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
@@ -41,12 +41,14 @@ import { useDeckLayout, useDeckLayoutState, type DeckLayout } from "./deck/deck-
 import type { DeckPane } from "./deck/deck-model.js";
 import { DeckLayoutWriter } from "./deck/layout-persistence.js";
 import {
+  actorFollowHandler,
   composerSeatRenderer,
   consolePaneRegistry,
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
 } from "./seats/index.js";
+import { ACTOR_FOLLOW_ANNOUNCEMENTS, resolveActorFollow } from "./actor-follow.js";
 
 /** The durable record the deck's arrangement is saved under, per session. */
 const DECK_LAYOUT_RECORD_KEY = "deck-layout";
@@ -94,6 +96,11 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   const layout = useDeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
   const deckState = useDeckLayoutState(layout);
   const [handoff] = useState(() => new AuxiliaryHandoff({ growth: props.bridge.growth }));
+  // Read HERE and not inside the follow callback: a hook may not be called from one,
+  // and a workspace mounted outside `LiveAnnouncerProvider` should fail on this line
+  // rather than the first time somebody presses a chip.
+  const announce = useAnnounce();
+  const sessionStore = props.sessionStore;
   const [banners, setBanners] = useState<readonly ConsoleRefusal[]>([]);
 
   const raise = useCallback((refusal: ConsoleRefusal) => {
@@ -149,11 +156,10 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
 
   const onFollow = useCallback(
     (participantId: string) => {
-      // §4.1's follow has two halves. The first is the deck's and happens here: the
-      // actor's own pane takes focus where one is open, and the session's ledger
-      // otherwise. The second — the ledger scrolling to that actor's latest row —
-      // rides the ledger's scroll chokepoint (§5.8), which belongs to the pane this
-      // surface mounts and never to a `scrollIntoView` call here.
+      // §4.1's follow has two halves, and both of them happen. The first is the
+      // deck's: the actor's own pane takes focus where one is open, and the session's
+      // ledger otherwise. In a deck holding one timeline that half is a no-op, which
+      // is why the second half is not optional.
       const panes = layout.snapshot().panes;
       const target =
         panes.find((pane) => pane.entity?.id === participantId) ??
@@ -161,8 +167,28 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
       if (target !== undefined) {
         layout.focus(target.paneId);
       }
+
+      // The second half — the ledger scrolling to that actor's newest row — rides the
+      // ledger's own scroll chokepoint through the follow seat, never a
+      // `scrollIntoView` call here. Each way it can fail says so: a participant with
+      // no row, a row outside the window the ledger holds, and a window with no ledger
+      // mounted are three different facts, and a press that quietly did nothing
+      // reported none of them.
+      const resolution = resolveActorFollow(sessionStore?.snapshot().timeline ?? [], participantId);
+      if (resolution.outcome === "no-activity") {
+        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["no-activity"]);
+        return;
+      }
+      const follow = actorFollowHandler();
+      if (follow === undefined) {
+        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["no-ledger"]);
+        return;
+      }
+      if (follow({ participantId, newestSequence: resolution.newestSequence }) !== "revealed") {
+        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["row-not-in-view"]);
+      }
     },
-    [layout],
+    [announce, layout, sessionStore],
   );
 
   const composer = composerSeatRenderer();

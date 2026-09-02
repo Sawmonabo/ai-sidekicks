@@ -1,4 +1,4 @@
-// The sessions destination: what this window has open, and one way to start one.
+// The sessions destination: what this window has open, and the two ways to start one.
 //
 // WHY THIS SURFACE EXISTS AT ALL. The `sessions` slot used to mount the shipped
 // Tier-1 `SessionBootstrap` probe directly. That component calls `session.create`
@@ -67,6 +67,15 @@ export interface SessionsSurfaceProps {
    * a build that creates a session creates exactly one per press.
    */
   readonly startSession: () => ReactNode;
+  /**
+   * The composed-session control, held as a node rather than built on an act.
+   *
+   * The opposite of `startSession` above, and deliberately: that one must not be
+   * built until the press, because building it creates a session. This one owns its
+   * own open state and creates nothing until its own send, so rebuilding it per
+   * press would throw away whatever a person had chosen.
+   */
+  readonly newSession: ReactNode;
 }
 
 export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element {
@@ -80,16 +89,20 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   const [startRequestCount, setStartRequestCount] = useState(0);
 
   const heading = directory.status === "served" ? NODE_SESSIONS_HEADING : WINDOW_SESSIONS_HEADING;
-  const startControl = (
-    <button
-      type="button"
-      className="meridian-sessions__start"
-      onClick={() => {
-        setStartRequestCount((previous) => previous + 1);
-      }}
-    >
-      Start a session
-    </button>
+  // Both ways to have a session, offered together: compose one, or start one now.
+  const sessionActions = (
+    <>
+      {props.newSession}
+      <button
+        type="button"
+        className="meridian-sessions__start"
+        onClick={() => {
+          setStartRequestCount((previous) => previous + 1);
+        }}
+      >
+        Start a session
+      </button>
+    </>
   );
 
   return (
@@ -98,7 +111,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
         {heading}
       </h1>
       {sessionIds.length === 0 ? (
-        <SessionsAbsence directory={directory} action={startControl} />
+        <SessionsAbsence directory={directory} action={sessionActions} />
       ) : (
         <>
           <WireChoiceList
@@ -108,7 +121,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
             }}
             label={heading}
           />
-          {startControl}
+          {sessionActions}
         </>
       )}
       {startRequestCount === 0 ? null : (

@@ -39,7 +39,7 @@ import { registerLedger } from "./ledger/index.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
-import { consolePaneRegistry } from "./workspace/index.js";
+import { NewSessionControl, consolePaneRegistry } from "./workspace/index.js";
 
 /**
  * Register every shipped view family against a registry.
@@ -55,7 +55,12 @@ export function registerConsoleFamilies(registry: ConsoleSurfaceRegistry): void 
   // The registry refuses a second owner on one slot rather than letting import
   // order decide which surface mounts, so a seat added without the deletion is a
   // conflict the composition test names by slot rather than a silent swap.
-  registerLegacySurfaces(registry);
+  // The one composition argument this file carries. The sessions destination offers
+  // a composed new-session draft beside the shipped probe, and that control is the
+  // workspace family's — above the frame in the DAG, so the frame takes it as a
+  // parameter rather than importing it. Naming it here is the same act as naming a
+  // family below: which component fills a place, decided in one file.
+  registerLegacySurfaces(registry, { newSessionControl: NewSessionControl });
   // The deck's pane bodies have their own seat board, keyed by pane kind
   // rather than by surface slot. It is composed here so one call reaches the
   // whole console, and it takes the module-scope pane registry because the

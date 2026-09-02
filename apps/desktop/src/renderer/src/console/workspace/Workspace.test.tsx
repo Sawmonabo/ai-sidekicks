@@ -7,8 +7,8 @@
 // like "the deck opened with one pane", which is also what success looks like the
 // first time.
 
-import { render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, render, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
 import { createFixtureBridge } from "../bridge/index.js";
@@ -17,7 +17,12 @@ import { DraftStore, UiStateStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { FrameStore, SessionStore } from "../store/index.js";
-import { ConsolePaneRegistry } from "./seats/index.js";
+import {
+  ConsolePaneRegistry,
+  registerActorFollowHandler,
+  unregisterActorFollowHandler,
+} from "./seats/index.js";
+import { ACTOR_FOLLOW_ANNOUNCEMENTS } from "./actor-follow.js";
 import { Workspace } from "./Workspace.js";
 import { DeckLayout } from "./deck/deck-layout.js";
 
@@ -55,6 +60,28 @@ function sessionStore(): SessionStore {
   return store;
 }
 
+/** A store whose log already carries rows for the participant on the wheel. */
+function sessionStoreWithRows(): SessionStore {
+  const store = sessionStore();
+  store.applyBatch([
+    {
+      sessionId: SESSION_ID,
+      sequence: 1,
+      kind: "user.message",
+      occurredAt: "2026-01-01T09:01:00.000Z",
+      actorParticipantId: "participant-you",
+    },
+    {
+      sessionId: SESSION_ID,
+      sequence: 2,
+      kind: "user.message",
+      occurredAt: "2026-01-01T09:02:00.000Z",
+      actorParticipantId: "participant-you",
+    },
+  ]);
+  return store;
+}
+
 interface RenderedWorkspace {
   readonly container: HTMLElement;
   readonly uiStateStore: UiStateStore;
@@ -67,13 +94,13 @@ interface RenderedWorkspace {
  * hook throws outside the provider by design — so this wrapper is the production
  * mount shape rather than test scaffolding.
  */
-function renderWorkspace(uiStateStore: UiStateStore): RenderedWorkspace {
+function renderWorkspace(uiStateStore: UiStateStore, store?: SessionStore): RenderedWorkspace {
   const { container } = render(
     <LiveAnnouncerProvider>
       <Workspace
         bridge={createFixtureBridge({ scenario: SCENARIO })}
         frameStore={new FrameStore({ initialRoute: { kind: "workspace", sessionId: SESSION_ID } })}
-        sessionStore={sessionStore()}
+        sessionStore={store ?? sessionStore()}
         uiStateStore={uiStateStore}
         draftStore={new DraftStore()}
         route={{ kind: "workspace", sessionId: SESSION_ID }}
@@ -177,5 +204,73 @@ describe("Workspace — the saved arrangement", () => {
     // Discarded WHOLE: the deck falls back to the ledger rather than adopting the
     // pane the unknown record happened to name.
     expect(container.querySelectorAll(".meridian-deck__pane")).toHaveLength(1);
+  });
+});
+
+describe("Workspace — following an actor from the cast bar", () => {
+  afterEach(() => {
+    unregisterActorFollowHandler();
+  });
+
+  /** Press the first chip in the bar, the way a person does. */
+  function pressFirstChip(container: HTMLElement): void {
+    const chip = container.querySelector<HTMLButtonElement>(".meridian-cast-chip");
+    expect(chip).not.toBeNull();
+    // Inside `act`, because the announcement the press raises is committed by the
+    // announcer's own render pass and the assertions below read the live region.
+    act(() => {
+      chip?.click();
+    });
+  }
+
+  function politeText(container: HTMLElement): string {
+    return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
+  }
+
+  it("sends the actor's newest row through the ledger's follow seat", async () => {
+    // The defect: the press only focused a pane, and in a deck holding one timeline
+    // that pane was already focused — so following an actor moved nothing at all.
+    const follow = vi.fn().mockReturnValue("revealed");
+    registerActorFollowHandler("workspace-test", follow);
+    const { container } = renderWorkspace(memoryStore(), sessionStoreWithRows());
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-cast-chip")).not.toBeNull();
+    });
+
+    pressFirstChip(container);
+
+    expect(follow).toHaveBeenCalledWith({
+      participantId: "participant-you",
+      newestSequence: 2,
+    });
+    expect(politeText(container)).toBe("");
+  });
+
+  it("says so rather than doing nothing when the participant has no row", async () => {
+    const follow = vi.fn().mockReturnValue("revealed");
+    registerActorFollowHandler("workspace-test", follow);
+    const { container } = renderWorkspace(memoryStore());
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-cast-chip")).not.toBeNull();
+    });
+
+    pressFirstChip(container);
+
+    expect(follow).not.toHaveBeenCalled();
+    expect(politeText(container)).toBe(ACTOR_FOLLOW_ANNOUNCEMENTS["no-activity"]);
+  });
+
+  // The negative control: with rows present but no ledger filling the seat, the press
+  // says which of the two absences it hit. Without it the case above would pass over a
+  // workspace that announced "nothing yet" for every press it could not complete.
+  it("negative control: names the missing ledger rather than the missing row", async () => {
+    const { container } = renderWorkspace(memoryStore(), sessionStoreWithRows());
+    await waitFor(() => {
+      expect(container.querySelector(".meridian-cast-chip")).not.toBeNull();
+    });
+
+    pressFirstChip(container);
+
+    expect(politeText(container)).toBe(ACTOR_FOLLOW_ANNOUNCEMENTS["no-ledger"]);
   });
 });

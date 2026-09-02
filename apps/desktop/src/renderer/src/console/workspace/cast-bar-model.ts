@@ -30,6 +30,7 @@
 
 import type { ConsoleSessionEvent } from "../store/index.js";
 import type { ParticipantHueAssignment } from "../tokens/index.js";
+import { foldOutstandingAsks } from "./outstanding-asks.js";
 
 /**
  * The verb each registered event kind puts on a chip, in present tense.
@@ -62,24 +63,6 @@ export const CAST_VERB_BY_EVENT_KIND: Readonly<Record<string, string>> = {
   "approval.requested": "waiting on approval",
 };
 
-/**
- * The kinds that make a session amber or red.
- *
- * `Spec-023 §Console Design (Meridian)` §4.1 puts the all-clear line on screen "when
- * nothing in the session is amber or red", so the line needs a definition of amber
- * and red that is not a colour lookup. These are the kinds that mean somebody is
- * blocked on a person: an approval, an answer, or a failure. Every one is
- * registered; the test checks them the same way it checks the verb table.
- */
-export const CAST_ATTENTION_EVENT_KINDS: readonly string[] = [
-  "run.waiting_for_approval",
-  "run.waiting_for_input",
-  "run.failed",
-  "approval.requested",
-  "driver_ask.requested",
-  "intervention.requested",
-];
-
 /** One chip. */
 export interface CastMember {
   readonly participantId: string;
@@ -93,7 +76,13 @@ export interface CastMember {
   readonly newestEventKind: string | undefined;
   /** ISO-8601, wire-verbatim. Formatted at render time, never re-parsed. */
   readonly newestOccurredAt: string | undefined;
-  /** True where this participant's newest row is one the session needs a person for. */
+  /**
+   * True while an ask this participant opened is still outstanding.
+   *
+   * Folded by each ask's own lifecycle rather than read off the newest row: an agent
+   * blocked on an approval in one run and busy in another has a newest row that is
+   * not amber, and the run is still blocked.
+   */
   readonly needsAttention: boolean;
 }
 
@@ -132,6 +121,12 @@ export interface CastBarInput {
  * four-lane session.
  */
 export function deriveCastBar(input: CastBarInput): CastBarModel {
+  // Two passes over the log answering two different questions. The backwards one
+  // below finds each actor's newest row, which is the VERB. This one folds every ask
+  // by its own lifecycle, which is ATTENTION. Collapsing them — reading attention off
+  // the newest row — is what let a newer ordinary event clear an approval that was
+  // still blocking a parallel run.
+  const outstanding = foldOutstandingAsks(input.timeline);
   const newestByParticipantId = new Map<string, ConsoleSessionEvent>();
   for (let position = input.timeline.length - 1; position >= 0; position -= 1) {
     const event = input.timeline[position];
@@ -152,7 +147,7 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
       isVerbStale: input.isDegraded,
       newestEventKind: kind,
       newestOccurredAt: newest?.occurredAt,
-      needsAttention: kind !== undefined && CAST_ATTENTION_EVENT_KINDS.includes(kind),
+      needsAttention: outstanding.participantIds.has(hue.participantId),
     };
   });
 
@@ -160,9 +155,10 @@ export function deriveCastBar(input: CastBarInput): CastBarModel {
   return {
     members: shown,
     foldedMemberCount: allMembers.length - shown.length,
-    // Computed over EVERY member and not just the shown ones: folding a chip into
-    // "+N" hides the person, not the fact that they are blocked.
-    isAllClear: !input.isDegraded && !allMembers.some((member) => member.needsAttention),
+    // Read off the outstanding COUNT and not off the members, which is stronger than
+    // "every member, shown or folded": an ask the wire attributed to nobody puts no
+    // chip in amber and still means something in the session needs a person.
+    isAllClear: !input.isDegraded && outstanding.count === 0,
   };
 }
 

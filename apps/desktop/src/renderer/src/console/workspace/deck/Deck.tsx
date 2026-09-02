@@ -51,7 +51,7 @@ import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
 import { RealClock, type ConsoleRefusal } from "../../core/index.js";
-import { InlineRefusal, Nothing, useAnnounce } from "../../primitives/index.js";
+import { InlineRefusal, Nothing, isEditableTarget, useAnnounce } from "../../primitives/index.js";
 import { type ConsolePaneContext, type ConsolePaneRegistry } from "../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
 import { DECK_TOTAL_PERMILLE, toPaneSizePercentages, type DeckPane } from "./deck-model.js";
@@ -118,9 +118,18 @@ export function Deck(props: DeckProps): React.JSX.Element {
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      // `Alt` alone, so nothing here collides with the palette's `$mod` chords or
-      // with a text field's own word-wise navigation.
+      // `Alt` alone, so nothing here collides with the palette's `$mod` chords.
       if (!event.altKey || event.ctrlKey || event.metaKey) {
+        return;
+      }
+      // AND NOT FROM INSIDE A WIDGET THAT OWNS THESE KEYS. `Alt` alone is not the
+      // separation it was written as: on macOS Option+Arrow is word-wise caret
+      // movement and Option+Backspace deletes a word, and a pane body's find field,
+      // composer, or listbox bubbles those here. Without this the deck would move
+      // or CLOSE the pane somebody was typing in, and call `preventDefault` on the
+      // keystroke they meant. The chords stay available from the pane chrome, which
+      // is what has focus whenever a body does not.
+      if (isEditableTarget(event.target)) {
         return;
       }
       const focused = state.focusedPaneId;

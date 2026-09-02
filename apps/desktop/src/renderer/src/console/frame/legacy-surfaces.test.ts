@@ -14,6 +14,7 @@ import type { ConsoleBridgeSource } from "../bridge/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
+import { NewSessionControl } from "../workspace/index.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
 import { SessionsSurface } from "./SessionsSurface.js";
@@ -57,7 +58,10 @@ function centredAbsence(node: ReactNode): { type: unknown; props: Record<string,
 
 function registeredLegacySurfaces(): ConsoleSurfaceRegistry {
   const registry = new ConsoleSurfaceRegistry();
-  registerLegacySurfaces(registry);
+  // The composition the root performs, performed here for the same reason: this
+  // file may not import a view family into the frame, and the tests are not
+  // subjects of that rule, so they name what the root names.
+  registerLegacySurfaces(registry, { newSessionControl: NewSessionControl });
   return registry;
 }
 
@@ -118,6 +122,33 @@ describe("legacy surfaces — under a live bridge, the family mounts", () => {
     );
     const startSession = element.props["startSession"] as () => ReactNode;
     expect(renderedElement(startSession()).type).toBe(SessionBootstrap);
+  });
+
+  it("hands that surface the composed draft as a node, not as a builder", () => {
+    // The two controls differ in exactly this: building the probe is what creates a
+    // session, so it is deferred to the press; the draft creates nothing until its
+    // own send and owns what a person has chosen, so rebuilding it on each press
+    // would discard the composition. A `newSession` that arrived as a function
+    // would be the second mistake wearing the first one's clothes.
+    const registry = registeredLegacySurfaces();
+    const element = renderedElement(
+      registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "live")),
+    );
+    const newSession = renderedElement(element.props["newSession"] as ReactNode);
+    expect(newSession.type).toBe(NewSessionControl);
+    expect(typeof element.props["newSession"]).not.toBe("function");
+  });
+
+  it("does not put the composed draft behind the bridge-source guard", () => {
+    // The negative control for the case above and for the fixture arm below: the
+    // draft is console-authored and takes the bridge it is handed, so under the
+    // fixture it still mounts. A guard copied from the probe would have replaced it
+    // with the not-checked absence on exactly the window the fixture tiers render.
+    const registry = registeredLegacySurfaces();
+    const element = renderedElement(
+      registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "fixture")),
+    );
+    expect(renderedElement(element.props["newSession"] as ReactNode).type).toBe(NewSessionControl);
   });
 
   it("hands the node roster the session the auxiliary address names", () => {
