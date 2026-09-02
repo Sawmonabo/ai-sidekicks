@@ -31,6 +31,39 @@ import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
+/**
+ * A scenario whose `session.read` reply declares `state`.
+ *
+ * The first-run scenario with its one reply rewritten, so the directory reads
+ * through the shape a real scenario has. Local to this suite: the co-located
+ * `fixture-session-directory.test.ts` drives the derivation directly and this one
+ * drives it through the port, which is the seam each is about.
+ */
+function scenarioDeclaring(state: string): ConsoleScenario {
+  return {
+    ...FIRST_RUN_SCENARIO,
+    id: `first-run-declaring-${state}`,
+    replies: FIRST_RUN_SCENARIO.replies.map((reply) =>
+      reply.call === "session.read"
+        ? {
+            call: "session.read",
+            result: {
+              session: {
+                id: FIRST_RUN_SCENARIO.sessionId,
+                state,
+                config: {},
+                metadata: {},
+                createdAt: FIRST_RUN_SCENARIO.startedAtIso,
+                updatedAt: FIRST_RUN_SCENARIO.startedAtIso,
+              },
+              timelineCursors: { latest: "first-run-cursor-1" },
+            },
+          }
+        : reply,
+    ),
+  };
+}
+
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
   it("answers every operation its bridge claims to serve, and refuses every other", async () => {
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
@@ -146,37 +179,32 @@ describe("the fixture growth port — what it serves, and what it still refuses"
     // for every scenario, or that kept hardcoding one state, would satisfy the two
     // cases above; driving a scenario that declares a directory state OTHER than
     // `active` is what separates "read from the reply" from either.
-    const pausedScenario: ConsoleScenario = {
-      ...FIRST_RUN_SCENARIO,
-      id: "first-run-paused-probe",
-      replies: FIRST_RUN_SCENARIO.replies.map((reply) =>
-        reply.call === "session.read"
-          ? {
-              call: "session.read",
-              result: {
-                session: {
-                  id: FIRST_RUN_SCENARIO.sessionId,
-                  state: "paused",
-                  config: {},
-                  metadata: {},
-                  createdAt: FIRST_RUN_SCENARIO.startedAtIso,
-                  updatedAt: FIRST_RUN_SCENARIO.startedAtIso,
-                },
-                timelineCursors: { latest: "first-run-cursor-1" },
-              },
-            }
-          : reply,
-      ),
-    };
-    const bridge = createFixtureBridge({ scenario: pausedScenario });
+    //
+    // `archived` rather than the `paused` this case used to drive: `paused` is not
+    // a member of the contract's `SessionState` union, so the old expectation
+    // asserted a directory row no daemon can send and made an impossible payload
+    // look deliberate. `archived` is registered and is equally not `active`, so the
+    // control still separates the two implementations it was written to separate.
+    const bridge = createFixtureBridge({ scenario: scenarioDeclaring("archived") });
 
     const outcome = await bridge.growth.sessionList({});
 
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
       expect(outcome.value).toStrictEqual([
-        { sessionId: pausedScenario.sessionId, state: "paused" },
+        { sessionId: FIRST_RUN_SCENARIO.sessionId, state: "archived" },
       ]);
     }
+  });
+
+  it("refuses a scenario whose declared state the contract does not register", async () => {
+    // The other half of the same defect: the old filter admitted `paused`, so a
+    // scenario could serve a row no wire returns. It is an authoring defect in
+    // in-tree source, so the derivation refuses by name and the refusal reaches the
+    // caller rather than being flattened into the empty directory a first run
+    // legitimately produces — which is what an empty answer here would look like.
+    const bridge = createFixtureBridge({ scenario: scenarioDeclaring("paused") });
+
+    await expect(bridge.growth.sessionList({})).rejects.toThrow(/session-state-unregistered/u);
   });
 });
