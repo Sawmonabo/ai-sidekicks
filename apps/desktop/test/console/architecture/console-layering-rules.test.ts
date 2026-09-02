@@ -1,10 +1,11 @@
-// The layering rules that had no failing control until now.
+// The two layering rules that had no failing control until now.
 //
 // `structure:layering` is a command, not a suite: it reports on THIS tree, and a
 // tree that happens not to contain a violation reports clean whether the rule
-// exists or not. The console carries exactly one barrel-to-barrel forward and this
-// same change removed it, so without a planted control the rule that forbids the
-// shape would have shipped green and unproven.
+// exists or not. Two rules landed here whose subject does not exist yet — the six
+// view families are unlanded branches, and the console carries exactly one
+// barrel-to-barrel forward that this same change removed — so without a planted
+// control both would have shipped green and unproven.
 //
 // WHAT IS PLANTED AND WHY IT IS NOT A REIMPLEMENTATION. The rule set under test is
 // the real `.dependency-cruiser.mjs`, loaded through dependency-cruiser's own
@@ -38,6 +39,7 @@ const CONSOLE_ROOT = join("src", "renderer", "src", "console");
 
 /** The rule names this file owns. Everything else the cruise reports is another test's. */
 const BARREL_CHAIN_RULE = "console-no-barrel-chain";
+const VIEW_FAMILY_ISOLATION_RULE = "console-view-family-isolation";
 
 type PlantedTree = Readonly<Record<string, string>>;
 
@@ -67,6 +69,12 @@ const CLEAN_TREE: PlantedTree = {
 const BARREL_CHAIN_TREE: PlantedTree = {
   ...CLEAN_TREE,
   "bridge/index.ts": `export type { GrowthSessionSummary } from "./growth-values/index.js";\nexport type { SessionDirectoryReply } from "./growth-signatures.js";\n`,
+};
+
+/** The sibling edge the r9 rule set left green: one view family reaching another. */
+const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "collaboration/SentInvites.ts": `import type { RepoRefusal } from "../repos/RepoList.js";\n\nexport type InviteRefusal = RepoRefusal;\n`,
 };
 
 let plantRoot = "";
@@ -112,7 +120,11 @@ async function violationsFor(tree: PlantedTree): Promise<readonly string[]> {
     throw new TypeError("expected a cruise result object, not a formatted report");
   }
   return cruised.output.summary.violations
-    .filter((violation) => violation.rule.name === BARREL_CHAIN_RULE)
+    .filter(
+      (violation) =>
+        violation.rule.name === BARREL_CHAIN_RULE ||
+        violation.rule.name === VIEW_FAMILY_ISOLATION_RULE,
+    )
     .map((violation) => `${violation.rule.name}: ${violation.from} → ${violation.to}`);
 }
 
@@ -127,14 +139,21 @@ describe("console layering rules", () => {
     ]);
   });
 
+  it("fails one view family importing another", async () => {
+    expect(await violationsFor(VIEW_FAMILY_EDGE_TREE)).toEqual([
+      `${VIEW_FAMILY_ISOLATION_RULE}: ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")} → ${join(CONSOLE_ROOT, "repos/RepoList.ts")}`,
+    ]);
+  });
+
   it("leaves the composition site's import of a family door alone", async () => {
-    // `panes/index.ts` is in both trees above and never appears in a violation. Stated as
+    // `panes/index.ts` is in every tree above and never appears in a violation. Stated as
     // its own case because it is the one edge the barrel-chain rule would catch if it
     // matched on the module pair rather than on the `export … from` dependency type, and
     // a rule that reported it would make the pane board unwritable.
     const everyViolation = [
       ...(await violationsFor(CLEAN_TREE)),
       ...(await violationsFor(BARREL_CHAIN_TREE)),
+      ...(await violationsFor(VIEW_FAMILY_EDGE_TREE)),
     ];
     expect(everyViolation.filter((line) => line.includes("panes/index.ts"))).toEqual([]);
   });

@@ -209,6 +209,25 @@ export default {
       to: VIEW_FAMILIES,
     },
     {
+      name: "console-view-family-isolation",
+      comment:
+        "One VIEW family imported another. View families are siblings, not a ladder: the rule " +
+        "above only forbids a LAYER family reaching up into a view family, so without this one " +
+        "`collaboration/` → `repos/` stayed green and the six concurrent family branches could " +
+        "grow edges into each other that no ordering could ever untangle. Hoist the shared " +
+        "contract into `seats/` — that is what `seats/` is for — or into the lowest layer " +
+        "family that needs it. The two composition sites are the only files that name more " +
+        "than one view family, and they are subtracted from BOTH endpoints below, as they are " +
+        "from the view-family set itself.",
+      severity: "error",
+      // The top-level owner is captured from the source and subtracted from the target, so
+      // this is one rule over N families rather than N² pairs: a family added by a branch is
+      // covered the moment its directory exists. Intra-family edges — the common case — are
+      // the ones `$1` removes.
+      from: { path: `${CONSOLE}/([^/]+)/`, pathNot: VIEW_FAMILIES.pathNot },
+      to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
+    },
+    {
       name: "console-no-barrel-chain",
       comment:
         "A barrel re-exported from another barrel. A family door publishes its own family's " +
