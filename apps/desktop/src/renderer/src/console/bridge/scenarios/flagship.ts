@@ -132,6 +132,21 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
   // the join order — that entry is whoever opened the session, on whichever machine,
   // and the two facts coincide here only because this scenario chose to make them.
   viewingParticipantId: PARTICIPANT_YOU,
+  // The two memberships, and only the two. The four agents are in the join order
+  // because they take a hue; an agent is attached rather than admitted and holds no
+  // membership, so naming one here would put a row in the participant partition that
+  // resolves to a role no daemon granted.
+  //
+  // The viewer is an owner, which is what makes this scenario able to drive a
+  // role-gated control at all: the identity read answers `PARTICIPANT_YOU`, and the
+  // role a surface gates on is this entry, looked up in the roster the session read
+  // establishes. Priya's `collaborator` is the same value her `membership.created`
+  // beat below carries — one fact, stated where the roster is read from and replayed
+  // where the log records it arriving.
+  membershipRoleByParticipantId: {
+    [PARTICIPANT_YOU]: "owner",
+    [PARTICIPANT_PRIYA]: "collaborator",
+  },
   startedAtIso: "2026-01-01T14:20:00.000Z",
   beats: [
     {

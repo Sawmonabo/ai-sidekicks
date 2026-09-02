@@ -12,8 +12,9 @@
 // WHAT THIS MODULE OWNS, AND WHAT ITS THREE NEIGHBOURS DO
 //
 // This one owns the decision: which operations are served, and with which outcome.
-// The three answers with a job of their own live beside it, because each fails in a
-// way this one cannot — `fixture-session-directory.ts` derives what the node HAS,
+// The four answers with a job of their own live beside it, because each fails in a
+// way this one cannot — `fixture-session-snapshot.ts` derives the base state one
+// session opens with, `fixture-session-directory.ts` derives what the node HAS,
 // `fixture-attention-derivation.ts` folds beats into an attention projection, and
 // `fixture-scripted-answer.ts` maps a scripted settlement onto an outcome.
 //
@@ -44,16 +45,9 @@
 // console's own `SessionSnapshot`, which mints no second shape, and the slate row
 // names the registered request and reply as the half the corpus already owns.
 //
-// WHAT THE BASE STATE HONESTLY IS
-//
-// Cursor zero, no entities, and the scenario's join log. Zero rather than a
-// position derived from the scenario's beats, because a base state ahead of the
-// stream would make the store discard every beat below it; the subscription is
-// replay-then-tail, so nothing is missed by starting at the bottom. A re-read
-// therefore lands behind an initialised store's cursor and is a silent no-op,
-// which is `SessionStore.admitsSnapshotAt`'s documented behaviour and not a defect
-// of this port: repairing a degraded store needs a read that carries a position,
-// and this one cannot until the wire does.
+// WHAT THE BASE STATE HONESTLY IS — and why it is not derived here. Cursor zero,
+// the session's roster, and the memberships that roster holds, all of it
+// `fixture-session-snapshot.ts`'s, whose header carries the reasoning for each.
 //
 // WHY THE BRANCH-CONTEXT READ IS SERVED AND ANSWERS NOTHING
 //
@@ -98,6 +92,15 @@
 // scenario's business. `wire-truth.ts` holds a stated viewer to the roster, so the
 // served arm can never answer with an identity no surface could resolve a role from.
 //
+// AND THE ANSWER IS RESOLVABLE, WHICH IT WAS NOT. Being in the roster made the
+// identity well-formed and left it unusable: the base state carried no entities and
+// the composition root registers no `membership.*` projector, so `membershipRoleOf`
+// found nothing for the viewer under any scenario and every owner- and
+// collaborator-gated control rendered closed against a store that had never held a
+// participant — which looks, on screen, exactly like a member with no elevated role.
+// The roster now arrives with the base state (`fixture-session-snapshot.ts`), so the
+// identity this read serves resolves to the role the scenario declares for it.
+//
 // WHY THE REGISTRY READS REFUSE HERE, AND WHY THAT IS NOT A GAP EITHER
 //
 // Two rows land beside it whose operations this fixture answers none of, and each
@@ -127,6 +130,7 @@
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
+import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import { createRefusingGrowthPort, growthUnavailable, type GrowthPort } from "./growth-port.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 
@@ -164,18 +168,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
   const served: Pick<GrowthPort, FixtureServedGrowthOperationId> = {
     sessionRead: async (request) => ({
       status: "served",
-      value: {
-        cursor: 0,
-        entities: [],
-        // The join log is the scenario's only where the scenario is the session
-        // being read. Another id gets an empty one rather than this session's
-        // roster: hue allocation keys on join order, and lending one session's
-        // order to another would colour a stranger's rows as if they were hers.
-        participantJoinLog:
-          request.sessionId === engine.scenario.sessionId
-            ? engine.scenario.participantIdsInJoinOrder
-            : [],
-      },
+      value: fixtureSessionSnapshot(engine.scenario, request.sessionId),
     }),
     sessionList: async () => ({
       status: "served",

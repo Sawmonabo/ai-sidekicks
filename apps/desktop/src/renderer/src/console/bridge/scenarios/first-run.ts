@@ -38,6 +38,11 @@ export const FIRST_RUN_SCENARIO: ConsoleScenario = {
   // first-run surface that could not resolve its own participant would render the
   // invite affordance as unavailable on the one screen whose whole job is to offer it.
   viewingParticipantId: PARTICIPANT_YOU,
+  // And their role, without which the identity above answers into an empty roster:
+  // the invite affordance this screen exists to offer is owner-gated, so a first-run
+  // console whose sole member resolved to no role would render the one control the
+  // whole surface is for as unavailable.
+  membershipRoleByParticipantId: { [PARTICIPANT_YOU]: "owner" },
   startedAtIso: "2026-01-01T09:00:00.000Z",
   beats: [
     {
