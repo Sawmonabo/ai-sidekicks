@@ -1,0 +1,82 @@
+/* The all-sessions list's own styles.
+ *
+ * A two-column body: the list is the primary column and takes the measure, the
+ * start-or-join aside is a fixed narrow column on the right. It is a grid rather
+ * than a flex row because the aside's width is a decision (it holds a form, and a
+ * form that reflows with the window is a form whose fields jump), while the list's
+ * is whatever is left.
+ */
+
+.meridian-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-6);
+  padding: var(--meridian-space-6);
+  min-height: 100%;
+}
+
+.meridian-sessions__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-width: 64ch;
+}
+
+.meridian-sessions__title {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-sessions__lede {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-sessions__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--meridian-space-6);
+  align-items: start;
+}
+
+.meridian-sessions__list {
+  min-width: 0;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  padding: var(--meridian-space-4);
+}
+
+.meridian-sessions__count {
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-sessions__aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  padding: var(--meridian-space-4);
+}
+
+.meridian-sessions__aside-title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+/* Below the two-column threshold the aside stacks under the list rather than
+   shrinking: a 320px form squeezed to 180px is a form with wrapped labels. */
+@media (max-width: 960px) {
+  .meridian-sessions__body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

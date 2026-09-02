@@ -1,5 +1,12 @@
 // The three shipped families reach the screen, and reach it honestly.
 //
+// Two of them now reach it through a console-authored surface rather than through
+// a slot of their own, so this file covers two things: the one slot this registrar
+// still claims, and the two absorption helpers the console surfaces mount the other
+// two through. Both halves share one guard, and the guard is the claim — a helper
+// that mounted its component past the fixture check would look identical from the
+// outside until it answered from the live daemon in a window showing fixture data.
+//
 // The elements are inspected rather than rendered, and that is the point rather
 // than a shortcut. All three components read `window.sidekicks` on mount, so
 // MOUNTING them here would assert something about happy-dom's missing preload
@@ -15,7 +22,11 @@ import type { ConsoleRoute } from "../routing/index.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 import { ParticipantRoster } from "../../session-members/participant-roster.js";
-import { registerLegacySurfaces } from "./legacy-surfaces.js";
+import {
+  registerLegacySurfaces,
+  renderAbsorbedNodeRoster,
+  renderAbsorbedSessionProbe,
+} from "./legacy-surfaces.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 
@@ -62,36 +73,28 @@ function registeredLegacySurfaces(): ConsoleSurfaceRegistry {
 }
 
 describe("legacy surfaces — which family holds which slot", () => {
-  it("claims one slot per shipped family, each under its own owner", () => {
+  it("claims the one slot no console surface has taken over", () => {
     const registry = registeredLegacySurfaces();
     const claims = registry
       .registeredSlots()
       .map((slot) => [slot, registry.descriptorFor(slot)?.owner]);
-    expect(claims).toStrictEqual([
-      ["sessions", "session-bootstrap"],
-      ["workspace", "session-members"],
-      ["agent-console", "runtime-node-attach"],
-    ]);
+    expect(claims).toStrictEqual([["workspace", "session-members"]]);
   });
 
-  it("negative control: the slots nobody claimed stay reserved", () => {
+  it("negative control: the slots nobody claimed here stay reserved", () => {
     // "Reserved, not stubbed" is the frame's rule for an unclaimed slot, and the
-    // case above would read the same over a registrar that claimed all five.
+    // case above would read the same over a registrar that claimed all five. The
+    // `sessions` and `agent-console` slots are claimed by the console surfaces
+    // that absorbed these families — by THAT registrar, not this one.
     const registry = registeredLegacySurfaces();
+    expect(registry.descriptorFor("sessions")).toBeUndefined();
+    expect(registry.descriptorFor("agent-console")).toBeUndefined();
     expect(registry.descriptorFor("settings")).toBeUndefined();
     expect(registry.descriptorFor("timeline")).toBeUndefined();
   });
 });
 
 describe("legacy surfaces — under a live bridge, the family mounts", () => {
-  it("mounts the session probe with no props to give it", () => {
-    const registry = registeredLegacySurfaces();
-    const element = renderedElement(
-      registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "live")),
-    );
-    expect(element.type).toBe(SessionBootstrap);
-  });
-
   it("hands the roster the session the workspace address names", () => {
     const registry = registeredLegacySurfaces();
     const element = renderedElement(
@@ -102,40 +105,9 @@ describe("legacy surfaces — under a live bridge, the family mounts", () => {
     expect(element.type).toBe(ParticipantRoster);
     expect(element.props["sessionId"]).toBe("session-7");
   });
-
-  it("hands the node roster the session the auxiliary address names", () => {
-    const registry = registeredLegacySurfaces();
-    const element = renderedElement(
-      registry.descriptorFor("agent-console")?.render(
-        contextFor(
-          {
-            kind: "auxiliary",
-            route: "agent-console",
-            sessionId: "session-9",
-            agentId: undefined,
-          },
-          "live",
-        ),
-      ),
-    );
-    expect(element.type).toBe(NodeRoster);
-    expect(element.props["sessionId"]).toBe("session-9");
-  });
 });
 
 describe("legacy surfaces — under the fixture, the console says it did not ask", () => {
-  it("renders the not-checked absence instead of the component", () => {
-    // These components read the installed bridge directly, so the fixture cannot
-    // stand in for it. Mounting them anyway would either throw into the surface
-    // boundary or answer from the live daemon beside fixture data in one window.
-    const registry = registeredLegacySurfaces();
-    const element = centredAbsence(
-      registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "fixture")),
-    );
-    expect(element.type).not.toBe(SessionBootstrap);
-    expect(element.props["kind"]).toBe("not-checked");
-  });
-
   it("does not reach the session lookup at all", () => {
     // A bridge check placed after the session lookup would report "no session"
     // for a workspace address under the fixture, which is a different and false
@@ -152,40 +124,53 @@ describe("legacy surfaces — under the fixture, the console says it did not ask
 
 describe("legacy surfaces — an address that names no session", () => {
   it("says the surface needs one rather than mounting it without", () => {
-    // Unreachable through the frame, which resolves a bare auxiliary route through
-    // its context picker before any surface renders. Asserted anyway: the
-    // descriptor is callable by anything holding the registry, and the arm that
-    // exists only for that case is the arm nobody would notice going wrong.
     const registry = registeredLegacySurfaces();
     const element = centredAbsence(
-      registry
-        .descriptorFor("agent-console")
-        ?.render(
-          contextFor(
-            { kind: "auxiliary", route: "agent-console", sessionId: undefined, agentId: undefined },
-            "live",
-          ),
-        ),
+      registry.descriptorFor("workspace")?.render(contextFor({ kind: "sessions" }, "live")),
     );
-    expect(element.type).not.toBe(NodeRoster);
+    expect(element.type).not.toBe(ParticipantRoster);
     expect(element.props["kind"]).toBe("empty");
   });
 
   it("negative control: the same slot with a session mounts the component", () => {
     const registry = registeredLegacySurfaces();
     const element = renderedElement(
-      registry.descriptorFor("agent-console")?.render(
-        contextFor(
-          {
-            kind: "auxiliary",
-            route: "agent-console",
-            sessionId: "session-9",
-            agentId: undefined,
-          },
-          "live",
-        ),
-      ),
+      registry
+        .descriptorFor("workspace")
+        ?.render(contextFor({ kind: "workspace", sessionId: "session-7" }, "live")),
     );
+    expect(element.type).toBe(ParticipantRoster);
+  });
+});
+
+describe("legacy surfaces — the two families a console surface absorbed", () => {
+  it("mounts the session probe with no props to give it", () => {
+    expect(renderedElement(renderAbsorbedSessionProbe("live")).type).toBe(SessionBootstrap);
+  });
+
+  it("hands the node roster the session its caller resolved", () => {
+    const element = renderedElement(renderAbsorbedNodeRoster("live", "session-9"));
     expect(element.type).toBe(NodeRoster);
+    expect(element.props["sessionId"]).toBe("session-9");
+  });
+
+  it("keeps the fixture guard on both, because the guard is not the caller's", () => {
+    // The whole reason these are helpers rather than exported components. A console
+    // surface that imported `SessionBootstrap` directly would mount a component
+    // reading the installed bridge into a window showing fixture data.
+    expect(centredAbsence(renderAbsorbedSessionProbe("fixture")).props["kind"]).toBe("not-checked");
+    expect(centredAbsence(renderAbsorbedNodeRoster("fixture", "session-9")).props["kind"]).toBe(
+      "not-checked",
+    );
+  });
+
+  it("says the console needs a session rather than mounting the roster without one", () => {
+    // Reachable: the frame's context picker resolves a bare auxiliary address by
+    // choosing a SESSION, and the agent-console grammar carries its agent with its
+    // session — so a picked session arrives at the pane with no agent, and a pane
+    // opened session-scoped in the deck carries none either.
+    const element = centredAbsence(renderAbsorbedNodeRoster("live", undefined));
+    expect(element.type).not.toBe(NodeRoster);
+    expect(element.props["kind"]).toBe("empty");
   });
 });
