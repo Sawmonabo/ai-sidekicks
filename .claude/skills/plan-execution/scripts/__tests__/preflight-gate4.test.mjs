@@ -3898,7 +3898,16 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // references on marker lines that already existed, so no marker line is
     // added or removed, no none-arm row moves, and the legacy compact-inline
     // channel is untouched.
-    bold: { resolved: 1063, noneArm: 158, parentResolved: 0 },
+    // 1063/158 -> 1064/158 (2026-09-01, the same amendment's Codex round-6
+    // fold): three offsetting changes on the bold channel. Plan-018 T6.1 drops
+    // I-018-18 (-1) with the `prf_eval_input` column the round-5 form needed,
+    // that invariant being restated as the relying party minting no evaluation
+    // input at all, which T6.1 no longer has a leg in. Plan-023 mints I-023-19
+    // (envelopes are wrapped under the installation's custody root, never under
+    // a credential's KEK), named on the new task T-023r-4-8 (+1, one added
+    // marker line) and on the existing T-023r-4-7 marker (+1). Net +1, with the
+    // none-arm, parent-resolved, and legacy compact-inline channels untouched.
+    bold: { resolved: 1064, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
