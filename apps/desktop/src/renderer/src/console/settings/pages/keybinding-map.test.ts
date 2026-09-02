@@ -1,33 +1,37 @@
-// The map joins commands to bindings, and every verdict about a binding set comes
-// back from the keybinding service rather than from a second rule here.
+// The map joins commands to bindings, and the recorder reads one keystroke as one
+// act. Every verdict about a binding SET is the keybinding service's own and is
+// driven where that service is asked (`frame/keybinding-audit.test.ts`).
 
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleCommand, KeyBinding } from "../../palette/index.js";
 import {
-  auditKeybindings,
   composeKeybindingRows,
   matchKeybindingRows,
-  reservedChordReason,
+  readChordFromEvent,
+  type ChordRecording,
 } from "./keybinding-map.js";
 
 function command(id: string, title: string, group = "Navigation"): ConsoleCommand {
   return { id, title, group, run: () => undefined };
 }
 
-describe("reserved chords", () => {
-  it("names the reason a host takes a chord", () => {
-    expect(reservedChordReason("$mod+Space", "darwin")).toContain("Spotlight");
-    expect(reservedChordReason("Alt+Tab", "win32")).toContain("Windows");
-  });
-
-  it("negative control: an ordinary chord is not reserved anywhere", () => {
-    // Without this the assertions above would pass over a table that called every
-    // chord reserved, which would render the whole keyboard unavailable.
-    expect(reservedChordReason("$mod+KeyK", "darwin")).toBeUndefined();
-    expect(reservedChordReason("$mod+Space", "linux")).toBeUndefined();
-  });
-});
+/** One keystroke, as the recorder receives it. Only the fields it reads. */
+function press(
+  fields: Partial<
+    Pick<KeyboardEvent, "key" | "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">
+  >,
+): Parameters<typeof readChordFromEvent>[0] {
+  return {
+    key: "",
+    code: "",
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...fields,
+  };
+}
 
 describe("composing rows", () => {
   const commands = [
@@ -76,46 +80,87 @@ describe("composing rows", () => {
       rows.find((row) => row.commandId === "frame.goToWorkflows")?.unavailableReason,
     ).toBeUndefined();
   });
+
+  it("marks the rows a person changed, including one they left with no chord", () => {
+    const rows = composeKeybindingRows({
+      commands,
+      bindings,
+      overrides: { "frame.goToSessions": "$mod+1", "app.checkForUpdates": null },
+      platform: "darwin",
+    });
+    const changed = rows.filter((row) => row.overridden).map((row) => row.commandId);
+    expect(changed).toStrictEqual(["app.checkForUpdates", "frame.goToSessions"]);
+  });
+
+  it("negative control: with no overrides, no row claims to have been changed", () => {
+    // Without this the case above would pass over a composer that marked every row,
+    // and the page would offer a reset on rows with nothing to reset.
+    const rows = composeKeybindingRows({ commands, bindings, platform: "darwin" });
+    expect(rows.some((row) => row.overridden)).toBe(false);
+  });
 });
 
-describe("auditing a binding set", () => {
-  it("reports nothing wrong with a set that is well formed and disjoint", () => {
-    const audit = auditKeybindings([
-      { chord: "$mod+1", commandId: "frame.goToSessions" },
-      { chord: "$mod+2", commandId: "frame.goToWorkflows", when: "sessionActive" },
-    ]);
-    expect(audit.conflicts).toHaveLength(0);
-    expect(audit.dropped).toHaveLength(0);
+describe("reading a keystroke as a chord", () => {
+  it("composes the held modifiers and the physical key, in the console's order", () => {
+    const read = readChordFromEvent(
+      press({ key: "K", code: "KeyK", metaKey: true, shiftKey: true }),
+      "darwin",
+    );
+    expect(read).toStrictEqual<ChordRecording>({ outcome: "captured", chord: "$mod+Shift+KeyK" });
   });
 
-  it("negative control: two commands on one chord in one scope are named as a conflict", () => {
-    // The clean result above means nothing unless the audit bites. It is the real
-    // keybinding service answering, so a conflict rule that changed there changes
-    // this page's report in the same act.
-    const audit = auditKeybindings([
-      { chord: "$mod+1", commandId: "frame.goToSessions" },
-      { chord: "$mod+1", commandId: "frame.goToWorkflows" },
-    ]);
-    expect(audit.conflicts).toHaveLength(1);
-    expect(audit.conflicts[0]?.commandIds).toStrictEqual([
-      "frame.goToSessions",
-      "frame.goToWorkflows",
-    ]);
+  it("writes the platform's command modifier as `$mod` and the other one literally", () => {
+    // `⌃` and `⌘` are two different keys on macOS, so a recorder that folded them
+    // together would install the chord on the wrong one.
+    expect(readChordFromEvent(press({ key: "k", code: "KeyK", ctrlKey: true }), "darwin")).toEqual({
+      outcome: "captured",
+      chord: "Control+KeyK",
+    });
+    expect(readChordFromEvent(press({ key: "k", code: "KeyK", ctrlKey: true }), "win32")).toEqual({
+      outcome: "captured",
+      chord: "$mod+KeyK",
+    });
   });
 
-  it("negative control: a chord the service cannot parse is reported as dropped", () => {
-    const audit = auditKeybindings([{ chord: "", commandId: "frame.goToSessions" }]);
-    expect(audit.dropped).toHaveLength(1);
-    expect(audit.dropped[0]?.commandId).toBe("frame.goToSessions");
-    expect(audit.dropped[0]?.reason.length).toBeGreaterThan(0);
+  it("does not complete on a modifier held on its own", () => {
+    // A person on the way to ⌘⇧K passes through ⌘ and ⌘⇧; settling on either would
+    // bind the wrong chord every time.
+    expect(readChordFromEvent(press({ key: "Meta", code: "MetaLeft", metaKey: true }))).toEqual({
+      outcome: "incomplete",
+    });
+    expect(
+      readChordFromEvent(press({ key: "Shift", code: "ShiftLeft", metaKey: true, shiftKey: true })),
+    ).toEqual({ outcome: "incomplete" });
   });
 
-  it("keeps two disjoint scopes on one chord out of the conflict list", () => {
-    const audit = auditKeybindings([
-      { chord: "$mod+1", commandId: "frame.goToSessions", when: "onSettings" },
-      { chord: "$mod+1", commandId: "frame.goToWorkflows", when: "!onSettings" },
-    ]);
-    expect(audit.conflicts).toHaveLength(0);
+  it("cancels on Escape and clears on Backspace or Delete, pressed alone", () => {
+    expect(readChordFromEvent(press({ key: "Escape", code: "Escape" }))).toEqual({
+      outcome: "cancelled",
+    });
+    expect(readChordFromEvent(press({ key: "Backspace", code: "Backspace" }))).toEqual({
+      outcome: "cleared",
+    });
+    expect(readChordFromEvent(press({ key: "Delete", code: "Delete" }))).toEqual({
+      outcome: "cleared",
+    });
+  });
+
+  it("negative control: the same keys held with a modifier are chords, not commands", () => {
+    // Without this, `$mod+Backspace` — a chord somebody may legitimately want —
+    // would be unbindable, because the recorder would read it as a clearing.
+    expect(
+      readChordFromEvent(press({ key: "Backspace", code: "Backspace", metaKey: true }), "darwin"),
+    ).toEqual({ outcome: "captured", chord: "$mod+Backspace" });
+    expect(
+      readChordFromEvent(press({ key: "Escape", code: "Escape", shiftKey: true }), "darwin"),
+    ).toEqual({ outcome: "captured", chord: "Shift+Escape" });
+  });
+
+  it("falls back to the key when the host supplies no physical code", () => {
+    expect(readChordFromEvent(press({ key: "F5", code: "" }))).toEqual({
+      outcome: "captured",
+      chord: "F5",
+    });
   });
 });
 

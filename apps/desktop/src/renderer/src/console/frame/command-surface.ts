@@ -120,9 +120,10 @@ interface RailNavigationDetail {
  * because each had been written to match the other rather than the set.
  *
  * The ids are written out rather than composed from the destination name. They are
- * the console's public command vocabulary — a person can bind one on the Keyboard
- * page — so they read as the console's other ids read (`family.verbNoun`), and
- * totality over the union is what makes the membership uncheatable regardless.
+ * the console's public command vocabulary — a person binds one on the Keyboard page,
+ * and `keybinding-override-store.ts` addresses their override BY this id — so they
+ * read as the console's other ids read (`family.verbNoun`), and totality over the
+ * union is what makes the membership uncheatable regardless.
  *
  * The chords are positional for the first two and conventional for the third:
  * `$mod+,` is the platform's settings chord on every desktop the console targets,
@@ -148,13 +149,21 @@ export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavig
 };
 
 /**
- * Chords the frame itself binds. A family's chords ride its own registration.
+ * The chords the frame SHIPS. A family's chords ride its own registration.
  *
- * Walked from `RAIL_DESTINATIONS` so the bound set and the rendered set are one
- * set. Nothing else is bound here: `frame.goToWorkspace` is offered in the palette
- * and carries no chord, because the three chords a person builds muscle memory for
+ * The declared default table, and deliberately not the installed one: what a window
+ * installs is this composed with the overrides a person authored, and only
+ * `keybinding-override-store.ts` answers that. A consumer reading this table to
+ * decide what to install, or what to print beside a command, would show the chords
+ * of a keyboard nobody has.
+ *
+ * Walked from `RAIL_DESTINATIONS` so the shipped set and the rendered set are one
+ * set. Nothing else is shipped bound: `frame.goToWorkspace` is offered in the palette
+ * and ships with no chord, because the three chords a person builds muscle memory for
  * are the three icons in front of them, and a fourth binding on a destination the
- * rail does not draw is a keystroke with nothing to point at.
+ * rail does not draw is a keystroke with nothing to point at. A person who wants one
+ * anyway binds it on the Keyboard page, which is what an override for a command this
+ * table does not name is for.
  */
 export const FRAME_KEY_BINDINGS: readonly FrameKeyBinding[] = RAIL_DESTINATIONS.map(
   (destination) => ({
