@@ -142,11 +142,10 @@
         "canonicalValue": 20971520,
         "canonicalUnit": "bytes"
       },
-      "status": "n/a",
+      "status": "enforced",
       "producedBy": "T-023p-1C-7",
-      "measuredBy": null,
-      "notMeasurableReason": "The reading is taken — `test/console/budget/heap-terminal.test.ts` measures a real `@xterm/xterm` instance at the default scrollback against this row — but the tier it lives in is not a gate: `test:console-bundle` reaches neither the aggregate `test` script nor a CI job, and `apps/desktop/AGENTS.md` requires both before a row may read `enforced`. Wiring that tier flips this row and fills `measuredBy`.",
-      "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget). The measuring harness exists at `apps/desktop/test/console/budget/heap-terminal.test.ts`; it is named here rather than in `measuredBy`, which this revision holds null because the row is not yet a gate."
+      "measuredBy": "apps/desktop/test/console/budget/heap-terminal.test.ts",
+      "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget). The row read `n/a` until 2026-09-02 for a reason that was true when it was written and is not now: `apps/desktop/AGENTS.md` requires an enforced row to be reachable from the aggregate `test` script AND from a CI job, and `test:console-bundle` — the tier `heap-terminal.test.ts` lives in — was on neither. It is on both today, in the aggregate script's third Turbo group and in `.github/workflows/ci.yml`'s desktop step, so the row names its harness and gates. The measurement is taken against a real `@xterm/xterm` instance at the default scrollback, held live across the sample, with the teardown and the undisposed instance as its controls."
     },
     {
       "id": "time-to-first-ledger-row",

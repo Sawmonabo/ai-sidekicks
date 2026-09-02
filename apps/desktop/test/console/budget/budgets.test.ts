@@ -53,8 +53,18 @@ const EXPECTED_BUDGET_IDS: readonly string[] = [
  * could report green over a renderer well past its ceiling. The row is `"n/a"`
  * against the task that takes the real CDP reading; re-listing it here without
  * that measurement restores the false green rather than the gate.
+ *
+ * `terminal-instance-memory` joined on 2026-09-02, and by the opposite movement:
+ * its measurement was already real — one `@xterm/xterm` instance at the default
+ * scrollback, held live across the sample — and what was missing was the wiring
+ * `apps/desktop/AGENTS.md` requires before a row may say `enforced`. Its tier,
+ * `test:console-bundle`, is now in both the aggregate `test` script and the CI
+ * desktop step, so the row gates rather than declaring a gate that does not run.
  */
-const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = ["renderer-initial-bundle"];
+const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
+  "renderer-initial-bundle",
+  "terminal-instance-memory",
+];
 
 /** How each declared unit reduces to its canonical unit. */
 const CANONICAL_UNIT_FACTORS: Readonly<Record<string, { factor: number; canonical: string }>> = {

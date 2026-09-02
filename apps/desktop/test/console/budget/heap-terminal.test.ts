@@ -13,12 +13,13 @@
 // budget-tier question. The endurance tier's terminal file asks the different
 // question — whether a churn of instances leaves the number where it started.
 //
-// WHY THE ROW STAYS `n/a` EVEN THOUGH THIS FILE MEASURES IT. `apps/desktop/
-// AGENTS.md`: "A budget marked `enforced` is reachable from the aggregate `test`
-// script AND from a CI job." `test:console-bundle` is in neither, so flipping the
-// row would declare a gate that does not run — the exact failure the neighbouring
-// `heap-budget.test.ts` was written to keep retired. The row's reason names that,
-// and this file is the measurement waiting for the wiring.
+// WHY THE ROW READS `enforced`. `apps/desktop/AGENTS.md`: "A budget marked
+// `enforced` is reachable from the aggregate `test` script AND from a CI job." This
+// file was written while `test:console-bundle` was on neither, so the row said `n/a`
+// and named the wiring it was waiting for — declaring a gate that does not run is
+// the exact failure the neighbouring `heap-budget.test.ts` was written to keep
+// retired. That tier is on both today, so the row names this file as its harness and
+// the pairing below asserts the wiring rather than the waiting.
 //
 // WHY THE ENVIRONMENT IS OVERRIDDEN. This project is `node`, because every other
 // budget subject is a file on disk. A terminal is not: the emulator opens against
@@ -167,12 +168,16 @@ describe("the per-terminal memory budget", () => {
     HEAP_CASE_TIMEOUT_MS,
   );
 
-  it("stays an ungated row until the budget tier is wired, and says so", () => {
-    // The pairing this file is held to: it MEASURES, and the row still reports
-    // `n/a` with a reason, because `test:console-bundle` reaches neither the
-    // aggregate `test` script nor a CI job.
-    expect(budget.status).toBe("n/a");
-    expect(budget.measuredBy).toBeNull();
-    expect(budget.notMeasurableReason ?? "").toContain("test:console-bundle");
+  it("is a gate that names this file, and this file is the one that runs", () => {
+    // The pairing this file is held to, in both directions: the row claims to be
+    // enforced, and the harness it names is this one. A row pointing at a file that
+    // does not measure it, or a measurement no row points at, is how a budget goes
+    // green while nothing is watching it. The other half of the word `enforced` —
+    // that this file's tier is on the aggregate script and on a CI job — is asserted
+    // generically by `test/console/architecture/ci-tier-coverage.test.ts`, against
+    // the resolved project set rather than against a search for a string.
+    expect(budget.status).toBe("enforced");
+    expect(budget.measuredBy).toBe("apps/desktop/test/console/budget/heap-terminal.test.ts");
+    expect(budget.notMeasurableReason).toBeNull();
   });
 });
