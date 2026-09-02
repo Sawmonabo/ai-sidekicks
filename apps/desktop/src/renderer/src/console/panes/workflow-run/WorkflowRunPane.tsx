@@ -96,6 +96,27 @@ function openHumanFormFor(phases: readonly WorkflowPhaseState[]): HumanFormMount
 }
 
 /**
+ * How one phase is named wherever this pane names one.
+ *
+ * ONE DERIVATION FOR TWO SURFACES, which is the point of the function rather than an
+ * incidental tidiness: the graph labels a node and the park card names a phase, and
+ * an operator reading a card is matching it against a node. Two call sites each
+ * reaching for a member would be two chances to disagree, and a disagreement here is
+ * invisible — both would render a plausible string.
+ *
+ * IT IS THE PHASE ID BECAUSE NOTHING ELSE IS READABLE FROM HERE. The authored phase
+ * `name` lives on the definition body, which no read reachable from this build
+ * serves (the graph's own comment enumerates why). Composing a prettier label out of
+ * the id — title-casing it, splitting it on separators — would put an invented name
+ * on screen that is indistinguishable from an authored one. The day a definition
+ * read lands, this function is the single place its `name` replaces the id, and both
+ * surfaces move together.
+ */
+function phaseDisplayLabel(phase: WorkflowPhaseState): string {
+  return phase.phaseId;
+}
+
+/**
  * What stands above the slots for one read state.
  *
  * Every arm is a different fact and none of them is the others: nobody asked, the
@@ -169,7 +190,7 @@ function RunPhaseGraph(props: {
 }): React.JSX.Element {
   const nodes: readonly PhaseGraphNode[] = props.phases.map((phase) => ({
     phaseId: phase.phaseId,
-    label: phase.phaseId,
+    label: phaseDisplayLabel(phase),
     state: phase.state,
     gateState: phase.gateState,
     isParked: phase.parkReason !== undefined,
@@ -188,11 +209,20 @@ function RunPhaseGraph(props: {
  *
  * A run with nothing parked says so rather than rendering an empty region: "nothing
  * is waiting on anyone" is the answer an operator opened this pane for.
+ *
+ * EVERY CARD NAMES ITS PHASE. A run that branches parks more than one phase at a
+ * time, and a stack of cards carrying only reason, cause and schedule leaves an
+ * operator unable to tell which branch stopped — the two cards of a fan-out read
+ * identically. The identity is the same value the node above the cards is labelled
+ * with, so a person reads one key in two places rather than matching a card to a
+ * node by position.
  */
 function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): React.JSX.Element {
   const parked = props.phases.flatMap((phase) => {
     const park = phasePark(phase);
-    return park === undefined ? [] : [{ phaseId: phase.phaseId, park }];
+    return park === undefined
+      ? []
+      : [{ phaseId: phase.phaseId, label: phaseDisplayLabel(phase), park }];
   });
   if (parked.length === 0) {
     return (
@@ -207,10 +237,9 @@ function RunParks(props: { readonly phases: readonly WorkflowPhaseState[] }): Re
   return (
     <div className="meridian-workflow__parks">
       {parked.map((entry) => (
-        // Keyed by the phase, which is the run's own identity for it. No phase name
-        // reaches the console from any registered read, so the badge is given none
-        // rather than one composed here.
-        <ParkBadge key={entry.phaseId} park={entry.park} />
+        // Keyed by the phase, which is the run's own identity for it, and named by
+        // the same derivation the graph labels that phase's node with.
+        <ParkBadge key={entry.phaseId} park={entry.park} phaseName={entry.label} />
       ))}
     </div>
   );

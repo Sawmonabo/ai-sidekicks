@@ -100,6 +100,57 @@ describe("workflow run pane — the arms and what each offers", () => {
     expect(section.querySelector(".meridian-refusal--banner")).toBeNull();
   });
 
+  it("names the phase on every park card, so two parked branches are told apart", async () => {
+    // The defect: a card rendered reason, cause and schedule and dropped the phase,
+    // so a run parked on two branches showed two cards a person could not tell
+    // apart. Read off the fixture rather than written out, so a scenario that
+    // re-keys its phases moves the expectation with it.
+    const section = renderPane(paneContext(PARKED, answeringBridge()));
+    const parkedPhaseIds = WORKFLOWS_PARKED_RUN.phaseStates
+      .filter((phase) => phase.parkReason !== undefined)
+      .map((phase) => phase.phaseId);
+
+    await waitFor(() => {
+      expect(section.querySelectorAll(".meridian-park")).toHaveLength(parkedPhaseIds.length);
+    });
+    const namedPhases = [...section.querySelectorAll(".meridian-park__phase")].map(
+      (element) => element.textContent,
+    );
+
+    // Every card carries one, and they are the run's own phase keys in the run's own
+    // order. A card that named nothing renders no such element and fails on length;
+    // a card that named a constant fails on the values, because the fixture's two
+    // parks sit on two different phases.
+    expect(namedPhases).toStrictEqual(parkedPhaseIds);
+    expect(new Set(namedPhases).size).toBe(parkedPhaseIds.length);
+  });
+
+  it("labels the graph's nodes with the same key the park cards name", async () => {
+    // The reason the identity is derived once: an operator reading a card is
+    // matching it against a node. Two call sites reaching for a member separately
+    // would each render something plausible and could disagree without anything
+    // failing, which is what this asserts against.
+    const section = renderPane(paneContext(PARKED, answeringBridge()));
+
+    await waitFor(() => {
+      expect(section.querySelectorAll(".meridian-phase-node__label").length).toBe(
+        WORKFLOWS_PARKED_RUN.phaseStates.length,
+      );
+    });
+    const nodeLabels = new Set(
+      [...section.querySelectorAll(".meridian-phase-node__label")].map(
+        (element) => element.textContent,
+      ),
+    );
+
+    for (const named of section.querySelectorAll(".meridian-park__phase")) {
+      expect(nodeLabels).toContain(named.textContent);
+    }
+    // Negative control: without this the loop would pass over a run whose cards
+    // named nothing at all, since an empty list satisfies every member claim.
+    expect(section.querySelectorAll(".meridian-park__phase").length).toBeGreaterThan(1);
+  });
+
   it("captions the graph rather than inferring a topology no read carries", async () => {
     // The run read answers with an ordered phase array and no dependencies, and no
     // registered read this console can put yields the pinned definition that has
