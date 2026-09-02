@@ -241,10 +241,15 @@ function CatalogRow(props: CatalogRowProps): React.JSX.Element {
         </span>
       ) : null}
       {entry.description === undefined ? (
+        // `empty` and not `not-checked`: the enumeration WAS read, and it came back
+        // carrying this entry without a description. Saying nobody asked would be
+        // false about a read that happened, and the entry is offered exactly as it
+        // was enumerated — nothing here supplies copy the provider did not.
         <Nothing
-          kind="not-checked"
+          kind="empty"
+          placement="inline"
           title="The provider published no description"
-          detail="The entry is offered exactly as it was enumerated; nothing here supplies copy the provider did not."
+          detail="This entry was enumerated without one."
         />
       ) : (
         <span className="meridian-command-discovery__description">{entry.description}</span>
