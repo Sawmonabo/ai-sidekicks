@@ -344,6 +344,13 @@ interface SpawnResult {
   // the direct child on Linux too, so the flag is what keeps the diagnosis
   // right on the platform the gate runs on.)
   readonly timedOut: boolean;
+  // Wall time the at-deadline diagnostic collection actually spent, or null if
+  // the deadline never fired. Exposed so the bound can be asserted against a
+  // measurement of itself rather than inferred from total elapsed time.
+  readonly diagnosticCollectionMs: number | null;
+  // The `$DISPLAY` the child was given, or undefined when none was set. Exposed
+  // so a test can assert the child could not have used the ambient display.
+  readonly childDisplay: string | undefined;
 }
 
 // Resolves the X display this spawn should use, honouring the test-only
@@ -413,6 +420,37 @@ const xdpyinfoMissing =
 function localDisplaySocketPath(display: string): string | null {
   const localDisplay = /^:(\d+)(\.\d+)?$/.exec(display);
   return localDisplay === null ? null : `/tmp/.X11-unix/X${localDisplay[1]}`;
+}
+
+// Finds a display number nothing has claimed, for the dead-display control.
+//
+// A hardcoded `:987` is not known-dead on a shared host: CI runners, tmpfs that
+// outlives a crashed server, and a colleague's own Xvfb can all leave a stale
+// `/tmp/.X11-unix/X987`, and a stale socket defeats the socket-existence check
+// this control exists to drive — the gate would report the display as ready and
+// the test would fail for a reason that has nothing to do with the code.
+//
+// So the number is RESERVED at test time instead of assumed: scan downward from
+// a high number and take the first whose X lock file AND unix socket are both
+// absent. Both are checked because either alone can be stale independently —
+// the lock is what a live server holds, the socket is what the gate reads.
+//
+// This is a scan, not a lock; nothing stops a server appearing between the
+// check and the spawn. On a test host that is not a real risk, and the
+// alternative — actually binding a display to prove it is free — would mean
+// standing up an X server inside a test whose entire subject is not having one.
+function reserveDeadDisplay(): string {
+  for (let displayNumber = 999; displayNumber > 900; displayNumber -= 1) {
+    const lockPath = `/tmp/.X${String(displayNumber)}-lock`;
+    const socketPath = `/tmp/.X11-unix/X${String(displayNumber)}`;
+    if (!existsSync(lockPath) && !existsSync(socketPath)) {
+      return `:${String(displayNumber)}`;
+    }
+  }
+  throw new Error(
+    "No unclaimed X display number in :901-:999 — refusing to run the " +
+      "dead-display control against a number something else may own.",
+  );
 }
 
 // Does the named X display actually answer?
@@ -626,6 +664,40 @@ function terminateElectronTree(child: ChildProcess, signal: NodeJS.Signals): voi
   child.kill(signal);
 }
 
+/**
+ * Line-buffered scanner for the readiness breadcrumb trail on ONE stream.
+ *
+ * Exported for direct unit testing, and stateful by nature — a chunk boundary
+ * can fall anywhere, including inside the tag itself, so the unfinished tail of
+ * each chunk has to be carried into the next one. The probe-line scanner in
+ * `spawnElectron` has always done this; the breadcrumb scanner did not, and
+ * split a straddling breadcrumb into two fragments that both failed to match,
+ * silently losing the very evidence the trail exists to provide.
+ *
+ * One instance PER STREAM. Sharing an instance across stdout and stderr would
+ * splice the tail of one stream onto the head of the other and synthesise a
+ * line neither of them emitted.
+ */
+export class ReadinessLineScanner {
+  #pending = "";
+
+  /** Feeds one chunk; returns the breadcrumbs completed by it, in order. */
+  push(chunk: string): string[] {
+    this.#pending += chunk;
+    const lines = this.#pending.split("\n");
+    // `pop()` yields the unterminated trailing piece when the chunk does not
+    // end on a newline, or "" when it does — both are the right carry-forward.
+    this.#pending = lines.pop() ?? "";
+    const breadcrumbs: string[] = [];
+    for (const line of lines) {
+      const marker = line.indexOf(READINESS_BREADCRUMB_TAG);
+      if (marker < 0) continue;
+      breadcrumbs.push(line.slice(marker + READINESS_BREADCRUMB_TAG.length).trim());
+    }
+    return breadcrumbs;
+  }
+}
+
 function spawnElectron(): Promise<SpawnResult> {
   const startedAt = Date.now();
 
@@ -638,6 +710,14 @@ function spawnElectron(): Promise<SpawnResult> {
   // termination and the failure renderer are all the production ones.
   const forcedStall = process.env[FORCED_STALL_ENV] !== undefined;
   const spawnBudgetMs = forcedStall ? FORCED_STALL_SPAWN_TIMEOUT_MS : SPAWN_TIMEOUT_MS;
+
+  // Strip an inherited probe opt-in when forcing a stall; see the `env` block.
+  const { SIDEKICKS_SMOKE_PROBE: _inheritedProbeOptIn, ...envWithoutProbe } = process.env;
+  const spawnBaseEnv = forcedStall ? envWithoutProbe : process.env;
+
+  // What the child's `$DISPLAY` will be. Resolved once here so the value the
+  // harness gated on and the value the child receives cannot diverge.
+  const childDisplay = resolvedDisplay();
 
   // Per-spawn Chromium profile — the deterministic fix for this test's
   // historical flake, and the reason it needs no retry wrapper.
@@ -685,6 +765,8 @@ function spawnElectron(): Promise<SpawnResult> {
         diagnostics: captureDiagnostics("refused-before-spawn", null, false),
         spawnBudgetMs,
         timedOut: false,
+        diagnosticCollectionMs: null,
+        childDisplay,
       };
       try {
         rmSync(userDataDir, { recursive: true, force: true });
@@ -717,7 +799,19 @@ function spawnElectron(): Promise<SpawnResult> {
     const child = spawn(cmd, args, {
       cwd: PACKAGE_ROOT,
       env: {
-        ...process.env,
+        // Under the forced-stall override the probe opt-in is DROPPED from the
+        // inherited environment, not merely left unset below. A developer with
+        // `SIDEKICKS_SMOKE_PROBE=1` exported in their shell would otherwise
+        // have it inherited through the spread, the app would emit a real probe
+        // line, and the stalled-boot control would quietly stop testing a
+        // stall. Same guard, and same reason, as `lifecycle.gc.test.ts`'s
+        // `envWithoutSmoke`.
+        ...spawnBaseEnv,
+        // Pinned rather than inherited so the child cannot fall back to the
+        // ambient display. This matters exactly when the readiness gate has
+        // regressed: without it a spawn that should have been refused would
+        // open on the developer's real display and pass, hiding the regression.
+        ...(childDisplay === undefined ? {} : { DISPLAY: childDisplay }),
         // Activates the main-process smoke-mode branch declared in
         // `apps/desktop/src/main/index.ts`. The branch is conditional on
         // exactly the string "1" so it is a deliberate opt-in. The
@@ -734,7 +828,8 @@ function spawnElectron(): Promise<SpawnResult> {
         // Withheld under the forced-stall override: with no probe opt-in the
         // app boots normally and simply never emits a probe line, which is a
         // REAL stall for this harness rather than a simulated one, and is what
-        // lets the stalled-boot test drive the deadline path end to end.
+        // lets the stalled-boot test drive the deadline path end to end. The
+        // inherited value is stripped above, so this is the only source.
         ...(forcedStall ? {} : { SIDEKICKS_SMOKE_PROBE: "1" }),
         // Emit the corroborating readiness breadcrumbs (`dom-ready`,
         // `ready-to-show`) beside the asserted `did-finish-load`. Opt-in per
@@ -779,6 +874,7 @@ function spawnElectron(): Promise<SpawnResult> {
     let pending = "";
     let escalationTimer: NodeJS.Timeout | null = null;
     let deadlineFired = false;
+    let collectionMs: number | null = null;
 
     const spawnDeadline = setTimeout(() => {
       // The spawn timeout (`spawnBudgetMs`) is a backstop — the in-app window
@@ -798,7 +894,21 @@ function spawnElectron(): Promise<SpawnResult> {
       // precisely the reading that would have named this flake on its first
       // occurrence instead of its fourth.
       deadlineFired = true;
-      diagnostics.push(...captureDiagnostics("at-deadline", child, true));
+      // Timed and RECORDED, not merely bounded. The recorded figure is what the
+      // stalled-boot test asserts on, which keeps that assertion measuring the
+      // thing it claims — the collection's own cost — instead of total wall
+      // time, whose dominant term is Electron's teardown after SIGTERM and is
+      // neither bounded here nor ours to control. It also earns its place in
+      // the dump: a collection that ran long is itself a reading about the
+      // runner.
+      const collectionStartedAt = Date.now();
+      const atDeadline = captureDiagnostics("at-deadline", child, true);
+      collectionMs = Date.now() - collectionStartedAt;
+      diagnostics.push(
+        ...atDeadline,
+        `[at-deadline] collection took ${String(collectionMs)}ms ` +
+          `(budget ${String(DIAGNOSTIC_BUDGET_MS)}ms)`,
+      );
       terminateElectronTree(child, "SIGTERM");
       escalationTimer = setTimeout(() => {
         terminateElectronTree(child, "SIGKILL");
@@ -828,19 +938,16 @@ function spawnElectron(): Promise<SpawnResult> {
     // streams are scanned. Ordering within a stream is preserved; the offsets
     // the main process stamps on each line are what makes the sequence
     // readable regardless of interleaving.
-    const scanReadiness = (text: string): void => {
-      for (const line of text.split("\n")) {
-        const marker = line.indexOf(READINESS_BREADCRUMB_TAG);
-        if (marker < 0) continue;
-        readinessBreadcrumbs.push(line.slice(marker + READINESS_BREADCRUMB_TAG.length).trim());
-      }
-    };
+    // One scanner per stream — see `ReadinessLineScanner` for why they are not
+    // shared.
+    const stdoutReadiness = new ReadinessLineScanner();
+    const stderrReadiness = new ReadinessLineScanner();
 
     child.stdout.on("data", (chunk: Buffer) => {
       const text = chunk.toString("utf8");
       stdout += text;
       combinedOutput += text;
-      scanReadiness(text);
+      readinessBreadcrumbs.push(...stdoutReadiness.push(text));
       // Accumulate into `pending`, slice off complete lines (split on
       // `\n`), retain the (possibly empty) suffix for the next chunk.
       // `lines.pop()` returns either the unterminated trailing piece
@@ -872,7 +979,7 @@ function spawnElectron(): Promise<SpawnResult> {
       const text = chunk.toString("utf8");
       stderr += text;
       combinedOutput += text;
-      scanReadiness(text);
+      readinessBreadcrumbs.push(...stderrReadiness.push(text));
     });
 
     // Silent-failure-shape mitigation. Node's `child_process.spawn` emits an
@@ -899,6 +1006,8 @@ function spawnElectron(): Promise<SpawnResult> {
         diagnostics,
         spawnBudgetMs,
         timedOut: deadlineFired,
+        diagnosticCollectionMs: collectionMs,
+        childDisplay,
       });
     });
 
@@ -915,6 +1024,8 @@ function spawnElectron(): Promise<SpawnResult> {
         diagnostics,
         spawnBudgetMs,
         timedOut: deadlineFired,
+        diagnosticCollectionMs: collectionMs,
+        childDisplay,
       });
     });
   });
@@ -1144,16 +1255,23 @@ describe("desktop shell substrate boot", () => {
   it(
     "refuses a dead display with a diagnostic dump rather than a bare timeout",
     async () => {
-      const deadDisplay = ":987";
+      const deadDisplay = reserveDeadDisplay();
       process.env[FORCED_DISPLAY_ENV] = deadDisplay;
       let failureMessage: string;
+      let result: SpawnResult;
       try {
-        const result = await spawnElectron();
+        result = await spawnElectron();
         expect(result.probe).toBeNull();
         failureMessage = renderReadinessFailure(result);
       } finally {
         delete process.env[FORCED_DISPLAY_ENV];
       }
+
+      // The child would have been pinned to the reserved display, not the
+      // ambient one. Asserted because this is what makes the control sound if
+      // the gate ever regresses: without the pin a spawn that should have been
+      // refused would open on the developer's real display and pass.
+      expect(result.childDisplay).toBe(deadDisplay);
 
       // Classified, not the catch-all arm — the reader is told which
       // precondition failed.
@@ -1223,17 +1341,23 @@ describe("desktop shell substrate boot", () => {
       // documents: the shim exits with a code here, not a signal.
       expect(result.timedOut).toBe(true);
 
-      // The structural claim, asserted TIGHT: the stalled path fits inside the
-      // deadline plus the diagnostic bound plus the termination grace — i.e.
-      // WITHOUT drawing on TEST_TIMEOUT_SLACK_MS at all. Deliberately not
-      // asserted against FORCED_STALL_TEST_TIMEOUT_MS, which is the same sum
-      // plus that slack: a single unbounded 5 s probe would still fit under the
-      // looser bound on a platform that runs only one of the two probes, so the
-      // loose form would be a live control on Linux and a vacuous one on macOS.
-      // This form fails on both.
-      expect(elapsedMs).toBeLessThan(
-        FORCED_STALL_SPAWN_TIMEOUT_MS + DIAGNOSTIC_BUDGET_MS + TERMINATION_GRACE_MS,
-      );
+      // THE structural claim, asserted against a measurement of itself: the
+      // collection honoured its own bound.
+      //
+      // Deliberately not asserted as "total elapsed < deadline + budget +
+      // grace". That form is arithmetically equivalent only if teardown is
+      // free, and it is not — on CI the SIGTERM-to-`close` leg is the dominant
+      // term (~2 s) and is bounded by nothing this file owns. Asserting on it
+      // would make a de-flaking change carry a fresh wall-clock flake, which
+      // would be a poor joke. The recorded figure has no such term in it.
+      expect(result.diagnosticCollectionMs).not.toBeNull();
+      expect(result.diagnosticCollectionMs).toBeLessThanOrEqual(DIAGNOSTIC_BUDGET_MS);
+
+      // Backstop only, deliberately loose: the whole path still finished inside
+      // the derived enclosing budget. This one is not the control — it is the
+      // assertion that would catch a regression the recorded figure cannot see,
+      // e.g. a termination path that stopped terminating.
+      expect(elapsedMs).toBeLessThan(FORCED_STALL_TEST_TIMEOUT_MS);
 
       // The readiness failure, not a bare timeout: classified, and carrying the
       // dump with the at-deadline readings in it.
@@ -1258,7 +1382,76 @@ describe("desktop shell substrate boot", () => {
       // an empty table, which is the kind of assertion this file exists to
       // stop shipping.)
       expect(failureMessage).not.toContain("diagnostic budget exhausted");
+
+      // The recorded cost is in the dump too, so a slow collection is legible
+      // to a human reading CI output rather than only to this assertion.
+      expect(failureMessage).toContain("[at-deadline] collection took");
     },
     FORCED_STALL_TEST_TIMEOUT_MS,
   );
+});
+
+// Unit coverage for the breadcrumb scanner's line buffering.
+//
+// This is the failure the buffer exists to stop: a breadcrumb straddling a
+// chunk boundary was previously split into two fragments, NEITHER of which
+// matched the tag, so the breadcrumb vanished. That is the worst possible
+// outcome for a diagnostic trail — it goes missing precisely when the process
+// is under enough load to fragment its own writes, which is the load that
+// produces the stalls it is there to explain.
+describe("ReadinessLineScanner", () => {
+  const emit = (event: string, offsetMs: number): string =>
+    `${READINESS_BREADCRUMB_TAG} ${event} +${String(offsetMs)}ms\n`;
+
+  it("recovers a breadcrumb split across two chunks", () => {
+    const line = emit("dom-ready", 133);
+    // Split inside the TAG itself, which is the case a naive per-chunk
+    // `split("\n")` cannot recover from at all.
+    const splitAt = READINESS_BREADCRUMB_TAG.length - 3;
+    const scanner = new ReadinessLineScanner();
+    expect(scanner.push(line.slice(0, splitAt))).toEqual([]);
+    expect(scanner.push(line.slice(splitAt))).toEqual(["dom-ready +133ms"]);
+  });
+
+  it("recovers a breadcrumb split at every possible boundary", () => {
+    const line = emit("ready-to-show", 148);
+    for (let splitAt = 0; splitAt <= line.length; splitAt += 1) {
+      const scanner = new ReadinessLineScanner();
+      const seen = [...scanner.push(line.slice(0, splitAt)), ...scanner.push(line.slice(splitAt))];
+      expect(seen).toEqual(["ready-to-show +148ms"]);
+    }
+  });
+
+  it("holds an unterminated line until its newline arrives", () => {
+    const scanner = new ReadinessLineScanner();
+    // No trailing newline: the breadcrumb is not complete and must NOT be
+    // reported yet, or a truncated offset would be recorded as fact.
+    expect(scanner.push(`${READINESS_BREADCRUMB_TAG} did-finish-load +12`)).toEqual([]);
+    expect(scanner.push("34ms\n")).toEqual(["did-finish-load +1234ms"]);
+  });
+
+  it("reports several breadcrumbs arriving in one chunk, in order", () => {
+    const scanner = new ReadinessLineScanner();
+    expect(scanner.push(emit("dom-ready", 1) + emit("ready-to-show", 2))).toEqual([
+      "dom-ready +1ms",
+      "ready-to-show +2ms",
+    ]);
+  });
+
+  it("ignores untagged output and never emits for it", () => {
+    const scanner = new ReadinessLineScanner();
+    expect(scanner.push("some unrelated stderr\nmore of it\n")).toEqual([]);
+  });
+
+  it("keeps two streams' partial lines apart", () => {
+    // The reason each stream gets its own instance: a shared one would splice
+    // stdout's tail onto stderr's head and synthesise a line neither emitted.
+    const stdoutScanner = new ReadinessLineScanner();
+    const stderrScanner = new ReadinessLineScanner();
+    expect(stdoutScanner.push(`${READINESS_BREADCRUMB_TAG} dom-`)).toEqual([]);
+    expect(stderrScanner.push(`${READINESS_BREADCRUMB_TAG} ready-to-show +2ms\n`)).toEqual([
+      "ready-to-show +2ms",
+    ]);
+    expect(stdoutScanner.push("ready +1ms\n")).toEqual(["dom-ready +1ms"]);
+  });
 });
