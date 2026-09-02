@@ -33,11 +33,22 @@
 // — which is why the row carries the whole summary and renders four of it: opening a
 // row hands its caller everything the detail needs without a second read.
 //
+// THE LIST IS PAGED, AND ITS CONTINUATION IS PART OF THE LIST. The enumeration is
+// cursor-paged on the wire, so the rows on screen are a prefix rather than the whole
+// answer, and a browser that showed the prefix with nothing beside it would be
+// asserting the prefix IS the answer. The continuation therefore renders under the
+// groups and not inside one: the cursor pages the whole enumeration across every
+// scope at once, so a control inside a group would claim a per-scope handle the wire
+// never gave. "Absent, not disabled" applies to it like every other control here —
+// it appears while a cursor is held and not otherwise.
+//
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method and none of
 // these shapes; `WorkflowDefinitionRow` below mirrors the `WorkflowDefinitionSummary`
 // declaration in `docs/architecture/contracts/api-payload-contracts.md` as the
 // console's own consumption shape, on the growth port's precedent. Rows reach this
 // component from its caller and are fixture-fed until the wire registers.
+
+import "./definitions-continuation.css";
 
 import { memo } from "react";
 
@@ -247,36 +258,82 @@ export interface DefinitionsBrowserProps {
   readonly onOpenDefinition?: OpenDefinition | undefined;
   /** Reads a definition file in and submits it. Absent while nothing can import one. */
   readonly onImportDefinition?: (() => void) | undefined;
+  /** Asks for the page after these. Absent while no cursor is held. */
+  readonly onContinueReading?: (() => void) | undefined;
+  /** True while that page is in flight, so its absence reads as a wait. */
+  readonly isContinuing?: boolean | undefined;
+  /** A refused continuation, rendered beside the control. The rows held stay. */
+  readonly continuationRefusal?: ConsoleRefusal | undefined;
+}
+
+/**
+ * What stands under the groups: the handle to the next page, or a wait, or nothing.
+ *
+ * A function rather than a component, matching `renderScopeBody` next door — this is
+ * one of the browser's regions rather than a body with a life of its own, and the
+ * three arms are exhaustive over what a caller can say about the pages beyond these.
+ */
+function renderContinuation(props: DefinitionsBrowserProps): React.ReactNode {
+  if (props.isContinuing === true) {
+    // A wait ON the pages held, never in place of them: the rows above stay on screen
+    // while the next page arrives, because they were served and are still true.
+    return <Nothing kind="not-loaded" placement="inline" title="Reading more definitions." />;
+  }
+  if (props.onContinueReading === undefined && props.continuationRefusal === undefined) {
+    return null;
+  }
+  return (
+    <div className="meridian-definitions-continuation">
+      {props.continuationRefusal === undefined ? null : (
+        <InlineRefusal
+          code={props.continuationRefusal.code}
+          detail={props.continuationRefusal.detail}
+        />
+      )}
+      {props.onContinueReading === undefined ? null : (
+        <button
+          type="button"
+          className="meridian-workflow__action"
+          onClick={props.onContinueReading}
+        >
+          Show more definitions
+        </button>
+      )}
+    </div>
+  );
 }
 
 /** The three scope groups, in resolution order, with their rows. */
 export function DefinitionsBrowser(props: DefinitionsBrowserProps): React.JSX.Element {
   const pendingScopes = props.pendingScopes ?? [];
   return (
-    <ol className="meridian-workflow__scopes">
-      {WORKFLOW_DEFINITION_SCOPES.map((scope) => (
-        <DefinitionScopeGroup
-          key={scope}
-          scope={scope}
-          definitions={props.definitions.filter((definition) => definition.scope === scope)}
-          refusal={props.scopeRefusals?.[scope]}
-          isPending={pendingScopes.includes(scope)}
-          onOpenDefinition={props.onOpenDefinition}
-          emptyAction={
-            // Import belongs to the scope an import lands in, and a control offered
-            // three times is a control that reads as three different acts.
-            scope === "session" && props.onImportDefinition !== undefined ? (
-              <button
-                type="button"
-                className="meridian-workflow__action"
-                onClick={props.onImportDefinition}
-              >
-                Import a definition file
-              </button>
-            ) : undefined
-          }
-        />
-      ))}
-    </ol>
+    <>
+      <ol className="meridian-workflow__scopes">
+        {WORKFLOW_DEFINITION_SCOPES.map((scope) => (
+          <DefinitionScopeGroup
+            key={scope}
+            scope={scope}
+            definitions={props.definitions.filter((definition) => definition.scope === scope)}
+            refusal={props.scopeRefusals?.[scope]}
+            isPending={pendingScopes.includes(scope)}
+            onOpenDefinition={props.onOpenDefinition}
+            emptyAction={
+              // Import belongs to the scope an import lands in, and a control offered
+              // three times is a control that reads as three different acts.
+              scope === "session" && props.onImportDefinition !== undefined ? (
+                <button
+                  type="button"
+                  className="meridian-workflow__action"
+                  onClick={props.onImportDefinition}
+                >
+                  Import a definition file
+                </button>
+              ) : undefined
+            }
+          />
+        ))}
+      </ol>
+      {renderContinuation(props)}
+    </>
   );
 }

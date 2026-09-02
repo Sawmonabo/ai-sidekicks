@@ -54,6 +54,12 @@ export interface WorkflowsSurfaceProps {
   readonly onImportDefinition?: () => void;
   /** Opens one definition's detail. Absent while nothing can open one. */
   readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
+  /** Asks for the page after the ones shown. Absent while no cursor is held. */
+  readonly onContinueReading?: (() => void) | undefined;
+  /** True while that page is in flight, so its absence reads as a wait. */
+  readonly isContinuing?: boolean | undefined;
+  /** A refused continuation, rendered beside the control. The rows shown stay. */
+  readonly continuationRefusal?: ConsoleRefusal | undefined;
 }
 
 /** The definitions browser's chrome, grouped by scope in resolution order. */
@@ -83,6 +89,9 @@ export function WorkflowsSurface(props: WorkflowsSurfaceProps): React.JSX.Elemen
         scopeRefusals={props.scopeRefusals}
         onOpenDefinition={props.onOpenDefinition}
         onImportDefinition={props.onImportDefinition}
+        onContinueReading={props.onContinueReading}
+        isContinuing={props.isContinuing}
+        continuationRefusal={props.continuationRefusal}
       />
       <WorkflowSlotMount
         slot={WORKFLOW_CHAT_START_SLOT}

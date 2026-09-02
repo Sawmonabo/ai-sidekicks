@@ -31,6 +31,35 @@ import {
   type WorkflowDefinitionDirectoryState,
 } from "./definition-directory.js";
 
+/**
+ * The continuation control the browser offers, given one read state.
+ *
+ * Present exactly while the hook would act on it — a cursor in hand and nothing in
+ * flight — so "absent, not disabled" is decided once, here, rather than by the
+ * browser rendering a control and the hook quietly ignoring it.
+ */
+function continuationActionFor(
+  directory: WorkflowDefinitionDirectoryState,
+  continueReading: () => void,
+): (() => void) | undefined {
+  if (directory.status !== "served") {
+    return undefined;
+  }
+  const { continuation } = directory;
+  return continuation.status === "available" || continuation.status === "unavailable"
+    ? continueReading
+    : undefined;
+}
+
+/** The refusal a continuation came back with, if the last one did. */
+function continuationRefusalFor(
+  directory: WorkflowDefinitionDirectoryState,
+): ConsoleRefusal | undefined {
+  return directory.status === "served" && directory.continuation.status === "unavailable"
+    ? directory.continuation.refusal
+    : undefined;
+}
+
 /** The scopes whose page is still in flight, given one read state. */
 function pendingScopesFor(
   directory: WorkflowDefinitionDirectoryState,
@@ -62,18 +91,21 @@ export interface WorkflowsBrowserProps {
 
 /** The definitions browser, reading the definitions it shows. */
 export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Element {
-  const directory = useWorkflowDefinitionDirectory(props.growth, props.sessionId);
+  const { state, continueReading } = useWorkflowDefinitionDirectory(props.growth, props.sessionId);
   // Memoized on the read state alone: both derivations are pure functions of it, and
   // rebuilding the refusal record every render would hand the browser a fresh object
   // identity each time and defeat the row memoization underneath it.
-  const pendingScopes = useMemo(() => pendingScopesFor(directory), [directory]);
-  const scopeRefusals = useMemo(() => scopeRefusalsFor(directory), [directory]);
+  const pendingScopes = useMemo(() => pendingScopesFor(state), [state]);
+  const scopeRefusals = useMemo(() => scopeRefusalsFor(state), [state]);
   return (
     <WorkflowsSurface
       state={{ kind: "ready" }}
-      definitions={directory.status === "served" ? directory.definitions : undefined}
+      definitions={state.status === "served" ? state.definitions : undefined}
       pendingScopes={pendingScopes}
       scopeRefusals={scopeRefusals}
+      onContinueReading={continuationActionFor(state, continueReading)}
+      isContinuing={state.status === "served" && state.continuation.status === "reading"}
+      continuationRefusal={continuationRefusalFor(state)}
     />
   );
 }
