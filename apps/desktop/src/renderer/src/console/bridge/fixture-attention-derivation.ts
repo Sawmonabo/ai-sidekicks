@@ -19,16 +19,33 @@
 //
 // WHAT THE DERIVATION CLAIMS, AND WHAT IT DELIBERATELY DOES NOT
 //
-// Three of the six registered triggers are derived, and they are exactly the three
-// `Spec-019 §Default Behavior` classifies: "Pending approval or required input is
-// actionable attention by default" covers `run.waiting_for_approval` and
+// Four of the six registered triggers are derived. Three of the four are the ones
+// `Spec-019 §Default Behavior` classifies by name: "Pending approval or required
+// input is actionable attention by default" covers `run.waiting_for_approval` and
 // `run.waiting_for_input`; "Run completion and invite receipt are informational
-// attention by default" covers `run.completed`. The other three are not derived, and
-// each is left out for a reason rather than for lack of time:
+// attention by default" covers `run.completed`.
 //
-//   • `run_failed` — the spec classifies neither severity for it, and Plan-019 T2.3
-//     owns the trigger-to-severity mapping. A fixture that picked one would be
-//     teaching every surface a wire fact no document states.
+// The fourth is `run_failed`, and it is classified by APPLYING the spec's definition
+// of the two classes rather than by picking a default. `Spec-019 §Required Behavior`
+// makes run failure a required trigger and states the distinction the product turns
+// on — "passive informational notifications" against "actionable blocking attention"
+// — and §Default Behavior's actionable class is exactly the suspended-run class: a
+// run waiting for an approval decision, or waiting for participant input. A failed
+// run is terminal and blocks on no participant; its remedy is a new run, which the
+// ledger already offers. So it is informational by the spec's own definition of the
+// classes. Reading the spec as classifying nothing here was the narrower reading, and
+// its consequence was the defect: a scenario that played a failure CLEARED the run's
+// attention through the fold's delete branch, and the served projection then reported
+// nothing for the one state a failure-oriented surface exists to show.
+//
+// The daemon projector owns the mapping — Plan-019 T2.3 derives it from canonical
+// events — and wire truth beats fixture. The day that projector lands and classifies
+// this differently, the table below moves to match it; nothing above this module is
+// entitled to disagree with the wire.
+//
+// The other two registered triggers are not derived, each for a reason rather than
+// for lack of time:
+//
 //   • `invite_received` — `invite.created` is registered, but no scenario plays one,
 //     so the fold would have no input; it lands with the scenario that needs it.
 //   • `mention` — the event census registers no mention type at all, so there is
@@ -60,8 +77,9 @@ interface AttentionClassification {
  * second mechanism — some rule about which later kinds cancel which earlier ones —
  * where here it is the same one fact, read again.
  *
- * Three entries, and the three are exactly what `Spec-019 §Default Behavior`
- * classifies; the header says why the other three registered triggers are absent.
+ * Four entries. The header says which three `Spec-019 §Default Behavior` classifies
+ * by name, how the fourth follows from that spec's own definition of the two classes,
+ * and why the remaining two registered triggers are absent.
  */
 const ATTENTION_BY_RUN_STATE: Readonly<Record<string, AttentionClassification>> = {
   waiting_for_approval: {
@@ -78,6 +96,11 @@ const ATTENTION_BY_RUN_STATE: Readonly<Record<string, AttentionClassification>> 
     trigger: "run_completed",
     severity: "informational",
     summary: "A run finished.",
+  },
+  failed: {
+    trigger: "run_failed",
+    severity: "informational",
+    summary: "A run failed.",
   },
 };
 
