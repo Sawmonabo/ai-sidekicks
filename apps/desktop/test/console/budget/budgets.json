@@ -141,10 +141,11 @@
         "canonicalValue": 20971520,
         "canonicalUnit": "bytes"
       },
-      "status": "enforced",
-      "producedBy": "T-023p-1C-7",
-      "measuredBy": "apps/desktop/test/console/budget/heap-terminal.test.ts",
-      "notes": "T-023p-1C-7 names this budget explicitly as the invariant it verifies (I-023-14, the per-terminal budget). The row read `n/a` until 2026-09-02 for a reason that was true when it was written and is not now: `apps/desktop/AGENTS.md` requires an enforced row to be reachable from the aggregate `test` script AND from a CI job, and `test:console-bundle` — the tier `heap-terminal.test.ts` lives in — was on neither. It is on both today, in the aggregate script's third Turbo group and in `.github/workflows/ci.yml`'s desktop step, so the row names its harness and gates. The measurement is taken against a real `@xterm/xterm` instance at the default scrollback, held live across the sample, with the teardown and the undisposed instance as its controls."
+      "status": "n/a",
+      "producedBy": "T-023p-1C-8",
+      "measuredBy": null,
+      "notMeasurableReason": "The subject is a terminal PANE, and no pane can be opened in a renderer at this revision: `registerConsolePanes` claims the `terminal` kind, but nothing in production code resolves a descriptor out of that registry, so the built console mounts no deck and there is no `TerminalPane` to hold. What can be driven today is the adapter alone, under a DOM shim with no WebGL2, sampling the Node process's own V8 heap — which leaves the WebGL renderer, the pane's React tree, its lease, and its store state outside the reading while this row's own sentence includes them. Gating on that is a measurement narrower than the budget it claims to enforce, and it can report a false green at 20 MiB over a pane well past it. The row gates again from the endurance tier — the tier that already launches the built console and produces this file's other renderer-heap figure — once a deck mounts panes and instances can be opened through the real registry with the WebGL renderer live.",
+      "notes": "The row was `enforced` for one day, 2026-09-02, and what sent it back is not the wiring: `test:console-bundle` really is on both the aggregate `test` script and the CI desktop step. It is the SUBJECT. The harness constructed `XtermTerminalAdapter` directly under happy-dom and sampled the Node process's own heap, so a regression in the native or WebGL renderer, in the pane's React tree, in its lease, or in its store state could not move the number the gate read — and `apps/desktop/AGENTS.md` requires an enforced row's `measuredBy` to name a harness that holds the subject it bounds. The adapter-level heap claims that ARE in reach live on the endurance tier beside the pane churn they belong with; they read this ceiling as a reference figure, and none of them presents itself as this row's measurement."
     },
     {
       "id": "time-to-first-ledger-row",

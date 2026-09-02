@@ -187,7 +187,7 @@ describe("teardown", () => {
     // this object still holds. An addon kept as a field outlives `#terminal` and
     // holds the whole emulator through it — measured, before this was fixed, as
     // almost all of a full instance's bytes surviving a teardown, which is what
-    // `test/console/budget/heap-terminal.test.ts` gates.
+    // `test/console/endurance/terminal-endurance.test.ts` holds it to.
     expect(adapter.serialize()).toBe("");
     expect(adapter.findNext("a line the serializer can see")).toBe(false);
   });

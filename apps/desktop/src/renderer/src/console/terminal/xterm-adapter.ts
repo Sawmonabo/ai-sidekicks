@@ -108,7 +108,7 @@ export class XtermTerminalAdapter {
   // buffer — reachable through this object after `dispose()` nulled `#terminal`,
   // which is a disposal that frees nothing. Measured: holding them left almost all
   // of a full instance's bytes retained across a teardown, which is what
-  // `test/console/budget/heap-terminal.test.ts` gates against the budget row.
+  // `test/console/endurance/terminal-endurance.test.ts` holds this object to.
   #fitAddon: FitAddon | undefined;
   #searchAddon: SearchAddon | undefined;
   #serializeAddon: SerializeAddon | undefined;

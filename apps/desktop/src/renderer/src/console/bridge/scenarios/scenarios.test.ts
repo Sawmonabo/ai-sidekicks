@@ -184,6 +184,25 @@ describe("the terminal scenario ends held, then loses its host", () => {
       .at(-1);
   }
 
+  /**
+   * The last lease transition the script plays.
+   *
+   * Found rather than named by sequence: the script grows beats when a transition
+   * gains the acquisition it needed, and a hard-coded ordinal turns that into a
+   * silently vacuous filter — the control below would then remove nothing and pass
+   * against the very script it exists to reject.
+   */
+  function finalLeaseTransition(): ScenarioBeat {
+    const transitions = TERMINAL_SCENARIO.beats.filter(
+      (beat) => beat.event.kind === "pty.control_changed",
+    );
+    const newest = transitions.at(-1);
+    if (newest === undefined) {
+      throw new Error("the terminal scenario scripts no lease transition");
+    }
+    return newest;
+  }
+
   /** The lease transitions scripted strictly after the first beat of this kind. */
   function transitionsAfter(kind: string): readonly ScenarioBeat[] {
     const index = TERMINAL_SCENARIO.beats.findIndex((beat) => beat.event.kind === kind);
@@ -207,7 +226,7 @@ describe("the terminal scenario ends held, then loses its host", () => {
     // exactly the mistake it exists to catch, and which a run of automatic releases
     // makes easy to leave behind.
     const withoutFinalTake = TERMINAL_SCENARIO.beats.filter(
-      (beat) => !(beat.event.kind === "pty.control_changed" && beat.event.sequence === 15),
+      (beat) => beat !== finalLeaseTransition(),
     );
     expect(holderAfter(withoutFinalTake)).toBeNull();
   });

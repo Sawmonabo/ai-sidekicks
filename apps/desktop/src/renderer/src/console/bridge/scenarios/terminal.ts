@@ -16,6 +16,17 @@
 // into one sentence and still look right, so all five appear below, in the order a
 // session reaches them.
 //
+// AND EACH ONE IS REACHED THE WAY THE DAEMON REACHES IT. A reason scripted onto a
+// sequence no daemon produces is a fixture that looks exercised and is not, so the
+// run-idle release below is preceded by the acquisition it releases: the agent's run
+// queued, started, and reached `running`; an AGENT-PATH take bound to that run; the
+// run leaving `running`; and only then `auto_released_run_idle` for that holder.
+// `Spec-003 §Required Behavior` makes this release the acquiring run's first
+// lifecycle transition out of `running` after an agent-path take, and it leaves a
+// client-acquired human hold alone — so releasing a human who had simply pressed
+// Claim was a beat with no producer, and the tests and baselines reading it were
+// exercising nothing.
+//
 // The payload members are `Spec-006`'s own: a holder, the holder it replaced, and
 // the reason. `holderParticipantId: null` is the free lease, and it is written as
 // an explicit null rather than an omitted member because 8.8 makes an unheld lease
@@ -38,6 +49,11 @@
 // after the final take — and a surface that derived the unheld rendering from a
 // missing `pty.control_changed` would never reach it, which is also why 8.8's last
 // Never rule reads "never derives the holder from the last observed claim".
+//
+// ITS LENGTH IS ITS SCRIPT'S LENGTH. The package's "a file over about 400 lines is
+// doing two jobs" rule is a heuristic for a module that grew a second job; this one
+// declares one session's beats in the order they play, and a script split across two
+// files is a script whose order no longer reads off the page.
 //
 // WHAT REMAINS UNREACHABLE FROM A SCENARIO, STATED RATHER THAN QUIETLY MISSING. The
 // three refusals (`pty.permission_denied` before any lease comparison,
@@ -63,6 +79,13 @@ const SECOND_HUMAN_MEMBERSHIP_ID = "019b7b30-0280-7e3b-8110-cca0117a0133";
 const AGENT_PARTICIPANT_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 
 /**
+ * The agent's run, here rather than implied: `auto_released_run_idle` releases the
+ * lease when THE ACQUIRING RUN leaves its running state, so the reason cannot be
+ * scripted without a run to bind it to. Wire-declared, for the reason above.
+ */
+const AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
+
+/**
  * The node hosting the session's one terminal. Bound because three surfaces name it
  * and they must agree: the presence beats, the roster reply's node row, and the
  * degraded state's one line naming the node. A pane naming a different node than the
@@ -84,7 +107,11 @@ export interface TerminalScenarioCast {
   readonly owner: string;
   /** The collaborator the lease changes hands to. Never a viewer — see above. */
   readonly collaborator: string;
-  /** The attached agent, whose run's idling is one of the five release reasons. */
+  /**
+   * The attached agent, whose run's idling is one of the five release reasons. The
+   * RUN binds to the lease, never this id: an agent-path take holds as the
+   * node-owner participant, so `owner` above is the holder that take names.
+   */
   readonly agent: string;
 }
 
@@ -98,7 +125,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
   id: TERMINAL_SCENARIO_ID,
   label: "Lease changing hands",
   purpose:
-    "The session's one shared shell moving between two people and an agent run, reaching all five transition reasons, ending held, then losing its host so the unheld-and-read-only degraded state is reachable. The output stream is absent until the terminal pane's renderer surface is registered.",
+    "The session's one shared shell moving between two people and an agent run — the run queued, started, taken on the agent path, and completed, so the run-idle release follows the acquisition it releases — reaching all five transition reasons, ending held, then losing its host so the unheld-and-read-only degraded state is reachable. The output stream is absent until the terminal pane's renderer surface is registered.",
   sessionId: SESSION_ID,
   participantIdsInJoinOrder: [
     HUMAN_PARTICIPANT_ID,
@@ -318,16 +345,77 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       },
     },
     {
-      atMs: 3100,
+      atMs: 3000,
       event: {
         sessionId: SESSION_ID,
         sequence: 13,
-        kind: "pty.control_changed",
-        occurredAt: "2026-01-01T16:40:03.100Z",
-        actorParticipantId: SECOND_HUMAN_PARTICIPANT_ID,
+        kind: "run.queued",
+        occurredAt: "2026-01-01T16:40:03.000Z",
+        // The person who started the run, not the agent. `previousState` is absent
+        // here and only here: a queued run is being born, and no document names the
+        // state it came from.
+        actorParticipantId: HUMAN_PARTICIPANT_ID,
         payload: {
           sessionId: SESSION_ID,
-          holderParticipantId: SECOND_HUMAN_PARTICIPANT_ID,
+          runId: AGENT_RUN_ID,
+          runVersion: 1,
+          newState: "queued",
+          agentId: AGENT_PARTICIPANT_ID,
+        },
+      },
+    },
+    {
+      atMs: 3100,
+      event: {
+        sessionId: SESSION_ID,
+        sequence: 14,
+        kind: "run.starting",
+        occurredAt: "2026-01-01T16:40:03.100Z",
+        // No actor: the daemon moves a run through its own states, and a
+        // participant id here would attribute a system transition to a person.
+        payload: {
+          sessionId: SESSION_ID,
+          runId: AGENT_RUN_ID,
+          runVersion: 2,
+          previousState: "queued",
+          newState: "starting",
+        },
+      },
+    },
+    {
+      atMs: 3200,
+      event: {
+        sessionId: SESSION_ID,
+        sequence: 15,
+        kind: "run.running",
+        occurredAt: "2026-01-01T16:40:03.200Z",
+        payload: {
+          sessionId: SESSION_ID,
+          runId: AGENT_RUN_ID,
+          runVersion: 3,
+          previousState: "starting",
+          newState: "running",
+        },
+      },
+    },
+    {
+      atMs: 3300,
+      event: {
+        sessionId: SESSION_ID,
+        sequence: 16,
+        kind: "pty.control_changed",
+        occurredAt: "2026-01-01T16:40:03.300Z",
+        // THE AGENT-PATH TAKE, with no actor on purpose: the node's own agent runs
+        // take through the daemon's in-process lease authority, so nobody pressed a
+        // control and the ledger's actor column reads "The daemon".
+        payload: {
+          sessionId: SESSION_ID,
+          // The NODE-OWNER participant, which is who an agent-path take holds as:
+          // agents are `AgentId`-keyed domain actors and not `participants` rows,
+          // so no agent-participant exists to hold and the holder surfaces stay
+          // participant ids (`api-payload-contracts.md §Session Terminal-Control
+          // Method Registry`). The roster reply below names the same owner.
+          holderParticipantId: HUMAN_PARTICIPANT_ID,
           previousHolderParticipantId: null,
           reason: "taken",
         },
@@ -337,14 +425,31 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       atMs: 3600,
       event: {
         sessionId: SESSION_ID,
-        sequence: 14,
-        kind: "pty.control_changed",
+        sequence: 17,
+        kind: "run.completed",
         occurredAt: "2026-01-01T16:40:03.600Z",
-        actorParticipantId: SECOND_HUMAN_PARTICIPANT_ID,
+        // The acquiring run's first lifecycle transition out of `running` — what the
+        // auto-release below is a consequence of, rather than an asserted state.
+        payload: {
+          sessionId: SESSION_ID,
+          runId: AGENT_RUN_ID,
+          runVersion: 4,
+          previousState: "running",
+          newState: "completed",
+        },
+      },
+    },
+    {
+      atMs: 3700,
+      event: {
+        sessionId: SESSION_ID,
+        sequence: 18,
+        kind: "pty.control_changed",
+        occurredAt: "2026-01-01T16:40:03.700Z",
         payload: {
           sessionId: SESSION_ID,
           holderParticipantId: null,
-          previousHolderParticipantId: SECOND_HUMAN_PARTICIPANT_ID,
+          previousHolderParticipantId: HUMAN_PARTICIPANT_ID,
           reason: "auto_released_run_idle",
         },
       },
@@ -353,7 +458,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       atMs: 4100,
       event: {
         sessionId: SESSION_ID,
-        sequence: 15,
+        sequence: 19,
         kind: "pty.control_changed",
         occurredAt: "2026-01-01T16:40:04.100Z",
         actorParticipantId: HUMAN_PARTICIPANT_ID,
@@ -372,7 +477,7 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       atMs: 4900,
       event: {
         sessionId: SESSION_ID,
-        sequence: 16,
+        sequence: 20,
         kind: "runtime_node.offline",
         occurredAt: "2026-01-01T16:40:04.900Z",
         actorParticipantId: HUMAN_PARTICIPANT_ID,

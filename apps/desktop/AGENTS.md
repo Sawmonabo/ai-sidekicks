@@ -98,7 +98,7 @@ There is exactly one shared layer. `src/renderer/src/shared/` is not created; a 
 
 ## Budgets and tripwires
 
-- A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job, and its `measuredBy` names a harness that holds the subject it bounds. If it is not wired, its status is `n/a` naming the wiring task — never `enforced` and unrun. The three `enforced` rows today are `renderer-initial-bundle` and `terminal-instance-memory`, reached through the `console-bundle` tier, and `renderer-heap-at-rest`, reached through the `console-endurance` tier; both tiers are on both.
+- A budget marked `enforced` is reachable from the aggregate `test` script _and_ from a CI job, and its `measuredBy` names a harness that holds the subject it bounds. If it is not wired, its status is `n/a` naming the wiring task — never `enforced` and unrun. The two `enforced` rows today are `renderer-initial-bundle`, reached through the `console-bundle` tier, and `renderer-heap-at-rest`, reached through the `console-endurance` tier; both tiers are on both. `terminal-instance-memory` is `n/a` on the second half of that rule rather than the first: its tier runs, but no harness in this tree holds a whole terminal pane, so it names none.
 - Every console PR runs every tier whose subject is in-tree; an absent subject is reported `n/a`, never silently skipped. Every tripwire asserts it matched at least one site; zero matches fails.
 
 ## Pre-PR self-audit
