@@ -14,6 +14,13 @@
 // a delta and answers what changed, which is what lets one card be re-rendered from a
 // store read without the segmenter having to have seen every intermediate frame.
 //
+// AND WHETHER THAT SNAPSHOT IS THE LAST. Everything this class holds back it holds back
+// against a later character; a caller that knows there is none says so, and gets every
+// block settled and an empty tail. Without that signal a finished body keeps its last
+// two blocks and its whole remainder volatile forever, which costs a re-parse per
+// remount and — the part that is not merely slow — routes complete text through
+// `remend`, silently closing a construct its author left open on purpose.
+//
 // WHY A CLASS. It holds the split across frames and it is not a component's state: a
 // re-render must not re-split from scratch, and a card that unmounts and remounts must
 // not re-parse its whole history. The scan itself is incremental — the boundary search
@@ -42,6 +49,22 @@ export interface MarkdownSegmentation {
   readonly volatileTail: string;
 }
 
+/** What a caller knows about the snapshot beyond its text. */
+export interface MarkdownSegmentationOptions {
+  /**
+   * Whether this snapshot is the body's last.
+   *
+   * A final snapshot commits its trailing remainder and settles every block, because
+   * both of the reasons the segmenter holds text back are reasons about a LATER
+   * character — a blank run that a lazy continuation could still reopen, and a boundary
+   * a following character could still reinterpret — and a final body has no later
+   * character. Held back, a finished body's last blocks never enter the settled cache,
+   * so every remount re-parses them; worse, they stay on the volatile path, where
+   * `remend` would silently close a construct the author genuinely left open.
+   */
+  readonly isFinal: boolean;
+}
+
 /** A fence opener or closer, and the run length that has to be matched to close it. */
 interface FenceState {
   readonly marker: string;
@@ -66,12 +89,21 @@ export class MarkdownBlockSegmenter {
    * reveal engine makes the same decision for the same reason: gluing a new history
    * onto the tail of an old one is the one outcome worse than re-doing the work.
    */
-  public segment(cumulativeSource: string): MarkdownSegmentation {
+  public segment(
+    cumulativeSource: string,
+    options: MarkdownSegmentationOptions = { isFinal: false },
+  ): MarkdownSegmentation {
     if (!cumulativeSource.startsWith(this.#scannedSource)) {
       this.#reset();
     }
-    this.#scanFrom(cumulativeSource);
+    this.#scanFrom(cumulativeSource, options.isFinal);
     this.#scannedSource = cumulativeSource;
+
+    if (options.isFinal) {
+      // The lag is lifted rather than reduced: the scan has already committed the
+      // remainder, so every block is final and the tail is empty by construction.
+      return { settledBlocks: [...this.#completeBlocks], volatileTail: "" };
+    }
 
     const settledCount = Math.max(0, this.#completeBlocks.length - MARKDOWN_SETTLE_LAG_BLOCKS);
     const settledBlocks = this.#completeBlocks.slice(0, settledCount);
@@ -102,8 +134,12 @@ export class MarkdownBlockSegmenter {
    * Fence state is recomputed across the remainder alone, and that is sound because a
    * boundary is only ever committed OUTSIDE a fence — so the remainder always begins at
    * fence depth zero.
+   *
+   * On a FINAL snapshot the walk ends by committing what it has: the trailing blank run
+   * is a boundary rather than a maybe, and the unterminated last line is the author's
+   * last line rather than a line still arriving.
    */
-  #scanFrom(cumulativeSource: string): void {
+  #scanFrom(cumulativeSource: string, isFinal: boolean): void {
     let openFence: FenceState | undefined;
     let lineStart = this.#remainderOffset;
     let blankRunStart: number | undefined;
@@ -111,8 +147,9 @@ export class MarkdownBlockSegmenter {
     while (lineStart < cumulativeSource.length) {
       const newlineIndex = cumulativeSource.indexOf("\n", lineStart);
       if (newlineIndex === -1) {
-        // A line with no terminator has not arrived in full; it cannot close a block.
-        return;
+        // A line with no terminator has not arrived in full; it cannot close a block —
+        // unless nothing more is coming, which the final commit below settles.
+        break;
       }
       const line = cumulativeSource.slice(lineStart, newlineIndex);
       const nextLineStart = newlineIndex + 1;
@@ -146,6 +183,19 @@ export class MarkdownBlockSegmenter {
       }
       lineStart = nextLineStart;
     }
+
+    if (!isFinal) {
+      return;
+    }
+    if (blankRunStart !== undefined) {
+      // A trailing blank run is only ever pending because a lazy continuation could
+      // still follow it. On the last snapshot none can, so it is the boundary it looks
+      // like. (It cannot be set inside a fence: opening one clears it.)
+      this.#commitBlock(cumulativeSource.slice(this.#remainderOffset, blankRunStart + 1));
+      this.#remainderOffset = blankRunStart + 1;
+    }
+    this.#commitBlock(cumulativeSource.slice(this.#remainderOffset));
+    this.#remainderOffset = cumulativeSource.length;
   }
 
   #commitBlock(block: string): void {

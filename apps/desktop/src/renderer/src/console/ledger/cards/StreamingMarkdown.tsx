@@ -5,10 +5,19 @@
 // reveal engine's, and an incomplete construct never mounts."
 //
 // WHAT THIS COMPONENT IS AND IS NOT. It is the mount point for the pipeline under
-// `markdown/`, and it holds exactly two things: the segmenter, whose split has to survive
-// across frames, and the footnote registration effect. Every decision — where a block
-// ends, what settles, what `remend` closes, which fence is deferred — belongs to a module
-// there, so this file has no rule of its own to get wrong.
+// `markdown/`, and it holds exactly three things: the segmenter, whose split has to
+// survive across frames; the two-pass footnote resolution, which is here because only
+// this file sees every block of one body at once; and the footnote registration effect.
+// Every decision — where a block ends, what settles, what `remend` closes, which fence
+// is deferred, what a preamble looks like — belongs to a module there, so this file has
+// no rule of its own to get wrong.
+//
+// THE TWO PASSES, AND WHY THERE ARE TWO. A block is parsed as its own document, so a
+// footnote is the one construct whose meaning is not local to it: `[^1]` resolves only
+// against a definition in the SAME parse, and in a long message the citation settles
+// blocks before `[^1]: …` arrives. Pass one reads each block alone and collects what the
+// body declares; pass two re-reads each block with those identifiers restated ahead of
+// it. A body with no footnotes has an empty preamble and pass two IS pass one.
 //
 // IT DOES NOT SUBSCRIBE TO THE REVEAL ENGINE. `ledger/frame/reveal-engine.ts` publishes
 // text per lane and the ledger's viewport is what reads it; a card that subscribed would
@@ -44,6 +53,7 @@ import {
   MarkdownNodes,
   collectFootnoteDefinitions,
   collectFootnoteReferences,
+  footnoteDefinitionPreamble,
   parseSettledBlock,
   parseVolatileTail,
   type FootnoteRegistry,
@@ -87,12 +97,18 @@ export interface StreamingMarkdownProps {
 }
 
 export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Element {
-  const segmentation = useBlockSegmentation(props.publishedText);
+  const segmentation = useBlockSegmentation(props.publishedText, props.isComplete);
 
-  const settledNodeLists = segmentation.settledBlocks.map(
+  // PASS ONE — what the body DECLARES, from each block read on its own.
+  //
+  // A definition is discoverable in its own block with nothing in scope: `[^1]: …` is a
+  // definition wherever it lands. A REFERENCE is not — GFM leaves `[^1]` as literal
+  // characters in a block holding no matching definition — which is why there is a
+  // second pass at all rather than one walk over these same trees.
+  const declaredSettledNodeLists = segmentation.settledBlocks.map(
     (block) => parseSettledBlock(block).children,
   );
-  const volatileNodes = useMemo(
+  const declaredVolatileNodes = useMemo(
     () =>
       segmentation.volatileTail === ""
         ? NO_NODES
@@ -105,8 +121,30 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   // ones, so depending on them would recompute the set — and every context below it — on
   // every frame.
   const definedFootnoteIdentifiers = useMemo(
-    () => collectDefinedIdentifiers(settledNodeLists, volatileNodes),
-    [props.publishedText, volatileNodes],
+    () => collectDefinedIdentifiers(declaredSettledNodeLists, declaredVolatileNodes),
+    [props.publishedText, declaredVolatileNodes],
+  );
+  const definitionPreamble = useMemo(
+    () => footnoteDefinitionPreamble(definedFootnoteIdentifiers),
+    [definedFootnoteIdentifiers],
+  );
+
+  // PASS TWO — the same blocks read against the WHOLE body's definitions, which is what
+  // makes `cite[^1]` in one block a reference to `[^1]: …` in another. A body declaring
+  // no footnotes has an empty preamble, so these are the pass-one arrays unchanged: same
+  // cache entries, same identities, same cost.
+  const settledNodeLists =
+    definitionPreamble === ""
+      ? declaredSettledNodeLists
+      : segmentation.settledBlocks.map(
+          (block) => parseSettledBlock(block, definitionPreamble).children,
+        );
+  const volatileNodes = useMemo(
+    () =>
+      definitionPreamble === "" || segmentation.volatileTail === ""
+        ? declaredVolatileNodes
+        : parseVolatileTail(segmentation.volatileTail, definitionPreamble).children,
+    [segmentation.volatileTail, definitionPreamble, declaredVolatileNodes],
   );
 
   // Asked of a FINISHED body only. On a streaming one a definition ahead of its own
@@ -191,10 +229,11 @@ function settledBlockKey(block: string, positionInPrefix: number): string {
  */
 function useBlockSegmentation(
   publishedText: string,
+  isComplete: boolean,
 ): ReturnType<MarkdownBlockSegmenter["segment"]> {
   const segmenterRef = useRef<MarkdownBlockSegmenter | undefined>(undefined);
   segmenterRef.current ??= new MarkdownBlockSegmenter();
-  return segmenterRef.current.segment(publishedText);
+  return segmenterRef.current.segment(publishedText, { isFinal: isComplete });
 }
 
 /**

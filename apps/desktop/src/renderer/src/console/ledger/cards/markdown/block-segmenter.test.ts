@@ -67,6 +67,48 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
     expect(rebased.volatileTail).not.toContain("one");
   });
 
+  it("settles every block and empties the tail once the body is final", () => {
+    // Both reasons this class holds text back are reasons about a LATER character, and
+    // a final body has none. Held back, these blocks never reach the settled cache and
+    // stay on the `remend`ed path — a complete body's text rewritten as if it were a
+    // prefix.
+    const segmenter = new MarkdownBlockSegmenter();
+    const segmentation = segmenter.segment(FIVE_PARAGRAPHS, { isFinal: true });
+    expect(segmentation.volatileTail).toBe("");
+    expect(segmentation.settledBlocks.join("")).toBe(FIVE_PARAGRAPHS);
+    expect(segmentation.settledBlocks).toHaveLength(5);
+  });
+
+  it("commits an unterminated final line rather than holding it as a remainder", () => {
+    const segmentation = new MarkdownBlockSegmenter().segment("only a paragraph", {
+      isFinal: true,
+    });
+    expect(segmentation.settledBlocks).toStrictEqual(["only a paragraph"]);
+    expect(segmentation.volatileTail).toBe("");
+  });
+
+  it("keeps a final unclosed fence in one block rather than splitting its interior", () => {
+    // A complete body whose author left a fence open is still one block: the parser
+    // closes it at the end of the document, and splitting on the blank line inside it
+    // would render half the code as prose.
+    const segmentation = new MarkdownBlockSegmenter().segment(
+      "```ts\nconst a = 1;\n\nconst b = 2;",
+      {
+        isFinal: true,
+      },
+    );
+    expect(segmentation.settledBlocks).toHaveLength(1);
+    expect(segmentation.settledBlocks[0]).toContain("const b = 2;");
+  });
+
+  it("negative control: the same snapshot still holds the lag while the body is in flight", () => {
+    // Without this, a segmenter that ignored the flag and settled everything would pass
+    // the three cases above and settle blocks the next character could still reopen.
+    const segmentation = new MarkdownBlockSegmenter().segment(FIVE_PARAGRAPHS);
+    expect(segmentation.settledBlocks).toHaveLength(3 - MARKDOWN_SETTLE_LAG_BLOCKS);
+    expect(segmentation.volatileTail).toContain("five");
+  });
+
   it("negative control: a blank run at the end of the snapshot commits nothing", () => {
     // Without this, a segmenter that split on any blank run would pass every case above
     // and settle a block the very next character could still extend.
