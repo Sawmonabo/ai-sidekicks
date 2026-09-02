@@ -3870,7 +3870,16 @@ test("CORPUS CENSUS: the six published invariant counts do not move", () => {
     // no-PRF path — carries a marker line naming I-023-1. Three more bold
     // resolved references; the none-arm and legacy channels are again
     // untouched, since every added marker resolves to a declared invariant.
-    bold: { resolved: 1041, noneArm: 158, parentResolved: 0 },
+    // 1041/158 -> 1043/158 (2026-09-01, the same amendment's Codex round-2
+    // fold): T-023r-4-7 gains the secret-entry window that makes its
+    // password-derived KEK reachable at all, so its single marker line grows
+    // from naming I-023-1 alone to naming I-023-1, I-023-2 (the window carries
+    // the locked `webPreferences` block) and I-023-12 (whose subject widens in
+    // the same fold from "every auxiliary window" to every non-main window, so
+    // that this one is covered). Two more bold resolved references on one
+    // existing marker line; no marker line is added or removed, no none-arm row
+    // moves, and the legacy compact-inline channel is untouched.
+    bold: { resolved: 1043, noneArm: 158, parentResolved: 0 },
     legacy: { resolved: 64, noneArm: 3, parentResolved: 1 },
   });
 });
