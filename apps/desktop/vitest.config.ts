@@ -50,6 +50,28 @@ export default defineConfig({
           // Keep its discovery glob narrow so the renderer-suite glob below
           // does not pick it up under happy-dom by accident.
           include: ["test/**/*.test.ts"],
+          // Two files under this glob each spawn a full Electron/Chromium
+          // process tree — `launch.smoke.test.ts` and `lifecycle.gc.test.ts`.
+          // Vitest's default `fileParallelism: true` runs them CONCURRENTLY,
+          // and on a 4-vCPU hosted runner that is the documented cause of this
+          // suite's intermittent boot timeout: `lifecycle.gc.test.ts` drives 80
+          // forced stop-the-world full GCs over ~160 MB of allocation churn
+          // while `launch.smoke.test.ts` is trying to complete a cold Chromium
+          // boot against a 15 s deadline, and both are also the runner's FIRST
+          // Electron launches, so they contend for the same cold per-`$HOME`
+          // Chromium initialisation (fontconfig cache build, NSS DB creation).
+          //
+          // Measured on the failing run (GitHub Actions run 33571210321):
+          // vitest reported `tests 41.32s` against a wall `Duration 27.58s`,
+          // so the two files provably overlapped by >=13.7 s of the smoke
+          // test's 15.08 s window; `lifecycle.gc.test.ts` took 26.04 s against
+          // its own header's ~5 s expectation, and the smoke boot — measured at
+          // 462-510 ms unloaded — never reached `did-finish-load`.
+          //
+          // Serialising costs ~14 s of wall time in this project and removes
+          // the contention outright. It is deliberately NOT a longer timeout:
+          // the budget stays at 15 s (30x the measured unloaded cost).
+          fileParallelism: false,
         },
       },
       {
