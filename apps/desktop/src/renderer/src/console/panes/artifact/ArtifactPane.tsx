@@ -23,18 +23,26 @@
 //     control that is not there, and a port entry is not this family's to add, so the
 //     act stays unoffered and the gap is the `artifact-ingest-and-crud` slate row.
 //
+// AND ONE THING IT NOW SAYS OUT LOUD. The row's read control used to be named for a
+// payload fetch, and the read behind it serves a MANIFEST: `artifactRead` answers one
+// `GrowthArtifactSummary`, and the port registers neither the `includePayload` request
+// member nor the `payloadHandle` / `payload` / `payloadEncoding` reply members the
+// wire's own read carries (`api-payload-contracts.md §Plan-014`). A control named for
+// bytes it cannot obtain is a lie the participant only discovers by pressing it, so
+// the control is named for what the read serves and the header says, once, what a
+// payload fetch is waiting on.
+//
 // WHAT THE FOOT OF THE PANE IS FOR. §10.8 puts the effective allow-list and the ingest
 // bounds behind the attach affordance's own disclosure, and the composer owns that
 // affordance. This pane is where the same facts are readable without one, because they
 // are the artifact plane's rules and a participant who has just been refused for an
 // unsupported type needs somewhere to read what IS supported.
 
-import { useCallback, useId, useMemo, useState } from "react";
+import { useCallback, useId, useMemo } from "react";
 
 import {
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_CHUNK_BYTE_CAP,
-  type ConsoleRefusal,
 } from "../../core/index.js";
 import {
   Chip,
@@ -42,11 +50,27 @@ import {
   Glyph,
   WireFigure,
   formatByteQuantity,
+  useAnnounce,
 } from "../../primitives/index.js";
 import { ArtifactsPanel } from "../../repos/ArtifactsPanel.js";
 import type { ArtifactManifestRow } from "../../repos/artifact-model.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
-import { useArtifactPaneReading, type ArtifactAllowlistReading } from "./artifact-reader.js";
+import type { ArtifactAllowlistReading, ArtifactRowActOutcome } from "./artifact-pane-reading.js";
+import { useArtifactPaneReading } from "./artifact-reader.js";
+
+/** What a settled act says, once, when it settles. A refusal speaks in its own words. */
+const MANIFEST_RE_READ_ANNOUNCEMENT = "Manifest re-read. The row shows what the read answered.";
+
+/**
+ * What a settled delete says.
+ *
+ * It names what came back and what did not. The design wants the payload disposition
+ * reported after the act, and the reply this console can make carries no member for it
+ * — so the sentence says the manifest is gone and says the rest is unreported, rather
+ * than claiming bytes were reclaimed on no evidence at all.
+ */
+const ARTIFACT_DELETED_ANNOUNCEMENT =
+  "Artifact deleted and the list read again. The reply carries no payload disposition, so what became of the bytes is not reported.";
 
 export interface ArtifactPaneProps {
   readonly context: ConsolePaneContext;
@@ -55,12 +79,10 @@ export interface ArtifactPaneProps {
 export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
   const { context } = props;
   const headingId = useId();
-  const { reading, refresh } = useArtifactPaneReading(
+  const announce = useAnnounce();
+  const { reading, refresh, readManifest, deleteArtifact } = useArtifactPaneReading(
     context.bridge,
     context.sessionStore?.sessionId,
-  );
-  const [rowRefusals, setRowRefusals] = useState<ReadonlyMap<string, ConsoleRefusal>>(
-    () => new Map(),
   );
 
   // The instant the rows were rendered against. It moves when the reading moves and on
@@ -68,30 +90,37 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
   // budget forbids, wearing a clock face.
   const nowMilliseconds = useMemo(() => Date.now(), [reading]);
 
-  const recordRowRefusal = useCallback((artifactId: string, refusal: ConsoleRefusal) => {
-    setRowRefusals((previous) => new Map(previous).set(artifactId, refusal));
-  }, []);
-
-  const fetchPayload = useCallback(
-    (row: ArtifactManifestRow) => {
-      void context.bridge.growth.artifactRead({ artifactId: row.id }).then((answer) => {
-        if (answer.status === "unavailable") {
-          recordRowRefusal(row.id, answer);
-        }
-      });
+  // Announced from the act's own settlement and from nowhere else. A re-render
+  // announces nothing, because nothing settled.
+  const announceOutcome = useCallback(
+    (outcome: ArtifactRowActOutcome, settledSentence: string) => {
+      if (outcome.status === "settled") {
+        announce(settledSentence);
+        return;
+      }
+      if (outcome.status === "refused") {
+        announce(outcome.refusal.detail);
+      }
     },
-    [context.bridge, recordRowRefusal],
+    [announce],
   );
 
-  const deleteArtifact = useCallback(
+  const readRowManifest = useCallback(
     (row: ArtifactManifestRow) => {
-      void context.bridge.growth.artifactDelete({ artifactId: row.id }).then((answer) => {
-        if (answer.status === "unavailable") {
-          recordRowRefusal(row.id, answer);
-        }
+      void readManifest(row.id).then((outcome) => {
+        announceOutcome(outcome, MANIFEST_RE_READ_ANNOUNCEMENT);
       });
     },
-    [context.bridge, recordRowRefusal],
+    [announceOutcome, readManifest],
+  );
+
+  const deleteRow = useCallback(
+    (row: ArtifactManifestRow) => {
+      void deleteArtifact(row.id).then((outcome) => {
+        announceOutcome(outcome, ARTIFACT_DELETED_ANNOUNCEMENT);
+      });
+    },
+    [announceOutcome, deleteArtifact],
   );
 
   return (
@@ -114,17 +143,24 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
             {context.entity.id}
           </span>
         )}
-        <button type="button" className="meridian-repos-pane__control" onClick={refresh}>
-          Read again
-        </button>
+        <div className="meridian-artifact-pane__read-scope">
+          <button type="button" className="meridian-repos-pane__control" onClick={refresh}>
+            Read again
+          </button>
+          <p className="meridian-artifact-pane__read-scope-note">
+            Reads serve the manifest. Fetching an artifact&rsquo;s bytes waits on the read
+            reply&rsquo;s <WireFigure value="payloadHandle" /> and <WireFigure value="payload" />{" "}
+            members, which this console&rsquo;s read does not carry.
+          </p>
+        </div>
       </header>
       <div className="meridian-repos-pane__body">
         <ArtifactsPanel
           state={reading.artifacts}
           nowMilliseconds={nowMilliseconds}
-          rowRefusals={rowRefusals}
-          onFetchPayload={fetchPayload}
-          onDelete={deleteArtifact}
+          rowRefusals={reading.refusalByArtifactId}
+          onReadManifest={readRowManifest}
+          onDelete={deleteRow}
         />
         {renderIngestBounds(reading.allowlist)}
       </div>

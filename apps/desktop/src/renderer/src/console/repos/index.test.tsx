@@ -15,6 +15,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
+import { ManualClock } from "../core/index.js";
+import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { SessionStore } from "../store/index.js";
 import {
   ConsolePaneRegistry,
@@ -145,7 +147,17 @@ describe("repos family — the deck's pane kinds", () => {
       // Scoped to this iteration's own container: both panes stay mounted for the
       // length of the case, so a document-wide query finds two regions on the
       // second pass and fails for a reason that has nothing to do with the claim.
-      const { container } = render(<>{descriptor?.render(paneContext(kind))}</>);
+      //
+      // The announcer is the environment the frame supplies in production, and a
+      // pane that announces its acts calls `useAnnounce`, which throws outside the
+      // provider on purpose. Mounting a pane body bare would therefore fail on the
+      // announcer rather than on the region this case is about. The clock is frozen
+      // so nothing this mount announces clears on a timer mid-case.
+      const { container } = render(
+        <LiveAnnouncerProvider clock={new ManualClock()}>
+          {descriptor?.render(paneContext(kind))}
+        </LiveAnnouncerProvider>,
+      );
       expect(
         within(container).getByRole("region", { name: PANE_REGION_NAME_BY_KIND[kind] }),
       ).toBeDefined();
