@@ -48,6 +48,7 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): LedgerFindSt
     query: "",
     result: emptyFindResult(0, false),
     beyondWindowMatchCount: 0,
+    notYetReplayedMatchCount: 0,
     currentMatchIndex: -1,
     setQuery: () => {
       trace.push("setQuery");

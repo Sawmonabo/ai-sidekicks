@@ -9,8 +9,8 @@
 // them is the defect it exists to make unrepresentable.
 //
 //   • `LedgerWindowModel` is the whole loaded log — everything the subscription
-//     delivered and the projection could place. Replay plays over it, because §5.5
-//     replays "the rows already loaded".
+//     delivered and the projection could place. Replay plays over it, because
+//     `Spec-023 §Console Design (Meridian)` replays "the rows already loaded".
 //   • `VisibleLedgerWindow` is what the viewport is actually showing, after the
 //     window cap has pruned and after replay has withheld whatever the position has
 //     not reached. Find searches it and the rail marks it, because both of them
@@ -22,6 +22,15 @@
 // reconciled snapshot rather than off the log — one window on screen, one window
 // searched, one window marked. What falls outside it is not silently dropped: the
 // rows are counted, and the feed says so.
+//
+// AND THE ROWS OUTSIDE IT ARE COUNTED IN TWO PILES, NOT ONE. Cap retention and
+// replay visibility are two facts about a row, and this module tracks them
+// separately because a person's next move differs: a row the cap took is gone until
+// the session is read again, and a row the replay position has not reached comes
+// back the moment the dock is scrubbed forward. One complement over the viewport's
+// rows reported every not-yet-replayed row as an older entry the cap had removed,
+// which is wrong twice — those rows are NEWER than the window's head, and nothing
+// removed them.
 //
 // Replay sits BETWEEN the two: it plays over the log and decides which of its rows
 // the viewport is given, so a scrub moves the rows on screen and find and the rail
@@ -55,11 +64,22 @@ export interface VisibleLedgerWindow {
   /** Rows the log has and this window does not — what the cap took. */
   readonly prunedAwayRows: readonly TimelineRow[];
   /**
+   * Rows the log has and the replay position has not reached yet.
+   *
+   * A separate pile from `prunedAwayRows` because the two absences are different
+   * facts, and the difference is the whole point: nothing removed these rows, they
+   * are newer rather than older, and scrubbing the dock forward brings them back.
+   */
+  readonly withheldByReplayRows: readonly TimelineRow[];
+  /**
    * Whether rows sit before this window's head — the CLIP, measured rather than
    * declared.
    *
    * True exactly when the cap took something, which is what `prunedAwayRows`
-   * records. It was a hard-coded `false` until now, on the reasoning that no
+   * records — and deliberately NOT when replay is merely holding rows back, which
+   * would draw an unloaded segment over a complete window and make find state a
+   * boundary that is not there. It was a hard-coded `false` until now, on the
+   * reasoning that no
    * registered read pages a session's log backwards — but that reasoning answers a
    * different question. Whether anybody can FETCH earlier rows and whether earlier
    * rows EXIST are two facts, and collapsing them made the rail draw a complete
@@ -77,23 +97,40 @@ export interface VisibleLedgerWindow {
 }
 
 /**
- * Project the viewport's reconciled snapshot back into rows.
+ * Project the viewport's reconciled snapshot back into rows, and name what is not
+ * in it and why.
  *
  * Keyed on the snapshot's ROW ARRAY rather than on the snapshot, because a
  * snapshot is republished whenever the reading state moves — which is every time
  * somebody scrolls, and re-deriving the rail on a scroll is the render this frame's
  * budget exists to avoid. The row array's identity changes exactly on a reconcile.
+ *
+ * THE THREE LISTS NEST — `viewportRows ⊆ revealedRows ⊆ ledgerWindow.viewportRows`
+ * — because the window cap ADOPTS the array it is handed rather than accumulating
+ * across ingests, so whatever replay withheld the cap never saw. That nesting is
+ * what makes the partition below a decision and not a guess: a row the viewport
+ * holds is on screen, a row only the revealed set holds is one the cap took, and a
+ * row neither holds is one the replay position has not reached.
  */
 export function useVisibleLedgerWindow(
   ledgerWindow: LedgerWindowModel,
+  revealedRows: readonly LedgerViewportRow[],
   viewportRows: readonly LedgerViewportRow[],
 ): VisibleLedgerWindow {
   return useMemo(() => {
     const visibleKeys = new Set(viewportRows.map((row) => row.key));
+    const revealedKeys = new Set(revealedRows.map((row) => row.key));
     const rows: TimelineRow[] = [];
     const prunedAwayRows: TimelineRow[] = [];
+    const withheldByReplayRows: TimelineRow[] = [];
     for (const row of ledgerWindow.rows) {
-      (visibleKeys.has(row.id) ? rows : prunedAwayRows).push(row);
+      if (visibleKeys.has(row.id)) {
+        rows.push(row);
+      } else if (revealedKeys.has(row.id)) {
+        prunedAwayRows.push(row);
+      } else {
+        withheldByReplayRows.push(row);
+      }
     }
     // One measurement, read by the rail and by find, so the two can never disagree
     // about whether this window is the whole session.
@@ -101,10 +138,11 @@ export function useVisibleLedgerWindow(
     return {
       rows,
       prunedAwayRows,
+      withheldByReplayRows,
       hasEarlierRows,
       railModel: new ProvenanceRailModel({ rows, hasEarlierRows }),
     };
-  }, [ledgerWindow, viewportRows]);
+  }, [ledgerWindow, revealedRows, viewportRows]);
 }
 
 /** The find field's state, and the walk over one window's matches. */
@@ -112,8 +150,16 @@ export interface LedgerFindState {
   readonly isOpen: boolean;
   readonly query: string;
   readonly result: LedgerFindResult;
-  /** Matches in rows the log holds and this window does not. Named, never hidden. */
+  /** Matches in rows the cap took out of this window. Named, never hidden. */
   readonly beyondWindowMatchCount: number;
+  /**
+   * Matches in rows the replay position has not reached.
+   *
+   * Its own figure rather than a share of the one above, because the sentence each
+   * is rendered in offers a different move: nothing brings a pruned row back, and
+   * scrubbing forward brings these back at once.
+   */
+  readonly notYetReplayedMatchCount: number;
   readonly currentMatchIndex: number;
   readonly setQuery: (query: string) => void;
   /**
@@ -158,6 +204,14 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     [visible, query],
   );
 
+  const notYetReplayedMatchCount = useMemo(
+    () =>
+      query.trim().length === 0
+        ? 0
+        : findInLedger(visible.withheldByReplayRows, query, false).totalMatchCount,
+    [visible, query],
+  );
+
   const setQuery = useCallback((next: string) => {
     setQueryValue(next);
     // A new query restarts the walk. Keeping the index would step from a position
@@ -192,6 +246,7 @@ export function useLedgerFind(visible: VisibleLedgerWindow): LedgerFindState {
     query,
     result,
     beyondWindowMatchCount,
+    notYetReplayedMatchCount,
     currentMatchIndex,
     setQuery,
     open,
