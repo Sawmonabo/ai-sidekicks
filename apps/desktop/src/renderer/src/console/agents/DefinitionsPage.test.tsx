@@ -307,12 +307,10 @@ describe("the sidekicks page — the settlement it announces", () => {
     expect(politeText(container)).toContain("Not checked");
   });
 
-  it("negative control: a second settlement says nothing more", async () => {
-    // Without this, the cases above would pass over a page that announced on every
-    // settled reading — a screen reader hearing the list re-counted every time
-    // somebody deleted a row. A press alone is too weak a control: it produces no
-    // new reading, so an unguarded announcement would stay silent through it
-    // anyway. The delete below re-reads, which is the case that actually differs.
+  it("speaks again when a re-read settles on something different", async () => {
+    // The repetition rule is keyed on the SENTENCE, not on whether this page has
+    // ever spoken. A delete that re-read to a shorter list is a different fact, and
+    // the person who asked for it is the one entitled to hear that it landed.
     const stub = new RegistryStub({
       lists: [
         served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
@@ -325,9 +323,47 @@ describe("the sidekicks page — the settlement it announces", () => {
     await press(buttonNamed(container, "Delete Reviewer"));
     await press(confirmDeleteIn(container));
     expect(stub.listCallCount).toBe(2);
-    // Running the hold out surfaces whatever was queued behind the first sentence.
-    // An unguarded page has "Read 1 saved sidekick." waiting there; this one has
-    // nothing, so the region clears.
+    // Running the hold out surfaces what was queued behind the first sentence.
+    await releaseAnnouncementHold(clock);
+    expect(politeText(container)).toBe("Read 1 saved sidekick.");
+  });
+
+  it("speaks a refusal that arrives after a read this page already announced", async () => {
+    // The case a once-ever guard loses entirely: the list read, the delete landed,
+    // and the re-read behind it refused. A sighted person sees the refusal; before
+    // the guard became sentence-keyed, everybody else heard the first count and
+    // then silence for the rest of the page's life.
+    const stub = new RegistryStub({
+      lists: [
+        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
+        growthUnavailable("sidekickDefinitionList"),
+      ],
+    });
+    const { container, clock } = renderPage(stub.bridge());
+    await settle();
+    expect(politeText(container)).toBe("Read 2 saved sidekicks.");
+    await press(buttonNamed(container, "Delete Reviewer"));
+    await press(confirmDeleteIn(container));
+    await releaseAnnouncementHold(clock);
+    expect(politeText(container)).toContain("Not checked");
+  });
+
+  it("negative control: a settlement that says the same thing again is silent", async () => {
+    // Without this, the two cases above would pass over a page that announced on
+    // every settled reading — a screen reader hearing the list re-counted for a
+    // re-read that changed nothing. The delete below refuses, so the re-read that
+    // follows it answers with the list this page already spoke.
+    const stub = new RegistryStub({
+      lists: [
+        served([definition(), definition({ definitionId: "definition-2", name: "Auditor" })]),
+      ],
+      deleteOutcome: growthUnavailable("sidekickDefinitionDelete"),
+    });
+    const { container, clock } = renderPage(stub.bridge());
+    await settle();
+    expect(politeText(container)).toBe("Read 2 saved sidekicks.");
+    await press(buttonNamed(container, "Delete Reviewer"));
+    await press(confirmDeleteIn(container));
     await releaseAnnouncementHold(clock);
     expect(politeText(container)).toBe("");
   });

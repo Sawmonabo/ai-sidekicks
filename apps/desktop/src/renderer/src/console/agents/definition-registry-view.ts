@@ -22,11 +22,11 @@
 // as. `settings/pages/shell-preferences.ts` is the precedent followed instead: a
 // growth-port carrier owning its own pending key, refusal map, and generation.
 
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
-import { useAnnounce } from "../primitives/index.js";
+import { useSettlementAnnouncement } from "../primitives/index.js";
 import {
   describeDefinitionSettlement,
   readDefinitionOutcome,
@@ -237,21 +237,22 @@ export function useSidekickRegistryView(bridge: ConsoleBridge): {
 }
 
 /**
- * Say what the read settled on, once, in the polite lane.
+ * Say what this read settled on, through the console's one settlement announcer.
  *
- * Polite rather than assertive: nothing about the room's capabilities moved, and
- * `frame/banner-announcements.ts` reserves the interrupting lane for the case where
- * something did. The held flag is what keeps a re-render — or the re-read a delete
- * performs — from saying it again.
+ * COMPOSES A SENTENCE AND GUARDS NOTHING. The repetition rule belongs to
+ * `primitives/settlement-announcement.ts` and is keyed on the SENTENCE, which is
+ * the only key that is correct here: a flag held once for the life of the mount
+ * silences everything after the first settlement, so the refusal that follows a
+ * re-read — the delete this page performs, then fails to re-list — was never
+ * spoken at all, and the surface that could not be read said so only to people
+ * who could see it.
+ *
+ * `undefined` while the read is in flight, which is that hook's "still reading"
+ * arm; `describeDefinitionSettlement` is narrowed to a settled reading and is
+ * reached only past that check.
  */
-export function useSettlementAnnouncement(reading: SidekickDefinitionReading): void {
-  const announce = useAnnounce();
-  const hasAnnouncedRef = useRef(false);
-  useEffect(() => {
-    if (hasAnnouncedRef.current || reading.kind === "not-loaded") {
-      return;
-    }
-    hasAnnouncedRef.current = true;
-    announce(describeDefinitionSettlement(reading), "polite");
-  }, [reading, announce]);
+export function useDefinitionSettlementAnnouncement(reading: SidekickDefinitionReading): void {
+  useSettlementAnnouncement(
+    reading.kind === "not-loaded" ? undefined : describeDefinitionSettlement(reading),
+  );
 }
