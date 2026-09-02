@@ -32,6 +32,28 @@ function syntheticLog(topLevelCount: number): readonly LedgerWindowRow[] {
   return rows;
 }
 
+/**
+ * A log of FOLDED chapters, as the ledger emits one: a header row keyed by the run,
+ * and the terminal receipt hanging from it.
+ *
+ * The shape `foldChapterHeaders` produces. It is here rather than in the ledger's
+ * own suite because what it exercises is the CAP's counting rule, and the rule only
+ * became reachable when a row started existing for the key every run row names.
+ */
+function foldedChapterLog(chapterCount: number): readonly LedgerWindowRow[] {
+  const rows: LedgerWindowRow[] = [];
+  for (let index = 0; index < chapterCount; index += 1) {
+    const runKey = `run-${String(index)}`;
+    rows.push({ key: runKey, parentKey: undefined, rootCursor: runKey });
+    rows.push({
+      key: `${runKey}-receipt`,
+      parentKey: runKey,
+      rootCursor: `cursor-${String(index)}`,
+    });
+  }
+  return rows;
+}
+
 /** A log whose every row names one run, and where no row IS that run. */
 function runOnlyLog(entryCount: number): readonly LedgerWindowRow[] {
   return Array.from({ length: entryCount }, (_unused, index) => ({
@@ -295,6 +317,41 @@ describe("the ledger window — leases and cursors", () => {
     expect(window.topLevelRowKeys()).toEqual(["run-1"]);
     expect(window.prune(PRUNABLE).deferredBecause).toBe("under-cap");
     expect(window.size).toBe(51);
+  });
+
+  it("counts a folded chapter as one, so the cap bounds chapters and not rows", () => {
+    // The load-bearing consequence of the ledger emitting a chapter header. Before
+    // it, every run row named its run, no row WAS that run, and the cap counted each
+    // of them — so ten chapters of a hundred rows read as a thousand against the
+    // ceiling. With the header present the same log is ten.
+    const window = new LedgerWindow({ topLevelCap: 4 });
+    window.ingest(foldedChapterLog(10));
+    expect(window.topLevelRowKeys()).toHaveLength(10);
+    const outcome = window.prune(PRUNABLE);
+    expect(outcome.applied).toBe(true);
+    expect(outcome.topLevelRetained).toBe(4);
+    // Header and receipt leave together — the ancestor closure — so no receipt is
+    // left hanging under a chapter the window no longer holds.
+    expect(window.rows().map((row) => row.key)).toEqual([
+      "run-6",
+      "run-6-receipt",
+      "run-7",
+      "run-7-receipt",
+      "run-8",
+      "run-8-receipt",
+      "run-9",
+      "run-9-receipt",
+    ]);
+  });
+
+  it("negative control: the same receipts with no header count one apiece", () => {
+    // Without this the case above would pass over a cap that had stopped counting
+    // anything. Take the headers away and the ten receipts are ten orphans, each its
+    // own top-level row — which is exactly the reading the ledger used to give it.
+    const window = new LedgerWindow({ topLevelCap: 4 });
+    window.ingest(foldedChapterLog(10).filter((row) => row.parentKey !== undefined));
+    expect(window.topLevelRowKeys()).toHaveLength(10);
+    expect(window.prune(PRUNABLE).topLevelRetained).toBe(4);
   });
 
   it("drops an orphan alone, never the siblings that share its absent parent", () => {

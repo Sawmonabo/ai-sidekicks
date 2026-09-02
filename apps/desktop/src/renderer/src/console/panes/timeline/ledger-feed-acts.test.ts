@@ -18,7 +18,6 @@ import { REPLAY_STATES, emptyFindResult, type ReplayState } from "../../ledger/s
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   LEDGER_NO_FILTER_SURFACE_REFUSAL,
-  LEDGER_NO_OPENED_CHAPTER_REFUSAL,
   buildActorFollowHandler,
   buildLedgerStructureActs,
   type LedgerFeedActInputs,
@@ -120,6 +119,9 @@ function actInputs(
     jumpToTail: () => {
       trace.push("jumpToTail");
     },
+    collapseAllTerminalChapters: () => {
+      trace.push("collapseAllTerminalChapters");
+    },
   };
 }
 
@@ -198,7 +200,7 @@ describe("the ledger's acts — what each one reaches", () => {
   });
 });
 
-describe("the ledger's acts — the two that refuse", () => {
+describe("the ledger's acts — the one that refuses", () => {
   let withdrawSink: (() => void) | undefined;
 
   afterEach(() => {
@@ -215,16 +217,20 @@ describe("the ledger's acts — the two that refuse", () => {
     expect(raised[0]?.origin).toBe("ledger");
   });
 
-  it("says why there is no finished chapter left to fold", () => {
+  it("folds the chapters rather than refusing over a control that now exists", () => {
+    // The refusal this replaces said every finished chapter was already folded and
+    // no control opened one. Both halves are false now that a chapter header is a
+    // disclosure, so the press does the fold and raises nothing.
+    const trace: ActTrace = [];
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
-    buildLedgerStructureActs(actInputs([])).collapseAllTerminalChapters();
-    expect(raised).toStrictEqual([LEDGER_NO_OPENED_CHAPTER_REFUSAL]);
-    expect(raised[0]?.code).toBe("ledger.no_opened_chapter");
+    buildLedgerStructureActs(actInputs(trace)).collapseAllTerminalChapters();
+    expect(trace).toStrictEqual(["collapseAllTerminalChapters"]);
+    expect(raised).toStrictEqual([]);
   });
 
   it("negative control: the acts that CAN act raise nothing", () => {
-    // Without this the two cases above would pass over a build that answered every
+    // Without this the case above would pass over a build that answered every
     // press with a banner, which would state a refusal over work that was done.
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
