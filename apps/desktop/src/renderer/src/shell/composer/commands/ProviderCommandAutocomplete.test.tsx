@@ -191,7 +191,7 @@ describe("ProviderCommandAutocomplete", () => {
     expect(optionNames(mounted.container)).toEqual(["review"]);
   });
 
-  it("discards the enumeration when the composer is re-addressed away from the agent", async () => {
+  it("closes when the composer is re-addressed, because the line it watched is another draft", async () => {
     const recorded: RecordedCall[] = [];
     const mounted = await mountComposer({
       bridge: recordingBridge(recorded),
@@ -202,14 +202,14 @@ describe("ProviderCommandAutocomplete", () => {
 
     await mounted.rerenderAt({ kind: "timeline", entity: undefined });
 
-    // Discarded, not filtered: the previous binding's entries are gone and the
-    // surface says nobody was asked rather than showing a list nothing addresses.
-    expect(optionNames(mounted.container)).not.toContain("compact");
-    expect(
-      mounted.container.querySelector(
-        ".meridian-command-discovery__state .meridian-nothing--not-checked",
-      ),
-    ).not.toBeNull();
+    // The draft store is keyed by the composer's ADDRESS, so re-addressing does not
+    // carry text under a target the person did not write it for — the line the
+    // popover watches is empty again, and a discovery surface that outlived the
+    // slash that opened it would be offering entries against a line that has none.
+    // That the enumeration itself is discarded rather than filtered is
+    // `provider-command-read.test.tsx`'s claim, where the read is driven directly.
+    expect(mounted.line.value).toBe("");
+    expect(mounted.container.querySelector(".meridian-command-discovery")).toBeNull();
   });
 
   it("says nobody was asked when the composer addresses no agent", async () => {
