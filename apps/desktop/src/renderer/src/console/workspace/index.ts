@@ -34,4 +34,12 @@ export * from "./seats/index.js";
 
 export { PaneHeader } from "./deck/PaneHeader.js";
 
+// "+ New" is a control on the all-sessions list rather than inside a session, so it
+// leaves the family through the same door the workspace itself does. `families.ts`
+// names it and the frame's sessions descriptor mounts it: the frame sits BELOW this
+// family in the console DAG and may not import it, so the composition root — which
+// is above every family — is the one place that can say which component fills that
+// place. No `@consumedBy` marker rides it; its consumer landed in the same change.
+export { NewSessionControl } from "./NewSessionControl.js";
+
 export { Workspace } from "./Workspace.js";

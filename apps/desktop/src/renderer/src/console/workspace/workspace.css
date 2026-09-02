@@ -290,3 +290,69 @@
   padding-block: var(--meridian-space-1);
   font-size: var(--meridian-text-xs);
 }
+
+/* The new-session draft, on the sessions destination.
+   The two buttons take the shipped `.meridian-sessions__start` shape verbatim —
+   same padding, edge, radius, and `cursor: default` — because they sit beside it in
+   the same row and a control that is one pixel different reads as a different KIND
+   of control. What is new here is the panel the draft opens, which is a card. */
+
+.meridian-new-session__open,
+.meridian-new-session__discard,
+.meridian-new-session__send {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  cursor: default;
+}
+
+.meridian-new-session__open:focus-visible,
+.meridian-new-session__discard:focus-visible,
+.meridian-new-session__send:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Disabled because the draft is empty, which is a state and not a failure: dimmed
+   so it reads as not-yet rather than refused, and left in place so the row does not
+   reflow the moment a posture is chosen. */
+.meridian-new-session__send:disabled {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-new-session {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-sm);
+}
+
+/* A `fieldset` for the grouping the legend gives it, with the browser's default
+   inset border and margin removed — the card above already draws the boundary. */
+.meridian-new-session__postures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.meridian-new-session__posture {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text);
+}
+
+.meridian-new-session__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+}

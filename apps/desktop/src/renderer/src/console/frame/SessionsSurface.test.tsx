@@ -12,7 +12,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 
+import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
+import { NewSessionControl } from "../workspace/index.js";
 import { createFixtureBridge, type ConsoleBridgeSource, type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
@@ -45,7 +47,7 @@ function sessionsSurfaceFor(
   sessionStoreRegistry: SessionStoreRegistry;
 } {
   const registry = new ConsoleSurfaceRegistry();
-  registerLegacySurfaces(registry);
+  registerLegacySurfaces(registry, { newSessionControl: NewSessionControl });
   const descriptor = registry.descriptorFor("sessions");
   if (descriptor === undefined) {
     throw new Error("no family claimed the sessions slot");
@@ -66,7 +68,15 @@ function sessionsSurfaceFor(
     sessionStore: undefined,
     sessionStoreRegistry,
   } as unknown as ConsoleSurfaceContext;
-  return { element: <>{descriptor.render(context)}</>, frameStore, sessionStoreRegistry };
+  // Wrapped the way `AppFrame` wraps every surface. The composed-draft control
+  // announces what its send settled as, and `useAnnounce` throws outside the
+  // provider by design — so a bare render here would be testing a mount the
+  // application never performs.
+  return {
+    element: <LiveAnnouncerProvider>{descriptor.render(context)}</LiveAnnouncerProvider>,
+    frameStore,
+    sessionStoreRegistry,
+  };
 }
 
 /** The fixture's port, which serves the directory read the live bridge refuses. */
