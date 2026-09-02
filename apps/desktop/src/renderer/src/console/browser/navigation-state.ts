@@ -88,9 +88,31 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
  * Whether a destination names a place on this machine's disk.
  *
  * 12.2: "The address field never accepts a filesystem path. Local files open through
- * the file control, which runs the boundary check of 12.5." Deliberately broad —
- * scheme, POSIX root, home shorthand, Windows drive letter, UNC share — because every
- * spelling it misses is a page navigating to a local file.
+ * the file control, which runs the boundary check of 12.5." Deliberately broad,
+ * because every spelling it misses is a page navigating to a local file — and that
+ * failure is silent, since a navigation to `C:secret.txt` looks like a successful
+ * navigation to everything above this predicate.
+ *
+ * Breadth is spelled as the ROOTS a local path can start from rather than as a list of
+ * examples, because Windows has more of them than the ones with separators in the
+ * obvious places:
+ *
+ *   • `file:` — the scheme, whatever follows it.
+ *   • A leading `/` — POSIX root, and with it the forward-slash UNC form
+ *     `//server/share`: Win32 takes either separator, so both spellings land here.
+ *   • A leading backslash — every backslash-rooted Windows form at once. Root-relative
+ *     `\Windows\System32` resolves against the current drive; UNC `\\server\share`,
+ *     the extended-length `\\?\C:\...` prefix, and the device namespace `\\.\pipe\...`
+ *     differ from it only in what follows the first separator.
+ *   • `~` — the home shorthand.
+ *   • A drive letter and a colon — `C:\Windows` and `C:/Windows`, but ALSO the
+ *     drive-relative `C:secret.txt` and the bare `C:`, which resolve against that
+ *     drive's current directory and carry no separator at all. The arm is therefore
+ *     the letter and the colon, with nothing required after them.
+ *
+ * The last arm refuses a hypothetical one-letter URI scheme with it. No such scheme is
+ * registered, and refusing a destination that cannot be reached is the cheap direction;
+ * admitting one that reads a file is not.
  */
 export function isFilesystemDestination(destination: string): boolean {
   const trimmed = destination.trim();
@@ -98,7 +120,7 @@ export function isFilesystemDestination(destination: string): boolean {
     /^file:/iu.test(trimmed) ||
     trimmed.startsWith("/") ||
     trimmed.startsWith("~") ||
-    trimmed.startsWith("\\\\") ||
-    /^[a-z]:[\\/]/iu.test(trimmed)
+    trimmed.startsWith("\\") ||
+    /^[a-z]:/iu.test(trimmed)
   );
 }
