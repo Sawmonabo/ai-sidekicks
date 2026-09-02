@@ -1,15 +1,16 @@
-// The artifact pane's chrome, and the conflation it is held away from.
+// The artifact pane: its chrome, the absence it renders before a read, and the two
+// disclosures §10.4 and §10.8 put at its foot.
 //
-// The pane claims a kind whose body is not built, which is the state `Spec-023`
-// calls reserved rather than missing — so the cases below check that the frame is
-// a named region a person can find, that the artifact it is a view of arrives
-// wire-verbatim and recoverable, and that the absence in the body is the one that
-// says nobody asked. The last is the one that matters: `empty` here would be the
-// console stating that the session has no artifacts, a fact no read established.
+// The case that matters most is the last one in the first block: `empty` here would be
+// the console stating that the session has no artifacts, a fact no read established.
+// The second block is about the bounds disclosure, whose whole value is that it names
+// WHICH list it is showing — the shipped default and the deployment's effective list
+// are different claims and an operator override replaces one with the other wholesale.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { ArtifactPane } from "./ArtifactPane.js";
 
@@ -42,6 +43,11 @@ describe("artifact pane — chrome", () => {
     const { container } = render(<ArtifactPane context={contextFor(undefined)} />);
     expect(container.querySelector(".meridian-repos-pane__subject")).toBeNull();
   });
+
+  it("offers one re-read control, keyboard-reachable and named", () => {
+    const { getByRole } = render(<ArtifactPane context={contextFor(ARTIFACT_ENTITY)} />);
+    expect(getByRole("button", { name: "Read again" })).toBeDefined();
+  });
 });
 
 describe("artifact pane — the absence it renders", () => {
@@ -57,5 +63,41 @@ describe("artifact pane — the absence it renders", () => {
     // Nothing has been read, and the two absences render as different shapes.
     const { container } = render(<ArtifactPane context={contextFor(ARTIFACT_ENTITY)} />);
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+  });
+});
+
+describe("artifact pane — the ingest bounds disclosure", () => {
+  it("names the shipped default as the default when the effective list is unread", () => {
+    const { container } = render(<ArtifactPane context={contextFor(ARTIFACT_ENTITY)} />);
+    const source = container.querySelector(".meridian-ingest-bounds__source");
+    expect(source?.textContent).toContain("shipped default");
+  });
+
+  it("lists the admitted types and leaves out the scriptable image", () => {
+    const { container } = render(<ArtifactPane context={contextFor(ARTIFACT_ENTITY)} />);
+    const types = container.querySelector(".meridian-ingest-bounds__types");
+    expect(types?.textContent).toContain("application/pdf");
+    expect(types?.textContent).not.toContain("image/svg+xml");
+    expect(container.querySelectorAll(".meridian-ingest-bounds__types li")).toHaveLength(
+      ATTACHMENT_ALLOWLIST_DEFAULT.length,
+    );
+  });
+
+  it("names all four bounds a participant can hit", () => {
+    const { container } = render(<ArtifactPane context={contextFor(ARTIFACT_ENTITY)} />);
+    const caps = container.querySelector(".meridian-ingest-bounds__caps");
+    expect(caps?.textContent).toContain("Per attachment");
+    expect(caps?.textContent).toContain("Per carrier");
+    expect(caps?.textContent).toContain("Per chunk");
+    expect(caps?.textContent).toContain("Per upload");
+  });
+
+  it("negative control: the pane offers no visibility toggle", () => {
+    // §10.4 names one and `bridge/growth-port.ts` registers no operation for it. A
+    // control that could only fail is worse than a control that is not there, and a
+    // port entry is not this family's to add.
+    const { queryByRole } = render(<ArtifactPane context={contextFor(ARTIFACT_ENTITY)} />);
+    expect(queryByRole("button", { name: "Share with the session" })).toBeNull();
+    expect(queryByRole("button", { name: "Make local-only" })).toBeNull();
   });
 });

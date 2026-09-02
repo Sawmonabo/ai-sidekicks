@@ -26,7 +26,11 @@ import "./repos.css";
 
 import { createElement } from "react";
 
-import { ArtifactPane } from "../panes/artifact/index.js";
+import {
+  ArtifactPane,
+  registerInlineArtifactCardBody,
+  registerInlineAttachmentCardBody,
+} from "../panes/artifact/index.js";
 import { DiffPane, registerInlineDiffCardBody } from "../panes/diff/index.js";
 import { registerSidebarSection, type ConsolePaneRegistry } from "../workspace/index.js";
 import { RepoSection } from "./RepoSection.js";
@@ -54,12 +58,16 @@ export function registerRepos(): void {
     owner: REPOS_FAMILY_OWNER,
     render: (context) => createElement(RepoSection, { context }),
   });
-  // The ledger row's `diff` card body. It is registered HERE rather than at the
-  // card module's own scope for the reason this whole file exists: a family
+  // The ledger row's three card bodies. They are registered HERE rather than at
+  // each card module's own scope for the reason this whole file exists: a family
   // registers everything it owns through one door, so a reader can see the
   // family's entire contact surface with the rest of the console in one place,
-  // and so a hot reload re-runs one module rather than several.
+  // and so a hot reload re-runs one module rather than several. All three kinds
+  // `INLINE_CARD_KINDS` declares are this family's, so after this call the seat
+  // registry is full.
   registerInlineDiffCardBody();
+  registerInlineArtifactCardBody();
+  registerInlineAttachmentCardBody();
 }
 
 /**

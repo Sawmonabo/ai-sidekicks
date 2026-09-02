@@ -1,0 +1,388 @@
+// What an attachment IS to this console: the vocabularies, the bounds, the copy, and
+// the one arithmetic step every progress figure passes through.
+//
+// `Spec-023 §Console Design (Meridian)` §10.8. The split against `attachment-ingest.ts`
+// beside it is behaviour versus vocabulary, the same split `artifact-model.ts` and
+// `ArtifactsPanel.tsx` already make one directory over: this module holds no state,
+// performs no call, and imports nothing that does, so a card can render an attachment
+// without pulling the ingest client in behind it.
+//
+// WIRE TRUTH FIRST. `packages/contracts` registers NO attachment type. The nearest
+// thing on the wire is `SteerPayload.attachments`, typed `z.array(z.unknown())` with a
+// count cap of 64 — an UNTYPED arm, and `Spec-014 §Interfaces And Contracts` forbids
+// delivering an attachment over one. There is no `AttachmentIngestInit` shape, no
+// method string for any leg of the ingest trio, and no manifest type. So the shapes
+// below are CONSOLE VIEW MODELS transcribing what §10.8 names, and every call that
+// would fill them goes through `bridge/growth-port.ts`, which refuses by name
+// (`artifact-ingest-and-crud`, `artifact-allowlist-and-abort`). Nothing here claims the
+// daemon sends it.
+//
+// THE DECLARED VALUES ARE ADVISORY AND THE DERIVED ONES ARE THE TRUTH. `Spec-014
+// §Required Behavior` makes a caller's `mediaType` and `sizeBytes` hints that narrow a
+// signature check and never widen acceptance, so `AttachmentSource` holds them as
+// DECLARED and `AttachmentDerivedTruth` is a separate shape that replaces them once the
+// daemon has read the bytes. Two shapes rather than optional fields on one, because a
+// card that showed a declared type where a derived one belongs would be reporting the
+// caller's claim as the server's finding.
+//
+// WHAT THIS MODULE REFUSES TO MODEL, from §10.8's own Never list:
+//   • No payload bytes, in any field. An attachment reference is a typed, ordered list
+//     of artifact ids and never bytes.
+//   • No client-side type gate. The allow-list below is a HINT for the picker and the
+//     default stated where the effective list cannot be read; a hard block here would
+//     make the console wrong about an operator-widened deployment it cannot see.
+//   • No filename rebuilt from the raw input. `normalizedName` is what renders and what
+//     is used; the caller's original string survives as manifest metadata the console
+//     never turns back into a path component.
+//   • No unresolved cause recomputed from live relay state. The marker is read from the
+//     reading node's own manifest row and mapped to copy here, never to a fresher
+//     answer.
+
+import { reportTripwire } from "../core/index.js";
+
+// --- Bounds ---------------------------------------------------------------
+//
+// `Spec-014 §Bounds (normative defaults; operator-tunable)`. Every one of these is a
+// figure a PARTICIPANT can hit, which is why the console carries them at all — the
+// daemon enforces them and the console explains them ahead of time. Three are operator
+// tunable and are therefore rendered as DEFAULTS wherever the effective value cannot be
+// read; the chunk size is fixed because the frame ceiling it derives from is.
+
+/**
+ * Decoded bytes one attachment may carry, at the shipped default.
+ *
+ * Deliberately equal to the per-artifact relay cap so an accepted attachment is
+ * relay-pinnable by construction. Operator-tunable over a 1 MB – 1 GB range, so every
+ * surface that shows it says "default" until `artifactAllowlistRead` answers.
+ */
+export const ATTACHMENT_BYTE_CAP_DEFAULT: number = 100 * 1024 * 1024;
+
+/**
+ * Attachments one carrier may name, at the shipped default.
+ *
+ * Derived from the quota envelope rather than picked: one maximally-sized carrier
+ * exactly saturates the per-session relay budget. Bound on the CARRIER and never on an
+ * ingest stream, which carries exactly one payload and has no count to cap.
+ */
+export const ATTACHMENTS_PER_CARRIER_CAP_DEFAULT = 10;
+
+/**
+ * Decoded bytes in one chunk. Fixed, not operator-tunable.
+ *
+ * The largest raw chunk whose base64 form plus the JSON-RPC envelope fits the 1 MB
+ * frame ceiling with headroom. The ceiling it derives from is not tunable, so neither
+ * is this.
+ */
+export const ATTACHMENT_CHUNK_BYTE_CAP: number = 512 * 1024;
+
+/**
+ * Wall-clock ceiling on one ingest stream, measured from its first call.
+ *
+ * The abandoned-spool reaper clocks file modification time, which a trickle of chunks
+ * refreshes forever, so live-stream tenure needs its own clock. Surfaced on a stalled
+ * upload because it is the one bound whose expiry a participant cannot otherwise see
+ * coming.
+ */
+export const INGEST_STREAM_LIFETIME_CEILING_MS: number = 6 * 60 * 60 * 1000;
+
+/**
+ * Silence after which an in-flight upload discloses the stream ceiling.
+ *
+ * A minute: long enough that a chunk round trip on a slow uplink is not called a stall,
+ * short enough that a participant learns the stream is bounded while there is still
+ * time to act on it.
+ */
+export const INGEST_STALL_DISCLOSURE_MS = 60_000;
+
+// --- The default allow-list ----------------------------------------------
+//
+// `Spec-014 §Bounds (normative defaults; operator-tunable)` ships this value-for-value,
+// and an operator override REPLACES it wholesale with no merge semantics — so the hint is this list or the operator's, never
+// this list plus a set of edits. `image/svg+xml` is deliberately absent: it is the one
+// image type that is also a scriptable document, and its exclusion is a recorded
+// decision rather than an oversight.
+
+/** Admitted on a UTF-8 well-formedness proof rather than a byte signature. */
+export const ATTACHMENT_SIGNATURE_EXEMPT_MEDIA_TYPES = [
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+  "application/yaml",
+  "text/xml",
+  "text/x-diff",
+] as const;
+
+/** Admitted on the payload's own leading signature. */
+export const ATTACHMENT_SIGNATURE_VERIFIED_MEDIA_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "application/pdf",
+  "application/zip",
+  "application/gzip",
+] as const;
+
+/** The whole shipped default, in the order the two subsets are stated. */
+export const ATTACHMENT_ALLOWLIST_DEFAULT: readonly string[] = [
+  ...ATTACHMENT_SIGNATURE_EXEMPT_MEDIA_TYPES,
+  ...ATTACHMENT_SIGNATURE_VERIFIED_MEDIA_TYPES,
+];
+
+// --- Ingest states --------------------------------------------------------
+
+/**
+ * Where one attachment's ingest stands. Closed.
+ *
+ * `abandoned` is its own member and not a flavour of `refused`: nobody refused it, the
+ * participant stopped sending and the daemon's reaper claims the spool. Rendering the
+ * two the same way would tell a participant their cancellation was an error.
+ */
+export const ATTACHMENT_INGEST_STATES = [
+  "declared",
+  "ingesting",
+  "complete",
+  "refused",
+  "abandoned",
+] as const;
+
+/** One ingest state. Derived, so the vocabulary is declared exactly once. */
+export type AttachmentIngestState = (typeof ATTACHMENT_INGEST_STATES)[number];
+
+/**
+ * What a refusal means for the NEXT act, which is the only thing a participant can use.
+ *
+ * `Spec-014 §Interfaces And Contracts` makes every call of the ingest trio retry-safe —
+ * a replayed chunk is acknowledged without re-appending, and a replayed completion
+ * replays its original response verbatim — so a lost response is retried in place and
+ * never restarted. The two named codes are the exceptions and they are deliberately
+ * distinct: `artifact.ingest_stream_invalid` (409) is terminal for the stream and means
+ * begin again, `artifact.ingest_capacity_exhausted` (429) is transient with no stream
+ * state created and means wait and retry. Collapsing them would tell a participant to
+ * re-upload a hundred megabytes because the daemon was momentarily busy.
+ */
+export const INGEST_REFUSAL_DISPOSITIONS = ["retry-in-place", "wait-and-retry", "restart"] as const;
+
+/** One disposition. Derived. */
+export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[number];
+
+/**
+ * The two daemon codes whose disposition differs from the retry-safe default.
+ *
+ * Named here as strings because `packages/contracts` registers NEITHER — there is no
+ * artifact error namespace in `error.ts` at all. They are `Spec-014`'s codes, matched
+ * against whatever a refusal carries, and they are not method names, event types, or
+ * wire fields: a code the console does not recognise takes the retry-in-place arm,
+ * which is the contract's own default rather than a guess.
+ */
+export const INGEST_STREAM_INVALID_CODE = "artifact.ingest_stream_invalid";
+export const INGEST_CAPACITY_EXHAUSTED_CODE = "artifact.ingest_capacity_exhausted";
+
+/** What a participant should do next about this refusal. Total over every code. */
+export function ingestRefusalDisposition(code: string): IngestRefusalDisposition {
+  if (code === INGEST_STREAM_INVALID_CODE) {
+    return "restart";
+  }
+  if (code === INGEST_CAPACITY_EXHAUSTED_CODE) {
+    return "wait-and-retry";
+  }
+  return "retry-in-place";
+}
+
+/** The sentence each disposition puts in front of the control that acts on it. */
+export const INGEST_DISPOSITION_COPY: Readonly<Record<IngestRefusalDisposition, string>> = {
+  "retry-in-place":
+    "Retrying sends the same chunk again. A chunk the daemon already has is acknowledged without being appended twice, so nothing is uploaded a second time.",
+  "wait-and-retry":
+    "The daemon is at capacity and created no stream state. Waiting and retrying is the whole remedy; the bytes already sent are unaffected.",
+  restart:
+    "This stream is over and cannot be resumed. Retrying begins the upload again from the first byte.",
+};
+
+/** What cancelling actually does, said exactly rather than as "cancelled". */
+export const INGEST_ABANDON_COPY =
+  "Sending stops now. The bytes already spooled are cleaned up shortly by the daemon rather than instantly, and no artifact is minted.";
+
+// --- The unresolved marker ------------------------------------------------
+
+/**
+ * Why an attachment could not be resolved where it sits. Closed at six.
+ *
+ * `Spec-014 §Fallback Behavior` requires the turn to PROCEED and the marker to sit in
+ * the attachment's declared position — never appended, never footnoted — so this is a
+ * per-position reading and not a page-level banner.
+ */
+export const UNRESOLVED_ATTACHMENT_CAUSES = [
+  "deleted",
+  "local_only_remote",
+  "pending_replication",
+  "over_cap",
+  "quota_exceeded",
+  "expired",
+] as const;
+
+/** One unresolved cause. Derived. */
+export type UnresolvedAttachmentCause = (typeof UNRESOLVED_ATTACHMENT_CAUSES)[number];
+
+/** What a cause means, and what a participant can do about it. */
+export interface UnresolvedAttachmentPresentation {
+  readonly meaning: string;
+  /** ABSENT means there is no remedy — said outright rather than left blank. */
+  readonly remedy: string | undefined;
+}
+
+/**
+ * The six causes, total over `UnresolvedAttachmentCause`.
+ *
+ * Each carries its OWN remedy, because they are six different situations and a shared
+ * "try again later" would be wrong for five of them. `deleted` carries none, and the
+ * absence is the honest answer rather than a softer sentence that implies a way back.
+ */
+export const UNRESOLVED_ATTACHMENT_PRESENTATION: Readonly<
+  Record<UnresolvedAttachmentCause, UnresolvedAttachmentPresentation>
+> = {
+  deleted: {
+    meaning: "The manifest is gone.",
+    remedy: undefined,
+  },
+  local_only_remote: {
+    meaning: "Held on the publishing node only, and this is not that node.",
+    remedy: "Change its visibility to shared on the publishing node.",
+  },
+  pending_replication: {
+    meaning: "The publisher has it and the relay does not yet.",
+    remedy: "Wait for the publisher's transfer to finish.",
+  },
+  over_cap: {
+    meaning: "Too large to pin on the relay, so it is only reachable from the publisher.",
+    remedy: "The publisher must be online.",
+  },
+  quota_exceeded: {
+    meaning: "The publisher's relay quota was full when this was published.",
+    remedy: "Free relay quota, then re-publish.",
+  },
+  expired: {
+    meaning: "The payload is not obtainable from the relay.",
+    remedy: "The publisher re-publishes it while online.",
+  },
+};
+
+// --- The shapes a card renders -------------------------------------------
+
+/** What a participant handed over, before the daemon read a byte of it. */
+export interface AttachmentSource {
+  /** The console's own handle for this attachment before an artifact id exists. */
+  readonly localId: string;
+  /** The caller's filename. Metadata only — never a path component, never rebuilt. */
+  readonly declaredName: string;
+  /** Decoded bytes. Every bound in this file counts these and never an encoded length. */
+  readonly byteLength: number;
+  /** The caller's claim about the type. Advisory input, never a trusted fact. */
+  readonly declaredMediaType?: string | undefined;
+}
+
+/** What the daemon found once it had the bytes. This replaces the declaration. */
+export interface AttachmentDerivedTruth {
+  readonly artifactId: string;
+  readonly normalizedName: string;
+  readonly derivedMediaType: string;
+  readonly derivedSizeBytes: number;
+}
+
+/** One attachment's ingest, as the client publishes it and a card renders it. */
+export interface AttachmentIngestEntry {
+  readonly declared: AttachmentSource;
+  readonly state: AttachmentIngestState;
+  /** The spooled running total of DECODED bytes the daemon has acknowledged. */
+  readonly receivedBytes: number;
+  readonly ingestId: string | undefined;
+  readonly derived: AttachmentDerivedTruth | undefined;
+  readonly refusal: { readonly code: string; readonly detail: string } | undefined;
+  readonly disposition: IngestRefusalDisposition | undefined;
+  /** When the stream opened, for the six-hour ceiling. Absent before it opened. */
+  readonly openedAtMilliseconds: number | undefined;
+  /** When a chunk was last acknowledged, for the stall disclosure. */
+  readonly lastProgressAtMilliseconds: number | undefined;
+}
+
+/**
+ * What one attachment position on a turn has to say. Four arms, none standing in for
+ * another.
+ *
+ * `not-checked` is separate from `unresolved` for rule 8's reason: an unresolved marker
+ * is a manifest row that was READ and carries a cause, while `not-checked` is the
+ * console admitting no read has happened — which is every attachment on a turn today,
+ * because no wire resolves one.
+ */
+export type AttachmentReading =
+  | { readonly kind: "ingesting"; readonly entry: AttachmentIngestEntry }
+  | {
+      readonly kind: "resolved";
+      readonly attachmentId: string;
+      readonly derived: AttachmentDerivedTruth;
+    }
+  | {
+      readonly kind: "unresolved";
+      readonly attachmentId: string;
+      readonly cause: UnresolvedAttachmentCause;
+    }
+  | { readonly kind: "not-checked"; readonly attachmentId: string };
+
+// --- The one arithmetic step ---------------------------------------------
+
+/** Where the progress tripwire reports from, so a firing names a module and not a call. */
+export const ATTACHMENT_PROGRESS_SITE = "repos/attachment-model.ts";
+
+/**
+ * Advance one entry's decoded-byte total by one acknowledged chunk.
+ *
+ * THE WHOLE POINT OF THIS FUNCTION IS THAT IT IS THE ONLY ONE. §10.8's "never chart
+ * base64 length as progress" is unenforceable as a rule about intent, but it is
+ * perfectly checkable as arithmetic: an encoded length is about four thirds of the
+ * decoded one, so charting it drives the running total past a total the caller itself
+ * declared. That is impossible for a decoded count and is the observable signature of
+ * having charted the wrong number — so it fires the `wire-figure-formatting` tripwire,
+ * which is exactly "a figure reached a surface through something other than the byte
+ * chokepoint", and the figure is clamped so the bar cannot render past full while the
+ * defect is reported.
+ *
+ * Pure, exported, and taking the two numbers rather than the client's private state, so
+ * the tripwire is provable by driving THIS function rather than by reaching into a
+ * class or standing in for one.
+ */
+export function advanceReceivedBytes(
+  entry: AttachmentIngestEntry,
+  chunkByteLength: number,
+): number {
+  const advanced = entry.receivedBytes + chunkByteLength;
+  if (advanced > entry.declared.byteLength) {
+    reportTripwire(
+      "wire-figure-formatting",
+      ATTACHMENT_PROGRESS_SITE,
+      `ingest progress for ${entry.declared.localId} advanced to ${String(advanced)} decoded bytes past a declared total of ${String(entry.declared.byteLength)}; a progress figure counts decoded bytes and never an encoded length`,
+    );
+    return entry.declared.byteLength;
+  }
+  return advanced;
+}
+
+/** Milliseconds left on this stream's six-hour ceiling, or `undefined` before it opened. */
+export function ingestCeilingRemainingMs(
+  entry: AttachmentIngestEntry,
+  nowMilliseconds: number,
+): number | undefined {
+  if (entry.openedAtMilliseconds === undefined) {
+    return undefined;
+  }
+  const elapsed = nowMilliseconds - entry.openedAtMilliseconds;
+  return Math.max(0, INGEST_STREAM_LIFETIME_CEILING_MS - elapsed);
+}
+
+/** Whether this upload has been silent long enough to disclose the ceiling. */
+export function isIngestStalled(entry: AttachmentIngestEntry, nowMilliseconds: number): boolean {
+  if (entry.state !== "ingesting" || entry.lastProgressAtMilliseconds === undefined) {
+    return false;
+  }
+  return nowMilliseconds - entry.lastProgressAtMilliseconds >= INGEST_STALL_DISCLOSURE_MS;
+}

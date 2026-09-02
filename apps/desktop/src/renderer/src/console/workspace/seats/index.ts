@@ -104,9 +104,7 @@ export {
   inlineCardBody,
   inlineCardSeatRegistry,
   registerInlineCardBody,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type ArtifactInlineCardProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type AttachmentInlineCardProps,
   type DiffInlineCardProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
