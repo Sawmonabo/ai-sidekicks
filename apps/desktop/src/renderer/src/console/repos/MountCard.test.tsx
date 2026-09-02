@@ -9,9 +9,12 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../bridge/index.js";
+import { refuse } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
+import { SessionStore } from "../store/index.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
+import type { WorktreeStatusRecord } from "./worktree-model.js";
 
 const CANONICAL_ROOT = "/Users/dev/code/ai-sidekicks";
 const ENTERED_PATH = "/Users/dev/code/ai-sidekicks/packages/contracts";
@@ -75,6 +78,7 @@ function renderCard(
         worktreeRefusal={undefined}
         nowMilliseconds={Date.parse("2026-01-01T09:05:02.000Z")}
         bridge={REFUSING_BRIDGE}
+        sessionStore={new SessionStore({ sessionId: "session-repos" })}
         onCopyCanonicalRoot={() => undefined}
         onSelectExecutionMode={() => undefined}
         {...overrides}
@@ -182,5 +186,50 @@ describe("MountCard — what the renderer must not offer", () => {
   it("names the owning node, always", () => {
     const { getByTitle } = renderCard();
     expect(getByTitle("node-workstation")).toBeDefined();
+  });
+});
+
+describe("MountCard — the roots, and the read that did not answer", () => {
+  /** The root read's own failure, as `RepoMountsReader` hands it to the card. */
+  const WORKTREE_REFUSAL = refuse(
+    "repo.worktreeStatusRead",
+    "wire-unregistered",
+    "The execution-root read is not registered yet.",
+  );
+
+  const ROOT: WorktreeStatusRecord = {
+    worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
+    repoMountId: "mount-sidekicks",
+    branchName: "feat/rate-limit-wiring",
+    fsRoot: "/Users/dev/roots/rate-limit-wiring",
+    state: "ready",
+    createdBySessionId: "session-repos",
+    createdAt: "2026-01-01T09:05:00.700Z",
+    updatedAt: "2026-01-01T09:05:00.700Z",
+  } as WorktreeStatusRecord;
+
+  /** What the empty arm says. Asserted by its own words, since it is what must be absent. */
+  const NO_ROOT_COPY = /No execution root on disk/u;
+
+  it("states the refusal and does not also report that there is no root", () => {
+    // The reader supplies `worktrees: []` beside a refusal, so drawing the empty arm
+    // here would be a successful-empty claim over a read that failed.
+    const { getByText, queryByText } = renderCard({ worktreeRefusal: WORKTREE_REFUSAL });
+    expect(getByText("wire-unregistered")).toBeDefined();
+    expect(queryByText(NO_ROOT_COPY)).toBeNull();
+  });
+
+  it("negative control: a served empty root list still says there is no root", () => {
+    // Without this the case above would pass against a card that had simply stopped
+    // drawing the empty arm, which would leave a mount with no roots saying nothing.
+    const { getByText, queryByText } = renderCard();
+    expect(getByText(NO_ROOT_COPY)).toBeDefined();
+    expect(queryByText("wire-unregistered")).toBeNull();
+  });
+
+  it("draws the roots the read named, and neither absence", () => {
+    const { container, queryByText } = renderCard({ worktrees: [ROOT] });
+    expect(container.querySelector(".meridian-worktree-gate-row")).not.toBeNull();
+    expect(queryByText(NO_ROOT_COPY)).toBeNull();
   });
 });

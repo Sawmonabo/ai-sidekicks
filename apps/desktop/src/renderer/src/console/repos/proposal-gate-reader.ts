@@ -1,16 +1,24 @@
 // What one worktree's change-proposal gate knows, who asked for it, and when it asks
 // again.
 //
-// `ProposalGate.tsx` renders and does not read; this is the half that reads. One
-// reader holds one worktree's gate state, so the two roots of a two-agent session
+// `ProposalGate.tsx` renders and does not read; this is the half that reads, and
+// `proposal-gate-binding.ts` is the half that holds one of these beside a component.
+// One reader holds one worktree's gate state, so the two roots of a two-agent session
 // carry two independent gates and neither can publish the other's refusal.
 //
-// EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER. `Spec-023 §Console Design
-// (Meridian)` §10.1 fixes the policy in a sentence — on panel focus, on reconnect,
-// and on a `workspace.stale` frame, with no interval polling — so this class arms no
-// timer of its own and re-reads on exactly the reasons `repo-mounts-reader.ts` beside
-// it re-reads on: the first subscribe, a window focus, and the terminal event of an
-// act the daemon accepted.
+// EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER, AND EVERY REASON THROUGH ONE
+// TRIGGER CLASS. `Spec-023 §Console Design (Meridian)` §10.1 fixes the policy in a
+// sentence — on panel focus, on reconnect, and on a `workspace.stale` frame, with no
+// interval polling — so this class arms no timer of its own and owns no listener of
+// its own either: it builds a `RepoRefreshTriggers` over its own scheduler exactly as
+// `repo-mounts-reader.ts` beside it does, which is what makes all three reasons reach
+// a gate rather than only the first. A daemon that reconnected, or a `workspace.stale`
+// frame arriving in an already-focused window, used to leave the branch context and
+// the prepared proposal standing with `push` still offered against them.
+//
+// The reader adds one reason of its own on top of the three: the terminal event of an
+// act the daemon accepted, which it requests directly because it is the only observer
+// of that act.
 //
 // ALL THREE OPERATIONS ARE GROWTH-PORT OPERATIONS, AND ALL THREE ARE UNREGISTERED.
 // `bridge/growth-signatures.ts` carries the branch-context read, the preparation
@@ -21,27 +29,21 @@
 //
 // WHAT THIS READER DELIBERATELY CANNOT PUBLISH, AND WHY IT IS A WIRE FACT
 //
-//   • `hosting-unavailable`. The arm needs a bundle path and a preparation state that
-//     names the outage. The preparation reply carries `prPreparationId`, a state
-//     closed at `draft | ready`, and an untyped blob — and the blob is display data
-//     the console may never read as an instruction (`prepared-proposal.ts`), so there is
-//     no honest route to the arm at all. Publishing it from a `draft` reply would
-//     report an outage nothing observed; publishing a bundle path would invent a
-//     filesystem location. The arm stays drawable for a caller that CAN state it.
+//   • `hosting-unavailable`, for the reason `proposal-gate-state.ts` records on the arm
+//     itself: no registered reply names a bundle or an outage, so there is no honest
+//     route to it, and it stays drawable for a caller that CAN state it.
 //   • A `status` reading. The three trichotomies are facts about a proposal that
 //     exists ON A HOST, and nothing in this console has talked to one — the
 //     preparation call is explicitly the step before any remote mutation.
 //   • `detectedHost`, `title`, `body`, `trailers`, `changedPaths`. Each is optional on
-//     the shapes it belongs to, for the reason recorded there, and this reader
-//     supplies exactly the ones a reply named.
+//     the shape it belongs to for the reason recorded there, and this reader supplies
+//     exactly the ones a reply named.
 //
 // THE TARGET BRANCH IS THE CONTEXT'S AND NEVER A SELECTION. §10.7 forbids inferring
 // base or head from a pane, a tab, or a focused view; the preparation call's
 // `targetBranch` is therefore read off the served context's `baseBranch` and there is
 // no parameter on this class through which a selection could reach it — the same
 // prohibition `ProposalGate.tsx` makes structural on its own side.
-
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import {
@@ -52,7 +54,7 @@ import {
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../core/index.js";
-import { RefreshScheduler } from "../store/index.js";
+import { RefreshScheduler, type SessionStore } from "../store/index.js";
 import type { BranchContextReading } from "./branch-context-model.js";
 import {
   GATE_SETTLEMENT_COPY,
@@ -61,9 +63,15 @@ import {
   type ProposalGateRefusalCode,
   type ProposalGateSubject,
 } from "./proposal-gate-model.js";
-import type { PreparedProposal } from "./prepared-proposal.js";
+import {
+  proposalContextKeyOf,
+  proposalContextKeysMatch,
+  type PreparedProposal,
+  type ProposalContextKey,
+} from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
+import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
 /**
  * Everything one worktree's gate renders from, in one immutable value.
@@ -79,7 +87,12 @@ export interface ProposalGateReading {
   readonly state: ProposalGateState;
   /** The read's own failure, where the published arm admits no message. */
   readonly refusal: ConsoleRefusal | undefined;
-  /** What the last press of each act produced. Rendered beside the control pressed. */
+  /**
+   * What the last press of each act produced. Rendered beside the control pressed.
+   *
+   * An act's entry is dropped the moment that act is issued again, so what stands here
+   * is always a failure of the most recent press and never one a later success outran.
+   */
   readonly actionRefusals: ReadonlyMap<ProposalAction, ConsoleRefusal>;
   /**
    * One sentence naming what this gate settled on, or `undefined` before it has.
@@ -101,6 +114,8 @@ const NOTHING_ASKED: ProposalGateReading = {
 export interface ProposalGateReaderOptions {
   readonly bridge: ConsoleBridge;
   readonly subject: ProposalGateSubject;
+  /** The session whose repair edge and whose frames are two of the three reasons to re-read. */
+  readonly sessionStore: SessionStore;
   /** Injected so a test drives every read on frozen time with no real timers. */
   readonly clock?: ConsoleClock;
 }
@@ -109,6 +124,7 @@ export class ProposalGateReader {
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
   readonly #scheduler: RefreshScheduler;
+  readonly #triggers: RepoRefreshTriggers;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
 
   #reading: ProposalGateReading = NOTHING_ASKED;
@@ -121,11 +137,12 @@ export class ProposalGateReader {
    */
   #context: BranchContextReading | undefined;
   #proposal: PreparedProposal | undefined;
+  /** The context the held proposal was prepared AGAINST. `prepared-proposal.ts` says why. */
+  #proposalPreparedFor: ProposalContextKey | undefined;
   /** `preparing` is entered once. A refresh redraws the answer, never the wait. */
   #hasEnteredPreparing = false;
   #started = false;
   #disposed = false;
-  #detachWindowFocus: (() => void) | undefined;
 
   public constructor(options: ProposalGateReaderOptions) {
     this.#bridge = options.bridge;
@@ -146,6 +163,11 @@ export class ProposalGateReader {
           settlement: GATE_SETTLEMENT_COPY.refused,
         });
       },
+    });
+    // The three reasons to read again. They reach this reader only through the scheduler.
+    this.#triggers = new RepoRefreshTriggers({
+      scheduler: this.#scheduler,
+      sessionStore: options.sessionStore,
     });
   }
 
@@ -176,16 +198,7 @@ export class ProposalGateReader {
     }
     this.#started = true;
     this.#scheduler.request("subscribe");
-    if (typeof window === "undefined") {
-      return;
-    }
-    const onWindowFocus = (): void => {
-      this.#scheduler.request("window-focus");
-    };
-    window.addEventListener("focus", onWindowFocus);
-    this.#detachWindowFocus = () => {
-      window.removeEventListener("focus", onWindowFocus);
-    };
+    this.#triggers.start();
   }
 
   /**
@@ -198,6 +211,13 @@ export class ProposalGateReader {
    * re-reads, because what the act changed is what the next read will say.
    */
   public async requestAction(action: ProposalAction): Promise<void> {
+    // WHAT THE LAST PRESS PRODUCED IS CLEARED WHEN THE NEXT ONE IS ISSUED, not when it
+    // settles: every later publish spreads `actionRefusals` forward, so a refusal used
+    // to stand beside its control for the life of the reader even after the same act
+    // succeeded. One write here covers both accepted paths and leaves an in-flight
+    // retry showing no stale failure; a refused retry re-records its own below. Every
+    // OTHER act's entry survives — a failed commit is still a fact after a push worked.
+    this.#clearActionRefusal(action);
     const context = this.#context;
     if (context === undefined) {
       // Structurally unreachable from the gate, which offers acts only on the
@@ -224,8 +244,7 @@ export class ProposalGateReader {
   public dispose(): void {
     this.#disposed = true;
     this.#scheduler.dispose();
-    this.#detachWindowFocus?.();
-    this.#detachWindowFocus = undefined;
+    this.#triggers.dispose();
     this.#changes.clear();
   }
 
@@ -249,6 +268,7 @@ export class ProposalGateReader {
       state: outcome.value.state,
       blob: outcome.value.proposalBlob,
     };
+    this.#proposalPreparedFor = proposalContextKeyOf(context);
     // Re-read rather than publish the proposal beside a context this call did not
     // re-establish: one read is the source of the arm, so the proposal joins the arm
     // the next read publishes and the console holds no second copy of the context.
@@ -300,7 +320,7 @@ export class ProposalGateReader {
 
     if (outcome.status === "unavailable") {
       this.#context = undefined;
-      this.#proposal = undefined;
+      this.#discardProposal();
       // The port's two refusal classes are two different facts and get two different
       // arms. `wire-unregistered` means the question could not be put at all, which
       // is `not-checked` — and that arm carries no message, so the refusal travels
@@ -327,7 +347,7 @@ export class ProposalGateReader {
     const branchContext = outcome.value.branchContext;
     if (branchContext === undefined) {
       this.#context = undefined;
-      this.#proposal = undefined;
+      this.#discardProposal();
       this.#publish({
         ...this.#reading,
         state: { kind: "no-context", executionMode: this.#subject.executionMode },
@@ -339,6 +359,16 @@ export class ProposalGateReader {
 
     const context = branchContextReadingFrom(branchContext, this.#subject.executionMode);
     this.#context = context;
+    // A REFRESHED CONTEXT NEVER CARRIES A PROPOSAL PREPARED FOR A DIFFERENT ONE. An
+    // external checkout or a repair can move the base or the head between reads, and a
+    // proposal on this arm is exactly what offers the remote act — so a mismatch
+    // discards it rather than publishing it beside a context it was not built against.
+    if (
+      this.#proposalPreparedFor !== undefined &&
+      !proposalContextKeysMatch(this.#proposalPreparedFor, context)
+    ) {
+      this.#discardProposal();
+    }
     const proposal = this.#proposal;
     this.#publish({
       ...this.#reading,
@@ -353,6 +383,22 @@ export class ProposalGateReader {
           ? GATE_SETTLEMENT_COPY.prepared
           : GATE_SETTLEMENT_COPY["prepared-with-proposal"],
     });
+  }
+
+  /** Drop the held proposal and the context it was prepared for, which are one fact. */
+  #discardProposal(): void {
+    this.#proposal = undefined;
+    this.#proposalPreparedFor = undefined;
+  }
+
+  /** Drop one act's standing failure. A publish only where there was one to drop. */
+  #clearActionRefusal(action: ProposalAction): void {
+    if (!this.#reading.actionRefusals.has(action)) {
+      return;
+    }
+    const actionRefusals = new Map(this.#reading.actionRefusals);
+    actionRefusals.delete(action);
+    this.#publish({ ...this.#reading, actionRefusals });
   }
 
   #recordActionRefusal(action: ProposalAction, refusal: ConsoleRefusal): void {
@@ -370,50 +416,4 @@ export class ProposalGateReader {
 /** What a thrown read says, without asserting a shape the throw may not have. */
 function rejectionText(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/** What the hook hands a surface: the reading, and the one act it sends. */
-export interface ProposalGateBinding {
-  readonly reading: ProposalGateReading;
-  readonly requestAction: (action: ProposalAction) => void;
-}
-
-/**
- * Bind one worktree's gate to its reader.
- *
- * The reader is constructed in a hook and never in a render body, subscribed through
- * `useSyncExternalStore` so a publish is a single transition, and disposed on unmount
- * — the three properties `apps/desktop/AGENTS.md` requires of anything holding state
- * beside a component. The subject is destructured into the dependency list rather
- * than depended on as an object, because a caller composing it inline would otherwise
- * mint a new reader on every render.
- */
-export function useProposalGate(
-  bridge: ConsoleBridge,
-  subject: ProposalGateSubject,
-): ProposalGateBinding {
-  const { workspaceId, worktreeId, executionMode } = subject;
-  const reader = useMemo(
-    () => new ProposalGateReader({ bridge, subject: { workspaceId, worktreeId, executionMode } }),
-    [bridge, workspaceId, worktreeId, executionMode],
-  );
-  useEffect(() => {
-    reader.start();
-    return () => {
-      reader.dispose();
-    };
-  }, [reader]);
-  const subscribe = useCallback(
-    (onReadingChange: () => void) => reader.subscribe(onReadingChange),
-    [reader],
-  );
-  const read = useCallback(() => reader.snapshot, [reader]);
-  const reading = useSyncExternalStore(subscribe, read, read);
-  const requestAction = useCallback(
-    (action: ProposalAction) => {
-      void reader.requestAction(action);
-    },
-    [reader],
-  );
-  return { reading, requestAction };
 }

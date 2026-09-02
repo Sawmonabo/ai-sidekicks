@@ -54,12 +54,17 @@ import {
   buildDiffFixture,
 } from "../../src/renderer/src/console/panes/diff/diff-fixture.js";
 import { DiffPane } from "../../src/renderer/src/console/panes/diff/index.js";
-import { ManualClock } from "../../src/renderer/src/console/core/index.js";
+import {
+  ManualClock,
+  refuse,
+  type ConsoleRefusal,
+} from "../../src/renderer/src/console/core/index.js";
 import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
 import { LiveAnnouncerProvider } from "../../src/renderer/src/console/primitives/index.js";
 import { ProposalGate } from "../../src/renderer/src/console/repos/ProposalGate.js";
 import { registerRepos, registerReposPanes } from "../../src/renderer/src/console/repos/index.js";
 import type { BranchContextReading } from "../../src/renderer/src/console/repos/branch-context-model.js";
+import type { ProposalAction } from "../../src/renderer/src/console/repos/proposal-actions.js";
 import type { ProposalGateState } from "../../src/renderer/src/console/repos/proposal-gate-state.js";
 import { FrameStore, SessionStore } from "../../src/renderer/src/console/store/index.js";
 import {
@@ -341,9 +346,47 @@ const PREPARED_GATE_STATE: ProposalGateState = {
   },
 };
 
-/** The proposal gate on a prepared proposal, with the three offers standing. */
+/**
+ * The refusal the gate draws beside a control that was pressed and did not take.
+ *
+ * On the REMOTE act, which is the one whose failure matters most to see: a push that
+ * the daemon refused leaves the proposal intact and the offer standing, and the
+ * sentence beside the control is the only thing that says the send did not happen.
+ */
+const PUSH_REFUSAL: ReadonlyMap<ProposalAction, ConsoleRefusal> = new Map([
+  [
+    "push" satisfies ProposalAction,
+    refuse(
+      "gitflow.gitActionExecute",
+      "wire-unregistered",
+      "Not checked — the git action is not registered yet.",
+    ),
+  ],
+]);
+
+/**
+ * The proposal gate on a prepared proposal, with the three offers standing.
+ *
+ * THE HANDLERS ARE WHAT MAKE THE OFFERS EXIST. `ProposalActions` draws nothing at all
+ * without `onRequestAction`, and the changed-path list draws its diff half only where
+ * `onOpenChangedPath` is supplied — so a mount that passed only `state` pinned a
+ * surface with no controls on it, and the accessibility tier walked a tree the
+ * console's own gate never renders. The stubs record nothing because neither tier
+ * reads a recording: what both look at is the drawn surface.
+ *
+ * The blocking-choice pair is deliberately NOT supplied. `checkoutConflict` disables
+ * every act, which is a different composition with its own claim, and mounting it here
+ * would pin the blocked surface under the name of the offered one.
+ */
 export async function mountProposalGate(): Promise<MountedFamilySurface> {
   const { bridge } = scenarioCollaborators();
-  const { container } = await renderSettled(<ProposalGate state={PREPARED_GATE_STATE} />);
+  const { container } = await renderSettled(
+    <ProposalGate
+      state={PREPARED_GATE_STATE}
+      onRequestAction={() => undefined}
+      actionRefusals={PUSH_REFUSAL}
+      onOpenChangedPath={() => undefined}
+    />,
+  );
   return { element: requireLabelledRegion(container, "Change proposal"), bridge };
 }

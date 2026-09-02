@@ -15,6 +15,9 @@ import {
   PROPOSAL_MEMBER_UNSUPPLIED_COPY,
   PROPOSAL_STATES,
   proposalBlobRows,
+  proposalContextKeyOf,
+  proposalContextKeysMatch,
+  type ProposalContextKey,
 } from "./prepared-proposal.js";
 
 describe("the proposal vocabularies — declared once, and closed where the wire closes them", () => {
@@ -82,5 +85,42 @@ describe("proposalBlobRows — inert display data, never instructions", () => {
 
   it("negative control: an absent blob is no rows rather than a row saying so", () => {
     expect(proposalBlobRows(undefined)).toStrictEqual([]);
+  });
+});
+
+describe("the proposal's pairing with the context it was prepared for", () => {
+  const PREPARED_UNDER: ProposalContextKey = {
+    branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
+    baseBranch: "develop",
+    headBranch: "feat/rate-limit-wiring",
+  };
+
+  it("takes only the three deciding members off a wider context reading", () => {
+    // The key is what a holder compares, so it carries the mode, the upstream ref, and
+    // the worktree id through no path — a proposal is not stale because a tracking ref
+    // was set on the branch it was prepared against.
+    expect(
+      proposalContextKeyOf({
+        ...PREPARED_UNDER,
+        upstreamRef: "origin/feat/rate-limit-wiring",
+        executionMode: "worktree",
+        worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
+      } as ProposalContextKey & Record<string, unknown>),
+    ).toStrictEqual(PREPARED_UNDER);
+  });
+
+  it("negative control: the same id over a moved branch is not a match", () => {
+    // The whole reason the key is three members. A repair re-establishes the row over a
+    // moved head, and an id-only comparison would call the old proposal current.
+    expect(proposalContextKeysMatch(PREPARED_UNDER, PREPARED_UNDER)).toBe(true);
+    expect(
+      proposalContextKeysMatch(PREPARED_UNDER, {
+        ...PREPARED_UNDER,
+        headBranch: "feat/something-else",
+      }),
+    ).toBe(false);
+    expect(
+      proposalContextKeysMatch(PREPARED_UNDER, { ...PREPARED_UNDER, baseBranch: "main" }),
+    ).toBe(false);
   });
 });

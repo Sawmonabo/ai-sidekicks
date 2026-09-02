@@ -14,6 +14,7 @@ import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { ManualClock } from "../core/index.js";
+import { SessionStore } from "../store/index.js";
 import { WorktreeGateRow, gateSummaryLine } from "./WorktreeGateRow.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";
@@ -76,6 +77,7 @@ function row(
         subject={SUBJECT}
         unpairedReason={UNPAIRED_REASON}
         bridge={bridgeAnswering(branchContext)}
+        sessionStore={new SessionStore({ sessionId: ROOT.createdBySessionId })}
         nowMilliseconds={NOW}
         {...overrides}
       />

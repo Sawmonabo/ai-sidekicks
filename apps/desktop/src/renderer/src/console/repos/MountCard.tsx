@@ -51,6 +51,7 @@ import {
   WireFigure,
   formatClockTime,
 } from "../primitives/index.js";
+import type { SessionStore } from "../store/index.js";
 import {
   bindControlPosture,
   mountHealthReading,
@@ -81,6 +82,8 @@ export interface MountCardProps {
   readonly nowMilliseconds: number;
   /** The bridge each root's gate reads its own branch context through. */
   readonly bridge: ConsoleBridge;
+  /** The session each root's gate takes its reconnect and stale-frame triggers from. */
+  readonly sessionStore: SessionStore;
   /** Put the resolved root on the clipboard; the host's own refusal is the caller's to render. */
   readonly onCopyCanonicalRoot: (canonicalRoot: string) => void;
   readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
@@ -218,8 +221,19 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
  * burst as the mount read, so by the time a card is on screen the question HAS been
  * put — a mount with no roots is a mount nothing has run writably in yet, which is an
  * ordinary state and says so.
+ *
+ * A REFUSED ROOT READ IS THE WHOLE STATEMENT, AND THE EMPTY ARM IS NOT ALSO DRAWN. The
+ * reader supplies `worktrees: []` beside a refusal, so the empty arm would otherwise
+ * report "no execution root on disk" over a read that never answered — a
+ * successful-empty claim about a failure. Nothing stands in its place either: the
+ * roots WERE asked for, so rule 8's `not-checked` would be false, and the refusal card
+ * above already says which read failed and why. The guard is HERE, in the function
+ * that owns the empty arm, so one place decides.
  */
-function renderRoots(props: MountCardProps): React.JSX.Element {
+function renderRoots(props: MountCardProps): React.JSX.Element | null {
+  if (props.worktreeRefusal !== undefined) {
+    return null;
+  }
   const rows = worktreeGateRowSubjects(props.worktrees, props.workspaces, props.mount.id);
   if (rows.length === 0) {
     return (
@@ -241,6 +255,7 @@ function renderRoots(props: MountCardProps): React.JSX.Element {
           subject={row.subject}
           unpairedReason={unpairedReason}
           bridge={props.bridge}
+          sessionStore={props.sessionStore}
           nowMilliseconds={props.nowMilliseconds}
         />
       ))}
