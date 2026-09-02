@@ -120,34 +120,52 @@ class ResolvedConsoleBridge {
   }
 
   /**
-   * Hang the scenario control on the page, and return the teardown for both it and
-   * the engine this resolution owns.
-   *
-   * The install is here rather than in the constructor because React may discard a
-   * render pass, and a handle installed during one would point at an engine no
-   * window is reading. This runs from an effect — a commit that stuck — and its
-   * return is the only place the removal is paired with the install.
-   *
-   * The two halves are deliberately scoped differently. The control is hung on
-   * WHICHEVER engine this window is rendering against, because a driver in another
-   * process reaches the running scenario through nothing else. The dispose is
-   * scoped to the engine this provider BUILT: a bridge the caller handed in
-   * outlives this component, and tearing one down here would leave the next render
-   * of a story or a test driving a corpse.
+   * The engine this window renders against, whichever side built it. The
+   * scenario control is hung on THIS one, because a driver in another process
+   * reaches the running scenario through nothing else.
    */
-  public install(page: Record<string, unknown>): () => void {
-    const renderedEngine =
-      this.#resolution.status === "ready" ? this.#resolution.bridge.scenarioEngine : undefined;
-    const ownedEngine = this.#ownedEngine;
-    const removeControl =
-      renderedEngine === undefined
-        ? undefined
-        : new ScenarioFixtureControl(renderedEngine).install(page);
-    return () => {
-      removeControl?.();
-      ownedEngine?.dispose();
-    };
+  public get renderedEngine(): ConsoleBridge["scenarioEngine"] {
+    return this.#resolution.status === "ready" ? this.#resolution.bridge.scenarioEngine : undefined;
   }
+
+  /**
+   * Tear down the engine this provider BUILT, and only that one: a bridge the
+   * caller handed in outlives this component, and disposing it here would leave
+   * the next render of a story or a test driving a corpse.
+   */
+  public disposeOwnedEngine(): void {
+    this.#ownedEngine?.dispose();
+  }
+}
+
+/**
+ * Hang the scenario control on the page and return the teardown for both it and
+ * the engine the resolution owns.
+ *
+ * A free function referenced ONLY under the build-time guard in the provider's
+ * effect, never a method on `ResolvedConsoleBridge`: Rollup drops an unreferenced
+ * function and `scenario-selection.js` with it, but it keeps every method of a class
+ * that is constructed, so a method here would carry the fixture handle's name into
+ * the release bundle — which `test/console/budget/release-absence.test.ts` refuses.
+ *
+ * The install runs from an effect rather than the constructor because React may
+ * discard a render pass, and a handle installed during one would point at an engine
+ * no window is reading; the effect's return is the one place removal is paired with
+ * install.
+ */
+function installScenarioControl(
+  resolved: ResolvedConsoleBridge,
+  page: Record<string, unknown>,
+): () => void {
+  const renderedEngine = resolved.renderedEngine;
+  const removeControl =
+    renderedEngine === undefined
+      ? undefined
+      : new ScenarioFixtureControl(renderedEngine).install(page);
+  return () => {
+    removeControl?.();
+    resolved.disposeOwnedEngine();
+  };
 }
 
 /**
@@ -179,7 +197,7 @@ export function SidekicksBridgeProvider(props: SidekicksBridgeProviderProps): Re
       return undefined;
     }
     if (__SIDEKICKS_CONSOLE_FIXTURES__) {
-      return resolved.install(globalThis as unknown as Record<string, unknown>);
+      return installScenarioControl(resolved, globalThis as unknown as Record<string, unknown>);
     }
     return undefined;
   }, [resolved, bridge, scenarioId]);
