@@ -23,20 +23,28 @@
 //
 // THE FOUR STATES ARE FOUR FACTS AND NO OTHERS — nobody could ask, a read is in
 // flight, an answer came back (possibly with no rows, which is a real answer), and
-// the port refused. Collapsing any two is the conflation the five kinds of nothing
+// the read refused. Collapsing any two is the conflation the five kinds of nothing
 // exist to prevent.
+//
+// THE READ IS SETTLED RATHER THAN MERELY AWAITED. A growth call can also REJECT — a
+// scenario that scripts a daemon refusal throws it verbatim, and the live seam will
+// throw the same shape once the wire lands — so a fulfilment handler alone left the
+// rejection unhandled and this hook in `reading` for the life of the window.
+// `read-settlement.ts` turns every ending into one value; what arrives here is
+// therefore an answer or a refusal, and never a promise nobody is waiting on.
 
 import { useEffect, useState } from "react";
 
-import type { GrowthPort, GrowthUnavailable } from "../bridge/index.js";
+import type { GrowthPort } from "../bridge/index.js";
 import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
+import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What the browser knows about the definitions visible from here, at one moment. */
 export type WorkflowDefinitionDirectoryState =
   | { readonly status: "unasked" }
   | { readonly status: "reading" }
   | { readonly status: "served"; readonly definitions: readonly WorkflowDefinitionRow[] }
-  | { readonly status: "unavailable"; readonly refusal: GrowthUnavailable };
+  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * Read every definition visible from one session, once, for as long as the caller
@@ -70,7 +78,7 @@ export function useWorkflowDefinitionDirectory(
     // nothing about it says otherwise.
     setState({ status: "reading" });
     let isMounted = true;
-    void growth.workflowDefinitionList({ sessionId }).then((outcome) => {
+    void settleGrowthRead(growth.workflowDefinitionList({ sessionId })).then((outcome) => {
       if (!isMounted) {
         // The unmount already happened. Dropping the answer is the point: a
         // `setState` on an unmounted caller is exactly the leak the endurance tier

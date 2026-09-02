@@ -7,9 +7,16 @@
 // is put, and what comes back is what the pane shows.
 //
 // THE FOUR STATES ARE FOUR FACTS AND NO OTHERS — the pane names no run so nothing
-// was asked, a read is in flight, a snapshot came back, or the port refused. A
+// was asked, a read is in flight, a snapshot came back, or the read refused. A
 // refused read is NOT an empty run: rendering it as one would assert that the run
 // has no phases, which is a claim about the daemon that nothing established.
+//
+// THE READ IS SETTLED RATHER THAN MERELY AWAITED. A growth call can also REJECT — a
+// scenario that scripts a daemon refusal throws it verbatim, and the live seam will
+// throw the same shape once the wire lands — so a fulfilment handler alone left the
+// rejection unhandled and this pane spinning on an answer that had already arrived.
+// `read-settlement.ts` is reached deep and intra-family, as this family's own barrel
+// licenses: `panes/workflow-run/` and `workflows/` are one family under one task.
 //
 // ONE READ PER MOUNT, AND NO POLLING. `Spec-017`'s run lifecycle is evented, and the
 // event types that would carry it are registered nowhere yet, so this hook reads
@@ -19,14 +26,15 @@
 
 import { useEffect, useState } from "react";
 
-import type { GrowthPort, GrowthUnavailable, WorkflowRunSnapshot } from "../../bridge/index.js";
+import type { GrowthPort, WorkflowRunSnapshot } from "../../bridge/index.js";
+import { settleGrowthRead, type SettledReadRefusal } from "../../workflows/read-settlement.js";
 
 /** What the run pane knows about its run at one moment. */
 export type WorkflowRunSnapshotState =
   | { readonly status: "unasked" }
   | { readonly status: "reading" }
   | { readonly status: "served"; readonly snapshot: WorkflowRunSnapshot }
-  | { readonly status: "unavailable"; readonly refusal: GrowthUnavailable };
+  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * Read one run once, for as long as the caller is mounted.
@@ -51,7 +59,7 @@ export function useWorkflowRunSnapshot(
     // otherwise.
     setState({ status: "reading" });
     let isMounted = true;
-    void growth.workflowRunRead({ workflowRunId }).then((outcome) => {
+    void settleGrowthRead(growth.workflowRunRead({ workflowRunId })).then((outcome) => {
       if (!isMounted) {
         // The unmount already happened; dropping the answer is the point. A
         // `setState` on an unmounted caller is the leak the endurance tier exists to
