@@ -19,6 +19,16 @@
 // The tuple is the declaration and the union is derived from it, for the reason
 // `frame/surface-registry.ts` gives about its own slots: a union written beside a
 // hand-repeated array is two closed sets that agree until someone widens one.
+//
+// WHICH KINDS MAY BE TORN OFF IS DECIDED HERE TOO, AND DERIVED RATHER THAN DECLARED.
+// `Spec-023 §Console Design (Meridian)` §The surface set names the detachable panes
+// and the auxiliary windows in one sentence — "`timeline` and `agent-console` panes
+// can be moved into their own hardened `BrowserWindow` — the two windows §Main
+// Process Responsibilities names" — so the two sets are one set, and
+// `src/shared/auxiliary-routes.ts` already declares it for the main process's menu
+// and the renderer's route table.
+
+import { AUXILIARY_ROUTE_NAMES } from "../../../../../shared/auxiliary-routes.js";
 
 // Consumed by T-023p-1C-2
 /**
@@ -61,4 +71,30 @@ export type PaneKind = (typeof PANE_KINDS)[number];
  */
 export function isPaneKind(value: unknown): value is PaneKind {
   return typeof value === "string" && (PANE_KINDS as readonly string[]).includes(value);
+}
+
+// Consumed by T-023p-1C-2
+/**
+ * The pane kinds that may be torn off into an auxiliary window.
+ *
+ * The `readonly PaneKind[]` annotation is the load-bearing part, not decoration:
+ * it is a compile error the day an auxiliary route names something this deck has
+ * no pane kind for, which is the one way the window model and the deck could come
+ * apart. Writing the two names again here instead would be a third copy of a
+ * two-member set that agrees until someone widens one of the three.
+ */
+export const DETACHABLE_PANE_KINDS: readonly PaneKind[] = AUXILIARY_ROUTE_NAMES;
+
+// Consumed by T-023p-1C-2
+/**
+ * Whether a pane of this kind may be torn off into a window of its own.
+ *
+ * A property of the KIND, answered once, and never a member a descriptor carries.
+ * A pane whose body holds a main-process view (`browser`) or a process lease
+ * (`terminal`) cannot follow a detach without its owning plan saying how — and a
+ * per-descriptor boolean let each of the six view families answer that for itself,
+ * which is six answers to a question the window model settles.
+ */
+export function isDetachablePaneKind(kind: PaneKind): boolean {
+  return DETACHABLE_PANE_KINDS.includes(kind);
 }

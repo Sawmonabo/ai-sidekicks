@@ -109,12 +109,7 @@ describe("pane seat board — composing it today", () => {
     // The empty result above would also be produced by a `registeredPaneKinds`
     // that always answered `[]`, which would make the first case vacuous.
     const registry = new ConsolePaneRegistry();
-    registry.register({
-      kind: "timeline",
-      owner: "panes-test",
-      render: () => null,
-      openInWindow: true,
-    });
+    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
     registerConsolePanes(registry);
     expect(registry.registeredPaneKinds()).toStrictEqual(["timeline"]);
   });

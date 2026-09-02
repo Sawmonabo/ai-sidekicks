@@ -19,6 +19,11 @@
 // `KeyedRegistry` with `duplicatePolicy: "owner-scoped"` rather than two
 // hand-rolled tables that agree today.
 //
+// WHICH KINDS DETACH IS NOT THIS TABLE'S ANSWER. A descriptor says who owns a kind
+// and what mounts for it; whether that kind may be torn off into an auxiliary window
+// is a property of the kind, and `pane-kinds.ts` derives it from the window model's
+// own closed set through `isDetachablePaneKind`.
+//
 // PANES CAN NAME THE PANE THEY WERE OPENED FROM, AND STILL NOT HOLD IT. A deck
 // links two panes when one opens the other — an inspector opened from a ledger row
 // is a view OF that row's pane — and the link travels as an identifier passed in at
@@ -120,21 +125,21 @@ interface ConsolePaneBinding {
 }
 
 // Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
+/**
+ * What a family registers to claim a pane kind.
+ *
+ * IT CARRIES NO DETACH MEMBER, deliberately. Whether a kind may be torn off into
+ * an auxiliary window is `pane-kinds.ts`'s `isDetachablePaneKind` — one answer,
+ * derived from the window model's own closed set. A boolean here would be asked
+ * of every descriptor independently, so `browser`, `terminal`, or `artifact` could
+ * each advertise a detach path the window model cannot serve, and neither this
+ * registration nor the type system would notice.
+ */
 export interface ConsolePaneDescriptor {
   readonly kind: PaneKind;
   /** The task or family that owns it, so an unrendered kind names someone. */
   readonly owner: string;
   readonly render: (context: ConsolePaneContext) => React.ReactNode;
-  /**
-   * Whether this kind may be torn off into an auxiliary window.
-   *
-   * A property of the KIND and not of a pane instance: `Spec-023 §Console Design
-   * (Meridian)` ships exactly two auxiliary windows, and a pane whose body holds a
-   * main-process view (`browser`) or a process lease (`terminal`) cannot follow a
-   * detach without its owning plan saying how. Required rather than optional so
-   * every family answers it deliberately.
-   */
-  readonly openInWindow: boolean;
 }
 
 export class ConsolePaneRegistry {
