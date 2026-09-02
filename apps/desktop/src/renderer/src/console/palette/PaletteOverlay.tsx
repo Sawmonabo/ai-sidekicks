@@ -16,7 +16,14 @@
 //   • `modal="trap-focus"` rather than `modal` (the default `true`). Focus is
 //     trapped, but the document's scroll is NOT locked — `Spec-023 §Console
 //     Libraries` says "no body scroll lock" in the same row that adopts this
-//     family. The `inert` guard on the app root is the shell's, not the palette's.
+//     family. Trapping focus is not the same guarantee as leaving the app root:
+//     a reader navigating by structure still reaches the rail and the surface
+//     underneath. The `inert` that closes that gap is the shell's rather than the
+//     palette's — this component cannot know what "the rest of the app" is, and a
+//     dialog that inerted its own container would leave nothing reachable at all
+//     — so the frame carries it on the background wrapper it renders around
+//     everything but its overlay slot, for exactly as long as the same `open`
+//     this component is controlled by.
 //   • `filter={null}`. The registry has already filtered and RANKED; letting the
 //     combobox filter again would put a second matcher in the console, and
 //     "one matcher shared with settings search" is a claim about the whole app.
