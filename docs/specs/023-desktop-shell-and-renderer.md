@@ -784,7 +784,7 @@ Three of koffi's documented async constraints bind this use and are honoured rat
 
 ### Console Libraries
 
-_Added 2026-09-01. Every console axis names the libraries considered, the evidence, and the verdict — ADOPT · ADOPT-with-constraints · OWN-BUILD · AVOID — under one rule: a well-maintained library that cuts code we would otherwise write is adopted only where it leaves the visuals, the product requirements, speed, and memory untouched. Citations per axis are in §References §Console Design Research Pass (2026-09-01). Versions are the registry `latest` at authoring and are exact-pinned in `apps/desktop/package.json`; a bump is a lane-3 change that re-reads the row._
+_Added 2026-09-01. Every console axis names the libraries considered, the evidence, and the verdict — ADOPT · ADOPT-with-constraints · OWN-BUILD · AVOID — under one rule: a well-maintained library that cuts code we would otherwise write is adopted only where it leaves the visuals, the product requirements, speed, and memory untouched. Citations per axis are in §References §Console Design Research Pass (2026-09-01). Versions are the registry `latest` at authoring and are exact-pinned in `apps/desktop/package.json`; a bump is a lane-3 change that re-reads the row. Terminal row corrected 2026-09-02: the printed-URL link provider is the adopted `@xterm/addon-web-links` 0.12.0 and never own-built, and the own-built piece is the link scheme guard both link paths run — an erratum-class correction of a row that misdescribed the shipped code, moving no Status._
 
 | Axis | Verdict | Constraints and reason |
 | --- | --- | --- |
