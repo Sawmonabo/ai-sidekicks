@@ -32,10 +32,11 @@
 // timer of any kind: elapsed is measured between two instants the WIRE supplied, so
 // the pane never needs to know what time it is now.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
+  RunStateSubscribeRequestSchema,
   type RunRolledBackEvent,
   type RunState,
   type RunStateChangeEvent,
@@ -46,6 +47,8 @@ import {
   subscribeDaemon,
   type ConsoleBridge,
 } from "../../bridge/index.js";
+import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { useSessionInitialised, type SessionStore } from "../../store/index.js";
 import { PROJECTED_RUN_CAP, RUN_STATUS_ROW_CAP } from "./runs-bounds.js";
 import { runStatusSubtypeFor, type RunStatusSubtype, type RunStopTrigger } from "./run-status.js";
 
@@ -81,14 +84,34 @@ export interface RunProjection {
   readonly statusRows: readonly RunStatusRow[];
 }
 
+/** The subsystem name every refusal this module raises carries. */
+export const RUN_STATE_REFUSAL_ORIGIN = "runs-state";
+
 /** What the pane reads off the state stream. */
 export interface RunStateFeed {
   /** Runs, most recently touched first — the reading a live pane exists to give. */
   readonly runs: readonly RunProjection[];
-  /** Whether the subscription has delivered anything this pane could read. */
+  /**
+   * Whether the read that says WHICH RUNS EXIST has completed.
+   *
+   * Deliberately not "the stream delivered something". `run.subscribeState` is a
+   * live tail: it carries transitions, and a session with no runs produces no
+   * transition, so a feed that flipped this on its first delivery could never
+   * answer `true` with an empty list — the pane's empty state would be
+   * unreachable and a session that has never run anything would read "Reading the
+   * runs" forever. The wire registers no replay-complete marker on this stream
+   * either (`api-payload-contracts.md §Plan-004`'s registry lists the stream's
+   * response as `RunStateChangeEvent | RunRolledBackEvent` and nothing else), so
+   * the completion signal is the SESSION STORE's: its snapshot read is what
+   * establishes the session's base state, the run partition inside it is the
+   * source of truth for which runs exist, and this stream is the tail that keeps
+   * them current.
+   */
   readonly hasRead: boolean;
   /** Deliveries that parsed as neither arm. Counted, never guessed at. */
   readonly unreadableDeliveryCount: number;
+  /** Why the stream could not be opened at all. Rendered rather than swallowed. */
+  readonly openRefusal: ConsoleRefusal | undefined;
 }
 
 /**
@@ -266,8 +289,15 @@ export function runElapsedMilliseconds(run: RunProjection): number | undefined {
  * and the rendered snapshot is state so a delivery re-renders. Deliveries after
  * unmount are dropped rather than written into a torn-down component, which is the
  * same close-race posture the session binder takes one layer down.
+ *
+ * TAKES THE STORE AND NOT A BARE SESSION ID, because two different reads answer two
+ * different questions here. This stream answers "what has happened to the runs";
+ * the store's snapshot answers "has the read that says which runs exist landed", and
+ * only the second can ever say "there are none" — see `RunStateFeed.hasRead`.
  */
-export function useRunStateFeed(bridge: ConsoleBridge, sessionId: string): RunStateFeed {
+export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStore): RunStateFeed {
+  const sessionId = sessionStore.sessionId;
+  const hasReadSnapshot = useSessionInitialised(sessionStore);
   const projection = useRef<RunStateProjection>(new RunStateProjection());
   const [feed, setFeed] = useState<RunStateFeed>(EMPTY_FEED);
 
@@ -276,24 +306,50 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionId: string): RunSt
     projection.current = fold;
     setFeed(EMPTY_FEED);
     let isMounted = true;
-    const unsubscribe = subscribeDaemon(bridge, RUN_STATE_SUBSCRIBE_STREAM, (payload) => {
-      const wasReadable = fold.accept(payload);
-      if (!isMounted || !wasReadable) {
-        return;
-      }
+
+    // The stream's own registered request, parsed here rather than assembled at
+    // the wrapper: an id the wire's `SessionId` brand refuses is a refusal this
+    // surface renders, not an unscoped subscription it opens anyway.
+    const subscribeRequest = RunStateSubscribeRequestSchema.safeParse({ sessionId });
+    if (!subscribeRequest.success) {
       setFeed({
-        runs: fold.runs(),
-        hasRead: true,
-        unreadableDeliveryCount: fold.unreadableDeliveryCount,
+        ...EMPTY_FEED,
+        openRefusal: refuse(
+          RUN_STATE_REFUSAL_ORIGIN,
+          "session-unreadable",
+          "The run-state stream is session-scoped and this pane's session did not match the registered request shape, so the console did not open it.",
+        ),
       });
-    });
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const unsubscribe = subscribeDaemon(
+      bridge,
+      { method: RUN_STATE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
+      (payload) => {
+        const wasReadable = fold.accept(payload);
+        if (!isMounted || !wasReadable) {
+          return;
+        }
+        setFeed({
+          runs: fold.runs(),
+          // Kept `false` here and supplied below from the store: a delivery proves
+          // a run exists, not that the read which enumerates them has completed.
+          hasRead: false,
+          unreadableDeliveryCount: fold.unreadableDeliveryCount,
+          openRefusal: undefined,
+        });
+      },
+    );
     return () => {
       isMounted = false;
       unsubscribe();
     };
   }, [bridge, sessionId]);
 
-  return feed;
+  return useMemo(() => ({ ...feed, hasRead: hasReadSnapshot }), [feed, hasReadSnapshot]);
 }
 
 /** The reading before anything has been delivered. Frozen so no caller mutates it. */
@@ -301,4 +357,5 @@ const EMPTY_FEED: RunStateFeed = Object.freeze({
   runs: Object.freeze([]),
   hasRead: false,
   unreadableDeliveryCount: 0,
+  openRefusal: undefined,
 });

@@ -40,6 +40,7 @@ export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 // `daemon-calls.ts` records the whole reasoning.
 export {
   COMPACT_CONTEXT_METHOD,
+  DAEMON_STREAM_REFUSAL_ORIGIN,
   DRIVER_LIST_CAPABILITIES_METHOD,
   QUEUE_CANCEL_METHOD,
   QUEUE_LIST_METHOD,
@@ -51,6 +52,7 @@ export {
   callDaemon,
   subscribeDaemon,
 } from "./daemon-calls.js";
+export type { DaemonStreamOpen } from "./daemon-calls.js";
 
 export {
   SidekicksBridgeProvider,
