@@ -6,8 +6,11 @@
 // the rollback `targetPosition` reached the timeline and never the `run`
 // partition. Two claims follow from the repair, and they are this file's subject:
 //
-//   • The body carries exactly the members the registered wire shapes name — no
-//     fewer, and no member a payload invented.
+//   • The body carries exactly the members the corpus registers for the kind in
+//     hand — the two wire shapes' derived union, plus the per-type members the
+//     four kinds that declare their own payload register, and nothing a payload
+//     invented. Per-type means per type: a member registered on one row is read
+//     off that row and off no other.
 //   • A carried member is READABLE where it lands. The fold and the selector that
 //     reads it are two halves of one seam, so the end-to-end case drives a real
 //     payload through the registered projectors into a real store and then reads
@@ -175,6 +178,137 @@ describe("the registered payload members the body carries", () => {
     );
 
     expect(body).toStrictEqual({ newState: "starting" });
+  });
+
+  it("carries the creation row's linkage, run config, and paying account", () => {
+    // The three members `run.queued` registers that neither `run.subscribeState`
+    // shape declares — `runControl.ts` omits `linkType` and `effectiveRunConfig`
+    // because their types belong to a plan that has authored none, and the account
+    // stamp rides the same row. A body derived from those two shapes alone drops
+    // all three, so the run a pane reads names no link, no admitted config, and no
+    // account it will be billed against.
+    expect(
+      bodyOf(
+        runEvent("run.queued", {
+          runId: "run-1",
+          runVersion: 1,
+          newState: "queued",
+          agentId: "agent-1",
+          linkType: "spawn",
+          effectiveRunConfig: { turnLimit: 8 },
+          admittedProviderAccountId: "provider-account-1",
+        }),
+      ),
+    ).toStrictEqual({
+      runVersion: 1,
+      newState: "queued",
+      agentId: "agent-1",
+      linkType: "spawn",
+      effectiveRunConfig: { turnLimit: 8 },
+      admittedProviderAccountId: "provider-account-1",
+    });
+  });
+
+  it("carries each forward, non-state row's own registered members", () => {
+    // The three kinds whose whole payload beyond the counter is per-type. Before
+    // the per-type table each folded to a body of `runVersion` alone, so an
+    // initialization report reached the partition naming neither provider nor
+    // model, a turn boundary named no position, and a worker shutdown no reason.
+    expect(
+      bodyOf(
+        runEvent("run.provider_initialized", {
+          runId: "run-1",
+          runVersion: 2,
+          provider: "claude",
+          model: "claude-opus-5",
+        }),
+      ),
+    ).toStrictEqual({ runVersion: 2, provider: "claude", model: "claude-opus-5" });
+
+    expect(
+      bodyOf(runEvent("run.turn_started", { runId: "run-1", runVersion: 3, position: 17 })),
+    ).toStrictEqual({ runVersion: 3, position: 17 });
+
+    expect(
+      bodyOf(
+        runEvent("run.worker_shutdown", {
+          runId: "run-1",
+          runVersion: 4,
+          reason: "provider worker restarting",
+        }),
+      ),
+    ).toStrictEqual({ runVersion: 4, reason: "provider worker restarting" });
+  });
+
+  it("reads a per-type member off the kind that registers it and off no other", () => {
+    // The reason the second table is keyed by kind rather than merged into the
+    // first. `provider`, `position`, `reason`, and `linkType` are each registered
+    // on exactly one row, so a state transition spelling them is naming members
+    // its own payload shape does not have — and a body that carried them would
+    // hand a pane a provider, a turn position, and a link the wire never sent.
+    const body = bodyOf(
+      runEvent("run.failed", {
+        runId: "run-1",
+        newState: "failed",
+        failureCategory: "provider error",
+        provider: "codex",
+        model: "gpt-5.6",
+        position: 17,
+        reason: "not this row's member",
+        linkType: "delegate",
+        admittedProviderAccountId: "provider-account-1",
+      }),
+    );
+
+    expect(body).toStrictEqual({ newState: "failed", failureCategory: "provider error" });
+  });
+
+  it("negative control: no per-type member is a second spelling of a derived one", () => {
+    // The gate on the two tables staying disjoint. The derived table is the two
+    // registered shapes' own key union, so the day a contracts shape declares
+    // `linkType` — or any other member below — this case fails and the per-type
+    // entry is deleted rather than left to shadow the derivation it duplicates.
+    const derivedMembers = Object.keys(
+      bodyOf(
+        runEvent("run.interrupted", {
+          runId: "run-1",
+          runVersion: 9,
+          previousState: "running",
+          newState: "interrupted",
+          agentId: "agent-1",
+          channelId: "channel-1",
+          targetPosition: 3,
+          failureCategory: "provider error",
+          recoveryCondition: "provider_unavailable",
+          recoverySpanClassification: "complete",
+          healthSignal: "stuck-suspected",
+          providerFailureDetail: "detail",
+          completionKind: "turn",
+          intendedClose: true,
+          executionPosture: SANDBOXED_POSTURE,
+          trigger: "idle_timeout",
+          parentRunId: "run-0",
+          internalHelper: false,
+          producingNodeId: "node-1",
+          admittedUnpricedCapCents: 500,
+          admittedModelFamily: "claude",
+        }),
+      ),
+    );
+
+    // Non-empty, or the intersection below is a claim about nothing.
+    expect(derivedMembers.length).toBeGreaterThan(0);
+    for (const perTypeMember of [
+      "linkType",
+      "effectiveRunConfig",
+      "admittedProviderAccountId",
+      "provider",
+      "model",
+      "position",
+      "reason",
+    ]) {
+      expect(derivedMembers).not.toContain(perTypeMember);
+    }
   });
 
   it("reads a wrong-shaped member as absent rather than carrying it", () => {

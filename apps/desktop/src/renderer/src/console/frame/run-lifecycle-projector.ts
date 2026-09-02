@@ -44,6 +44,26 @@
 // someone classifies it, which is the whole point: a hand list is how a body
 // silently stops carrying the member a surface was built to read.
 //
+// AND THE DERIVATION IS NOT THE WHOLE PAYLOAD, WHICH IS THE SECOND TABLE'S
+// SUBJECT. Those two shapes are both `run.subscribeState` projections, and this
+// projector folds the DURABLE rows off `session.subscribe`. Four of the thirteen
+// kinds register per-type members that neither projection declares and that
+// `packages/contracts` therefore holds no schema for at all — `SessionEventSchema`
+// registers no run-lifecycle payload variant, so there is nothing to derive them
+// from. Treating the two subscription shapes as exhaustive dropped every one of
+// them: the run's creation lost its orchestration `linkType`, its admission-
+// resolved `effectiveRunConfig`, and the account it was admitted against, and the
+// three forward, non-state rows lost the whole of what they carry — the provider
+// and model an initialization reports, the position a turn opened at, the reason a
+// worker shut down. Each reached the timeline and none reached the `run` partition
+// a pane reads. `UNDECLARED_RUN_BODY_MEMBER_READERS` is those four rows, keyed by
+// the kind that registers them so the parse is PER TYPE — a member registered on
+// one kind is never read off another — and typed against the census so a
+// misspelled kind fails to compile rather than reading a payload no daemon sends.
+// The day a contracts shape declares one of these members, it enters
+// `DurableRunMemberName`, the base table classifies it, and the co-located test's
+// no-second-spelling case fails until the entry here is deleted.
+//
 // THE TWO SHAPES ARE NOT ONE SHAPE, and the exclusions are where that is stated.
 // That module says so itself: the `run.subscribeState` projection is
 // "deliberately distinct from the durable `run_lifecycle` payload of `Spec-006
@@ -70,7 +90,11 @@
 // timeline is the ledger that records it arrived.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
-import type { RunRolledBackEvent, RunStateChangeEvent } from "@ai-sidekicks/contracts";
+import type {
+  RunRolledBackEvent,
+  RunStateChangeEvent,
+  SessionEventType,
+} from "@ai-sidekicks/contracts";
 
 import type {
   ConsoleSessionEvent,
@@ -150,6 +174,59 @@ const RUN_BODY_MEMBER_READERS = {
 } as const satisfies Readonly<Record<DurableRunMemberName, WireMemberReaderName>>;
 
 /**
+ * The registered kinds whose durable payload names members no contracts shape
+ * declares.
+ *
+ * `Extract`ed from the census rather than typed `string`, so a kind misspelled
+ * here fails against the taxonomy instead of quietly claiming members for an
+ * event no daemon emits.
+ */
+type RunKindWithUndeclaredMembers = Extract<
+  SessionEventType,
+  "run.queued" | "run.provider_initialized" | "run.turn_started" | "run.worker_shutdown"
+>;
+
+/**
+ * The per-type members those four kinds register, and the reader that carries
+ * each onto the body.
+ *
+ * PER TYPE, not merged into the table above, because that is what the corpus
+ * registers: `Spec-006 §Run Lifecycle (run_lifecycle)` gives each of these rows
+ * its own payload shape, so `provider` is a member of an initialization report and
+ * of nothing else, and `position` is a member of a turn boundary and of nothing
+ * else. A single flat table would read either one off any run beat that happened
+ * to spell it, which is a body member with no registration behind it.
+ *
+ * Every entry is a member the two `run.subscribeState` shapes do not declare — a
+ * member either one DOES declare belongs in the derived table above and would be
+ * a second spelling of it here, which the co-located test refuses.
+ */
+const UNDECLARED_RUN_BODY_MEMBER_READERS: Readonly<
+  Record<RunKindWithUndeclaredMembers, Readonly<Record<string, WireMemberReaderName>>>
+> = Object.freeze({
+  // The creation row's orchestration linkage and the account it was admitted
+  // against. `linkType` and `effectiveRunConfig` are typed by symbols no
+  // TypeScript in this workspace declares — `runControl.ts` says so itself and
+  // omits them for exactly that reason — and the account stamp rides the same row.
+  "run.queued": Object.freeze({
+    linkType: "string",
+    effectiveRunConfig: "object",
+    admittedProviderAccountId: "string",
+  }),
+  // The provider's own initialization report, which is what names the provider and
+  // the model a run is actually running against.
+  "run.provider_initialized": Object.freeze({ provider: "string", model: "string" }),
+  // The turn boundary's normalized session position, absent where the provider
+  // wire supplies none.
+  "run.turn_started": Object.freeze({ position: "number" }),
+  // The sanitized shutdown reason a mid-run worker signal carries.
+  "run.worker_shutdown": Object.freeze({ reason: "string" }),
+});
+
+/** The reader table for a kind that registers no members of its own. */
+const NO_UNDECLARED_MEMBERS: Readonly<Record<string, WireMemberReaderName>> = Object.freeze({});
+
+/**
  * One reader per shape, and the only place a payload member is type-checked.
  *
  * A wrong-typed member reads as ABSENT rather than as itself: the payload is
@@ -184,7 +261,7 @@ export const projectRunLifecycleEvent: EntityProjector = (
     return [];
   }
   const newState = readWireString(payload, "newState");
-  const body = readRunEntityBody(payload);
+  const body = readRunEntityBody(event.kind, payload);
   return [
     {
       operation: "upsert",
@@ -222,22 +299,46 @@ function buildRunLifecycleProjectors(): EntityProjectorRegistry {
 /**
  * The body members this payload names, or `undefined` when it names none.
  *
- * Walks the derived table rather than reading members by name, so the set the
- * body carries and the set the registered shapes declare cannot come apart. A
- * member no registered shape names is not read at all — it is absent from the
- * table, so it never reaches the body however the payload spells it.
+ * Walks the two tables rather than reading members by name, so the set the body
+ * carries and the set the corpus registers cannot come apart. A member neither
+ * table names is not read at all — it is absent from both, so it never reaches
+ * the body however the payload spells it.
+ *
+ * Two tables and not one because the registrations differ in scope: the derived
+ * one holds what every run row may carry, and the per-type one holds what THIS
+ * kind alone registers. A kind that registers nothing of its own walks the first
+ * and an empty second.
  */
 function readRunEntityBody(
+  eventKind: string,
   payload: Readonly<Record<string, unknown>> | undefined,
 ): Readonly<Record<string, unknown>> | undefined {
   const body: Record<string, unknown> = {};
-  for (const [member, readerName] of Object.entries(RUN_BODY_MEMBER_READERS)) {
-    const value = WIRE_MEMBER_READERS[readerName](payload?.[member]);
-    if (value !== undefined) {
-      body[member] = value;
+  for (const readers of [RUN_BODY_MEMBER_READERS, undeclaredMemberReadersFor(eventKind)]) {
+    for (const [member, readerName] of Object.entries(readers)) {
+      const value = WIRE_MEMBER_READERS[readerName](payload?.[member]);
+      if (value !== undefined) {
+        body[member] = value;
+      }
     }
   }
   return Object.keys(body).length === 0 ? undefined : body;
+}
+
+/**
+ * The per-type readers this kind registers, or none for a kind that registers
+ * none.
+ *
+ * `Object.hasOwn` rather than an indexed read: the kind arrives wire-verbatim, so
+ * `"constructor"` reaches this lookup exactly as a real kind does and an indexed
+ * read would answer it with something off `Object.prototype`.
+ */
+function undeclaredMemberReadersFor(
+  eventKind: string,
+): Readonly<Record<string, WireMemberReaderName>> {
+  return Object.hasOwn(UNDECLARED_RUN_BODY_MEMBER_READERS, eventKind)
+    ? UNDECLARED_RUN_BODY_MEMBER_READERS[eventKind as RunKindWithUndeclaredMembers]
+    : NO_UNDECLARED_MEMBERS;
 }
 
 /** One string member, read through the same reader the body walk uses. */
