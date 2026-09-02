@@ -49,7 +49,11 @@
 // one uniform list would let the axis controls be built against a wire shape neither
 // provider produces.
 
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DriverCapabilityFlag,
+  type ProviderOutputSpeedState,
+} from "@ai-sidekicks/contracts";
 
 import type { ConsoleScenario } from "../scenario.js";
 
@@ -264,7 +268,14 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
             // What the provider DECLARED, beside what was requested. Carried
             // separately because folding it into `config.outputSpeed` would make a
             // declined request indistinguishable from an honoured one.
-            observedOutputSpeed: "standard",
+            //
+            // THE OBJECT IS THE WIRE SHAPE, and `satisfies` is what keeps it one.
+            // A scripted reply is stored as `unknown`, so a bare `"standard"` here
+            // parsed perfectly and reached the card as a value whose `.declared` is
+            // `undefined` — the fixture breaking the one surface it exists to prove.
+            // No `reason`: the request and the declaration agree, so the provider
+            // has nothing to explain, and an absent `reason` says exactly that.
+            observedOutputSpeed: { declared: "standard" } satisfies ProviderOutputSpeedState,
             // The durable, singular pending intent — held at a RUN boundary because
             // `providerAccountId` is spawn-bound on every driver, and naming the
             // intent it displaced, which is the wire's only record of the earlier

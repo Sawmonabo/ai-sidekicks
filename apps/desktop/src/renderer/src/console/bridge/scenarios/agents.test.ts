@@ -6,8 +6,17 @@
 // settling with its losses declared. Either could go silently false under an edit
 // that still parsed, and the card would then be built against a case with no
 // counter-example in the fixture.
+//
+// AND IT PINS THE SHAPES, not only the states. A scripted result is stored as
+// `unknown`, so a member written in the wrong shape reaches the card unchallenged
+// and renders as an undefined value — a fixture that exercises a reply no daemon
+// may send. The cases below parse the two members that carry a registered shape
+// through the contract's OWN schema and vocabulary rather than through a local
+// re-statement of either.
 
 import { describe, expect, it } from "vitest";
+
+import { ProviderOutputSpeedStateSchema } from "@ai-sidekicks/contracts";
 
 import { AGENTS_SCENARIO } from "./agents.js";
 import {
@@ -89,6 +98,29 @@ describe("the agents scenario", () => {
     // is what the effort control's "no control at all" arm is built against.
     expect(models.some((model) => model.effortLevels === undefined)).toBe(true);
     expect(models.some((model) => (model.effortLevels?.length ?? 0) > 0)).toBe(true);
+  });
+
+  it("declares the observed output speed in the registered object shape", () => {
+    const { agents } = resolvingReplyFor("agent.list").result as {
+      agents: readonly { observedOutputSpeed?: unknown }[];
+    };
+    const observed = agents.flatMap((agent) =>
+      agent.observedOutputSpeed === undefined ? [] : [agent.observedOutputSpeed],
+    );
+    // One row observes and one has not, which is the pair the card's two arms are
+    // built against — so the shape check below is over a value that exists.
+    expect(observed).toHaveLength(1);
+    // The contract's own schema, not a hand-written shape check: this is the
+    // parse the daemon's reply would face, and re-stating it here would let the
+    // two drift while this file stayed green.
+    expect(ProviderOutputSpeedStateSchema.safeParse(observed[0]).success).toBe(true);
+  });
+
+  it("negative control: the bare string the fixture used to script does not parse", () => {
+    // The value this file shipped before, kept only here. It is what an untyped
+    // scripted reply admits, and `.declared` on it is `undefined` — which is what
+    // the card rendered. A type-level `satisfies` alone could not fail a test run.
+    expect(ProviderOutputSpeedStateSchema.safeParse("standard").success).toBe(false);
   });
 
   it("scripts no reply for a call it does not make", () => {
