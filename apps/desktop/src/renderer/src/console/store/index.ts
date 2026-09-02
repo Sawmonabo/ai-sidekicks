@@ -19,7 +19,7 @@
 // cannot name what it holds would have to restate the shape to read it.
 export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 
-export { SessionStore } from "./session-store.js";
+export { SessionStore, type SessionStoreState } from "./session-store.js";
 
 export type { FrameBanner } from "./frame-store.js";
 export { FrameStore } from "./frame-store.js";
@@ -31,9 +31,16 @@ export { SessionStoreRegistry, type SessionSnapshotReader } from "./session-stor
 // send is addressed to. It is the partitioned subscription rule 6 asks for — a
 // surface that reached for `useSessionStore` with a selector of its own would be
 // the second subscription path this module exists to prevent.
+// `useSessionStore` ships beside them for the reason stated above: it is the ONE
+// selector-shaped read of a session store, and a surface that could not reach it
+// through this door would reach for `useSyncExternalStore` and become the second
+// subscription path with its own equality rule. `SessionStoreState` travels with
+// it because a caller hoisting a selector to module scope has to name the state
+// it selects from.
 export {
   useFrameStore,
   useLocationHash,
   useOpenSessionStore,
   useSessionPartition,
+  useSessionStore,
 } from "./hooks.js";
