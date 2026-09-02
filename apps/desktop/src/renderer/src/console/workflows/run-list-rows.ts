@@ -176,21 +176,22 @@ export type WorkflowRunSnapshot = ProjectedFrom<
    * The definition's name, so a run row reads as something other than an id —
    * where the caller holds one.
    *
-   * Optional for the reason `phaseName` is: the run read carries the pinned
-   * `workflowVersionId` and no name, the definition enumeration carries names and
-   * is keyed by definition, and no registered read joins the two. A caller that has
-   * both may pass it; one that has only the run passes nothing and the row shows
-   * the run's own identity rather than a name nobody sent.
+   * Optional HERE while it is required on the enumeration's own entry
+   * (`bridge/workflow-projection.ts`), because this row is also built from a single
+   * run read, which carries the pinned `workflowVersionId` and nothing about the
+   * definition. A caller holding an enumeration entry passes it through; one holding
+   * only a run passes nothing and the row shows the run's own identity rather than a
+   * name nobody sent.
    */
   readonly definitionName?: string;
   /**
    * The definition's newest version id, when the caller holds it.
    *
-   * Optional because a run read alone does not carry it — it comes from the
-   * definition enumeration beside it. Absent, the frozen-pin state is UNKNOWN and
-   * the projection reports `false` rather than guessing, which is the fail-closed
-   * direction: claiming a run is current is a smaller error than claiming it is
-   * stale and inviting a repair the daemon would refuse.
+   * Optional for the reason above, and additive-optional on the enumeration entry
+   * itself. Absent, the frozen-pin state is UNKNOWN and the projection reports
+   * `false` rather than guessing, which is the fail-closed direction: claiming a run
+   * is current is a smaller error than claiming it is stale and inviting a repair the
+   * daemon would refuse.
    */
   readonly definitionLatestWorkflowVersionId?: string;
 };

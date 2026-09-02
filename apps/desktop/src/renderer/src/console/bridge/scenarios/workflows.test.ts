@@ -26,7 +26,43 @@ import { WORKFLOWS_SCENARIO } from "./workflows.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
 import { ScenarioEngine, type ConsoleScenario } from "../scenario.js";
 import { settleScriptedReply } from "../scripted-reply.js";
-import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../workflow-projection.js";
+import type {
+  WorkflowPhaseState,
+  WorkflowRunListEntry,
+  WorkflowRunSnapshot,
+} from "../workflow-projection.js";
+
+/**
+ * The definition facts the enumeration pairs with each run, one constant per
+ * definition rather than one per run — because two of the four runs came from the
+ * same definition and writing that pairing twice is how a fixture assertion comes to
+ * disagree with the fixture.
+ */
+const RELEASE_CHECKS_DEFINITION_FACTS = {
+  definitionName: "Release checks",
+  definitionLatestWorkflowVersionId: "019b7a10-0280-7d22-8100-be5100150004",
+} as const;
+
+const SHIP_PIPELINE_DEFINITION_FACTS = {
+  definitionName: "Ship pipeline",
+  definitionLatestWorkflowVersionId: "019b7a10-0280-7d22-8100-be5100150003",
+} as const;
+
+const INCIDENT_TRIAGE_DEFINITION_FACTS = {
+  definitionName: "Incident triage",
+  definitionLatestWorkflowVersionId: "019b7a10-0280-7d22-8100-be5100150002",
+} as const;
+
+/** The enumeration's entries, settled and narrowed, for the cases that read them. */
+async function enumerationEntries(
+  engine: ScenarioEngine,
+): Promise<readonly WorkflowRunListEntry[]> {
+  const runList = await settleScriptedReply(engine, "workflow.runList");
+  if (runList.status !== "resolved") {
+    throw new Error(`the enumeration settled ${runList.status}`);
+  }
+  return (runList.value as { readonly runs: readonly WorkflowRunListEntry[] }).runs;
+}
 
 /** Every phase across every run, so a claim about parks can be made over all of them. */
 function everyPhase(): readonly WorkflowPhaseState[] {
@@ -104,9 +140,19 @@ describe("the workflows scenario — what a caller is answered with", () => {
     });
     // Every run in the table, unsorted: the attention ordering is the console's fold
     // and a reply that pre-sorted them would hide a fold that had stopped working.
+    // Each row widened by exactly the two definition facts the ENUMERATION carries
+    // and the run read does not — the run's own members are untouched, which is what
+    // `enumerationEntries` below asserts member by member.
     expect(runList).toStrictEqual({
       status: "resolved",
-      value: { runs: WORKFLOWS_SCENARIO_RUNS },
+      value: {
+        runs: [
+          { ...WORKFLOWS_SCENARIO_RUNS[0], ...RELEASE_CHECKS_DEFINITION_FACTS },
+          { ...WORKFLOWS_PARKED_RUN, ...SHIP_PIPELINE_DEFINITION_FACTS },
+          { ...WORKFLOWS_SCENARIO_RUNS[2], ...INCIDENT_TRIAGE_DEFINITION_FACTS },
+          { ...WORKFLOWS_SCENARIO_RUNS[3], ...SHIP_PIPELINE_DEFINITION_FACTS },
+        ],
+      },
     });
     expect(runRead).toStrictEqual({ status: "resolved", value: WORKFLOWS_PARKED_RUN });
     expect(phaseOutputRead).toStrictEqual({
@@ -151,21 +197,38 @@ describe("the workflows scenario — what a caller is answered with", () => {
     engine.dispose();
   });
 
-  it("answers the enumeration with the run the pane reads, not a copy of it", async () => {
-    // The same identity claim one seam further out: the pane's run and the list's run
-    // stay one object across BOTH scripted replies, so a later edit that rebuilt either
-    // table would separate two surfaces that are meant to agree by construction.
+  it("answers the enumeration with the pane's own run, widened and not rebuilt", async () => {
+    // The same claim one seam further out, restated for a reply that must ADD two
+    // members: an entry cannot be the run object itself any more, so what is asserted
+    // is that it is that object spread — every run member equal, and the phase
+    // collection the SAME array, which a rebuilt table could not produce.
     const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
 
-    const runList = await settleScriptedReply(engine, "workflow.runList");
+    const enumerated = await enumerationEntries(engine);
+    const parked = enumerated.find(
+      (entry) => entry.workflowRunId === WORKFLOWS_PARKED_RUN.workflowRunId,
+    );
 
-    if (runList.status !== "resolved") {
-      throw new Error(`the enumeration settled ${runList.status}`);
-    }
-    const enumerated = (runList.value as { runs: readonly unknown[] }).runs;
-
-    expect(enumerated).toContain(WORKFLOWS_PARKED_RUN);
     expect(enumerated).toHaveLength(4);
+    expect(parked).toStrictEqual({ ...WORKFLOWS_PARKED_RUN, ...SHIP_PIPELINE_DEFINITION_FACTS });
+    expect(parked?.phaseStates).toBe(WORKFLOWS_PARKED_RUN.phaseStates);
+    engine.dispose();
+  });
+
+  it("names a definition for every run, including the one pinned behind its latest", async () => {
+    // The frozen pin is the case no derivation can recover: its version is nobody's
+    // latest, so a fixture that paired runs by matching the definition table would
+    // leave exactly the run the label exists for without a definition at all.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+
+    const enumerated = await enumerationEntries(engine);
+    const frozen = enumerated.filter(
+      (entry) => entry.definitionLatestWorkflowVersionId !== entry.workflowVersionId,
+    );
+
+    expect(enumerated.every((entry) => entry.definitionName.length > 0)).toBe(true);
+    expect(frozen).toHaveLength(1);
+    expect(frozen[0]?.definitionName).toBe("Ship pipeline");
     engine.dispose();
   });
 });

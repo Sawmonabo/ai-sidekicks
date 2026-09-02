@@ -19,6 +19,7 @@ import type { ConsoleScenario } from "../bridge/scenario.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import {
   WORKFLOWS_PARKED_RUN,
+  WORKFLOWS_SCENARIO_RUNS,
   WORKFLOWS_SESSION_ID,
 } from "../bridge/scenarios/workflow-fixture-data.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
@@ -48,6 +49,25 @@ function scenarioRefusingTheEnumeration(): ConsoleScenario {
             call: "workflow.runList",
             refusal: { code: "workflow.run_list_denied", message: "This session is not yours." },
           }
+        : reply,
+    ),
+  };
+}
+
+/**
+ * The workflows scenario as an older daemon would answer it: runs, and nothing about
+ * the definitions they came from.
+ *
+ * The run table itself IS that answer — it holds each run's own members and neither
+ * definition fact — so this substitutes it rather than stripping the served entries,
+ * which keeps the fixture's one run table the only run table either case reads.
+ */
+function scenarioWithoutDefinitionFacts(): ConsoleScenario {
+  return {
+    ...WORKFLOWS_SCENARIO,
+    replies: WORKFLOWS_SCENARIO.replies.map((reply) =>
+      reply.call === "workflow.runList"
+        ? { call: "workflow.runList", result: { runs: WORKFLOWS_SCENARIO_RUNS } }
         : reply,
     ),
   };
@@ -85,6 +105,13 @@ function rowLabels(container: HTMLElement): readonly string[] {
   );
 }
 
+/** Every run row's own identity, which the meta line carries whatever the label says. */
+function rowRunIds(container: HTMLElement): readonly string[] {
+  return [...container.querySelectorAll(".meridian-run-row__meta")].map(
+    (meta) => meta.querySelector(".meridian-figure--wire")?.textContent ?? "",
+  );
+}
+
 function politeAnnouncement(container: HTMLElement): string {
   const region = container.querySelector<HTMLElement>('[data-live-region="polite"]');
   if (region === null) {
@@ -98,13 +125,59 @@ describe("the runs the session holds", () => {
     const { container } = renderRuns(growthFor(WORKFLOWS_SCENARIO));
     await settle();
 
-    const labels = rowLabels(container);
-
-    expect(labels).toHaveLength(4);
+    expect(rowLabels(container)).toHaveLength(4);
     // The parked run leads, which is the projection's band order reaching a person
-    // rather than the order the scenario happens to state its table in.
-    expect(labels[0]).toBe(WORKFLOWS_PARKED_RUN.workflowRunId);
+    // rather than the order the scenario happens to state its table in. Asserted on
+    // the row's own identity rather than its label, because the label is now the
+    // definition's name — which is the point of the case below.
+    expect(rowRunIds(container)[0]).toBe(WORKFLOWS_PARKED_RUN.workflowRunId);
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+  });
+
+  it("names each run by the definition it was started from", async () => {
+    // The enumeration carries the definition facts a single run read cannot: without
+    // them every row fell back to an opaque run id, which is the identity a person
+    // pastes into a search and not the thing they are looking for.
+    const { container } = renderRuns(growthFor(WORKFLOWS_SCENARIO));
+    await settle();
+
+    expect(rowLabels(container)).toStrictEqual([
+      "Ship pipeline",
+      "Ship pipeline",
+      "Release checks",
+      "Incident triage",
+    ]);
+  });
+
+  it("marks the run pinned to a version its definition has moved past", async () => {
+    // The frozen pin is an inequality between the run's pinned version and the
+    // definition's newest, and neither the run read nor any other registered read
+    // supplies the second — so before the enumeration carried it this label could
+    // never render, for any run, in any build.
+    const { container } = renderRuns(growthFor(WORKFLOWS_SCENARIO));
+    await settle();
+
+    const frozen = [...container.querySelectorAll(".meridian-run-row")].filter((row) =>
+      row.textContent?.includes("Frozen on an older version"),
+    );
+    expect(frozen).toHaveLength(1);
+    expect(container.querySelector(".meridian-run-list__summary")?.textContent).toContain(
+      "Frozen pins",
+    );
+  });
+
+  it("negative control: entries without the definition facts fall back to ids and no mark", async () => {
+    // The three positive claims above rest on the join being real. Strip the two
+    // members from every served entry and the surface must go back to what it drew
+    // before: opaque ids, and a frozen state reported as unknown rather than guessed.
+    const { container } = renderRuns(growthFor(scenarioWithoutDefinitionFacts()));
+    await settle();
+
+    expect(rowLabels(container)).toStrictEqual(rowRunIds(container));
+    expect(container.textContent).not.toContain("Frozen on an older version");
+    expect(container.querySelector(".meridian-run-list__summary")?.textContent).not.toContain(
+      "Frozen pins",
+    );
   });
 
   it("negative control: a scenario that states no runs draws the empty absence", async () => {
