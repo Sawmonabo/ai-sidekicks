@@ -110,6 +110,17 @@ function deliveredEvent(sessionId: string, sequence: number): ConsoleSessionEven
   };
 }
 
+/** One run beat, payload-shaped as `Spec-006 §Run Lifecycle (run_lifecycle)` spells it. */
+function queuedRunEvent(sessionId: string, sequence: number, runId: string): ConsoleSessionEvent {
+  return {
+    sessionId,
+    sequence,
+    kind: "run.queued",
+    occurredAt: new Date(sequence).toISOString(),
+    payload: { sessionId, runId, runVersion: 1, newState: "queued" },
+  };
+}
+
 /** The assertion: how many different stores answered these renders. */
 function distinctStores(stores: readonly (SessionStore | undefined)[]): number {
   return new Set(stores.filter((store) => store !== undefined)).size;
@@ -378,6 +389,59 @@ describe("useSessionStoreRegistry — the clock the window's stores run on", () 
     expect(registry.applyDrainCountFor(unclockedSessionId)).toBe(0);
     // Disposed rather than left armed: its real timeout is still pending, and a
     // drain landing in a later case's turn is a cross-test coupling.
+    registry.disposeAll();
+  });
+});
+
+describe("useSessionStoreRegistry — the projectors the window's stores fold with", () => {
+  it("registers the run-lifecycle projectors on the stores it opens", () => {
+    // Asserted THROUGH the registry the hook built rather than against a
+    // constructor spy: what matters is that a store this window opens folds a
+    // `run.*` event into the `run` partition, and a mock of the registry would
+    // have passed with the composition root registering nothing at all — which is
+    // exactly the state this replaced.
+    const observed: Observation[] = [];
+    const sessionId = "session-run-projection";
+    render(
+      <SessionProbe
+        sessionId={sessionId}
+        onObserve={(observation) => {
+          observed.push(observation);
+        }}
+      />,
+      { wrapper: fixtureBridgeWrapper() },
+    );
+    const { registry } = lastObservation(observed);
+    const store = registry.peek(sessionId);
+    expect(store).toBeDefined();
+    // The same base state the fixture's own session read establishes, so a read
+    // landing later answers at this cursor and changes nothing.
+    store?.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    act(() => {
+      registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
+      registry.flush(sessionId);
+    });
+
+    const projectedRun = store?.snapshot().partitions.run["run-projection-1"];
+    expect(projectedRun?.state).toBe("queued");
+    expect(projectedRun?.body?.["runVersion"]).toBe(1);
+  });
+
+  it("negative control: a registry built with no projectors folds the same event into nothing", () => {
+    // Without this, the case above would pass on any store that happened to hold
+    // a run row. Same registry class, same event, one difference — no projectors —
+    // and the partition stays empty, which is what the console shipped before.
+    const registry = new SessionStoreRegistry({ read: () => Promise.resolve(undefined) });
+    const sessionId = "session-unprojected";
+    const store = registry.open(sessionId);
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+
+    registry.enqueue(sessionId, [queuedRunEvent(sessionId, 1, "run-projection-1")]);
+    registry.flush(sessionId);
+
+    expect(store.snapshot().timeline).toHaveLength(1);
+    expect(store.snapshot().partitions.run).toStrictEqual({});
     registry.disposeAll();
   });
 });
