@@ -34,6 +34,7 @@ import { Fragment } from "react";
 
 import { arePathLinksRenderable, isDeferredFenceLanguage } from "../markdown-rules.js";
 import { CodeBlock } from "./CodeBlock.js";
+import { FootnoteReference } from "./FootnoteReference.js";
 import { MathBlock } from "./MathBlock.js";
 
 /** Everything the mapper needs that is not the node itself. */
@@ -192,14 +193,16 @@ function renderNode(
       // inline as well would put the same text on the screen twice.
       return null;
     case "footnoteReference":
+      // A component rather than markup inline, because the marker has to find the card's
+      // popover host — and a host reached through a React context is a hook call, which
+      // this switch is not allowed to make. See `footnote-popover-context.ts` for why the
+      // host does not ride `MarkdownRenderContext` instead.
       return (
-        <sup
-          className="meridian-markdown__footnote"
-          data-defined={context.definedFootnoteIdentifiers.has(node.identifier) ? "true" : "false"}
-          aria-label={`Footnote ${node.label ?? node.identifier}`}
-        >
-          {node.label ?? node.identifier}
-        </sup>
+        <FootnoteReference
+          identifier={node.identifier}
+          label={node.label ?? node.identifier}
+          isDefined={context.definedFootnoteIdentifiers.has(node.identifier)}
+        />
       );
     default:
       return renderChildren(childrenOf(node), context);
