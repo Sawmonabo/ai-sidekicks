@@ -250,3 +250,65 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     expect(performCount).toBe(1);
   });
 });
+
+describe("the participant's own reason — a press, recorded as a press", () => {
+  it("carries it to the read verbatim, beside the reasons the system gave", async () => {
+    const clock = new ManualClock(0);
+    const reasonsSeen: RefreshReason[][] = [];
+    const scheduler = new RefreshScheduler({
+      clock,
+      debounceMs: 10,
+      perform: (reasons) => {
+        reasonsSeen.push([...reasons]);
+        return Promise.resolve();
+      },
+    });
+
+    scheduler.request("subscribe");
+    scheduler.request("participant-request");
+    clock.advance(10);
+    await settleMicrotasks();
+
+    // Both reasons, in the order they were asked for, and the press is still a press.
+    // A console that folded it into the subscription beside it would report a read
+    // nobody asked for, with nothing afterwards able to tell the two apart.
+    expect(reasonsSeen).toStrictEqual([["subscribe", "participant-request"]]);
+  });
+
+  it("coalesces like every other reason rather than jumping the queue", async () => {
+    const clock = new ManualClock(0);
+    let performCount = 0;
+    const scheduler = new RefreshScheduler({
+      clock,
+      debounceMs: 10,
+      perform: () => {
+        performCount += 1;
+        return Promise.resolve();
+      },
+    });
+
+    scheduler.request("participant-request");
+    scheduler.request("participant-request");
+    scheduler.request("participant-request");
+    expect(performCount).toBe(0);
+    clock.advance(10);
+    await settleMicrotasks();
+
+    // One read. A reason names why a read happened, never how urgent it was — a member
+    // that read immediately would be a second scheduling policy hiding inside a label.
+    expect(performCount).toBe(1);
+    expect(clock.pendingCount).toBe(0);
+  });
+
+  it("negative control: the union without it cannot hold the value", () => {
+    /** The defect class, planted: the vocabulary as it stood before the press had one. */
+    type ReasonsBeforeThePress = "subscribe" | "window-focus" | "reconnect" | "terminal-event";
+    const press: RefreshReason = "participant-request";
+
+    // @ts-expect-error — the planted union has no member for a participant's press, so
+    // a console holding it had to reuse a neighbour's reason or invent one.
+    const borrowed: ReasonsBeforeThePress = press;
+
+    expect(String(borrowed)).toBe("participant-request");
+  });
+});

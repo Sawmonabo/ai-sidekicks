@@ -91,7 +91,7 @@ export function composeScenarioEventEnvelope(
     occurredAt: event.occurredAt,
     ...(category === undefined ? {} : { category }),
     type: event.kind,
-    ...(event.actorParticipantId === undefined ? {} : { actor: event.actorParticipantId }),
+    ...(event.actorId === undefined ? {} : { actor: event.actorId }),
     payload: event.payload ?? {},
     version: SCENARIO_ENVELOPE_VERSION,
   };

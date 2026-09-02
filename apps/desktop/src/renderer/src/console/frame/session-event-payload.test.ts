@@ -1,7 +1,7 @@
 // The decode boundary reads the wire's envelope, and refuses the console's own shape.
 //
 // Both halves matter, and only together. The defect this file was written for was
-// invisible from either side alone: the boundary read `kind` and `actorParticipantId`
+// invisible from either side alone: the boundary read `kind` and `actorId`
 // — the console's projection names — so it refused every canonical `EventEnvelope`
 // the daemon sends, while the fixture handed it the console's shape and every
 // fixture assertion agreed. So the positive case here parses a REGISTERED envelope,
@@ -63,7 +63,7 @@ describe("readConsoleSessionEvent — the registered envelope", () => {
       sequence: 7,
       kind: "run.running",
       occurredAt: OCCURRED_AT,
-      actorParticipantId: PARTICIPANT_ID,
+      actorId: PARTICIPANT_ID,
       payload: { runId: SESSION_ID, newState: "running" },
     });
   });
@@ -75,7 +75,7 @@ describe("readConsoleSessionEvent — the registered envelope", () => {
     // the participant hue allocator.
     const decoded = readConsoleSessionEvent(registeredEnvelope({ actor: null }));
 
-    expect(decoded?.actorParticipantId).toBeUndefined();
+    expect(decoded?.actorId).toBeUndefined();
     expect(decoded?.kind).toBe("run.running");
   });
 
@@ -84,7 +84,7 @@ describe("readConsoleSessionEvent — the registered envelope", () => {
     // and both mean nobody is named, so both settle the same way here.
     const decoded = readConsoleSessionEvent(registeredEnvelope());
 
-    expect(decoded?.actorParticipantId).toBeUndefined();
+    expect(decoded?.actorId).toBeUndefined();
   });
 });
 
@@ -100,7 +100,7 @@ describe("readConsoleSessionEvent — what it refuses", () => {
       sequence: 7,
       kind: "run.running",
       occurredAt: OCCURRED_AT,
-      actorParticipantId: PARTICIPANT_ID,
+      actorId: PARTICIPANT_ID,
       payload: {},
     });
 

@@ -37,9 +37,7 @@ function authoredBeat(overrides: Partial<ConsoleSessionEvent> = {}): ConsoleSess
 
 describe("composeScenarioEventEnvelope — the shape the fixture delivers", () => {
   it("composes an envelope the registered carrier accepts", () => {
-    const composed = composeScenarioEventEnvelope(
-      authoredBeat({ actorParticipantId: PARTICIPANT_ID }),
-    );
+    const composed = composeScenarioEventEnvelope(authoredBeat({ actorId: PARTICIPANT_ID }));
 
     expect(EventEnvelopeSchema.safeParse(composed).success).toBe(true);
     expect(composed.type).toBe("run.running");
@@ -51,11 +49,11 @@ describe("composeScenarioEventEnvelope — the shape the fixture delivers", () =
   it("negative control: the authoring record the composer was given does not", () => {
     // Without this, the case above passes against a composer that returns its
     // argument unchanged — which is exactly what the fixture used to deliver.
-    const beat = authoredBeat({ actorParticipantId: PARTICIPANT_ID });
+    const beat = authoredBeat({ actorId: PARTICIPANT_ID });
 
     expect(EventEnvelopeSchema.safeParse(beat).success).toBe(false);
     expect(composeScenarioEventEnvelope(beat)).not.toHaveProperty("kind");
-    expect(composeScenarioEventEnvelope(beat)).not.toHaveProperty("actorParticipantId");
+    expect(composeScenarioEventEnvelope(beat)).not.toHaveProperty("actorId");
   });
 
   it("supplies an empty payload where the beat states none, because the wire omits none", () => {

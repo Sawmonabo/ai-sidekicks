@@ -195,9 +195,7 @@ export const projectRunLifecycleEvent: EntityProjector = (
         // present `undefined` as an erasure, so absence has to be absence.
         ...(newState === undefined ? {} : { state: newState }),
         touchedAt: event.occurredAt,
-        ...(event.actorParticipantId === undefined
-          ? {}
-          : { attributedTo: event.actorParticipantId }),
+        ...(event.actorId === undefined ? {} : { attributedTo: event.actorId }),
         ...(body === undefined ? {} : { body }),
       },
     },

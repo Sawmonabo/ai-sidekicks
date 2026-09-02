@@ -101,6 +101,23 @@ export const GROWTH_ARTIFACT_REPLICATION_STATUSES = [
 export type GrowthArtifactReplicationStatus = (typeof GROWTH_ARTIFACT_REPLICATION_STATUSES)[number];
 
 /**
+ * What `AttachmentIngestComplete` answers once the daemon has the bytes. Mirrors
+ * `api-payload-contracts.md` `AttachmentIngestCompleteResponse` member-for-member:
+ * the derived truth that replaces the caller's declaration, never the manifest —
+ * a completion is the pipeline's verdict on one payload, and the manifest it
+ * committed is read through `artifactRead`.
+ */
+export interface GrowthAttachmentIngestCompletion {
+  readonly artifactId: string;
+  readonly contentHash: string;
+  readonly normalizedName: string;
+  /** Server-derived from the payload signature; the declared type is never recorded. */
+  readonly derivedMediaType: string;
+  /** Server-derived byte length of the spooled payload; authoritative over the declared bound. */
+  readonly derivedSizeBytes: number;
+}
+
+/**
  * One artifact as the manifest envelope carries it.
  *
  * Mirrored member-for-member from the registered `ArtifactManifest` in
@@ -124,24 +141,17 @@ export type GrowthArtifactReplicationStatus = (typeof GROWTH_ARTIFACT_REPLICATIO
  * name reaches the manifest through `annotations`. The thin shape refused a served
  * list as an unmapped list shape, which is what a summary that is three members of a
  * fourteen-member record does the first time a surface needs the rest of them.
+ *
+ * AND WHAT IT STILL HAS NO MEMBER FOR, CHECKED RATHER THAN ASSUMED. There is no
+ * `ArtifactSummary` anywhere in that document — `ArtifactManifest` is the one
+ * registered envelope — and it registers neither a content-type member nor an expiry
+ * one. The media type is the `metadata` provenance above, and the nearest thing to an
+ * expiry is `replicationStatus: "expired"`, which the wire records as "payload not
+ * obtainable, remedy is a re-publish" rather than as an instant: a deadline member
+ * here would be a figure this console could render and no daemon could supply. So the
+ * mirror gains nothing for either, and this paragraph is why, rather than the absence
+ * being read as an oversight by the next reader who looks.
  */
-/**
- * What `AttachmentIngestComplete` answers once the daemon has the bytes. Mirrors
- * `api-payload-contracts.md` `AttachmentIngestCompleteResponse` member-for-member:
- * the derived truth that replaces the caller's declaration, never the manifest —
- * a completion is the pipeline's verdict on one payload, and the manifest it
- * committed is read through `artifactRead`.
- */
-export interface GrowthAttachmentIngestCompletion {
-  readonly artifactId: string;
-  readonly contentHash: string;
-  readonly normalizedName: string;
-  /** Server-derived from the payload signature; the declared type is never recorded. */
-  readonly derivedMediaType: string;
-  /** Server-derived byte length of the spooled payload; authoritative over the declared bound. */
-  readonly derivedSizeBytes: number;
-}
-
 export interface GrowthArtifactSummary {
   readonly artifactId: string;
   readonly sessionId: string;
@@ -168,6 +178,102 @@ export interface GrowthArtifactSummary {
   readonly replicationStatus?: GrowthArtifactReplicationStatus;
   readonly metadata: Readonly<Record<string, unknown>>;
   readonly createdAt: string;
+}
+
+/**
+ * How an inline artifact payload's bytes are encoded.
+ *
+ * A type alias rather than a value list, on the `GrowthCostStatus` rule below:
+ * nothing here enumerates the arms, the wire supplies the reading and the reader
+ * switches on it. The contract is explicit that a reader switches and never sniffs,
+ * which is the whole reason the member exists beside `payload` rather than being
+ * inferred from it.
+ */
+export type GrowthArtifactPayloadEncoding = "utf8" | "base64";
+
+/**
+ * What an artifact read answers with: the manifest, and the payload where one was asked
+ * for and fits.
+ *
+ * Mirrored member-for-member from the registered `ArtifactReadResponse` in
+ * `docs/architecture/contracts/api-payload-contracts.md` — all four members, and the
+ * manifest NESTED rather than flattened, because that is the shape the wire sends and a
+ * console value that hoisted the envelope's members up beside `payload` would be a
+ * second spelling of a record `GrowthArtifactSummary` already mirrors.
+ *
+ * WHY THIS IS A VALUE AND NOT THE SUMMARY ITSELF. `artifactRead` used to answer with
+ * the bare manifest, which made the pane's two reads indistinguishable: a metadata read
+ * and a payload fetch are one call separated by `includePayload`, and with no member to
+ * carry the answer the second was unrepresentable — a surface could ask for bytes and
+ * had nowhere to receive them.
+ *
+ * THE THREE ARE OPTIONAL FOR THREE DIFFERENT REASONS, none of them convenience.
+ * `payloadHandle` is the deferred-retrieval key, which a reply carrying the bytes
+ * inline has no need to mint. `payload` is present only when the caller asked AND the
+ * encoded member plus its envelope fit the wire's frame ceiling — so "I asked for the
+ * bytes and did not get them" is a real served answer a surface has to draw, not a
+ * refusal. And `payloadEncoding` is present exactly when `payload` is, which is what
+ * makes the switch-never-sniff rule performable: an encoding with no payload beside it
+ * describes nothing, and a payload with no encoding cannot be decoded at all.
+ */
+export interface GrowthArtifactRead {
+  readonly manifest: GrowthArtifactSummary;
+  /** The CAS key or URL for deferred retrieval, where the reply defers rather than inlines. */
+  readonly payloadHandle?: string;
+  /** The bytes, present only when `includePayload` was set and the size permits. */
+  readonly payload?: string;
+  /** Present exactly when `payload` is. Read, never sniffed from the bytes. */
+  readonly payloadEncoding?: GrowthArtifactPayloadEncoding;
+}
+
+/**
+ * What became of the payload behind a deleted manifest.
+ *
+ * Three arms and no boolean, on the contract's own reasoning: the bytes were unlinked,
+ * another manifest still names the shared payload so they deliberately stay, or the
+ * post-commit unlink failed and the orphan sweep owns the retry. A boolean could not
+ * report the third truthfully — it would have to answer "not reclaimed", which is what
+ * the second arm also says and means something entirely different about the operator's
+ * disk.
+ *
+ * A type alias rather than a value list, on the `GrowthCostStatus` rule below: nothing
+ * here enumerates the arms, the daemon settles the disposition and the surface renders
+ * the one it was handed.
+ */
+export type GrowthArtifactPayloadDisposition =
+  | "reclaimed"
+  | "reclaim_pending"
+  | "retained_by_references";
+
+/**
+ * The receipt a delete answers with.
+ *
+ * Mirrored member-for-member from the registered `ArtifactDeleteResponse` in
+ * `docs/architecture/contracts/api-payload-contracts.md`. The operation used to answer
+ * with nothing, and a delete that answers with nothing is a delete a surface can only
+ * report as "done": the daemon settles two facts at that moment which no later read can
+ * recover, and both are things a person acts on.
+ *
+ * `payloadDisposition` is the first — whether the bytes went, stayed for another
+ * manifest, or are owed to a sweep. `rePublishForeclosed` is the second, and it is the
+ * one a confirmation dialogue exists for: deleting a manifest that carried the
+ * publisher-retained relay key destroys that key with the row, so re-publish becomes
+ * permanently impossible and the late-join remedy is gone. Grounded in the destroyed
+ * LOCAL key alone — never a claim about what the relay still holds, which nothing here
+ * has asked and nothing here could answer.
+ *
+ * Every member is REQUIRED, and that is the load-bearing part rather than a default
+ * choice: an absent disposition would be indistinguishable from a served one, so a
+ * surface would render "reclaimed" for a reply that said nothing, and a missing
+ * foreclosure flag read as `false` would tell a person a re-publish is still available
+ * on exactly the artifact where it no longer is.
+ */
+export interface GrowthArtifactDeleteReceipt {
+  readonly artifactId: string;
+  readonly payloadDisposition: GrowthArtifactPayloadDisposition;
+  /** True when the delete destroyed the retained relay key, foreclosing re-publish. */
+  readonly rePublishForeclosed: boolean;
+  readonly deletedAt: string;
 }
 
 export interface GrowthSessionSummary {

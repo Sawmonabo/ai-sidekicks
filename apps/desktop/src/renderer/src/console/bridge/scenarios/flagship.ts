@@ -157,7 +157,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         sequence: 1,
         kind: "session.created",
         occurredAt: "2026-01-01T14:20:00.000Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The registered shape, verbatim: the new session's id plus the resolved
         // config and metadata. Both are open records and both are empty here,
         // because nothing in the corpus names a key inside either — a fixture that
@@ -173,7 +173,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         sequence: 2,
         kind: "membership.created",
         occurredAt: "2026-01-01T14:20:00.040Z",
-        actorParticipantId: PARTICIPANT_PRIYA,
+        actorId: PARTICIPANT_PRIYA,
         // A person joining a session is a membership event, not a participant one:
         // `participant.*` is not in the census at all, and this is the type the
         // owner's own admission rides too.
@@ -195,7 +195,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         occurredAt: agent.attachedAtIso,
         // The person who attached the agent, not the agent. An agent does not
         // attach itself, and the envelope actor is who acted.
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // `Spec-006 §Channel and Agent Lifecycle (session_lifecycle)`: the full persona plus the
         // daemon-resolved resulting state, so the `agents` projection rebuilds from
         // the log alone. `name` is the member — `displayName` is not on this wire.
@@ -218,7 +218,7 @@ export const FLAGSHIP_SCENARIO: ConsoleScenario = {
         sequence: 7,
         kind: "run.queued",
         occurredAt: "2026-01-01T14:20:00.320Z",
-        actorParticipantId: PARTICIPANT_YOU,
+        actorId: PARTICIPANT_YOU,
         // The run's CREATION, and creation is not a transition. This beat briefly
         // carried `previousState: "queued"` so it would satisfy the shape
         // `run.subscribeState` projects into — which made it claim the run had

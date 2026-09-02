@@ -242,9 +242,14 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "artifactRead",
     "artifact-ingest-and-crud",
     "method",
-    "read one artifact's metadata",
+    "read one artifact — the pane's manifest read, which takes the envelope alone, and its payload fetch, which asks for the bytes and takes them beside the envelope with the encoding to read them by",
   ),
-  artifactDelete: op("artifactDelete", "artifact-ingest-and-crud", "method", "delete an artifact"),
+  artifactDelete: op(
+    "artifactDelete",
+    "artifact-ingest-and-crud",
+    "method",
+    "delete an artifact and read back the receipt the call settles — where the payload's bytes went, and whether the destroyed relay key has foreclosed re-publish",
+  ),
   artifactAllowlistRead: op(
     "artifactAllowlistRead",
     "artifact-allowlist-and-abort",
