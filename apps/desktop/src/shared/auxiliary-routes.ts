@@ -16,9 +16,11 @@
 // to fill has no reachable registrant — a renderer module cannot call into main,
 // and no bridge namespace for it exists (Plan-023 Phase 1B defers one) — so it
 // is a gate nothing ever opens and every entry behind it stays hidden forever.
-// `IMPLEMENTED_AUXILIARY_ROUTES` replaces it: a constant both the menu and the
-// console's route table read, grown in the same commit as each route body
-// (T-023p-1C-2 `timeline`, T-023p-1C-4 `agent-console`).
+// `IMPLEMENTED_AUXILIARY_ROUTES` replaces it: a constant the console's route
+// table, the detach handoff, and the window factory all read, grown in the same
+// commit as each route body (T-023p-1C-2 `timeline`, T-023p-1C-4
+// `agent-console`). `BARE_LAUNCHABLE_AUXILIARY_ROUTES` is the narrower subset
+// the menu bar reads, and its own header says why the two are separate claims.
 //
 // This module may import nothing but `@ai-sidekicks/contracts` — it is compiled
 // into the RENDERER bundle, so `electron`, `node:*`, and the main/preload
@@ -69,11 +71,52 @@ export const AUXILIARY_ROUTE_LABELS: Record<AuxiliaryRouteName, string> = {
  * to a rendered pane rather than to nothing. `agent-console` is still absent for
  * the reason above — its route body has not landed.
  *
- * Order here IS the menu's order. An array rather than a `Set` because a `Set`'s
- * iteration order is its insertion order, which would make the menu's order an
- * accident.
+ * Membership here admits a launch that SUPPLIES context — the deck's detach
+ * control, and a hand-typed hash route. It does not by itself admit a BARE
+ * launch: that is {@link BARE_LAUNCHABLE_AUXILIARY_ROUTES}, a strict subset.
+ *
+ * An array rather than a `Set` because a `Set`'s iteration order is its
+ * insertion order, which would make every consumer's order an accident.
  */
 export const IMPLEMENTED_AUXILIARY_ROUTES: readonly AuxiliaryRouteName[] = ["timeline"];
+
+/**
+ * The subset of the implemented routes whose BARE launch can reach a subject in
+ * this build, in presentation order.
+ *
+ * Implemented and bare-launchable are two different claims, and collapsing them
+ * is what put an unusable command on the menu bar. A route is implemented when
+ * its renderer body exists — which is what the detach path needs, because a
+ * detach SUPPLIES the session id it opens on. A route is bare-launchable only
+ * when a window opened with no context at all can still be given one, and that
+ * is a claim about the READS available to the auxiliary renderer, not about the
+ * route body.
+ *
+ * EMPTY today, and the reason is a wire and not an omission. An auxiliary
+ * renderer starts with no open session stores, so `SessionStoreRegistry` — one
+ * of the context picker's two candidate sources — is empty by construction. The
+ * other is the node's session directory, which is a `Plan-023 §Console growth
+ * slate` row that the live bridge refuses by name (`sessionList`, alongside
+ * `sessionRead`): no daemon method for it is registered in
+ * `packages/contracts`, so there is nothing for the live port to call. Both
+ * candidate sources therefore settle at nothing, and a bare window stops at the
+ * picker's honest not-checked absence with no way forward. A menu entry that
+ * always ends there is the capability-claimed-but-not-implemented shape
+ * `Spec-023 §Console Design (Meridian)` §Copy forbids.
+ *
+ * A route joins this list in the same commit as the read that makes its bare
+ * launch answerable — the directory row landing is what makes `timeline` a
+ * member — exactly as a route joins {@link IMPLEMENTED_AUXILIARY_ROUTES} in the
+ * same commit as its body.
+ *
+ * Kept as a SEPARATE array rather than a flag on the implemented list because
+ * the two are read by different consumers for different questions: the menu asks
+ * "can a bare launch get anywhere", while the detach path and the window factory
+ * ask "does this route have a body". Deriving one from the other would make a
+ * future route join both by writing it once, which is the coupling that produced
+ * this defect.
+ */
+export const BARE_LAUNCHABLE_AUXILIARY_ROUTES: readonly AuxiliaryRouteName[] = [];
 
 /**
  * Whether `value` names a route in the closed set.

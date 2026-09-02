@@ -9,6 +9,12 @@
 // coalesced send names is registered, so a real send lands `session.create` and then
 // says what it could not do. A control that reported that as a plain success would
 // be describing a session with no sidekicks and no first turn as a finished one.
+//
+// And because that partial leaves the draft on screen with Send still pressable,
+// the last case here is the affordance half of the double-press guard: Send is
+// disabled from the press until the send settles. The structural half lives in the
+// draft and is asserted where it lives — this file asserts only what the screen
+// does, which is what a person can actually observe.
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -44,13 +50,56 @@ function bridgeFor(options: { readonly scriptsCreate: boolean }): ConsoleBridge 
 }
 
 /** The control under the window's announcer, which is where the frame mounts it. */
-function renderControl(options: { readonly scriptsCreate: boolean }): HTMLElement {
+function renderControlOn(bridge: ConsoleBridge): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider>
-      <NewSessionControl bridge={bridgeFor(options)} />
+      <NewSessionControl bridge={bridge} />
     </LiveAnnouncerProvider>,
   );
   return container;
+}
+
+function renderControl(options: { readonly scriptsCreate: boolean }): HTMLElement {
+  return renderControlOn(bridgeFor(options));
+}
+
+/** A bridge whose `session.create` is held open, and the handle that lets it answer. */
+interface HeldCreate {
+  readonly bridge: ConsoleBridge;
+  /** Lets the held `session.create` proceed to the fixture's scripted reply. */
+  readonly answer: () => void;
+}
+
+/**
+ * The fixture bridge with its `session.create` suspended until told to answer.
+ *
+ * A send that resolves within the same microtask cannot be observed mid-flight, and
+ * "Send is disabled while a send is running" is a claim about exactly that moment.
+ * The reply itself still comes from the fixture's own door — only its TIMING is the
+ * test's, so what settles is the same partial every other case here reads.
+ */
+function bridgeHoldingCreate(): HeldCreate {
+  const fixture = bridgeFor({ scriptsCreate: true });
+  let answer = (): void => {};
+  const held = new Promise<void>((resolve) => {
+    answer = resolve;
+  });
+  const bridge: ConsoleBridge = {
+    ...fixture,
+    sidekicks: {
+      ...fixture.sidekicks,
+      daemon: {
+        ...fixture.sidekicks.daemon,
+        call: (async (method: string, params: unknown) => {
+          await held;
+          return await (
+            fixture.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>
+          )(method, params);
+        }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
+      },
+    },
+  };
+  return { bridge, answer };
 }
 
 /**
@@ -163,6 +212,32 @@ describe("the composed new-session draft — reachable, and only on an act", () 
 
     expect(container.textContent).toContain("session-create-failed");
     expect(politeText(container)).toBe("Nothing was sent, and the draft is still here.");
+  });
+
+  it("disables Send while a send is in flight, and re-enables it afterwards", async () => {
+    const held = bridgeHoldingCreate();
+    const container = renderControlOn(held.bridge);
+    await press("+ New");
+    await act(async () => {
+      screen.getByRole("radio", { name: "Trusted" }).click();
+      await Promise.resolve();
+    });
+
+    // The window a double-click lands in: the create is suspended, so this is what
+    // the screen looks like while a person's second press would arrive.
+    await press("Send");
+    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+
+    await act(async () => {
+      held.answer();
+      await Promise.resolve();
+    });
+
+    // ...and pressable again once it settles, because the partial leaves a draft the
+    // person may still correct. A flag that never cleared would be a control frozen
+    // by its own guard.
+    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
+    expect(container.textContent).toContain("wire-unregistered");
   });
 
   // The negative control: without it, a control whose Send button was wired to

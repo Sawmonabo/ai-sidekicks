@@ -15,6 +15,17 @@
 //     is on disk; without a cap a corrupted or hand-edited record mounts an
 //     unbounded number of panes before anything can say no.
 //
+// AND ONE THE DECK'S OWN STORE STATES AND THIS FILE HAS TO HONOUR: **one entity,
+// one pane**. `open()` enforces it by focusing the pane that already shows an
+// address, which repairs nothing it did not create — a record holding two pane ids
+// at one address would mount both bodies, consume two cap slots, and be written
+// back on the next save, surviving every restart. So a duplicate address is
+// coalesced HERE, during decoding, first in position order winning, and the drop is
+// reported like every other one. Coalesced rather than refused whole: the record is
+// otherwise readable, and discarding a person's arrangement over one repeated
+// address would be the version-skew treatment applied to something that is not
+// version skew.
+//
 // REPORTING, AND WHY IT IS NOT A TRIPWIRE. `core/tripwires.ts` owns five kinds and
 // each one names a DEFECT; a tripwire throws in a development build, which is
 // exactly right for a store mutated outside its chokepoint and exactly wrong for a
@@ -36,6 +47,7 @@ import {
   DECK_TOTAL_PERMILLE,
   EPHEMERAL_PANE_KINDS,
   normalise,
+  paneAddressKey,
   type DeckLayoutState,
   type DeckPane,
 } from "./deck-model.js";
@@ -70,13 +82,14 @@ export const DECK_SNAPSHOT_HEADER_KEY = "$deck";
  */
 export type DeckSnapshotRecord = Record<string, Record<string, number | boolean | string>>;
 
-/** Why a restore dropped something. Closed, so a seventh cause is a decision. */
+/** Why a restore dropped something. Closed, so an eighth cause is a decision. */
 export const DECK_RESTORE_REFUSAL_CODES = [
   "snapshot-shape-invalid",
   "snapshot-version-unknown",
   "pane-shape-invalid",
   "pane-kind-unknown",
   "pane-entity-invalid",
+  "pane-address-duplicate",
   "restore-cap-exceeded",
 ] as const;
 
@@ -193,6 +206,10 @@ export function decodeDeckSnapshot(
   candidates.sort((left, right) => readPosition(left.entry) - readPosition(right.entry));
 
   const panes: DeckPane[] = [];
+  // Keyed off the DECODED pane rather than off the raw entry, so a record whose
+  // entity members are malformed still refuses as `pane-entity-invalid` — a
+  // duplicate is a coherent pane at an address already taken, not a broken one.
+  const adoptedAddressKeys = new Set<string>();
   for (const candidate of candidates) {
     if (panes.length >= restoredPaneCap) {
       refusals.push(
@@ -204,9 +221,23 @@ export function decodeDeckSnapshot(
       break;
     }
     const pane = decodePane(candidate.paneId, candidate.entry, refusals);
-    if (pane !== undefined) {
-      panes.push(pane);
+    if (pane === undefined) {
+      continue;
     }
+    const addressKey = paneAddressKey(pane);
+    if (adoptedAddressKeys.has(addressKey)) {
+      // Dropped BEFORE the push, so it consumes no cap slot: a record padded with
+      // repeats of one address must not push real panes out of the restore.
+      refusals.push(
+        refuseRestore(
+          "pane-address-duplicate",
+          "Two saved panes showed the same thing, so the second was left closed.",
+        ),
+      );
+      continue;
+    }
+    adoptedAddressKeys.add(addressKey);
+    panes.push(pane);
   }
 
   const focusedCandidate = header["focusedPaneId"];
