@@ -217,13 +217,23 @@ export class SessionStore {
     }
   }
 
-  /** Mark the store degraded without a re-pull — a closed subscription, a failed read. */
+  /**
+   * Mark the store degraded without a re-pull — a closed subscription, a failed
+   * read.
+   *
+   * MERGED through the same ladder an apply uses rather than assigned. An
+   * assignment would downgrade a `stream-diverged` store to `read-failed` the
+   * moment its repair read rejected, and overwrite a recorded sequence gap with a
+   * later subscription closure — in both cases reporting a repair that never
+   * happened, on a flag only a completed re-pull clears.
+   */
   public markDegraded(cause: SessionDegradedCause): void {
     const current = this.#store.getState();
-    if (current.degradedCause === cause) {
+    const merged = worstDegradedCause(current.degradedCause, cause);
+    if (merged === current.degradedCause) {
       return;
     }
-    this.#store.setState({ ...current, degradedCause: cause, revision: current.revision + 1 });
+    this.#store.setState({ ...current, degradedCause: merged, revision: current.revision + 1 });
   }
 
   /**
