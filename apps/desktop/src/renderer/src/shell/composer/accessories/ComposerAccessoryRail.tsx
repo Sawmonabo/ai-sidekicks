@@ -25,6 +25,7 @@
 // here, and until then the seat renders the reserved state.
 
 import { useMemo } from "react";
+import { useDriverCapabilities } from "../../../console/bridge/index.js";
 import { RealClock } from "../../../console/core/index.js";
 import type { ComposerSeatProps } from "../../../console/workspace/index.js";
 import {
@@ -34,7 +35,7 @@ import {
 } from "../../../console/store/index.js";
 import { useComposerAddress } from "../composer-address.js";
 import { CompactionControl } from "./CompactionControl.js";
-import { compactionCapabilityFor, useDeclaredCapabilitiesByDriver } from "./driver-capabilities.js";
+import { compactionCapabilityFor } from "./compaction-capability.js";
 import { ContextMeter } from "./ContextMeter.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
 import { PlusMenu } from "./PlusMenu.js";
@@ -76,7 +77,7 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   const queueFeed = useQueueFeed(props.bridge, props.sessionStore.sessionId);
   const clock = props.bridge.scenarioEngine?.clock ?? HOST_CLOCK;
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
-  const capabilitiesByDriver = useDeclaredCapabilitiesByDriver(props.bridge);
+  const driverCapabilities = useDriverCapabilities(props.bridge);
   const addressedRun = address.target.path === "provider-bound" ? address.target : undefined;
 
   return (
@@ -94,7 +95,7 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
             <CompactionControl
               bridge={props.bridge}
               sessionId={props.sessionStore.sessionId}
-              capability={compactionCapabilityFor(capabilitiesByDriver, addressedRun.driverName)}
+              capability={compactionCapabilityFor(driverCapabilities, addressedRun.driverName)}
               targetRunId={addressedRun.targetRunId}
               completedBoundarySequence={compactionBoundary}
             />

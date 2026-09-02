@@ -30,6 +30,7 @@
 
 import { useCallback, useState } from "react";
 
+import { useDriverCapabilities } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import { useSessionPartition, type SessionStore } from "../../store/index.js";
@@ -38,7 +39,6 @@ import { ConsolePaneChrome, paneScopeCrumbs } from "../pane-chrome.js";
 import { QueueContents } from "./QueueContents.js";
 import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
-import { useDriverCapabilities } from "./run-control-gating.js";
 import { useRunControlSurface } from "./run-control-surface.js";
 import { useQueueFeed } from "./queue-feed.js";
 import { useRunStateFeed } from "./run-state-feed.js";

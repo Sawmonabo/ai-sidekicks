@@ -312,6 +312,40 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
     expect(container.querySelector(".meridian-compaction")).toBeNull();
   });
 
+  it("asks for the declarations once for every rail sharing one bridge", async () => {
+    // The composer used to hold its own capability hook, so a session view carrying
+    // the rail beside the runs pane put two `driver.listCapabilities` calls on the
+    // wire for one answer. Two rails on one bridge is that arithmetic without
+    // reaching across families: on the two-hook tree this counted two.
+    const methodCalls: string[] = [];
+    const bridge = {
+      sidekicks: {
+        daemon: {
+          call: async (method: string) => {
+            methodCalls.push(method);
+            return method === "driver.listCapabilities"
+              ? { drivers: [reportFor("claude", ["context_compaction"])] }
+              : undefined;
+          },
+          subscribe: () => () => undefined,
+        },
+      },
+      growth: {},
+      growthServedOperations: new Set(),
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+
+    await act(async () => {
+      mountRail([], { bridge, entities: [AGENT, RUNNING_RUN], focusedPane: ON_THE_AGENT });
+    });
+    await act(async () => {
+      mountRail([], { bridge, entities: [AGENT, RUNNING_RUN], focusedPane: ON_THE_AGENT });
+    });
+
+    expect(methodCalls.filter((method) => method === "driver.listCapabilities")).toHaveLength(1);
+  });
+
   it("says the question was never put while the capability read is in flight", () => {
     // Never resolved, so the read is genuinely outstanding at assertion time — the
     // one state that is neither `declared` nor `undeclared`.

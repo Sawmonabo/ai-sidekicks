@@ -27,11 +27,11 @@
 import { useCallback, useMemo, useState } from "react";
 
 import { StepIn } from "../../../shell/composer/accessories/index.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleBridge, DriverCapabilityReadout } from "../../bridge/index.js";
 import { Glyph, InlineRefusal, type GlyphName } from "../../primitives/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
-import { isControlOffered, type DriverCapabilityReadout } from "./run-control-gating.js";
+import { isControlOffered } from "./run-control-gating.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
 import { type RunProjection } from "./run-state-feed.js";
 import { isLiveRunState } from "./run-status.js";
