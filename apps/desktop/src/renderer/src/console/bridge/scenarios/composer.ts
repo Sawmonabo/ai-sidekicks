@@ -35,9 +35,17 @@
 // issues for the opened session (and which is what puts this session in the node
 // directory), `agent.list` for the roster, and the two the composer's own
 // accessories dispatch — `run.pause` from the step-in control and
-// `driver.compactContext` from the compaction control. The approval
+// `driver.compactContext` from the compaction control — plus
+// `driver.listProviderCommands`, which the command zone's discovery popover issues
+// for the addressed agent. The approval
 // reads are deliberately NOT scripted: this scenario is what makes the approvals
 // pane's refusal arm reachable.
+//
+// ONE REPLY PER CALL NAME, so the refusing-target half of the enumeration is not
+// reachable from here: `replyFor` matches on the method name alone and the fixture
+// serves the first entry, so a second `driver.listProviderCommands` scripting a
+// refusal would be unreachable rather than conditional. That arm is driven in the
+// command zone's own unit, over a bridge whose scenario refuses this call.
 
 import type { ConsoleScenario } from "../scenario.js";
 
@@ -269,6 +277,50 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       // `currentState` is the state the verb reached.
       call: "run.pause",
       result: { runId: RUN_ID, currentState: "paused", runVersion: 5 },
+    },
+    {
+      // The discovery popover's dispatch, agent-addressed within the session. The
+      // reply is the GROUP LIST the wire declares and never a flat entry array: the
+      // group is what carries the `(driverName, providerAccountId)` the entries were
+      // read under, and the invariant this surface renders is that an entry is
+      // offered only under the binding it came from.
+      //
+      // `runId` is the run this scenario plays, which is the one live run on this
+      // binding — the arm the contract says answers with THAT run rather than with
+      // `null`. `providerAccountId` is `null`, the positive statement that this
+      // fixture binds no provider account: the composer scenario attaches agents and
+      // registers no account, and a synthesized placeholder would make the routing
+      // pair compare equal where it must not.
+      //
+      // The two entries differ in what the provider published, deliberately: the
+      // command carries a description and the skill carries a scope and an `enabled`
+      // flag, so the row that renders a provider-supplied description and the row
+      // that renders its absence are both reachable.
+      call: "driver.listProviderCommands",
+      result: {
+        bindings: [
+          {
+            runId: RUN_ID,
+            binding: { driverName: "claude", providerAccountId: null },
+            entries: [
+              {
+                name: "compact",
+                kind: "command",
+                description: "Compact the conversation context.",
+                binding: { driverName: "claude", providerAccountId: null },
+              },
+              {
+                name: "review",
+                kind: "skill",
+                scope: "project",
+                enabled: true,
+                binding: { driverName: "claude", providerAccountId: null },
+              },
+            ],
+            complete: true,
+          },
+        ],
+      },
     },
     {
       // The compaction control's dispatch. `DriverCompactionResult` is a

@@ -37,6 +37,22 @@ import type { ConsoleBridge } from "./console-bridge.js";
 export const COMPACT_CONTEXT_METHOD = "driver.compactContext";
 
 /**
+ * The bound provider's own command and skill enumeration.
+ *
+ * Agent-addressed within the session, because one agent can hold several live
+ * bindings at once and the daemon fans out across them — the reply's group list is
+ * what carries that back, each group naming the `(driverName, providerAccountId)` it
+ * was read under. The console never sends a binding member: the request schema is
+ * strict and admits none.
+ *
+ * A LIVE READ, held for the composer's current target and nothing longer. There is
+ * no registry behind it and none is wanted: a stored copy would need invalidation,
+ * staleness, and reconciliation machinery whose only purpose is to re-derive what one
+ * read gives.
+ */
+export const LIST_PROVIDER_COMMANDS_METHOD = "driver.listProviderCommands";
+
+/**
  * Which capabilities each bound driver declares.
  *
  * The two driver-gated run controls — steer and rollback — read their flags from

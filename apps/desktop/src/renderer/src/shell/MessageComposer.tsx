@@ -8,21 +8,28 @@
 //
 // WHAT THIS FILE IS, AND WHAT IT IS NOT
 //
-// It is the HOST: the region, its accessible framing, and the three zones in their
-// order. It is not the send router, not the chips, and not the accessories — each
-// of those is a zone behind its own barrel, filled by its own lane, so three lanes
-// edit three directories instead of one file three ways.
+// It is the HOST: the region, its accessible framing, and the four zones in their
+// order. It is not the send router, not the chips, not the command surface, and not
+// the accessories — each of those is a zone behind its own barrel, filled by its own
+// lane, so four lanes edit four directories instead of one file four ways.
 //
-// It reads no wire itself. All three zones are handed the seat's own props: the
+// It reads no wire itself. All four zones are handed the seat's own props: the
 // chip rail and the send bar resolve the address from the session store, and the
 // accessory rail reads the session's meters and queue through the bridge. Every
 // zone renders the absence of a read rather than a guess at its answer.
+//
+// THE ONE THING THE HOST OWNS IS THE REGION ITSELF, and one zone needs it. The
+// command zone's discovery popover opens on a leading slash in the message line —
+// a line the send bar owns and this host does not — so it is handed the region and
+// OBSERVES the line's own value there rather than being given a copy of it. The
+// alternative would be a second source of truth for what a person has typed.
 
-import { useId } from "react";
+import { useId, useRef } from "react";
 
 import { type ComposerSeatProps } from "../console/workspace/index.js";
 import { ComposerAccessoryRail } from "./composer/accessories/index.js";
 import { ComposerChipRail } from "./composer/chips/index.js";
+import { ProviderCommandAutocomplete } from "./composer/commands/index.js";
 import { ComposerSendBar } from "./composer/router/index.js";
 
 /**
@@ -36,17 +43,20 @@ import { ComposerSendBar } from "./composer/router/index.js";
  */
 export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
   const descriptionId = useId();
+  const regionRef = useRef<HTMLElement | null>(null);
   return (
     <section
       className="meridian-composer"
       aria-label="Message composer"
       aria-describedby={descriptionId}
+      ref={regionRef}
     >
       <p className="meridian-visually-hidden" id={descriptionId}>
         Composing in session {props.sessionStore.sessionId}.
       </p>
       <ComposerChipRail {...props} />
       <ComposerSendBar {...props} />
+      <ProviderCommandAutocomplete {...props} region={regionRef} />
       <ComposerAccessoryRail {...props} />
     </section>
   );
