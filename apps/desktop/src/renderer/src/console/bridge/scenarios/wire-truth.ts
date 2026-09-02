@@ -10,7 +10,9 @@
 // without that family or its reviewer having to know this module exists.
 //
 // WHAT WIRE TRUTH IS HERE. `packages/contracts/src/event.ts` ships two layers, and
-// a scenario is measured against both:
+// a scenario is measured against both — then against a third leg the contracts
+// package does not carry at all, because the run state machine lives in
+// `docs/domain/` and nothing compiles it:
 //
 //   • `SESSION_EVENT_CATEGORY_BY_TYPE` — the census. Its keys are every event type
 //     the taxonomy registers, so a `kind` that is not a key is a type no daemon
@@ -24,6 +26,13 @@
 //     quieter defect: `session.created` carrying `{title}` names a real event type
 //     and a payload the schema rejects outright, and nothing renders differently
 //     until the day the console reads the payload.
+//   • The run state machine's transition table. This is the leg that catches a beat
+//     whose members are each individually registered and whose combination is not:
+//     `previousState` equal to `newState` is a self-transition, and the table
+//     defines one for no state. It is checked here rather than by either layer
+//     above because neither can see it — the census knows kinds, the strict layer
+//     registers no variant for the run-lifecycle kinds at all, and the machine is
+//     prose in `docs/domain/run-state-machine.md`.
 //
 // WHY THE PROBE IS A WHOLE ENVELOPE. The strict layer is declared per EVENT, not
 // per payload — there is no exported payload-only schema to reach for, and the one
@@ -115,6 +124,10 @@ function describeBeatDefect(beat: ScenarioBeat): string | undefined {
       "`SESSION_EVENT_CATEGORY_BY_TYPE` in `packages/contracts/src/event.ts`."
     );
   }
+  const selfTransition = describeSelfTransitionDefect(beat);
+  if (selfTransition !== undefined) {
+    return selfTransition;
+  }
   const parsed = SessionEventSchema.safeParse({
     id: beat.event.id,
     sessionId: beat.event.sessionId,
@@ -139,6 +152,40 @@ function describeBeatDefect(beat: ScenarioBeat): string | undefined {
   return (
     `the registered "${beat.event.kind}" shape rejects this beat: ` +
     `${parsed.error.issues.map(describeIssue).join("; ")}.`
+  );
+}
+
+/**
+ * A beat claiming a run moved from a state to itself, or `undefined` when it claims
+ * no such thing.
+ *
+ * A rule the strict layer cannot enforce and the census cannot see. The state
+ * machine (`docs/domain/run-state-machine.md` §Complete Transition Table — its own
+ * "single authoritative reference for every allowed run state transition") has no
+ * row whose `From` and `To` are the same state, so a self-transition is an event no
+ * daemon produces. It reads as a real one, though: both values are registered
+ * members of the vocabulary, the payload variant that would have caught it is not
+ * registered for the run-lifecycle kinds, and a surface built against such a beat
+ * learns to render or count a transition that never happens in production.
+ *
+ * Deliberately keyed on the two payload members rather than on the event kind, so it
+ * holds for every family's scenario and for any run row a later taxonomy registers.
+ */
+function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
+  const payload = beat.event.payload;
+  if (payload === undefined) {
+    return undefined;
+  }
+  const previousState = payload["previousState"];
+  if (previousState === undefined || previousState !== payload["newState"]) {
+    return undefined;
+  }
+  return (
+    `this beat names "${String(previousState)}" as both \`previousState\` and \`newState\`, ` +
+    "so it claims a run transitioned to the state it was already in. The run state " +
+    "machine's transition table has no such row, so no daemon emits one — script the " +
+    "transition this beat means, or, for a run being created, name the state it is in " +
+    "and no state it came from."
   );
 }
 

@@ -44,6 +44,9 @@ const CONTROL_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
  */
 const CONTROL_EVENT_ID = "019b79ee-0280-7ea1-8110-e5e0d1159901";
 
+/** A run the transition controls below are about. */
+const CONTROL_RUN_ID = "019b79ee-0280-740e-8110-d1a4c1159901";
+
 /** The smallest well-formed scenario, so each control varies exactly one thing. */
 function controlScenario(overrides: Partial<ConsoleScenario>): ConsoleScenario {
   return {
@@ -107,6 +110,72 @@ describe("scenario wire truth — the controls", () => {
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.reason).toContain("not a registered event type");
+  });
+
+  it("reports a beat claiming a run moved to the state it was already in", () => {
+    // Every member here is individually registered — `run.queued` is a census row,
+    // and `queued` is a member of the run-state vocabulary twice over — so neither
+    // the census leg nor the strict layer can see this one, and the strict layer
+    // registers no variant for the run-lifecycle kinds at all. The transition table
+    // is what rules it out: it has no row whose `From` and `To` are one state, so no
+    // daemon emits this, and a surface built against it learns to render a
+    // transition production never produces.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 0,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.queued",
+              occurredAt: "2026-01-01T00:00:00.000Z",
+              payload: {
+                sessionId: CONTROL_SESSION_ID,
+                runId: CONTROL_RUN_ID,
+                runVersion: 1,
+                previousState: "queued",
+                newState: "queued",
+              },
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.reason).toContain("the state it was already in");
+  });
+
+  it("negative control: the same beat naming a real transition is clean", () => {
+    // Without it, a rule that reported every run beat would pass the case above —
+    // and every scenario's run script would be unbuildable.
+    const defects = findScenarioWireTruthDefects([
+      controlScenario({
+        beats: [
+          {
+            atMs: 0,
+            event: {
+              id: CONTROL_EVENT_ID,
+              sessionId: CONTROL_SESSION_ID,
+              sequence: 1,
+              kind: "run.starting",
+              occurredAt: "2026-01-01T00:00:00.000Z",
+              payload: {
+                sessionId: CONTROL_SESSION_ID,
+                runId: CONTROL_RUN_ID,
+                runVersion: 2,
+                previousState: "queued",
+                newState: "starting",
+              },
+            },
+          },
+        ],
+      }),
+    ]);
+
+    expect(defects).toStrictEqual([]);
   });
 
   it("reports a registered kind carrying a payload the strict layer rejects", () => {

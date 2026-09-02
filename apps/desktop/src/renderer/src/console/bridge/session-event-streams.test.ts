@@ -46,6 +46,16 @@ const QUEUE_ITEM_EVENT_ROOT = "queue_item.";
 const ROLLED_BACK_KIND = "run.rolled_back";
 
 /**
+ * The registered row that records a run's CREATION rather than a transition.
+ *
+ * `queued` is the state a run is created in and the destination of no row in
+ * `docs/domain/run-state-machine.md`'s transition table, so no `RunStateChangeEvent`
+ * can name it as a `currentState` — the shape requires a `previousState`, and the
+ * vocabulary has no member for a state a run has not been in yet.
+ */
+const RUN_CREATION_KIND = "run.queued";
+
+/**
  * The three registered run rows that record no state and no rollback.
  *
  * Named here so the state stream's exclusion of them is asserted rather than
@@ -121,17 +131,30 @@ describe("session-event streams — the table carries what the wire registers", 
     expect(CATEGORY_BY_REGISTERED_KIND.has(UNREGISTERED_KIND)).toBe(false);
   });
 
-  it("gives the state stream one kind per canonical run state, plus the rollback arm", () => {
+  it("gives the state stream one kind per state a transition can end in, plus the rollback arm", () => {
     // Re-derived from the census by the registration's own rule — one event per
-    // canonical run state — rather than from the table under test.
-    const stateTransitionKinds = registeredKindsIn("run_lifecycle").filter(
+    // canonical run state — rather than from the table under test, then less the
+    // creation row, which is the one state no transition ends in.
+    const runStateKinds = registeredKindsIn("run_lifecycle").filter(
       (kind) => RunStateSchema.safeParse(kind.slice(RUN_EVENT_ROOT.length)).success,
     );
+    const transitionKinds = runStateKinds.filter((kind) => kind !== RUN_CREATION_KIND);
 
-    expect(stateTransitionKinds).toHaveLength(9);
+    expect(runStateKinds).toHaveLength(9);
+    expect(transitionKinds).toHaveLength(8);
     expect(sorted(carriedKindsOf(RUN_STATE_EVENT_STREAM))).toStrictEqual(
-      sorted([...stateTransitionKinds, ROLLED_BACK_KIND]),
+      sorted([...transitionKinds, ROLLED_BACK_KIND]),
     );
+  });
+
+  it("leaves the run's creation off the state stream, and hands it to the whole session", () => {
+    // A registered run-lifecycle row that neither wire arm of this stream can
+    // represent: a `RunStateChangeEvent` for it would need a `previousState` naming
+    // a state the run has not been in. A subscriber learns the run exists from the
+    // whole-session stream, where the run-lifecycle projector folds the row in.
+    expect(CATEGORY_BY_REGISTERED_KIND.get(RUN_CREATION_KIND)).toBe("run_lifecycle");
+    expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, RUN_CREATION_KIND)).toBe(false);
+    expect(subscriptionDeliversEventKind(SESSION_EVENT_STREAM, RUN_CREATION_KIND)).toBe(true);
   });
 
   it("leaves the forward, non-state run rows off the state stream", () => {

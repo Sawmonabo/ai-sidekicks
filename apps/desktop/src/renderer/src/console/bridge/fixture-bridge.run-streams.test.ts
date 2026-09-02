@@ -166,13 +166,13 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     // Parsed, not spot-checked. `.strict()` means an envelope member surviving the
     // projection fails here, and a missing required member fails here too.
     const parsed = received.map((delivery) => RunStateChangeEventSchema.parse(delivery));
-    expect(parsed.map((event) => event.currentState)).toStrictEqual(["queued", "starting"]);
-    expect(parsed.map((event) => event.previousState)).toStrictEqual(["queued", "queued"]);
+    // One delivery, not two: the flagship plays `run.queued` and `run.starting`, and
+    // the first is the run's CREATION rather than a transition — no state precedes
+    // `queued` in the run state machine, so this stream does not carry that row.
+    expect(parsed.map((event) => event.currentState)).toStrictEqual(["starting"]);
+    expect(parsed.map((event) => event.previousState)).toStrictEqual(["queued"]);
     // Sourced from the beat's envelope, which is the only place the instant lives.
-    expect(parsed.map((event) => event.timestamp)).toStrictEqual([
-      "2026-01-01T14:20:00.320Z",
-      "2026-01-01T14:20:00.400Z",
-    ]);
+    expect(parsed.map((event) => event.timestamp)).toStrictEqual(["2026-01-01T14:20:00.400Z"]);
   });
 
   it("negative control: the delivered payload is not the envelope it used to be", () => {

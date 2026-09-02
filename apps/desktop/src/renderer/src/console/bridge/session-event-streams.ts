@@ -21,10 +21,11 @@
 //     long-lived `LocalSubscriptionConsumer<EventEnvelope>` row). Every kind the
 //     session emits reaches it.
 //   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`.
-//     The first arm is one event per canonical run state, so its kinds are the
-//     registered `RunState` union under the `run.` root; the second arm is the
-//     forward, non-state `run.rolled_back` row that the same registration names as
-//     riding the same stream.
+//     The first arm is one event per canonical run state the machine can transition
+//     INTO, so its kinds are the registered `RunState` union under the `run.` root
+//     less the initial state; the second arm is the forward, non-state
+//     `run.rolled_back` row that the same registration names as riding the same
+//     stream.
 //   • `run.subscribeQueue` — streams the `QueueItemSummary` projection, which is
 //     what each `queue_item.*` row announces, so its kinds are that root within
 //     the registered census.
@@ -83,23 +84,46 @@ export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
 const RUN_EVENT_KIND_PREFIX = "run.";
 
 /**
+ * The run's initial state.
+ *
+ * `docs/domain/run-state-machine.md` calls `queued` the state a run is CREATED in,
+ * and its §Complete Transition Table — the single authoritative reference — names
+ * `queued` in the `From` column of three rows and in the `To` column of none. So no
+ * transition ends in `queued`, and `RunStateChangeEvent` requires a `previousState`:
+ * there is no registered state a run could have come from to reach it, and no
+ * pre-birth member of the vocabulary to invent one out of.
+ */
+type RunInitialState = "queued";
+
+/**
  * The registered event kinds `run.subscribeState` projects, and the wire arm each
  * one travels as.
  *
- * The union is derived twice over — the census filtered to the `run.` root, then
- * intersected with the registered run-state vocabulary — so the nine transitions
- * are the nine canonical states and nothing else. `run.rolled_back` joins them
- * explicitly because it is the stream's SECOND registered arm rather than a
- * transition: it records no state change, which is why the registration gives it
- * its own payload shape and why deriving it from `RunState` is impossible.
+ * The union is derived three ways over — the census filtered to the `run.` root,
+ * intersected with the registered run-state vocabulary, less the initial state — so
+ * the eight transitions are exactly the states the machine can move a run INTO.
+ * `run.rolled_back` joins them explicitly because it is the stream's SECOND
+ * registered arm rather than a transition: it records no state change, which is why
+ * the registration gives it its own payload shape and why deriving it from
+ * `RunState` is impossible.
+ *
+ * `run.queued` is the excluded one, and it is excluded for the same reason the three
+ * forward rows below are: neither wire arm can represent it. It is the run's
+ * CREATION rather than a transition — a beat carrying it reaches a subscriber
+ * through `session.subscribe`, where the run-lifecycle projector folds it into the
+ * run's existence — and the scenario that used to script `previousState: "queued"`
+ * on it to satisfy this stream was describing a self-transition the machine defines
+ * for no state, which a surface could then learn to render or count.
  *
  * The three forward, non-state run rows the taxonomy also registers —
- * provider-initialization, turn-start, worker-shutdown — are deliberately absent:
- * neither wire arm can represent one, so a subscriber to this stream never sees
- * them, and a table that carried them would train a surface on a frame the daemon
- * does not send here.
+ * provider-initialization, turn-start, worker-shutdown — are deliberately absent
+ * too, and a table that carried any of these four would train a surface on a frame
+ * the daemon does not send here.
  */
-type RunStateStreamKind = Extract<SessionEventType, `run.${RunState}` | "run.rolled_back">;
+type RunStateStreamKind = Extract<
+  SessionEventType,
+  `run.${Exclude<RunState, RunInitialState>}` | "run.rolled_back"
+>;
 
 /**
  * Which of the stream's two registered arms a kind is projected into.
@@ -113,7 +137,6 @@ export type RunStateStreamArm = "state-change" | "rollback";
 
 const RUN_STATE_STREAM_ARM_BY_KIND: Readonly<Record<RunStateStreamKind, RunStateStreamArm>> =
   Object.freeze({
-    "run.queued": "state-change",
     "run.starting": "state-change",
     "run.running": "state-change",
     "run.waiting_for_approval": "state-change",
