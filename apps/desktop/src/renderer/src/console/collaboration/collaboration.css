@@ -294,3 +294,437 @@
   align-items: center;
   gap: var(--meridian-space-1);
 }
+
+/* ---------------------------------------------------------------------------
+ * Memberships, the sent-invite ledger, and the invite confirmation.
+ *
+ * Three surfaces in one region, one inside the next: the members section is a
+ * stack of bands, each band a bordered card on the pane's surface, and the rhythm
+ * only reads as a rhythm if they agree on one spacing scale. The roster above
+ * carries the identity edge; these carry none, because a membership row's subject
+ * is the terms and not the person's presence.
+ *
+ * Every value is a Meridian token. The one exception is the row grid's minimum
+ * column, which is a layout literal.
+ * ------------------------------------------------------------------------- */
+
+.meridian-members {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  min-width: 0;
+}
+
+.meridian-members__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  max-width: 64ch;
+}
+
+.meridian-members__title {
+  margin: 0;
+  font-size: var(--meridian-text-lg);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-invites__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-members__lede,
+.meridian-invites__lede {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-members__count {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-members__rows,
+.meridian-invites__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* One membership. The left rule is the section's ledger rhythm: a quiet edge that
+ * lines the rows up without drawing a table. */
+.meridian-members__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-left: var(--meridian-attribution-edge) solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  min-width: 0;
+}
+
+.meridian-members__row-facts,
+.meridian-invites__row-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-members__row-reach {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The last-owner note. Amber, because it is a condition a person has to resolve
+ * before an act succeeds — not a failure, which is the red hue's job. */
+.meridian-members__row-note {
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-members__row-acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-members__manage,
+.meridian-members__revoke,
+.meridian-invites__row-action,
+.meridian-invite-confirmation__dismiss,
+.meridian-members__dialog-cancel,
+.meridian-members__dialog-confirm,
+.meridian-members__refusal-dismiss,
+.meridian-invites__refusal-dismiss {
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-members__manage:hover:enabled,
+.meridian-members__revoke:hover:enabled,
+.meridian-invites__row-action:hover:enabled {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-members__manage:disabled,
+.meridian-members__revoke:disabled,
+.meridian-invites__row-action:disabled {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+.meridian-members__revoke,
+.meridian-members__dialog-confirm {
+  color: var(--meridian-red-text);
+  border-color: var(--meridian-red-mark);
+}
+
+/* Focus is visible on every control here, with one rule rather than one per
+ * class, so a control added later cannot arrive without it. */
+.meridian-members :focus-visible,
+.meridian-invites :focus-visible,
+.meridian-invite-confirmation :focus-visible,
+.meridian-members__menu :focus-visible,
+.meridian-members__dialog :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-members__menu-positioner {
+  z-index: 1;
+}
+
+.meridian-members__menu {
+  display: flex;
+  flex-direction: column;
+  min-width: 14rem;
+  padding: var(--meridian-space-1);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-members__menu-item {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-radius: var(--meridian-radius-sm);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+  cursor: pointer;
+}
+
+.meridian-members__menu-item[data-highlighted] {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-members__dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
+}
+
+.meridian-members__dialog {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  max-width: 48ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-members__dialog-title {
+  margin: 0;
+  font-size: var(--meridian-text-md);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-members__dialog-body {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-members__dialog-acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-invites {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+  min-width: 0;
+}
+
+.meridian-invites__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-invites__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+}
+
+.meridian-invites__fold-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-invites__fold-overflow {
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* The confirmation is the whole section while it is up, so it takes the measure
+ * and centres rather than sitting in the ledger's column. */
+.meridian-invite-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  max-width: 52ch;
+  padding: var(--meridian-space-5);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-invite-confirmation__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-invite-confirmation__title {
+  margin: 0;
+  font-size: var(--meridian-text-lg);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-invite-confirmation__identity {
+  margin: 0;
+}
+
+.meridian-invite-confirmation__facts {
+  display: grid;
+  grid-template-columns: minmax(9rem, auto) minmax(0, 1fr);
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+}
+
+.meridian-invite-confirmation__fact {
+  display: contents;
+}
+
+.meridian-invite-confirmation__fact dt {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-invite-confirmation__fact dd {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-invite-confirmation__acts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-invite-confirmation__footnote {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+/* ---------------------------------------------------------- the sidekicks page */
+
+/* A page rather than a section: it stands alone, so it carries its own measure and
+ * its own padding instead of inheriting a sidebar's. The two columns are the design's
+ * "one row per definition with the full record open beside it" — expressed as a grid
+ * that collapses to one column under the narrow measure, because the detail side is
+ * the wider of the two and a 2-up layout in a torn-off window would leave both
+ * unreadable. */
+
+.meridian-sidekicks {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  padding: var(--meridian-space-6);
+  min-width: 0;
+}
+
+.meridian-sidekicks__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-width: 68ch;
+}
+
+.meridian-sidekicks__title {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-sidekicks__lede {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/* The standing facts read as a ledger, not as a callout: a hairline between rows,
+ * no fill, no border box. They are things that are true rather than things that
+ * need attention, and a tinted panel would spend colour saying otherwise. */
+
+.meridian-sidekicks__rules {
+  display: grid;
+  grid-template-columns: minmax(10rem, auto) minmax(0, 1fr);
+  gap: 0 var(--meridian-space-4);
+  margin: 0;
+  max-width: 76ch;
+}
+
+.meridian-sidekicks__rule {
+  display: contents;
+}
+
+.meridian-sidekicks__rule-term,
+.meridian-sidekicks__rule-statement {
+  padding-block: var(--meridian-space-2);
+  border-block-start: 1px solid var(--meridian-edge);
+}
+
+.meridian-sidekicks__rule-term {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-sidekicks__rule-statement {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-sidekicks__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+  gap: var(--meridian-space-5);
+  align-items: start;
+}
+
+@media (width <= 60rem) {
+  .meridian-sidekicks__columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.meridian-sidekicks__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+}
+
+/* The same treatment the agent console gives its column titles, because it is the
+ * same construct — a quiet label over a column, not a heading competing with the
+ * page's own. A third uppercase scale in one family would be a third for no reason. */
+.meridian-sidekicks__column-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}

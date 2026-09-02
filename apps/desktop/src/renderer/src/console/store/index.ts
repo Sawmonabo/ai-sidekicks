@@ -14,7 +14,10 @@
 // `readable.ts` narrows a `zustand` store to the two methods a consumer needs, so
 // nothing outside this family holds a handle that can also WRITE.
 
-export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
+// `ConsoleEntity` joins the two above because a family that reads a PARTITION of
+// the projection — rather than one entity by reference — has to name the row type
+// to derive anything from it. The membership ledger is the first such reader.
+export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 
 export { SessionStore } from "./session-store.js";
 

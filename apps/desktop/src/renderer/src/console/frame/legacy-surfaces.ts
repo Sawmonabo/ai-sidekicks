@@ -53,6 +53,7 @@ import { SessionBootstrap } from "../../session-bootstrap/index.js";
 // through theirs. Adding one is that family's own diff, not the console's — the
 // console does not author files inside a subtree it merely absorbs.
 import { ParticipantRoster } from "../../session-members/participant-roster.js";
+import { InviteAcceptView } from "../../session-members/invite-accept-view.js";
 import { type ConsoleSurfaceDescriptor, type ConsoleSurfaceRegistry } from "./surface-registry.js";
 
 /**
@@ -65,7 +66,9 @@ import { type ConsoleSurfaceDescriptor, type ConsoleSurfaceRegistry } from "./su
  *
  * The components each family exports beyond these three take inputs no route
  * carries — an invite token, an attach draft — so a route cannot supply them and
- * a slot for them would be a slot nothing could ever fill.
+ * a slot for them would be a slot nothing could ever fill. The invite acceptance
+ * view is exactly that case and is exported below rather than registered: its
+ * caller holds the token.
  */
 const LEGACY_SURFACES: readonly ConsoleSurfaceDescriptor[] = [
   {
@@ -106,6 +109,22 @@ export function renderAbsorbedNodeRoster(
   return mountSessionScopedLegacySurface(bridgeSource, sessionId, (resolved) =>
     createElement(NodeRoster, { sessionId: resolved }),
   );
+}
+
+/**
+ * The invite acceptance prompt, mounted inside the console's invite confirmation.
+ *
+ * Takes the token rather than a route for the reason the slot table gives: no
+ * address carries one, so a route could never supply it. The component performs
+ * the acceptance itself — this console authors no second `invite.accept` caller —
+ * and the guard travels with it, so a confirmation cannot mount the prompt past
+ * the fixture check.
+ */
+export function renderAbsorbedInviteAcceptance(
+  bridgeSource: ConsoleBridgeSource,
+  token: string,
+): ReactNode {
+  return mountLegacySurface(bridgeSource, () => createElement(InviteAcceptView, { token }));
 }
 
 /**
