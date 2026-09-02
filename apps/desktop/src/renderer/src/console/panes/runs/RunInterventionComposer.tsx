@@ -32,14 +32,25 @@
 // authored boundary, a resumable target — are the daemon's, each fail-closed at
 // admission, and each arrives here as a typed rejection carrying its own reason.
 // This file refuses none of them and would be wrong to try.
+//
+// THE COMPOSER OUTLIVES ITS DISPATCH. It used to close the moment a dispatch was
+// STARTED, which threw away the participant's body on every arm that did not land:
+// a composite refused before the intervention was created, a transport rejection, a
+// daemon `rejected`. The surface record keeps the refusal and nothing keeps the
+// text, so the one thing the participant cannot reproduce was the one thing that
+// was dropped. So the settlement is read — off `RunControlSurface.records`, which is
+// where the dispatcher's own answer lands — and only a settlement that LANDED
+// (`applied` or `degraded`, both of which the run's intervention history then
+// renders) closes this form. Everything else keeps the body on screen beside the
+// daemon's own code.
 
-import { useCallback, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { InlineRefusal } from "../../primitives/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { parseRewindPosition } from "./rewind-position.js";
-import { RUN_CONTROL_REFUSAL_ORIGIN } from "./run-control-dispatch.js";
-import type { RunControlSurface } from "./run-control-surface.js";
+import { RUN_CONTROL_REFUSAL_ORIGIN, type RunControlOutcome } from "./run-control-dispatch.js";
+import type { RunControlRecord, RunControlSurface } from "./run-control-surface.js";
 import type { RunProjection } from "./run-state-feed.js";
 
 /** Which of the two body-carrying controls is being composed. */
@@ -49,22 +60,85 @@ export interface RunInterventionComposerProps {
   readonly run: RunProjection;
   readonly control: ComposedControl;
   readonly surface: RunControlSurface;
-  /** Close the composer without dispatching. */
+  /** Close the composer. Raised on cancel, and on a settlement that landed. */
   readonly onDismiss: () => void;
 }
 
+/**
+ * What one settled dispatch means to the form that raised it.
+ *
+ * Three arms rather than landed-or-not, because the two that keep the form open
+ * offer different next moves: a refusal is retried by confirming again, while an
+ * intervention the daemon has RECORDED and not yet applied would be a second
+ * intervention if it were confirmed twice — so that arm latches the confirm and
+ * leaves cancel as the way out.
+ */
+type ComposerSettlement =
+  | { readonly kind: "landed" }
+  | { readonly kind: "refused"; readonly notice: ConsoleRefusal }
+  | { readonly kind: "recorded"; readonly notice: ConsoleRefusal };
+
+/** The dispatch this form is waiting on, named by what the record ledger held first. */
+interface PendingDispatch {
+  /** The newest record for this run and control before the dispatch, if any. */
+  readonly recordIdBefore: string | undefined;
+}
+
 export function RunInterventionComposer(props: RunInterventionComposerProps): React.JSX.Element {
-  const { run, control, surface } = props;
+  const { run, control, surface, onDismiss } = props;
   const [body, setBody] = useState("");
   const [targetPosition, setTargetPosition] = useState("");
   const [localRefusal, setLocalRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  const [pendingDispatch, setPendingDispatch] = useState<PendingDispatch | undefined>(undefined);
   const bodyId = useId();
   const positionId = useId();
   const comparand = surface.dispatcher.freshComparandFor(run.runId) ?? run.runVersion;
 
+  // The dispatcher's answer, read off the record the surface appended for it. The
+  // baseline is what makes "the answer to THIS dispatch" exact: records are appended
+  // newest last and their ids are minted per settlement, so a newest record whose id
+  // differs from the one held at dispatch time is this dispatch's own settlement.
+  const settlement = useMemo((): ComposerSettlement | undefined => {
+    if (pendingDispatch === undefined) {
+      return undefined;
+    }
+    const newest = newestRecordFor(surface.records, run.runId, control);
+    if (newest === undefined || newest.recordId === pendingDispatch.recordIdBefore) {
+      return undefined;
+    }
+    return readComposerSettlement(newest.outcome);
+  }, [pendingDispatch, surface.records, run.runId, control]);
+
+  const isSending = pendingDispatch !== undefined && settlement === undefined;
+  const isConfirmLatched = isSending || settlement?.kind === "recorded";
+
+  // Closing is one-way. The ledger this settlement is read from goes on changing —
+  // another run's dispatch appends to it — so a form that asked to be closed on
+  // every pass that recomputed its settlement would keep asking a parent that had
+  // already stopped rendering it.
+  const hasAskedToClose = useRef(false);
+
+  useEffect(() => {
+    if (settlement?.kind === "landed" && !hasAskedToClose.current) {
+      hasAskedToClose.current = true;
+      onDismiss();
+    }
+  }, [settlement, onDismiss]);
+
   const onSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
       event.preventDefault();
+      if (isConfirmLatched) {
+        // A latched confirm is still reachable by pressing Enter in a field, and a
+        // second dispatch of one body is a second intervention.
+        return;
+      }
+      const beginDispatch = (): void => {
+        setLocalRefusal(undefined);
+        setPendingDispatch({
+          recordIdBefore: newestRecordFor(surface.records, run.runId, control)?.recordId,
+        });
+      };
       if (control === "steer") {
         if (body.trim().length === 0) {
           setLocalRefusal(
@@ -76,11 +150,10 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
           );
           return;
         }
-        setLocalRefusal(undefined);
+        beginDispatch();
         surface.dispatch(run.runId, "steer", (dispatcher) =>
           dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, { content: body }),
         );
-        props.onDismiss();
         return;
       }
       const reading = parseRewindPosition(targetPosition);
@@ -111,7 +184,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         );
         return;
       }
-      setLocalRefusal(undefined);
+      beginDispatch();
       surface.dispatch(run.runId, "rollback", (dispatcher) =>
         dispatcher.rollback(
           { runId: run.runId, expectedRunVersion: comparand },
@@ -120,9 +193,8 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
             : { targetPosition: reading.position, replacementSend: { content: replacement } },
         ),
       );
-      props.onDismiss();
     },
-    [control, body, targetPosition, surface, run.runId, comparand, props],
+    [control, body, targetPosition, surface, run.runId, comparand, isConfirmLatched],
   );
 
   return (
@@ -173,14 +245,115 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       {localRefusal === undefined ? null : (
         <InlineRefusal code={localRefusal.code} detail={localRefusal.detail} />
       )}
+      {settlement === undefined || settlement.kind === "landed" ? null : (
+        <InlineRefusal code={settlement.notice.code} detail={settlement.notice.detail} />
+      )}
       <div className="meridian-run-composer__actions">
-        <button type="submit" className="meridian-run-composer__confirm">
+        <button
+          type="submit"
+          className="meridian-run-composer__confirm"
+          disabled={isConfirmLatched}
+          aria-busy={isSending}
+        >
           {control === "steer" ? "Send steer" : "Confirm rewind"}
         </button>
-        <button type="button" className="meridian-run-composer__dismiss" onClick={props.onDismiss}>
+        <button type="button" className="meridian-run-composer__dismiss" onClick={onDismiss}>
           Cancel
         </button>
       </div>
     </form>
   );
+}
+
+/** The newest record this run and control has, or none. Records are newest last. */
+function newestRecordFor(
+  records: readonly RunControlRecord[],
+  runId: string,
+  control: ComposedControl,
+): RunControlRecord | undefined {
+  for (let position = records.length - 1; position >= 0; position -= 1) {
+    const record = records[position];
+    if (record !== undefined && record.runId === runId && record.control === control) {
+      return record;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Read one settled dispatch the way this form has to act on it.
+ *
+ * The daemon's own `state` decides, never the presence of a result: `applied` and
+ * `degraded` are the two the intervention landed on, and a degraded settlement is a
+ * real outcome the run's history renders in full — this form's job there is only to
+ * get out of the way. Every other arm keeps the body, and the code a person sees is
+ * the daemon's own: `rejectionReason` where the wire sent one, and the wire's state
+ * otherwise. Nothing here paraphrases a wire code into console prose.
+ */
+function readComposerSettlement(outcome: RunControlOutcome): ComposerSettlement {
+  if (outcome.kind === "refused") {
+    return { kind: "refused", notice: outcome.refusal };
+  }
+  if (outcome.kind === "acknowledged") {
+    // Pause and resume alone answer with an acknowledgment, and this form composes
+    // neither. Reached only if that ever changes, and landing is the honest reading
+    // of an acknowledgment.
+    return { kind: "landed" };
+  }
+  const { response } = outcome;
+  // Switched on a local rather than on `outcome.response.state` so the exhaustive
+  // tail below still has a value to hand `unreadableSettlement`: narrowing the
+  // RESPONSE to `never` would leave its `state` unreadable in that branch.
+  const settledState = response.state;
+  switch (settledState) {
+    case "applied":
+    case "degraded":
+      return { kind: "landed" };
+    case "rejected":
+      return {
+        kind: "refused",
+        notice: refuse(
+          RUN_CONTROL_REFUSAL_ORIGIN,
+          response.rejectionReason ?? settledState,
+          "The daemon did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.",
+        ),
+      };
+    case "expired":
+      return {
+        kind: "refused",
+        notice: refuse(
+          RUN_CONTROL_REFUSAL_ORIGIN,
+          settledState,
+          "This intervention expired before it was applied. What you typed is still here — confirm again to raise a new one, or cancel to close.",
+        ),
+      };
+    case "requested":
+    case "accepted":
+      return {
+        kind: "recorded",
+        notice: refuse(
+          RUN_CONTROL_REFUSAL_ORIGIN,
+          settledState,
+          "The daemon recorded this intervention and has not applied it yet. Your text is on that record; confirming again would raise a second one, so this control stays latched until you close it.",
+        ),
+      };
+    default:
+      return unreadableSettlement(settledState);
+  }
+}
+
+/**
+ * The `satisfies never` tail. A seventh intervention state fails to compile here
+ * rather than falling through to a form that neither closes nor says why.
+ */
+function unreadableSettlement(state: never): ComposerSettlement {
+  const unreadable = state satisfies never;
+  return {
+    kind: "refused",
+    notice: refuse(
+      RUN_CONTROL_REFUSAL_ORIGIN,
+      String(unreadable),
+      "The daemon answered with a state this console has no reading for, so nothing here claims the intervention landed. What you typed is still here.",
+    ),
+  };
 }
