@@ -669,10 +669,37 @@ function mergeUpsert(
 ): Record<ConsoleEntityKind, Readonly<Record<string, ConsoleEntity>>> {
   const partition = partitions[entity.kind];
   const existing = partition[entity.id];
-  const merged: ConsoleEntity = existing === undefined ? entity : { ...existing, ...entity };
+  const merged: ConsoleEntity = existing === undefined ? entity : mergeOnto(existing, entity);
   return {
     ...partitions,
     [entity.kind]: { ...partition, [entity.id]: merged },
+  };
+}
+
+/**
+ * One upsert onto the entity already stored, ONE LEVEL DEEP THROUGH `body`.
+ *
+ * The top-level spread is what makes an incremental projector expressible at all:
+ * an upsert that names only `touchedAt` keeps the `state` the last transition
+ * established. The body is merged on the same terms rather than replaced, because
+ * a projector is PURE — it cannot read the stored entity — so a wholesale
+ * replacement would make "add this member, keep the rest" unexpressible and every
+ * event would have to restate every member the wire happens not to repeat. A run
+ * whose `run.queued` named its agent would lose the agent on its next transition,
+ * silently and looking exactly like a run that never had one.
+ *
+ * A projector that means to CLEAR a member removes the entity and upserts it
+ * fresh, which is the mutation pair the vocabulary already has.
+ */
+function mergeOnto(existing: ConsoleEntity, upsert: ConsoleEntity): ConsoleEntity {
+  const mergedBody =
+    existing.body === undefined || upsert.body === undefined
+      ? undefined
+      : { ...existing.body, ...upsert.body };
+  return {
+    ...existing,
+    ...upsert,
+    ...(mergedBody === undefined ? {} : { body: mergedBody }),
   };
 }
 
