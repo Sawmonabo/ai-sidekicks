@@ -990,10 +990,82 @@ jobs:
           NODE
           node "${RUNNER_TEMP}/assert-native-prebuild.mjs"
 
+  # `Spec-023 §Console Test Tiers` — the console screenshot tier, on the ONE
+  # platform whose references this repository commits.
+  #
+  # Vitest keys a reference by browser AND platform, so a Linux or Windows run of
+  # this tier compares a fresh capture against a file that is not in the
+  # repository. What that does depends on the run's snapshot-update mode, and
+  # neither outcome is a gate: off CI it writes the missing reference into
+  # `__screenshots__` and fails once, so the NEXT run passes against an image
+  # nobody reviewed; on CI it fails every time, on an ephemeral checkout, forever.
+  # Committing a reference set per platform is the alternative, and it would mean
+  # every visual change reviewed three times over two images no one can
+  # regenerate locally.
+  #
+  # So the tier runs here and only here. `macos-15` rather than `macos-latest`
+  # because the reference is a rendering: font stack and rasteriser move with the
+  # image, and a floating label would silently re-point the comparison at a
+  # different renderer between one merge and the next. Moving this label is a
+  # deliberate act that comes with regenerating the references (`-u`) in the same
+  # PR — which is exactly what the tier's own fail-closed guard forces.
+  #
+  # The install is scoped to the desktop package and its workspace dependencies:
+  # this job runs one browser-mode Vitest project and needs nothing else built.
+  # `playwright install` is required because browser mode drives a real Chromium
+  # and no other job on this workflow provisions one.
+  console-screenshot-macos:
+    name: console screenshot tier (macos-15)
+    runs-on: macos-15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        # SHA-pinned per ADR-023 §Axis 4; Renovate's helpers:pinGitHubActionDigests
+        # preset (renovate.json5) keeps this current.
+        uses: pnpm/action-setup@8b2eead6074fefa43a68bf4c9e0f03ea4126b5ba # v6.0.3
+        with:
+          version: 10.33.2
+          run_install: false
+
+      - name: Setup Node.js 22.14
+        uses: actions/setup-node@v5
+        with:
+          node-version: "22.14"
+          cache: "pnpm"
+
+      - name: Install (desktop and its workspace dependencies only)
+        run: pnpm install --frozen-lockfile --filter "@ai-sidekicks/desktop..."
+
+      - name: Install the Chromium build browser mode drives
+        run: pnpm --filter @ai-sidekicks/desktop exec playwright install chromium
+
+      # The script pins `UPDATE_SNAPSHOT=none`, and the runner sets `CI`, so the
+      # mode is fail-closed twice over: a reference this checkout does not carry
+      # fails here and its candidate is written to the gitignored attachments
+      # directory rather than beside the committed set.
+      - name: Test (desktop — console screenshot tier)
+        run: pnpm --filter @ai-sidekicks/desktop run test:console-screenshot
+
+      # A mismatch is only actionable with the images. Vitest writes the
+      # reference / actual / diff triple into the attachments directory, which is
+      # gitignored precisely so it can be collected here instead.
+      - name: Upload screenshot diffs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-screenshot-diffs
+          path: apps/desktop/.vitest-attachments/
+          retention-days: 14
+          if-no-files-found: ignore
+
   ci-gate:
     name: ci-gate
     runs-on: ubuntu-latest
-    needs: [test-node22, test-node24, hook-tests-macos, native-prebuilds]
+    needs: [test-node22, test-node24, hook-tests-macos, native-prebuilds, console-screenshot-macos]
     if: always()
     steps:
       - name: Aggregate required-checks status
@@ -1016,6 +1088,10 @@ jobs:
           fi
           if [[ "${{ needs.native-prebuilds.result }}" != "success" ]]; then
             echo "ci-gate: required job 'native-prebuilds' did not succeed (result=${{ needs.native-prebuilds.result }})"
+            fail=1
+          fi
+          if [[ "${{ needs.console-screenshot-macos.result }}" != "success" ]]; then
+            echo "ci-gate: required job 'console-screenshot-macos' did not succeed (result=${{ needs.console-screenshot-macos.result }})"
             fail=1
           fi
           if [[ $fail -ne 0 ]]; then
