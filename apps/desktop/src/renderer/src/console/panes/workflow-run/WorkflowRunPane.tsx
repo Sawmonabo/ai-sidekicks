@@ -48,6 +48,7 @@
 
 import type { WorkflowPhaseState } from "../../bridge/index.js";
 import { Nothing, RefusalBanner } from "../../primitives/index.js";
+import { ChatStartSlot } from "../../workflows/ChatStartSlot.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
 import { ParkBadge } from "../../workflows/ParkBadge.js";
 import { phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
@@ -58,7 +59,6 @@ import { unregisteredRunControl } from "./run-controls.js";
 import { PhaseGraph } from "./phase-graph/PhaseGraph.js";
 import type { PhaseGraphNode } from "./phase-graph/phase-topology.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
-import { ChatStartSlot } from "./slots/ChatStartSlot.js";
 import { HumanFormSlot, type HumanFormMount } from "./slots/HumanFormSlot.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 
