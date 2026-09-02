@@ -31,7 +31,11 @@
 
 import { useCallback, useId, useMemo, useState } from "react";
 
-import type { ConsoleRefusal } from "../../core/index.js";
+import {
+  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
+  ATTACHMENT_CHUNK_BYTE_CAP,
+  type ConsoleRefusal,
+} from "../../core/index.js";
 import {
   Chip,
   DerivedFigure,
@@ -40,10 +44,6 @@ import {
   formatByteQuantity,
 } from "../../primitives/index.js";
 import { ArtifactsPanel } from "../../repos/ArtifactsPanel.js";
-import {
-  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
-  ATTACHMENT_CHUNK_BYTE_CAP,
-} from "../../repos/attachment-model.js";
 import type { ArtifactManifestRow } from "../../repos/artifact-model.js";
 import { type ConsolePaneContext } from "../../workspace/index.js";
 import { useArtifactPaneReading, type ArtifactAllowlistReading } from "./artifact-reader.js";

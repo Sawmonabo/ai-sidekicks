@@ -38,61 +38,22 @@
 //     reading node's own manifest row and mapped to copy here, never to a fresher
 //     answer.
 
-import { reportTripwire } from "../core/index.js";
+import {
+  INGEST_STALL_DISCLOSURE_MS,
+  INGEST_STREAM_LIFETIME_CEILING_MS,
+  reportTripwire,
+} from "../core/index.js";
 
-// --- Bounds ---------------------------------------------------------------
+// --- Where the bounds live -----------------------------------------------
 //
-// `Spec-014 §Bounds (normative defaults; operator-tunable)`. Every one of these is a
-// figure a PARTICIPANT can hit, which is why the console carries them at all — the
-// daemon enforces them and the console explains them ahead of time. Three are operator
-// tunable and are therefore rendered as DEFAULTS wherever the effective value cannot be
-// read; the chunk size is fixed because the frame ceiling it derives from is.
-
-/**
- * Decoded bytes one attachment may carry, at the shipped default.
- *
- * Deliberately equal to the per-artifact relay cap so an accepted attachment is
- * relay-pinnable by construction. Operator-tunable over a 1 MB – 1 GB range, so every
- * surface that shows it says "default" until `artifactAllowlistRead` answers.
- */
-export const ATTACHMENT_BYTE_CAP_DEFAULT: number = 100 * 1024 * 1024;
-
-/**
- * Attachments one carrier may name, at the shipped default.
- *
- * Derived from the quota envelope rather than picked: one maximally-sized carrier
- * exactly saturates the per-session relay budget. Bound on the CARRIER and never on an
- * ingest stream, which carries exactly one payload and has no count to cap.
- */
-export const ATTACHMENTS_PER_CARRIER_CAP_DEFAULT = 10;
-
-/**
- * Decoded bytes in one chunk. Fixed, not operator-tunable.
- *
- * The largest raw chunk whose base64 form plus the JSON-RPC envelope fits the 1 MB
- * frame ceiling with headroom. The ceiling it derives from is not tunable, so neither
- * is this.
- */
-export const ATTACHMENT_CHUNK_BYTE_CAP: number = 512 * 1024;
-
-/**
- * Wall-clock ceiling on one ingest stream, measured from its first call.
- *
- * The abandoned-spool reaper clocks file modification time, which a trickle of chunks
- * refreshes forever, so live-stream tenure needs its own clock. Surfaced on a stalled
- * upload because it is the one bound whose expiry a participant cannot otherwise see
- * coming.
- */
-export const INGEST_STREAM_LIFETIME_CEILING_MS: number = 6 * 60 * 60 * 1000;
-
-/**
- * Silence after which an in-flight upload discloses the stream ceiling.
- *
- * A minute: long enough that a chunk round trip on a slow uplink is not called a stall,
- * short enough that a participant learns the stream is bounded while there is still
- * time to act on it.
- */
-export const INGEST_STALL_DISCLOSURE_MS = 60_000;
+// NOT HERE. The attachment byte cap, the carrier cap, the chunk cap, the stream
+// lifetime, and the stall disclosure are behavioural limits three families spend —
+// this model, the ingest client, and the artifact pane — and four of the five mirror a
+// bound `Spec-014 §Bounds (normative defaults; operator-tunable)` registers on the
+// wire. A view-family model holding them would make this module a configuration
+// authority its neighbours had to import to learn a number the daemon owns, so they
+// sit in `core/constants.ts` with their rationales and their wire sources, and the two
+// this file's own arithmetic spends are imported above like any other consumer's.
 
 // --- The default allow-list ----------------------------------------------
 //

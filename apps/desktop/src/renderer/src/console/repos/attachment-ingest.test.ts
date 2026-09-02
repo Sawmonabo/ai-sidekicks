@@ -8,13 +8,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { consoleTripwires } from "../core/index.js";
+import { ATTACHMENT_CHUNK_BYTE_CAP, consoleTripwires } from "../core/index.js";
 import { AttachmentIngestClient } from "./attachment-ingest.js";
-import {
-  ATTACHMENT_CHUNK_BYTE_CAP,
-  INGEST_CAPACITY_EXHAUSTED_CODE,
-  INGEST_STREAM_INVALID_CODE,
-} from "./attachment-model.js";
+import { INGEST_CAPACITY_EXHAUSTED_CODE, INGEST_STREAM_INVALID_CODE } from "./attachment-model.js";
 
 /** One recorded chunk call, so the replay assertion reads offsets rather than counts. */
 interface RecordedChunk {

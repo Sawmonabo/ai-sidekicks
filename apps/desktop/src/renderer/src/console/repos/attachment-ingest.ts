@@ -36,9 +36,14 @@
 // problem it exists to report.
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../core/index.js";
 import {
   ATTACHMENT_CHUNK_BYTE_CAP,
+  Emitter,
+  RealClock,
+  type ConsoleClock,
+  type Unsubscribe,
+} from "../core/index.js";
+import {
   advanceReceivedBytes,
   ingestRefusalDisposition,
   type AttachmentIngestEntry,

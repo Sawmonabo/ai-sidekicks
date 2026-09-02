@@ -25,11 +25,13 @@
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import {
-  ATTACHMENT_ALLOWLIST_DEFAULT,
   ATTACHMENT_BYTE_CAP_DEFAULT,
-} from "../../repos/attachment-model.js";
+  Emitter,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../../core/index.js";
+import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
 import {
   artifactManifestRowFromSummary,
   type ArtifactsPanelState,
