@@ -5,8 +5,8 @@
 // state that still carries the reset control and says why it is inert, a fold at ten,
 // and a partition whose pane is open that is never offered a clear.
 
-import { render } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { render, waitFor } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
 import {
@@ -14,6 +14,15 @@ import {
   type BrowserSettingsPageProps,
   type BrowserSitePartition,
 } from "./BrowserSettingsPage.js";
+import type { SiteDataAct } from "./site-data-clear.js";
+
+/** A writer that succeeds, in the shape the page's two acts are declared in. */
+function servingAct(callLog: string[], name: string): SiteDataAct {
+  return (sessionId) => {
+    callLog.push(`${name}:${sessionId}`);
+    return Promise.resolve({ status: "done" });
+  };
+}
 
 const READ_SWITCHES: BrowserSettingsPageProps["switchReadings"] = {
   "file-boundary": { status: "read", enabled: false },
@@ -182,7 +191,7 @@ describe("browser settings page — arming a clear", () => {
   it("names what it clears before it will clear it", () => {
     const page = renderPage({
       partitions: { status: "read", partitions: [partition(1)] },
-      onClearSiteData: () => undefined,
+      onClearSiteData: servingAct([], "clear"),
     });
     const arm = page.querySelector("details.meridian-browser-arm");
     expect(arm?.querySelector("summary")?.textContent).toBe("Clear site data");
@@ -196,23 +205,25 @@ describe("browser settings page — arming a clear", () => {
     // consequence beside the control and armed nothing.
     const page = renderPage({
       partitions: { status: "read", partitions: [partition(1)] },
-      onClearSiteData: () => undefined,
+      onClearSiteData: servingAct([], "clear"),
     });
     page.querySelector("details.meridian-browser-arm")?.remove();
     expect(page.textContent).not.toContain("every cookie, cache entry, and storage record");
   });
 
-  it("confirms against the session the row names", () => {
-    const onClearSiteData = vi.fn();
+  it("confirms against the session the row names", async () => {
+    const callLog: string[] = [];
     const page = renderPage({
       partitions: { status: "read", partitions: [partition(7)] },
-      onClearSiteData,
+      onClearSiteData: servingAct(callLog, "clear"),
     });
     const confirm = [...page.querySelectorAll("button")].find((button) =>
       (button.textContent ?? "").includes("Clear this session"),
     );
     confirm?.click();
-    expect(onClearSiteData).toHaveBeenCalledWith("session-07");
+    await waitFor(() => {
+      expect(callLog).toStrictEqual(["clear:session-07"]);
+    });
   });
 
   it("offers no confirm where no writer is registered, and says why", () => {
@@ -221,13 +232,30 @@ describe("browser settings page — arming a clear", () => {
     expect(page.textContent).toContain("No writer registered");
   });
 
-  it("never offers a clear while a pane still holds the partition open", () => {
+  it("still offers the clear while a pane holds the partition open, beside the chip", () => {
+    // 13.16 puts a clear on EVERY partition and makes it close the pane first, so an
+    // open pane is the case the control exists for. A page that showed only the chip
+    // here would state a condition and offer no way out of it.
     const page = renderPage({
       partitions: { status: "read", partitions: [partition(1, { hasOpenPane: true })] },
-      onClearSiteData: () => undefined,
+      onClosePane: servingAct([], "close"),
+      onClearSiteData: servingAct([], "clear"),
     });
-    expect(page.querySelector("details.meridian-browser-arm")).toBeNull();
     expect(page.textContent).toContain("A pane still has this partition open");
+    expect(page.querySelector("details.meridian-browser-arm")).not.toBeNull();
+    expect(page.textContent).toContain("closes that pane first");
+  });
+
+  it("negative control: the open-pane wording is the row's own, not every row's", () => {
+    // Without this the case above would pass over a page that printed the close-first
+    // sentence on partitions that have no pane open at all.
+    const page = renderPage({
+      partitions: { status: "read", partitions: [partition(1)] },
+      onClosePane: servingAct([], "close"),
+      onClearSiteData: servingAct([], "clear"),
+    });
+    expect(page.textContent).not.toContain("A pane still has this partition open");
+    expect(page.textContent).not.toContain("closes that pane first");
   });
 
   it("renders a clear that failed on its own row", () => {
@@ -244,7 +272,7 @@ describe("browser settings page — arming a clear", () => {
           }),
         ],
       },
-      onClearSiteData: () => undefined,
+      onClearSiteData: servingAct([], "clear"),
     });
     expect(page.textContent).toContain("browser.partition_locked");
     expect(page.querySelector(".meridian-refusal--banner")).toBeNull();

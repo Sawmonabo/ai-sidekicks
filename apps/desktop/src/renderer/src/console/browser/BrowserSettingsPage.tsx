@@ -19,7 +19,10 @@
 // prop: this page performs no fetch, holds no store, and runs no effect. That is
 // what keeps it renderable in a test, in a screenshot tier, and in an auxiliary
 // window without a second code path — and it is why the sizes can be honest, since a
-// size that could not be measured arrives as a refusal rather than as a zero.
+// size that could not be measured arrives as a refusal rather than as a zero. The one
+// thing on the page that is not a projection is the clear control, which holds which
+// step of its two-step act is in flight; it lives in its own module beside this one so
+// that boundary is a file boundary rather than a promise.
 //
 // FOLD, NOT PAGINATE. 13.16: "Two switches and a table; the table folds past ten
 // partitions." The fold is a native disclosure rather than a remembered flag — the
@@ -33,13 +36,14 @@ import {
 } from "./PolicySettings.js";
 import type { ConsoleRefusal } from "../core/index.js";
 import {
-  Chip,
   InlineRefusal,
   Nothing,
   WireFigure,
   formatByteQuantity,
   formatCount,
 } from "../primitives/index.js";
+import { PartitionClearControl } from "./PartitionClearControl.js";
+import type { SiteDataAct } from "./site-data-clear.js";
 
 /**
  * Partitions rendered before the table folds.
@@ -88,8 +92,17 @@ export interface BrowserSettingsPageProps {
   /**
    * Clear one session's site data. Absent while no writer is registered, in which
    * case every row renders its scope and no confirm.
+   *
+   * It ANSWERS rather than returning nothing, because 13.16 orders the clear after a
+   * pane close and an order only holds if the first step's outcome is readable.
    */
-  readonly onClearSiteData?: ((sessionId: string) => void) | undefined;
+  readonly onClearSiteData?: SiteDataAct | undefined;
+  /**
+   * Close the browser pane still holding a partition open, so the clear beside it can
+   * run. Absent while no close verb is registered, in which case a partition with an
+   * open pane still offers the control and the control refuses by name.
+   */
+  readonly onClosePane?: SiteDataAct | undefined;
 }
 
 export function BrowserSettingsPage(props: BrowserSettingsPageProps): React.JSX.Element {
@@ -115,7 +128,11 @@ export function BrowserSettingsPage(props: BrowserSettingsPageProps): React.JSX.
 
       <section className="meridian-browser-settings__section" aria-label="Stored site data">
         <h3 className="meridian-browser-settings__section-title">Site data</h3>
-        <PartitionTable listing={props.partitions} onClearSiteData={props.onClearSiteData} />
+        <PartitionTable
+          listing={props.partitions}
+          onClearSiteData={props.onClearSiteData}
+          onClosePane={props.onClosePane}
+        />
       </section>
     </section>
   );
@@ -124,6 +141,7 @@ export function BrowserSettingsPage(props: BrowserSettingsPageProps): React.JSX.
 interface PartitionTableProps {
   readonly listing: BrowserPartitionListing;
   readonly onClearSiteData: BrowserSettingsPageProps["onClearSiteData"];
+  readonly onClosePane: BrowserSettingsPageProps["onClosePane"];
 }
 
 /**
@@ -175,6 +193,7 @@ function PartitionTable(props: PartitionTableProps): React.JSX.Element {
             key={partition.sessionId}
             partition={partition}
             onClearSiteData={props.onClearSiteData}
+            onClosePane={props.onClosePane}
           />
         ))}
       </ul>
@@ -187,6 +206,7 @@ function PartitionTable(props: PartitionTableProps): React.JSX.Element {
                 key={partition.sessionId}
                 partition={partition}
                 onClearSiteData={props.onClearSiteData}
+                onClosePane={props.onClosePane}
               />
             ))}
           </ul>
@@ -199,6 +219,7 @@ function PartitionTable(props: PartitionTableProps): React.JSX.Element {
 interface PartitionRowProps {
   readonly partition: BrowserSitePartition;
   readonly onClearSiteData: BrowserSettingsPageProps["onClearSiteData"];
+  readonly onClosePane: BrowserSettingsPageProps["onClosePane"];
 }
 
 /**
@@ -227,47 +248,13 @@ function PartitionRow(props: PartitionRowProps): React.JSX.Element {
           />
         )}
       </div>
-      <div className="meridian-browser-partitions__control">
-        {partition.hasOpenPane ? (
-          <Chip tone="attention" glyph="alert" label="A pane still has this partition open" />
-        ) : (
-          <details className="meridian-browser-arm">
-            <summary>Clear site data</summary>
-            <div className="meridian-browser-arm__body">
-              <p className="meridian-browser-arm__scope">
-                Removes every cookie, cache entry, and storage record this session&rsquo;s browser
-                panes wrote, and deletes the profile directory holding them. It reaches nothing
-                outside this session, and it is a filesystem removal rather than a cryptographic
-                erase.
-              </p>
-              {props.onClearSiteData === undefined ? (
-                <Nothing
-                  kind="not-checked"
-                  placement="inline"
-                  title="No writer registered"
-                  detail="This node exposes no site-data reset yet, so there is nothing to confirm."
-                />
-              ) : (
-                <button
-                  type="button"
-                  className="meridian-browser-action"
-                  onClick={() => {
-                    props.onClearSiteData?.(partition.sessionId);
-                  }}
-                >
-                  Clear this session&rsquo;s site data
-                </button>
-              )}
-            </div>
-          </details>
-        )}
-        {partition.lastClearRefusal === undefined ? null : (
-          <InlineRefusal
-            code={partition.lastClearRefusal.code}
-            detail={partition.lastClearRefusal.detail}
-          />
-        )}
-      </div>
+      <PartitionClearControl
+        sessionId={partition.sessionId}
+        hasOpenPane={partition.hasOpenPane}
+        lastClearRefusal={partition.lastClearRefusal}
+        onClosePane={props.onClosePane}
+        onClearSiteData={props.onClearSiteData}
+      />
     </li>
   );
 }
