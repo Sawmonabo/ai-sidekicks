@@ -23,10 +23,16 @@
 //      DOM renderer rather than taking a context from one still on screen. An
 //      adapter keeps its emulator across a detach so a remount reattaches instead
 //      of minting a second.
-//   2. **`onContextLoss` falls back to DOM.** The addon fires it three seconds
-//      after `webglcontextlost` with no restoration, so the fallback is permanent
-//      for that instance — and the allowance IS reclaimed there, because the host
-//      destroyed the context rather than this code letting go of one.
+//   2. **`onContextLoss` falls back to DOM, permanently and for this INSTANCE.**
+//      The addon fires it three seconds after `webglcontextlost` with no
+//      restoration, so the fallback is permanent — which the code has to remember,
+//      because the fallback also clears the addon and hands the allowance back, and
+//      a later `attach()` to a different host re-enters the selection and would
+//      otherwise find every condition for taking a second context satisfied. So the
+//      loss is recorded on the instance and the selection reads it first. The
+//      allowance IS still reclaimed, because the host destroyed the context rather
+//      than this code letting go of one; the ledger is about the PAGE, and this flag
+//      is about this terminal.
 //   3. **`allowProposedApi` only for Unicode 11.** Only the `unicode` getter calls
 //      `_checkProposedApi()`; every other API here is stable.
 //   4. **Every activatable link passes the scheme guard.** `link-guard.ts` owns
@@ -125,6 +131,10 @@ export class XtermTerminalAdapter {
   #terminal: Terminal | undefined;
   #webglAddon: WebglAddon | undefined;
   #rendererMode: TerminalRendererMode = "dom";
+  // Whether this instance has already had a context taken away from it. Written in
+  // exactly one place and never reset: `dispose()` ends the instance, so a remount
+  // that reuses the adapter is the same terminal and gets the same answer.
+  #hasLostWebglContext = false;
   // The mode settles inside `attach` and can move again whenever the host takes
   // the context away, so a consumer that COPIED it once reported `webgl` over a
   // terminal that had already fallen back to the DOM renderer.
@@ -393,9 +403,19 @@ export class XtermTerminalAdapter {
    * Take a WebGL renderer if the page can spare a context, and fall back to DOM if
    * it cannot — or if the host has no WebGL2 at all, which is what the addon
    * throws for.
+   *
+   * THE CONTEXT-LOSS FLAG IS READ FIRST, before the addon check and before the
+   * ledger is asked. A lost context clears `#webglAddon` and reclaims the slot, so
+   * on the next `attach()` to a different host the other two conditions both say
+   * yes: without this the instance would build a second addon after a fallback its
+   * own documentation calls permanent, and churn a context per remount.
    */
   #selectRenderer(terminal: Terminal): void {
-    if (this.#webglAddon !== undefined || !this.#pool.acquire(this.#terminalId)) {
+    if (
+      this.#hasLostWebglContext ||
+      this.#webglAddon !== undefined ||
+      !this.#pool.acquire(this.#terminalId)
+    ) {
       return;
     }
     try {
@@ -430,6 +450,10 @@ export class XtermTerminalAdapter {
     }
     webglAddon.dispose();
     this.#webglAddon = undefined;
+    // The one write. Everything below this line is reversible by a remount — the
+    // addon reference and the pool slot both are — and this is what makes the
+    // fallback the permanent thing the doc comment above claims it is.
+    this.#hasLostWebglContext = true;
     this.#setRendererMode("dom");
     this.#pool.reclaim(this.#terminalId);
   }
