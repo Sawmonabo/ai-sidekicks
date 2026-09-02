@@ -19,9 +19,10 @@ import { BrowserPane } from "./BrowserPane.js";
  * answer AND the answer that ADR is expected to keep — a tear-off is a decision it
  * makes, not a default this console falls into.
  *
- * `render` is the component itself rather than a closure over the pane context: the
- * shell reads no context, and a wrapper that accepted one would claim otherwise.
- * A later lane widens the component's parameter list and this reference with it.
+ * `render` is the component itself rather than a closure over the pane context. The
+ * body takes the context whole — it needs the pane id the browser wire is keyed by,
+ * the bridge it dispatches through, and the focus hue rule 2 attributes the pane with
+ * — so a wrapper here would only be a second place for that argument to go wrong.
  */
 export const BROWSER_PANE_DESCRIPTOR: ConsolePaneDescriptor = {
   kind: "browser",
