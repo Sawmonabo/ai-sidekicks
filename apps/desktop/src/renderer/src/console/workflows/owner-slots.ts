@@ -79,12 +79,22 @@ export const WORKFLOW_DRAFT_SLOT: WorkflowOwnerSlot = {
   body: undefined,
 };
 
-/** Starting a run by talking to it, rather than from the definitions browser. */
+/**
+ * Starting a run by talking to it, rather than from a definition row.
+ *
+ * Mounted TWICE, which is why the obligation below names what both mounts owe
+ * rather than one of them: the definitions browser offers it beneath the scope
+ * groups, where a person who has just read the list may start one by describing it,
+ * and the run pane offers it on its no-run arm, where a pane opened from a
+ * keybinding has nothing to show and starting one is the move. The two differ in
+ * what they can supply — the browser holds a resolved definition and the empty run
+ * pane holds only the session — so the obligation is stated as the floor both meet.
+ */
 export const WORKFLOW_CHAT_START_SLOT: WorkflowOwnerSlot = {
   contract: {
     ...PLAN_017_BODY,
     mountObligation:
-      "the definitions browser supplies the resolved definition and the session context, and offers the control without deciding whether the caller may start a run",
+      "every mount supplies the session context and, where it holds one, the resolved definition; each offers the control without deciding whether the caller may start a run",
   },
   body: undefined,
 };
