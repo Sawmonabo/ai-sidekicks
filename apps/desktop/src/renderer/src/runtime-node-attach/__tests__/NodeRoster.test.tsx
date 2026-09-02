@@ -752,6 +752,64 @@ describe("NodeRoster", () => {
       expect(seam.readRoster).not.toHaveBeenCalled();
     });
 
+    it("follows the seam when a host replaces the transport under one session", async () => {
+      // The console's bridge provider REPLACES its resolution as state without
+      // remounting its children — a scenario swap, a supplied-bridge change, or a
+      // disposed engine re-minted on a second mount. The session id does not move
+      // through any of that, so the seam is the only signal there is; a roster
+      // that ignored it would stay subscribed to a bridge that has been torn down
+      // and keep showing its rows.
+      const releaseFirstSeam = vi.fn();
+      const firstSeam = createInjectedSeam({
+        readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
+        unsubscribe: releaseFirstSeam,
+      });
+      const secondSeam = createInjectedSeam({
+        readRoster: async () => await Promise.resolve(SECOND_SNAPSHOT),
+      });
+
+      const { rerender } = render(
+        <NodeRoster sessionId={FIRST_SESSION_ID} reads={firstSeam.reads} />,
+      );
+      await screen.findByText(`node id: ${REGISTERING_NODE_ID}`);
+
+      rerender(<NodeRoster sessionId={FIRST_SESSION_ID} reads={secondSeam.reads} />);
+      await screen.findByText(`node id: ${JOINED_LATER_NODE_ID}`);
+
+      // Released, subscribed, and read — all three through the second transport.
+      expect(releaseFirstSeam).toHaveBeenCalledTimes(1);
+      expect(secondSeam.subscribePresence).toHaveBeenCalledTimes(1);
+      expect(secondSeam.readRoster).toHaveBeenCalledWith({ sessionId: FIRST_SESSION_ID });
+      // And the first transport is not asked again, which is the half a dependency
+      // added without releasing the old subscription would fail.
+      expect(firstSeam.readRoster).toHaveBeenCalledTimes(1);
+      // The rows on screen come from the SECOND bridge: the first one's
+      // registering node is gone rather than merely joined by the second's rows.
+      expect(screen.queryByText(`node id: ${REGISTERING_NODE_ID}`)).toBeNull();
+    });
+
+    it("negative control: an unchanged seam re-rendered does not resubscribe", async () => {
+      // The other half of the dependency, and the reason the seam is cached per
+      // bridge rather than composed per render: this case is what a dependency on
+      // a freshly built pair would fail, tearing the subscription down and
+      // re-opening it on every render of whatever mounts the roster.
+      const releaseSeam = vi.fn();
+      const seam = createInjectedSeam({
+        readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
+        unsubscribe: releaseSeam,
+      });
+
+      const { rerender } = render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+      await screen.findByText(`node id: ${AT_FLOOR_NODE_ID}`);
+
+      rerender(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+      rerender(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+
+      expect(seam.subscribePresence).toHaveBeenCalledTimes(1);
+      expect(seam.readRoster).toHaveBeenCalledTimes(1);
+      expect(releaseSeam).not.toHaveBeenCalled();
+    });
+
     it("releases the supplied subscription on unmount", async () => {
       const unsubscribeSpy = vi.fn();
       const seam = createInjectedSeam({

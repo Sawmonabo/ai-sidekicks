@@ -49,7 +49,12 @@
 // one uniform list would let the axis controls be built against a wire shape neither
 // provider produces.
 
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DeclaredLossKind,
+  type DriverCapabilityFlag,
+  type ProviderOutputSpeedState,
+} from "@ai-sidekicks/contracts";
 
 import type { ConsoleScenario } from "../scenario.js";
 
@@ -264,7 +269,14 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
             // What the provider DECLARED, beside what was requested. Carried
             // separately because folding it into `config.outputSpeed` would make a
             // declined request indistinguishable from an honoured one.
-            observedOutputSpeed: "standard",
+            //
+            // THE OBJECT IS THE WIRE SHAPE, and `satisfies` is what keeps it one.
+            // A scripted reply is stored as `unknown`, so a bare `"standard"` here
+            // parsed perfectly and reached the card as a value whose `.declared` is
+            // `undefined` — the fixture breaking the one surface it exists to prove.
+            // No `reason`: the request and the declaration agree, so the provider
+            // has nothing to explain, and an absent `reason` says exactly that.
+            observedOutputSpeed: { declared: "standard" } satisfies ProviderOutputSpeedState,
             // The durable, singular pending intent — held at a RUN boundary because
             // `providerAccountId` is spawn-bound on every driver, and naming the
             // intent it displaced, which is the wire's only record of the earlier
@@ -302,7 +314,17 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
       // The applied arm, with its losses DECLARED rather than implied. `continuity`
       // is `replayed`, which is what makes a non-empty loss list possible at all: an
       // `in_place` carry drops nothing, and a `memo` settlement drops the transcript
-      // wholesale. Both members of the list are registered `DeclaredLossKind` values.
+      // wholesale.
+      //
+      // THE PAIR IS THE REPLAY PIPELINE'S OWN, and `satisfies` is what holds it to
+      // the registered vocabulary — the list was two invented strings, which the
+      // settlement renderer read as two UNNAMED losses, so the surface built for the
+      // declared-loss path was being shown a response no daemon may emit. The two
+      // are also causally ordered rather than merely both legal: stripping private
+      // reasoning orphans the tool calls that referenced it, and the pairing repair
+      // that follows mints a synthetic result for each — which is why a replay that
+      // declares the first so often declares the second. The two memo-scoped kinds
+      // are deliberately absent: they belong to the settlement this one is not.
       call: "agent.configUpdate",
       // A real switch is not instant — it waits for the boundary the daemon
       // resolved — so the settlement is parked on the frozen clock and the card's
@@ -315,7 +337,10 @@ export const AGENTS_SCENARIO: ConsoleScenario = {
           switchId: APPLIED_SWITCH_ID,
           appliesAt: "turn_boundary",
           continuity: "replayed",
-          declaredLosses: ["reasoning_dropped", "tool_results_summarized"],
+          declaredLosses: [
+            "provider_private_reasoning",
+            "tool_call_history_repaired",
+          ] satisfies readonly DeclaredLossKind[],
         },
       },
     },

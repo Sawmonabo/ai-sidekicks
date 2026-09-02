@@ -120,6 +120,12 @@ export function renderAbsorbedSessionProbe(bridgeSource: ConsoleBridgeSource): R
  * from two contexts and types its own bridge prop as possibly absent, and a helper
  * that demanded one would move that absence into the caller — which is precisely
  * what the guard rule here says not to do.
+ *
+ * The seam it hands over is the SAME OBJECT for the same bridge, every call. That
+ * is what lets the view depend on it: this helper runs on every parent render, so
+ * a freshly composed pair each time would tear the roster's subscription down and
+ * re-open it on every keystroke above it, and a pair that never changed identity
+ * would leave the roster reading a bridge the provider has already replaced.
  */
 export function renderAbsorbedNodeRoster(
   bridge: ConsoleBridge | undefined,
@@ -139,9 +145,49 @@ export function renderAbsorbedNodeRoster(
   }
   return createElement(NodeRoster, {
     sessionId: resolvedSessionId,
-    reads: nodeRosterReadsFrom(bridge),
+    reads: nodeRosterReadSeams.forBridge(bridge),
   });
 }
+
+/**
+ * One read seam per bridge, held for as long as that bridge is reachable.
+ *
+ * WHY THE IDENTITY IS THE POINT. `SidekicksBridgeProvider` replaces its resolution
+ * as STATE without remounting anything below it — when the `bridge` prop or the
+ * scenario changes, and again when its own engine has been disposed and a second
+ * mount must take a fresh one. So "same session, different transport" is a state
+ * this console genuinely reaches, and the roster's effect has to notice it. It can
+ * only notice by depending on the seam, and depending on a pair rebuilt on every
+ * render would make the dependency fire on renders where nothing changed. Caching
+ * by bridge gives the effect exactly one signal: a different seam means a different
+ * bridge, and nothing else does.
+ *
+ * A `WeakMap` rather than a `Map` because the key is the whole lifetime: a
+ * superseded bridge is unreachable the moment the provider drops it, and its seam
+ * goes with it rather than accumulating one entry per scenario swap for the life of
+ * the window.
+ *
+ * A class with a private field rather than a module-level `Map`, on the
+ * `keybinding-override-store.ts` precedent — module scope is window scope here,
+ * since an auxiliary window is its own renderer process and no channel joins two
+ * windows' module graphs.
+ */
+class NodeRosterReadSeams {
+  readonly #seamsByBridge = new WeakMap<ConsoleBridge, NodeRosterReads>();
+
+  public forBridge(bridge: ConsoleBridge): NodeRosterReads {
+    const existingSeam = this.#seamsByBridge.get(bridge);
+    if (existingSeam !== undefined) {
+      return existingSeam;
+    }
+    const seam = nodeRosterReadsFrom(bridge);
+    this.#seamsByBridge.set(bridge, seam);
+    return seam;
+  }
+}
+
+/** This window's seams. Not exported: the helper above is the only way in. */
+const nodeRosterReadSeams = new NodeRosterReadSeams();
 
 /**
  * The roster's two reads, as the console's own bridge answers them.
