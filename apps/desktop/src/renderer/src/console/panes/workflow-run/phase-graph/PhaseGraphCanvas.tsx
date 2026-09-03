@@ -1,24 +1,14 @@
 // The canvas, and the whole of what the graph library is allowed to do here.
 //
-// THIS MODULE IS THE LAZY CHUNK. It is reached only through
-// `phase-graph-loader.ts`'s `import()`, so the library, its runtime sibling, its
-// `base.css` and this family's sheet are emitted together and fetched the first time
-// a run's phases are drawn. Both stylesheets are imported HERE rather than from a
-// barrel for exactly that reason: a sheet imported anywhere on the initial path
-// would put 13.6 kB of library CSS into the document the operator waits for.
-//
-// THIS IS THE CONSOLE'S ONE STYLESHEET EDGE OUTSIDE A FAMILY BARREL, and it is
-// asserted by name in `test/console/architecture/stylesheet-edges.test.ts` rather
-// than left to a reader to notice. Pulling `phase-graph.css` up into `workflows.css`
-// with the family's other per-surface sheets would break it twice over: it would put
-// this sheet on the initial path the paragraph above keeps it off, and it would load
-// it BEFORE `base.css` instead of after — so every `--xy-*` value the block below
-// sets from Meridian would lose to the library's own fallback at equal specificity.
-//
-// THE STYLESHEET ORDER BELOW IS LOAD-BEARING. `base.css` defines the library's own
-// fallback palette on `.react-flow`; this family's sheet redefines every one of
-// those properties from Meridian tokens at equal specificity, so it has to come
-// second. Nothing else about the two files interacts.
+// THIS MODULE IS INSIDE THE LAZY CHUNK AND IS NOT ITS DOOR. `index.ts` beside it is
+// what `phase-graph-loader.ts`'s `import()` names, so the library, its runtime
+// sibling, the library's `base.css` and this directory's sheet are emitted together
+// and fetched the first time a run's phases are drawn. BOTH STYLESHEETS ARE IMPORTED
+// FROM THAT DOOR AND NOT FROM HERE: `apps/desktop/AGENTS.md` admits a sheet through
+// the barrel of the family or of the lazily-loaded chunk that owns it and through no
+// component, and `test/console/architecture/stylesheet-edges.test.ts` holds every
+// module in the console to it. The door's own header carries why the two sheets ride
+// this chunk rather than `workflows.css`, and why their order is load-bearing.
 //
 // THE PIN IS 12.11.5, NOT THE NEWEST 12.11.x. `Spec-023 §Console Libraries` requires
 // an exact pin inside the `12.11.x` band with `@xyflow/system` in lockstep, and
@@ -48,9 +38,6 @@
 // and stays on.
 
 import { ReactFlow, type FitViewOptions, type NodeTypes } from "@xyflow/react";
-
-import "@xyflow/react/dist/base.css";
-import "./phase-graph.css";
 
 import { tokenReference } from "../../../tokens/index.js";
 import { PHASE_NODE_TYPE, usePhaseGraphElements } from "./phase-graph-elements.js";

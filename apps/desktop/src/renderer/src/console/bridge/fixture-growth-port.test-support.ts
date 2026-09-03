@@ -11,10 +11,8 @@ import type { GrowthOutcome } from "./growth-outcome.js";
 import type { GrowthPort } from "./index.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
-import {
-  WORKFLOWS_COMPLETED_PHASE_ID,
-  WORKFLOWS_PARKED_RUN,
-} from "./scenarios/workflow-fixture-data.js";
+import { WORKFLOWS_COMPLETED_PHASE_ID } from "./scenarios/workflow-fixture-phase-outputs.js";
+import { WORKFLOWS_PARKED_RUN } from "./scenarios/workflow-fixture-runs.js";
 
 /**
  * Call one operation without knowing its request shape.

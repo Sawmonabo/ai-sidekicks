@@ -17,11 +17,11 @@ import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
+import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
 import {
   WORKFLOWS_PARKED_RUN,
   WORKFLOWS_SCENARIO_RUNS,
-  WORKFLOWS_SESSION_ID,
-} from "../bridge/scenarios/workflow-fixture-data.js";
+} from "../bridge/scenarios/workflow-fixture-runs.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { READ_REJECTED_REFUSAL_CODE } from "./read-settlement.js";

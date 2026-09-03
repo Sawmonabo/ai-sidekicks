@@ -10,12 +10,13 @@
  * ONE SHEET IN THIS FAMILY IS DELIBERATELY NOT BELOW, and naming it here is what keeps
  * the list a claim rather than a coincidence: `panes/workflow-run/phase-graph/phase-graph.css`
  * rides the lazy graph chunk. It is imported beside the graph library's own `base.css`
- * from `PhaseGraphCanvas.tsx`, which is reached through `import()` and nothing else,
- * and it has to load AFTER that sheet to win at equal specificity. Pulled in here it
- * would land in the document the operator waits for and would load BEFORE the sheet it
- * overrides, so the library's fallback palette would paint. That exception is asserted
- * by name in `test/console/architecture/stylesheet-edges.test.ts`; there is not a
- * second one.
+ * from that chunk's own door, `panes/workflow-run/phase-graph/index.ts`, which is
+ * reached through `import()` and nothing else, and it has to load AFTER that sheet to
+ * win at equal specificity. Pulled in here it would land in the document the operator
+ * waits for and would load BEFORE the sheet it overrides, so the library's fallback
+ * palette would paint. Both sheets enter through a barrel like every other sheet in
+ * the console — the chunk's rather than the family's — which is the rule
+ * `test/console/architecture/stylesheet-edges.test.ts` holds every module to.
  *
  * WHAT STAYS HERE. The chrome every workflows surface stands in — the block, the
  * header, the body column, the reserved-slot box, and the one action treatment the

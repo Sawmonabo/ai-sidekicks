@@ -56,11 +56,9 @@ import {
   type ConsoleBridge,
 } from "../../src/renderer/src/console/bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/workflows.js";
-import {
-  WORKFLOWS_PARKED_RUN,
-  WORKFLOWS_SCENARIO_DEFINITIONS,
-  WORKFLOWS_SESSION_ID,
-} from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-data.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-definitions.js";
+import { WORKFLOWS_SESSION_ID } from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-ids.js";
+import { WORKFLOWS_PARKED_RUN } from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
 import {
   ConsoleSurfaceRegistry,
   type ConsoleSurfaceContext,

@@ -26,7 +26,7 @@ import type { GrowthOutcome } from "./growth-outcome.js";
 import { growthUnavailable } from "./growth-port.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import type { ConsoleScenario, ScenarioReply } from "./scenario.js";
-import { WORKFLOWS_PARKED_RUN } from "./scenarios/workflow-fixture-data.js";
+import { WORKFLOWS_PARKED_RUN } from "./scenarios/workflow-fixture-runs.js";
 import { settleScriptedReply } from "./scripted-reply.js";
 import type { WorkflowRunSnapshot } from "./workflow-projection.js";
 

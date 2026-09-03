@@ -15,13 +15,12 @@
 
 import { describe, expect, it } from "vitest";
 
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
 import {
   WORKFLOWS_COMPLETED_PHASE_ID,
-  WORKFLOWS_PARKED_RUN,
-  WORKFLOWS_SCENARIO_DEFINITIONS,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
-  WORKFLOWS_SCENARIO_RUNS,
-} from "./workflow-fixture-data.js";
+} from "./workflow-fixture-phase-outputs.js";
+import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
 import { WORKFLOWS_SCENARIO } from "./workflows.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
 import { ScenarioEngine } from "../scenario-engine.js";

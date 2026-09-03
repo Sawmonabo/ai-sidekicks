@@ -17,7 +17,9 @@ describe("the graph loader", () => {
   it("resolves the real canvas component, not a stand-in for it", async () => {
     const { PhaseGraphCanvas: loaded } = await new PhaseGraphLoader().load();
     // Identity, not shape: a wrapper that merely looked like the component would let
-    // a surface draw a graph this directory does not own.
+    // a surface draw a graph this directory does not own. The import above names the
+    // DECLARING module while the loader goes through the chunk's door, so this also
+    // holds the door to re-exporting the declaration rather than wrapping it.
     expect(loaded).toBe(PhaseGraphCanvas);
   });
 

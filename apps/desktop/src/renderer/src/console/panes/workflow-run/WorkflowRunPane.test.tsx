@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { FLAGSHIP_SCENARIO } from "../../bridge/scenarios/flagship.js";
 import { WORKFLOWS_SCENARIO } from "../../bridge/scenarios/workflows.js";
-import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-data.js";
+import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
 import { parkAwaitsPerson, parkSchedule, phasePark } from "../../workflows/run-list-projection.js";
 import type { ConsolePaneContext } from "../../seats/index.js";
 import type { ConsoleEntityRef } from "../../store/index.js";

@@ -3,14 +3,17 @@
 // WHY THIS MODULE EXISTS. `Spec-023 §Console Design (Meridian)` bounds the renderer's
 // initial bundle "excluding lazy chunks (terminal, node graph, math, diagrams,
 // browser tools)" — the node graph is named a LAZY chunk by the budget it is measured
-// against. `PhaseGraphCanvas.tsx` pulls in `@xyflow/react`, its `@xyflow/system`
-// runtime sibling, the library's own `base.css` and this family's sheet; reached by a
+// against. The chunk's door pulls in `@xyflow/react`, its `@xyflow/system` runtime
+// sibling, the library's own `base.css` and this directory's sheet; reached by a
 // static import from a pane the console can open at boot, every one of those bytes
 // lands in the document the operator waits for whether or not a run is ever drawn.
 //
-// So the canvas is reached through `import()` and through nothing else. That makes
-// this module the bundler's split point: everything only `PhaseGraphCanvas.js`
-// reaches is emitted as its own chunk and fetched the first time a graph mounts.
+// So the door is reached through `import()` and through nothing else. That makes this
+// module the bundler's split point: everything only `phase-graph/index.js` reaches is
+// emitted as its own chunk and fetched the first time a graph mounts. The door rather
+// than the canvas directly, because the chunk owns two stylesheets and
+// `apps/desktop/AGENTS.md` admits those through a barrel and never through a
+// component — so the module this `import()` names is the module that imports them.
 //
 // WHY A CLASS AND NOT A MODULE-LEVEL PROMISE. The promise has to be memoised: two
 // run panes mounting in one frame must not start two fetches, and a remount must not
@@ -22,12 +25,12 @@
 /**
  * What a caller gets: the canvas component, and deliberately nothing else.
  *
- * Narrowed from the module's own shape rather than restated, so a rename in
- * `PhaseGraphCanvas.tsx` fails here instead of drifting. `typeof import(...)` in a
- * TYPE position is erased by the compiler — it opens no runtime edge into the chunk
- * this module exists to keep out of the initial graph.
+ * Narrowed from the door's own shape rather than restated, so a rename behind
+ * `index.ts` fails here instead of drifting. `typeof import(...)` in a TYPE position
+ * is erased by the compiler — it opens no runtime edge into the chunk this module
+ * exists to keep out of the initial graph.
  */
-export type PhaseGraphModule = Pick<typeof import("./PhaseGraphCanvas.js"), "PhaseGraphCanvas">;
+export type PhaseGraphModule = Pick<typeof import("./index.js"), "PhaseGraphCanvas">;
 
 /** The graph chunk's loader: one fetch per page, however many graphs ask. */
 export class PhaseGraphLoader {
@@ -49,7 +52,7 @@ export class PhaseGraphLoader {
 
   async #fetchModule(): Promise<PhaseGraphModule> {
     try {
-      const { PhaseGraphCanvas } = await import("./PhaseGraphCanvas.js");
+      const { PhaseGraphCanvas } = await import("./index.js");
       return { PhaseGraphCanvas };
     } catch (loadError) {
       // A chunk that did not arrive is not a chunk that cannot: the fetch fails

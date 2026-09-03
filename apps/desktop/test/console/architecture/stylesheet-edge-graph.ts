@@ -1,0 +1,228 @@
+// The stylesheet edge graph: who imports which sheet, counted rather than collapsed.
+//
+// A MODEL WITH ITS OWN MODULE because it has its own test. The claims about the
+// console live in `stylesheet-edges.test.ts`; what lives here is the walk they are
+// made with, and the walk is a pure function over a TREE rather than over the disk so
+// that its own test can drive it with a graph whose verdict is known. Planting a
+// duplicate edge to prove the counter bites would otherwise mean a test writing into
+// the console's source.
+//
+// COUNTED, NOT COLLAPSED, and that is this module's whole reason for existing in the
+// shape it has. An earlier revision gathered the walk into a `Set` of reached sheets
+// and asked only whether each sheet was in it, so a sheet imported from two barrels,
+// or reached through two `@import` chains, was one member of a set and passed an
+// assertion whose name said "exactly once". Every inbound edge is retained here — who
+// named the sheet, by what specifier, and which barrel the walk that found it started
+// from — so both duplicates are countable and both are reported with their causes.
+
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join, posix, sep } from "node:path";
+
+import { CONSOLE_SOURCE_DIRECTORY } from "../paths.js";
+
+/** A module that imports a stylesheet for its side effect, and the sheet it names. */
+export const STYLESHEET_IMPORT: RegExp = /^import\s+"([^"]+\.css)";$/gmu;
+
+/** An `@import` at the head of a stylesheet, and the sheet it pulls in. */
+export const STYLESHEET_AT_IMPORT: RegExp = /^@import\s+"([^"]+\.css)";$/gmu;
+
+/**
+ * The tree a walk reads: which modules and stylesheets exist, and their text.
+ *
+ * An interface rather than the disk directly, so one implementation is the console and
+ * the other is a handful of literal sources a control writes out.
+ */
+export interface StylesheetTree {
+  readonly modulePaths: readonly string[];
+  readonly stylesheetPaths: readonly string[];
+  read(treeRelativePath: string): string;
+}
+
+/** One inbound edge into a stylesheet: who named it, how, and from which barrel. */
+export interface StylesheetEdge {
+  /** The module or stylesheet that wrote the specifier. */
+  readonly importer: string;
+  /** The specifier as written, so a report names the text a reader has to find. */
+  readonly specifier: string;
+  /** The barrel the walk that found this edge started from. */
+  readonly owningBarrel: string;
+}
+
+/** Every inbound edge into every stylesheet the barrels reach, by sheet. */
+export type StylesheetEdgeGraph = ReadonlyMap<string, readonly StylesheetEdge[]>;
+
+/** The three ways a tree's stylesheet edges can be wrong, each with its edges. */
+export interface StylesheetEdgeOffences {
+  readonly unreached: readonly string[];
+  readonly duplicatePaths: readonly string[];
+  readonly duplicateBarrels: readonly string[];
+}
+
+/**
+ * Every stylesheet `source` pulls in, by the specifier it wrote.
+ *
+ * A pure function over text so a control can drive it with a string whose verdict is
+ * known, rather than perturbing a real module to prove the pattern matches.
+ */
+export function stylesheetSpecifiers(source: string, pattern: RegExp): readonly string[] {
+  return [...source.matchAll(pattern)].map((match) => match[1] ?? "");
+}
+
+/**
+ * Whether a tree-relative module path is a barrel — a family's door or a lazily
+ * loaded chunk's, which the rule treats alike.
+ *
+ * The two are the same shape on purpose. What a stylesheet edge needs is a module that
+ * is the single way into the code the sheet paints, and a door is that whether the
+ * code behind it is a family or a chunk; a predicate that tried to tell them apart
+ * would be reading intent out of a path.
+ */
+export function isOwningBarrel(modulePath: string): boolean {
+  return modulePath.endsWith(`${sep}index.ts`);
+}
+
+/**
+ * A specifier resolved against the file that wrote it, back to a tree-relative path —
+ * or `undefined` where it names a package rather than a file in this tree.
+ *
+ * The graph library's own `base.css` is the case that returns `undefined`: it is a
+ * bare specifier, it is not this tree's to place, and the reachability claim is about
+ * sheets the console owns.
+ */
+export function resolveStylesheet(importerPath: string, specifier: string): string | undefined {
+  if (!specifier.startsWith(".")) {
+    return undefined;
+  }
+  const importerDirectory = dirname(importerPath).split(sep).join(posix.sep);
+  return posix.normalize(posix.join(importerDirectory, specifier)).split(posix.sep).join(sep);
+}
+
+/**
+ * Record every stylesheet `importer` names, and queue each for its own descent.
+ *
+ * The edge is recorded before anything decides whether to descend, which is the whole
+ * difference from the collapsing walk this replaced: a sheet reached a second time
+ * still contributes its second edge, and only the DESCENT is skipped.
+ */
+function recordStylesheetEdges(
+  tree: StylesheetTree,
+  importer: string,
+  owningBarrel: string,
+  pattern: RegExp,
+  edges: Map<string, StylesheetEdge[]>,
+  pending: string[],
+): void {
+  for (const specifier of stylesheetSpecifiers(tree.read(importer), pattern)) {
+    const resolved = resolveStylesheet(importer, specifier);
+    if (resolved === undefined) {
+      continue;
+    }
+    const inbound = edges.get(resolved) ?? [];
+    inbound.push({ importer, specifier, owningBarrel });
+    edges.set(resolved, inbound);
+    pending.push(resolved);
+  }
+}
+
+/**
+ * Every stylesheet edge in `tree`, following `@import` chains out of every barrel.
+ *
+ * THE VISITED SET IS PER WALK RATHER THAN GLOBAL, and the difference is not where it
+ * first looks. A sheet named directly by two barrels is counted either way, because
+ * the edge is recorded when the specifier is read and before anything is marked — the
+ * set governs the DESCENT alone. What a global set would lose is everything BELOW a
+ * doubly-reached sheet: the second walk would stop at it, so the sheets its own
+ * `@import`s pull in would carry one edge attributed to whichever barrel the walk
+ * order happened to reach first. That is the module-graph-order dependence this whole
+ * file exists to remove, reintroduced inside the checker. Per walk, a sheet injected
+ * into the cascade twice is reported at every level it injects, and the attribution is
+ * order-free. Within one walk the set still stops a cyclic `@import` from looping, and
+ * the edge that closed the cycle is already recorded.
+ */
+export function collectStylesheetEdges(tree: StylesheetTree): StylesheetEdgeGraph {
+  const edges = new Map<string, StylesheetEdge[]>();
+  for (const owningBarrel of tree.modulePaths.filter(isOwningBarrel)) {
+    const visited = new Set<string>();
+    const pending: string[] = [];
+    recordStylesheetEdges(tree, owningBarrel, owningBarrel, STYLESHEET_IMPORT, edges, pending);
+    while (pending.length > 0) {
+      const sheet = pending.pop() ?? "";
+      if (visited.has(sheet)) {
+        continue;
+      }
+      visited.add(sheet);
+      recordStylesheetEdges(tree, sheet, owningBarrel, STYLESHEET_AT_IMPORT, edges, pending);
+    }
+  }
+  return edges;
+}
+
+/** The offending sheets, each reported with the edges that made it one. */
+export function stylesheetEdgeOffences(
+  tree: StylesheetTree,
+  edges: StylesheetEdgeGraph,
+): StylesheetEdgeOffences {
+  const unreached: string[] = [];
+  const duplicatePaths: string[] = [];
+  const duplicateBarrels: string[] = [];
+  for (const sheet of tree.stylesheetPaths) {
+    const inbound = edges.get(sheet) ?? [];
+    if (inbound.length === 0) {
+      unreached.push(sheet);
+      continue;
+    }
+    if (inbound.length > 1) {
+      const paths = inbound.map((edge) => `${edge.importer} → "${edge.specifier}"`).join("; ");
+      duplicatePaths.push(`${sheet}: ${inbound.length} inbound edges — ${paths}`);
+    }
+    const owningBarrels = [...new Set(inbound.map((edge) => edge.owningBarrel))].sort();
+    if (owningBarrels.length > 1) {
+      duplicateBarrels.push(`${sheet}: reached from ${owningBarrels.join(", ")}`);
+    }
+  }
+  return { unreached, duplicatePaths, duplicateBarrels };
+}
+
+/**
+ * A tree built from literal sources, for the controls that need a planted duplicate.
+ *
+ * A missing file throws rather than reading as empty: a control whose own typo made a
+ * sheet silently sourceless would assert over a graph it did not describe.
+ */
+export function syntheticStylesheetTree(sources: ReadonlyMap<string, string>): StylesheetTree {
+  const paths = [...sources.keys()];
+  return {
+    modulePaths: paths.filter((path) => path.endsWith(".ts") || path.endsWith(".tsx")),
+    stylesheetPaths: paths.filter((path) => path.endsWith(".css")),
+    read: (treeRelativePath) => {
+      const treeSource = sources.get(treeRelativePath);
+      if (treeSource === undefined) {
+        throw new Error(`the synthetic tree holds no ${treeRelativePath}`);
+      }
+      return treeSource;
+    },
+  };
+}
+
+function consoleFiles(extensions: readonly string[]): readonly string[] {
+  return readdirSync(CONSOLE_SOURCE_DIRECTORY, { recursive: true, encoding: "utf8" })
+    .filter(
+      (entry) =>
+        extensions.some((extension) => entry.endsWith(extension)) &&
+        !entry.endsWith(".test.ts") &&
+        !entry.endsWith(".test.tsx"),
+    )
+    .sort();
+}
+
+/** Read a console-relative path. Exported because a claim reads one file by name. */
+export function readConsoleFile(consoleRelativePath: string): string {
+  return readFileSync(join(CONSOLE_SOURCE_DIRECTORY, consoleRelativePath), "utf8");
+}
+
+/** The console itself, as a tree the walk can read. */
+export const CONSOLE_STYLESHEET_TREE: StylesheetTree = {
+  modulePaths: consoleFiles([".ts", ".tsx"]),
+  stylesheetPaths: consoleFiles([".css"]),
+  read: readConsoleFile,
+};

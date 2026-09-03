@@ -31,13 +31,15 @@ import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./scenarios/workflow-fixture-definitions.js";
 import {
   WORKFLOWS_COMPLETED_PHASE_ID,
-  WORKFLOWS_PARKED_RUN,
-  WORKFLOWS_SCENARIO_DEFINITIONS,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
+} from "./scenarios/workflow-fixture-phase-outputs.js";
+import {
+  WORKFLOWS_PARKED_RUN,
   WORKFLOWS_SCENARIO_RUNS,
-} from "./scenarios/workflow-fixture-data.js";
+} from "./scenarios/workflow-fixture-runs.js";
 import { WORKFLOWS_SCENARIO } from "./scenarios/workflows.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
