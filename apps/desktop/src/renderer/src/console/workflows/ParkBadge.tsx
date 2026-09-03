@@ -29,7 +29,7 @@
 // adjudications; this says what is true, and the surface that offers an action
 // renders the daemon's typed refusal when the daemon declines it.
 
-import { Chip, WireFigure, formatClockTime, type ChipTone } from "../primitives/index.js";
+import { Chip, WireFigure, formatDateTime, type ChipTone } from "../primitives/index.js";
 import { parkAwaitsPerson } from "./run-list-projection.js";
 import type {
   WorkflowParkedPhase,
@@ -86,7 +86,17 @@ function parkTone(schedule: WorkflowParkSchedule): ChipTone {
   return parkAwaitsPerson(schedule) ? "attention" : "neutral";
 }
 
-/** What the badge says about the end of the wait, for one classified schedule. */
+/**
+ * What the badge says about the end of the wait, for one classified schedule.
+ *
+ * THE ARMED INSTANT CARRIES ITS DATE. A badge stands wherever a parked phase does —
+ * in a run row, in the run pane's stack of cards — and none of those places carries a
+ * day divider, which is the only thing that makes the ledger's date-free reading
+ * unambiguous. This surface used to render that reading, so a resume armed for
+ * tomorrow morning and one armed for next week's were the same four digits on screen,
+ * and the wire instant behind them was reachable only by hovering. `formatDateTime`
+ * is the figure chokepoint's reading for exactly this position.
+ */
 function ParkSchedule(props: {
   readonly schedule: WorkflowParkSchedule;
   readonly parkReason: WorkflowParkReason;
@@ -96,7 +106,7 @@ function ParkSchedule(props: {
     return (
       <p className="meridian-park__schedule">
         Scheduled to resume at{" "}
-        <WireFigure value={formatClockTime(schedule.autoResumeAt)} title={schedule.autoResumeAt} />
+        <WireFigure value={formatDateTime(schedule.autoResumeAt)} title={schedule.autoResumeAt} />
       </p>
     );
   }

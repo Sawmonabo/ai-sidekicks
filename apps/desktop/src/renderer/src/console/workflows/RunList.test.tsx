@@ -6,6 +6,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { formatClockTime, formatDateTime } from "../primitives/index.js";
 import { RunList } from "./RunList.js";
 import {
   RunListProjection,
@@ -199,6 +200,40 @@ describe("the reason a run carries", () => {
     expect(root.querySelector(".meridian-run-row__reason-label")?.textContent).toBe(
       "Cancellation reason",
     );
+  });
+});
+
+describe("the start a row reads", () => {
+  // A run list has no day divider above it, so the two runs below — started at the
+  // same hour a week apart — are the pair the ledger's date-free reading collapses.
+  const startedOnTheFirst = "2026-09-01T10:00:00.000Z";
+  const startedOnTheEighth = "2026-09-08T10:00:00.000Z";
+
+  function startFigureText(startedAt: string): string {
+    const meta = renderList([run({ startedAt })]).querySelector(".meridian-run-row__meta");
+    return [...(meta?.querySelectorAll(".meridian-figure--wire") ?? [])]
+      .map((figure) => figure.textContent ?? "")
+      .join(" ");
+  }
+
+  it("tells two runs a week apart apart", () => {
+    expect(startFigureText(startedOnTheEighth)).not.toBe(startFigureText(startedOnTheFirst));
+  });
+
+  it("negative control: the ledger's date-free reading renders the two identically", () => {
+    // The finding. Without it the case above would pass over a row that differed for
+    // some other reason and would not name the reading that lost the day.
+    expect(formatClockTime(startedOnTheEighth)).toBe(formatClockTime(startedOnTheFirst));
+  });
+
+  it("draws the figure chokepoint's date-carrying reading beside the wire instant", () => {
+    const meta = renderList([run({ startedAt: startedOnTheFirst })]).querySelector(
+      ".meridian-run-row__meta",
+    );
+    const start = [...(meta?.querySelectorAll(".meridian-figure--wire") ?? [])].find(
+      (figure) => figure.getAttribute("title") === startedOnTheFirst,
+    );
+    expect(start?.textContent).toBe(formatDateTime(startedOnTheFirst));
   });
 });
 
