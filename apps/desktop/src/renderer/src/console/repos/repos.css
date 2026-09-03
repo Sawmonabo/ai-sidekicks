@@ -262,23 +262,25 @@
   indented under its card rather than set beside it, because the two are one subject
   and a gate at the card's own measure would read as a second row.
 
-  Shared by the worktree row and the ephemeral-clone row, which draw different cards
-  over the same gate. The name is the worktree's because that root was drawn first;
-  what the rule bounds is a root card plus its gate, whichever root it is.
+  NAMED FOR WHAT IT HOLDS, which is any of the three writable execution roots: the
+  worktree row, the ephemeral-clone row, and the branch root whose gate sits on the
+  workspace card all draw this same disclosure over different cards. The rules were
+  the worktree's by name while they bounded all three, which read as a claim that a
+  clone or an in-place root was borrowing another root's styling.
 */
-.meridian-worktree-gate-row {
+.meridian-root-gate-row {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
 }
 
-.meridian-worktree-gate {
+.meridian-root-gate {
   margin-inline-start: var(--meridian-space-3);
   border-inline-start: 1px solid var(--meridian-edge);
   padding-inline-start: var(--meridian-space-3);
 }
 
-.meridian-worktree-gate__summary {
+.meridian-root-gate__summary {
   display: flex;
   align-items: baseline;
   gap: var(--meridian-space-2);
@@ -290,7 +292,7 @@
   The collapsed line is a READING, so it is set beside the disclosure's own label and
   never in place of it: what the row is stays legible while what it found is reported.
 */
-.meridian-worktree-gate__line {
+.meridian-root-gate__line {
   color: var(--meridian-text-faint);
   font-size: var(--meridian-text-xs);
 }

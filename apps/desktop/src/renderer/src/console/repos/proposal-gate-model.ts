@@ -1,5 +1,6 @@
 // The gate reader's pure half: which worktree a gate is about, what a settled arm
-// says out loud, and how a wire branch context becomes one the summary can draw.
+// says out loud, how a wire branch context becomes one the summary can draw, and the
+// one value everything a gate renders arrives in.
 //
 // Split from `proposal-gate-reader.ts` on the seam this family already uses twice —
 // `prepared-proposal.ts` beside `ProposalGate.tsx`, `worktree-model.ts` beside
@@ -9,11 +10,20 @@
 // bridge, or a clock.
 //
 // NOTHING HERE CALLS, SCHEDULES, OR HOLDS STATE. The reader owns all three.
+//
+// THE READING LIVES HERE RATHER THAN ON EITHER CLASS, and that is structural rather
+// than tidy: `proposal-gate-reader.ts` publishes one and `proposal-gate-actions.ts`
+// publishes one, so declaring it on either would make the other import its sibling
+// and close a cycle the layering gate refuses. The value is a value; the two objects
+// that write it are next door.
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../bridge/index.js";
+import type { ConsoleRefusal } from "../core/index.js";
 import type { BranchContextReading } from "./branch-context-model.js";
+import type { ProposalAction } from "./proposal-actions.js";
+import type { ProposalGateState } from "./proposal-gate-state.js";
 
 /**
  * The branch context exactly as the growth port serves it.
@@ -254,6 +264,48 @@ export const ANNOUNCED_GATE_SETTLEMENTS = [
 
 /** One announced settlement. Derived, so the vocabulary is declared exactly once. */
 export type AnnouncedGateSettlement = (typeof ANNOUNCED_GATE_SETTLEMENTS)[number];
+
+/**
+ * Everything one execution root's gate renders from, in one immutable value.
+ *
+ * `refusal` is a FIELD rather than a seventh arm because two of the six arms carry no
+ * message of their own: `not-checked` is the arm a wire-unregistered refusal produces
+ * and it says nothing about which wire, so the refusal travels beside it and the
+ * surface renders it through the same `RefusalCard` the repos section uses for a
+ * refused mount list. An arm that DOES carry its message — `refused` — leaves this
+ * field undefined, so the same sentence is never printed twice.
+ */
+export interface ProposalGateReading {
+  readonly state: ProposalGateState;
+  /** The read's own failure, where the published arm admits no message. */
+  readonly refusal: ConsoleRefusal | undefined;
+  /**
+   * What the last press of each act produced. Rendered beside the control pressed.
+   *
+   * An act's entry is dropped the moment that act is issued again, so what stands here
+   * is always a failure of the most recent press and never one a later success outran.
+   */
+  readonly actionRefusals: ReadonlyMap<ProposalAction, ConsoleRefusal>;
+  /**
+   * The act this gate is waiting on the bridge for, or `undefined` where none is.
+   *
+   * ONE AT A TIME IS A PROPERTY OF THE HOLDER, not of the surface that draws it. Two
+   * preparations settling out of order let the older proposal overwrite the newer one,
+   * and two commits confirmed against one payload are two commits. The surface renders
+   * this member by holding its controls; the rule is enforced in
+   * `proposal-gate-actions.ts`, where a second request is refused whatever pressed it.
+   */
+  readonly inFlightAction: ProposalAction | undefined;
+  /**
+   * One sentence naming what this gate settled on, or `undefined` before it has.
+   *
+   * Composed off the publish rather than in the component so the announcement and the
+   * arm cannot disagree: the sentence is a function of the same publish that moved the
+   * arm, and a surface that announced from its own render body would speak once per
+   * render.
+   */
+  readonly settlement: string | undefined;
+}
 
 /**
  * Turn the wire's branch context into the shape the summary draws.

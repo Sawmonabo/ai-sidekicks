@@ -46,7 +46,7 @@ export interface EphemeralCloneGateRowProps {
 
 export function EphemeralCloneGateRow(props: EphemeralCloneGateRowProps): React.JSX.Element {
   return (
-    <div className="meridian-worktree-gate-row">
+    <div className="meridian-root-gate-row">
       <EphemeralCloneCard record={props.record} nowMilliseconds={props.nowMilliseconds} />
       {props.subject === undefined ? (
         // No gate at all rather than a gate that could not ask: no reader is built for

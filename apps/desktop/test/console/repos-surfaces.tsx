@@ -252,7 +252,7 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
 async function waitForGatesSettled(region: HTMLElement): Promise<void> {
   await waitFor(
     () => {
-      const unsettled = [...region.querySelectorAll(".meridian-worktree-gate__line")].filter(
+      const unsettled = [...region.querySelectorAll(".meridian-root-gate__line")].filter(
         (line) => line.textContent === "reading" || line.textContent === "not checked",
       );
       if (unsettled.length > 0) {
@@ -274,8 +274,8 @@ async function waitForGatesSettled(region: HTMLElement): Promise<void> {
  */
 export async function mountRepoSectionWithOpenGate(): Promise<MountedFamilySurface> {
   const mounted = await mountRepoSection();
-  await waitForWithin(mounted.element, ".meridian-worktree-gate");
-  const disclosure = mounted.element.querySelector("details.meridian-worktree-gate");
+  await waitForWithin(mounted.element, ".meridian-root-gate");
+  const disclosure = mounted.element.querySelector("details.meridian-root-gate");
   if (!(disclosure instanceof HTMLDetailsElement)) {
     throw new Error("the section mounted no change-proposal gate under its roots");
   }

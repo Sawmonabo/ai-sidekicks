@@ -114,7 +114,7 @@ async function renderRow(
 /** Wait until the gate's collapsed line stops reporting the wait. */
 async function settleRead(container: HTMLElement): Promise<void> {
   await waitFor(() => {
-    const line = container.querySelector(".meridian-worktree-gate__line")?.textContent;
+    const line = container.querySelector(".meridian-root-gate__line")?.textContent;
     // An unpaired row has no gate at all, and its case asserts that; there is nothing
     // to wait for there, so an absent line settles immediately.
     if (line === "reading" || line === "not checked") {
@@ -165,14 +165,12 @@ describe("WorktreeGateRow — the root and the gate under it", () => {
 
   it("opens collapsed on a line that is a reading, not an invitation", async () => {
     const { container } = await renderRefusedRow();
-    const disclosure = container.querySelector("details.meridian-worktree-gate");
+    const disclosure = container.querySelector("details.meridian-root-gate");
     // Collapsed, and the summary already reports what the read found — the read runs
     // on mount, so the line is an answer rather than a prompt to go and get one.
     expect(disclosure).not.toBeNull();
     expect((disclosure as HTMLDetailsElement).open).toBe(false);
-    expect(container.querySelector(".meridian-worktree-gate__line")?.textContent).toBe(
-      "not checked",
-    );
+    expect(container.querySelector(".meridian-root-gate__line")?.textContent).toBe("not checked");
   });
 
   it("puts the port's own refusal beside the arm that carries no message", async () => {
@@ -183,7 +181,7 @@ describe("WorktreeGateRow — the root and the gate under it", () => {
 
   it("reports a served context on the collapsed line", async () => {
     const { container } = await renderRow(SERVED_CONTEXT);
-    expect(container.querySelector(".meridian-worktree-gate__line")?.textContent).toBe(
+    expect(container.querySelector(".meridian-root-gate__line")?.textContent).toBe(
       "context read, no proposal",
     );
     // The arm carries its own answer, so nothing is put beside it.
@@ -195,7 +193,7 @@ describe("WorktreeGateRow — the root and the gate under it", () => {
     // The root is still reported; only the question about it is not put — and there is
     // no gate on screen at all, so no reader was constructed and no call was made.
     expect(container.querySelector(".meridian-root-card")).not.toBeNull();
-    expect(container.querySelector("details.meridian-worktree-gate")).toBeNull();
+    expect(container.querySelector("details.meridian-root-gate")).toBeNull();
     expect(container.textContent).toContain(UNPAIRED_REASON);
   });
 });
@@ -223,7 +221,7 @@ describe("WorktreeGateRow — the announcement", () => {
     expect(spokenOnce).not.toBe("");
 
     await act(async () => {
-      const disclosure = container.querySelector("details.meridian-worktree-gate");
+      const disclosure = container.querySelector("details.meridian-root-gate");
       (disclosure as HTMLDetailsElement).open = true;
       rerender(row(SERVED_CONTEXT));
       await Promise.resolve();

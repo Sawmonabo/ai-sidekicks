@@ -53,10 +53,10 @@ export function ProposalGateDisclosure(props: ProposalGateDisclosureProps): Reac
   );
   useAnnounceOnce(reading.settlement);
   return (
-    <details className="meridian-worktree-gate">
-      <summary className="meridian-worktree-gate__summary">
+    <details className="meridian-root-gate">
+      <summary className="meridian-root-gate__summary">
         Change proposal
-        <span className="meridian-worktree-gate__line">{gateSummaryLine(reading)}</span>
+        <span className="meridian-root-gate__line">{gateSummaryLine(reading)}</span>
       </summary>
       {/*
         The refusal card is OUTSIDE the gate rather than inside it, because the arm it
