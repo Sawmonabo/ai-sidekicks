@@ -21,9 +21,9 @@
 //   3. MOTION — while a transition or animation on the element, a descendant, or an
 //      ancestor is running, one sample per animation frame, stopping on the first
 //      frame that finds nothing running. That last frame is the one that publishes
-//      where the overlay came to rest. The loop itself is `element-motion.ts`'s
-//      `MotionFrameSampler`, because the pane's own position observer needs the same
-//      one — this registry owns WHICH overlays it runs for and not how it runs.
+//      where the overlay came to rest. The loop itself is `motion-sampling.ts`'s,
+//      because the pane's own position observer needs the same one — this registry
+//      owns WHICH overlays it runs for and not how it runs.
 //
 // NOTHING SAMPLES AT REST. The console's budgets forbid idle CPU, so there is no
 // standing frame loop: source 3 is armed by a motion START and by a registration that
@@ -41,12 +41,8 @@
 
 import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../core/index.js";
 import { observeElementResize } from "../primitives/index.js";
-import {
-  hasRunningMotion,
-  MotionFrameSampler,
-  observeMotionStarts,
-  sharesMotionWith,
-} from "./element-motion.js";
+import { hasRunningMotion, observeMotionStarts, sharesMotionWith } from "./element-motion.js";
+import { MotionFrameSampler } from "./motion-sampling.js";
 import type { PaneOverlaySource, PaneRect } from "./pane-geometry.js";
 
 /** One overlay's live rectangle, read at the moment the predicate asks. */

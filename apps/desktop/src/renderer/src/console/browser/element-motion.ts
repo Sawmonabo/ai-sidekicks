@@ -31,11 +31,12 @@
 // reports: a pane keeps its size and its animation state while a sibling shrinks,
 // while the deck reorders around it, and while an ancestor is carried across the
 // screen, and while a fixed-size box beside it is resized in one step by a class.
-// Four sources cover those four ways, they share the one motion sampler below, and
-// none of them samples at rest.
+// Five sources cover those ways, they share the one motion sampler in
+// `motion-sampling.ts`, and none of them samples at rest.
 
-import type { ConsoleClock, ScheduledHandle, Unsubscribe } from "../core/index.js";
+import type { ConsoleClock, Unsubscribe } from "../core/index.js";
 import { observeElementResize } from "../primitives/index.js";
+import { MotionFrameSampler } from "./motion-sampling.js";
 
 /**
  * The two events that announce motion STARTING.
@@ -128,86 +129,6 @@ export function hasRunningDocumentMotion(): boolean {
   return isAnyRunning(document.getAnimations());
 }
 
-export interface MotionFrameSamplerOptions {
-  /**
-   * Whether motion that could still be moving this caller's subject is running.
-   *
-   * The PREDICATE rather than the element, because the two callers bound motion
-   * differently and the loop is the same either way: an overlay yields to what
-   * carries it, and a pane has to watch a document that can move it from anywhere.
-   * Handing the loop an element would put that judgment here, where neither caller
-   * could state it.
-   */
-  readonly isMotionRunning: () => boolean;
-  /** The frame source. A real clock unless a test says otherwise. */
-  readonly clock: ConsoleClock;
-  /** Called once per frame while the subject is moving, and once as it comes to rest. */
-  readonly onFrame: () => void;
-}
-
-/**
- * Per-frame sampling of one moving element, armed by motion and disarmed by
- * stillness.
- *
- * A transition reports its START and its END and says nothing in between, so an
- * element being carried across the screen is only readable by looking once a frame
- * while it is in flight. THE LOOP DISARMS ITSELF: the frame that finds nothing
- * running is the last one, and it still reports — that report is where the element
- * came to rest, and dropping it would leave every consumer holding the second-to-last
- * position forever.
- *
- * A class rather than a function returning a disposer because two of its three
- * operations are questions about live state — is a frame armed, and may another be
- * armed — and `isSampling` is how the console's idle-CPU budget is checked here
- * rather than promised.
- */
-export class MotionFrameSampler {
-  readonly #isMotionRunning: () => boolean;
-  readonly #clock: ConsoleClock;
-  readonly #onFrame: () => void;
-  #queuedFrame: ScheduledHandle | undefined;
-
-  public constructor(options: MotionFrameSamplerOptions) {
-    this.#isMotionRunning = options.isMotionRunning;
-    this.#clock = options.clock;
-    this.#onFrame = options.onFrame;
-  }
-
-  /** Arm the next frame unless one is already armed. Idempotent. */
-  public startIfIdle(): void {
-    if (this.#queuedFrame !== undefined) {
-      return;
-    }
-    this.#queuedFrame = this.#clock.scheduleFrame(() => {
-      this.#runFrame();
-    });
-  }
-
-  /** Whether a frame is armed right now. False at rest, and that is the budget. */
-  public get isSampling(): boolean {
-    return this.#queuedFrame !== undefined;
-  }
-
-  /** Drop any armed frame. Idempotent, and it never re-arms on its own. */
-  public stop(): void {
-    if (this.#queuedFrame === undefined) {
-      return;
-    }
-    this.#clock.cancel(this.#queuedFrame);
-    this.#queuedFrame = undefined;
-  }
-
-  #runFrame(): void {
-    this.#queuedFrame = undefined;
-    // Report BEFORE re-reading the animation state, so the frame that finds the
-    // motion finished still reports the position the element came to rest at.
-    this.#onFrame();
-    if (this.#isMotionRunning()) {
-      this.startIfIdle();
-    }
-  }
-}
-
 export interface ElementPositionObserverOptions {
   readonly element: Element;
   /** The frame source the transition arm samples on. */
@@ -237,6 +158,39 @@ export interface ElementPositionObserverOptions {
  *      never arms; and where the box that changed is a FIXED-SIZE sibling of this
  *      element or of any ancestor, source 2 reports nothing either, because no
  *      watched box changed shape. The pane moved and no other source can say so.
+ *   5. PROGRAMMATIC MOTION — every invalidation the four sources above raise also
+ *      re-reads the animations, and arms the sampler when one is running.
+ *
+ * SOURCE 5 IS THE ONE WITH NO EVENT BEHIND IT, and that is the whole reason it
+ * exists. `element.animate()` fires neither `transitionrun` nor `animationstart` —
+ * both are CSS vocabularies — and a transform animation writes no class, no style
+ * attribute, no size, and no child list, so sources 1 through 4 hear nothing and
+ * source 3 never arms. A constant-size pane carried by the Web Animations API
+ * therefore left the native view at coordinates it had abandoned, for the whole
+ * animation, and nothing in this module could say so.
+ *
+ * SO THE READ IS THE REGISTRATION, AND IT IS BOUNDED. There is no event for "an
+ * animation was created", and `document.getAnimations()` on a timer is a poll this
+ * console does not run. What is left is to look at the moments this module is awake
+ * ALREADY: once when the observation is installed, and once per invalidation any
+ * other source raises. That is at most one animation read per invalidation, no timer,
+ * and nothing whatever at rest — the same reading `isMotionRunning` takes, at a
+ * moment the module was going to run code anyway.
+ *
+ * The bound is stated rather than hidden: an animation that starts while every other
+ * source is silent is picked up at the next invalidation and not before. In practice
+ * a surface that animates a box also toggles the class or style that decided to,
+ * which is source 4 in the same delivery turn. THE DISARM IS NOT PAIRED WITH THIS
+ * ARM — the sampler re-reads the same animations on every frame and stops on the one
+ * that finds nothing running, which is where the element came to rest. An
+ * `Animation.finished` listener beside it would be a second authority over a decision
+ * the loop already owns.
+ *
+ * A CONSOLE-STARTED ANIMATION WOULD REGISTER ITSELF rather than wait to be found, and
+ * no hook for that is minted here: the console starts none. `.animate(` matches no
+ * console module today, so a registration function would be an export with no caller,
+ * which the dead-code gate rejects and `apps/desktop/AGENTS.md` calls a symbol minted
+ * ahead of its reader. The console's own motion is CSS-driven, which source 3 hears.
  *
  * SOURCE 3 DELIBERATELY DOES NOT ASK WHETHER THE MOTION CARRIES THIS ELEMENT. The
  * containment test the overlay registry uses answers "no" for the case this observer
@@ -258,19 +212,34 @@ export interface ElementPositionObserverOptions {
  */
 export function observeElementPosition(options: ElementPositionObserverOptions): Unsubscribe {
   const { element, clock, onMove } = options;
-  const ancestors = readPositionAncestry(element);
-  const detachers: Unsubscribe[] = [
-    observeAncestorReorder(ancestors, onMove),
-    observeLayoutAttributes(ancestors, onMove),
-  ];
-  for (const ancestor of ancestors) {
-    detachers.push(observeElementResize(ancestor, onMove));
-  }
   // The document reading covers the element's own subtree and ancestors wherever the
   // platform implements it; the element-scoped one is what a DOM shim that omits
   // `document.getAnimations` still answers, so neither is redundant.
   const isMotionRunning = (): boolean => hasRunningDocumentMotion() || hasRunningMotion(element);
   const sampler = new MotionFrameSampler({ isMotionRunning, clock, onFrame: onMove });
+  /**
+   * Source 5, folded into the other four rather than armed beside them.
+   *
+   * Every invalidation is a moment this module runs code, so it is a free place to
+   * ask whether an animation nothing announced is carrying the element — and the ask
+   * is one read of the same animations the sampler's own loop takes. Reporting comes
+   * after arming so the caller's reading and the loop's first frame describe the same
+   * instant.
+   */
+  const noteInvalidation = (): void => {
+    if (isMotionRunning()) {
+      sampler.startIfIdle();
+    }
+    onMove();
+  };
+  const ancestors = readPositionAncestry(element);
+  const detachers: Unsubscribe[] = [
+    observeAncestorReorder(ancestors, noteInvalidation),
+    observeLayoutAttributes(ancestors, noteInvalidation),
+  ];
+  for (const ancestor of ancestors) {
+    detachers.push(observeElementResize(ancestor, noteInvalidation));
+  }
   detachers.push(
     observeMotionStarts(() => {
       sampler.startIfIdle();

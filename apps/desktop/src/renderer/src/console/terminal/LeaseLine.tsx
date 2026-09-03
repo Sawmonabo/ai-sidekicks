@@ -26,7 +26,7 @@
 //
 // EVERY TRANSITION NAMES ITS REASON. The disclosure renders one ledger line per
 // transition through the console's own row primitive, attributed in the actor's
-// hue, and the sentence comes from `lease-model.ts`'s table — which is total over
+// hue, and the sentence comes from `lease-transition.ts`'s table — which is total over
 // the closed reason set, so the three automatic reasons cannot collapse into one.
 //
 // STEPPING IN IS NOT THIS CONTROL (8.9). The composer's Step in pauses a run and
@@ -54,11 +54,11 @@ import {
 } from "../tokens/index.js";
 import { useTerminalLeaseClaim } from "./lease-claim.js";
 import {
-  terminalLeaseTransitionSentence,
   type TerminalLeaseHolding,
   type TerminalLeaseState,
   type TerminalOfflineNodeReading,
 } from "./lease-model.js";
+import { terminalLeaseTransitionSentence } from "./lease-transition.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
 
 /** How a participant is drawn: the wheel step and the treatment that disambiguates it. */

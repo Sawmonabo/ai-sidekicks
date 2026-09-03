@@ -286,6 +286,67 @@ describe("observeElementPosition", () => {
     detach();
   });
 
+  it("arms on an animation nothing announced, at the first invalidation after it starts", async () => {
+    // The finding. `element.animate()` fires neither `transitionrun` nor
+    // `animationstart` — both are CSS vocabularies — and a transform animation on a
+    // constant-size box writes no class, no style attribute, no size, and no child
+    // list. Sources 1 through 4 hear nothing, so the sampler never armed and the
+    // native view sat at coordinates the pane had abandoned for the whole animation.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { ancestor, element } = attachedPair();
+    withAnimations(element, []);
+    withAnimations(ancestor, []);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock, onMove });
+    expect(clock.pendingFrameCount).toBe(0);
+
+    // Exactly what `element.animate()` leaves behind: a running animation in the
+    // document reading, and no event raised anywhere.
+    const motion = movingAnimation();
+    withDocumentAnimations([motion.animation]);
+    expect(clock.pendingFrameCount).toBe(0);
+
+    // The class the surface wrote when it decided to animate — source 4, and the
+    // moment source 5 reads the animations.
+    ancestor.className = "is-collapsing";
+    await settleMutationRecords();
+
+    expect(clock.pendingFrameCount).toBe(1);
+    clock.runFrame();
+    // Still running, so the loop continues from its own reading rather than from a
+    // duration this module was told about.
+    expect(clock.pendingFrameCount).toBe(1);
+
+    motion.settle();
+    clock.runFrame();
+    // And it disarms where the element came to rest, which is the loop's own rule
+    // and not a second one paired with the arm.
+    expect(clock.pendingFrameCount).toBe(0);
+    detach();
+  });
+
+  it("negative control: an invalidation with nothing animating arms no frame", async () => {
+    // Without it the case above would pass against an observer that armed a frame on
+    // every invalidation — a loop the idle-CPU budget forbids, running for the life
+    // of the pane after one class write.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { ancestor, element } = attachedPair();
+    withAnimations(element, []);
+    withAnimations(ancestor, []);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock, onMove });
+    ancestor.className = "is-collapsing";
+    await settleMutationRecords();
+
+    expect(onMove).toHaveBeenCalled();
+    expect(clock.pendingFrameCount).toBe(0);
+    detach();
+  });
+
   it("reports a fixed-size sibling resized in one step, which animates nothing", async () => {
     // The finding, in its non-animated shape. A width written straight onto a
     // sibling fires no `transitionrun` and no `animationstart`, so the frame sampler

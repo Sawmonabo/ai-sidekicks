@@ -11,9 +11,10 @@
 //     chord would be unusable in the same way, so the second half is an EQUALITY
 //     against a mirrored chord rather than a test that the mirror is not empty.
 //   • **A claimed chord is NOT executed where it was seen.** It is handed back to the
-//     renderer, which focuses the pane and replays it as a window key event — so the
-//     `when` grammar, the operator's rebindings, and the palette behave exactly as
-//     they do anywhere else, because they are the same code path.
+//     renderer, which focuses the pane and replays it as a key event ON THE PANE ROOT
+//     — so the `when` grammar, the operator's rebindings, the palette, and the pane's
+//     own capture handlers behave exactly as they do anywhere else, because they are
+//     the same code path. The window hears it as it bubbles out of the pane.
 //   • **The mirror holds which chords EXIST, never what they mean.** Anything more
 //     would be a second source of truth for a binding, and the two would drift the
 //     first time somebody rebound a key.
@@ -312,12 +313,22 @@ export class KeyboardHandback {
   }
 
   /**
-   * Focus the pane and replay the chord as a window key event.
+   * Focus the pane and replay the chord into it as a key event.
    *
-   * The replay is a WINDOW event and not a direct command invocation, which is the
-   * point of the whole surface: the keybinding table, its `when` clauses, and the
-   * palette all see a keystroke indistinguishable from one typed with the pane
-   * focused, so none of them needs a second code path for chords that came from a page.
+   * An EVENT and not a direct command invocation, which is the point of the whole
+   * surface: the keybinding table, its `when` clauses, the palette, and the pane's own
+   * handlers all see a keystroke indistinguishable from one typed with the pane
+   * focused, so none needs a second code path for chords that came from a page.
+   *
+   * ON THE PANE ROOT, NOT ON THE WINDOW. Dispatching on `window` makes the window the
+   * target, and a target's propagation path excludes its descendants — so the pane's
+   * own `onKeyDownCapture` never ran and the one chord `BrowserPane` handles there,
+   * the close-tab chord of 12.2, was silently swallowed: no refusal, no close, and a
+   * keystroke the mirror had just CLAIMED from the page. The window still hears it,
+   * which is why this is a re-target and not a second route: a bubbling event
+   * dispatched inside the document reaches `window` on the way down to a capture
+   * listener and again on the way up. Routing the close chord specially instead would
+   * be the second replay path the second rule at the top of this module forbids.
    */
   public replay(descriptor: ChordDescriptor, paneRoot: HTMLElement): ChordReplayOutcome {
     const decision = this.decide(descriptor);
@@ -334,7 +345,7 @@ export class KeyboardHandback {
       );
     }
     paneRoot.focus();
-    paneRoot.ownerDocument.defaultView?.dispatchEvent(
+    paneRoot.dispatchEvent(
       new KeyboardEvent("keydown", {
         key: descriptor.key,
         code: descriptor.code,
