@@ -16,6 +16,7 @@ import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekick
 
 import {
   PROVIDER_ACCOUNT_LIST_METHOD,
+  QUEUE_SUBSCRIBE_STREAM,
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
@@ -32,6 +33,10 @@ import { ComposerAccessoryRail } from "./ComposerAccessoryRail.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "./usage-readings.js";
 
 const SESSION_ID = "session-rail";
+// A registered `SessionId` (a UUID): the queue feed parses its subscribe request
+// against the wire's own brand and opens no stream over any other shape, so the
+// cases that need the queue tail open mount on this one.
+const QUEUE_SESSION_ID = "6f1d2c3b-4a59-4e6f-8a7b-9c0d1e2f3a4b";
 
 /** The registered list reply for a node with nothing registered on it. */
 const EMPTY_REGISTRY = { accounts: [], usageWindows: [], readiness: [] };
@@ -92,9 +97,10 @@ function mountRail(
     readonly bridge?: ConsoleBridge;
     readonly entities?: readonly ConsoleEntity[];
     readonly focusedPane?: ConsolePaneAddress | undefined;
+    readonly sessionId?: string;
   } = {},
 ): HTMLElement {
-  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  const sessionStore = new SessionStore({ sessionId: addressing.sessionId ?? SESSION_ID });
   sessionStore.initialise({
     cursor: 0,
     entities: [...(addressing.entities ?? [])],
@@ -216,6 +222,48 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
 
   it("hides the queue shelf while nothing is queued", () => {
     expect(mountRail([]).querySelector(".meridian-queue-shelf")).toBeNull();
+  });
+
+  it("shows the shelf's partial-read line once a queue delivery could not be read", async () => {
+    // The feed counts an unreadable delivery; the rail has to HAND that count to the
+    // shelf, or the shelf hides itself over an empty list it does not know is empty.
+    // The bridge here answers the queue snapshot with no rows and the account read
+    // with no accounts, and hands the case the stream handler so it can deliver a
+    // row that matches no registered queue shape.
+    let deliverToFeed: (payload: unknown) => void = () => undefined;
+    const bridge = {
+      sidekicks: {
+        daemon: {
+          call: async (method: string): Promise<unknown> =>
+            method === PROVIDER_ACCOUNT_LIST_METHOD ? EMPTY_REGISTRY : { items: [] },
+          subscribe: (stream: string, handler: (payload: unknown) => void) => {
+            // The rail opens more than one stream (the account plane's is another),
+            // so the case keeps the queue stream's handler and no other.
+            if (stream === QUEUE_SUBSCRIBE_STREAM) {
+              deliverToFeed = handler;
+            }
+            return () => undefined;
+          },
+        },
+      },
+      growth: {},
+      growthServedOperations: new Set(),
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], { bridge, sessionId: QUEUE_SESSION_ID });
+    });
+    expect(container.querySelector(".meridian-queue-shelf")).toBeNull();
+
+    act(() => {
+      deliverToFeed({ id: "queue-item-a", status: "waiting", rank: 3 });
+    });
+
+    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
+      "1 queue delivery could not be read",
+    );
   });
 });
 

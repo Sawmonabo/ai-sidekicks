@@ -131,6 +131,8 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
         pendingCancelIds={queueFeed.pendingCancelIds}
         cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
         onCancel={queueFeed.cancelItem}
+        unreadableDeliveryCount={queueFeed.unreadableDeliveryCount}
+        unreadableRefusal={queueFeed.unreadableRefusal}
       />
       <div className="meridian-composer__accessories">
         <div className="meridian-composer__meters">
