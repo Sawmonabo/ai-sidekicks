@@ -9,7 +9,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ParkedDaemonCalls } from "../../../../../../test/console/parked-daemon-calls.js";
+import { ParkedDaemonCalls } from "../parked-daemon-calls.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import {
   isSameCompactionTarget,

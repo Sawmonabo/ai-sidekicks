@@ -13,8 +13,17 @@
 // and a settle-by-method helper would quietly answer the wrong call the first time
 // one case issued the same method twice, which is exactly the shape these cases are
 // written to explore.
+//
+// WHY IT SITS IN THE COMPOSER FAMILY AND NOT UNDER `test/console/`. That directory is
+// the home for the console TIER harnesses, and those tiers are their own tsconfig
+// programs. Its consumers here are two CO-LOCATED unit tests, which the renderer
+// composite project compiles under `rootDir: apps/desktop/src` — a renderer file
+// importing `apps/desktop/test/...` is TS6059, so the shared double cannot live
+// there and be reachable from `src/`. Two consumers in two sibling directories of one
+// family put it at that family's own level, which is where `apps/desktop/AGENTS.md`
+// puts anything the second use hoists.
 
-import type { ConsoleBridge } from "../../src/renderer/src/console/bridge/index.js";
+import type { ConsoleBridge } from "../../console/bridge/index.js";
 
 /** One parked call's two ways out. */
 interface ParkedCall {

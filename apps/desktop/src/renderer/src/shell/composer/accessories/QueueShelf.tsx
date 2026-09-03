@@ -57,9 +57,9 @@ export interface QueueShelfProps {
    * reading at all — which this surface renders as the complete arm, because there
    * is no count from which to claim otherwise.
    */
-  readonly unreadableDeliveryCount?: number;
+  readonly unreadableDeliveryCount?: number | undefined;
   /** The newest unreadable delivery's own parse refusal, rendered beside the count. */
-  readonly unreadableRefusal?: ConsoleRefusal;
+  readonly unreadableRefusal?: ConsoleRefusal | undefined;
 }
 
 const CANCEL_GLYPH_SIZE = 12;

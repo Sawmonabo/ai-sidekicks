@@ -43,20 +43,28 @@ const UNADDRESSED_ENTRY_NAME = "status";
 /**
  * A live binding on the OTHER provider, attributed to a run this composer never
  * addresses — the second group the agent-scoped reply can carry.
+ *
+ * Built through the registered schema for the reason `scenarioBindingGroups` records
+ * below: `runId` is a branded id, and a literal asserted into that brand would let a
+ * group these cases treat as wire-shaped carry a value the wire would refuse.
  */
-const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = {
-  runId: "019b7a11-1100-740e-8120-d1a4c1150312",
-  binding: { driverName: "codex", providerAccountId: null },
-  entries: [
+const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = ProviderCommandListResultSchema.parse({
+  bindings: [
     {
-      name: UNADDRESSED_ENTRY_NAME,
-      kind: "command",
-      description: "Report the other binding's state.",
+      runId: "019b7a11-1100-740e-8120-d1a4c1150312",
       binding: { driverName: "codex", providerAccountId: null },
+      entries: [
+        {
+          name: UNADDRESSED_ENTRY_NAME,
+          kind: "command",
+          description: "Report the other binding's state.",
+          binding: { driverName: "codex", providerAccountId: null },
+        },
+      ],
+      complete: true,
     },
   ],
-  complete: true,
-};
+}).bindings[0]!;
 const registeredIds: string[] = [];
 
 /** One recorded daemon call, so a re-read is distinguishable from a re-filter. */
@@ -143,7 +151,7 @@ function scenarioBindingGroups(): readonly ProviderCommandBindingGroup[] {
 }
 
 /** The run the scenario attributes its own Claude group to — the addressed one. */
-function addressedRunIdOfFirstAgent(): string {
+function addressedRunIdOfFirstAgent(): NonNullable<ProviderCommandBindingGroup["runId"]> {
   const runId = scenarioBindingGroups()[0]?.runId;
   if (runId === null || runId === undefined) {
     throw new Error("the scenario's enumerated group names no run");
