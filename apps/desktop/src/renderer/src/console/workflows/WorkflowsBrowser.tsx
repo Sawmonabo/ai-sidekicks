@@ -49,6 +49,7 @@ import {
   type WorkflowDefinitionScope,
 } from "./DefinitionsBrowser.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
+import { useReadSettlementAnnouncement } from "./read-announcement.js";
 import { refusedWorkflowChrome, type WorkflowChromeState } from "./chrome-state.js";
 import {
   useWorkflowDefinitionDirectory,
@@ -98,6 +99,24 @@ function continuationRefusalFor(
     : undefined;
 }
 
+/**
+ * What this browser says about a settled enumeration, or nothing while it has not.
+ *
+ * The enumeration lands without moving focus, so before this a screen reader heard
+ * which session came into scope and that the runs list had settled, and never that the
+ * definition list had — the groups simply filled in under a cursor somewhere else.
+ *
+ * The count is the whole resolved union rather than a figure per scope, because that is
+ * what the read answered: one request serves all three, and three sentences would
+ * report a split the daemon never made. A refusal carries the daemon's own sentence.
+ */
+function directorySentence(directory: WorkflowDefinitionDirectoryState): string | undefined {
+  if (directory.status === "served") {
+    return `Definitions visible from this session: ${String(directory.definitions.length)}.`;
+  }
+  return directory.status === "unavailable" ? directory.refusal.detail : undefined;
+}
+
 /** The scopes whose page is still in flight, given one read state. */
 function pendingScopesFor(
   directory: WorkflowDefinitionDirectoryState,
@@ -129,6 +148,7 @@ export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Elemen
   // rebuilding the scope tuple every render would hand the browser a fresh object
   // identity each time and defeat the row memoization underneath it.
   const pendingScopes = useMemo(() => pendingScopesFor(state), [state]);
+  useReadSettlementAnnouncement(state, directorySentence(state));
   return (
     <WorkflowsSurface
       state={chromeStateFor(state)}

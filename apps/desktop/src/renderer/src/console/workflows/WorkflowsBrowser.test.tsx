@@ -14,6 +14,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { type GrowthPort } from "../bridge/index.js";
+import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
@@ -51,8 +52,48 @@ function portAnswering(page: SettledDefinitionPage): GrowthPort {
   return { ...createRefusingGrowthPort(), workflowDefinitionList: async () => page };
 }
 
+/**
+ * The browser under the announcer its one caller mounts it inside.
+ *
+ * The destination renders it within the window's live announcer, and the browser now
+ * speaks its own settlement, so a harness without one would be testing a mount the
+ * console does not make — `useAnnounce` throws outside its provider rather than
+ * falling silently back to a region invented at the moment something spoke.
+ */
 function renderBrowser(growth: GrowthPort): HTMLElement {
-  return render(<WorkflowsBrowser growth={growth} sessionId={PROBE_SESSION_ID} />).container;
+  return render(
+    <LiveAnnouncerProvider>
+      <WorkflowsBrowser growth={growth} sessionId={PROBE_SESSION_ID} />
+    </LiveAnnouncerProvider>,
+  ).container;
+}
+
+/** The browser again, with a handle for re-rendering the same element. */
+function renderBrowserTwice(growth: GrowthPort): {
+  readonly container: HTMLElement;
+  readonly rerender: () => void;
+} {
+  const element = (
+    <LiveAnnouncerProvider>
+      <WorkflowsBrowser growth={growth} sessionId={PROBE_SESSION_ID} />
+    </LiveAnnouncerProvider>
+  );
+  const { container, rerender } = render(element);
+  return {
+    container,
+    rerender: () => {
+      rerender(element);
+    },
+  };
+}
+
+/** What the window's polite live region is holding. */
+function politeAnnouncement(container: HTMLElement): string {
+  const region = container.querySelector<HTMLElement>('[data-live-region="polite"]');
+  if (region === null) {
+    throw new Error("no polite live region was mounted");
+  }
+  return region.textContent ?? "";
 }
 
 async function settle(): Promise<void> {
@@ -206,7 +247,11 @@ describe("the workflows browser — the session it hands the conversational star
     // required session id — and the mount is told exactly that rather than being
     // handed a key that was quietly dropped.
     const readSessions: string[] = [];
-    render(<WorkflowsBrowser growth={recordingPort(readSessions)} sessionId={undefined} />);
+    render(
+      <LiveAnnouncerProvider>
+        <WorkflowsBrowser growth={recordingPort(readSessions)} sessionId={undefined} />
+      </LiveAnnouncerProvider>,
+    );
 
     await settle();
 
@@ -222,5 +267,55 @@ describe("the workflows browser — the session it hands the conversational star
     await settle();
 
     expect(container.textContent ?? "").toContain("the composer's own affordance");
+  });
+});
+
+describe("what the definitions browser says out loud", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("announces the enumeration's settlement once, with what it read", async () => {
+    // The list lands without moving focus, so before this a screen reader heard which
+    // session came into scope and that the RUNS list had settled, and never that the
+    // definition list had.
+    const { container, rerender } = renderBrowserTwice(
+      portAnswering({ status: "served", value: { definitions: [SERVED_DEFINITION] } }),
+    );
+
+    await settle();
+
+    expect(politeAnnouncement(container)).toBe("Definitions visible from this session: 1.");
+
+    rerender();
+    await settle();
+
+    // Negative control: the same settlement re-rendered says nothing further. A repeat
+    // would talk over the surface it just described.
+    expect(politeAnnouncement(container)).toBe("Definitions visible from this session: 1.");
+  });
+
+  it("announces the refusal's own sentence when the enumeration refuses", async () => {
+    const container = renderBrowser(createRefusingGrowthPort());
+
+    await settle();
+
+    // The daemon's own sentence, carried rather than paraphrased into an apology of
+    // the console's own — which is the refusal's `detail`, the same member the banner
+    // beside it renders.
+    expect(politeAnnouncement(container)).toContain("is not registered on this build yet");
+  });
+
+  it("says nothing at all while the read is still in flight", async () => {
+    // The third arm, and the one a settlement-keyed announcement most easily gets
+    // wrong: `reading` is not a settlement, and announcing it would promise a result
+    // and then never correct it if the read refused.
+    const container = renderBrowser(
+      portAnswering({ status: "served", value: { definitions: [] } }),
+    );
+
+    expect(politeAnnouncement(container)).toBe("");
+
+    await settle();
   });
 });

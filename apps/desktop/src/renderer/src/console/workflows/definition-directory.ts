@@ -116,7 +116,24 @@ export function useWorkflowDefinitionDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory {
-  const [state, setState] = useState<WorkflowDefinitionDirectoryState>({ status: "unasked" });
+  const [state, setState] = useState<WorkflowDefinitionDirectoryState>(() =>
+    subjectInitialState(sessionId),
+  );
+  // Which session the state on screen belongs to, adjusted DURING the render that
+  // brings a new one rather than in the effect below.
+  //
+  // The effect runs after the commit, so a hook that only reset there had one
+  // committed render per subject in which `unasked` was true of a session the caller
+  // had already asked about — and the browser paints `unasked` as three served-looking
+  // empty groups, so every scoped load flashed "No session definitions" and exposed
+  // that claim to assistive technology before the request had answered. React's own
+  // adjustment pattern: setting state during a render discards this pass and
+  // re-renders with the corrected value, so nothing is ever committed saying it.
+  const [readSubject, setReadSubject] = useState<string | undefined>(sessionId);
+  if (readSubject !== sessionId) {
+    setReadSubject(sessionId);
+    setState(subjectInitialState(sessionId));
+  }
   // Which read the state on screen belongs to. A page that comes back after the
   // subject changed — or after the surface went away — belongs to a list nobody is
   // looking at, and splicing it into the current one would show a session's
@@ -173,6 +190,19 @@ export function useWorkflowDefinitionDirectory(
   }, [growth, sessionId, state]);
 
   return { state, continueReading };
+}
+
+/**
+ * The state a subject starts in: `reading` where there is one, `unasked` where not.
+ *
+ * The two are different claims and the difference is the whole point. `unasked` says
+ * nobody put the question — which the browser is entitled to draw as an empty group —
+ * and it is true of exactly one case, a directory addressed at no session. A session
+ * in hand is a question the hook is about to put, and saying otherwise for one frame
+ * is asserting an answer.
+ */
+function subjectInitialState(sessionId: string | undefined): WorkflowDefinitionDirectoryState {
+  return sessionId === undefined ? { status: "unasked" } : { status: "reading" };
 }
 
 /**

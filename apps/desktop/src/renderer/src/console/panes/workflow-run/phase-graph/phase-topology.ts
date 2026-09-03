@@ -178,17 +178,25 @@ export function declaredEdges(
   topology: PhaseTopology,
 ): readonly PhaseSequenceEdge[] | undefined {
   const phaseById = new Map(phases.map((phase) => [phase.phaseId, phase]));
-  // The definition has to describe exactly the phases the run reports. A topology
+  // The definition has to describe each of the run's phases EXACTLY ONCE. A topology
   // naming a phase the run does not carry would draw an edge to nowhere, and one
   // silent about a phase the run does carry leaves that phase's dependencies
   // unstated — neither is a picture of this run.
-  if (topology.length !== phaseById.size) {
-    return undefined;
-  }
+  //
+  // Counted by identifier rather than by length, because a length beside a membership
+  // test is not that claim: two declarations for one phase and none for another have
+  // the right count and pass the membership test, and the picture drawn from them is
+  // a run with a phase missing — and, on the order-chain path, one that depends on
+  // itself.
+  const declaredPhaseIds = new Set<string>();
   for (const declaration of topology) {
-    if (!phaseById.has(declaration.phaseId)) {
+    if (!phaseById.has(declaration.phaseId) || declaredPhaseIds.has(declaration.phaseId)) {
       return undefined;
     }
+    declaredPhaseIds.add(declaration.phaseId);
+  }
+  if (declaredPhaseIds.size !== phaseById.size) {
+    return undefined;
   }
 
   const declaring = topology.filter((declaration) => declaration.dependsOn !== undefined);
@@ -207,6 +215,11 @@ export function declaredEdges(
     const target = phaseById.get(declaration.phaseId);
     for (const sourcePhaseId of declaration.dependsOn ?? []) {
       if (target === undefined || !phaseById.has(sourcePhaseId)) {
+        return undefined;
+      }
+      if (sourcePhaseId === declaration.phaseId) {
+        // A phase waiting on itself. The edge is a loop no run could ever leave, and
+        // drawing it would say the engine is blocked on something it is producing.
         return undefined;
       }
       const edge = dependencyEdge(sourcePhaseId, target);

@@ -21,10 +21,11 @@
 // still the caller's rather than this section's: a runs list mounted somewhere with
 // nowhere to send a row passes none, and gets rows of facts instead of dead buttons.
 
-import { useEffect, useMemo, useRef } from "react";
+import { useMemo } from "react";
 
 import type { GrowthPort } from "../bridge/index.js";
-import { Nothing, RefusalBanner, useAnnounce } from "../primitives/index.js";
+import { Nothing, RefusalBanner } from "../primitives/index.js";
+import { useReadSettlementAnnouncement } from "./read-announcement.js";
 import { RunList } from "./RunList.js";
 import { RunListProjection, type WorkflowRunListRow } from "./run-list-projection.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
@@ -53,7 +54,7 @@ export function WorkflowRuns(props: WorkflowRunsProps): React.JSX.Element {
     () => (directory.status === "served" ? new RunListProjection(directory.runs) : undefined),
     [directory],
   );
-  useRunReadAnnouncement(directory, projection);
+  useReadSettlementAnnouncement(directory, runReadSentence(directory, projection));
 
   return (
     <section className="meridian-workflows-runs" aria-labelledby={RUNS_HEADING_ID}>
@@ -107,41 +108,21 @@ function RunReadState(props: {
 }
 
 /**
- * Say, once, how the runs read settled.
+ * What this section says about a settled runs read, or nothing while it has not.
  *
- * The settlement is compared by IDENTITY rather than by a composed key: the hook
- * replaces its state object exactly once per settlement, so the ref holding the last
- * announced object speaks once for each and is silent on every re-render — where a
- * key built from the count would go quiet on a second session that happened to hold
- * the same number of runs.
- *
- * Polite on both arms. `frame/banner-announcements.ts` reserves the assertive lane
- * for a refusal that changed what the whole room can do; a list that could not be
- * read is this surface's own subject, and the refusal's sentence is carried verbatim
- * rather than paraphrased into an apology of the console's own.
+ * A pure function of the state so the sentence is composed in the render that carries
+ * the settlement, and the hook beside it owns only "once". The `served` arm waits on
+ * the projection because the count is the projection's, not the read's.
  */
-function useRunReadAnnouncement(
+function runReadSentence(
   directory: WorkflowRunDirectoryState,
   projection: RunListProjection | undefined,
-): void {
-  const announce = useAnnounce();
-  const announcedRef = useRef<WorkflowRunDirectoryState | undefined>(undefined);
-
-  useEffect(() => {
-    if (announcedRef.current === directory) {
-      return;
-    }
-    if (directory.status === "served" && projection !== undefined) {
-      announcedRef.current = directory;
-      // A count rather than a pluralized noun: the console has one figure formatter
-      // and no pluralizer, and "Runs in this session: 0" is as true as any other
-      // reading of it.
-      announce(`Runs in this session: ${String(projection.rows.length)}.`, "polite");
-      return;
-    }
-    if (directory.status === "unavailable") {
-      announcedRef.current = directory;
-      announce(directory.refusal.detail, "polite");
-    }
-  }, [directory, projection, announce]);
+): string | undefined {
+  if (directory.status === "served" && projection !== undefined) {
+    // A count rather than a pluralized noun: the console has one figure formatter
+    // and no pluralizer, and "Runs in this session: 0" is as true as any other
+    // reading of it.
+    return `Runs in this session: ${String(projection.rows.length)}.`;
+  }
+  return directory.status === "unavailable" ? directory.refusal.detail : undefined;
 }
