@@ -248,9 +248,6 @@ describe("gateSummaryLine", () => {
   it("gives every arm its own line, and none of them a number nothing read", () => {
     expect(gateSummaryLine(reading({ kind: "not-checked" }))).toBe("not checked");
     expect(gateSummaryLine(reading({ kind: "preparing" }))).toBe("reading");
-    expect(gateSummaryLine(reading({ kind: "no-context", executionMode: "read-only" }))).toBe(
-      "no context in read-only mode",
-    );
     expect(gateSummaryLine(reading({ kind: "refused", message: "the daemon said no" }))).toBe(
       "refused",
     );

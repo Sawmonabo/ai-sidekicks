@@ -72,20 +72,31 @@ describe("ProposalGateReader — one arm per outcome", () => {
     expect(reading.refusal).toBeUndefined();
   });
 
-  it("says the workspace has none, naming the mode, when the read served an absence", async () => {
+  it("reports a workspace with no context as the daemon's own refusal", async () => {
+    // The registered reply is FLAT and carries no absence: a `(workspace, worktree)`
+    // pair that resolves no row refuses, so "there is no context here" arrives as the
+    // daemon's sentence on the `refused` arm rather than as a console reading of an
+    // empty envelope member. That envelope was the bug — a contract-shaped reply made
+    // it `undefined` on EVERY read, so every gate published the absence and withheld
+    // its proposal actions.
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: { status: "served", value: { branchContext: undefined } } }),
+      bridgeAnswering({
+        branchContext: {
+          status: "unavailable",
+          code: "wire-unregistered",
+          origin: "growth-port",
+          detail: "worktree.not_found: no branch context for this pair",
+        },
+      }),
       clock,
       READ_ONLY_SUBJECT,
     );
     reader.start();
     await settle(clock, reader);
 
-    expect(reader.snapshot.state).toStrictEqual({
-      kind: "no-context",
-      executionMode: "read-only",
-    });
+    expect(reader.snapshot.state).toStrictEqual({ kind: "not-checked" });
+    expect(reader.snapshot.refusal?.detail).toContain("no branch context for this pair");
   });
 
   it("publishes the served context from the real fixture, verbatim and without the workspace id", async () => {

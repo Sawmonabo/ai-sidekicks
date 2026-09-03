@@ -83,6 +83,7 @@ export type { GrowthAttentionPreference } from "./attention.js";
 export {
   GROWTH_PR_PREPARATION_STATES,
   type GrowthBranchContext,
+  type GrowthBranchContextReadRequest,
   type GrowthPrPreparationState,
 } from "./gitflow.js";
 

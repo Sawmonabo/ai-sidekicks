@@ -67,8 +67,8 @@ export const MOUNTLESS_WORKTREE_COPY =
  * The roots of one mount, each with the workspace its gate is asked under.
  *
  * Order is the status read's own. The mode on a resolved subject is the workspace's
- * own `executionMode`, wire-verbatim, so the `no-context` arm names the mode the row
- * above it is showing rather than one this module chose.
+ * own `executionMode`, wire-verbatim, so a gate reports the mode the row above it is
+ * showing rather than one this module chose.
  */
 export function worktreeGateRowSubjects(
   worktrees: readonly WorktreeStatusRecord[],

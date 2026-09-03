@@ -269,15 +269,17 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // actually has — `branch_contexts` carries an at-most-one association check, so
     // naming `ephemeralCloneId` beside it would be a shape no producer can emit.
     call: "gitflow.branchContextRead",
+    // FLAT, because `BranchContextReadResponse` is: the context's fields ride the
+    // reply directly and there is no `branchContext` envelope. A fixture that wrapped
+    // them scripted a shape no daemon sends, and the reader looking for the envelope
+    // member found `undefined` on every read.
     result: {
-      branchContext: {
-        branchContextId: BRANCH_CONTEXT_ID,
-        workspaceId: GIT_WORKSPACE_ID,
-        baseBranch: "develop",
-        headBranch: "feat/rate-limit-wiring",
-        upstreamRef: "origin/feat/rate-limit-wiring",
-        worktreeId: IMPLEMENTER_WORKTREE_ID,
-      },
+      branchContextId: BRANCH_CONTEXT_ID,
+      workspaceId: GIT_WORKSPACE_ID,
+      baseBranch: "develop",
+      headBranch: "feat/rate-limit-wiring",
+      upstreamRef: "origin/feat/rate-limit-wiring",
+      worktreeId: IMPLEMENTER_WORKTREE_ID,
     },
   },
 ];

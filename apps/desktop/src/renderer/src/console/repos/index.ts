@@ -144,24 +144,22 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
   });
 }
 
-/**
- * The file half of a rewound run, published for the surface that mounts it.
- *
- * A READ SURFACE OVER A REGISTERED WIRE TYPE, and the door is the whole of what this
- * family owes it. `FileRestoreDisclosure` renders `RollbackInterventionResult` — the
- * reply the `run.intervene` rollback answers with — and its production entry point is
- * the runs pane's intervention history, which is a SIBLING view family's body: a repos
- * module may not import it and a runs module may not deep-import this one, so the seam
- * between them is this export and the runs pane's own composition of it.
- *
- * The `@consumedBy` tag rides the specifier because that is the export the dead-code
- * gate reports, and it names the cross-family task that mounts it. The tag and this
- * comment are deleted together by the PR that imports the symbol — the gate's
- * `--treat-tag-hints-as-errors` run fails on a marker that outlived its consumer.
- */
-export {
-  /** @consumedBy T-023p-1C-8 — mounted by `panes/runs/InterventionHistory.tsx`. */
-  FileRestoreDisclosure,
-  /** @consumedBy T-023p-1C-8 — mounted by `panes/runs/InterventionHistory.tsx`. */
-  type FileRestoreDisclosureProps,
-} from "./FileRestoreDisclosure.js";
+// The file half of a rewound run, published for the surface that mounts it.
+//
+// A READ SURFACE OVER A REGISTERED WIRE TYPE, and the door is the whole of what this
+// family owes it. `FileRestoreDisclosure` renders `RollbackInterventionResult` — the
+// reply the `run.intervene` rollback answers with — and its production entry point is
+// the runs pane's intervention history, which is a SIBLING view family's body: a repos
+// module may not import it and a runs module may not deep-import this one, so the seam
+// between them is this export and the runs pane's own composition of it.
+//
+// NO DEAD-CODE EXEMPTION TAG, AND THE GATE IS WHY. That marker exempts an export
+// NOTHING reaches; this one is reached — the door's own case reads it — so knip reports
+// the symbol as used and `--treat-tag-hints-as-errors` fails a marker that suppresses
+// nothing. The claim the marker would have carried is stated here instead, in the
+// `// Consumed by` form `apps/desktop/AGENTS.md` gives the declaration side of it, and
+// it is deleted by the cross-family pass that adds the import.
+//
+// Consumed by `panes/runs/InterventionHistory.tsx`, the runs pane's intervention
+// history, in the cross-family task that composes it.
+export { FileRestoreDisclosure, type FileRestoreDisclosureProps } from "./FileRestoreDisclosure.js";

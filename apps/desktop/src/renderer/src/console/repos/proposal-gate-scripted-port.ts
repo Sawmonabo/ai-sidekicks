@@ -58,6 +58,9 @@ export const REPLY_ABANDONED = {
 /**
  * One served branch context, in the wire's own member names.
  *
+ * FLAT, exactly as `BranchContextReadResponse` returns it: the context's fields ARE
+ * the reply, and there is no envelope member to reach through.
+ *
  * ANNOTATED RATHER THAN `as const`, because two of its members are the scenario's own
  * exported ids: `isolatedDeclarations` cannot infer a const-asserted literal that
  * reaches through an import, so the shape is stated here and the ids stay the
@@ -65,18 +68,16 @@ export const REPLY_ABANDONED = {
  */
 export const SERVED_CONTEXT: {
   readonly status: "served";
-  readonly value: { readonly branchContext: Record<string, unknown> };
+  readonly value: Record<string, unknown>;
 } = {
   status: "served",
   value: {
-    branchContext: {
-      branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
-      workspaceId: GIT_WORKSPACE_ID,
-      baseBranch: "develop",
-      headBranch: "feat/rate-limit-wiring",
-      upstreamRef: "origin/feat/rate-limit-wiring",
-      worktreeId: IMPLEMENTER_WORKTREE_ID,
-    },
+    branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
+    workspaceId: GIT_WORKSPACE_ID,
+    baseBranch: "develop",
+    headBranch: "feat/rate-limit-wiring",
+    upstreamRef: "origin/feat/rate-limit-wiring",
+    worktreeId: IMPLEMENTER_WORKTREE_ID,
   },
 };
 
@@ -96,11 +97,11 @@ export const ACCEPTED_ACTION = { status: "served", value: { accepted: true } } a
 /** One served context, with whichever of the pairing members a case wants moved. */
 export function servedContext(overrides: Partial<ProposalContextKey>): {
   status: "served";
-  value: { branchContext: Record<string, unknown> };
+  value: Record<string, unknown>;
 } {
   return {
     status: "served",
-    value: { branchContext: { ...SERVED_CONTEXT.value.branchContext, ...overrides } },
+    value: { ...SERVED_CONTEXT.value, ...overrides },
   };
 }
 

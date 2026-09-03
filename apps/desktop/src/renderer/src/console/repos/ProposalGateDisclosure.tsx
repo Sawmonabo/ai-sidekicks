@@ -97,9 +97,9 @@ export function gateSummaryLine(reading: ProposalGateReading): string {
 /**
  * One honest line per arm.
  *
- * Total over the six arms by construction rather than by a default branch: an arm
+ * Total over the five arms by construction rather than by a default branch: an arm
  * added to the state fails to compile here until somebody writes the line for it,
- * which is what stops a seventh arm from silently reading as one of the six.
+ * which is what stops a sixth arm from silently reading as one of the five.
  */
 function armSummaryLine(state: ProposalGateState): string {
   switch (state.kind) {
@@ -107,8 +107,6 @@ function armSummaryLine(state: ProposalGateState): string {
       return "not checked";
     case "preparing":
       return "reading";
-    case "no-context":
-      return `no context in ${state.executionMode} mode`;
     case "prepared":
       return state.proposal === undefined ? "context read, no proposal" : "proposal ready";
     case "hosting-unavailable":

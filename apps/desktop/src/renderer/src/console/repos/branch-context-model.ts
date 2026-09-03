@@ -104,21 +104,3 @@ export function branchContextAssociationReading(
     meaning: "This context executes in the mount's own checkout and binds no separate root.",
   };
 }
-
-/**
- * Why a workspace has no writable branch context, per mode.
- *
- * Only `read-only` appears, and its absence for the other three is the point:
- * `Spec-011 §Required Behavior` puts a branch context on every writable run in
- * `branch`, `worktree`, or `ephemeral clone` mode, so a writable mode with no context
- * is a read that has not happened rather than a mode that produces none. A table over
- * all four would have had to invent three sentences that are never true.
- */
-export const NO_BRANCH_CONTEXT_REASON: Readonly<Partial<Record<ExecutionMode, string>>> = {
-  "read-only":
-    "This workspace is read-only, so it produces no writable branch context and no preparation side effects. Selecting a writable execution mode on the workspace is what changes that.",
-};
-
-/** What the gate says when a writable mode carries no context yet. */
-export const BRANCH_CONTEXT_UNREAD_REASON =
-  "This workspace's execution mode is writable, so it has a branch context. None has been read for it yet, so nothing here is reporting that it has none.";

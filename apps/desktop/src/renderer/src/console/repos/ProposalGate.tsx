@@ -67,7 +67,6 @@ import {
 import type { ConsoleRefusal } from "../core/index.js";
 import { BranchContextSummary } from "./BranchContextSummary.js";
 import { ProposalSummary } from "./ProposalSummary.js";
-import { BRANCH_CONTEXT_UNREAD_REASON, NO_BRANCH_CONTEXT_REASON } from "./branch-context-model.js";
 import type { CheckoutConflict } from "./checkout-conflict.js";
 import {
   CHANGE_REQUEST_STATE_PRESENTATION,
@@ -156,19 +155,6 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
         placement="surface"
         title="No branch context has been read."
         detail="The branch-context read reaches the daemon through the growth port and that wire is not registered, so the question could not be put. This is an unanswered question rather than a workspace without a context, and the port's own refusal sentence is beside the gate."
-      />
-    );
-  }
-  if (state.kind === "no-context") {
-    // The mode is the reason, and it is stated rather than shown as a disabled form.
-    // A writable mode with no context is a read that has not happened, so the two
-    // sentences are different sentences.
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title={`No writable branch context in ${state.executionMode} mode.`}
-        detail={NO_BRANCH_CONTEXT_REASON[state.executionMode] ?? BRANCH_CONTEXT_UNREAD_REASON}
       />
     );
   }

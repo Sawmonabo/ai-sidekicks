@@ -43,6 +43,14 @@
 // release build is `not-checked` carrying the port's own sentence — never an empty
 // gate, and never a gate that looks prepared because nothing came back.
 //
+// A SERVED REPLY IS A CONTEXT, AND "THERE IS NONE" IS A REFUSAL. The registered
+// `BranchContextReadResponse` returns the context's fields directly, so there is no
+// envelope member for an absence to ride: a `(workspace, worktree)` pair that resolves
+// no row refuses on that wire, and the daemon's own sentence lands on the `refused`
+// arm. This reader therefore publishes no "no context" state of its own — the arm it
+// used to publish whenever an envelope member was absent, which a contract-shaped
+// reply made true on every single read.
+//
 // WHAT THIS READER DELIBERATELY CANNOT PUBLISH, AND WHY IT IS A WIRE FACT
 //
 //   • `hosting-unavailable`, for the reason `proposal-gate-state.ts` records on the arm
@@ -77,6 +85,7 @@ import {
   type ProposalContextKey,
 } from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
+import { refusalFromRejection } from "./repo-reads.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
 /**
@@ -88,6 +97,9 @@ import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
  * value through the object that produces it.
  */
 export type { ProposalGateReading };
+
+/** The wire this reader asks on, named once so a refusal can say which call failed. */
+const BRANCH_CONTEXT_READ_CALL = "gitflow.branchContextRead";
 
 const NOTHING_ASKED: ProposalGateReading = {
   state: { kind: "not-checked" },
@@ -145,10 +157,17 @@ export class ProposalGateReader {
       // A read that threw past its own refusal handling lands in the reading as the
       // `refused` arm. Re-throwing into a timer callback reaches nobody, and
       // swallowing would leave a gate showing the wait it never came out of.
+      // The daemon's own refusal, normalized rather than stringified. A scripted or
+      // live rejection arrives as the wire's `{code, message}` envelope, which is not
+      // an `Error` — so a bare `String(error)` printed `[object Object]` on exactly
+      // the path that now carries "this workspace has no branch context".
       onError: (error: unknown) => {
         this.#publish({
           ...this.#reading,
-          state: { kind: "refused", message: rejectionText(error) },
+          state: {
+            kind: "refused",
+            message: refusalFromRejection(BRANCH_CONTEXT_READ_CALL, error).detail,
+          },
           refusal: undefined,
           settlement: GATE_SETTLEMENT_COPY.refused,
         });
@@ -303,20 +322,13 @@ export class ProposalGateReader {
       return;
     }
 
-    const branchContext = outcome.value.branchContext;
-    if (branchContext === undefined) {
-      this.#context = undefined;
-      this.#discardProposal();
-      this.#publish({
-        ...this.#reading,
-        state: { kind: "no-context", executionMode: this.#subject.executionMode },
-        refusal: undefined,
-        settlement: GATE_SETTLEMENT_COPY["no-context"],
-      });
-      return;
-    }
-
-    const context = branchContextReadingFrom(branchContext, this.#subject.executionMode);
+    // A SERVED REPLY IS A CONTEXT. `BranchContextReadResponse` is flat and carries no
+    // member on which "there is none" could ride: a `(workspace, worktree)` pair that
+    // resolves no row REFUSES, and that refusal lands on the arm above carrying the
+    // daemon's own sentence. So there is nothing to test for here, and the arm this
+    // reader used to publish for an absent envelope member — which a contract-shaped
+    // reply produced on every read — is gone with the envelope.
+    const context = branchContextReadingFrom(outcome.value, this.#subject.executionMode);
     this.#context = context;
     // A REFRESHED CONTEXT NEVER CARRIES A PROPOSAL PREPARED FOR A DIFFERENT ONE. An
     // external checkout or a repair can move the base or the head between reads, and a
@@ -347,10 +359,10 @@ export class ProposalGateReader {
   /**
    * Say that this root cannot be asked about, and why.
    *
-   * `not-checked` and never `no-context`: the question was not PUT, which is a
-   * different fact from a workspace that has none — and the arm carries no message of
-   * its own, so the reason travels beside it as the refusal the surface renders. The
-   * refusal is the reader's own, because nothing refused it: no call was made.
+   * `not-checked` and never `refused`: the question was not PUT, which is a different
+   * fact from a daemon that refused one — and the arm carries no message of its own, so
+   * the reason travels beside it as the refusal the surface renders. The refusal is the
+   * reader's own, because nothing refused it: no call was made.
    */
   #publishUnaddressable(reason: string): void {
     this.#context = undefined;
@@ -373,9 +385,4 @@ export class ProposalGateReader {
     this.#reading = reading;
     this.#changes.emit(reading);
   }
-}
-
-/** What a thrown read says, without asserting a shape the throw may not have. */
-function rejectionText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

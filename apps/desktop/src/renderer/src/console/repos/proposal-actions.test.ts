@@ -40,13 +40,12 @@ const READY_PROPOSAL: PreparedProposal = {
 const DRAFT_PROPOSAL: PreparedProposal = { ...READY_PROPOSAL, state: "draft" };
 
 /**
- * One state per arm, total by construction — a seventh arm does not compile until it has
+ * One state per arm, total by construction — a sixth arm does not compile until it has
  * a sample here, which is what makes the sweep below a claim about every arm rather than
- * about the five somebody remembered.
+ * about the four somebody remembered.
  */
 const STATE_PER_ARM: Readonly<Record<ProposalGateState["kind"], ProposalGateState>> = {
   "not-checked": { kind: "not-checked" },
-  "no-context": { kind: "no-context", executionMode: "read-only" },
   preparing: { kind: "preparing" },
   prepared: { kind: "prepared", context: BRANCH_CONTEXT, proposal: READY_PROPOSAL },
   "hosting-unavailable": {

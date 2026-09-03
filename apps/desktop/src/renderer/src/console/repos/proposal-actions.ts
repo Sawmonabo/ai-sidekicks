@@ -142,20 +142,20 @@ export const PROPOSAL_ACTION_PRESENTATION: Readonly<
 type GateArmActionAvailability = "no-acts" | "acts-offered";
 
 /**
- * Total over `ProposalGateState["kind"]` by construction — a seventh arm does not
+ * Total over `ProposalGateState["kind"]` by construction — a sixth arm does not
  * compile until it says whether anything can be acted on from there.
  *
- * Five arms answer `no-acts` and each for its own reason: `not-checked`, `no-context`,
- * and `preparing` have no branch context to act against, `refused` reports an act that
- * did not happen, and `hosting-unavailable` is the arm whose whole content is what to do
- * BY HAND because the host is out of reach — offering a send there would offer a send to
- * a host the same arm says is unreachable.
+ * Four arms answer `no-acts` and each for its own reason: `not-checked` and `preparing`
+ * have no branch context to act against, `refused` reports an act that did not happen —
+ * and is where a workspace with no context lands, since the registered read refuses
+ * rather than serving an absence — and `hosting-unavailable` is the arm whose whole
+ * content is what to do BY HAND because the host is out of reach, so offering a send
+ * there would offer a send to a host the same arm says is unreachable.
  */
 const GATE_ARM_ACTION_AVAILABILITY: Readonly<
   Record<ProposalGateState["kind"], GateArmActionAvailability>
 > = {
   "not-checked": "no-acts",
-  "no-context": "no-acts",
   preparing: "no-acts",
   prepared: "acts-offered",
   "hosting-unavailable": "no-acts",

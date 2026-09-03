@@ -170,12 +170,13 @@ describe("the repos scenario — the growth reads it answers", () => {
     expect(outcome.status).toBe("served");
     if (outcome.status === "served") {
       // The four values `Spec-011 §Interfaces And Contracts` requires, and the
-      // association this context actually has. Absence here would be the honest
-      // answer for a scenario that scripts nothing — which is exactly what this
-      // scenario exists to stop being the only reachable one.
-      expect(outcome.value.branchContext?.baseBranch).toBe("develop");
-      expect(outcome.value.branchContext?.headBranch).toBe("feat/rate-limit-wiring");
-      expect(outcome.value.branchContext?.worktreeId).toBeDefined();
+      // association this context actually has, read straight off the reply — the
+      // registered response is flat. A refusal here would be the honest answer for a
+      // scenario that scripts nothing, which is exactly what this scenario exists to
+      // stop being the only reachable one.
+      expect(outcome.value.baseBranch).toBe("develop");
+      expect(outcome.value.headBranch).toBe("feat/rate-limit-wiring");
+      expect(outcome.value.worktreeId).toBeDefined();
     }
   });
 
