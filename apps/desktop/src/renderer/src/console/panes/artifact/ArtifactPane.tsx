@@ -75,12 +75,9 @@ import {
   type ArtifactManifestRow,
 } from "../../repos/artifact-model.js";
 import { type ConsolePaneContext } from "../../seats/index.js";
-import type {
-  ArtifactAllowlistReading,
-  ArtifactPayloadReading,
-  ArtifactRowActOutcome,
-} from "./artifact-pane-reading.js";
-import { useArtifactPaneReading } from "./artifact-reader.js";
+import type { ArtifactAllowlistReading, ArtifactRowActOutcome } from "./artifact-pane-reading.js";
+import type { ArtifactPayloadReading } from "./artifact-payload.js";
+import { useArtifactPaneReading } from "./use-artifact-reading.js";
 
 /** What a settled act says, once, when it settles. A refusal speaks in its own words. */
 const MANIFEST_RE_READ_ANNOUNCEMENT = "Manifest re-read. The row shows what the read answered.";
