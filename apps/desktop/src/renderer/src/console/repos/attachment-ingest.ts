@@ -188,9 +188,42 @@ export class AttachmentIngestClient {
     return this.#ledger.artifactIds();
   }
 
+  /**
+   * Stop the carrier, and give the daemon back every spool it is still holding.
+   *
+   * THE ABORTS GO FIRST, AND THE ORDER IS THE WHOLE POINT. Disposing the ledger is
+   * what stops the continuations, and it is also what makes the open streams
+   * unreachable: an ingest id lives in the ledger and nowhere else, so after the
+   * ledger goes nothing in this console can name one. A carrier closed with several
+   * uploads open therefore left those spools and their aggregate reservations standing
+   * until the daemon's abandoned-spool reaper claimed them, and a later upload in the
+   * same session could fail capacity admission long after the surface was gone.
+   *
+   * `abandoned` entries are skipped rather than aborted twice: `abandon` already asked
+   * for that spool back at the moment sending stopped, and a second request for one
+   * spool is a duplicate rather than a safeguard. `complete` entries hold a finished
+   * stream, which there is nothing to reclaim from.
+   *
+   * FIRED AND NOT AWAITED. Disposal is synchronous — a carrier that waited on a
+   * best-effort abort would hold a closed surface open for an answer nobody reads.
+   *
+   * IDEMPOTENT, on `repo-mounts-reader.ts`'s reason for its own guard: the ledger's
+   * published snapshot outlives its disposal, so a second call would walk the same
+   * entries and send the daemon a second reclaim request for every spool the first
+   * one already asked back. React unmounts an effect twice in development strict
+   * mode, which is exactly where a carrier is disposed twice.
+   */
   public dispose(): void {
+    if (this.#disposed) {
+      return;
+    }
     this.#disposed = true;
     this.#runningLocalIds.clear();
+    for (const entry of this.#ledger.snapshot) {
+      if (entry.state !== "complete" && entry.state !== "abandoned") {
+        this.#abort(entry.ingestId);
+      }
+    }
     this.#ledger.dispose();
   }
 
@@ -347,7 +380,18 @@ export class AttachmentIngestClient {
     });
   }
 
-  /** Ask for a spool back, best-effort, for a stream the daemon actually opened. */
+  /**
+   * Ask for a spool back, best-effort, for a stream the daemon actually opened.
+   *
+   * THE ANSWER IS DELIBERATELY NOT READ, and disposal is why it cannot be. The abort
+   * is asynchronous and the two callers are both terminal for the entry — abandonment
+   * has already moved it, disposal is taking the whole ledger — so by the time an
+   * answer arrives there is no entry left to record it on and no surface left to
+   * render it to. That is not a swallowed failure: the port answers rather than
+   * throwing, an unreclaimed spool is claimed by the daemon's abandoned-spool reaper,
+   * and the abandonment copy states that outcome rather than promising an instant
+   * reclaim.
+   */
   #abort(ingestId: string | undefined): void {
     if (ingestId !== undefined) {
       void this.#bridge.growth.artifactIngestAbort({ ingestId });

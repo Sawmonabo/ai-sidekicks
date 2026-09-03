@@ -1,5 +1,5 @@
-// Abandonment: sending stops at once, the spool is asked for back, and a call already in
-// flight does not resume what a participant stopped.
+// Abandonment and disposal: sending stops at once, the spool is asked for back, and a
+// call already in flight does not resume what a participant stopped.
 //
 // The client is driven directly against the scripted growth port beside it, which can be
 // HELD mid-call — the only way to put an abandonment inside an await and see what the
@@ -105,5 +105,72 @@ describe("ingest client — abandonment, including mid-call", () => {
     expect(port.chunkCalls).toHaveLength(2);
     expect(client.snapshot[0]?.state).toBe("complete");
     expect(port.abortedIngestIds).toStrictEqual([]);
+  });
+});
+
+describe("ingest client — disposal gives every open spool back", () => {
+  /** Two streams held open on their chunk call, and one that ran to completion. */
+  async function carrierWithTwoOpenAndOneComplete(): Promise<{
+    readonly port: ScriptedGrowthPort;
+    readonly client: ReturnType<typeof clientOver>;
+  }> {
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    // The completed one first, so its stream identity is `ingest-1` and the two the
+    // case is about are the ones a per-stream abort has to name.
+    client.attach(SMALL_SOURCE);
+    await new Promise((settle) => setTimeout(settle, 0));
+    expect(client.snapshot[0]?.state).toBe("complete");
+
+    port.holdChunks();
+    client.attach(sourceOver("attachment-two", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
+    client.attach(sourceOver("attachment-three", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
+    await new Promise((settle) => setTimeout(settle, 0));
+    return { port, client };
+  }
+
+  it("aborts every open stream and leaves the completed one alone", async () => {
+    // The ingest ids live in the ledger and nowhere else, so a disposal that took the
+    // ledger first left these spools and their aggregate reservations standing until
+    // the daemon's reaper — long enough for a later upload to fail capacity admission.
+    const { port, client } = await carrierWithTwoOpenAndOneComplete();
+
+    client.dispose();
+
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-2", "ingest-3"]);
+    // Terminal: a second disposal asks for nothing a second time, so a carrier torn
+    // down twice does not send the daemon two reclaim requests for one spool.
+    client.dispose();
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-2", "ingest-3"]);
+  });
+
+  it("negative control: a carrier holding only completed streams asks for nothing back", async () => {
+    // Without this the case above would pass against a disposal that aborted every
+    // entry it held, which would ask the daemon to reclaim a finished ingest.
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    client.attach(SMALL_SOURCE);
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    client.dispose();
+
+    expect(port.abortedIngestIds).toStrictEqual([]);
+  });
+
+  it("negative control: an already-abandoned stream is not asked for back twice", async () => {
+    // `abandon` asked for this spool the moment sending stopped. A second request for
+    // one spool is a duplicate rather than a safeguard.
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    port.refuseChunksWith("wire-unregistered");
+    client.attach(SMALL_SOURCE);
+    await new Promise((settle) => setTimeout(settle, 0));
+    client.abandon("attachment-1");
+    await new Promise((settle) => setTimeout(settle, 0));
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
+
+    client.dispose();
+
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
   });
 });

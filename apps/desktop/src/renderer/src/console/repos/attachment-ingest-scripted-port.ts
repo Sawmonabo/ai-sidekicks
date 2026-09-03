@@ -62,6 +62,15 @@ export class ScriptedGrowthPort {
   readonly initCalls: RecordedInit[] = [];
   readonly chunkCalls: RecordedChunk[] = [];
   readonly abortedIngestIds: string[] = [];
+  /**
+   * The next stream identity this port hands out.
+   *
+   * ONE ID PER OPENED STREAM, because a port that answered every `begin` with one id
+   * could not witness a per-stream act at all: two attachments open, one abort
+   * recorded, and no case could say which spool it was for. The first id is still
+   * `ingest-1`, so a case attaching one file reads the same recording it always did.
+   */
+  #nextIngestNumber = 1;
   #chunkRefusalCode: string | undefined;
   #completeRefusalCode: string | undefined;
   #beginGate: Promise<void> | undefined;
@@ -93,8 +102,10 @@ export class ScriptedGrowthPort {
     const port = {
       artifactIngestBegin: async (request: RecordedInit) => {
         this.initCalls.push(request);
+        const ingestId = `ingest-${String(this.#nextIngestNumber)}`;
+        this.#nextIngestNumber += 1;
         await this.#beginGate;
-        return { status: "served", value: { ingestId: "ingest-1" } };
+        return { status: "served", value: { ingestId } };
       },
       artifactIngestWriteChunk: async (request: RecordedChunk) => {
         this.chunkCalls.push(request);

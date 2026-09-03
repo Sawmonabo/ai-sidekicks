@@ -119,6 +119,17 @@ export interface RepoMountsReading {
    * whole section as unread when most of it is on screen.
    */
   readonly worktreeRefusal: ConsoleRefusal | undefined;
+  /**
+   * Whether the execution-root read was made at all.
+   *
+   * NEITHER OF THE TWO FIELDS ABOVE CAN SAY IT, which is why this one exists. A session
+   * whose WORKSPACE list refused never reaches the root read, and that path publishes an
+   * empty `ephemeralClones` with no `worktreeRefusal` — the same two values a served
+   * session holding no clone publishes. Without this the clone list would report "this
+   * session holds no ephemeral clone" over a question nobody put, which is rule 8's
+   * `empty` standing in for `not-checked`.
+   */
+  readonly worktreeReadPosition: "not-made" | "made";
   /** Per workspace: the daemon's answer to a capabilities read or a mode switch. */
   readonly refusalByWorkspaceId: Readonly<Record<string, ConsoleRefusal>>;
 }
@@ -133,6 +144,7 @@ const NOTHING_READ_YET: RepoMountsReading = {
   capabilitiesByWorkspaceId: {},
   refusal: undefined,
   worktreeRefusal: undefined,
+  worktreeReadPosition: "not-made",
   refusalByWorkspaceId: {},
 };
 
@@ -337,6 +349,9 @@ export class RepoMountsReader {
       capabilitiesByWorkspaceId,
       refusal: firstRefusal,
       worktreeRefusal: worktreeOutcome.status === "refused" ? worktreeOutcome.refusal : undefined,
+      // The read ran on this path whatever it answered, which is exactly the fact a
+      // served-and-empty clone list needs to tell itself apart from an unasked one.
+      worktreeReadPosition: "made",
       refusalByWorkspaceId,
     });
   }

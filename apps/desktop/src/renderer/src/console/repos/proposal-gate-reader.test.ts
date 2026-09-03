@@ -19,9 +19,13 @@ import {
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
 import { SessionStore } from "../store/index.js";
 import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
-import { offeredProposalActions } from "./proposal-actions.js";
+import { offeredProposalActions, type ProposalAction } from "./proposal-actions.js";
 import type { ProposalContextKey } from "./prepared-proposal.js";
-import type { ProposalGateSubject } from "./proposal-gate-model.js";
+import {
+  BRANCH_ROOT_UNADDRESSABLE_COPY,
+  EPHEMERAL_CLONE_UNADDRESSABLE_COPY,
+  type ProposalGateSubject,
+} from "./proposal-gate-model.js";
 
 const readers: ProposalGateReader[] = [];
 
@@ -32,6 +36,7 @@ afterEach(() => {
 });
 
 const SUBJECT: ProposalGateSubject = {
+  kind: "worktree",
   workspaceId: GIT_WORKSPACE_ID,
   worktreeId: IMPLEMENTER_WORKTREE_ID,
   executionMode: "worktree",
@@ -188,6 +193,15 @@ async function settle(clock: ManualClock, reader: ProposalGateReader): Promise<v
   for (let turn = 0; turn < 5; turn += 1) {
     await Promise.resolve();
   }
+}
+
+/** The proposal the published arm carries, or `undefined` where it carries none. */
+function publishedProposalOf(reader: ProposalGateReader): unknown {
+  const { state } = reader.snapshot;
+  if (state.kind !== "prepared") {
+    throw new Error(`a served context leaves the gate on \`prepared\`, not \`${state.kind}\``);
+  }
+  return state.proposal;
 }
 
 /** Let an act's promise chain and any re-read it queued run out. */
@@ -470,19 +484,10 @@ describe("ProposalGateReader — the proposal and the context it was prepared fo
     return reader;
   }
 
-  /** The proposal the published arm carries, or `undefined` where it carries none. */
-  function publishedProposal(reader: ProposalGateReader): unknown {
-    const { state } = reader.snapshot;
-    if (state.kind !== "prepared") {
-      throw new Error(`a served context leaves the gate on \`prepared\`, not \`${state.kind}\``);
-    }
-    return state.proposal;
-  }
-
   it("keeps the proposal when the refreshed context is the same one", async () => {
     const reader = await prepareThenRefresh(SERVED_CONTEXT);
 
-    expect(publishedProposal(reader)).toBeDefined();
+    expect(publishedProposalOf(reader)).toBeDefined();
     // The whole point of retaining it: the remote act stays offered.
     expect(offeredProposalActions(reader.snapshot.state)).toContain("push");
   });
@@ -492,7 +497,7 @@ describe("ProposalGateReader — the proposal and the context it was prepared fo
       servedContext({ branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2399" }),
     );
 
-    expect(publishedProposal(reader)).toBeUndefined();
+    expect(publishedProposalOf(reader)).toBeUndefined();
     // Push is what a stale proposal would have authorised, so this is the claim.
     expect(offeredProposalActions(reader.snapshot.state)).not.toContain("push");
   });
@@ -502,8 +507,157 @@ describe("ProposalGateReader — the proposal and the context it was prepared fo
     // moved head, and the proposal was built against the branch that is gone.
     const reader = await prepareThenRefresh(servedContext({ headBranch: "feat/something-else" }));
 
-    expect(publishedProposal(reader)).toBeUndefined();
+    expect(publishedProposalOf(reader)).toBeUndefined();
     expect(offeredProposalActions(reader.snapshot.state)).not.toContain("push");
+  });
+});
+
+describe("ProposalGateReader — what an accepted act leaves of the proposal", () => {
+  /** An accepted git action, which is what the daemon answers a taken act with. */
+  const ACCEPTED_ACTION = { status: "served", value: { accepted: true } } as const;
+
+  /** Prepare a proposal, then send `action` against an accepting daemon. */
+  async function prepareThenAct(action: ProposalAction): Promise<ProposalGateReader> {
+    const clock = new ManualClock();
+    const port = bridgeWithMovingAnswers();
+    const reader = openReader(port.bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction("prepare-proposal");
+    await settleAct(clock, reader);
+    if (publishedProposalOf(reader) === undefined) {
+      throw new Error("the preparation has to land before the act that follows it");
+    }
+
+    port.serveGitAction(ACCEPTED_ACTION);
+    await reader.requestAction(action);
+    await settleAct(clock, reader);
+    return reader;
+  }
+
+  it("discards the proposal an accepted commit made obsolete, and withdraws the send", async () => {
+    // The context the re-read serves back is byte-identical — a commit moves neither
+    // the context id nor either branch name — so the pairing check cannot see it and
+    // the proposal has to be dropped by the act itself.
+    const reader = await prepareThenAct("commit");
+
+    expect(reader.snapshot.state.kind).toBe("prepared");
+    expect(publishedProposalOf(reader)).toBeUndefined();
+    // The claim: a payload that no longer describes the head cannot be sent.
+    expect(offeredProposalActions(reader.snapshot.state)).not.toContain("push");
+    expect(reader.snapshot.settlement).toBe(
+      "A branch context was read. No proposal has been prepared yet.",
+    );
+  });
+
+  it("negative control: an accepted push leaves the proposal it sent on screen", async () => {
+    // Without this the case above would pass against a reader that dropped the
+    // proposal on any accepted act, which would erase the summary of what was just
+    // sent the moment it was sent.
+    const reader = await prepareThenAct("push");
+
+    expect(publishedProposalOf(reader)).toBeDefined();
+    expect(offeredProposalActions(reader.snapshot.state)).toContain("push");
+  });
+});
+
+describe("ProposalGateReader — one act at a time", () => {
+  /** A port whose preparation the case releases by hand, so a press can be caught mid-call. */
+  interface HeldPreparation {
+    readonly bridge: ConsoleBridge;
+    readonly prepareCallCount: () => number;
+    readonly answer: () => void;
+  }
+
+  function bridgeHoldingPreparation(): HeldPreparation {
+    let calls = 0;
+    let release = (): void => {};
+    const held = new Promise<void>((settle) => {
+      release = (): void => {
+        settle();
+      };
+    });
+    return {
+      bridge: {
+        growth: {
+          gitflowBranchContextRead: async () => SERVED_CONTEXT,
+          gitflowPrPrepare: async () => {
+            calls += 1;
+            await held;
+            return SERVED_PREPARATION;
+          },
+          gitActionExecute: async () => ({ status: "served", value: { accepted: true } }),
+        },
+      } as unknown as ConsoleBridge,
+      prepareCallCount: () => calls,
+      answer: release,
+    };
+  }
+
+  /** A gate on the served context with one preparation held open on the wire. */
+  async function openWithHeldPreparation(): Promise<{
+    reader: ProposalGateReader;
+    clock: ManualClock;
+    port: HeldPreparation;
+  }> {
+    const clock = new ManualClock();
+    const port = bridgeHoldingPreparation();
+    const reader = openReader(port.bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+    void reader.requestAction("prepare-proposal");
+    await Promise.resolve();
+    return { reader, clock, port };
+  }
+
+  it("names the act it is waiting on while the bridge has not answered", async () => {
+    const { reader } = await openWithHeldPreparation();
+    expect(reader.snapshot.inFlightAction).toBe("prepare-proposal");
+  });
+
+  it("refuses a second act while one is unanswered, and issues no second call", async () => {
+    // Two preparations can settle out of order and the older proposal then overwrites
+    // the newer one; two commits confirmed against one payload are two commits.
+    const { reader, clock, port } = await openWithHeldPreparation();
+
+    await reader.requestAction("commit");
+
+    expect(reader.snapshot.actionRefusals.get("commit")?.code).toBe("action-in-flight");
+    // The refusal names the act actually being waited on, not the one pressed.
+    expect(reader.snapshot.actionRefusals.get("commit")?.detail).toContain("Prepare proposal");
+    expect(port.prepareCallCount()).toBe(1);
+
+    port.answer();
+    await settleAct(clock, reader);
+    expect(reader.snapshot.inFlightAction).toBeUndefined();
+  });
+
+  it("negative control: the same act pressed after the first settles is admitted", async () => {
+    // Without this the rule above would pass against a reader that refused every act
+    // after the first one, which would make the gate single-use.
+    const { reader, clock, port } = await openWithHeldPreparation();
+    port.answer();
+    await settleAct(clock, reader);
+
+    await reader.requestAction("prepare-proposal");
+    await settleAct(clock, reader);
+
+    expect(reader.snapshot.actionRefusals.has("prepare-proposal")).toBe(false);
+    expect(port.prepareCallCount()).toBe(2);
+  });
+
+  it("drops a settlement for a request the register has moved past", async () => {
+    // A disposal moves the register out from under a call still on the wire. A
+    // continuation that wrote anyway would publish onto a gate that has unmounted.
+    const { reader, clock, port } = await openWithHeldPreparation();
+    const readingBeforeDisposal = reader.snapshot;
+
+    reader.dispose();
+    port.answer();
+    await settleAct(clock, reader);
+
+    expect(reader.snapshot).toStrictEqual(readingBeforeDisposal);
   });
 });
 
@@ -619,5 +773,106 @@ describe("ProposalGateReader — teardown", () => {
 
     expect(reader.performCount).toBe(performedBeforeDispose);
     expect(clock.pendingCount).toBe(0);
+  });
+});
+
+describe("ProposalGateReader — the roots the registered read has no key for", () => {
+  /** A port that counts, so "no call was made" is read rather than inferred. */
+  function countingPort(): { readonly bridge: ConsoleBridge; readonly calls: () => number } {
+    let calls = 0;
+    return {
+      bridge: {
+        growth: {
+          gitflowBranchContextRead: async () => {
+            calls += 1;
+            return SERVED_CONTEXT;
+          },
+        },
+      } as unknown as ConsoleBridge,
+      calls: () => calls,
+    };
+  }
+
+  const BRANCH_ROOT: ProposalGateSubject = {
+    kind: "branch-root",
+    workspaceId: GIT_WORKSPACE_ID,
+    executionMode: "branch",
+  };
+
+  const CLONE_ROOT: ProposalGateSubject = {
+    kind: "ephemeral-clone",
+    workspaceId: GIT_WORKSPACE_ID,
+    cloneId: "019b7b30-0280-7c11-8420-b1a5c0de2040",
+    executionMode: "ephemeral clone",
+  };
+
+  it("says the question was not put, and names why, for an in-place root", async () => {
+    const port = countingPort();
+    const clock = new ManualClock();
+    const reader = openReader(port.bridge, clock, BRANCH_ROOT);
+    reader.start();
+    await settle(clock, reader);
+
+    const reading = reader.snapshot;
+    // `not-checked` and never `no-context`: a workspace with no writable context is a
+    // read that ANSWERED, and nothing here answered anything.
+    expect(reading.state).toStrictEqual({ kind: "not-checked" });
+    expect(reading.refusal?.code).toBe("subject-not-addressable");
+    expect(reading.refusal?.detail).toBe(BRANCH_ROOT_UNADDRESSABLE_COPY);
+    expect(reading.settlement).toBe(BRANCH_ROOT_UNADDRESSABLE_COPY);
+  });
+
+  it("says it for a clone root too, in that root's own words", async () => {
+    const port = countingPort();
+    const clock = new ManualClock();
+    const reader = openReader(port.bridge, clock, CLONE_ROOT);
+    reader.start();
+    await settle(clock, reader);
+
+    expect(reader.snapshot.refusal?.detail).toBe(EPHEMERAL_CLONE_UNADDRESSABLE_COPY);
+  });
+
+  it("makes no call and arms no read for a root it cannot ask about", async () => {
+    // The rule the arm exists to enforce: sending the workspace id alone would be a
+    // request shape no producer accepts, so nothing is sent — and nothing is armed
+    // either, because a focus and a reconnect would each buy the same non-answer.
+    const port = countingPort();
+    const clock = new ManualClock();
+    const store = initialisedStore();
+    const reader = openReader(port.bridge, clock, BRANCH_ROOT, store);
+    reader.start();
+    await settle(clock, reader);
+    // The two reasons a gate re-reads without anybody acting. Both reach an addressable
+    // root; neither may buy a call here, because the answer would be the same refusal.
+    store.markDegraded("subscription-closed");
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.applyBatch([
+      {
+        id: "event-1",
+        sessionId: REPOS_SCENARIO.sessionId,
+        sequence: 1,
+        kind: "workspace.stale",
+        occurredAt: "2026-01-01T09:05:01.900Z",
+      },
+    ]);
+    await settle(clock, reader);
+
+    expect(port.calls()).toBe(0);
+    expect(reader.performCount).toBe(0);
+  });
+
+  it("negative control: the one root the request HAS a key for is read as usual", async () => {
+    // Without this, the three cases above would pass against a reader that had simply
+    // stopped calling the wire for every subject.
+    const port = countingPort();
+    const clock = new ManualClock();
+    const reader = openReader(port.bridge, clock, SUBJECT);
+    reader.start();
+    await settle(clock, reader);
+
+    expect(port.calls()).toBe(1);
+    expect(reader.performCount).toBe(1);
+    expect(reader.snapshot.state.kind).toBe("prepared");
+    expect(reader.snapshot.refusal).toBeUndefined();
   });
 });

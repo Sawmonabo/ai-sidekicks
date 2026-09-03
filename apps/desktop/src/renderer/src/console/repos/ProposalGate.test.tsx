@@ -15,6 +15,7 @@ import type { BranchContextReading } from "./branch-context-model.js";
 import { ONE_CUMULATIVE_PROPOSAL_COPY, type PreparedProposal } from "./prepared-proposal.js";
 import {
   PROPOSAL_ACTION_PRESENTATION,
+  PROPOSAL_NOT_SENDABLE_COPY,
   offeredProposalActions,
   type ProposalAction,
 } from "./proposal-actions.js";
@@ -29,15 +30,25 @@ const BRANCH_CONTEXT: BranchContextReading = {
   worktreeId: "worktree-01",
 };
 
+/**
+ * A proposal a person may send.
+ *
+ * `ready` rather than `draft`, and the distinction is the surface's: only a `ready`
+ * proposal admits the act that reaches the host, so a fixture marked `draft` would
+ * have made every "the send is offered" case below assert the opposite of the rule.
+ */
 const PROPOSAL: PreparedProposal = {
   title: "Wire the rate limiter",
   body: "Adds the concurrency cap to the subscribe path.",
   baseBranch: "develop",
   headBranch: "sidekicks/abc123/rate-limit-wiring",
-  state: "draft",
+  state: "ready",
   trailers: ["Co-Authored-By: a sidekick"],
   changedPaths: ["packages/control-plane/src/rate-limit.ts"],
 };
+
+/** The same proposal still being assembled. */
+const DRAFT_PROPOSAL: PreparedProposal = { ...PROPOSAL, state: "draft" };
 
 const PREPARED_STATE: ProposalGateState = {
   kind: "prepared",
@@ -189,7 +200,7 @@ describe("ProposalGate — the prepared proposal, before any remote mutation", (
   it("puts title, state, base, and head on the face and says the lineage rule plainly", () => {
     const { container } = render(<ProposalGate state={PREPARED_STATE} />);
     expect(container.textContent).toContain("Wire the rate limiter");
-    expect(container.textContent).toContain("draft");
+    expect(container.textContent).toContain("ready");
     expect(container.textContent).toContain(ONE_CUMULATIVE_PROPOSAL_COPY);
   });
 
@@ -293,6 +304,71 @@ describe("ProposalGate — three acts, offered, never projected", () => {
     // different thing from an act the daemon would refuse, and renders differently.
     const { container } = render(<ProposalGate state={PREPARED_STATE} />);
     expect(within(container).queryByRole("group", { name: "Git actions" })).toBeNull();
+  });
+});
+
+describe("ProposalGate — a draft proposal is drawn and cannot be sent", () => {
+  const DRAFT_STATE: ProposalGateState = { ...PREPARED_STATE, proposal: DRAFT_PROPOSAL };
+
+  it("draws the proposal, withholds the send, and says why it is absent", () => {
+    const { container } = render(<ProposalGate state={DRAFT_STATE} onRequestAction={vi.fn()} />);
+    const actionGroup = within(within(container).getByRole("group", { name: "Git actions" }));
+    // The payload is on screen — this is not the no-proposal arm.
+    expect(container.textContent).toContain("Wire the rate limiter");
+    expect(actionGroup.queryByRole("button", { name: "Push" })).toBeNull();
+    // The absence has a reason rather than being a control a participant hunts for.
+    expect(container.textContent).toContain(PROPOSAL_NOT_SENDABLE_COPY);
+  });
+
+  it("negative control: a ready proposal offers the send and carries no such sentence", () => {
+    // Without this the case above would pass against a gate that had simply stopped
+    // offering the send, and against copy printed on every prepared arm.
+    const { container } = render(<ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />);
+    const actionGroup = within(within(container).getByRole("group", { name: "Git actions" }));
+    expect(actionGroup.getByRole("button", { name: "Push" })).toBeDefined();
+    expect(container.textContent).not.toContain(PROPOSAL_NOT_SENDABLE_COPY);
+  });
+});
+
+describe("ProposalGate — the acts are held while one is unanswered", () => {
+  it("holds every control and names the act being waited on", () => {
+    const { container } = render(
+      <ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} inFlightAction="commit" />,
+    );
+    const acts = within(within(container).getByRole("group", { name: "Git actions" }));
+    for (const button of acts.getAllByRole("button")) {
+      expect(button).toHaveProperty("disabled", true);
+    }
+    // A row that stopped responding with nothing saying why reads as a broken surface.
+    expect(container.textContent).toContain("Commit was sent");
+  });
+
+  it("withdraws an open confirm rather than leaving it pressable", () => {
+    // The confirm's own button is not in the disabled outer row, so a confirm opened
+    // before the act started would stay pressable and issue the second request the
+    // holder is there to refuse.
+    const { container, rerender } = render(
+      <ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />,
+    );
+    fireEvent.click(within(container).getByRole("button", { name: "Push" }));
+    expect(within(container).getByRole("button", { name: "Push now" })).toBeDefined();
+
+    rerender(
+      <ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} inFlightAction="push" />,
+    );
+
+    expect(within(container).queryByRole("button", { name: "Push now" })).toBeNull();
+  });
+
+  it("negative control: with nothing in flight the same acts are offered and pressable", () => {
+    // Without this the two cases above would pass against a gate that never offered a
+    // usable control at all.
+    const { container } = render(<ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />);
+    const acts = within(within(container).getByRole("group", { name: "Git actions" }));
+    for (const button of acts.getAllByRole("button")) {
+      expect(button).toHaveProperty("disabled", false);
+    }
+    expect(container.textContent).not.toContain("was sent");
   });
 });
 

@@ -28,6 +28,12 @@
 // roster, which is a second read and a pairing rule for a relation the reply does not
 // state.
 //
+// THE CLONE LIST IS NOT GATED ON THE MOUNT READ, because the two are different calls.
+// `repo.mountRead` is per mount and `repo.worktreeStatusRead` is per session, so one
+// mount failing to probe leaves the session's execution roots entirely readable — and
+// suppressing the list on that refusal took valid roots off the screen for a reason that
+// was not about them. Which absence the list may report is its own reading's to decide.
+//
 // THE READ RUNS WHILE COLLAPSED, AND THAT IS THE POINT. The sidebar's open/collapsed
 // rule is decided by whether a section carries an amber or red item, which a section
 // that had not read cannot know. So the reader starts on mount and the collapsed line
@@ -48,8 +54,9 @@ import { type ConsoleRefusal } from "../core/index.js";
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
 import { type SidebarSectionContext } from "../seats/index.js";
-import { EphemeralCloneCard } from "./EphemeralCloneCard.js";
+import { EphemeralCloneGateRow } from "./EphemeralCloneGateRow.js";
 import { MountCard } from "./MountCard.js";
+import { ephemeralCloneGateSubject } from "./proposal-gate-model.js";
 import { useRepoMounts, type RepoMountsReading } from "./repo-mounts-reader.js";
 import { refusalFromRejection } from "./repo-reads.js";
 
@@ -117,7 +124,15 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           onCopy={copyCanonicalRoot}
           onSelect={requestModeSelection}
         />
-        {reading.refusal === undefined ? <EphemeralCloneList reading={reading} /> : null}
+        {/*
+          DRAWN WHATEVER THE MOUNT READ DID. The clone list comes off
+          `repo.worktreeStatusRead`, which is a different call with a different scope:
+          one `repo.mountRead` failing sets the section's refusal and says nothing at
+          all about the roots this session holds. Gating the list on that refusal took
+          valid execution roots off the screen because an unrelated mount could not be
+          probed. What the list is allowed to say is decided by its OWN reading below.
+        */}
+        <EphemeralCloneList reading={reading} bridge={bridge} sessionStore={sessionStore} />
       </div>
     </div>
   );
@@ -136,14 +151,28 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
  * it is drawn here. `EphemeralCloneCard` is the second one: the disposal countdown is on
  * the row rather than behind the disclosure, because it is the one fact here that
  * changes with nobody acting.
+ *
+ * AND EACH CLONE CARRIES ITS OWN CHANGE-PROPOSAL GATE, for the reason the mount card
+ * states about the in-place root: a clone is one of the three WRITABLE execution
+ * modes, so a list that drew the root and no gate left a participant running in that
+ * mode with no way to read a branch context, prepare a proposal, or ask for a reviewed
+ * act at all.
  */
-function EphemeralCloneList(props: { readonly reading: RepoMountsReading }): React.JSX.Element {
+function EphemeralCloneList(props: EphemeralCloneListProps): React.JSX.Element {
   return (
     <div className="meridian-repo-section__clones">
       <h4 className="meridian-repo-section__clones-heading">{CLONE_LIST_HEADING}</h4>
-      {renderCloneRows(props.reading)}
+      {renderCloneRows(props)}
     </div>
   );
+}
+
+interface EphemeralCloneListProps {
+  readonly reading: RepoMountsReading;
+  /** Passed down rather than reached for: each clone's gate performs its own read. */
+  readonly bridge: ConsoleBridge;
+  /** Passed down for the same reason: each clone's gate arms its own refresh triggers. */
+  readonly sessionStore: SessionStore;
 }
 
 /**
@@ -152,15 +181,25 @@ function EphemeralCloneList(props: { readonly reading: RepoMountsReading }): Rea
  * A function returning JSX rather than a second component, on `MountCard`'s own
  * `renderRoots` precedent: the branches decide which absence a settled read produced,
  * which is a reading rather than a surface of its own.
+ *
+ * The subject is resolved HERE, from the roster this same reading carries, because the
+ * clone row names its workspace but not that workspace's execution mode — and the mode
+ * is what a gate's `no-context` arm has to report against. Where the roster names no
+ * such workspace the row draws its absence instead, which is the pairing module's rule
+ * applied to the one relation this list can be missing.
  */
-function renderCloneRows(reading: RepoMountsReading): React.JSX.Element {
+function renderCloneRows(props: EphemeralCloneListProps): React.JSX.Element {
+  const { reading } = props;
   if (reading.ephemeralClones.length > 0) {
     return (
       <>
         {reading.ephemeralClones.map((record) => (
-          <EphemeralCloneCard
+          <EphemeralCloneGateRow
             key={record.cloneId}
             record={record}
+            subject={ephemeralCloneGateSubject(record, reading.workspaces)}
+            bridge={props.bridge}
+            sessionStore={props.sessionStore}
             nowMilliseconds={reading.readAtMilliseconds}
           />
         ))}
@@ -184,6 +223,20 @@ function renderCloneRows(reading: RepoMountsReading): React.JSX.Element {
         placement="surface"
         title="Ephemeral clones have not been read."
         detail="The execution-root read was refused, so which clones this session holds is unknown."
+      />
+    );
+  }
+  if (reading.worktreeReadPosition === "not-made") {
+    // A DIFFERENT ABSENCE FROM THE ONE ABOVE, and it is the one a settled section can
+    // otherwise mistake for `empty`: the workspace list refused, so the burst stopped
+    // before the root read and there is no refusal of its own to report. The section's
+    // own refusal card names what failed; this says what that leaves unknown.
+    return (
+      <Nothing
+        kind="not-checked"
+        placement="surface"
+        title={CLONES_NOT_READ_TITLE}
+        detail="The section's read stopped before the execution-root call, so which clones this session holds was never asked."
       />
     );
   }

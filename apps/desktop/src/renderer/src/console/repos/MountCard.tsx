@@ -25,6 +25,10 @@
 //     session-wide and drawn per mount, because a root's only stated relation is its
 //     `repoMountId` — and each one carries the change-proposal gate `ProposalGate.tsx`
 //     owns, collapsed, one per worktree.
+//   • THE IN-PLACE ROOT HAS NO ROW, SO ITS GATE SITS ON THE WORKSPACE CARD. `branch`
+//     mode executes in the mount's own checkout and mints no worktree and no clone, so
+//     a card that built gates only from root records reached none of these workspaces
+//     at all. The gate is drawn under the workspace itself, which is the root.
 //   • NO DETACH CONTROL, AND NO SILENCE ABOUT IT. `Spec-009 §Detach Semantics (V1
 //     Definition)` gives the desktop renderer no detach surface in V1, and this card
 //     DISCLOSES that absence rather than silently omitting it, so the provenance
@@ -60,6 +64,8 @@ import {
   mountLifecycleReading,
   mountVcsReading,
 } from "./mount-health.js";
+import { ProposalGateDisclosure } from "./ProposalGateDisclosure.js";
+import { branchRootGateSubject } from "./proposal-gate-model.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { WorktreeGateRow } from "./WorktreeGateRow.js";
@@ -67,6 +73,16 @@ import { unpairedWorktreeCopy, worktreeGateRowSubjects } from "./worktree-gate-p
 import type { WorktreeStatusRecord } from "./worktree-model.js";
 
 const CARD_GLYPH_SIZE = 13;
+
+/**
+ * The writable mode whose execution root is the mount's own checkout.
+ *
+ * `satisfies ExecutionMode` rather than a free string, on `RepoSection.tsx`'s reason:
+ * the word is the contract's own vocabulary (`packages/contracts/src/repo.ts`), and a
+ * mode spelled by hand here would be a second spelling of the closed set the picker
+ * beside it renders from.
+ */
+const IN_PLACE_EXECUTION_MODE = "branch" satisfies ExecutionMode;
 
 export interface MountCardProps {
   readonly mount: RepoMountReadResponse;
@@ -199,16 +215,31 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           />
         ) : (
           props.workspaces.map((workspace) => (
-            <WorkspaceCard
-              key={workspace.id}
-              workspace={workspace}
-              capabilities={props.capabilitiesByWorkspaceId[workspace.id]}
-              refusal={props.refusalByWorkspaceId[workspace.id]}
-              modeControlsOffered={posture.offered}
-              onSelectExecutionMode={(executionMode) => {
-                props.onSelectExecutionMode(workspace.id, executionMode);
-              }}
-            />
+            <div className="meridian-mount-card__workspace" key={workspace.id}>
+              <WorkspaceCard
+                workspace={workspace}
+                capabilities={props.capabilitiesByWorkspaceId[workspace.id]}
+                refusal={props.refusalByWorkspaceId[workspace.id]}
+                modeControlsOffered={posture.offered}
+                onSelectExecutionMode={(executionMode) => {
+                  props.onSelectExecutionMode(workspace.id, executionMode);
+                }}
+              />
+              {/*
+                THE IN-PLACE ROOT'S GATE, drawn on the workspace card because that IS
+                the root: `branch` mode executes in the mount's own checkout and mints
+                no record of its own, so there is no row beneath this one to hang a gate
+                under. Only the writable in-place mode gets one — a read-only workspace
+                produces no branch context and has nothing to prepare.
+              */}
+              {workspace.executionMode === IN_PLACE_EXECUTION_MODE ? (
+                <ProposalGateDisclosure
+                  bridge={props.bridge}
+                  subject={branchRootGateSubject(workspace)}
+                  sessionStore={props.sessionStore}
+                />
+              ) : null}
+            </div>
           ))
         )}
       </div>

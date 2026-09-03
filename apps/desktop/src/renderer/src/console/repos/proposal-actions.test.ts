@@ -12,9 +12,12 @@ import type { BranchContextReading } from "./branch-context-model.js";
 import type { PreparedProposal } from "./prepared-proposal.js";
 import {
   PROPOSAL_ACTIONS,
+  PROPOSAL_ACTION_HEAD_EFFECT,
   PROPOSAL_ACTION_PRESENTATION,
   PROPOSAL_ACTION_REACH,
+  PROPOSAL_NOT_SENDABLE_COPY,
   offeredProposalActions,
+  withheldRemoteActionCopy,
 } from "./proposal-actions.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
 
@@ -26,11 +29,15 @@ const BRANCH_CONTEXT: BranchContextReading = {
   worktreeId: "worktree-01",
 };
 
-const PROPOSAL: PreparedProposal = {
+/** A proposal a person may send. The one state that admits the remote act. */
+const READY_PROPOSAL: PreparedProposal = {
   baseBranch: "develop",
   headBranch: "sidekicks/abc123/rate-limit-wiring",
-  state: "draft",
+  state: "ready",
 };
+
+/** The same proposal still being assembled, which is the state that must not send. */
+const DRAFT_PROPOSAL: PreparedProposal = { ...READY_PROPOSAL, state: "draft" };
 
 /**
  * One state per arm, total by construction — a seventh arm does not compile until it has
@@ -41,11 +48,11 @@ const STATE_PER_ARM: Readonly<Record<ProposalGateState["kind"], ProposalGateStat
   "not-checked": { kind: "not-checked" },
   "no-context": { kind: "no-context", executionMode: "read-only" },
   preparing: { kind: "preparing" },
-  prepared: { kind: "prepared", context: BRANCH_CONTEXT, proposal: PROPOSAL },
+  prepared: { kind: "prepared", context: BRANCH_CONTEXT, proposal: READY_PROPOSAL },
   "hosting-unavailable": {
     kind: "hosting-unavailable",
     context: BRANCH_CONTEXT,
-    proposal: PROPOSAL,
+    proposal: READY_PROPOSAL,
     bundlePath: "/tmp/sidekicks/proposal-01.bundle",
   },
   refused: { kind: "refused", message: "gh: not authenticated" },
@@ -54,6 +61,12 @@ const STATE_PER_ARM: Readonly<Record<ProposalGateState["kind"], ProposalGateStat
 const PREPARED_WITHOUT_PROPOSAL: ProposalGateState = {
   kind: "prepared",
   context: BRANCH_CONTEXT,
+};
+
+const PREPARED_WITH_DRAFT: ProposalGateState = {
+  kind: "prepared",
+  context: BRANCH_CONTEXT,
+  proposal: DRAFT_PROPOSAL,
 };
 
 describe("the modelled actions — declared once, and closed where the spec closes them", () => {
@@ -134,5 +147,59 @@ describe("offeredProposalActions — the remote act waits for a reviewable propo
     // Without this, a function that returned the empty list unconditionally would pass
     // every case in the sweep and leave the gate with no acts at all.
     expect(offeredProposalActions(STATE_PER_ARM.prepared).length).toBeGreaterThan(0);
+  });
+});
+
+describe("offeredProposalActions — a draft is a proposal that cannot be sent", () => {
+  it("offers only the local acts while the proposal is still being assembled", () => {
+    // Presence is not reviewability: the wire tells `draft` from `ready`, and a rule
+    // that read presence alone sent a payload the daemon had not finished building.
+    expect(offeredProposalActions(PREPARED_WITH_DRAFT)).toStrictEqual([
+      "commit",
+      "prepare-proposal",
+    ]);
+  });
+
+  it("negative control: the same proposal marked ready offers the act that reaches the host", () => {
+    // Without this the case above would pass against a rule that never offered the
+    // send at all, which would make the whole gate local-only.
+    expect(offeredProposalActions(STATE_PER_ARM.prepared)).toContain("push");
+  });
+
+  it("says why the send is absent while a proposal is on screen, and only then", () => {
+    expect(withheldRemoteActionCopy(PREPARED_WITH_DRAFT)).toBe(PROPOSAL_NOT_SENDABLE_COPY);
+    // A ready proposal offers the send, so there is nothing to explain.
+    expect(withheldRemoteActionCopy(STATE_PER_ARM.prepared)).toBeUndefined();
+    // An arm with no proposal already renders its own empty state; a second sentence
+    // under it would word one absence twice.
+    expect(withheldRemoteActionCopy(PREPARED_WITHOUT_PROPOSAL)).toBeUndefined();
+  });
+
+  it("negative control: no arm that offers no act at all carries the sentence", () => {
+    // Without this, a sentence composed from the proposal alone would print under
+    // `refused` and `hosting-unavailable`, where no act is drawn for it to explain.
+    for (const [kind, state] of Object.entries(STATE_PER_ARM)) {
+      if (kind === "prepared") {
+        continue;
+      }
+      expect(withheldRemoteActionCopy(state)).toBeUndefined();
+    }
+  });
+});
+
+describe("PROPOSAL_ACTION_HEAD_EFFECT — what an accepted act leaves of a proposal", () => {
+  it("gives every action a head effect and no key beyond them", () => {
+    expect(Object.keys(PROPOSAL_ACTION_HEAD_EFFECT).sort()).toStrictEqual(
+      [...PROPOSAL_ACTIONS].sort(),
+    );
+  });
+
+  it("negative control: exactly one act is classified as moving the head", () => {
+    // A table that called everything `leaves-head` would satisfy the totality claim
+    // above and would let a commit leave its obsolete proposal standing.
+    const movers = PROPOSAL_ACTIONS.filter(
+      (action) => PROPOSAL_ACTION_HEAD_EFFECT[action] === "moves-head",
+    );
+    expect(movers).toStrictEqual(["commit"]);
   });
 });

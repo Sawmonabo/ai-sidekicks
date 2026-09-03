@@ -11,7 +11,7 @@ import { render, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
-import type { ConsoleScenario } from "../bridge/scenario.js";
+import type { ConsoleScenario, ScenarioReply } from "../bridge/scenario.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
@@ -30,6 +30,12 @@ const ROOT_CARD_SELECTOR = ".meridian-root-card";
 
 /** One card per mount. Read from the container, since the list has no element of its own. */
 const MOUNT_CARD_SELECTOR = ".meridian-mount-card";
+
+/** A root read that answered and named nothing — the lawful two-empty-arrays reply. */
+const SERVED_EMPTY_ROOT_READ: ScenarioReply = {
+  call: "repo.worktreeStatusRead",
+  result: { worktrees: [], ephemeralClones: [] },
+};
 
 /**
  * The section, open, over one scenario, inside the window's announcer.
@@ -108,6 +114,76 @@ describe("RepoSection — the ephemeral clones the root read named", () => {
   });
 });
 
+describe("RepoSection — the clone list stands on its own read", () => {
+  it("draws the clones a served root read named even where a mount read refused", async () => {
+    // `repo.mountRead` is per mount and `repo.worktreeStatusRead` is per session. One
+    // mount that could not be probed says nothing about the roots this session holds,
+    // and gating the list on it took valid execution roots off the screen.
+    const container = renderSection({
+      ...REPOS_SCENARIO,
+      id: "repos-mount-read-refused-clones-served",
+      replies: REPOS_SCENARIO.replies.filter((reply) => reply.call !== "repo.mountRead"),
+    });
+    const list = await cloneList(container);
+
+    await waitFor(
+      () => {
+        expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(1);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    // The mount failure is still reported — it is drawn beside the mounts, not instead
+    // of the clones.
+    expect(container.querySelector(".meridian-refusal--card")).not.toBeNull();
+  });
+
+  it("says nobody asked when the read burst stopped before the root call", async () => {
+    // The workspace list is what the burst opens with, so a refused one never reaches
+    // the root read: there is no refusal of its own to report and no served empty
+    // either. `empty` here would claim this session holds no clone.
+    const container = renderSection({
+      ...REPOS_SCENARIO,
+      id: "repos-workspace-list-refused",
+      replies: REPOS_SCENARIO.replies.filter((reply) => reply.call !== "repo.workspaceList"),
+    });
+    const list = await cloneList(container);
+
+    await waitFor(
+      () => {
+        // The DETAIL rather than the title: the pre-read frame carries the same title,
+        // so a case that waited on it would settle before the burst it is about.
+        expect(within(list).getByText(/stopped before the execution-root call/u)).toBeDefined();
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(0);
+  });
+
+  it("negative control: a fully served section still says there is no clone where there is none", async () => {
+    // Without this, a list that answered `not-checked` for every settled read would
+    // pass both cases above and never report a served empty session at all.
+    const container = renderSection({
+      ...REPOS_SCENARIO,
+      id: "repos-no-clones",
+      replies: [
+        ...REPOS_SCENARIO.replies.filter((reply) => reply.call !== "repo.worktreeStatusRead"),
+        // Rebuilt rather than spread over the scripted row: `ScenarioReply` is a union
+        // whose arms exclude each other's members, so a spread would carry a `refusal`
+        // key the resolving arm forbids.
+        SERVED_EMPTY_ROOT_READ,
+      ],
+    });
+    const list = await cloneList(container);
+
+    await waitFor(
+      () => {
+        expect(within(list).getByText("This session holds no ephemeral clone.")).toBeDefined();
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+  });
+});
+
 describe("RepoSection — the mounts this session actually holds", () => {
   it("draws a card per mount, each carrying its own health verdict", async () => {
     const container = renderSection(REPOS_SCENARIO);
@@ -145,5 +221,54 @@ describe("RepoSection — the mounts this session actually holds", () => {
       { timeout: READ_TIMEOUT_MS },
     );
     expect(container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(0);
+  });
+});
+
+describe("RepoSection — a clone root is a writable root, so it carries a gate", () => {
+  /** The disclosure a root's change-proposal gate renders into. */
+  const GATE_SELECTOR = "details.meridian-worktree-gate";
+
+  it("mounts one gate per clone, inside the clone's own row", async () => {
+    // Before this the clone list drew bare cards, so a participant running in the
+    // ephemeral clone mode had no way to read a branch context, prepare a proposal,
+    // or ask for a reviewed act at all.
+    const container = renderSection(REPOS_SCENARIO);
+    const list = await cloneList(container);
+
+    await waitFor(
+      () => {
+        // The cards first: an empty list would otherwise satisfy "one gate per card"
+        // with zero of each, which is the vacuous pass this claim must not take.
+        expect(list.querySelectorAll(ROOT_CARD_SELECTOR).length).toBeGreaterThan(0);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    expect(list.querySelectorAll(GATE_SELECTOR)).toHaveLength(
+      list.querySelectorAll(ROOT_CARD_SELECTOR).length,
+    );
+    // The clone's own refusal, in the clone's own words: its id is a REPLY member, so
+    // the registered read cannot be asked by it and the question is not put.
+    expect(within(list).getAllByText("subject-not-addressable").length).toBeGreaterThan(0);
+  });
+
+  it("negative control: a worktree root's gate is still asked, and refuses differently", async () => {
+    // Without this the case above would pass against a section that had made every
+    // gate unaddressable — which would silently retire the one root the registered
+    // request does have a key for.
+    const container = renderSection(REPOS_SCENARIO);
+    await cloneList(container);
+
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll(MOUNT_CARD_SELECTOR).length).toBeGreaterThan(0);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    const mountGates = [...container.querySelectorAll(MOUNT_CARD_SELECTOR)].flatMap((card) => [
+      ...card.querySelectorAll(GATE_SELECTOR),
+    ]);
+    for (const gate of mountGates) {
+      expect(gate.textContent).not.toContain("subject-not-addressable");
+    }
   });
 });

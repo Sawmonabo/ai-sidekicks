@@ -29,28 +29,32 @@ export interface ProposalGateBinding {
 }
 
 /**
- * Bind one worktree's gate to its reader.
+ * Bind one execution root's gate to its reader.
  *
- * The subject is destructured into the dependency list rather than depended on as an
- * object, because a caller composing it inline would otherwise mint a new reader on
- * every render. The session store is the reader's own collaborator rather than the
- * surface's: it is what carries the reconnect edge and the `workspace.stale` frame,
- * two of the four reasons `Spec-023 §Rules every console surface obeys` names.
+ * THE DEPENDENCIES ARE THE SUBJECT'S PARTS, NOT ITS IDENTITY, and that is deliberate:
+ * every caller composes the subject inline — a mount card builds one per worktree row
+ * on every render — so a memo keyed on the object would mint a new reader, and a new
+ * read, on every render. The parts below are the whole of every arm of the union
+ * (`kind`, `workspaceId`, the arm's own root id, and `executionMode`), so two subjects
+ * agreeing on all four are the same subject and the captured one is never stale.
+ *
+ * The session store is the reader's own collaborator rather than the surface's: it is
+ * what carries the reconnect edge and the `workspace.stale` frame, two of the four
+ * reasons `Spec-023 §Rules every console surface obeys` names.
  */
 export function useProposalGate(
   bridge: ConsoleBridge,
   subject: ProposalGateSubject,
   sessionStore: SessionStore,
 ): ProposalGateBinding {
-  const { workspaceId, worktreeId, executionMode } = subject;
+  const { kind, workspaceId, executionMode } = subject;
+  const executionRootId = proposalGateSubjectRootId(subject);
   const reader = useMemo(
-    () =>
-      new ProposalGateReader({
-        bridge,
-        subject: { workspaceId, worktreeId, executionMode },
-        sessionStore,
-      }),
-    [bridge, workspaceId, worktreeId, executionMode, sessionStore],
+    () => new ProposalGateReader({ bridge, subject, sessionStore }),
+    // The subject itself is deliberately NOT a dependency: every caller composes it
+    // inline, so its identity changes on every render while its content does not. The
+    // four values below ARE its content, on every arm of the union.
+    [bridge, kind, workspaceId, executionRootId, executionMode, sessionStore],
   );
   useEffect(() => {
     reader.start();
@@ -71,4 +75,22 @@ export function useProposalGate(
     [reader],
   );
   return { reading, requestAction };
+}
+
+/**
+ * The id of the root this subject names, or `undefined` on the arm that names none.
+ *
+ * A branch root binds no separate root, so it HAS no id — which is why the memo above
+ * takes the value rather than a member name: one dependency slot serves all three arms
+ * and `undefined` is the branch arm's honest answer rather than a missing dependency.
+ */
+function proposalGateSubjectRootId(subject: ProposalGateSubject): string | undefined {
+  switch (subject.kind) {
+    case "worktree":
+      return subject.worktreeId;
+    case "ephemeral-clone":
+      return subject.cloneId;
+    case "branch-root":
+      return undefined;
+  }
 }

@@ -82,6 +82,7 @@ import { ONE_CUMULATIVE_PROPOSAL_COPY } from "./prepared-proposal.js";
 import {
   PROPOSAL_ACTION_PRESENTATION,
   offeredProposalActions,
+  withheldRemoteActionCopy,
   type ProposalAction,
 } from "./proposal-actions.js";
 import {
@@ -105,6 +106,15 @@ export interface ProposalGateProps {
   readonly onRequestAction?: ((action: ProposalAction) => void) | undefined;
   /** What the last action produced, keyed by the action that produced it. */
   readonly actionRefusals?: ReadonlyMap<ProposalAction, ConsoleRefusal> | undefined;
+  /**
+   * The act the holder is waiting on the bridge for.
+   *
+   * NOT AN ELIGIBILITY DERIVATION, on `isBlocked`'s terms: it is a fact about this
+   * surface's own outstanding request, not a second copy of a daemon rule. The holder
+   * refuses a second request whatever this component draws; holding the controls is
+   * what stops a participant issuing one and being told off for it.
+   */
+  readonly inFlightAction?: ProposalAction | undefined;
   /** Open a changed path in the diff pane. Absent where no diff exists for it. */
   readonly onOpenChangedPath?: ((path: string) => void) | undefined;
 }
@@ -214,8 +224,10 @@ function renderGateBody(props: ProposalGateProps): React.JSX.Element {
       )}
       <ProposalActions
         actions={offeredProposalActions(state)}
+        withheldReason={withheldRemoteActionCopy(state)}
         onRequestAction={props.onRequestAction}
         actionRefusals={props.actionRefusals}
+        inFlightAction={props.inFlightAction}
         isBlocked={props.checkoutConflict !== undefined}
       />
     </div>
@@ -330,15 +342,30 @@ function CheckoutConflictChoice(props: {
  * group, because the arm above has already said what this gate is looking at and a
  * labelled group holding no control would be a second, wordless answer to that.
  *
+ * A WITHHELD ACT STILL SAYS WHY. Where the model withholds the remote act because the
+ * proposal on screen is not ready to send, its sentence renders at the head of this
+ * group — so the missing row is an absence with a reason rather than a control a
+ * participant hunts for. The sentence is the model's; this file neither composes it nor
+ * knows which act it is about.
+ *
  * `isBlocked` is not an eligibility derivation: it is the presence of an unanswered
  * blocking choice on this very surface, which `Spec-011 §Fallback Behavior` requires
  * to be answered before proceeding. Every other reason an act might fail is the
  * daemon's, is not consulted here, and renders as the refusal beside the act.
+ *
+ * `inFlightAction` is the second such fact and the last. While the holder is waiting
+ * on the bridge the controls are held and an open confirm is withdrawn, so a
+ * participant cannot confirm a second act against a payload whose answer has not
+ * arrived. That is not the daemon's rule either — the holder refuses a second request
+ * whatever this component draws — it is this surface declining to invite one.
  */
 function ProposalActions(props: {
   readonly actions: readonly ProposalAction[];
+  /** Why an act the list does not carry is absent. Composed by the model, never here. */
+  readonly withheldReason: string | undefined;
   readonly onRequestAction: ((action: ProposalAction) => void) | undefined;
   readonly actionRefusals: ReadonlyMap<ProposalAction, ConsoleRefusal> | undefined;
+  readonly inFlightAction: ProposalAction | undefined;
   readonly isBlocked: boolean;
 }): React.JSX.Element | null {
   const [actionAwaitingConfirm, setActionAwaitingConfirm] = useState<ProposalAction | undefined>(
@@ -347,8 +374,24 @@ function ProposalActions(props: {
   if (props.onRequestAction === undefined || props.actions.length === 0) {
     return null;
   }
+  const isAwaitingBridge = props.inFlightAction !== undefined;
   return (
     <div className="meridian-proposal-gate__acts" role="group" aria-label="Git actions">
+      {props.withheldReason === undefined ? null : (
+        // Static explanatory copy and deliberately NOT a live region: the settled arm
+        // is announced once by the surface that holds the reader, and a second
+        // announcement here would say the same settlement twice.
+        <p className="meridian-proposal-gate__withheld-act">{props.withheldReason}</p>
+      )}
+      {props.inFlightAction === undefined ? null : (
+        // The act being waited on is NAMED. A row of controls that stopped responding
+        // with nothing saying why reads as a broken surface rather than as a request
+        // in flight.
+        <p className="meridian-proposal-gate__in-flight" role="status">
+          {PROPOSAL_ACTION_PRESENTATION[props.inFlightAction].label} was sent. The daemon has not
+          answered yet, so nothing else is sent until it settles.
+        </p>
+      )}
       {props.actions.map((action) => {
         const presentation = PROPOSAL_ACTION_PRESENTATION[action];
         const refusal = props.actionRefusals?.get(action);
@@ -362,15 +405,17 @@ function ProposalActions(props: {
                   ? "meridian-proposal-gate__act meridian-proposal-gate__act--primary"
                   : "meridian-proposal-gate__act"
               }
-              // The blocking choice is the one condition this surface owns, so it is
-              // the one condition that disables an act here.
-              disabled={props.isBlocked}
+              // The two conditions this surface owns, and no third: an unanswered
+              // blocking choice, and an act of its own already awaiting the bridge.
+              // Every other reason an act might fail is the daemon's and arrives as
+              // the refusal beside the control.
+              disabled={props.isBlocked || isAwaitingBridge}
               onClick={() => setActionAwaitingConfirm(isAwaitingConfirm ? undefined : action)}
               aria-expanded={isAwaitingConfirm}
             >
               {presentation.label}
             </button>
-            {isAwaitingConfirm ? (
+            {isAwaitingConfirm && !isAwaitingBridge ? (
               <div className="meridian-proposal-gate__confirm">
                 {/* The consequence is stated before the act, never after it. */}
                 <p className="meridian-proposal-gate__consequence">{presentation.consequence}</p>
