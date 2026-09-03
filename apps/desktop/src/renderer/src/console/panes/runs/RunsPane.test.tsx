@@ -103,6 +103,10 @@ async function renderPane(
   return container;
 }
 
+/** A second and third run, so the seating has more than one row to reconcile. */
+const SECOND_RUN_ID = "c4a1b2d3-5e6f-4071-9b82-ad3e4f506172";
+const THIRD_RUN_ID = "d5b2c3e4-6f70-4182-8c93-be4f50617283";
+
 describe("the runs pane's three absences", () => {
   it("says so when it was opened outside a session", async () => {
     const container = await renderPane(scriptedBridge([]), false);
@@ -128,9 +132,10 @@ describe("the runs pane's three absences", () => {
     expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
   });
 
-  it("keeps the skeleton while the snapshot names runs the stream has not described", async () => {
-    // Read complete, list still empty, and the session is known to have a run — so
-    // "there are none" would be false. The skeleton is the honest shape.
+  it("draws a row for a run the snapshot names and the stream has not described", async () => {
+    // Read complete, stream silent, and the session is known to have a run — so
+    // neither "there are none" nor a skeleton is the honest shape. The run has a
+    // row, seated from the session's own record.
     const container = await renderPane(scriptedBridge([]), true, (store) => {
       store.initialise({
         cursor: 4,
@@ -138,8 +143,9 @@ describe("the runs pane's three absences", () => {
         participantJoinLog: [],
       });
     });
-    expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
+    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+    expect(container.querySelectorAll(".meridian-known-run")).toHaveLength(1);
   });
 
   it("negative control: a delivered run replaces the skeleton with a row", async () => {
@@ -356,6 +362,108 @@ describe("a partial stream is visible, and is neither an absence nor a refusal",
     const fold = new RunStateProjection();
     expect(fold.accept(UNREADABLE_DELIVERY)).toBe(false);
     expect(fold.unreadableDeliveryCount).toBe(1);
+  });
+});
+
+describe("every run the session knows has a row, and the ones that are not live say so", () => {
+  it("seats three known runs beside one streamed projection and marks the two pending", async () => {
+    const container = await renderPane(
+      scriptedBridge([transition("queued", "running", 2)]),
+      true,
+      (store) => {
+        store.initialise({
+          cursor: 9,
+          entities: [
+            { kind: "run", id: RUN_ID, state: "running" },
+            { kind: "run", id: SECOND_RUN_ID, state: "completed" },
+            { kind: "run", id: THIRD_RUN_ID, state: "failed" },
+          ],
+          participantJoinLog: [],
+        });
+      },
+    );
+    // Three rows for three runs: one live, two from the session's own record.
+    expect(container.querySelectorAll(".meridian-ledger-row")).toHaveLength(1);
+    expect(container.querySelectorAll(".meridian-known-run")).toHaveLength(2);
+  });
+
+  it("names how many runs are not live and which they are", async () => {
+    const container = await renderPane(
+      scriptedBridge([transition("queued", "running", 2)]),
+      true,
+      (store) => {
+        store.initialise({
+          cursor: 9,
+          entities: [
+            { kind: "run", id: RUN_ID, state: "running" },
+            { kind: "run", id: SECOND_RUN_ID, state: "completed" },
+            { kind: "run", id: THIRD_RUN_ID, state: "failed" },
+          ],
+          participantJoinLog: [],
+        });
+      },
+    );
+    const sentence = container.querySelector(".meridian-runs__awaiting-projection");
+    expect(sentence?.textContent).toContain("2 runs");
+    expect(sentence?.textContent).toContain(SECOND_RUN_ID);
+    expect(sentence?.textContent).toContain(THIRD_RUN_ID);
+    // The one the stream described is not named as missing a live reading.
+    expect(sentence?.textContent).not.toContain(RUN_ID);
+  });
+
+  it("renders a terminal pre-existing run from the record's own facts, never a skeleton", async () => {
+    // The stream is a tail with no replay, so a run that stopped before the pane
+    // opened produces no delivery ever. Its terminal is on the session's record.
+    const container = await renderPane(scriptedBridge([]), true, (store) => {
+      store.initialise({
+        cursor: 12,
+        entities: [
+          {
+            kind: "run",
+            id: SECOND_RUN_ID,
+            state: "failed",
+            touchedAt: "2026-01-01T15:00:00.000Z",
+            body: {
+              runVersion: 8,
+              trigger: "budget_exhausted",
+              failureCategory: "provider_error",
+            },
+          },
+        ],
+        participantJoinLog: [],
+      });
+    });
+    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+    expect(container.textContent).toContain("failed");
+    expect(container.textContent).toContain("v8");
+    expect(container.textContent).toContain("the run exhausted its budget");
+    expect(container.textContent).toContain("provider_error");
+  });
+
+  it("says nothing about missing readings once every known run has a projection", async () => {
+    const container = await renderPane(
+      scriptedBridge([transition("queued", "running", 2)]),
+      true,
+      (store) => {
+        store.initialise({
+          cursor: 4,
+          entities: [{ kind: "run", id: RUN_ID, state: "running" }],
+          participantJoinLog: [],
+        });
+      },
+    );
+    expect(container.querySelector(".meridian-runs__awaiting-projection")).toBeNull();
+    expect(container.querySelector(".meridian-known-run")).toBeNull();
+    expect(container.querySelectorAll(".meridian-ledger-row")).toHaveLength(1);
+  });
+
+  it("negative control: the first streamed run alone still renders as one live row", async () => {
+    // Without this the cases above would pass over a pane that had stopped reading
+    // the stream at all and seated every row from the partition.
+    const container = await renderPane(scriptedBridge([transition("queued", "running", 2)]), true);
+    expect(container.querySelectorAll(".meridian-ledger-row")).toHaveLength(1);
+    expect(container.querySelector(".meridian-known-run")).toBeNull();
+    expect(container.querySelector(".meridian-runs__awaiting-projection")).toBeNull();
   });
 });
 

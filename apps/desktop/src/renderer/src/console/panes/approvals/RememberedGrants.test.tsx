@@ -131,6 +131,29 @@ describe("the empty and short reads", () => {
     expect(screen.queryByRole("listitem")).toBeNull();
   });
 
+  it("says the grants could not be read when every row failed the parse", () => {
+    // The empty list and the unreadable count are both true at once, and only one
+    // of them may speak: rows this build could not read are rows whose existence is
+    // unknown, so the reassuring claim is unavailable here.
+    renderGrants([], vi.fn(), 3);
+    expect(screen.getByText("Standing permissions could not be read.")).not.toBeNull();
+    expect(screen.getByText(/not known to be none/u)).not.toBeNull();
+    expect(screen.queryByText("No standing permission is in force.")).toBeNull();
+  });
+
+  it("names how many rows it could not read rather than saying only that some failed", () => {
+    renderGrants([], vi.fn(), 3);
+    expect(screen.getByText(/all 3 of the rows/u)).not.toBeNull();
+  });
+
+  it("negative control: an empty list with nothing unreadable still says none is in force", () => {
+    // Without this the two cases above would pass over a panel that had simply lost
+    // its empty state and reported every empty read as unreadable.
+    renderGrants([], vi.fn(), 0);
+    expect(screen.getByText("No standing permission is in force.")).not.toBeNull();
+    expect(screen.queryByText("Standing permissions could not be read.")).toBeNull();
+  });
+
   it("says the list is short when the reply carried rows it could not read", () => {
     renderGrants([rule()], vi.fn(), 2);
     expect(screen.getByText(/shorter than what the daemon holds/u)).not.toBeNull();

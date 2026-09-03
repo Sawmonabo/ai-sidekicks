@@ -74,7 +74,7 @@ export type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capa
 // the runs pane and the composer's shelf ask two questions of one list, and each
 // used to ask its own down its own subscription.
 export { useQueueFeed } from "./queue-feed.js";
-export type { QueueFeed, QueueReadPhase } from "./queue-feed.js";
+export type { QueueFeed, QueueReadPhase } from "./queue-reading.js";
 
 export {
   SidekicksBridgeProvider,

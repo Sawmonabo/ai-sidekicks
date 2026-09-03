@@ -42,10 +42,64 @@
   line-height: 1.5;
 }
 
+/* Same measure and same quiet weight as the incomplete-stream sentence: both
+   qualify the list beside it rather than standing in for it, so neither may read
+   as a failure card. */
+.meridian-runs__awaiting-projection {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
 .meridian-runs__rows {
   display: flex;
   flex-direction: column;
   min-width: 0;
+}
+
+/* A row seated from the session's own record. It is deliberately quieter than a
+   live row and carries no attribution edge: the ledger's edge is the signature of a
+   reading the stream supplied, and this row is not one. */
+.meridian-known-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+  min-width: 0;
+}
+
+.meridian-known-run__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-known-run__trigger,
+.meridian-known-run__clean-close,
+.meridian-known-run__provenance {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-known-run__failure {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-known-run__failure-detail {
+  color: var(--meridian-text-muted);
 }
 
 /* --- One run --------------------------------------------------------------- */
@@ -263,6 +317,23 @@
 
 .meridian-queue__figure dd {
   margin: 0;
+}
+
+/* The partial-read warning sits above the rows and reads as a qualifier rather
+   than a failure card: the rows below it are still the best reading there is. */
+.meridian-queue__partial {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-bottom: var(--meridian-space-2);
+}
+
+.meridian-queue__partial-copy {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
 }
 
 .meridian-queue__withheld {
