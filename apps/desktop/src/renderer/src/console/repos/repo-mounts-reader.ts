@@ -37,13 +37,23 @@
 // refusal with no mounts; a refused mount read publishes the mounts that did answer
 // beside the refusal explaining the gap; a refused capabilities read is scoped to the
 // one workspace it was about. Rule 8 forbids collapsing any into "there are none".
+//
+// THE ACT IS NEXT DOOR AND THE SHAPE IS BESIDE BOTH. This file had reached the size
+// `apps/desktop/AGENTS.md` calls two jobs, and the two were legible: four reads on a
+// scheduler, and one mutation with a register of its own. `execution-mode-selection.ts`
+// took the mutation and `repo-mounts-model.ts` took the reading both of them publish —
+// the split `proposal-gate-reader.ts` / `proposal-gate-actions.ts` /
+// `proposal-gate-model.ts` already makes in this family, on the same seam and for the
+// same reason. This class is the act's host, handed the three operations
+// `ExecutionModeSelectionHost` names and nothing else: the standing reading, the
+// publish, and the refresh an accepted switch asks for. So a switch cannot start a read
+// and this class cannot decide what a switch sends.
 
 import type {
   ExecutionMode,
   RepoMountReadResponse,
   WorkspaceExecutionModeCapabilitiesReadResponse,
   WorkspaceId,
-  WorkspaceListResponse,
 } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import type { ConsoleBridge } from "../bridge/index.js";
@@ -56,97 +66,30 @@ import {
 } from "../core/index.js";
 import { RefreshScheduler, type SessionStore } from "../store/index.js";
 import {
+  ExecutionModeSelections,
+  type ExecutionModeSelectionHost,
+} from "./execution-mode-selection.js";
+import { NOTHING_READ_YET, type RepoMountsReading } from "./repo-mounts-model.js";
+import {
   readExecutionModeCapabilities,
   readRepoMount,
   readSessionWorkspaces,
   readWorktreeStatus,
   refusalFromRejection,
-  selectExecutionMode,
   type RepoCallOutcome,
 } from "./repo-reads.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
-import type { EphemeralCloneStatusRecord, WorktreeStatusRecord } from "./worktree-model.js";
-
-/** One workspace row, exactly as `WorkspaceListResponse` spells it. */
-export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
 
 /**
- * Everything the section renders from, in one immutable value.
+ * Re-exported from the module that declares it, because every importer names it here.
  *
- * `status` is the read's own position, three-valued for the three absences rule 8
- * separates: `not-read` before the first read, `reading` while one is in flight,
- * `read` afterwards — this reader's spelling, not the `not-checked` the pure models
- * use for a question never put. A fourth "failed" member would collapse the refusal
- * in; it is its own field, so a partial answer — some read, one refused — survives.
+ * The declaration sits in `repo-mounts-model.ts` so the reader and the selections can
+ * both publish one without importing each other; this line is what keeps that move
+ * invisible to the cards, which read the section's value through the class that
+ * produces it. `proposal-gate-reader.ts` re-exports `ProposalGateReading` for the same
+ * reason and in the same words.
  */
-export interface RepoMountsReading {
-  readonly status: "not-read" | "reading" | "read";
-  readonly mounts: readonly RepoMountReadResponse[];
-  readonly workspaces: readonly RepoWorkspaceRow[];
-  /** Every worktree this session holds, in the order the status read returned them. */
-  readonly worktrees: readonly WorktreeStatusRecord[];
-  /**
-   * Every ephemeral clone this session holds, in the order the same read returned them.
-   *
-   * ITS OWN FIELD, never folded into `worktrees`: the two record kinds are two shapes —
-   * one mount-anchored over ten columns, the other workspace-anchored over nine — and
-   * this console draws them as two lists (`RepoSection.tsx` owns that split). Keeping only
-   * `worktrees` reported a session running in the `ephemeral clone` execution mode as
-   * holding no execution root at all: the daemon's answer discarded rather than drawn.
-   */
-  readonly ephemeralClones: readonly EphemeralCloneStatusRecord[];
-  /**
-   * The instant this reading was taken, on the reader's own clock.
-   *
-   * Carried here rather than read off the wall clock by the cards that render an age,
-   * because `Spec-023 §Rules every console surface obeys` forbids interval polling:
-   * an age moves when the surface RE-READS and at no other time, where a card reading
-   * `Date.now()` in its render body would move it on any unrelated re-render. Zero
-   * before the first read, which no card renders against — every one is behind `read`.
-   */
-  readonly readAtMilliseconds: number;
-  readonly capabilitiesByWorkspaceId: Readonly<
-    Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
-  >;
-  /** The read's own failure, when the section as a whole could not be answered. */
-  readonly refusal: ConsoleRefusal | undefined;
-  /**
-   * The root read's own failure, scoped to it.
-   *
-   * Its own field rather than folded into `refusal`, on the same rule the per-workspace
-   * map follows: a session whose mounts and workspaces answered and whose roots did not
-   * is a PARTIAL answer, and collapsing the two would either hide the gap or report the
-   * whole section as unread when most of it is on screen.
-   */
-  readonly worktreeRefusal: ConsoleRefusal | undefined;
-  /**
-   * Whether the execution-root read was made at all.
-   *
-   * NEITHER OF THE TWO FIELDS ABOVE CAN SAY IT, which is why this one exists. A session
-   * whose WORKSPACE list refused never reaches the root read, and that path publishes an
-   * empty `ephemeralClones` with no `worktreeRefusal` — the same two values a served
-   * session holding no clone publishes. Without this the clone list would report "this
-   * session holds no ephemeral clone" over a question nobody put, which is rule 8's
-   * `empty` standing in for `not-checked`.
-   */
-  readonly worktreeReadPosition: "not-made" | "made";
-  /** Per workspace: the daemon's answer to a capabilities read or a mode switch. */
-  readonly refusalByWorkspaceId: Readonly<Record<string, ConsoleRefusal>>;
-}
-
-const NOTHING_READ_YET: RepoMountsReading = {
-  status: "not-read",
-  mounts: [],
-  workspaces: [],
-  worktrees: [],
-  ephemeralClones: [],
-  readAtMilliseconds: 0,
-  capabilitiesByWorkspaceId: {},
-  refusal: undefined,
-  worktreeRefusal: undefined,
-  worktreeReadPosition: "not-made",
-  refusalByWorkspaceId: {},
-};
+export type { RepoMountsReading, RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 export interface RepoMountsReaderOptions {
   readonly bridge: ConsoleBridge;
@@ -169,6 +112,7 @@ export class RepoMountsReader {
   readonly #clock: ConsoleClock;
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: RepoRefreshTriggers;
+  readonly #selections: ExecutionModeSelections;
   readonly #changes = new Emitter<RepoMountsReading>("repo mounts reading");
 
   #reading: RepoMountsReading = NOTHING_READ_YET;
@@ -203,6 +147,10 @@ export class RepoMountsReader {
       scheduler: this.#scheduler,
       sessionStore: options.sessionStore,
     });
+    this.#selections = new ExecutionModeSelections({
+      bridge: options.bridge,
+      host: this.#selectionHost(),
+    });
   }
 
   /** What the section renders right now. Stable identity between publishes. */
@@ -235,34 +183,12 @@ export class RepoMountsReader {
     this.#triggers.start();
   }
 
-  /**
-   * Record one explicit mode switch, then re-read.
-   *
-   * A REFUSED switch does not re-read and does not re-pick: `Spec-010 §Required
-   * Behavior` forbids silent substitution, and the renderer's half of that is
-   * showing the refusal and leaving the choice with the participant. An ACCEPTED
-   * switch re-reads, because the workspace transitions `ready -> provisioning ->
-   * ready` on its existing id and the row has to follow it.
-   */
+  /** Record one explicit mode switch. The act next door owns what that means. */
   public async requestModeSelection(
     workspaceId: WorkspaceId,
     executionMode: ExecutionMode,
   ): Promise<void> {
-    const outcome = await selectExecutionMode(this.#bridge, workspaceId, executionMode);
-    if (this.#disposed) {
-      return;
-    }
-    if (outcome.status === "refused") {
-      this.#publish({
-        ...this.#reading,
-        refusalByWorkspaceId: {
-          ...this.#reading.refusalByWorkspaceId,
-          [workspaceId]: outcome.refusal,
-        },
-      });
-      return;
-    }
-    this.#scheduler.request("terminal-event");
+    await this.#selections.request(workspaceId, executionMode);
   }
 
   /** Terminal. No later event can re-arm a read behind a section that unmounted. */
@@ -270,7 +196,21 @@ export class RepoMountsReader {
     this.#disposed = true;
     this.#scheduler.dispose();
     this.#triggers.dispose();
+    this.#selections.dispose();
     this.#changes.clear();
+  }
+
+  /** The three operations a mode switch needs from the half that reads, and no more. */
+  #selectionHost(): ExecutionModeSelectionHost {
+    return {
+      currentReading: () => this.#reading,
+      publish: (reading: RepoMountsReading) => {
+        this.#publish(reading);
+      },
+      requestRefreshAfterSelect: () => {
+        this.#scheduler.request("terminal-event");
+      },
+    };
   }
 
   async #performRead(): Promise<void> {
@@ -285,6 +225,10 @@ export class RepoMountsReader {
         ...NOTHING_READ_YET,
         status: "read",
         refusal: workspaceOutcome.refusal,
+        // Carried across the reset for the reason above: a refused roster read says
+        // nothing about a switch still on the wire, and dropping the entry would offer
+        // the picker again while its own mutation was unanswered.
+        pendingModeByWorkspaceId: this.#reading.pendingModeByWorkspaceId,
       });
       return;
     }
@@ -353,6 +297,11 @@ export class RepoMountsReader {
       // served-and-empty clone list needs to tell itself apart from an unasked one.
       worktreeReadPosition: "made",
       refusalByWorkspaceId,
+      // SPREAD FORWARD, NEVER REBUILT. A switch the daemon has not answered is still on
+      // the wire while a read runs beside it — the accepted switch ASKS for this read —
+      // so a publish that reset the map would release the picker before the mutation it
+      // is holding for had settled.
+      pendingModeByWorkspaceId: this.#reading.pendingModeByWorkspaceId,
     });
   }
 

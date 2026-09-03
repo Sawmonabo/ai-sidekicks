@@ -58,6 +58,8 @@ export interface WorkspaceCardProps {
   readonly workspace: RepoWorkspaceRow;
   readonly capabilities: WorkspaceExecutionModeCapabilitiesReadResponse | undefined;
   readonly refusal: ConsoleRefusal | undefined;
+  /** The mode a switch on this workspace is waiting on the daemon for, where one is. */
+  readonly pendingMode: ExecutionMode | undefined;
   /** False when the owning mount's card withholds its bind controls. */
   readonly modeControlsOffered: boolean;
   readonly onSelectExecutionMode: (executionMode: ExecutionMode) => void;
@@ -101,6 +103,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
         currentMode={workspace.executionMode}
         capabilities={props.capabilities}
         refusal={props.refusal}
+        pendingMode={props.pendingMode}
         disabled={!props.modeControlsOffered}
         onSelect={props.onSelectExecutionMode}
       />

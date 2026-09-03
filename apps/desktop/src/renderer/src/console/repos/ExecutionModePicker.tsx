@@ -16,6 +16,14 @@
 //   • A REFUSAL DOES NOT RE-PICK. `Spec-010 §Required Behavior` forbids silent
 //     substitution; the renderer's half is to show the daemon's refusal beside the
 //     control and leave the choice where it was.
+//   • A PENDING SWITCH HOLDS THE GROUP AND SAYS WHICH SWITCH IT IS. Two selects issued
+//     before the first settles both run and the LAST to reach the daemon decides, so a
+//     corrected choice can silently lose to the one it corrected away from. The group
+//     is therefore held while one is unanswered — and the pending mode is NAMED, because
+//     the rows go on showing the mode the workspace is bound as now and a group that
+//     merely greyed out would report nothing about what was pressed. Holding is a
+//     projection and not the rule: `execution-mode-selection.ts` refuses a second send
+//     whatever this fieldset is doing.
 //
 // A RADIO GROUP, NOT A MENU. This surface's own density decision is that all four rows
 // are visible at once, each with its reason, since the reason is the point — a menu hides
@@ -39,6 +47,8 @@ export interface ExecutionModePickerProps {
   readonly capabilities: WorkspaceExecutionModeCapabilitiesReadResponse | undefined;
   /** The daemon's refusal for this workspace's modes — a failed read, or a refused switch. */
   readonly refusal: ConsoleRefusal | undefined;
+  /** The mode a switch is on the wire for, where one is. Absent means nothing is pending. */
+  readonly pendingMode: ExecutionMode | undefined;
   /** Whether the surrounding card offers its bind controls at all. */
   readonly disabled: boolean;
   readonly onSelect: (executionMode: ExecutionMode) => void;
@@ -70,9 +80,13 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
   }
 
   const rows = modeRows(capabilities);
+  const { pendingMode } = props;
   return (
     <div className="meridian-mode-picker">
-      <fieldset className="meridian-mode-picker__group" disabled={props.disabled}>
+      <fieldset
+        className="meridian-mode-picker__group"
+        disabled={props.disabled || pendingMode !== undefined}
+      >
         <legend className="meridian-mode-picker__legend">
           What a run bound here may do to the repository
         </legend>
@@ -87,6 +101,14 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
           />
         ))}
       </fieldset>
+      {pendingMode !== undefined ? (
+        // `role="status"` rather than an alert: a switch that was sent is progress
+        // rather than a problem, and it is announced once when it starts.
+        <p className="meridian-mode-picker__pending" role="status">
+          Switching to <WireFigure value={pendingMode} />. The picker is held until the daemon
+          answers.
+        </p>
+      ) : null}
       {props.refusal !== undefined ? (
         <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
       ) : null}

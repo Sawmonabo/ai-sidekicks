@@ -37,6 +37,7 @@ function renderPicker(
       currentMode="read-only"
       capabilities={capabilities}
       refusal={undefined}
+      pendingMode={undefined}
       disabled={false}
       onSelect={() => undefined}
       {...overrides}
@@ -143,5 +144,49 @@ describe("ExecutionModePicker — refusals and absences", () => {
   it("disables the whole group when the mount withholds its bind controls", () => {
     const { container } = renderPicker(GIT_CAPABILITIES, { disabled: true });
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
+  });
+});
+
+describe("ExecutionModePicker — a switch the daemon has not answered", () => {
+  it("holds every row and names the mode it is holding for", () => {
+    // Two selects issued before the first settles both run, and the LAST to reach the
+    // daemon decides — so a corrected choice can silently lose to the one it corrected
+    // away from. The group holds until the answer arrives.
+    const { container, getByRole } = renderPicker(GIT_CAPABILITIES, { pendingMode: "worktree" });
+
+    // THE FIELDSET AND NOT THE INPUTS. A disabled `<fieldset>` disables every control
+    // it wraps, which is the whole reason the group is one — and asserting the
+    // inputs' own `disabled` property here would assert the opposite of what ships,
+    // since that property reflects each input's own attribute and never the group's.
+    expect(container.querySelector("fieldset")?.disabled).toBe(true);
+    // NAMED, not merely greyed: the rows go on showing the mode the workspace is bound
+    // as now, so a group that only disabled itself would report nothing about what was
+    // pressed.
+    expect(getByRole("status").textContent).toContain("Switching to");
+    expect(getByRole("status").textContent).toContain("worktree");
+  });
+
+  it("negative control: with nothing pending the rows are live and nothing is announced", () => {
+    // Without this the case above would pass against a picker that was always held,
+    // which would make every mode switch unreachable.
+    const { container, queryByRole } = renderPicker(GIT_CAPABILITIES);
+
+    expect(container.querySelector("fieldset")?.disabled).toBe(false);
+    expect(queryByRole("status")).toBeNull();
+  });
+
+  it("keeps the bound row checked rather than moving the selection to the pending mode", () => {
+    // The switch has not happened yet. Moving the radio would report a binding the
+    // daemon has not confirmed — and if it refuses, the row would have to move back,
+    // which is the silent re-pick `Spec-010 §Required Behavior` forbids.
+    const { container } = renderPicker(GIT_CAPABILITIES, {
+      currentMode: "read-only",
+      pendingMode: "worktree",
+    });
+    const checked = [...container.querySelectorAll<HTMLInputElement>("input[type=radio]")].filter(
+      (radio) => radio.checked,
+    );
+
+    expect(checked.map((radio) => radio.value)).toStrictEqual(["read-only"]);
   });
 });
