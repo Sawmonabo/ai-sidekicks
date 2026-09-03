@@ -39,7 +39,7 @@
 // own words: module scope IS window scope here, because an auxiliary window is its
 // own renderer process and no channel joins two windows' module graphs.
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import {
   AttemptGeneration,
@@ -303,18 +303,47 @@ export interface ShellPreferenceBinding {
  * store before it, and the disposed one is dropped rather than kept: asking again
  * for a bridge that has been superseded mints a fresh store instead of handing back
  * a terminal one whose replies write nothing.
+ *
+ * READING AND ACQUIRING ARE TWO METHODS, and that split is what keeps the rule
+ * above safe under React. The one method this used to carry did both, so the render
+ * body that looked a store up also disposed the one the committed tree was
+ * subscribed to; a replayed or abandoned render then left the mounted pages reading
+ * and choosing into a disposed store while this holder held one that was never
+ * committed. {@link storeIfCurrent} is what a render body calls and mutates
+ * nothing; {@link acquire} is what an effect or an event handler calls and is the
+ * only place a store is minted or disposed.
  */
 class ShellPreferenceStoreHolder {
   #bridge: ConsoleBridge | undefined;
   #store: ShellPreferenceStore | undefined;
 
-  /** The store for this bridge, minting one on first ask and on a bridge change. */
-  public storeFor(bridge: ConsoleBridge): ShellPreferenceStore {
-    const held = this.#store;
-    if (held !== undefined && this.#bridge === bridge) {
+  /**
+   * The live store for `bridge`, or `undefined` when this holder is on another
+   * bridge or has not been asked for one yet.
+   *
+   * PURE — a field read and a comparison, nothing else — because this is the call a
+   * render body makes, and a render body may run for a pass React discards.
+   */
+  public storeIfCurrent(bridge: ConsoleBridge): ShellPreferenceStore | undefined {
+    return this.#bridge === bridge ? this.#store : undefined;
+  }
+
+  /**
+   * The store for this bridge, minting one on first ask and on a bridge change.
+   *
+   * MUTATES, so it is reached from an effect or from an event handler and never
+   * from a render body. Idempotent for one bridge, which is what lets strict mode
+   * invoke the acquiring effect twice without the second invocation superseding
+   * what the first one minted.
+   */
+  public acquire(bridge: ConsoleBridge): ShellPreferenceStore {
+    const held = this.storeIfCurrent(bridge);
+    if (held !== undefined) {
       return held;
     }
-    held?.dispose();
+    // The only disposal there is: the store a DIFFERENT bridge supersedes. A page
+    // unmounting disposes nothing, because this store's lifetime is the window's.
+    this.#store?.dispose();
     const minted = new ShellPreferenceStore(bridge);
     this.#bridge = bridge;
     this.#store = minted;
@@ -336,26 +365,51 @@ export const consoleShellPreferences: ShellPreferenceStoreHolder = new ShellPref
 /**
  * Bind this window's shell preferences.
  *
- * The store is RESOLVED from the holder rather than constructed here, and the effect
- * starts it WITHOUT a teardown. Both halves are the fix for one defect: a store
- * built per calling component died with the page, so leaving a settings section
- * destroyed a choice the row said was held for the window. The `useMemo` is now a
- * per-render lookup rather than a construction, so a memo React discards costs a
- * lookup and no state.
+ * THE STORE IS ACQUIRED IN AN EFFECT AND ONLY READ DURING RENDER. It was acquired
+ * during render, from a `useMemo` over the bridge, and a memo is not a safe place
+ * for an acquisition that disposes something: a replacement bridge disposed the
+ * store the committed tree was subscribed to and installed a successor, so a render
+ * React replayed or abandoned left every mounted page reading and choosing into a
+ * disposed store while the holder held one that was never committed. Every other
+ * bridge-bound holder in this console already acquires from an effect and renders
+ * the absence until it settles — `agents/agent-console-model.ts` and
+ * `panes/agent-console/session-projection.ts` are both that shape — and this is the
+ * same shape rather than a second lifecycle beside them.
+ *
+ * THE EFFECT STILL HAS NO TEARDOWN. This store's lifetime is the WINDOW's and a
+ * page unmount is not the window closing, which is the defect the holder was
+ * introduced to fix; the one disposal there is belongs to the replacement, inside
+ * `acquire`, where it happens after a commit rather than during a render.
+ *
+ * A PAGE THAT RENDERS BEFORE THE EFFECT SETTLES renders the opening arm — the
+ * `not-read` snapshot every row already draws in the frame before the carrier
+ * answers — and never a disposed store, because the store answered is this mount's
+ * own only while the holder still holds it for this bridge. State replaced from an
+ * effect lags its own inputs by one committed frame, which is the rule
+ * `agents/agent-console-model.ts` states for the same hazard.
  */
 export function useShellPreferences(bridge: ConsoleBridge): ShellPreferenceBinding {
-  const store = useMemo(() => consoleShellPreferences.storeFor(bridge), [bridge]);
+  const [acquiredStore, setAcquiredStore] = useState<ShellPreferenceStore | undefined>(() =>
+    // Seeded from the pure lookup so the SECOND page to bind in a window opens on
+    // the store the first one acquired rather than on one frame of the opening arm.
+    consoleShellPreferences.storeIfCurrent(bridge),
+  );
+
   useEffect(() => {
-    // Idempotent, so strict mode's second mount asks nothing twice — and no
-    // teardown, because this store's lifetime is the window's and a page unmount is
-    // not the window closing.
+    const store = consoleShellPreferences.acquire(bridge);
+    // Idempotent, so strict mode's second invocation asks nothing twice.
     store.start();
-  }, [store]);
+    setAcquiredStore(store);
+  }, [bridge]);
+
+  const liveStore = consoleShellPreferences.storeIfCurrent(bridge);
+  const store = acquiredStore === liveStore ? acquiredStore : undefined;
+
   const subscribe = useCallback(
-    (onStoreChange: () => void) => store.subscribe(onStoreChange),
+    (onStoreChange: () => void) => store?.subscribe(onStoreChange) ?? noPreferenceSubscription,
     [store],
   );
-  const read = useCallback(() => store.snapshot(), [store]);
+  const read = useCallback(() => store?.snapshot() ?? NOTHING_CHOSEN, [store]);
   const snapshot = useSyncExternalStore(subscribe, read, read);
   return {
     snapshot,
@@ -364,9 +418,18 @@ export function useShellPreferences(bridge: ConsoleBridge): ShellPreferenceBindi
     isPending: (key) => snapshot.pendingKey === key,
     refusalFor: (key) => snapshot.refusalByKey[key],
     choose: (key, enabled) => {
-      void store.choose(key, enabled);
+      // Reached from an event handler and never from a render, so this acquires
+      // rather than reads: a press must move a store rather than be swallowed by
+      // the frame before the effect ran, and the handler settles on the same store
+      // that effect acquired because a press cannot outrun a passive effect.
+      void consoleShellPreferences.acquire(bridge).choose(key, enabled);
     },
   };
+}
+
+/** The unsubscribe a mount whose effect has not acquired a store yet hands React. */
+function noPreferenceSubscription(): void {
+  return undefined;
 }
 
 /**
