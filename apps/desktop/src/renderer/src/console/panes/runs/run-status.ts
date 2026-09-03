@@ -179,3 +179,30 @@ export const RUN_TRIGGER_PHRASES: Readonly<Record<RunStopTrigger, string>> = {
   moderation_denied: "moderation denied the turn",
   workflow_phase_cancelled: "the workflow phase was cancelled",
 };
+
+/**
+ * The phrase for one stop trigger read off an untyped source.
+ *
+ * The stream's own `trigger` arrives through the registered union and indexes the
+ * table directly, but the durable `run_lifecycle` payload reaches the console as a
+ * wire string with no narrowing behind it, and a table lookup there would answer
+ * `undefined` and drop a run's whole reason for stopping. So an unratified token
+ * is carried VERBATIM instead — a sixth trigger reads as itself rather than as a
+ * blank sentence, which is the treatment the standing-permission list already gives
+ * an invalidation trigger it does not recognize.
+ */
+export function runStopTriggerPhraseFor(trigger: string): string {
+  return Object.hasOwn(RUN_TRIGGER_PHRASES, trigger)
+    ? RUN_TRIGGER_PHRASES[trigger as RunStopTrigger]
+    : trigger;
+}
+
+/**
+ * What a daemon-initiated close says, in this pane's own words.
+ *
+ * Declared here beside the trigger phrases rather than written at each row, because
+ * two rows read it — the live projection's and the one built from the session's own
+ * record — and the same fact told in two sentences is how they drift apart.
+ */
+export const RUN_CLEAN_CLOSE_SENTENCE =
+  "The daemon closed this run deliberately. It is not a crash.";

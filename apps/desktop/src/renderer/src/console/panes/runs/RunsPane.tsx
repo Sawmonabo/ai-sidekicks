@@ -14,17 +14,21 @@
 //
 //   • **No session.** The pane is addressed within a session; opened on a bare
 //     route there is nothing to read and no read to wait for.
-//   • **Nothing delivered yet.** `not-loaded` — a read IS in flight, the
-//     subscription is open, and a skeleton is the honest shape.
+//   • **Nothing delivered yet.** `not-loaded` — a read IS in flight, the session's
+//     snapshot has not landed, and a skeleton is the honest shape.
 //   • **Delivered, and there are no runs.** `empty`, with the start affordance
 //     beside it. This is the one arm that may say "there are none", and it is
-//     reachable only after the stream has spoken.
+//     reachable only once the snapshot has landed naming none.
 //
-// And one thing that is none of the three: a stream that is open and answering
-// while some of what it answered parsed as neither registered arm. That is not an
-// absence and not a refusal — the feed is live and partial at once — so it renders
-// as a sentence BESIDE the rows rather than in place of them, and settles nothing,
-// which is why it announces nothing.
+// And two things that are none of the three. A stream that is open and answering
+// while some of what it answered parsed as neither registered arm: not an absence
+// and not a refusal — the feed is live and partial at once — so it renders as a
+// sentence BESIDE the rows rather than in place of them, and settles nothing, which
+// is why it announces nothing. And a run the session's own record knows that the
+// live tail has not described, which is neither missing nor current: it draws its
+// row from `run-seating.ts` and the pane names how many such rows it is drawing and
+// which runs they are, because a list that quietly omitted them would read as a
+// session with fewer runs than it has.
 //
 // The three are `Spec-023`'s five kinds of nothing applied as they are meant to be:
 // "we have not asked", "we are asking", and "there is none" are three facts and the
@@ -36,16 +40,24 @@
 // client memory as the record: the queue's rows come from the daemon's snapshot and
 // its tail, and cancel changes a row only when the daemon says it changed.
 
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { useDriverCapabilities, useQueueFeed } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
-import { DerivedFigure, formatCount, InlineRefusal, Nothing } from "../../primitives/index.js";
+import {
+  DerivedFigure,
+  formatCount,
+  InlineRefusal,
+  Nothing,
+  WireFigure,
+} from "../../primitives/index.js";
 import { useSessionPartition, type SessionStore } from "../../store/index.js";
 import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../pane-chrome.js";
+import { KnownRunRow } from "./KnownRunRow.js";
 import { QueueContents } from "./QueueContents.js";
 import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
+import { seatRuns } from "./run-seating.js";
 import { useRunControlSurface } from "./run-control-surface.js";
 import { useRunStateFeed } from "./run-state-feed.js";
 
@@ -86,11 +98,15 @@ function RunsPaneBody(props: {
   const { context, sessionStore } = props;
   const stateFeed = useRunStateFeed(context.bridge, sessionStore);
   const queueFeed = useQueueFeed(context.bridge, sessionStore.sessionId);
-  // Which runs the session HAS, as its snapshot established them. The stream
-  // describes what has happened to a run and says nothing about a run nothing has
-  // happened to yet, so this is what keeps "the stream has told us nothing" from
-  // rendering as "the session has no runs".
+  // Which runs the session HAS, as its snapshot established them and its log has
+  // gone on folding. The stream describes what has happened to a run and says
+  // nothing about a run nothing has happened to since the pane opened, so this is
+  // the read that answers which runs exist and the stream is the tail over it.
   const knownRuns = useSessionPartition(sessionStore, "run");
+  // Seated once per change of either reading rather than at each render: the seat
+  // walks the partition and the projections, and a render body that rebuilt it
+  // would do that on every keystroke in the composer below.
+  const seating = useMemo(() => seatRuns(knownRuns, stateFeed.runs), [knownRuns, stateFeed.runs]);
   const driverCapabilities = useDriverCapabilities(context.bridge);
   const surface = useRunControlSurface(context.bridge);
   const [composerTarget, setComposerTarget] = useState<ComposerTarget | undefined>(undefined);
@@ -107,6 +123,10 @@ function RunsPaneBody(props: {
     setComposerTarget(undefined);
   }, []);
 
+  // The composer is offered only against a run the STREAM has described: its guard
+  // is `expectedRunVersion` reconciled against the live reading, which a row seated
+  // from the session's record does not have — and that row offers no control to
+  // reach this from either.
   const composedRun =
     composerTarget === undefined
       ? undefined
@@ -136,25 +156,32 @@ function RunsPaneBody(props: {
             not read, so what is shown here may be behind what the daemon has sent.
           </p>
         ) : null}
-        {stateFeed.runs.length === 0 ? (
-          <NoRuns
-            hasRead={stateFeed.hasRead}
-            knownRunCount={Object.keys(knownRuns).length}
-            openRefusal={stateFeed.openRefusal}
-          />
+        {seating.awaitingProjectionRunIds.length > 0 ? (
+          // Neither missing nor current, so neither an absence nor a refusal: the
+          // session's record knows these runs and the live tail has not described
+          // them. Said with the count AND the ids, because "some rows are not live"
+          // is unactionable and "these two are not live" is what a person checks.
+          <AwaitingProjection runIds={seating.awaitingProjectionRunIds} />
+        ) : null}
+        {seating.rows.length === 0 ? (
+          <NoRuns hasRead={stateFeed.hasRead} openRefusal={stateFeed.openRefusal} />
         ) : (
           <div className="meridian-runs__rows" role="feed" aria-label="Runs in this session">
-            {stateFeed.runs.map((run) => (
-              <RunRow
-                key={run.runId}
-                run={run}
-                surface={surface}
-                bridge={context.bridge}
-                driverCapabilities={driverCapabilities}
-                onRequestRewind={onRequestRewind}
-                onRequestSteer={onRequestSteer}
-              />
-            ))}
+            {seating.rows.map((seated) =>
+              seated.source === "projected" ? (
+                <RunRow
+                  key={seated.runId}
+                  run={seated.projection}
+                  surface={surface}
+                  bridge={context.bridge}
+                  driverCapabilities={driverCapabilities}
+                  onRequestRewind={onRequestRewind}
+                  onRequestSteer={onRequestSteer}
+                />
+              ) : (
+                <KnownRunRow key={seated.runId} run={seated.known} />
+              ),
+            )}
           </div>
         )}
       </section>
@@ -177,24 +204,53 @@ function RunsPaneBody(props: {
 }
 
 /**
- * Two different absences, told apart by whether the read has completed — and, ahead
- * of both, the refusal that says the stream was never opened.
+ * The runs the session knows and the live tail has not described.
  *
- * `empty` is reachable only once the session's snapshot has landed AND the snapshot
- * itself named no run. Both conjuncts are needed: without the first the pane would
- * claim a session has no runs before anything had been read, and without the second
- * it would claim it for a session whose snapshot lists runs the live tail has not
- * yet described — a skeleton is the honest shape in both windows.
+ * Beside the rows and never in place of them: each of these runs already HAS a row,
+ * seated from the session's own record, so this sentence qualifies the list rather
+ * than standing in for it. It names the ids as well as the count because the count
+ * alone leaves a person unable to tell which of the rows in front of them is the
+ * one that is not live.
+ */
+function AwaitingProjection(props: { readonly runIds: readonly string[] }): React.JSX.Element {
+  return (
+    <p className="meridian-runs__awaiting-projection">
+      The live run-state stream has not described{" "}
+      <DerivedFigure text={formatCount(props.runIds.length)} />{" "}
+      {props.runIds.length === 1 ? "run" : "runs"} this session knows, so{" "}
+      {props.runIds.length === 1 ? "its row reads" : "their rows read"} from the session&apos;s own
+      record rather than from a live reading:{" "}
+      {props.runIds.map((runId, position) => (
+        <span key={runId}>
+          {position === 0 ? null : ", "}
+          <WireFigure value={runId} />
+        </span>
+      ))}
+      .
+    </p>
+  );
+}
+
+/**
+ * Two different absences, told apart by whether the read that says WHICH RUNS EXIST
+ * has completed — and, ahead of both, the refusal that says the stream was never
+ * opened.
+ *
+ * Reached only when the seating produced no row at all, which is now the exact
+ * condition under which the session knows of no run and the stream has projected
+ * none. `empty` is the arm once the snapshot has landed, and `not-loaded` the arm
+ * before it: a session whose snapshot names runs seats rows for them and never
+ * arrives here, which is what retires the skeleton that used to outlive every
+ * terminal pre-existing run.
  */
 function NoRuns(props: {
   readonly hasRead: boolean;
-  readonly knownRunCount: number;
   readonly openRefusal: ConsoleRefusal | undefined;
 }): React.JSX.Element {
   if (props.openRefusal !== undefined) {
     return <InlineRefusal code={props.openRefusal.code} detail={props.openRefusal.detail} />;
   }
-  if (!props.hasRead || props.knownRunCount > 0) {
+  if (!props.hasRead) {
     return (
       <Nothing kind="not-loaded" placement="surface" title="Reading the runs in this session." />
     );

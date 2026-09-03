@@ -44,6 +44,7 @@ import { RunControls } from "./RunControls.js";
 import type { RunControlSurface } from "./run-control-surface.js";
 import { runElapsedMilliseconds, type RunProjection, type RunStatusRow } from "./run-state-feed.js";
 import {
+  RUN_CLEAN_CLOSE_SENTENCE,
   RUN_STATE_TONES,
   RUN_TRIGGER_PHRASES,
   isBlockedRunState,
@@ -130,9 +131,7 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
         </p>
       )}
       {run.intendedClose ? (
-        <p className="meridian-run-row__clean-close">
-          The daemon closed this run deliberately. It is not a crash.
-        </p>
+        <p className="meridian-run-row__clean-close">{RUN_CLEAN_CLOSE_SENTENCE}</p>
       ) : null}
       {run.failureCategory === undefined ? null : (
         <p className="meridian-run-row__failure">
