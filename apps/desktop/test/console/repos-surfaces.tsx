@@ -355,6 +355,27 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
  * forever. The reply shapes below are `GrowthArtifactRead`'s own two arms — a handle,
  * or bytes beside the encoding to read them by — so what is pinned is the composition
  * the registered shape produces, not one this file invented.
+ *
+ * THE SCHEDULED READ IS WAITED FOR BEFORE THE ACT IS PRESSED, AND THAT ORDER IS THE
+ * WHOLE FIX. This mount used to wait for the payload section alone — the act's own
+ * DOM — while the pane's list and allow-list reads were still inside the refresh
+ * scheduler's coalescing window, which is 120 ms of real time and not a microtask
+ * `renderSettled` can flush. So the Artifacts panel was captured in whichever of two
+ * states the runner reached, and it genuinely reached both: the same commit measured
+ * 10,510 and then 10,232 differing pixels on consecutive runs of one subject, while a
+ * sibling subject lost the race every time and pinned the pre-read frame. A baseline
+ * minted over that records a coin flip, and every later comparison against it is a
+ * comparison with the coin.
+ *
+ * WAITED FOR BY THE ARM'S OWN DOM, on `mountRepoSection`'s rule and for its reason.
+ * The panel's filter group is rendered if and only if a list came back — the panel
+ * withholds it on `not-checked`, on `loading`, and on a refusal, because an offered
+ * filter is a promise that pressing it narrows something — so its presence IS the
+ * settled `listed` arm and nothing else. Both of the reader's legs publish as one
+ * snapshot, so the allow-list hint is settled in the same frame. A clock is not driven
+ * here instead: the pane builds its own `RealClock` behind the binding and this file
+ * has no seam to hand it one, and the wait a surface already answers is the better
+ * signal anyway — it says the state is on screen rather than that time has passed.
  */
 async function mountArtifactPanePayload(
   readAnswer: Record<string, unknown>,
@@ -381,6 +402,7 @@ async function mountArtifactPanePayload(
     </LiveAnnouncerProvider>,
   );
   const region = requireLabelledRegion(container, "Artifact");
+  await waitForWithin(region, ".meridian-artifacts__filter");
   fireEvent.click(within(region).getByRole("button", { name: "Fetch payload" }));
   await waitForWithin(region, ".meridian-artifact-payload");
   return { element: region, bridge };
