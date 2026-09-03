@@ -198,6 +198,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const openedTerminalRunIds = chapterDisclosure.openedTerminalRunIds;
   const rowLease = viewport.rowLease;
   const setRowLease = viewport.setRowLease;
+  // Named off the props object rather than read through it, because the callback
+  // below keys on this and `props` is a fresh object on every render. Depending on
+  // the whole object rebuilt `renderRow` on every render of this feed — a find
+  // keystroke, a rail hover, a replay tick, a lease write — and `LedgerRowMount`'s
+  // memo compares it, so every mounted row re-rendered for a change none of them
+  // could see.
+  const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   const renderRow = useCallback(
     (row: LedgerViewportRow) => {
@@ -240,7 +247,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       if (seam !== undefined) {
         return <SeamRow seam={seam} participantHue={participantHue} isSuperseded={isSuperseded} />;
       }
-      return props.renderTimelineRow({
+      return renderTimelineRow({
         row: projected,
         participantHue,
         isSuperseded,
@@ -252,7 +259,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           rowLease(projected.id)?.density ?? densityFor(projected.id, ledgerWindow.collapsedRowIds),
       });
     },
-    [hueForActor, ledgerWindow, openedTerminalRunIds, props, rowLease, toggleChapter],
+    [hueForActor, ledgerWindow, openedTerminalRunIds, renderTimelineRow, rowLease, toggleChapter],
   );
 
   const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
