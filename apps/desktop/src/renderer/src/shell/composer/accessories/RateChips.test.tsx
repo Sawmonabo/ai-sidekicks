@@ -9,22 +9,20 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { ProviderQuotaReading } from "../../../console/bridge/index.js";
 import { RATE_CHIP_TONES, RateChips, rateChipToneFor } from "./RateChips.js";
-import type { FoldedRateLimitReading } from "./usage-readings.js";
 
 const NOW_MILLISECONDS = Date.parse("2026-01-01T00:00:00.000Z");
 
-function reading(overrides: Partial<FoldedRateLimitReading> = {}): FoldedRateLimitReading {
+function reading(overrides: Partial<ProviderQuotaReading> = {}): ProviderQuotaReading {
   return {
-    providerAccountId: "account-one",
+    accountId: "account-one",
     limitId: "weekly",
     accountLabel: "Team",
     limitLabel: "weekly",
     usedPercent: 90,
     resetsAt: undefined,
     observedAt: "2026-01-01T00:00:00.000Z",
-    credentialGeneration: undefined,
-    sequence: 1,
     isStale: false,
     ...overrides,
   };

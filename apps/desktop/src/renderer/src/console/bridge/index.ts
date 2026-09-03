@@ -51,6 +51,8 @@ export {
   DAEMON_STREAM_REFUSAL_ORIGIN,
   DRIVER_LIST_CAPABILITIES_METHOD,
   LIST_PROVIDER_COMMANDS_METHOD,
+  PROVIDER_ACCOUNT_LIST_METHOD,
+  PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   QUEUE_CANCEL_METHOD,
   QUEUE_LIST_METHOD,
   QUEUE_SUBSCRIBE_STREAM,
@@ -60,6 +62,7 @@ export {
   RUN_STATE_SUBSCRIBE_STREAM,
   callDaemon,
   subscribeDaemon,
+  subscribeNodeDaemon,
 } from "./daemon-calls.js";
 export type { DaemonStreamOpen } from "./daemon-calls.js";
 
@@ -75,6 +78,21 @@ export type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capa
 // used to ask its own down its own subscription.
 export { useQueueFeed } from "./queue-feed.js";
 export type { QueueFeed, QueueReadPhase } from "./queue-feed.js";
+
+// The node's provider-account quotas: one read, one tail, one fold per bridge.
+//
+// Here rather than in the composer because the readings are the NODE's and not a
+// session's — `usage.rate_limit_update` is bound to the node-scope sentinel session,
+// so no session store ever held one and the composer's timeline fold could only ever
+// have rendered a fixture. A settings surface listing accounts asks the same
+// question of the same registry, so the read lives at the bridge where both reach it.
+export { remainingPercentOf, useProviderQuotas } from "./provider-account-quota.js";
+export type {
+  ProviderQuotaReadPhase,
+  ProviderQuotaReadout,
+  ProviderQuotaReading,
+} from "./provider-account-quota.js";
+export { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-account-quota.js";
 
 export {
   SidekicksBridgeProvider,

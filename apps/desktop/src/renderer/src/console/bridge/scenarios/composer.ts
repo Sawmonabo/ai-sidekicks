@@ -345,6 +345,109 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
       },
     },
     {
+      // The accessory rail's quota chips, read off the ACCOUNT PLANE rather than out
+      // of this scenario's timeline. `usage.rate_limit_update` is bound to the
+      // node-scope sentinel session, so no beat here could have carried one and the
+      // chips were previously reachable only through a fold no daemon could feed.
+      //
+      // The reply is the registered `ProviderAccountListResponse` and carries all
+      // three required members. Two accounts and three windows, chosen so the two
+      // rules the chips encode are both reachable: the two Claude windows share a
+      // `windowMins` and differ only by `limitId` — the pair key, and the reason a
+      // duration key was abandoned — and the `weekly-opus` reading was observed at
+      // generation 1 while its account is on 2, so the stale glyph renders.
+      //
+      // `usedPercent` values sit in the two visible bands (below 50 remaining) so a
+      // screenshot has chips at all; the third window is healthy and deliberately
+      // renders nothing, which is the band rule's own negative case.
+      //
+      // NOTHING SCRIPTS THE SUBSCRIPTION. `providerAccount.subscribe` is a
+      // `daemon.subscribe` name the fixture routes as an event type, and no beat
+      // carries that kind, so the tail attaches and stays silent — the chips are
+      // seeded by this read and do not move, which is exactly what a byte-stable
+      // screenshot needs.
+      call: "providerAccount.list",
+      result: {
+        accounts: [
+          {
+            accountId: "acct-claude-team",
+            provider: "claude",
+            displayLabel: "Claude — team",
+            credentialGeneration: 2,
+            billingMode: "subscription",
+            isDefault: true,
+            healthState: "authenticated",
+            healthObservedAt: "2026-01-01T11:00:00.000Z",
+            observedAuthMode: "oauth_subscription",
+            loggedInAt: "2026-01-01T09:00:00.000Z",
+            expectedReloginAtEstimate: null,
+            probeEnabled: true,
+          },
+          {
+            accountId: "acct-codex-personal",
+            provider: "codex",
+            displayLabel: "Codex — personal",
+            credentialGeneration: 1,
+            billingMode: "metered",
+            isDefault: false,
+            healthState: "authenticated",
+            healthObservedAt: "2026-01-01T11:00:00.000Z",
+            observedAuthMode: "api_key",
+            loggedInAt: null,
+            expectedReloginAtEstimate: null,
+            probeEnabled: true,
+          },
+        ],
+        usageWindows: [
+          {
+            accountId: "acct-claude-team",
+            limitId: "weekly-all",
+            windowMins: 10080,
+            label: "Weekly, all models",
+            usedPercent: 62,
+            resetsAt: "2026-01-03T11:00:00.000Z",
+            observedAt: "2026-01-01T11:04:00.000Z",
+            observedCredentialGeneration: 2,
+            source: "probe",
+          },
+          {
+            accountId: "acct-claude-team",
+            limitId: "weekly-opus",
+            windowMins: 10080,
+            label: "Weekly, Opus",
+            usedPercent: 91,
+            resetsAt: "2026-01-04T11:00:00.000Z",
+            observedAt: "2026-01-01T11:02:00.000Z",
+            observedCredentialGeneration: 1,
+            source: "run",
+          },
+          {
+            accountId: "acct-codex-personal",
+            limitId: "default",
+            windowMins: 300,
+            usedPercent: 8,
+            observedAt: "2026-01-01T11:03:00.000Z",
+            observedCredentialGeneration: 1,
+            source: "probe",
+          },
+        ],
+        readiness: [
+          {
+            provider: "claude",
+            state: "authenticated",
+            resolvedAccountId: "acct-claude-team",
+            observedAt: "2026-01-01T11:00:00.000Z",
+          },
+          {
+            provider: "codex",
+            state: "authenticated",
+            resolvedAccountId: "acct-codex-personal",
+            observedAt: "2026-01-01T11:00:00.000Z",
+          },
+        ],
+      },
+    },
+    {
       // The compaction control's dispatch. `DriverCompactionResult` is a
       // discriminated union whose `applied` arm REQUIRES `boundaryPosition`, typed
       // `number | null` — null being the positive statement that the provider's

@@ -3,13 +3,23 @@
 // editor, and the workflow picker.
 //
 // WHERE THE FIGURES COME FROM. The rail selects the session's timeline once and
-// folds it three ways under `useMemo` — the newest context reading, the rate
-// readings per account and window, and the newest compaction boundary of the
-// ADDRESSED RUN. Three components reading the store separately would be three
-// subscriptions to one selector, and the fold is pure, so one derivation serves all
-// three. The compaction fold takes the address as an input rather than reading every
-// compaction row in the session: a session with two runs would otherwise show one
-// run's boundary under the other's control.
+// folds it two ways under `useMemo` — the newest context reading, and the newest
+// compaction boundary of the ADDRESSED RUN. Two components reading the store
+// separately would be two subscriptions to one selector, and the fold is pure, so one
+// derivation serves both. The compaction fold takes the address as an input rather
+// than reading every compaction row in the session: a session with two runs would
+// otherwise show one run's boundary under the other's control.
+//
+// THE QUOTA CHIPS COME OFF THE ACCOUNT PLANE AND NOT OFF THIS TIMELINE. They used to
+// be a third fold here, over `usage.rate_limit_update` — a row `Spec-006 §Daemon-Scope
+// Event Binding And Node-Scope Anchoring` binds to the reserved node-scope sentinel
+// session, so no session store this rail can select from ever holds one. The chips
+// were therefore reachable only under a fixture that put the row in a session's log,
+// and against a daemon the seat would have rendered nothing forever. They now read
+// `console/bridge/provider-account-quota.ts`, which is one `providerAccount.list` and
+// one `providerAccount.subscribe` per BRIDGE — node-scoped, like the readings — and a
+// read that failed says so beside the meters rather than leaving a quota-shaped
+// silence that reads as healthy.
 //
 // THE SHELF ASKS A NARROWER QUESTION OF THE SESSION'S ONE QUEUE READING. The rows
 // still waiting are what the shelf holds; the runs pane shows the whole queue,
@@ -44,8 +54,13 @@
 // placement, the framing, and the readings this file folds. It authors no body.
 
 import { useMemo } from "react";
-import { useDriverCapabilities, useQueueFeed } from "../../../console/bridge/index.js";
+import {
+  useDriverCapabilities,
+  useProviderQuotas,
+  useQueueFeed,
+} from "../../../console/bridge/index.js";
 import { RealClock } from "../../../console/core/index.js";
+import { InlineRefusal } from "../../../console/primitives/index.js";
 import type { ComposerSeatProps } from "../../../console/seats/index.js";
 import {
   useSessionStore,
@@ -61,11 +76,7 @@ import { PlusMenu } from "./PlusMenu.js";
 import { QueueShelf } from "./QueueShelf.js";
 import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT } from "./RateLimitSlot.js";
 import { waitingQueueRows } from "./waiting-queue.js";
-import {
-  foldRateLimitReadings,
-  newestCompactionBoundarySequence,
-  newestContextWindowReading,
-} from "./usage-readings.js";
+import { newestCompactionBoundarySequence, newestContextWindowReading } from "./usage-readings.js";
 
 /**
  * The one selector, at module scope so its identity is stable across renders.
@@ -91,7 +102,10 @@ const HOST_CLOCK = new RealClock();
 export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const contextReading = useMemo(() => newestContextWindowReading(timeline), [timeline]);
-  const rateReadings = useMemo(() => foldRateLimitReadings(timeline), [timeline]);
+  // Node-scoped and therefore keyed to the BRIDGE rather than to this session: the
+  // registry these readings come from is the machine's, and two sessions open in one
+  // window are served by one read and one tail.
+  const providerQuotas = useProviderQuotas(props.bridge);
   const queueFeed = useQueueFeed(props.bridge, props.sessionStore.sessionId);
   // The shelf's own question, asked of the session's one reading: the rows still
   // waiting. A row the daemon has stopped calling `queued` has left the shelf, and
@@ -128,9 +142,18 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
           <RateLimitSlot
             contract={RATE_LIMIT_SLOT_CONTRACT}
             body={undefined}
-            readings={rateReadings}
+            readings={providerQuotas.readings}
             nowMilliseconds={clock.now()}
           />
+          {/* Rendered rather than swallowed: a chip's absence is not a health
+              reading, so a registry nobody could read must not look like a node
+              whose quotas are all fine. */}
+          {providerQuotas.readRefusal === undefined ? null : (
+            <InlineRefusal
+              code={providerQuotas.readRefusal.code}
+              detail={providerQuotas.readRefusal.detail}
+            />
+          )}
           {addressedRun === undefined ? null : (
             <CompactionSlot
               contract={COMPACTION_SLOT_CONTRACT}

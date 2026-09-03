@@ -98,6 +98,28 @@ export const QUEUE_SUBSCRIBE_STREAM = "run.subscribeQueue";
 export const RUN_STATE_SUBSCRIBE_STREAM = "run.subscribeState";
 
 /**
+ * The node's provider-account registry, with the durable quota rows on the reply.
+ *
+ * NODE-scoped and not session-scoped: the registry is the machine's, so the reply
+ * describes accounts no session owns. The quota rows ride the READ because the
+ * subscription beside it is a live tail rather than a snapshot replay — without them
+ * a client that opened after a reading, or after a daemon restart, could reach the
+ * stored windows only when another probe or run happened to produce one.
+ */
+export const PROVIDER_ACCOUNT_LIST_METHOD = "providerAccount.list";
+
+/**
+ * The provider-account registry's live tail.
+ *
+ * Read-shaped, node-scoped, and takes no parameters at all — a filter member would
+ * be a second place the node's own registry scope is decided. It carries a WIRE
+ * NOTIFICATION and never a session event: the registry is un-evented by design,
+ * because a node-local operator act on a node-local registry belongs to no session's
+ * audit timeline.
+ */
+export const PROVIDER_ACCOUNT_SUBSCRIBE_STREAM = "providerAccount.subscribe";
+
+/**
  * The daemon call, with the one brand bypass the console makes.
  *
  * Takes the bridge rather than the raw namespace so `window.sidekicks` stays inside
@@ -140,6 +162,25 @@ export interface DaemonStreamOpen {
 }
 
 /**
+ * A node-scoped daemon subscription: a stream whose registered request scopes it to
+ * this machine and therefore carries no session at all.
+ *
+ * A SIBLING OF `subscribeDaemon` AND NOT A WIDENING OF IT. The session guard below
+ * is what keeps a session-scoped feed from ever opening with nothing to put on it,
+ * and relaxing it to admit a request with no session would delete that guarantee for
+ * the two `run.*` feeds in order to serve a stream that never had a session to name.
+ * Two functions, one widening — `#openStream` is the only place either reaches
+ * `bridge.sidekicks.daemon.subscribe`.
+ */
+export function subscribeNodeDaemon(
+  bridge: ConsoleBridge,
+  streamName: string,
+  handler: (payload: unknown) => void,
+): Unsubscribe {
+  return openStream(bridge, streamName, handler);
+}
+
+/**
  * The daemon subscription, widened the same way `callDaemon` is and taking the
  * registered request the wire's own registry pairs with the stream.
  *
@@ -178,9 +219,18 @@ export function subscribeDaemon(
       ),
     );
   }
+  return openStream(bridge, stream.method, handler);
+}
+
+/** The one widening of `daemon.subscribe`, shared by both scoped entry points. */
+function openStream(
+  bridge: ConsoleBridge,
+  streamName: string,
+  handler: (payload: unknown) => void,
+): Unsubscribe {
   const subscribe = bridge.sidekicks.daemon.subscribe as (
     event: string,
     handler: (payload: unknown) => void,
   ) => Unsubscribe;
-  return subscribe(stream.method, handler);
+  return subscribe(streamName, handler);
 }

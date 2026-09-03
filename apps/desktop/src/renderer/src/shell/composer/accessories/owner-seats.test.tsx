@@ -29,7 +29,8 @@ import {
 } from "./ContextMeterSlot.js";
 import { EditResendSlot, EDIT_RESEND_SLOT_CONTRACT } from "./EditResendSlot.js";
 import { RateLimitSlot, RATE_LIMIT_SLOT_CONTRACT, type RateLimitBody } from "./RateLimitSlot.js";
-import type { ContextWindowReading, FoldedRateLimitReading } from "./usage-readings.js";
+import type { ProviderQuotaReading } from "../../../console/bridge/index.js";
+import type { ContextWindowReading } from "./usage-readings.js";
 
 const SESSION_ID = "session-seats";
 const RUN_ID = "run-seats";
@@ -54,16 +55,14 @@ const CONTEXT_READING: ContextWindowReading = {
   sequence: 3,
 };
 
-const URGENT_RATE_READING: FoldedRateLimitReading = {
-  providerAccountId: "account-primary",
+const URGENT_RATE_READING: ProviderQuotaReading = {
+  accountId: "account-primary",
   limitId: "weekly",
   accountLabel: "Primary",
   limitLabel: "Weekly",
   usedPercent: 93,
   resetsAt: undefined,
   observedAt: "2026-01-01T00:00:00.000Z",
-  credentialGeneration: undefined,
-  sequence: 2,
   isStale: false,
 };
 

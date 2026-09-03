@@ -14,7 +14,11 @@ import { describe, expect, it } from "vitest";
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
+import {
+  PROVIDER_ACCOUNT_LIST_METHOD,
+  createFixtureBridge,
+  type ConsoleBridge,
+} from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
 import { DEFAULT_ROUTE } from "../../../console/routing/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
@@ -29,6 +33,44 @@ import { CONTEXT_WINDOW_EVENT_KIND } from "./usage-readings.js";
 
 const SESSION_ID = "session-rail";
 
+/** The registered list reply for a node with nothing registered on it. */
+const EMPTY_REGISTRY = { accounts: [], usageWindows: [], readiness: [] };
+
+/** One account and one window against it, in the registered shapes. */
+const ONE_URGENT_QUOTA = {
+  accounts: [
+    {
+      accountId: "acct-rail",
+      provider: "claude",
+      displayLabel: "Rail team",
+      credentialGeneration: 1,
+      billingMode: "subscription",
+      isDefault: true,
+      healthState: "authenticated",
+      healthObservedAt: "2026-01-01T00:00:00.000Z",
+      observedAuthMode: "oauth_subscription",
+      loggedInAt: null,
+      expectedReloginAtEstimate: null,
+      probeEnabled: true,
+    },
+  ],
+  usageWindows: [
+    {
+      accountId: "acct-rail",
+      limitId: "weekly-all",
+      windowMins: 10_080,
+      label: "Weekly, all models",
+      // Deep in the urgent band, so the chip is on screen at all: the healthy band
+      // renders nothing by design.
+      usedPercent: 94,
+      observedAt: "2026-01-01T00:00:00.000Z",
+      observedCredentialGeneration: 1,
+      source: "probe",
+    },
+  ],
+  readiness: [],
+};
+
 const EMPTY_SCENARIO: ConsoleScenario = {
   id: "rail-unit",
   label: "Rail unit",
@@ -37,7 +79,11 @@ const EMPTY_SCENARIO: ConsoleScenario = {
   participantIdsInJoinOrder: ["participant-you"],
   startedAtIso: "2026-01-01T00:00:00.000Z",
   beats: [],
-  replies: [],
+  // The rail's quota chips are a NODE-scoped read and not a store selection, so a
+  // scenario the rail mounts against has to answer it: an unscripted call is a
+  // fixture authoring error, which would put a refusal in every case below. This
+  // node has no account registered, which is an answered read and not a failure.
+  replies: [{ call: PROVIDER_ACCOUNT_LIST_METHOD, result: EMPTY_REGISTRY }],
 };
 
 function mountRail(
@@ -297,6 +343,12 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
             if (method === "driver.listCapabilities") {
               return { drivers: [reportFor("claude", ["context_compaction"])] };
             }
+            // The rail's own node-scoped quota read, answered so the recorder below
+            // holds compaction dispatches and nothing else — the claim is about which
+            // run was compacted, not about which calls the rail makes.
+            if (method === PROVIDER_ACCOUNT_LIST_METHOD) {
+              return EMPTY_REGISTRY;
+            }
             compactionCalls.push({ method, params });
             return { status: "applied", boundaryPosition: 12 };
           },
@@ -432,5 +484,57 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
     });
     expect(container.querySelector(METERS_NOT_CHECKED)).not.toBeNull();
     expect(container.querySelector(".meridian-compaction__action")).toBeNull();
+  });
+});
+
+describe("ComposerAccessoryRail — the quota chips come off the account plane", () => {
+  /** A fixture bridge answering the node-scoped registry read with `reply`. */
+  function bridgeAnswering(reply: unknown): ConsoleBridge {
+    return createFixtureBridge({
+      scenario: {
+        ...EMPTY_SCENARIO,
+        replies: [{ call: PROVIDER_ACCOUNT_LIST_METHOD, result: reply }],
+      },
+    });
+  }
+
+  it("renders a chip from the registry read with an EMPTY session timeline", async () => {
+    // The whole finding, as one case. The session store is given nothing, so a chip
+    // on screen can only have come from the account plane — which is where the
+    // registered wire puts this data, and where the session timeline never could.
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], { bridge: bridgeAnswering(ONE_URGENT_QUOTA) });
+    });
+
+    const chip = container.querySelector(".meridian-rate-chip");
+    expect(chip).not.toBeNull();
+    expect(chip?.textContent).toContain("Rail team");
+    expect(chip?.textContent).toContain("Weekly, all models");
+  });
+
+  it("negative control: no chip appears when the registry answers with no account", async () => {
+    // Without this the case above would hold over a rail that rendered a chip from
+    // anything at all, including the fixture's own defaults.
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], { bridge: bridgeAnswering(EMPTY_REGISTRY) });
+    });
+
+    expect(container.querySelector(".meridian-rate-chip")).toBeNull();
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+  });
+
+  it("says the registry could not be read rather than looking like a healthy node", async () => {
+    // A chip's absence is not a health reading. A read that failed and a node whose
+    // quotas are all fine render identically unless the refusal is on screen.
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], { bridge: bridgeAnswering({ accounts: "not a list" }) });
+    });
+
+    const refusal = container.querySelector(".meridian-refusal");
+    expect(refusal).not.toBeNull();
+    expect(refusal?.textContent).toContain("reply-unreadable");
   });
 });

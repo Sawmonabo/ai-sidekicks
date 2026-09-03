@@ -1,9 +1,10 @@
 // The rate-limit indicator's seat — the composer mounts it, another plan authors it.
 //
 // The second of the two meters the usage plan owns. The seat exists for the same
-// reason its sibling does: the reading is the rail's fold and the render is not the
-// composer's to write, so the composer hands over the readings and the clock reading
-// a countdown is measured against, and the body decides what a person sees.
+// reason its sibling does: the reading is the bridge's account-plane read and the
+// render is not the composer's to write, so the composer hands over the readings and
+// the clock reading a countdown is measured against, and the body decides what a
+// person sees.
 //
 // WHY THE CLOCK READING IS PART OF THE OBLIGATION. A body that read a clock itself
 // would tick on its own schedule, and the console's relative times are measured
@@ -22,7 +23,7 @@ import { RateChips, type RateChipsProps } from "./RateChips.js";
 export const RATE_LIMIT_SLOT_CONTRACT: OwnerSlotContract = {
   owningTask: "the usage-meters plan's rate-limit indicator",
   mountObligation:
-    "the composer supplies the indicator's placement in the accessory rail, the folded rate-limit readings keyed by account and limit window, and the one clock reading a countdown is measured against; the body owns the render, the visibility bands, and the tones",
+    "the composer supplies the indicator's placement in the accessory rail, the account plane's quota readings keyed by account and limit window, and the one clock reading a countdown is measured against; the body owns the render, the visibility bands, and the tones",
   deleteShellIn: "the PR that mounts the rate-limit indicator into this seat",
 };
 

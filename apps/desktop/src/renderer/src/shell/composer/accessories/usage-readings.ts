@@ -1,12 +1,22 @@
 // What the composer's meters read, and the one place a reading is narrowed.
 //
-// THE WIRE POSITION, STATED RATHER THAN ASSUMED. `usage.context_window_update`,
-// `usage.rate_limit_update`, and `usage.context_compacted` are registered session
-// EVENT TYPES — each is in `SESSION_EVENT_TYPES` and in the category map — and
-// `SessionEventSchema` registers a payload variant for none of them. There is no
-// schema to parse against and no generated type to import: the payload reaches the
-// store as `Readonly<Record<string, unknown>>`, and this module is the only place
-// in the composer that turns one into a figure.
+// THE WIRE POSITION, STATED RATHER THAN ASSUMED. `usage.context_window_update` and
+// `usage.context_compacted` are registered session EVENT TYPES — each is in
+// `SESSION_EVENT_TYPES` and in the category map — and `SessionEventSchema` registers
+// a payload variant for neither. There is no schema to parse against and no
+// generated type to import: the payload reaches the store as
+// `Readonly<Record<string, unknown>>`, and this module is the only place in the
+// composer that turns one into a figure.
+//
+// AND WHY THE RATE-LIMIT FOLD IS NO LONGER HERE. It used to be — a third fold over
+// `usage.rate_limit_update` rows, keyed `(providerAccountId, limitId)`, producing the
+// composer's quota chips. That event is ACCOUNT-PLANE: `Spec-006 §Daemon-Scope Event
+// Binding And Node-Scope Anchoring` binds it to the reserved node-scope sentinel
+// session, so a live session store holds none of them and the chips could appear only
+// under a fixture that put one in a session's log. The fold moved whole to
+// `console/bridge/provider-account-quota.ts`, which reads the registry the wire
+// actually publishes it on; the two readings this module still narrows are genuinely
+// session-scoped and stay.
 //
 // That makes the narrowing rule sharp. A reading is produced only when every member
 // it needs is present at the right type; a payload short one member yields NO
@@ -43,9 +53,6 @@ import type { ConsoleSessionEvent } from "../../../console/store/index.js";
 
 /** The registered event type the context meter reads. Verbatim, never composed. */
 export const CONTEXT_WINDOW_EVENT_KIND = "usage.context_window_update";
-
-/** The registered event type the rate chips read. */
-export const RATE_LIMIT_EVENT_KIND = "usage.rate_limit_update";
 
 /**
  * The registered event type that is the ONLY evidence a compaction happened.
@@ -98,46 +105,6 @@ export interface ContextWindowReading {
   readonly exceeded: boolean | undefined;
   /** The row this reading came from, so two readings can be ordered. */
   readonly sequence: number;
-}
-
-/**
- * One provider account's quota in one limit window.
- *
- * Keyed by `(providerAccountId, limitId)` — the pair these readings were re-keyed
- * to when a pinned provider surface turned out to publish three distinct windows of
- * the same length, which a duration key cannot hold.
- */
-export interface RateLimitReading {
-  readonly providerAccountId: string;
-  readonly limitId: string;
-  /** The account's own label. Mandatory: an unlabelled chip names no account. */
-  readonly accountLabel: string;
-  /** The window's own label. Mandatory for the same reason. */
-  readonly limitLabel: string;
-  /** Whole percent consumed, as given. Remaining is derived from it and never sent. */
-  readonly usedPercent: number;
-  /** ISO-8601, when the wire carried one. A countdown renders only if it did. */
-  readonly resetsAt: string | undefined;
-  /** ISO-8601 observation instant — the merge key. */
-  readonly observedAt: string;
-  /** Which credential generation observed it, when the wire carried one. */
-  readonly credentialGeneration: number | undefined;
-  readonly sequence: number;
-}
-
-/** A reading plus the one thing only the fold can say about it. */
-export interface FoldedRateLimitReading extends RateLimitReading {
-  /**
-   * True when a LATER reading for this same account carried a higher credential
-   * generation than this one did.
-   *
-   * Derived from rows the console holds and from nothing else. The account plane's
-   * own stored readings are the other source the design names, and no bridge
-   * namespace and no growth-port operation reaches them today — so "behind" here
-   * means behind what this session has itself observed, which is a claim the
-   * console can actually support.
-   */
-  readonly isStale: boolean;
 }
 
 /**
@@ -204,92 +171,6 @@ export function newestCompactionBoundarySequence(
   return newest;
 }
 
-/**
- * Every rate-limit reading a timeline carries, one per `(account, limit)` pair.
- *
- * THE MERGE RULE, in two clauses rather than one. The design merges by newest
- * `observedAt` with the source breaking an exact tie. The console reaches one source
- * today, so the tie-break is expressed as the session's own total order — a later
- * sequence wins an exact `observedAt` tie — which is a real order the store
- * maintains rather than an arbitrary one this module invented. A second source lands
- * as a second input to this fold, never as a second fold.
- *
- * The result is ordered by `(accountLabel, limitLabel)`, so two renders of one
- * timeline place a chip in the same position. Deliberately NOT by urgency: a chip
- * that moves when its own number moves is a chip a person has to re-find at the
- * moment they most need to read it.
- */
-export function foldRateLimitReadings(
-  timeline: readonly ConsoleSessionEvent[],
-): readonly FoldedRateLimitReading[] {
-  const newestByKey = new Map<string, RateLimitReading>();
-  const newestGenerationByAccount = new Map<string, number>();
-
-  for (const event of timeline) {
-    if (event.kind !== RATE_LIMIT_EVENT_KIND) {
-      continue;
-    }
-    const reading = readRateLimit(event);
-    if (reading === undefined) {
-      continue;
-    }
-    rememberNewestGeneration(newestGenerationByAccount, reading);
-    const key = `${reading.providerAccountId} ${reading.limitId}`;
-    const held = newestByKey.get(key);
-    if (held === undefined || supersedes(reading, held)) {
-      newestByKey.set(key, reading);
-    }
-  }
-
-  return [...newestByKey.values()]
-    .map((reading) => ({
-      ...reading,
-      isStale: isBehindNewestGeneration(reading, newestGenerationByAccount),
-    }))
-    .sort(compareByLabels);
-}
-
-/** Remaining quota, from the consumed figure the wire supplies. Never sent as such. */
-export function remainingPercentOf(reading: RateLimitReading): number {
-  return 100 - reading.usedPercent;
-}
-
-function rememberNewestGeneration(
-  newestGenerationByAccount: Map<string, number>,
-  reading: RateLimitReading,
-): void {
-  if (reading.credentialGeneration === undefined) {
-    return;
-  }
-  const known = newestGenerationByAccount.get(reading.providerAccountId);
-  if (known === undefined || reading.credentialGeneration > known) {
-    newestGenerationByAccount.set(reading.providerAccountId, reading.credentialGeneration);
-  }
-}
-
-function supersedes(candidate: RateLimitReading, held: RateLimitReading): boolean {
-  if (candidate.observedAt === held.observedAt) {
-    return candidate.sequence > held.sequence;
-  }
-  return candidate.observedAt > held.observedAt;
-}
-
-function isBehindNewestGeneration(
-  reading: RateLimitReading,
-  newestGenerationByAccount: ReadonlyMap<string, number>,
-): boolean {
-  const newest = newestGenerationByAccount.get(reading.providerAccountId);
-  if (newest === undefined || reading.credentialGeneration === undefined) {
-    return false;
-  }
-  return reading.credentialGeneration < newest;
-}
-
-function compareByLabels(left: FoldedRateLimitReading, right: FoldedRateLimitReading): number {
-  const byAccount = left.accountLabel.localeCompare(right.accountLabel);
-  return byAccount === 0 ? left.limitLabel.localeCompare(right.limitLabel) : byAccount;
-}
-
 function readContextWindow(event: ConsoleSessionEvent): ContextWindowReading | undefined {
   const windowUsedTokens = wholeCount(event.payload?.["windowUsedTokens"]);
   const windowMaxTokens = wholeCount(event.payload?.["windowMaxTokens"]);
@@ -323,51 +204,8 @@ function booleanOrUndefined(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
 }
 
-function readRateLimit(event: ConsoleSessionEvent): RateLimitReading | undefined {
-  const providerAccountId = nonEmptyString(event.payload?.["providerAccountId"]);
-  const limitId = nonEmptyString(event.payload?.["limitId"]);
-  const accountLabel = nonEmptyString(event.payload?.["accountLabel"]);
-  const limitLabel = nonEmptyString(event.payload?.["limitLabel"]);
-  const usedPercent = wholePercent(event.payload?.["usedPercent"]);
-  const observedAt = nonEmptyString(event.payload?.["observedAt"]);
-  if (
-    providerAccountId === undefined ||
-    limitId === undefined ||
-    accountLabel === undefined ||
-    limitLabel === undefined ||
-    usedPercent === undefined ||
-    observedAt === undefined
-  ) {
-    return undefined;
-  }
-  return {
-    providerAccountId,
-    limitId,
-    accountLabel,
-    limitLabel,
-    usedPercent,
-    observedAt,
-    resetsAt: nonEmptyString(event.payload?.["resetsAt"]),
-    credentialGeneration: wholeCount(event.payload?.["credentialGeneration"]),
-    sequence: event.sequence,
-  };
-}
-
 function nonEmptyString(value: unknown): string | undefined {
   return typeof value === "string" && value !== "" ? value : undefined;
-}
-
-/**
- * A whole percent in `[0, 100]`, or nothing.
- *
- * Out of range is refused rather than clamped: a clamp would draw a full meter for
- * a payload reporting 140, which reads as a confident answer to a question the
- * console should be saying it cannot answer.
- */
-function wholePercent(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100
-    ? value
-    : undefined;
 }
 
 /** A non-negative integer count, or nothing. */

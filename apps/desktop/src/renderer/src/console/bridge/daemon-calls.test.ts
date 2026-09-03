@@ -7,6 +7,12 @@
 // feed that could spell an unscoped open would still be spelling one the day the
 // bridge grows the request channel `Spec-023 §Preload Bridge Contract` pins.
 //
+// THE NODE-SCOPED ENTRY POINT IS A SIBLING AND NOT A RELAXATION, which is a claim
+// with a test rather than a comment: `providerAccount.subscribe` registers an EMPTY
+// request, so the guard above would refuse it forever — and moving the guard behind
+// a flag would delete it for the two feeds it exists for. The cases below hold both
+// halves at once, since a single widened function would pass either one alone.
+//
 // The call seam has one claim of its own: it is TOTAL. Every caller settles a
 // daemon call through `.then` / `.catch`, and the shipped live preload throws on
 // every method in the caller's own frame — so a wrapper that let that throw out
@@ -28,10 +34,12 @@ import type { ConsoleBridge } from "./console-bridge.js";
 import {
   callDaemon,
   DAEMON_STREAM_REFUSAL_ORIGIN,
+  PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   QUEUE_LIST_METHOD,
   QUEUE_SUBSCRIBE_STREAM,
   RUN_STATE_SUBSCRIBE_STREAM,
   subscribeDaemon,
+  subscribeNodeDaemon,
 } from "./daemon-calls.js";
 
 const SESSION_ID = "019b7a22-2200-75e5-8510-ada11a5a44a5";
@@ -107,6 +115,55 @@ describe("an id-less request refuses at the wrapper", () => {
       () => undefined,
     );
     expect(openedStreams).toStrictEqual([RUN_STATE_SUBSCRIBE_STREAM]);
+  });
+});
+
+describe("the node-scoped entry point opens what the session guard cannot", () => {
+  it("opens the account-plane tail, which names no session at all", () => {
+    const { bridge, openedStreams } = recordingBridge();
+    subscribeNodeDaemon(bridge, PROVIDER_ACCOUNT_SUBSCRIBE_STREAM, () => undefined);
+    expect(openedStreams).toStrictEqual([PROVIDER_ACCOUNT_SUBSCRIBE_STREAM]);
+  });
+
+  it("hands the bridge's own disposer back, so a caller closes what it opened", () => {
+    let closed = 0;
+    const bridge = {
+      sidekicks: {
+        daemon: {
+          call: async (): Promise<unknown> => undefined,
+          subscribe: () => () => {
+            closed += 1;
+          },
+        },
+      },
+      growth: {},
+      growthServedOperations: new Set(),
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+
+    subscribeNodeDaemon(bridge, PROVIDER_ACCOUNT_SUBSCRIBE_STREAM, () => undefined)();
+    expect(closed).toBe(1);
+  });
+
+  it("negative control: the session-scoped wrapper still refuses that same open", () => {
+    // The half that makes this a sibling rather than a widening. If the guard had
+    // been relaxed to admit a request with no session, this would open too — and the
+    // two `run.*` feeds would have lost the only thing standing between them and a
+    // subscription with nothing to put on it.
+    const { bridge, openedStreams } = recordingBridge();
+    let refused: ConsoleRefusalError | undefined;
+    try {
+      subscribeDaemon(
+        bridge,
+        { method: PROVIDER_ACCOUNT_SUBSCRIBE_STREAM, request: {} as never },
+        () => undefined,
+      );
+    } catch (thrown: unknown) {
+      refused = thrown as ConsoleRefusalError;
+    }
+    expect(refused?.refusal.code).toBe("stream-request-unscoped");
+    expect(openedStreams).toStrictEqual([]);
   });
 });
 

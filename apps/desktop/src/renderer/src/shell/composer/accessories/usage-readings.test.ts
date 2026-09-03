@@ -1,13 +1,17 @@
 // The usage fold, asserted where it decides something.
 //
-// Three claims are worth a unit here, because each one is a place the console could
-// quietly start asserting a figure the daemon never sent: a payload missing a member
-// yields NO reading rather than a partial one; the newest reading per key wins by
-// the stated rule and not by arrival order; and a chip is marked stale only against
-// a generation this session actually observed.
+// Two claims are worth a unit here, because each one is a place the console could
+// quietly start asserting a figure the daemon never sent: a context payload missing
+// half of the count pair yields NO reading rather than a 0% one, and a compaction
+// boundary is the ADDRESSED run's or it is nobody's.
+//
+// The rate-limit fold that used to be asserted here moved with the fold itself, to
+// `console/bridge/provider-account-quota.test.ts` — its readings come off the account
+// plane and never off a session timeline, so a case that built one out of a timeline
+// row was proving a path no daemon can drive.
 //
 // Every clean assertion below has a negative control beside it, because a narrowing
-// that accepted everything would pass all three.
+// that accepted everything would pass both.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,11 +19,8 @@ import type { ConsoleSessionEvent } from "../../../console/store/index.js";
 import {
   CONTEXT_COMPACTED_EVENT_KIND,
   CONTEXT_WINDOW_EVENT_KIND,
-  RATE_LIMIT_EVENT_KIND,
-  foldRateLimitReadings,
   newestCompactionBoundarySequence,
   newestContextWindowReading,
-  remainingPercentOf,
 } from "./usage-readings.js";
 
 const SESSION_ID = "session-under-test";
@@ -38,20 +39,6 @@ function event(
     kind,
     occurredAt: "2026-01-01T00:00:00.000Z",
     payload,
-  };
-}
-
-function rateLimitPayload(
-  overrides: Readonly<Record<string, unknown>> = {},
-): Readonly<Record<string, unknown>> {
-  return {
-    providerAccountId: "account-one",
-    limitId: "weekly",
-    accountLabel: "Team",
-    limitLabel: "weekly",
-    usedPercent: 90,
-    observedAt: "2026-01-01T00:00:00.000Z",
-    ...overrides,
   };
 }
 
@@ -148,67 +135,6 @@ describe("newestContextWindowReading — the registered members, and a pair or n
       event(2, CONTEXT_WINDOW_EVENT_KIND, { windowUsedTokens: 2, windowMaxTokens: 10 }),
     ]);
     expect(reading?.usagePercent).toBe(80);
-  });
-});
-
-describe("foldRateLimitReadings — one row per account and limit", () => {
-  it("keeps the newest observation for a key and the newest sequence on a tie", () => {
-    const folded = foldRateLimitReadings([
-      event(1, RATE_LIMIT_EVENT_KIND, rateLimitPayload({ usedPercent: 10 })),
-      event(2, RATE_LIMIT_EVENT_KIND, rateLimitPayload({ usedPercent: 55 })),
-      // An OLDER observation arriving later. The rule is newest `observedAt`, so
-      // this must lose despite being the last row in the timeline.
-      event(3, RATE_LIMIT_EVENT_KIND, {
-        ...rateLimitPayload({ usedPercent: 99 }),
-        observedAt: "2025-12-31T23:00:00.000Z",
-      }),
-    ]);
-    expect(folded).toHaveLength(1);
-    const survivor = folded[0];
-    if (survivor === undefined) {
-      throw new Error("the fold kept no reading for the only key it was given");
-    }
-    expect(survivor.usedPercent).toBe(55);
-    expect(remainingPercentOf(survivor)).toBe(45);
-  });
-
-  it("separates two windows of one account", () => {
-    const folded = foldRateLimitReadings([
-      event(1, RATE_LIMIT_EVENT_KIND, rateLimitPayload({ limitId: "weekly-a", limitLabel: "A" })),
-      event(2, RATE_LIMIT_EVENT_KIND, rateLimitPayload({ limitId: "weekly-b", limitLabel: "B" })),
-    ]);
-    expect(folded.map((reading) => reading.limitId)).toStrictEqual(["weekly-a", "weekly-b"]);
-  });
-
-  it("marks a reading stale only when a later generation was observed", () => {
-    const folded = foldRateLimitReadings([
-      event(
-        1,
-        RATE_LIMIT_EVENT_KIND,
-        rateLimitPayload({ limitId: "weekly-a", limitLabel: "A", credentialGeneration: 1 }),
-      ),
-      event(
-        2,
-        RATE_LIMIT_EVENT_KIND,
-        rateLimitPayload({ limitId: "weekly-b", limitLabel: "B", credentialGeneration: 4 }),
-      ),
-    ]);
-    expect(folded.map((reading) => reading.isStale)).toStrictEqual([true, false]);
-  });
-
-  it("negative control: with no generation on the wire nothing is called stale", () => {
-    const folded = foldRateLimitReadings([
-      event(1, RATE_LIMIT_EVENT_KIND, rateLimitPayload({ limitId: "weekly-a", limitLabel: "A" })),
-      event(2, RATE_LIMIT_EVENT_KIND, rateLimitPayload({ limitId: "weekly-b", limitLabel: "B" })),
-    ]);
-    expect(folded.every((reading) => !reading.isStale)).toBe(true);
-  });
-
-  it("negative control: a payload with no account label produces no chip", () => {
-    const folded = foldRateLimitReadings([
-      event(1, RATE_LIMIT_EVENT_KIND, rateLimitPayload({ accountLabel: "" })),
-    ]);
-    expect(folded).toStrictEqual([]);
   });
 });
 
