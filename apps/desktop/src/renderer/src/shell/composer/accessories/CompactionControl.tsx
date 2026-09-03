@@ -56,7 +56,11 @@ export interface CompactionControlProps {
 }
 
 export function CompactionControl(props: CompactionControlProps): React.JSX.Element | null {
-  const dispatch = useCompactionDispatch(props.bridge, props.sessionId);
+  // The addressed run is the hook's own identity and not a press-time argument, so
+  // the latch and the settlement this control renders both belong to the run it is
+  // pointed at — a re-address neither wedges the new run's button nor carries the
+  // previous run's answer over to it.
+  const dispatch = useCompactionDispatch(props.bridge, props.sessionId, props.targetRunId);
 
   if (props.capability === "undeclared") {
     // Absent, and silent. A driver that cannot compact has nothing to say about
@@ -74,7 +78,6 @@ export function CompactionControl(props: CompactionControlProps): React.JSX.Elem
     );
   }
 
-  const targetRunId = props.targetRunId;
   const isDispatching = dispatch.state.phase === "dispatching";
   return (
     <div className="meridian-compaction">
@@ -82,9 +85,7 @@ export function CompactionControl(props: CompactionControlProps): React.JSX.Elem
         type="button"
         className="meridian-compaction__action"
         aria-busy={isDispatching}
-        onClick={() => {
-          dispatch.requestCompaction(targetRunId);
-        }}
+        onClick={dispatch.requestCompaction}
       >
         {isDispatching ? "Compacting…" : "Compact"}
       </button>

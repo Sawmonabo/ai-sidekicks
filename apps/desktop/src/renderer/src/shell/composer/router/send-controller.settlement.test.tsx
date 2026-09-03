@@ -9,6 +9,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { ParkedDaemonCalls } from "../../../../../../test/console/parked-daemon-calls.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerChannelTarget } from "../chips/chip-models.js";
@@ -29,66 +30,6 @@ function channelTarget(channelId: string): ComposerChannelTarget {
     workspaceId: undefined,
     channelLabel: undefined,
   };
-}
-
-/**
- * A bridge whose every call parks until the case settles it.
- *
- * One queue rather than a per-method map: the cases here have at most one call in
- * flight and settle it in issue order, so a map keyed by method would be a second
- * index over a list of length one.
- */
-class ParkedDaemonCalls {
-  readonly #parked: {
-    readonly resolve: (value: unknown) => void;
-    readonly reject: (cause: unknown) => void;
-  }[] = [];
-  public readonly bridge: ConsoleBridge;
-
-  public constructor() {
-    this.bridge = {
-      sidekicks: {
-        daemon: {
-          call: async () =>
-            new Promise((resolve, reject) => {
-              this.#parked.push({ resolve, reject });
-            }),
-          subscribe: () => () => undefined,
-        },
-      },
-      growth: {},
-      growthServedOperations: new Set(),
-      source: "fixture",
-      scenarioEngine: undefined,
-    } as unknown as ConsoleBridge;
-  }
-
-  /**
-   * Refuse the oldest parked call the way the daemon refuses one.
-   *
-   * A plain `{ code, message }` envelope, which is what `wire-errors.ts` matches
-   * structurally — the shape the composer carries through verbatim rather than
-   * rendering under its own last-resort code.
-   */
-  public refuseOldest(code: string, message: string): void {
-    this.#takeOldest().reject({ code, message });
-  }
-
-  /** Answer the oldest parked call. The send path reads the acknowledgement only. */
-  public acknowledgeOldest(): void {
-    this.#takeOldest().resolve({});
-  }
-
-  #takeOldest(): {
-    readonly resolve: (value: unknown) => void;
-    readonly reject: (c: unknown) => void;
-  } {
-    const parked = this.#parked.shift();
-    if (parked === undefined) {
-      throw new Error("no call is parked");
-    }
-    return parked;
-  }
 }
 
 /** Reports the controller out of the tree at whichever address the case supplies. */
@@ -237,7 +178,7 @@ describe("useSendController — one operation's settlement never erases another'
 
     const pending = driven.beginResend("ship it");
     await act(async () => {
-      driven.calls.acknowledgeOldest();
+      driven.calls.resolveOldest({});
       await pending;
     });
 
