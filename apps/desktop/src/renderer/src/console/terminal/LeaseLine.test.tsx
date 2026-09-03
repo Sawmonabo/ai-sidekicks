@@ -343,7 +343,7 @@ describe("the holder line — every state 8.8 names", () => {
       leaseState({
         holding: "unheld",
         holderVouching: "unvouched",
-        unvouchedNodeId: "node-lima",
+        offlineNode: { nodeId: "node-lima", effect: "holder-collapsed" },
       }),
     );
     expect(container.textContent).toContain("node-lima");
@@ -351,6 +351,50 @@ describe("the holder line — every state 8.8 names", () => {
     // The holder the control plane cannot vouch for is not shown as a holder.
     expect(container.textContent).toContain("Nobody holds the shell.");
     expect(container.textContent).not.toContain("Held by");
+  });
+
+  it("names an offline node without claiming a holder when the lease was already free", () => {
+    // The finding. A `released` transition and then the sole node dropping put both
+    // sentences on screen at once: "Nobody holds the shell." and "The holding node …
+    // is offline", the second naming a holder the first says does not exist.
+    const { container } = renderLease(
+      leaseState({
+        holding: "unheld",
+        holderVouching: "unvouched",
+        offlineNode: { nodeId: "node-lima", effect: "no-holder-shown" },
+      }),
+    );
+    expect(container.textContent).toContain("Nobody holds the shell.");
+    // The host is still named, and why the shell is read-only is still said.
+    expect(container.textContent).toContain("node-lima");
+    expect(container.textContent).toContain("is offline, so the shell stays read-only here");
+    expect(container.textContent).not.toContain("The holding node");
+    expect(container.textContent).not.toContain("reads as free");
+  });
+
+  it("negative control: the two offline readings do not render the same sentence", () => {
+    // Without it the case above would pass against a line that had dropped the
+    // holder wording everywhere, including where an offline host really did take a
+    // holder off the screen — which is the reading a person needs in order to know
+    // somebody had the shell a moment ago.
+    const collapsed = renderLease(
+      leaseState({
+        holding: "unheld",
+        holderVouching: "unvouched",
+        offlineNode: { nodeId: "node-lima", effect: "holder-collapsed" },
+      }),
+    );
+    const alreadyFree = renderLease(
+      leaseState({
+        holding: "unheld",
+        holderVouching: "unvouched",
+        offlineNode: { nodeId: "node-lima", effect: "no-holder-shown" },
+      }),
+    );
+    const degradedTextOf = (container: HTMLElement): string | null | undefined =>
+      container.querySelector(".meridian-lease-line__degraded")?.textContent;
+    expect(degradedTextOf(collapsed.container)).toBeDefined();
+    expect(degradedTextOf(collapsed.container)).not.toBe(degradedTextOf(alreadyFree.container));
   });
 
   it("says the lease is unreadable when a transition arrived this build cannot read", () => {

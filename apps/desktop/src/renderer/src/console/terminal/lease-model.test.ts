@@ -352,7 +352,7 @@ describe("vouching — a holder the control plane cannot vouch for is not shown"
   it("reports `not-checked` when no roster read was performed", () => {
     const state = projectTerminalLease(held, { viewerParticipantId: VIEWER });
     expect(state.holderVouching).toBe("not-checked");
-    expect(state.unvouchedNodeId).toBeUndefined();
+    expect(state.offlineNode).toBeUndefined();
     expect(state.holding).toBe("held-by-you");
   });
 
@@ -372,7 +372,52 @@ describe("vouching — a holder the control plane cannot vouch for is not shown"
     });
     expect(state.holding).toBe("unheld");
     expect(state.holderParticipantId).toBeNull();
-    expect(state.unvouchedNodeId).toBe("node-1");
+    // The node AND what it did: this reading is the one where an offline host took
+    // a holder off the screen, which is a different sentence from an offline host
+    // under a lease that was already free.
+    expect(state.offlineNode).toStrictEqual({ nodeId: "node-1", effect: "holder-collapsed" });
+  });
+
+  it("keeps the offline node without a holder claim when the lease was already free", () => {
+    // The finding. A `released` transition and then the sole node dropping: the
+    // fold nulled the holder because the wire said nobody holds it, and projected an
+    // unvouched HOLDER beside it anyway, so the line said "Nobody holds the shell"
+    // and "The holding node … is offline" at once.
+    const state = projectTerminalLease(
+      [transitionEvent(1, "taken", VIEWER), transitionEvent(2, "released", null, VIEWER)],
+      { viewerParticipantId: VIEWER, holdingNode: { nodeId: "node-1", isReachable: false } },
+    );
+    expect(state.holding).toBe("unheld");
+    expect(state.holderParticipantId).toBeNull();
+    // Still worth saying — the host is down and that is why the shell is read-only —
+    // and said without claiming there is a holder the node reading took away.
+    expect(state.offlineNode).toStrictEqual({ nodeId: "node-1", effect: "no-holder-shown" });
+    // The roster reading itself is unchanged: a read happened and found the host
+    // offline, which is a fact about the READ and not about who holds the lease.
+    expect(state.holderVouching).toBe("unvouched");
+  });
+
+  it("claims no holder either when the transition that moved the lease was unread", () => {
+    // The other way this surface shows nobody. "The holding node is offline, so the
+    // shell reads as free" would contradict the paragraph beside it, which says the
+    // console cannot read who holds the shell at all.
+    const state = projectTerminalLease(
+      [transitionEvent(1, "taken", VIEWER), transitionEvent(2, "seized", OTHER)],
+      { viewerParticipantId: VIEWER, holdingNode: { nodeId: "node-1", isReachable: false } },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.offlineNode).toStrictEqual({ nodeId: "node-1", effect: "no-holder-shown" });
+  });
+
+  it("negative control: a reachable node produces no offline reading at all", () => {
+    // Without it the cases above would pass against a fold that reported an offline
+    // node for every roster read, which would put a host-down sentence on a healthy
+    // session.
+    const state = projectTerminalLease(
+      [transitionEvent(1, "taken", VIEWER), transitionEvent(2, "released", null, VIEWER)],
+      { viewerParticipantId: VIEWER, holdingNode: { nodeId: "node-1", isReachable: true } },
+    );
+    expect(state.offlineNode).toBeUndefined();
   });
 
   it("negative control: the collapse runs BEFORE the viewer comparison", () => {

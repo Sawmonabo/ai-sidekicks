@@ -57,6 +57,7 @@ import {
   terminalLeaseTransitionSentence,
   type TerminalLeaseHolding,
   type TerminalLeaseState,
+  type TerminalOfflineNodeReading,
 } from "./lease-model.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
 
@@ -197,12 +198,7 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
         />
       ) : null}
 
-      {state.unvouchedNodeId === undefined ? null : (
-        <p className="meridian-lease-line__degraded">
-          The holding node <WireFigure value={state.unvouchedNodeId} /> is offline, so the shell
-          reads as free and stays read-only here.
-        </p>
-      )}
+      {state.offlineNode === undefined ? null : <OfflineNodeLine reading={state.offlineNode} />}
 
       {state.unreadTransition === undefined ? null : (
         <p className="meridian-lease-line__unread">
@@ -229,6 +225,37 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
       {isLedgerOpen ? <LeaseTransitionLedger state={state} markFor={markFor} /> : null}
     </div>
   );
+}
+
+/**
+ * What an offline host means for this lease, which depends on whether there was a
+ * holder for it to take off the screen.
+ *
+ * Total over the closed set by construction, for the reason every table in this
+ * family is: the two readings are different sentences, and one line serving both said
+ * "The holding node … is offline" under "Nobody holds the shell." — a holder claim
+ * about a lease the line beside it says nobody holds. What is true in both cases is
+ * that the host is down and the shell is read-only here, so the second sentence says
+ * that and claims no holder at all.
+ */
+function OfflineNodeLine(props: {
+  readonly reading: TerminalOfflineNodeReading;
+}): React.JSX.Element {
+  const nodeId = <WireFigure value={props.reading.nodeId} />;
+  switch (props.reading.effect) {
+    case "holder-collapsed":
+      return (
+        <p className="meridian-lease-line__degraded">
+          The holding node {nodeId} is offline, so the shell reads as free and stays read-only here.
+        </p>
+      );
+    case "no-holder-shown":
+      return (
+        <p className="meridian-lease-line__degraded">
+          The node {nodeId} that runs this shell is offline, so the shell stays read-only here.
+        </p>
+      );
+  }
 }
 
 /**
