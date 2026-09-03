@@ -143,3 +143,25 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
         : createElement(RefusalCard, misaddressedPaneRefusal("artifact", context.kind)),
   });
 }
+
+/**
+ * The file half of a rewound run, published for the surface that mounts it.
+ *
+ * A READ SURFACE OVER A REGISTERED WIRE TYPE, and the door is the whole of what this
+ * family owes it. `FileRestoreDisclosure` renders `RollbackInterventionResult` — the
+ * reply the `run.intervene` rollback answers with — and its production entry point is
+ * the runs pane's intervention history, which is a SIBLING view family's body: a repos
+ * module may not import it and a runs module may not deep-import this one, so the seam
+ * between them is this export and the runs pane's own composition of it.
+ *
+ * The `@consumedBy` tag rides the specifier because that is the export the dead-code
+ * gate reports, and it names the cross-family task that mounts it. The tag and this
+ * comment are deleted together by the PR that imports the symbol — the gate's
+ * `--treat-tag-hints-as-errors` run fails on a marker that outlived its consumer.
+ */
+export {
+  /** @consumedBy T-023p-1C-8 — mounted by `panes/runs/InterventionHistory.tsx`. */
+  FileRestoreDisclosure,
+  /** @consumedBy T-023p-1C-8 — mounted by `panes/runs/InterventionHistory.tsx`. */
+  type FileRestoreDisclosureProps,
+} from "./FileRestoreDisclosure.js";
