@@ -544,6 +544,29 @@ export function isReplayEngaged(state: ReplayState): boolean {
  * replay silently rearrange a log wherever the daemon admitted rows out of
  * wall-clock order.
  *
+ * TWO KINDS OF ROW, AND ONLY ONE OF THEM IS ON THE REPLAY CLOCK. The engine is
+ * built from projected rows, so `revealedRowIds` holds event-row ids and nothing
+ * else — while a chapter header's viewport key is its RUN id, which is in that set
+ * at no position at all. Tested against it, every synthetic header was stripped at
+ * every position including `at-tail`, and a folded chapter's receipt came through
+ * without it: the disclosure that names the run and reopens it was gone, and the
+ * receipt hung under a parent the window no longer held, which the cap reads as a
+ * top-level row rather than as the chapter's child.
+ *
+ * SO A HEADER IS ADMITTED WHEN ITS CHAPTER HAS REACHED THE POSITION, and reached is
+ * defined from the model rather than from the clock: at least one of the chapter's
+ * rows THIS WINDOW HOLDS is revealed. Two properties follow, and both are why this
+ * definition and not one over the chapter's first row or its run's start instant:
+ *
+ *   • `at-tail` renders exactly what an unreplayed ledger renders. Every held row
+ *     is revealed there, every chapter holds at least one — a folded one keeps its
+ *     receipt, an open one keeps its rows — so every header is admitted.
+ *   • A header and its chapter appear and disappear together. There is no position
+ *     at which a header stands over nothing, and none at which a member row hangs
+ *     off a header the window has dropped. For a folded chapter that means header
+ *     and receipt arrive in the same instant the run ended, which is also the only
+ *     honest moment for a header that renders the terminal's own name.
+ *
  * While replay is idle the window's own array is returned by identity, so the
  * viewport does not reconcile and a ledger nobody is replaying pays nothing.
  */
@@ -556,7 +579,19 @@ export function useReplayRevealedRows(
       return ledgerWindow.viewportRows;
     }
     const revealedRowIds = new Set(position.revealedRowIds);
-    return ledgerWindow.viewportRows.filter((row) => revealedRowIds.has(row.key));
+    const reachedChapterRunIds = new Set<string>();
+    for (const row of ledgerWindow.viewportRows) {
+      if (row.parentKey !== undefined && revealedRowIds.has(row.key)) {
+        reachedChapterRunIds.add(row.parentKey);
+      }
+    }
+    return ledgerWindow.viewportRows.filter((row) =>
+      // The same lookup the feed's row renderer dispatches on, so "is this a header"
+      // is one classification rather than a second guess at what a key means.
+      ledgerWindow.chapterByHeaderKey.has(row.key)
+        ? reachedChapterRunIds.has(row.key)
+        : revealedRowIds.has(row.key),
+    );
   }, [ledgerWindow, position]);
 }
 
