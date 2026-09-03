@@ -21,6 +21,14 @@
 // one: an act the daemon accepted, which it requests directly because it is the only
 // observer of that act.
 //
+// NOT EVERY ROOT CAN BE ASKED ABOUT, AND THE ONES THAT CANNOT SAY SO. A gate is built
+// for any of the three writable execution roots, and only one of them has a key the
+// registered request takes: `proposal-gate-model.ts` resolves that once per reader as a
+// read plan, an `unaddressable` plan publishes `not-checked` carrying its own reason,
+// and no call is made and no refresh trigger is armed for it. The alternative was the
+// one this file already refuses everywhere else — asking under a key the read does not
+// take, and rendering whatever came back as a reading.
+//
 // ALL THREE OPERATIONS ARE GROWTH-PORT OPERATIONS, AND ALL THREE ARE UNREGISTERED.
 // `bridge/growth-signatures.ts` carries the branch-context read, the preparation
 // call, and the git action under one `gitflow-actions` slate row that `Spec-011`
@@ -60,7 +68,10 @@ import type { BranchContextReading } from "./branch-context-model.js";
 import {
   GATE_SETTLEMENT_COPY,
   PROPOSAL_GATE_REFUSAL_ORIGIN,
+  SUBJECT_NOT_ADDRESSABLE,
+  branchContextReadPlanFor,
   branchContextReadingFrom,
+  type BranchContextReadPlan,
   type ProposalGateRefusalCode,
   type ProposalGateSubject,
 } from "./proposal-gate-model.js";
@@ -152,6 +163,8 @@ export interface ProposalGateReaderOptions {
 export class ProposalGateReader {
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
+  /** Resolved once: whether this root can be asked about, and with what. */
+  readonly #readPlan: BranchContextReadPlan;
   readonly #scheduler: RefreshScheduler;
   readonly #triggers: RepoRefreshTriggers;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
@@ -180,6 +193,7 @@ export class ProposalGateReader {
   public constructor(options: ProposalGateReaderOptions) {
     this.#bridge = options.bridge;
     this.#subject = options.subject;
+    this.#readPlan = branchContextReadPlanFor(options.subject);
     this.#scheduler = new RefreshScheduler({
       clock: options.clock ?? new RealClock(),
       perform: async () => {
@@ -230,6 +244,15 @@ export class ProposalGateReader {
       return;
     }
     this.#started = true;
+    if (this.#readPlan.kind === "unaddressable") {
+      // NOTHING TO SCHEDULE AND NOTHING TO RE-READ. There is no arm of the registered
+      // request this root can fill, so a focus, a reconnect, and a `workspace.stale`
+      // frame would all produce the same answer — and producing it costs a read burst
+      // each time. The arm is published once, here, and this reader arms no timer and
+      // no listener at all.
+      this.#publishUnaddressable(this.#readPlan.reason);
+      return;
+    }
     this.#scheduler.request("subscribe");
     this.#triggers.start();
   }
@@ -429,15 +452,20 @@ export class ProposalGateReader {
   }
 
   async #performRead(): Promise<void> {
+    const plan = this.#readPlan;
+    if (plan.kind === "unaddressable") {
+      // `start` short-circuits before scheduling one of these, so this is reached only
+      // if some other path asks for a read. It publishes the same honest arm rather
+      // than returning silently, which would leave a gate showing whatever it showed.
+      this.#publishUnaddressable(plan.reason);
+      return;
+    }
     if (!this.#hasEnteredPreparing) {
       this.#hasEnteredPreparing = true;
       this.#publish({ ...this.#reading, state: { kind: "preparing" }, refusal: undefined });
     }
 
-    const outcome = await this.#bridge.growth.gitflowBranchContextRead({
-      workspaceId: this.#subject.workspaceId,
-      worktreeId: this.#subject.worktreeId,
-    });
+    const outcome = await this.#bridge.growth.gitflowBranchContextRead(plan.request);
     if (this.#disposed) {
       return;
     }
@@ -506,6 +534,25 @@ export class ProposalGateReader {
         proposal === undefined
           ? GATE_SETTLEMENT_COPY.prepared
           : GATE_SETTLEMENT_COPY["prepared-with-proposal"],
+    });
+  }
+
+  /**
+   * Say that this root cannot be asked about, and why.
+   *
+   * `not-checked` and never `no-context`: the question was not PUT, which is a
+   * different fact from a workspace that has none — and the arm carries no message of
+   * its own, so the reason travels beside it as the refusal the surface renders. The
+   * refusal is the reader's own, because nothing refused it: no call was made.
+   */
+  #publishUnaddressable(reason: string): void {
+    this.#context = undefined;
+    this.#discardProposal();
+    this.#publish({
+      ...this.#reading,
+      state: { kind: "not-checked" },
+      refusal: refuse(PROPOSAL_GATE_REFUSAL_ORIGIN, SUBJECT_NOT_ADDRESSABLE, reason),
+      settlement: reason,
     });
   }
 

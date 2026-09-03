@@ -54,8 +54,9 @@ import { type ConsoleRefusal } from "../core/index.js";
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
 import { type SidebarSectionContext } from "../seats/index.js";
-import { EphemeralCloneCard } from "./EphemeralCloneCard.js";
+import { EphemeralCloneGateRow } from "./EphemeralCloneGateRow.js";
 import { MountCard } from "./MountCard.js";
+import { ephemeralCloneGateSubject } from "./proposal-gate-model.js";
 import { useRepoMounts, type RepoMountsReading } from "./repo-mounts-reader.js";
 import { refusalFromRejection } from "./repo-reads.js";
 
@@ -131,7 +132,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
           valid execution roots off the screen because an unrelated mount could not be
           probed. What the list is allowed to say is decided by its OWN reading below.
         */}
-        <EphemeralCloneList reading={reading} />
+        <EphemeralCloneList reading={reading} bridge={bridge} sessionStore={sessionStore} />
       </div>
     </div>
   );
@@ -150,14 +151,28 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
  * it is drawn here. `EphemeralCloneCard` is the second one: the disposal countdown is on
  * the row rather than behind the disclosure, because it is the one fact here that
  * changes with nobody acting.
+ *
+ * AND EACH CLONE CARRIES ITS OWN CHANGE-PROPOSAL GATE, for the reason the mount card
+ * states about the in-place root: a clone is one of the three WRITABLE execution
+ * modes, so a list that drew the root and no gate left a participant running in that
+ * mode with no way to read a branch context, prepare a proposal, or ask for a reviewed
+ * act at all.
  */
-function EphemeralCloneList(props: { readonly reading: RepoMountsReading }): React.JSX.Element {
+function EphemeralCloneList(props: EphemeralCloneListProps): React.JSX.Element {
   return (
     <div className="meridian-repo-section__clones">
       <h4 className="meridian-repo-section__clones-heading">{CLONE_LIST_HEADING}</h4>
-      {renderCloneRows(props.reading)}
+      {renderCloneRows(props)}
     </div>
   );
+}
+
+interface EphemeralCloneListProps {
+  readonly reading: RepoMountsReading;
+  /** Passed down rather than reached for: each clone's gate performs its own read. */
+  readonly bridge: ConsoleBridge;
+  /** Passed down for the same reason: each clone's gate arms its own refresh triggers. */
+  readonly sessionStore: SessionStore;
 }
 
 /**
@@ -166,15 +181,25 @@ function EphemeralCloneList(props: { readonly reading: RepoMountsReading }): Rea
  * A function returning JSX rather than a second component, on `MountCard`'s own
  * `renderRoots` precedent: the branches decide which absence a settled read produced,
  * which is a reading rather than a surface of its own.
+ *
+ * The subject is resolved HERE, from the roster this same reading carries, because the
+ * clone row names its workspace but not that workspace's execution mode — and the mode
+ * is what a gate's `no-context` arm has to report against. Where the roster names no
+ * such workspace the row draws its absence instead, which is the pairing module's rule
+ * applied to the one relation this list can be missing.
  */
-function renderCloneRows(reading: RepoMountsReading): React.JSX.Element {
+function renderCloneRows(props: EphemeralCloneListProps): React.JSX.Element {
+  const { reading } = props;
   if (reading.ephemeralClones.length > 0) {
     return (
       <>
         {reading.ephemeralClones.map((record) => (
-          <EphemeralCloneCard
+          <EphemeralCloneGateRow
             key={record.cloneId}
             record={record}
+            subject={ephemeralCloneGateSubject(record, reading.workspaces)}
+            bridge={props.bridge}
+            sessionStore={props.sessionStore}
             nowMilliseconds={reading.readAtMilliseconds}
           />
         ))}

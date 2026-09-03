@@ -233,3 +233,34 @@ describe("MountCard — the roots, and the read that did not answer", () => {
     expect(queryByText(NO_ROOT_COPY)).toBeNull();
   });
 });
+
+describe("the in-place root's gate", () => {
+  /** The same workspace, executing where the mount itself is checked out. */
+  const IN_PLACE_WORKSPACE: RepoWorkspaceRow = {
+    ...WORKSPACE,
+    executionMode: "branch",
+  } as RepoWorkspaceRow;
+
+  it("draws a gate under a workspace whose execution root IS the mount's checkout", () => {
+    // `branch` mode mints no worktree and no clone, so a card that built gates only
+    // from root records reached none of these workspaces at all — which left one of
+    // the three writable modes unable to read a branch context or prepare anything.
+    const { container } = renderCard({ workspaces: [IN_PLACE_WORKSPACE] });
+    expect(container.querySelector("details.meridian-worktree-gate")).not.toBeNull();
+  });
+
+  it("says which key the read takes that an in-place root has none of", () => {
+    const { getByText } = renderCard({ workspaces: [IN_PLACE_WORKSPACE] });
+    // The refusal is the reader's own, because nothing refused it: no call was made.
+    expect(getByText("subject-not-addressable")).toBeDefined();
+  });
+
+  it("negative control: a read-only workspace draws no gate", () => {
+    // Without this the two cases above would pass against a card that hung a gate on
+    // every workspace — including ones that produce no writable branch context and
+    // have nothing to prepare.
+    const { container, queryByText } = renderCard();
+    expect(container.querySelector("details.meridian-worktree-gate")).toBeNull();
+    expect(queryByText("subject-not-addressable")).toBeNull();
+  });
+});

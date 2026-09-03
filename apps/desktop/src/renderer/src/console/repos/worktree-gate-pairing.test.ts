@@ -44,6 +44,7 @@ describe("worktreeGateRowSubjects", () => {
     );
     expect(rows).toHaveLength(2);
     expect(rows[0]?.subject).toStrictEqual({
+      kind: "worktree",
       workspaceId: "workspace-1",
       worktreeId: "root-a",
       // The workspace's own mode, wire-verbatim, so the gate's `no-context` arm names

@@ -261,6 +261,10 @@
   One root and the change proposal standing behind it, read as one unit. The gate is
   indented under its card rather than set beside it, because the two are one subject
   and a gate at the card's own measure would read as a second row.
+
+  Shared by the worktree row and the ephemeral-clone row, which draw different cards
+  over the same gate. The name is the worktree's because that root was drawn first;
+  what the rule bounds is a root card plus its gate, whichever root it is.
 */
 .meridian-worktree-gate-row {
   display: flex;
@@ -295,6 +299,18 @@
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
+}
+
+/*
+  One workspace and, where it executes in the mount's own checkout, the change
+  proposal standing behind it. Tighter than the gap between workspaces, on the root
+  row's own reasoning: the card and its gate are one subject, so they must not read
+  as two entries in the list above them.
+*/
+.meridian-mount-card__workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
 }
 
 /* ---------------------------------------------------------- workspace card */

@@ -1,5 +1,12 @@
-// Which workspace a worktree's change-proposal gate is asked under — and when nothing
+// Which workspace a WORKTREE's change-proposal gate is asked under — and when nothing
 // registered can say.
+//
+// SCOPED TO THE WORKTREE ROOT, because it is the only one of the three writable
+// execution roots with a pairing problem. A branch root IS a workspace and a clone row
+// names its own (`ephemeral_clones.workspace_id`), so both are built straight from the
+// row they belong to and their constructors live beside the subject union in
+// `proposal-gate-model.ts`. Only a worktree record names no workspace at all, which is
+// what the rule below exists to answer.
 //
 // The branch-context read is keyed by a workspace AND a worktree
 // (`bridge/growth-signatures.ts`), and no registered reply pairs them: a worktree row
@@ -34,8 +41,19 @@ import type { WorktreeStatusRecord } from "./worktree-model.js";
  */
 export interface WorktreeGateRowSubject {
   readonly record: WorktreeStatusRecord;
-  readonly subject?: ProposalGateSubject | undefined;
+  readonly subject?: WorktreeGateSubject | undefined;
 }
+
+/**
+ * The one arm of the subject union this module can produce.
+ *
+ * Narrowed rather than left at the whole union, because this module pairs WORKTREE
+ * roots and nothing else — the other two arms are built from the row they belong to,
+ * beside the union itself. Stating that in the type means a caller reading the paired
+ * root's `worktreeId` needs no narrowing, and a future arm added here would have to
+ * widen this deliberately rather than by accident.
+ */
+export type WorktreeGateSubject = Extract<ProposalGateSubject, { readonly kind: "worktree" }>;
 
 /** What the gate says where no registered read names the workspace to ask under. */
 export const UNPAIRED_WORKTREE_COPY =
@@ -67,6 +85,7 @@ export function worktreeGateRowSubjects(
         : {
             record,
             subject: {
+              kind: "worktree",
               workspaceId: onlyWorkspace.id,
               worktreeId: record.worktreeId,
               executionMode: onlyWorkspace.executionMode,

@@ -21,7 +21,11 @@ import { SessionStore } from "../store/index.js";
 import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
 import { offeredProposalActions, type ProposalAction } from "./proposal-actions.js";
 import type { ProposalContextKey } from "./prepared-proposal.js";
-import type { ProposalGateSubject } from "./proposal-gate-model.js";
+import {
+  BRANCH_ROOT_UNADDRESSABLE_COPY,
+  EPHEMERAL_CLONE_UNADDRESSABLE_COPY,
+  type ProposalGateSubject,
+} from "./proposal-gate-model.js";
 
 const readers: ProposalGateReader[] = [];
 
@@ -32,6 +36,7 @@ afterEach(() => {
 });
 
 const SUBJECT: ProposalGateSubject = {
+  kind: "worktree",
   workspaceId: GIT_WORKSPACE_ID,
   worktreeId: IMPLEMENTER_WORKTREE_ID,
   executionMode: "worktree",
@@ -768,5 +773,106 @@ describe("ProposalGateReader — teardown", () => {
 
     expect(reader.performCount).toBe(performedBeforeDispose);
     expect(clock.pendingCount).toBe(0);
+  });
+});
+
+describe("ProposalGateReader — the roots the registered read has no key for", () => {
+  /** A port that counts, so "no call was made" is read rather than inferred. */
+  function countingPort(): { readonly bridge: ConsoleBridge; readonly calls: () => number } {
+    let calls = 0;
+    return {
+      bridge: {
+        growth: {
+          gitflowBranchContextRead: async () => {
+            calls += 1;
+            return SERVED_CONTEXT;
+          },
+        },
+      } as unknown as ConsoleBridge,
+      calls: () => calls,
+    };
+  }
+
+  const BRANCH_ROOT: ProposalGateSubject = {
+    kind: "branch-root",
+    workspaceId: GIT_WORKSPACE_ID,
+    executionMode: "branch",
+  };
+
+  const CLONE_ROOT: ProposalGateSubject = {
+    kind: "ephemeral-clone",
+    workspaceId: GIT_WORKSPACE_ID,
+    cloneId: "019b7b30-0280-7c11-8420-b1a5c0de2040",
+    executionMode: "ephemeral clone",
+  };
+
+  it("says the question was not put, and names why, for an in-place root", async () => {
+    const port = countingPort();
+    const clock = new ManualClock();
+    const reader = openReader(port.bridge, clock, BRANCH_ROOT);
+    reader.start();
+    await settle(clock, reader);
+
+    const reading = reader.snapshot;
+    // `not-checked` and never `no-context`: a workspace with no writable context is a
+    // read that ANSWERED, and nothing here answered anything.
+    expect(reading.state).toStrictEqual({ kind: "not-checked" });
+    expect(reading.refusal?.code).toBe("subject-not-addressable");
+    expect(reading.refusal?.detail).toBe(BRANCH_ROOT_UNADDRESSABLE_COPY);
+    expect(reading.settlement).toBe(BRANCH_ROOT_UNADDRESSABLE_COPY);
+  });
+
+  it("says it for a clone root too, in that root's own words", async () => {
+    const port = countingPort();
+    const clock = new ManualClock();
+    const reader = openReader(port.bridge, clock, CLONE_ROOT);
+    reader.start();
+    await settle(clock, reader);
+
+    expect(reader.snapshot.refusal?.detail).toBe(EPHEMERAL_CLONE_UNADDRESSABLE_COPY);
+  });
+
+  it("makes no call and arms no read for a root it cannot ask about", async () => {
+    // The rule the arm exists to enforce: sending the workspace id alone would be a
+    // request shape no producer accepts, so nothing is sent — and nothing is armed
+    // either, because a focus and a reconnect would each buy the same non-answer.
+    const port = countingPort();
+    const clock = new ManualClock();
+    const store = initialisedStore();
+    const reader = openReader(port.bridge, clock, BRANCH_ROOT, store);
+    reader.start();
+    await settle(clock, reader);
+    // The two reasons a gate re-reads without anybody acting. Both reach an addressable
+    // root; neither may buy a call here, because the answer would be the same refusal.
+    store.markDegraded("subscription-closed");
+    store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    store.applyBatch([
+      {
+        id: "event-1",
+        sessionId: REPOS_SCENARIO.sessionId,
+        sequence: 1,
+        kind: "workspace.stale",
+        occurredAt: "2026-01-01T09:05:01.900Z",
+      },
+    ]);
+    await settle(clock, reader);
+
+    expect(port.calls()).toBe(0);
+    expect(reader.performCount).toBe(0);
+  });
+
+  it("negative control: the one root the request HAS a key for is read as usual", async () => {
+    // Without this, the three cases above would pass against a reader that had simply
+    // stopped calling the wire for every subject.
+    const port = countingPort();
+    const clock = new ManualClock();
+    const reader = openReader(port.bridge, clock, SUBJECT);
+    reader.start();
+    await settle(clock, reader);
+
+    expect(port.calls()).toBe(1);
+    expect(reader.performCount).toBe(1);
+    expect(reader.snapshot.state.kind).toBe("prepared");
+    expect(reader.snapshot.refusal).toBeUndefined();
   });
 });

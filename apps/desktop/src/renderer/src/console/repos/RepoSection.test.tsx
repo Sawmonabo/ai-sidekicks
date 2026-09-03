@@ -223,3 +223,52 @@ describe("RepoSection — the mounts this session actually holds", () => {
     expect(container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(0);
   });
 });
+
+describe("RepoSection — a clone root is a writable root, so it carries a gate", () => {
+  /** The disclosure a root's change-proposal gate renders into. */
+  const GATE_SELECTOR = "details.meridian-worktree-gate";
+
+  it("mounts one gate per clone, inside the clone's own row", async () => {
+    // Before this the clone list drew bare cards, so a participant running in the
+    // ephemeral clone mode had no way to read a branch context, prepare a proposal,
+    // or ask for a reviewed act at all.
+    const container = renderSection(REPOS_SCENARIO);
+    const list = await cloneList(container);
+
+    await waitFor(
+      () => {
+        // The cards first: an empty list would otherwise satisfy "one gate per card"
+        // with zero of each, which is the vacuous pass this claim must not take.
+        expect(list.querySelectorAll(ROOT_CARD_SELECTOR).length).toBeGreaterThan(0);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    expect(list.querySelectorAll(GATE_SELECTOR)).toHaveLength(
+      list.querySelectorAll(ROOT_CARD_SELECTOR).length,
+    );
+    // The clone's own refusal, in the clone's own words: its id is a REPLY member, so
+    // the registered read cannot be asked by it and the question is not put.
+    expect(within(list).getAllByText("subject-not-addressable").length).toBeGreaterThan(0);
+  });
+
+  it("negative control: a worktree root's gate is still asked, and refuses differently", async () => {
+    // Without this the case above would pass against a section that had made every
+    // gate unaddressable — which would silently retire the one root the registered
+    // request does have a key for.
+    const container = renderSection(REPOS_SCENARIO);
+    await cloneList(container);
+
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll(MOUNT_CARD_SELECTOR).length).toBeGreaterThan(0);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    const mountGates = [...container.querySelectorAll(MOUNT_CARD_SELECTOR)].flatMap((card) => [
+      ...card.querySelectorAll(GATE_SELECTOR),
+    ]);
+    for (const gate of mountGates) {
+      expect(gate.textContent).not.toContain("subject-not-addressable");
+    }
+  });
+});
