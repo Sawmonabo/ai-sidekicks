@@ -23,6 +23,7 @@ import type { ConsoleScenario } from "./scenario.js";
 import { CONSOLE_SCENARIOS } from "./scenarios/index.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { REPOS_SCENARIO } from "./scenarios/repos.js";
+import { GIT_WORKSPACE_ID, IMPLEMENTER_WORKTREE_ID } from "./scenarios/repos-fixture-data.js";
 import { createLiveBridge } from "./live-bridge.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
@@ -137,8 +138,8 @@ describe("the fixture's gitflow reads — one answers from the script, the other
     const scripted = await createFixtureBridge({
       scenario: REPOS_SCENARIO,
     }).growth.gitflowBranchContextRead({
-      workspaceId: "workspace-1",
-      worktreeId: "worktree-1",
+      workspaceId: GIT_WORKSPACE_ID,
+      worktreeId: IMPLEMENTER_WORKTREE_ID,
     });
     expect(scripted.status).toBe("served");
     if (scripted.status === "served") {
