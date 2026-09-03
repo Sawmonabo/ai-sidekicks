@@ -173,6 +173,56 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
     expect(switchState(container)).toBe(false);
   });
 
+  it("shows what the projection says once it has moved past the reply", async () => {
+    // The session stamp only reaches a move BETWEEN sessions. Within one session the
+    // reply used to win forever, so a grant another participant turned off — or a
+    // reconnect read that answered differently — never reached the switch, and the
+    // control sat on a value nothing on the wire claimed any more.
+    const daemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(daemon);
+    const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
+    const { container } = render(pane(bridge, sessionStore));
+    await settleReads(bridge);
+
+    await pressGrantOn(container);
+    await settleReads(bridge);
+    expect(switchState(container)).toBe(true);
+
+    // The projection moving is a read landing in the store, which is exactly what a
+    // reconnect and another participant's event both are.
+    await act(async () => {
+      sessionStore.initialise({
+        cursor: 9,
+        entities: [
+          { kind: "session", id: FIRST_SESSION_ID, body: { peerInvocationEnabled: false } },
+        ],
+        participantJoinLog: [],
+      });
+      await Promise.resolve();
+    });
+
+    expect(switchState(container)).toBe(false);
+  });
+
+  it("negative control: a projection that has not moved leaves the reply standing", async () => {
+    // Without this the case above would pass over a control that retired every
+    // settlement on the next render, which would put a person's accepted choice back
+    // to the projection's older answer a frame after they made it.
+    const daemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(daemon);
+    const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
+    const { container, rerender } = render(pane(bridge, sessionStore));
+    await settleReads(bridge);
+
+    await pressGrantOn(container);
+    await settleReads(bridge);
+
+    rerender(pane(bridge, sessionStore));
+    await settleReads(bridge);
+
+    expect(switchState(container)).toBe(true);
+  });
+
   it("negative control: the settlement does win for the session it was asked of", async () => {
     // Without this, both cases above would pass over a control that ignored every
     // settlement — which would leave a person's accepted choice invisible until

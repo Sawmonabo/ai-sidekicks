@@ -31,7 +31,7 @@
 // participant-request arm is registered there is `"participant-request"`, and the
 // change is this one argument and nothing else.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import { consoleRefusalFrom } from "../../seats/index.js";
@@ -74,10 +74,39 @@ export function peerInvocationEnabledIn(
   return typeof projected === "boolean" ? projected : undefined;
 }
 
+/**
+ * One reading of the grant, and the projected row it was read from.
+ *
+ * The row travels beside the value because a surface holding a local settlement
+ * has to know when the projection MOVED, and the value alone cannot say: a grant
+ * that goes off and back on again reads identical at both ends, and a re-read that
+ * answers the same way is still the daemon speaking more recently than any reply
+ * this pane is remembering. The row is compared by identity and never read — the
+ * store replaces it on every mutation of the session partition and on every
+ * initialising read, which is exactly the set of moments that supersede a reply.
+ */
+export interface PeerInvocationProjection {
+  readonly enabled: boolean | undefined;
+  readonly source: ConsoleEntity | undefined;
+}
+
+/** What a mount with no store to subscribe to reads. Nothing was projected. */
+export const NOTHING_PROJECTED: PeerInvocationProjection = {
+  enabled: undefined,
+  source: undefined,
+};
+
 /** One session's projected peer-invocation grant, as a subscription. */
-export function usePeerInvocationEnabled(sessionStore: SessionStore): boolean | undefined {
+export function usePeerInvocationProjection(sessionStore: SessionStore): PeerInvocationProjection {
   const sessionPartition = useSessionPartition(sessionStore, "session");
-  return peerInvocationEnabledIn(sessionPartition, sessionStore.sessionId);
+  const { sessionId } = sessionStore;
+  return useMemo(
+    () => ({
+      enabled: peerInvocationEnabledIn(sessionPartition, sessionId),
+      source: sessionPartition[sessionId],
+    }),
+    [sessionPartition, sessionId],
+  );
 }
 
 /** A re-read of one session's projection, coalesced through the refresh chokepoint. */
