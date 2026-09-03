@@ -481,6 +481,43 @@ describe("PaneGeometryPublisher — the move source", () => {
     publisher.dispose();
   });
 
+  it("publishes the new rectangle while an animation nothing announced carries the pane", async () => {
+    // The same rail collapse, driven through `element.animate()` instead of a CSS
+    // transition. No `transitionrun`, no `animationstart`, no size change on any
+    // watched box — so before source 5 the sampler never armed and the native view
+    // held the pane's old coordinates for the whole animation.
+    const sibling = document.createElement("div");
+    insertedSiblings.push(sibling);
+    document.body.append(sibling);
+    const hostElement = elementWithRect(rect(240, 0, 100, 100));
+    withAnimations(hostElement, []);
+    const { publisher, clock, host } = publishingPublisherOver(hostElement);
+    expect(publisher.publishCount).toBe(1);
+
+    const motion = movingAnimation();
+    withDocumentAnimations([motion.animation]);
+    // Nothing announced it, so nothing is armed on the strength of the animation
+    // alone. This is the half the finding is about.
+    expect(clock.pendingCount).toBe(0);
+
+    // The class the collapsing rail wrote, which is a source this module already had.
+    sibling.className = "is-collapsing";
+    await settleMutationRecords();
+    moveElementRect(hostElement, rect(120, 0, 100, 100));
+    clock.runFrame();
+
+    expect(publisher.publishCount).toBe(2);
+    expect(host.samples.at(-1)?.reason).toBe("layout-mover");
+    expect(host.samples.at(-1)?.rect).toStrictEqual(rect(120, 0, 100, 100));
+
+    motion.settle();
+    clock.runFrame();
+    clock.runFrame();
+    // And it comes to rest: nothing samples once the animation is over.
+    expect(clock.pendingCount).toBe(0);
+    publisher.dispose();
+  });
+
   it("negative control: a disposed publisher hears no reorder at all", async () => {
     // Without the disposer reaching the position sources, a pane that unmounted
     // would keep sampling for the life of the window, once per deck reorder.
