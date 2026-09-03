@@ -408,6 +408,61 @@ describe("the write gate reaches assistive technology by name", () => {
     expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
   });
 
+  it("opens the gate on the emulator a new terminal id builds under the same lease", async () => {
+    // The finding. A terminal id that moves replaces the adapter, and the lease did
+    // not move with it — so a gate forwarded only when the LEASE changes left the
+    // fresh binding on its default shut stdin while the box below still read
+    // `data-write-enabled="true"`, and every character the holder typed was dropped
+    // until the shell next changed hands.
+    const { container, rerender } = await mountHost(
+      <XtermHost
+        terminalId="host-1"
+        isWriteEnabled
+        label="Terminal output"
+        onKeystroke={sendToWire}
+      />,
+    );
+    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
+
+    act(() => {
+      rerender(
+        <XtermHost
+          terminalId="host-2"
+          isWriteEnabled
+          label="Terminal output"
+          onKeystroke={sendToWire}
+        />,
+      );
+    });
+
+    expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
+    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
+  });
+
+  it("negative control: a shut lease stays shut across the same terminal id change", async () => {
+    // Without it the case above would pass against a component that opened stdin on
+    // every adapter it built, which is watch mode failing open on a rebuild.
+    const { container, rerender } = await mountHost(
+      <XtermHost
+        terminalId="host-1"
+        isWriteEnabled={false}
+        label="Terminal output"
+        onKeystroke={sendToWire}
+      />,
+    );
+    act(() => {
+      rerender(
+        <XtermHost
+          terminalId="host-2"
+          isWriteEnabled={false}
+          label="Terminal output"
+          onKeystroke={sendToWire}
+        />,
+      );
+    });
+    expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(false);
+  });
+
   it("carries the gate on the host box too, for the styling that has no text", async () => {
     const { container, rerender } = await mountHost(
       <XtermHost

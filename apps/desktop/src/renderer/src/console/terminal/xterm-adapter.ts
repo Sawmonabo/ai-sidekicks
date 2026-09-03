@@ -58,6 +58,16 @@ export interface XtermTerminalAdapterOptions {
   readonly terminalId: string;
   readonly pool?: TerminalRendererPool | undefined;
   readonly scrollbackLines?: number | undefined;
+  /**
+   * Whether the lease ALREADY says this participant may type, at build time.
+   *
+   * Watch mode is the default, so absent means shut. It is a construction input
+   * rather than a call the caller makes afterwards because a surface builds a fresh
+   * emulator for every terminal id and every capability change, under a lease that
+   * did not move with it: a binding corrected after construction is a binding that
+   * was briefly wrong, and one whose correction a caller can forget to make.
+   */
+  readonly isWriteEnabled?: boolean | undefined;
   /** Where a participant's keystrokes go. Absent means this surface never writes. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /** Where an allowed link goes. Absent means links render and never activate. */
@@ -89,6 +99,7 @@ export class XtermTerminalAdapter {
     this.#onActivateLink = options.onActivateLink;
     this.#addons = new TerminalAddonSuite(this.#terminalId, options.pool ?? terminalRendererPool);
     this.#hostBinding = new TerminalHostBinding({
+      isWriteEnabled: options.isWriteEnabled,
       onKeystroke: options.onKeystroke,
       onHostResize: () => {
         this.fitToHost();

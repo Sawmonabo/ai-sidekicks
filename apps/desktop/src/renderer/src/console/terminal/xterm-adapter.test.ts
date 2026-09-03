@@ -297,6 +297,17 @@ describe("the write gate — watch mode is the default", () => {
     expect(adapter.isStdinDisabled).toBe(true);
   });
 
+  it("takes a lease that was already open at construction, without a second call", () => {
+    // A surface builds a fresh emulator for every terminal id and every capability
+    // change, under a lease that did not move with it. Correcting the binding after
+    // construction is a binding that was briefly wrong and a correction a caller can
+    // forget, so the answer travels with the build.
+    const { adapter } = mountedAdapter({ terminalId: "born-writable", isWriteEnabled: true });
+
+    expect(adapter.isWriteEnabled).toBe(true);
+    expect(adapter.isStdinDisabled).toBe(false);
+  });
+
   it("opens the gate before the emulator exists and still starts it shut", () => {
     const pool = new TerminalRendererPool();
     const adapter = new XtermTerminalAdapter({ terminalId: "later", pool });

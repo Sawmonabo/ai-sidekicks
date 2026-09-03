@@ -94,6 +94,16 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
   const canActivateLinks = onActivateLink !== undefined;
   const writeGate = terminalWriteGate(isWriteEnabled, canWriteToWire);
   const isWritable = writeGate === "writable";
+  // THE LEASE AS THE MOUNT EFFECT SEES IT, and the reason the gate has exactly one
+  // mutator. An adapter is replaced whenever the terminal id or a capability moves,
+  // and the lease does not move with it — so a gate applied only by the effect that
+  // watches the LEASE left the fresh binding on its default shut stdin while the box
+  // below went on rendering `data-write-enabled="true"`, and every character the
+  // holder typed was discarded until the shell next changed hands. Handing the answer
+  // to the construction rather than correcting the binding afterwards is what keeps
+  // the two in step: a binding is BUILT with the lease, and `setWriteEnabled` moves it
+  // only when the lease itself does.
+  const isWritableRef = useLatestRef(isWritable);
 
   useEffect(() => {
     const hostElement = hostElementRef.current;
@@ -104,6 +114,7 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
     }
     const adapter = new emulator.module.XtermTerminalAdapter({
       terminalId,
+      isWriteEnabled: isWritableRef.current,
       onKeystroke: canWriteToWire
         ? (data: string): void => {
             callbacksRef.current.onKeystroke?.(data);
@@ -137,18 +148,17 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
       // a remount that is never coming.
       adapter.dispose();
     };
-  }, [emulator, terminalId, canWriteToWire, canActivateLinks, callbacksRef]);
+  }, [emulator, terminalId, canWriteToWire, canActivateLinks, callbacksRef, isWritableRef]);
 
   // Separate from the mount effect on purpose: the lease changes far more often
   // than the pane mounts, and folding the two would tear down an emulator every
-  // time the shell changed hands. It re-runs when the EMULATOR moves as well as
-  // when the gate does, because the adapter is built on a later commit than the
-  // one that first carried the lease — an emulator that arrived while the lease
-  // already said `true` would otherwise start closed and stay closed until the
-  // next transition.
+  // time the shell changed hands. It watches the LEASE and nothing else, because a
+  // binding that did not exist when the lease last moved was constructed with the
+  // answer above — so this is the gate's one mutator, and there is no second list of
+  // adapter-replacing inputs here to fall out of step with the mount effect's.
   useEffect(() => {
     adapterRef.current?.setWriteEnabled(isWritable);
-  }, [isWritable, emulator]);
+  }, [isWritable]);
 
   return (
     <div

@@ -42,6 +42,8 @@ import type { Unsubscribe } from "../core/index.js";
 import { observeElementResize } from "../primitives/index.js";
 
 export interface TerminalHostBindingOptions {
+  /** Whether the lease already says this participant may type. Absent is watch mode. */
+  readonly isWriteEnabled?: boolean | undefined;
   /** Where a participant's keystrokes go. Absent means this surface never writes. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /**
@@ -63,9 +65,10 @@ export class TerminalHostBinding {
   #hostElement: HTMLElement | undefined;
   #detachHostSizeObserver: Unsubscribe | undefined;
   #keystrokeSubscription: IDisposable | undefined;
-  #isWriteAllowedByLease = false;
+  #isWriteAllowedByLease: boolean;
 
   public constructor(options: TerminalHostBindingOptions) {
+    this.#isWriteAllowedByLease = options.isWriteEnabled ?? false;
     this.#onKeystroke = options.onKeystroke;
     this.#onHostResize = options.onHostResize;
   }
