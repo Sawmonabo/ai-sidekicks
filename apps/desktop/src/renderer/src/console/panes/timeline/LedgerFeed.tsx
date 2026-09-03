@@ -37,6 +37,12 @@
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
 //
+// AND ONE ENGINE THIS MOUNT OWNS. The reveal engine is per feed, minted here and
+// disposed with the feed, because a lane is a row of THIS window and a second engine
+// would publish a second answer for one row's text. It is not a fifth seam: nothing
+// mounted here reads it. Rows reach it through the frame's own per-row channel and the
+// viewport reads only its drain state.
+//
 // AND TWO SEATS THIS MOUNT CLAIMS, both for callers composed before it existed: the
 // palette's, so a ledger chord acts on the feed that is up when it fires, and the
 // workspace's follow seat, so a cast chip scrolls this ledger through this ledger's
@@ -51,13 +57,15 @@
 // itself is passed truthfully, so the rail still draws its dotted segment and the
 // find result still carries its boundary over a window the cap has truncated.
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 
 import { useConsoleClock } from "../../bridge/index.js";
 import {
   LedgerRowLeaseProvider,
+  LedgerRowRevealProvider,
   LedgerViewport,
   type LedgerViewportRow,
+  useLedgerReveal,
   useLedgerViewport,
 } from "../../ledger/frame/index.js";
 import {
@@ -126,12 +134,29 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
   const revealedViewportRows = useReplayRevealedRows(ledgerWindow, replay.position);
 
+  // THE REVEAL ENGINE IS THIS FEED'S, minted once and disposed with it. What it
+  // publishes reaches a row through the frame's own channel below; what it is DOING
+  // reaches the viewport as the drain state, which used to be the literal `false` —
+  // a default standing in for a reading of a scheduler nothing had mounted.
+  const reveal = useLedgerReveal({ clock });
   const viewport = useLedgerViewport({
     clock,
     rows: revealedViewportRows,
     hasActiveTurn: ledgerWindow.hasActiveTurn,
-    isRevealDraining: false,
+    isRevealDraining: reveal.isDraining,
   });
+
+  // A lane whose row this window no longer holds, or holds only inside a chapter that
+  // has reached its terminal, is a turn that is over: the engine drops it so a
+  // finished lane stops costing memory. Asked of the engine's own lanes, which are at
+  // most one per streaming row — walking the window instead would be a pass over the
+  // whole log on every event.
+  const retireRevealLanes = reveal.retireLanes;
+  useEffect(() => {
+    retireRevealLanes(
+      (laneId) => !ledgerWindow.rowsByKey.has(laneId) || ledgerWindow.collapsedRowIds.has(laneId),
+    );
+  }, [retireRevealLanes, ledgerWindow]);
 
   // Read back off the viewport's own reconciled snapshot, so find and the rail are
   // looking at the window on screen rather than at the log behind it. The revealed
@@ -173,6 +198,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const openedTerminalRunIds = chapterDisclosure.openedTerminalRunIds;
   const rowLease = viewport.rowLease;
   const setRowLease = viewport.setRowLease;
+  // Named off the props object rather than read through it, because the callback
+  // below keys on this and `props` is a fresh object on every render. Depending on
+  // the whole object rebuilt `renderRow` on every render of this feed — a find
+  // keystroke, a rail hover, a replay tick, a lease write — and `LedgerRowMount`'s
+  // memo compares it, so every mounted row re-rendered for a change none of them
+  // could see.
+  const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   const renderRow = useCallback(
     (row: LedgerViewportRow) => {
@@ -215,7 +247,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       if (seam !== undefined) {
         return <SeamRow seam={seam} participantHue={participantHue} isSuperseded={isSuperseded} />;
       }
-      return props.renderTimelineRow({
+      return renderTimelineRow({
         row: projected,
         participantHue,
         isSuperseded,
@@ -227,7 +259,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           rowLease(projected.id)?.density ?? densityFor(projected.id, ledgerWindow.collapsedRowIds),
       });
     },
-    [hueForActor, ledgerWindow, openedTerminalRunIds, props, rowLease, toggleChapter],
+    [hueForActor, ledgerWindow, openedTerminalRunIds, renderTimelineRow, rowLease, toggleChapter],
   );
 
   const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
@@ -318,12 +350,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
       <div className="meridian-ledger__body">
         <LedgerRowLeaseProvider channel={rowLeaseChannel}>
-          <LedgerViewport
-            binding={viewport}
-            renderRow={renderRow}
-            feedLabel={props.feedLabel}
-            hasActiveTurn={ledgerWindow.hasActiveTurn}
-          />
+          <LedgerRowRevealProvider channel={reveal.channel}>
+            <LedgerViewport
+              binding={viewport}
+              renderRow={renderRow}
+              feedLabel={props.feedLabel}
+              hasActiveTurn={ledgerWindow.hasActiveTurn}
+            />
+          </LedgerRowRevealProvider>
         </LedgerRowLeaseProvider>
         <div
           className="meridian-ledger__rail"

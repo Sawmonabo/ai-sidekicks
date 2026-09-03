@@ -75,6 +75,7 @@ export class LedgerViewportController {
   #snapshot: LedgerViewportSnapshot;
   #lastPrune: PruneOutcome | undefined;
   #publishFrame: ScheduledHandle | undefined;
+  #tailGlidePending = false;
   #disposed = false;
 
   public constructor(options: LedgerViewportControllerOptions) {
@@ -188,9 +189,57 @@ export class LedgerViewportController {
     const compensated =
       readingFloorRowKey !== undefined && this.#compensateForPrunedHeight(prunedHeightPx);
     if (!compensated) {
-      this.holdReadingPosition();
+      this.#holdReadingPositionAfterReconcile();
     }
     this.#publish();
+  }
+
+  /**
+   * Hold the position across a reconcile — the tail arm ARMED rather than performed.
+   *
+   * The anchor arm runs here as it always has: its index lookup is deliberately in
+   * the pre-render offset space, which is the space the anchored row's offset was
+   * measured in.
+   *
+   * The FOLLOWING arm cannot be, and that is the defect this split closes. The rows
+   * this reconcile took have not rendered yet, so the sizer still carries the
+   * previous total size and `glideToTail()` would read the old `scrollHeight` — it
+   * would scroll to the bottom of the log as it was BEFORE the append. Nothing
+   * corrects it afterwards: the next render grows the sizer and nothing glides again,
+   * because the container did not resize and no further row arrived. The reader is
+   * left short of the new entry with the state still reporting `following`. So the
+   * glide is armed here and performed by `commitPendingTailGlide`, which the React
+   * binding calls in a layout effect that runs AFTER the virtualizer has written the
+   * new height.
+   */
+  #holdReadingPositionAfterReconcile(): void {
+    if (this.anchor.state.mode === "following") {
+      this.#tailGlidePending = true;
+      return;
+    }
+    this.holdReadingPosition();
+  }
+
+  /**
+   * Perform the tail glide a reconcile armed, now that the new height is committed.
+   *
+   * Re-checks the reading mode rather than trusting the arming: a reader who scrolled
+   * away between the reconcile and this commit is no longer following, and dragging
+   * them to the tail is the one thing the anchor exists to prevent. The flag is
+   * cleared either way, so a stale arming never fires against a later render.
+   *
+   * Idempotent and cheap when nothing is armed, because the binding calls it after
+   * every render rather than only after the ones that appended.
+   */
+  public commitPendingTailGlide(): void {
+    if (!this.#tailGlidePending || this.#disposed) {
+      return;
+    }
+    this.#tailGlidePending = false;
+    if (this.anchor.state.mode !== "following") {
+      return;
+    }
+    this.scroll.glideToTail("follow-tail");
   }
 
   /**
@@ -213,9 +262,13 @@ export class LedgerViewportController {
    * which is the one case where the ledger moves the offset on its own, and it does
    * it only because the reader asked for it by being at the tail.
    *
-   * Called from `reconcile` only where no prune compensation ran: its index lookup
-   * reads a virtualizer still in the PRE-prune offset space until React re-renders,
-   * so after a prune it would name the wrong row.
+   * Called from `reconcile`'s own arm only where no prune compensation ran: its index
+   * lookup reads a virtualizer still in the PRE-prune offset space until React
+   * re-renders, so after a prune it would name the wrong row. That arm defers the
+   * FOLLOWING case to `commitPendingTailGlide` — see
+   * `#holdReadingPositionAfterReconcile`. Called directly, as the overflow pass does,
+   * both arms run now: a container that has already resized carries a current
+   * `scrollHeight`, so there is nothing to wait for.
    */
   public holdReadingPosition(): void {
     const reading = this.anchor.state;
@@ -247,6 +300,7 @@ export class LedgerViewportController {
 
   /** Terminal. Every subscription this controller opened is closed here. */
   public dispose(): void {
+    this.#tailGlidePending = false;
     for (const unsubscribe of this.#teardown) {
       unsubscribe();
     }

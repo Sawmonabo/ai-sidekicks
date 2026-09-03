@@ -10,7 +10,14 @@
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { VirtualItem } from "@tanstack/react-virtual";
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { type ConsoleClock } from "../../core/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "./frame-bounds.js";
@@ -176,6 +183,32 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
     }
     controller.reconcile({ rows, hasActiveTurn, isRevealDraining });
   }, [controller, rows, hasActiveTurn, isRevealDraining]);
+
+  // THE TAIL GLIDE, PERFORMED AFTER THE HEIGHT IT DEPENDS ON IS COMMITTED.
+  //
+  // `reconcile` runs in a PASSIVE effect, so the rows it took have not rendered when
+  // it runs and the sizer still carries the previous total size — a glide to the tail
+  // there lands on the bottom of the log as it was before the append, and nothing
+  // glides again afterwards. The controller therefore arms the glide and this
+  // performs it.
+  //
+  // A LAYOUT effect, declared AFTER `useVirtualizer`, and both halves are the
+  // mechanism rather than style. The adapter writes the container's height under
+  // `directDomUpdates` from its own layout effect; React runs a component's layout
+  // effects in hook order, so this one runs after that write and before the browser
+  // paints. No timer and no second animation frame is involved: the signal is the
+  // library's own commit, and reading `scrollHeight` here answers with the height it
+  // just wrote.
+  //
+  // No dependency array, because the height can move on any render — a re-measured
+  // row changes the total size with the row set untouched — and the call costs a
+  // boolean read on every render that armed nothing.
+  useLayoutEffect(() => {
+    if (controller.isDisposed) {
+      return;
+    }
+    controller.commitPendingTailGlide();
+  });
 
   // A lease write is state the WINDOW owns, so it is not React state — but the tree
   // has to repaint to show it. The revision is the notification, and nothing reads
