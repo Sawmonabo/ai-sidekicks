@@ -52,14 +52,6 @@ export function openSessionStoreWithLog(count: number): SessionStore {
   return sessionStore;
 }
 
-/**
- * Two participants whose PREFERRED wheel step is the same, so which of them takes
- * it is decided by admission order and by nothing else.
- *
- * The collision is the instrument: with distinct preferred steps both orders agree
- * and the case below would pass over either allocator.
- */
-
 /** A store whose join order and first-event order deliberately disagree. */
 export function openStoreWhereJoinOrderIsNotEventOrder(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });

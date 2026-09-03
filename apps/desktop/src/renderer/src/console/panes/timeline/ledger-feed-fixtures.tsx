@@ -160,8 +160,6 @@ export function replayDockHarness(feed: HTMLElement): {
   return { dock, railSlider, dockButton };
 }
 
-/** A laid-out rail box. Any non-zero extent will do; the painter needs one to size its store. */
-
 /**
  * Record the ink every rail mark is painted with, for the length of one case.
  *
