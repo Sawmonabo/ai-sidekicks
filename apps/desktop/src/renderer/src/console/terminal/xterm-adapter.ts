@@ -136,6 +136,16 @@ export class XtermTerminalAdapter {
    * Put the emulator on screen. Built on first call and reused after, which is the
    * point of the pool: a remount must not mint a second context for a terminal
    * that already has one. A second host moves the emulator rather than copying it.
+   *
+   * THE MOVE IS THIS CLASS'S AND NOT THE LIBRARY'S, which is a fact about the pinned
+   * `@xterm/xterm` 6.0.0 rather than a preference. `Terminal.open(parent)` builds the
+   * emulator's element and appends it on the FIRST call; on every call after it
+   * returns early — measured in the shipped bundle — leaving the element in whichever
+   * parent it is already in and doing one other thing, re-pointing the library's own
+   * window reference at that element's current document. So a second `open()` is not
+   * a re-parent and never was: the re-append below is what actually moves the grid,
+   * and the call is still made afterwards, so the library's bookkeeping is its own
+   * rather than restated here.
    */
   public attach(hostElement: HTMLElement): void {
     if (this.#isDisposed) {
@@ -146,14 +156,30 @@ export class XtermTerminalAdapter {
       this.fitToHost();
       return;
     }
+    const builtElement = terminal.element;
+    if (builtElement !== undefined) {
+      hostElement.append(builtElement);
+    }
     terminal.open(hostElement);
     this.#addons.selectRendererFor(terminal);
     this.#hostBinding.showOn(hostElement);
     this.fitToHost();
   }
 
-  /** Take the emulator off screen and keep it, with its scrollback and its renderer. */
+  /**
+   * Take the emulator off screen and keep it, with its scrollback and its renderer.
+   *
+   * THE ELEMENT LEAVES WITH THE TIE. Dropping the host reference and the size
+   * observer takes this adapter off the old box and takes nothing off the screen:
+   * xterm's own element stays where `open()` put it, still painted, still holding
+   * the emulator's data listener. A pane that detached and re-attached elsewhere
+   * therefore left a live interactive terminal standing in the host it had left,
+   * beside the one it moved to — two grids, one emulator, and a person able to type
+   * into the ghost. The element goes with the tie, and the emulator, its scrollback,
+   * and its renderer all survive: only its position in the document ends here.
+   */
   public detach(): void {
+    this.#terminal?.element?.remove();
     this.#hostBinding.detach();
   }
 

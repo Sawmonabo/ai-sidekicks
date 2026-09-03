@@ -53,6 +53,19 @@ class RecordingRendererPool extends TerminalRendererPool {
   }
 }
 
+/** A host box in the live document, cleaned up with the rest after each case. */
+function attachedHost(): HTMLElement {
+  const host = document.createElement("div");
+  document.body.append(host);
+  liveHosts.push(host);
+  return host;
+}
+
+/** Every emulator element inside one host. The library's own root class. */
+function emulatorElementsIn(host: HTMLElement): NodeListOf<Element> {
+  return host.querySelectorAll(".xterm");
+}
+
 function mountedAdapter(
   options: Partial<ConstructorParameters<typeof XtermTerminalAdapter>[0]> = {},
 ): { adapter: XtermTerminalAdapter; host: HTMLElement } {
@@ -116,6 +129,50 @@ describe("the emulator wrapper", () => {
     expect(adapter.isEmulatorLive).toBe(true);
     adapter.attach(host);
     expect(adapter.bufferLineCount).toBe(linesBefore);
+  });
+
+  it("takes the emulator out of the host it is leaving", async () => {
+    // The finding. Dropping the host reference and the size observer takes the
+    // adapter off the box and takes nothing off the screen, so a detached pane went
+    // on displaying a live grid whose data listener was still armed.
+    const { adapter, host } = mountedAdapter({ terminalId: "moved-away" });
+    await writeText(adapter, "printed before the move\n");
+    expect(emulatorElementsIn(host)).toHaveLength(1);
+
+    adapter.detach();
+
+    expect(emulatorElementsIn(host)).toHaveLength(0);
+  });
+
+  it("re-appends that same emulator on the next host, scrollback and all", async () => {
+    // The other half: the element leaves, and the EMULATOR does not. The pinned
+    // library's `open()` returns early for a terminal it has already built one for,
+    // so the re-append is the adapter's own — and a second `open()` that had built a
+    // second element would show up here as two grids in the new host.
+    const { adapter, host } = mountedAdapter({ terminalId: "moved-on" });
+    await writeText(adapter, "printed before the move\n");
+    const nextHost = attachedHost();
+
+    adapter.detach();
+    adapter.attach(nextHost);
+
+    expect(emulatorElementsIn(host)).toHaveLength(0);
+    expect(emulatorElementsIn(nextHost)).toHaveLength(1);
+    expect(adapter.serialize()).toContain("printed before the move");
+    expect(adapter.isEmulatorLive).toBe(true);
+  });
+
+  it("negative control: an attach to the host it is already on moves nothing", async () => {
+    // Without this the cases above would pass against an adapter that tore the
+    // element out and put it back on every re-fit, which would drop the operator's
+    // scroll position and the focus with it.
+    const { adapter, host } = mountedAdapter({ terminalId: "already-here" });
+    const grid = emulatorElementsIn(host)[0];
+    expect(grid).toBeDefined();
+
+    adapter.attach(host);
+
+    expect(emulatorElementsIn(host)[0]).toBe(grid);
   });
 
   it("caps the buffer at its scrollback rather than growing with the output", async () => {
@@ -249,6 +306,39 @@ describe("the write gate — watch mode is the default", () => {
     document.body.append(host);
     liveHosts.push(host);
     adapter.attach(host);
+    expect(adapter.isStdinDisabled).toBe(true);
+  });
+
+  it("shuts the gate while the emulator is off screen and re-opens it on the next host", () => {
+    // The write state belongs to the TIE. A detached emulator has no box to click
+    // and no host to be measured against, so a gate left open there is an emulator
+    // accepting input for a surface nobody can see — and the lease has not moved, so
+    // the next host gets the answer the lease gave without being told again.
+    const { adapter, host } = mountedAdapter({ terminalId: "gated-by-host" });
+    adapter.setWriteEnabled(true);
+    expect(adapter.isStdinDisabled).toBe(false);
+
+    adapter.detach();
+
+    expect(adapter.isWriteEnabled).toBe(false);
+    expect(adapter.isStdinDisabled).toBe(true);
+
+    adapter.attach(host);
+
+    expect(adapter.isWriteEnabled).toBe(true);
+    expect(adapter.isStdinDisabled).toBe(false);
+  });
+
+  it("negative control: a host does not open a gate the lease never opened", () => {
+    // Without it the case above would pass against a binding that opened stdin on
+    // every attach, which is watch mode failing open on the one surface where the
+    // expensive mistake is sending a keystroke nobody was allowed to send.
+    const { adapter, host } = mountedAdapter({ terminalId: "watcher-remount" });
+
+    adapter.detach();
+    adapter.attach(host);
+
+    expect(adapter.isWriteEnabled).toBe(false);
     expect(adapter.isStdinDisabled).toBe(true);
   });
 
