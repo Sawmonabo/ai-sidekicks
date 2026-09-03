@@ -13,13 +13,18 @@
 // bodies.
 //
 // WHAT THE FAMILY OWNS TODAY, after T-023p-1C-7: its named bounds
-// (`constants.ts`), the emulator wrapper (`xterm-adapter.ts`) and the deferred edge
-// into it (`emulator-loader.ts`), the page-wide WebGL slot allocator
-// (`renderer-pool.ts`), the mount point (`XtermHost.tsx`), the lease fold
-// (`lease-model.ts`), and the lease line (`LeaseLine.tsx`). Those are reached
-// by the pane body beside them through deep imports inside the family — the door
-// below is the SEAT BOARD's, and a body importing its own family through it would
-// close a cycle: this module imports the pane, and the pane imports these.
+// (`constants.ts`), the emulator wrapper (`xterm-adapter.ts`) with the three modules
+// it composes — the addons and the renderer selection (`xterm-addons.ts`), both link
+// paths (`xterm-links.ts`), and the host tie with its write gate
+// (`xterm-host-binding.ts`) — and the deferred edge into it (`emulator-loader.ts`),
+// the page-wide WebGL slot allocator (`renderer-pool.ts`), the link scheme guard
+// (`link-guard.ts`), the mount point (`XtermHost.tsx`), the lease fold
+// (`lease-model.ts`), the host-presence fold (`node-presence-model.ts`), the viewer's
+// identity read (`viewer-identity.ts`), and the lease line (`LeaseLine.tsx`) with the
+// one wire call it makes (`lease-claim.ts`). Those
+// are reached by the pane body beside them through deep imports inside the family —
+// the door below is the SEAT BOARD's, and a body importing its own family through it
+// would close a cycle: this module imports the pane, and the pane imports these.
 
 // THE FAMILY'S STYLESHEET IS IMPORTED HERE AND NOWHERE ELSE, which is
 // `apps/desktop/AGENTS.md`'s rule. It is the family's own sheet — the pane box, the

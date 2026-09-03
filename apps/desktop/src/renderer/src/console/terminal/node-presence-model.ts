@@ -31,21 +31,45 @@
 // answer, so a replayed prefix reads the same as a live stream and a reconnect heals
 // by re-running it. No class, because there is no state to hold between calls.
 
-import { NodeStateSchema } from "@ai-sidekicks/contracts";
+import { NodeStateSchema, type SessionEventType } from "@ai-sidekicks/contracts";
 
 import type { ConsoleSessionEvent } from "../store/index.js";
 import type { TerminalHoldingNodeReading } from "./lease-model.js";
 
 /**
- * The prefix every runtime-node event kind carries.
+ * The event kinds whose registered payload reports a NODE STATE.
  *
- * The fold keys on the PREFIX and then on the payload rather than on a list of
- * kinds, because what moves a node's reachability is the state the event reports,
- * not its name. A capability event carries no `newState` at all and is skipped by
- * that reading; a lifecycle name this build has never heard of still moves the
- * reading if it reports a state, which is the direction that cannot go stale.
+ * WHY A KIND AND NOT THE MEMBER. This fold used to key on the `runtime_node.`
+ * prefix plus the presence of a `newState` member, on the reasoning that what moves
+ * a node's reachability is the state an event reports rather than its name. The
+ * contract refutes it: `runtime_node.capability_updated` carries `previousState`
+ * and `newState` too, and they are `CapabilityDetails` SNAPSHOTS rather than
+ * `NodeState` values (`packages/contracts/src/runtime-node.ts`, the reduced
+ * capability base and the note beside it). The member is spelled the same and means
+ * something else — so a capability health change parsed as a node state, failed,
+ * and overwrote a perfectly good `online` reading with `unknown` until the next
+ * lifecycle event arrived.
+ *
+ * THE THREE BELOW ARE THE CONTRACT'S OWN. `packages/contracts/src/event.ts`
+ * registers five `runtime_node.*` payload variants; three compose the FULL
+ * lifecycle base (`{sessionId?, nodeId, previousState?, newState: NodeState,
+ * actor?}`) and are the ones listed here, and two compose the REDUCED capability
+ * base, which declares no node state at all. Each key is written as a
+ * `SessionEventType`, so a kind this console invents — or one a later release
+ * renames — is a compile error rather than an arm that silently matches nothing.
+ *
+ * `runtime_node.degraded` and `runtime_node.revoked` are deliberately absent. They
+ * are census members with NO registered payload variant (server-derived, V1.1-gated
+ * on the node-identity trust anchor), so there is no registered shape to read a
+ * state off — and reading a member off an unregistered payload is the exact mistake
+ * this list exists to undo. When their variants register, they join this list and
+ * the compiler is what admits them.
  */
-const RUNTIME_NODE_EVENT_KIND_PREFIX = "runtime_node.";
+const PRESENCE_TRANSITION_EVENT_KINDS = [
+  "runtime_node.registered",
+  "runtime_node.online",
+  "runtime_node.offline",
+] as const satisfies readonly SessionEventType[];
 
 /**
  * What the newest presence event says about a host.
@@ -67,10 +91,20 @@ export interface TerminalNodePresenceEntry {
 /**
  * Fold a session's events into per-node reachability, newest write winning.
  *
- * Total and pure. Events of other kinds are skipped, and so is a runtime-node event
- * whose payload names no node or reports no state — the first has nothing to key on
- * and the second says nothing about liveness. Order is first-mention, so the entries
- * read the way the log introduced the hosts.
+ * Total and pure. Every kind outside {@link PRESENCE_TRANSITION_EVENT_KINDS} is
+ * skipped — both capability kinds included, so a capability health change leaves
+ * the host's presence reading exactly as the newest lifecycle event left it — and
+ * so is a presence event whose payload names no node or carries no state member at
+ * all: the first has nothing to key on and the second is not a payload the daemon
+ * could have emitted, since the registered shape requires the member.
+ *
+ * A present state the registered vocabulary does not admit is a different fact and
+ * takes a different answer: it is the newest thing the log said about this host,
+ * this build cannot place it, and `unknown` is the reading that says so. Skipping it
+ * would leave the last state this build DID understand standing as current, which is
+ * how a host reads reachable after the wire said something newer.
+ *
+ * Order is first-mention, so the entries read the way the log introduced the hosts.
  */
 export function projectNodePresence(
   events: readonly ConsoleSessionEvent[],
@@ -78,7 +112,7 @@ export function projectNodePresence(
   const reachabilityByNodeId = new Map<string, TerminalNodeReachability>();
 
   for (const event of events) {
-    if (!event.kind.startsWith(RUNTIME_NODE_EVENT_KIND_PREFIX)) {
+    if (!isPresenceTransitionKind(event.kind)) {
       continue;
     }
     const payload = event.payload;
@@ -90,15 +124,24 @@ export function projectNodePresence(
       continue;
     }
     if (!Object.hasOwn(payload, "newState")) {
-      // A capability declaration is not a state transition — its registered payload
-      // carries no `newState` — and a fold that read one as a presence move would
-      // invent a liveness reading out of an unrelated event.
       continue;
     }
     reachabilityByNodeId.set(nodeId, readReachability(payload["newState"]));
   }
 
   return [...reachabilityByNodeId].map(([nodeId, reachability]) => ({ nodeId, reachability }));
+}
+
+/**
+ * Whether one event kind is one this fold reads a node state from.
+ *
+ * A comparison over the tuple rather than a `Set` built at module load, on
+ * `lease-model.ts`'s `asTerminalLeaseTransitionReason` shape: the set has three
+ * members, the module holds no state between calls, and a module-level `Set` is the
+ * singleton `apps/desktop/AGENTS.md` rejects.
+ */
+function isPresenceTransitionKind(kind: string): boolean {
+  return PRESENCE_TRANSITION_EVENT_KINDS.some((presenceKind) => presenceKind === kind);
 }
 
 /**

@@ -1,11 +1,16 @@
-// Every state 8.8 names, and the three things the line must never do.
+// Every state 8.8 names, and the four things the line must never do.
 //
 // The lease STATE is a value here, built directly rather than folded from a
 // scenario, because `lease-model.test.ts` already holds the fold to the wire and
-// this file's subject is what each state RENDERS. Building the states makes the
-// unreachable ones reachable: `held-by-you` cannot arise in the shipped pane (no
-// read supplies the viewer's identity), and the surface that will show a keyboard
-// the day it can still has to be correct today.
+// this file's subject is what each state RENDERS. The VIEWER's identity is a value
+// for the same reason: `panes/terminal/TerminalPane.test.tsx` drives the read that
+// produces one, against the real port, and every case below renders under a settled
+// one so that the state it names is what it is about.
+//
+// The last of the four prohibitions has its own block at the foot of the file: the
+// claim control is offered only once the viewer's identity has been read, because a
+// control the surface cannot attribute is one the daemon will honour and this line
+// will then report as somebody else's hold.
 //
 // The wire calls run against the real bridge — the fixture's growth port, which
 // refuses `terminalAcquireWriteLease` by name because `Plan-023 §Console growth
@@ -16,8 +21,10 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import { refuse } from "../core/index.js";
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../bridge/scenarios/terminal.js";
 import { LeaseLine, type TerminalParticipantMark } from "./LeaseLine.js";
+import type { TerminalViewerIdentity } from "./viewer-identity.js";
 import {
   TERMINAL_LEASE_HOLDINGS,
   UNREAD_TERMINAL_LEASE,
@@ -118,9 +125,28 @@ function transitionAt(
   };
 }
 
-function renderLease(state: TerminalLeaseState, bridge: ConsoleBridge = refusingBridge()) {
+/**
+ * The identity every case below renders under unless it is about the other arms.
+ *
+ * Read, and read as the VIEWER: the claim control is gated on the identity having
+ * landed, so a default of anything else would make every case in this file about the
+ * withheld state instead of about the state it names.
+ */
+const VIEWER_IDENTITY_READ: TerminalViewerIdentity = { status: "read", participantId: VIEWER };
+
+function renderLease(
+  state: TerminalLeaseState,
+  bridge: ConsoleBridge = refusingBridge(),
+  viewerIdentity: TerminalViewerIdentity = VIEWER_IDENTITY_READ,
+) {
   return render(
-    <LeaseLine bridge={bridge} sessionId={SESSION_ID} state={state} markFor={markFor} />,
+    <LeaseLine
+      bridge={bridge}
+      sessionId={SESSION_ID}
+      state={state}
+      markFor={markFor}
+      viewerIdentity={viewerIdentity}
+    />,
   );
 }
 
@@ -200,6 +226,7 @@ describe("the holder line — every state 8.8 names", () => {
           holderVouching: "vouched",
         })}
         markFor={named}
+        viewerIdentity={VIEWER_IDENTITY_READ}
       />,
     );
     expect(container.textContent).toContain("Priya holds the shell.");
@@ -577,5 +604,72 @@ describe("stepping in is not this control (8.9)", () => {
     expect(container.textContent).toContain("It never moves the keyboard");
     // Two buttons: the claim and the disclosure. Step in belongs to the composer.
     expect(container.querySelectorAll("button")).toHaveLength(2);
+  });
+});
+
+describe("the claim control is gated on knowing who the viewer is", () => {
+  /** The claim control, or `null` — the shape the withheld cases need. */
+  function offeredClaimControl(container: HTMLElement): Element | null {
+    return container.querySelector(".meridian-lease-line__claim");
+  }
+
+  const HELD_BY_SOMEBODY = leaseState({
+    holding: "held-by-another",
+    holderParticipantId: HOLDER,
+    holderVouching: "vouched",
+    transitionCount: 1,
+  });
+
+  it("offers no control while the identity read is still out, and says why", () => {
+    const { container } = renderLease(HELD_BY_SOMEBODY, refusingBridge(), {
+      status: "not-loaded",
+    });
+    expect(offeredClaimControl(container)).toBeNull();
+    // An absence rather than a disabled button: a greyed control reads as "not right
+    // now", and the truth is that the console does not know who would be claiming.
+    const absence = container.querySelector(".meridian-nothing");
+    expect(absence?.className).toContain("meridian-nothing--not-loaded");
+    expect(container.textContent).toContain("Reading who you are");
+    // The disclosure is untouched — the history is readable without an identity.
+    expect(container.querySelector(".meridian-lease-line__disclosure")).not.toBeNull();
+  });
+
+  it("renders the wire's own refusal, and the next move, when the read was refused", () => {
+    const { container } = renderLease(HELD_BY_SOMEBODY, refusingBridge(), {
+      status: "refused",
+      refusal: refuse(
+        "terminal-viewer-identity",
+        "wire-unregistered",
+        "Not checked — the caller's participant identity is not registered on this build yet.",
+      ),
+    });
+    expect(offeredClaimControl(container)).toBeNull();
+    expect(container.textContent).toContain("wire-unregistered");
+    // Verbatim, and the console's own sentence in the action slot beside it rather
+    // than folded into the daemon's text.
+    expect(container.textContent).toContain("is not registered on this build yet");
+    expect(container.textContent).toContain("offered again once the console can say");
+  });
+
+  it("offers Release to the participant the log names as the holder", () => {
+    // The whole point of feeding the identity in: the claimant's own take reads as
+    // theirs, so the control they are offered is the one that gives the shell back.
+    const { container } = renderLease(
+      leaseState({
+        holding: "held-by-you",
+        holderParticipantId: VIEWER,
+        holderVouching: "vouched",
+        transitionCount: 1,
+      }),
+    );
+    expect(offeredClaimControl(container)?.textContent).toBe("Release the shell");
+  });
+
+  it("negative control: a read identity DOES get the control", () => {
+    // Without this the two withheld cases would pass against a line that had simply
+    // stopped rendering the claim control at all.
+    const { container } = renderLease(HELD_BY_SOMEBODY);
+    expect(offeredClaimControl(container)?.textContent).toBe("Claim the shell");
+    expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
   });
 });
