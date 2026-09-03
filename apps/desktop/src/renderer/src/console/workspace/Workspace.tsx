@@ -37,11 +37,11 @@
 //     window shows the moved pane's slot as a placeholder with a focus control". That
 //     suppresses the BODY, not the pane: closing the pane would delete its width and
 //     its position, and the window closing or crashing would then have nowhere to put
-//     it back. So the hand-off's
-//     detached set is subscribed to here and passed down, and the slot draws a
-//     placeholder with a focus control and a way back.
+//     it back. The hand-off's own lifecycle — its detached set, its crash records, and
+//     the four acts a slot offers — is `workspace/auxiliary-panes.ts`'; this surface
+//     passes what that publishes down to the deck and raises what it refuses.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
@@ -52,7 +52,7 @@ import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
 import { consoleCommandSurface } from "../frame/command-surface.js";
 import { CastBar } from "./CastBar.js";
-import { AuxiliaryHandoff } from "./aux-handoff.js";
+import { useAuxiliaryPanes } from "./auxiliary-panes.js";
 import { Deck } from "./deck/Deck.js";
 import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
 import type { DeckPane } from "./deck/deck-model.js";
@@ -66,7 +66,6 @@ import {
 } from "./sidebar/sidebar-model.js";
 import { useSidebarLayout } from "./sidebar/sidebar-state.js";
 import {
-  actorFollowHandler,
   composerSeatRenderer,
   consolePaneRegistry,
   parseConsolePaneAddress,
@@ -75,7 +74,7 @@ import {
   type ConsolePaneOpener,
   type ConsolePaneRegistry,
 } from "../seats/index.js";
-import { ACTOR_FOLLOW_ANNOUNCEMENTS, resolveActorFollow } from "./actor-follow.js";
+import { useActorFollow } from "./actor-follow.js";
 
 /**
  * The sidebar's two palette rows, contributed the moment this module is evaluated.
@@ -123,7 +122,6 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   const registry = props.registry ?? consolePaneRegistry;
   const layout = useDeckLayout({ restoredPaneCap: DECK_RESTORED_PANE_CAP });
   const deckState = useDeckLayoutState(layout);
-  const [handoff] = useState(() => new AuxiliaryHandoff({ growth: props.bridge.growth }));
   // Read HERE and not inside the follow callback: a hook may not be called from one,
   // and a workspace mounted outside `LiveAnnouncerProvider` should fail on this line
   // rather than the first time somebody presses a chip.
@@ -173,90 +171,8 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
   );
 
-  const detached = useDetachedPanes(handoff);
-
-  const onOpenInWindow = useCallback(
-    (pane: DeckPane) => {
-      void (async () => {
-        const outcome = await handoff.detach({
-          paneId: pane.paneId,
-          kind: pane.kind,
-          sessionId,
-          ...(pane.entity?.kind === "agent" ? { agentId: pane.entity.id } : {}),
-        });
-        if (outcome.outcome === "refused") {
-          raise(outcome.refusal);
-        }
-        // The pane STAYS, with its body suppressed. `Spec-023 §The surface set` keeps
-        // the slot as a placeholder rather than closing it: a closed pane loses its
-        // width and its position,
-        // and the window closing would then have nowhere to put the pane back.
-      })();
-    },
-    [handoff, raise, sessionId],
-  );
-
-  const onFocusDetachedWindow = useCallback(
-    (paneId: string) => {
-      void (async () => {
-        const refusal = await handoff.focus(paneId);
-        if (refusal !== undefined) {
-          raise(refusal);
-        }
-      })();
-    },
-    [handoff, raise],
-  );
-
-  const onReturnToDeck = useCallback(
-    (paneId: string) => {
-      void (async () => {
-        const refusal = await handoff.returnToDeck(paneId);
-        if (refusal !== undefined) {
-          raise(refusal);
-        }
-      })();
-    },
-    [handoff, raise],
-  );
-
-  const onFollow = useCallback(
-    (participantId: string) => {
-      // Follow has two halves — `workspace/actor-follow.ts` states the rule — and both
-      // of them happen. The first is the
-      // deck's: the actor's own pane takes focus where one is open, and the session's
-      // ledger otherwise. In a deck holding one timeline that half is a no-op, which
-      // is why the second half is not optional.
-      const panes = layout.snapshot().panes;
-      const target =
-        panes.find((pane) => pane.entity?.id === participantId) ??
-        panes.find((pane) => pane.kind === "timeline");
-      if (target !== undefined) {
-        layout.focus(target.paneId);
-      }
-
-      // The second half — the ledger scrolling to that actor's newest row — rides the
-      // ledger's own scroll chokepoint through the follow seat, never a
-      // `scrollIntoView` call here. Each way it can fail says so: a participant with
-      // no row, a row outside the window the ledger holds, and a window with no ledger
-      // mounted are three different facts, and a press that quietly did nothing
-      // reported none of them.
-      const resolution = resolveActorFollow(sessionStore?.snapshot().timeline ?? [], participantId);
-      if (resolution.outcome === "no-activity") {
-        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["no-activity"]);
-        return;
-      }
-      const follow = actorFollowHandler();
-      if (follow === undefined) {
-        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["no-ledger"]);
-        return;
-      }
-      if (follow({ participantId, newestSequence: resolution.newestSequence }) !== "revealed") {
-        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["row-not-in-view"]);
-      }
-    },
-    [announce, layout, sessionStore],
-  );
+  const auxiliaryPanes = useAuxiliaryPanes({ bridge: props.bridge, sessionId, onRefused: raise });
+  const onFollow = useActorFollow({ layout, sessionStore, announce });
 
   const composer = composerSeatRenderer();
   const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
@@ -319,14 +235,16 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
             layout={layout}
             registry={registry}
             paneContextFor={paneContextFor}
-            onOpenInWindow={onOpenInWindow}
+            onOpenInWindow={auxiliaryPanes.openInWindow}
             restoreRefusals={restoreRefusals}
-            detachedPaneIds={detached.paneIds}
-            onFocusDetachedWindow={onFocusDetachedWindow}
-            onReturnToDeck={onReturnToDeck}
-            {...(detached.signalRefusal === undefined
+            detachedPaneIds={auxiliaryPanes.paneIds}
+            onFocusDetachedWindow={auxiliaryPanes.focusWindow}
+            onReturnToDeck={auxiliaryPanes.returnToDeck}
+            lostWindowNoticesByPaneId={auxiliaryPanes.lostWindowNoticesByPaneId}
+            onDismissLostWindow={auxiliaryPanes.dismissLostWindow}
+            {...(auxiliaryPanes.signalRefusal === undefined
               ? {}
-              : { detachedSignalRefusal: detached.signalRefusal })}
+              : { detachedSignalRefusal: auxiliaryPanes.signalRefusal })}
           />
         </Panel>
         {props.sessionStore === undefined ? null : (
@@ -375,54 +293,6 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
       )}
     </div>
   );
-}
-
-/** Which panes are showing in windows of their own, and what the signal refused. */
-interface DetachedPaneProjection {
-  readonly paneIds: readonly string[];
-  readonly signalRefusal: ConsoleRefusal | undefined;
-}
-
-/**
- * Follow the hand-off's detached set, and watch the crashed-window signal while it
- * is non-empty.
- *
- * The signal is opened on the first detach and closed when the last pane comes back,
- * rather than held for the surface's lifetime: a subscription over an empty set can
- * report nothing, and its refusal would sit on screen as a permanent notice about a
- * hazard this window does not currently have.
- */
-function useDetachedPanes(handoff: AuxiliaryHandoff): DetachedPaneProjection {
-  const [projection, setProjection] = useState<DetachedPaneProjection>({
-    paneIds: [],
-    signalRefusal: undefined,
-  });
-
-  useEffect(() => {
-    const read = (): void => {
-      setProjection({
-        paneIds: handoff.detached().map((pane) => pane.paneId),
-        signalRefusal: handoff.paneErrorRefusal,
-      });
-    };
-    const unsubscribe = handoff.subscribe(read);
-    read();
-    return () => {
-      unsubscribe();
-      handoff.stopWatchingPaneErrors();
-    };
-  }, [handoff]);
-
-  const hasDetachedPane = projection.paneIds.length > 0;
-  useEffect(() => {
-    if (!hasDetachedPane) {
-      handoff.stopWatchingPaneErrors();
-      return;
-    }
-    void handoff.watchPaneErrors();
-  }, [handoff, hasDetachedPane]);
-
-  return projection;
 }
 
 /** The focused pane's address, for the composer's send router. */

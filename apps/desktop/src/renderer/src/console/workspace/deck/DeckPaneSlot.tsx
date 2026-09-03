@@ -60,6 +60,15 @@ export interface DeckPaneSlotProps {
   readonly onReturnToDeck?: (paneId: string) => void;
   /** Why the crashed-window signal is not being received, where it is not. */
   readonly detachedSignalRefusal?: ConsoleRefusal;
+  /**
+   * The crash this pane came back from, where it came back from one.
+   *
+   * `Spec-023 §The surface set`: "a crashed auxiliary window returns the pane to the
+   * deck with the crash noted in the pane's error slot". The body is drawn as usual
+   * — the pane works again — and the note sits above it until it is dismissed.
+   */
+  readonly lostWindowNotice?: ConsoleRefusal;
+  readonly onDismissLostWindow?: (paneId: string) => void;
   readonly trackElement: (paneId: string, element: Element) => void;
   readonly untrackElement: (paneId: string) => void;
 }
@@ -148,6 +157,15 @@ export const DeckPaneSlot: React.NamedExoticComponent<DeckPaneSlotProps> = memo(
         onFocusCapture={onFocusCapture}
       >
         <PaneControlsContext.Provider value={controls}>
+          {props.lostWindowNotice === undefined ? null : (
+            <LostWindowNotice
+              paneId={pane.paneId}
+              notice={props.lostWindowNotice}
+              {...(props.onDismissLostWindow === undefined
+                ? {}
+                : { onDismiss: props.onDismissLostWindow })}
+            />
+          )}
           {props.isDetached ? (
             <DetachedPaneBody
               paneId={pane.paneId}
@@ -193,6 +211,49 @@ function PaneBody(props: {
     props.descriptor.render(props.context)
   ) : (
     <InlineRefusal code={props.context.code} detail={props.context.detail} />
+  );
+}
+
+/**
+ * The pane's error slot: what happened to the window this pane was in.
+ *
+ * INLINE rather than a banner, on the refusal grammar's own question — what did this
+ * change, and for whom? One pane's window died and one pane's body came back; the
+ * rest of the room is untouched, so the note belongs beside the pane and not across
+ * the workspace.
+ *
+ * Dismissable, and the dismissal is the caller's act rather than local state: the
+ * record lives on the hand-off, so a note cleared in a component that then
+ * re-rendered from the hand-off's own publish would come straight back.
+ */
+function LostWindowNotice(props: {
+  readonly paneId: string;
+  readonly notice: ConsoleRefusal;
+  readonly onDismiss?: (paneId: string) => void;
+}): React.JSX.Element {
+  const { onDismiss, paneId } = props;
+  return (
+    <div className="meridian-deck__pane-error">
+      <InlineRefusal
+        code={props.notice.code}
+        detail={props.notice.detail}
+        {...(onDismiss === undefined
+          ? {}
+          : {
+              action: (
+                <button
+                  type="button"
+                  className="meridian-deck__detached-control"
+                  onClick={() => {
+                    onDismiss(paneId);
+                  }}
+                >
+                  Dismiss
+                </button>
+              ),
+            })}
+      />
+    </div>
   );
 }
 

@@ -7,10 +7,19 @@
 // no row yet, or no ledger is mounted in this window to scroll.
 //
 // Those three outcomes are decided HERE, over the log, with no React and no seat, so
-// the decision can be checked without rendering a workspace. The dispatch and the
-// sentence a person hears are the surface's.
+// the decision can be checked without rendering a workspace.
+//
+// AND THE DISPATCH LIVES HERE TOO, BESIDE THEM. Both halves of a press — the deck's
+// focus and the ledger's scroll — read this module's own resolution and this module's
+// own sentences, so a handler written in the surface would be the third place that
+// has to agree about what following an actor means. The surface supplies the deck,
+// the log, and the announcer; nothing about the act is decided there.
 
-import type { ConsoleSessionEvent } from "../store/index.js";
+import { useCallback } from "react";
+
+import { actorFollowHandler } from "../seats/index.js";
+import type { ConsoleSessionEvent, SessionStore } from "../store/index.js";
+import type { DeckLayout } from "./deck/deck-layout.js";
 
 /** What pressing a chip resolves to. */
 export type ActorFollowResolution =
@@ -49,3 +58,50 @@ export const ACTOR_FOLLOW_ANNOUNCEMENTS = {
   "row-not-in-view": "That row is not in the part of the log this window is showing.",
   "no-ledger": "The session log is not open in this window.",
 } as const;
+
+/**
+ * Press a cast chip: focus the actor's pane, and bring their newest row into view.
+ *
+ * Both halves happen, and the second is not optional — in a deck holding one timeline
+ * the first is a no-op, so a handler that stopped there would promise to follow
+ * somebody and do nothing observable.
+ *
+ * The scroll rides the ledger's own chokepoint through the follow seat, never a
+ * `scrollIntoView` call here. Each way it can fail says so: a participant with no
+ * row, a row outside the window the ledger holds, and a window with no ledger mounted
+ * are three different facts, and a press that quietly did nothing reported none of
+ * them.
+ */
+export function useActorFollow(options: {
+  readonly layout: DeckLayout;
+  readonly sessionStore: SessionStore | undefined;
+  readonly announce: (sentence: string) => void;
+}): (participantId: string) => void {
+  const { announce, layout, sessionStore } = options;
+  return useCallback(
+    (participantId: string) => {
+      const panes = layout.snapshot().panes;
+      const target =
+        panes.find((pane) => pane.entity?.id === participantId) ??
+        panes.find((pane) => pane.kind === "timeline");
+      if (target !== undefined) {
+        layout.focus(target.paneId);
+      }
+
+      const resolution = resolveActorFollow(sessionStore?.snapshot().timeline ?? [], participantId);
+      if (resolution.outcome === "no-activity") {
+        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["no-activity"]);
+        return;
+      }
+      const follow = actorFollowHandler();
+      if (follow === undefined) {
+        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["no-ledger"]);
+        return;
+      }
+      if (follow({ participantId, newestSequence: resolution.newestSequence }) !== "revealed") {
+        announce(ACTOR_FOLLOW_ANNOUNCEMENTS["row-not-in-view"]);
+      }
+    },
+    [announce, layout, sessionStore],
+  );
+}

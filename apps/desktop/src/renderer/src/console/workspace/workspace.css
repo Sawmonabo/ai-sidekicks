@@ -247,6 +247,13 @@
   outline-offset: 2px;
 }
 
+/* The pane's error slot — what happened to the window this pane came back from.
+   Above the body rather than over it: the pane works again, and a note that covered
+   it would be reporting the pane as broken instead of the window that was. */
+.meridian-deck__pane-error {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+}
+
 /*
  * One pane's frame. The panel owns the width — `flex-grow` is the library's, and
  * the density floor rides its `minSize` — so what is left here is the pane's own

@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { createRefusingGrowthPort, type GrowthPort } from "../bridge/growth-port.js";
 import { IMPLEMENTED_AUXILIARY_ROUTES } from "../../../../shared/auxiliary-routes.js";
+import { lostWindowNotice, type LostAuxiliaryWindow } from "./aux-handoff-contract.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 
 /** A port that serves the three window operations and refuses everything else. */
@@ -121,11 +122,76 @@ describe("AuxiliaryHandoff — the pane comes back", () => {
   });
 
   it("returns the pane and keeps the reason when a window is lost rather than closed", async () => {
+    // The reason is kept ON THE HAND-OFF and not merely handed back. A record returned
+    // to the drain loop and held nowhere is gone by the time the deck draws the slot
+    // it belongs in, which is exactly how the crash detail used to disappear.
     const handoff = new AuxiliaryHandoff({ growth: servingPort() });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     const lost = handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
     expect(lost?.lostReason).toBe("the window closed unexpectedly");
     expect(handoff.detached()).toHaveLength(0);
+    expect(handoff.lostWindow("pane-1")?.lostReason).toBe("the window closed unexpectedly");
+    expect(handoff.lostWindows()).toHaveLength(1);
+  });
+
+  it("publishes the loss, so a surface subscribed to it hears about the crash", async () => {
+    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+    const readsAtPublish: (string | undefined)[] = [];
+    const unsubscribe = handoff.subscribe(() => {
+      readsAtPublish.push(handoff.lostWindow("pane-1")?.lostReason);
+    });
+
+    handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
+    unsubscribe();
+
+    // The record is stored BEFORE the publish, so the first read a subscriber takes
+    // already carries it rather than seeing the pane back with nothing to say.
+    expect(readsAtPublish).toStrictEqual(["the window closed unexpectedly"]);
+  });
+
+  it("clears the crash record when the same pane is detached again", async () => {
+    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+    handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
+
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    // The body is in a window again, so a note about the last window it was in is a
+    // note about nothing.
+    expect(handoff.lostWindow("pane-1")).toBeUndefined();
+    expect(handoff.detached()).toHaveLength(1);
+  });
+
+  it("clears the crash record when the person dismisses it, and publishes that", async () => {
+    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+    handoff.noteWindowLost("pane-1", "the window closed unexpectedly");
+    let publishCount = 0;
+    const unsubscribe = handoff.subscribe(() => {
+      publishCount += 1;
+    });
+
+    handoff.dismissLostWindow("pane-1");
+    handoff.dismissLostWindow("pane-1");
+    unsubscribe();
+
+    expect(handoff.lostWindows()).toHaveLength(0);
+    // Once, for the dismissal that changed something. A second dismissal of a record
+    // that is already gone publishes nothing.
+    expect(publishCount).toBe(1);
+  });
+
+  it("negative control: a pane whose window was closed on purpose carries no crash record", async () => {
+    // Without this, every case above would pass over a hand-off that recorded a loss
+    // for every pane that left a window — and the deck would tell a person their
+    // window crashed every time they pressed "Return it to the deck".
+    const handoff = new AuxiliaryHandoff({ growth: servingPort() });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    await handoff.returnToDeck("pane-1");
+
+    expect(handoff.lostWindows()).toHaveLength(0);
   });
 
   it("publishes every change to its subscribers", async () => {
@@ -168,9 +234,10 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     };
   }
 
-  it("returns the pane to the deck when the signal names it", async () => {
+  it("returns the pane to the deck when the signal names it, with the reason it named", async () => {
     // The only way a crashed window's pane comes back. Without a subscriber, the
-    // window dying left the pane in a window nobody could focus.
+    // window dying left the pane in a window nobody could focus — and without the
+    // record below, it came back with nothing to say about why.
     const handoff = new AuxiliaryHandoff({
       growth: streamingPort([{ paneId: "pane-1", reason: "the window closed unexpectedly" }]),
     });
@@ -181,6 +248,12 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
 
     expect(handoff.detached()).toHaveLength(0);
     expect(handoff.paneErrorRefusal).toBeUndefined();
+    expect(lostWindowNotice(handoff.lostWindows()[0] as LostAuxiliaryWindow)).toStrictEqual(
+      expect.objectContaining({
+        code: "window-lost",
+        detail: "the window closed unexpectedly",
+      }),
+    );
   });
 
   it("negative control: a pane the signal did not name stays in its window", async () => {
