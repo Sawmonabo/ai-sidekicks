@@ -219,7 +219,34 @@ export interface WorkflowParkedPhase {
 }
 
 /**
- * An instant in milliseconds, or nothing when the string does not parse.
+ * The encoding this plane's instants are declared in: RFC 3339, in UTC.
+ *
+ * The workflow plane states it on the member that carries the consequence —
+ * `WorkflowPhasePark.autoResumeAt` above, and the same sentence on the payload
+ * contract this file's header names — and `packages/contracts` cites it back as "the
+ * encoding `PhaseState.autoResumeAt` already consumes". So the shape is the wire's
+ * own rule rather than a convention chosen here, and the pattern is a transcription
+ * of it: a full date, a `T`, a full time, an optional fraction, and the UTC
+ * designator that makes the reading absolute.
+ *
+ * A NUMERIC OFFSET IS REFUSED TOO, and deliberately. `+01:00` parses unambiguously,
+ * so admitting it would cost nothing today — but the plane declares one encoding, and
+ * a console that quietly read a second is the place a producer's encoding change
+ * enters unremarked instead of arriving as the unreadable value it is.
+ */
+const RFC_3339_UTC_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u;
+
+/**
+ * An instant in milliseconds, or nothing when the string is not one.
+ *
+ * TWO CONJUNCTS, AND `Date.parse` ALONE IS NEITHER. `Date.parse` accepts a
+ * timezone-less `2026-01-01T10:00:00` by reading it in the HOST's zone and a date-only
+ * `2026-01-01` by reading it in UTC, and it answers a number for both — so a malformed
+ * boundary reached the armed arm below, and the badge drew a scheduled-resume promise
+ * whose time was whatever zone the operator's machine happened to be in. The shape
+ * check is what refuses those two, and the parse is still needed after it: a value
+ * shaped like an instant is not necessarily one, which `2026-09-01T99:99:99.000Z`
+ * shows exactly.
  *
  * Deliberately NOT a numeric sentinel. The list's two orderings read an instant in
  * opposite directions — runs sort descending and armed resumes pick ascending — so a
@@ -228,9 +255,13 @@ export interface WorkflowParkedPhase {
  *
  * Exported because the park classification below and the run sort next door are the
  * only two readers of a wire instant in this family, and two parsers would be two
- * answers to "is this readable".
+ * answers to "is this readable" — which is why the shape check lives HERE and not at
+ * one of the two call sites.
  */
 export function instantMilliseconds(iso: string): number | undefined {
+  if (!RFC_3339_UTC_INSTANT_PATTERN.test(iso)) {
+    return undefined;
+  }
   const milliseconds = Date.parse(iso);
   return Number.isNaN(milliseconds) ? undefined : milliseconds;
 }
