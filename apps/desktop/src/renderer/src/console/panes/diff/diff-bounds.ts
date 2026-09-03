@@ -81,3 +81,37 @@ export const DIFF_VIEWPORT_FALLBACK_HEIGHT_PX = 640;
  * is why the filter sits above it and not behind a disclosure.
  */
 export const DIFF_FILE_LIST_SCROLL_THRESHOLD = 12;
+
+/**
+ * The longest line an intraline word diff is computed for, in characters.
+ *
+ * jsdiff's word diff is O(n·m) in TOKENS, so the cost of one pair grows with the
+ * PRODUCT of the two lines' lengths and not with their sum. A line past this bound is
+ * a minified bundle, a vendored data row, or a lockfile entry — text a word-level
+ * highlight does not help anybody read — and computing one costs more than the whole
+ * rest of the change set: a single 18,889-character pair inside a 5,000-line patch
+ * measured 831 ms on its own (2026-09-02). Past the bound the row keeps its whole-line
+ * highlight and says so, rather than the renderer stalling on it.
+ */
+export const DIFF_INTRALINE_LINE_CHARACTER_CAP = 2_000;
+
+/**
+ * The largest product of a pair's two line lengths an intraline diff is computed for.
+ *
+ * The cap above bounds ONE line; this one bounds the pair, which is what the algorithm
+ * is actually quadratic in — two 1,000-character lines are each admissible and their
+ * comparison is not. Stated as the product rather than as a second length so the bound
+ * is the same quantity the cost is.
+ */
+export const DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP = 1_000_000;
+
+/**
+ * Computed intraline segmentations held before the oldest is dropped.
+ *
+ * Intraline is computed when a row is materialised, so a reader who scrolls a
+ * five-thousand-line change set end to end would otherwise accumulate one segment list
+ * per changed line and hold them for as long as the diff is open. A viewport plus its
+ * overscan is tens of rows; this holds several screens of scrollback, so scrolling back
+ * up is free while retention stays a function of the cap rather than of the diff.
+ */
+export const DIFF_INTRALINE_CACHE_ENTRY_CAP = 512;

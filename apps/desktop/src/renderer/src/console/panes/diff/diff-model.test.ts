@@ -17,6 +17,7 @@ import {
   diffFileChangeCounts,
   diffLineText,
 } from "./diff-model.js";
+import { intralineSegments } from "./patch-parse.js";
 
 describe("diff model — the closed sets", () => {
   it("declares two attribution modes, three line kinds, and two view modes", () => {
@@ -68,9 +69,20 @@ describe("diff model — derived figures", () => {
   });
 
   it("reassembles a line from its segments, changed runs included", () => {
-    const line = buildDiffFixture(SMALL_DIFF_SHAPE).files[0]?.hunks[0]?.lines[1];
-    expect(line).toBeDefined();
-    expect(line!.segments.length).toBeGreaterThan(1);
-    expect(diffLineText(line!)).toBe(line!.segments.map((segment) => segment.text).join(""));
+    const lines = buildDiffFixture(SMALL_DIFF_SHAPE).files[0]?.hunks[0]?.lines;
+    const deletedLine = lines?.[1];
+    const insertedLine = lines?.[2];
+    expect(deletedLine).toBeDefined();
+    expect(insertedLine).toBeDefined();
+    // A PARSED line carries one whole-line segment; the multi-segment shape this
+    // function has to survive is the derived intraline reading. So the subject is
+    // built through the seam that produces it rather than typed out by hand, which
+    // would assert reassembly over a shape nothing makes.
+    const segmented = {
+      ...deletedLine!,
+      segments: intralineSegments(diffLineText(deletedLine!), diffLineText(insertedLine!)).deleted,
+    };
+    expect(segmented.segments.length).toBeGreaterThan(1);
+    expect(diffLineText(segmented)).toBe(diffLineText(deletedLine!));
   });
 });

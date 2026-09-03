@@ -373,6 +373,19 @@
   font-family: var(--meridian-font-mono);
 }
 
+/*
+ * The badge on a line whose word-level comparison was declined for size. It sits
+ * after the code rather than inside it, so the line's own characters and their column
+ * positions are untouched, and it does not grow the row: an unwrapped row keeps its
+ * fixed block size and the badge rides the same scroller the long line does.
+ */
+.meridian-diff__intraline-skipped {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  margin-inline-start: var(--meridian-space-2);
+}
+
 /* Intraline: a heavier ground on the run that changed, never a hue. */
 .meridian-diff__segment--changed {
   border-radius: var(--meridian-radius-sm);

@@ -54,16 +54,6 @@ const SERVED_SUMMARY = {
   createdAt: "2026-09-02T07:00:00.000Z",
 };
 
-/** The receipt a served delete answers with. Every member required, so all are here. */
-const DELETE_RECEIPT = {
-  artifactId: SERVED_SUMMARY.artifactId,
-  payloadDisposition: "reclaimed",
-  rePublishForeclosed: false,
-  deletedAt: "2026-09-02T07:05:00.000Z",
-} as const;
-
-const SERVED_DELETE = { status: "served", value: DELETE_RECEIPT };
-
 const REFUSAL = {
   status: "unavailable",
   code: "wire-unregistered",
@@ -303,6 +293,35 @@ describe("artifact pane reader — the allow-list hint", () => {
     expect(reader.snapshot.allowlist.refusal?.code).toBe("wire-unregistered");
   });
 
+  it("falls back on a refusal that carries no served discriminant, and the read still settles", async () => {
+    // THE SHAPE A FIXTURE AND THE LIVE PORT BOTH PRODUCE. `core`'s `refuse(...)` is
+    // the console's three refusal fields and nothing else — `growthUnavailable`
+    // spreads exactly that value to build its own — and a reader that asked only
+    // whether `status` was `"unavailable"` read this as served, dereferenced it for
+    // `contentTypes`, and turned the whole pane read into a `read-threw` carrying a
+    // `TypeError`. So the two assertions that matter are the fallback arm AND the
+    // list beside it: the failure this catches took both down at once.
+    const clock = new ManualClock();
+    const reader = new ArtifactPaneReader({
+      bridge: bridgeAnswering({
+        listAnswer: { status: "served", value: [SERVED_SUMMARY] },
+        allowlistAnswer: {
+          code: "wire-unregistered",
+          detail: "Not checked — the artifact CRUD method strings are not registered yet.",
+          origin: "growth-port",
+        },
+      }),
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+      clock,
+    });
+    reader.start();
+    await readThrough(clock);
+    expect(reader.snapshot.allowlist.source).toBe("shipped-default");
+    expect(reader.snapshot.allowlist.mediaTypes).toStrictEqual(ATTACHMENT_ALLOWLIST_DEFAULT);
+    expect(reader.snapshot.allowlist.refusal?.code).toBe("wire-unregistered");
+    expect(reader.snapshot.artifacts.kind).toBe("listed");
+  });
+
   it("takes the effective list wholesale when the daemon answers", async () => {
     // Wholesale, never merged: an operator override REPLACES the default, so a reading
     // that unioned the two would describe a deployment that does not exist.
@@ -471,115 +490,5 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     await settle();
 
     expect(reader.snapshot.artifacts.kind).toBe("loading");
-  });
-});
-
-/**
- * A delete whose answer lands under a refresh the participant started after
- * confirming it. The list read that refresh issues can have observed the artifact
- * BEFORE the daemon destroyed it, so it republishes a row the daemon no longer
- * holds — and the delete is the only party that knows better.
- */
-function readerRacingADelete(clock: ManualClock): {
-  readonly reader: ArtifactPaneReader;
-  readonly releaseDelete: (answer: unknown) => void;
-  readonly stopListingTheArtifact: () => void;
-} {
-  let listedSummaries: readonly unknown[] = [SERVED_SUMMARY];
-  let releaseDelete: (answer: unknown) => void = () => undefined;
-  const reader = new ArtifactPaneReader({
-    bridge: {
-      growth: {
-        artifactList: async () => ({ status: "served", value: listedSummaries }),
-        artifactAllowlistRead: async () => REFUSAL,
-        artifactDelete: () =>
-          new Promise((resolve) => {
-            releaseDelete = resolve;
-          }),
-      },
-    } as unknown as ConsoleBridge,
-    sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-    clock,
-  });
-  return {
-    reader,
-    releaseDelete: (answer) => releaseDelete(answer),
-    stopListingTheArtifact: () => {
-      listedSummaries = [];
-    },
-  };
-}
-
-function listedRowIds(reader: ArtifactPaneReader): readonly string[] {
-  const state = reader.snapshot.artifacts;
-  return state.kind === "listed" ? state.rows.map((row) => row.id) : [];
-}
-
-describe("artifact pane reader — a served delete reconciles, superseded or not", () => {
-  it("removes the row and reads again when nothing raced the delete", async () => {
-    const clock = new ManualClock();
-    const { reader, releaseDelete, stopListingTheArtifact } = readerRacingADelete(clock);
-    reader.start();
-    await readThrough(clock);
-    expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
-
-    const deletion = reader.deleteArtifact(SERVED_SUMMARY.artifactId);
-    stopListingTheArtifact();
-    releaseDelete(SERVED_DELETE);
-
-    expect(await deletion).toStrictEqual({ status: "settled", receipt: DELETE_RECEIPT });
-    expect(listedRowIds(reader)).toStrictEqual([]);
-    await readThrough(clock);
-    expect(reader.performCount).toBe(2);
-  });
-
-  it("still reconciles when a refresh moved the stamp under the delete", async () => {
-    // The bug, exercised: confirm Delete, press "Read again" before the answer
-    // lands, and let that read observe the artifact the daemon is about to destroy.
-    // A reader that returned on the moved stamp scheduled no second read and left
-    // the republished row on screen, actionable, against a manifest that is gone.
-    const clock = new ManualClock();
-    const { reader, releaseDelete, stopListingTheArtifact } = readerRacingADelete(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const deletion = reader.deleteArtifact(SERVED_SUMMARY.artifactId);
-    reader.refresh();
-    await readThrough(clock);
-    expect(reader.performCount).toBe(2);
-    expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
-
-    stopListingTheArtifact();
-    releaseDelete(SERVED_DELETE);
-
-    // Not `settled`: the reader applied the removal and asked for the read that
-    // re-establishes the rest, and it cannot vouch for a screen it does not yet own.
-    expect(await deletion).toStrictEqual({ status: "reconciling", receipt: DELETE_RECEIPT });
-    expect(listedRowIds(reader)).toStrictEqual([]);
-
-    await readThrough(clock);
-    expect(reader.performCount).toBe(3);
-    expect(listedRowIds(reader)).toStrictEqual([]);
-  });
-
-  it("negative control: a disposed reader publishes nothing and schedules nothing", async () => {
-    // The other half of the split. `#generation` answered disposal and supersession
-    // with one comparison; a fix that reconciled on every served delete would re-arm
-    // a scheduler behind a pane that unmounted, which is the failure the refresh
-    // substrate exists to make unrepresentable.
-    const clock = new ManualClock();
-    const { reader, releaseDelete, stopListingTheArtifact } = readerRacingADelete(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const deletion = reader.deleteArtifact(SERVED_SUMMARY.artifactId);
-    reader.dispose();
-    stopListingTheArtifact();
-    releaseDelete(SERVED_DELETE);
-
-    expect(await deletion).toStrictEqual({ status: "superseded" });
-    expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
-    await readThrough(clock);
-    expect(reader.performCount).toBe(1);
   });
 });

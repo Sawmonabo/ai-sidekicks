@@ -20,7 +20,7 @@
 // here would be a claim about arithmetic this module no longer performs.
 //
 // So this tier is not "the same cases again with a bigger fixture". It asserts
-// three things the unit tier cannot:
+// four things the unit tier cannot:
 //
 //   1. COST DOES NOT SCALE WITH THE DIFF. Flattening is paid once per expansion,
 //      and a scroll — the thing a person does thousands of times — costs a
@@ -33,6 +33,11 @@
 //      resolves to a row value, and every line row resolves to a line. An
 //      off-by-one in the per-file walk shows up as one unreachable row somewhere
 //      in the middle, which no spot check finds.
+//   4. ONE PATHOLOGICAL LINE COSTS NO MORE THAN THE PATCH AROUND IT. Parsing used
+//      to run the word diff over every changed pair, whose cost is quadratic in
+//      tokens — so a single 20,000-character line cost more than the other five
+//      thousand put together and paid it before a row was drawn. That is a shape
+//      no fixture built from uniform lines contains.
 
 import process from "node:process";
 
@@ -45,11 +50,18 @@ import {
   fixtureChangedLineCount,
 } from "../../../src/renderer/src/console/panes/diff/diff-fixture.js";
 import {
+  diffLineText,
+  type DiffLine,
+} from "../../../src/renderer/src/console/panes/diff/diff-model.js";
+import {
   DiffRowIndex,
   diffGapKey,
   expandGap,
   type DiffGapExpansion,
+  type DiffLineRow,
 } from "../../../src/renderer/src/console/panes/diff/hunk-virtualization.js";
+import { IntralineSegmentCache } from "../../../src/renderer/src/console/panes/diff/intraline-segments.js";
+import { parseUnifiedPatch } from "../../../src/renderer/src/console/panes/diff/patch-parse.js";
 
 const ENDURANCE_DIFF = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
 
@@ -214,6 +226,118 @@ describe("endurance — a forty-file, five-thousand-line diff", () => {
     expect(Math.floor(new DiffRowIndex(ENDURANCE_DIFF).rowCount / 100)).toBeGreaterThan(10);
   });
 });
+
+/**
+ * How many changed lines the pathological patch carries, and how wide its worst one is.
+ *
+ * Two numbers rather than one shape constant, because the case is about the
+ * INTERACTION between them: five thousand ordinary lines are what makes the patch a
+ * realistic change set, and one line two orders of magnitude wider than the rest is
+ * what made parsing it quadratic. Either alone measures nothing.
+ */
+const PATHOLOGICAL_PATCH_LINE_COUNT = 5_000;
+const PATHOLOGICAL_LINE_TOKEN_COUNT = 1_200;
+
+/**
+ * What parsing that patch may cost, in milliseconds.
+ *
+ * AN ABSOLUTE HERE, WHERE THE REST OF THIS FILE USES RATIOS, because there is no
+ * second measurement to take a ratio against: the defect was one line costing more
+ * than every other line put together, and its "before" figure is a number this tier
+ * cannot produce any more. So the budget is stated with the measurements it was set
+ * between — 1.6 ms for this patch on a 2026-09-02 developer machine, against 831 ms
+ * for the same patch when parsing segmented every pair. Two orders of magnitude of
+ * headroom over the first and well under the second, so it fails on a regression to
+ * the old behaviour and never on a loaded runner.
+ */
+const PATHOLOGICAL_PARSE_BUDGET_MS = 200;
+
+describe("endurance — one pathological line inside a five-thousand-line patch", () => {
+  it("parses inside its budget, and the wide row falls back rather than being compared", () => {
+    const patchText = pathologicalPatchText();
+    const startedAt = performance.now();
+    const model = parseUnifiedPatch(
+      patchText,
+      { mode: "run_attributed", runId: "run-endurance" },
+      { baseRef: "main", headRef: "feat/endurance" },
+    );
+    const parseMilliseconds = performance.now() - startedAt;
+
+    // The subject in numbers before anything is asserted about it, so a generator
+    // that quietly shrank could never pass this by measuring something smaller.
+    const lines = model.files[0]?.hunks[0]?.lines ?? [];
+    expect(lines).toHaveLength(PATHOLOGICAL_PATCH_LINE_COUNT);
+    const widestLineLength = diffLineText(lines[0] as DiffLine).length;
+    expect(widestLineLength).toBeGreaterThan(20_000);
+    process.stdout.write(
+      `[console-endurance] pathological parse: ${parseMilliseconds.toFixed(1)} ms, ` +
+        `${String(lines.length)} lines, widest ${String(widestLineLength)} chars\n`,
+    );
+    expect(parseMilliseconds).toBeLessThan(PATHOLOGICAL_PARSE_BUDGET_MS);
+
+    // And the row a reader scrolls to keeps its whole line and SAYS the comparison
+    // was declined, which is the other half of the bound: the cost is not moved from
+    // parse into the row, it is not paid at all.
+    const cache = new IntralineSegmentCache(model);
+    expect(cache.readingFor(pathologicalBodyRow(0), 0).skipped).toBe(true);
+    expect(cache.computeCount).toBe(0);
+  });
+
+  it("negative control: an ordinary row in the same patch is compared", () => {
+    // Without this the fallback above would pass over a register that declined every
+    // pair — which would draw the note on every changed line in the console and
+    // report the bound working while the highlight had simply been removed.
+    const model = parseUnifiedPatch(
+      pathologicalPatchText(),
+      { mode: "run_attributed", runId: "run-endurance" },
+      { baseRef: "main", headRef: "feat/endurance" },
+    );
+    const cache = new IntralineSegmentCache(model);
+    const reading = cache.readingFor(pathologicalBodyRow(2), 2);
+    expect(reading.skipped).toBe(false);
+    expect(reading.segments.filter((segment) => segment.changed).length).toBeGreaterThan(0);
+    expect(cache.computeCount).toBe(1);
+  });
+});
+
+/** A body row of the pathological patch's single hunk. */
+function pathologicalBodyRow(lineIndex: number): DiffLineRow {
+  return { kind: "line", fileIndex: 0, hunkIndex: 0, source: "hunk-body", lineIndex };
+}
+
+/**
+ * A five-thousand-line patch whose first changed pair is two very wide lines.
+ *
+ * Built here rather than in `diff-fixture.ts` because it is not a SHAPE the surfaces
+ * render — it is one deliberately hostile input, and the fixture module's generated
+ * change sets are the subjects the screenshot and layout tiers share. The wide line is
+ * made of many short tokens rather than one long run of characters, because the word
+ * diff's cost is quadratic in TOKENS and a single 20,000-character token would be
+ * cheap for exactly the reason a real minified line is not.
+ */
+function pathologicalPatchText(): string {
+  const wideLine = (token: string): string => {
+    const tokens: string[] = [];
+    for (let ordinal = 0; ordinal < PATHOLOGICAL_LINE_TOKEN_COUNT; ordinal += 1) {
+      tokens.push(`${token}${String(ordinal)}`);
+    }
+    return tokens.join(" ");
+  };
+  const body: string[] = [`-${wideLine("previousBudget")}`, `+${wideLine("nextBudget")}`];
+  while (body.length < PATHOLOGICAL_PATCH_LINE_COUNT) {
+    const ordinal = body.length;
+    body.push(`-const value = compute(previousBudget, ${String(ordinal)});`);
+    body.push(`+const value = compute(nextBudget, ${String(ordinal)});`);
+  }
+  const sideLength = body.length / 2;
+  return [
+    "--- packages/runtime-daemon/src/module-00.ts",
+    "+++ packages/runtime-daemon/src/module-00.ts",
+    `@@ -1,${String(sideLength)} +1,${String(sideLength)} @@`,
+    ...body,
+    "",
+  ].join("\n");
+}
 
 /** Read a band of rows and report how long it took, in milliseconds. */
 function timeRowReads(index: DiffRowIndex, startRowIndex: number, count: number): number {

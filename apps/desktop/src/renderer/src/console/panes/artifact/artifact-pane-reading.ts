@@ -5,13 +5,17 @@
 // the immutable value those produce and every total function over it, so a reduction
 // can be driven directly in a test with no bridge, no clock, and no reader at all.
 //
-// Nothing here reaches the port or the wire. `repos/artifact-model.ts` owns what a
-// served manifest IS; this module owns how one reading becomes the next.
+// Nothing here CALLS the port or the wire. `repos/artifact-model.ts` owns what a
+// served manifest IS; this module owns how one reading becomes the next — and, since
+// `growthAnswerReading` below, what one port ANSWER becomes before it gets there.
+// Reading an answer is the same kind of total reduction as the rest of this file and
+// belongs beside them, which is why the one port type it names travels through the
+// bridge barrel rather than the two callers each carrying their own narrowing.
 
-import type { GrowthArtifactPayloadEncoding, GrowthArtifactRead } from "../../bridge/index.js";
+import type { GrowthUnavailable } from "../../bridge/index.js";
 import {
-  ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
   ATTACHMENT_BYTE_CAP_DEFAULT,
+  isConsoleRefusal,
   refuse,
   type ConsoleRefusal,
 } from "../../core/index.js";
@@ -21,6 +25,7 @@ import type {
   ArtifactManifestRow,
   ArtifactsPanelState,
 } from "../../repos/artifact-model.js";
+import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
 /**
  * The effective allow-list and byte cap, with where they came from.
@@ -37,42 +42,6 @@ export interface ArtifactAllowlistReading {
   /** Why the effective read did not answer, on the `shipped-default` arm. */
   readonly refusal: ConsoleRefusal | undefined;
 }
-
-/**
- * What one artifact's payload fetch has established.
- *
- * SIX ARMS, BECAUSE THE WIRE HAS TWO AND EACH OF THEM SPLITS. `GrowthArtifactRead` is
- * a union: the DEFERRED arm hands back a CAS key and no bytes, the INLINE arm hands
- * back the bytes with the encoding to read them by. Both are served answers a surface
- * has to draw — "I asked for the bytes and did not get them inline" is not a failure —
- * so neither collapses into the refusal arm. The inline arm then splits on whether the
- * bytes are text: a payload that decodes is previewable and one that does not is
- * reported as what it is rather than drawn as replacement characters.
- *
- * `not-checked` is its own arm and is not `deferred` with an absent handle: nobody has
- * asked, which rule 8 separates from every answer.
- */
-export type ArtifactPayloadReading =
-  | { readonly status: "not-checked" }
-  | { readonly status: "fetching"; readonly artifactId: string }
-  | { readonly status: "refused"; readonly artifactId: string; readonly refusal: ConsoleRefusal }
-  /** A key to fetch the bytes with, and no verb registered anywhere that fetches by one. */
-  | { readonly status: "deferred"; readonly artifactId: string; readonly payloadHandle: string }
-  | {
-      readonly status: "text";
-      readonly artifactId: string;
-      readonly encoding: GrowthArtifactPayloadEncoding;
-      /** Bounded at `ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP`; `truncated` says so. */
-      readonly text: string;
-      readonly truncated: boolean;
-    }
-  /** Bytes that are not text. Reported, never drawn — and never guessed at. */
-  | {
-      readonly status: "opaque";
-      readonly artifactId: string;
-      readonly encoding: GrowthArtifactPayloadEncoding;
-      readonly reason: "not-utf8" | "undecodable";
-    };
 
 /** Everything the pane renders from, in one immutable value. */
 export interface ArtifactPaneReading {
@@ -141,11 +110,22 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
   refusalByArtifactId: NO_ROW_REFUSALS,
 };
 
-/** Which subsystem refused, when the refusal is the reader's own and not the port's. */
+/** Which subsystem refused, when the refusal is the pane's own and not the port's. */
 export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
 
-/** The one code this reader mints. The port owns every other refusal the pane renders. */
+/**
+ * The three codes this pane mints. The port owns every other refusal the pane renders.
+ *
+ * Declared here, beside the reading they are recorded on, rather than in either of
+ * the two modules that raise them: a refusal vocabulary split across the reader and
+ * the acts would be two closed sets for one pane, and a caller narrowing on a code
+ * would have to know which half minted it.
+ */
 export const ARTIFACT_READ_THREW_CODE = "read-threw";
+
+export const ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE = "payload-fetch-in-flight";
+
+export const ARTIFACT_REPLY_UNREADABLE_CODE = "reply-unreadable";
 
 /**
  * The refusal a read that threw becomes.
@@ -162,6 +142,105 @@ export function readFailureRefusal(error: unknown): ConsoleRefusal {
     ARTIFACT_READ_THREW_CODE,
     `The artifact read failed before it could answer: ${cause}`,
   );
+}
+
+/**
+ * The refusal a second payload fetch becomes while the first is still on the wire.
+ *
+ * NAMED RATHER THAN SILENT, and it names the artifact the pane is actually waiting
+ * on rather than the one that was pressed: a participant told "something is in
+ * flight" cannot tell what. The control that produced it is held while a fetch is
+ * pending, so this is structurally unreachable from the pane — and recorded anyway,
+ * for `repos/proposal-gate-actions.ts`'s reason: a press that produced nothing at all
+ * is the silent no-op rule 8 forbids.
+ */
+export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleRefusal {
+  return refuse(
+    ARTIFACT_READER_REFUSAL_ORIGIN,
+    ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE,
+    `The payload of ${pendingArtifactId} has been asked for and the daemon has not answered yet. Nothing else is fetched until it settles.`,
+  );
+}
+
+/**
+ * One growth-port answer, in the two arms the port produces.
+ *
+ * The served arm is written out rather than imported because `GrowthOutcome` does not
+ * leave the bridge barrel, and a view family reaching past that barrel is the deep
+ * import the structure rules exist to prevent. `GrowthUnavailable` does leave it, so
+ * the arm that carries a vocabulary is the port's own value and only the two-member
+ * served arm is restated — and a served arm that lost `value` would fail to assign at
+ * every call site rather than drifting quietly.
+ */
+type GrowthAnswer<TValue> =
+  | { readonly status: "served"; readonly value: TValue }
+  | GrowthUnavailable;
+
+/**
+ * What one growth-port answer said, or why nothing was read.
+ *
+ * `repos/repo-reads.ts`'s read-or-refusal shape, because it is the same question asked
+ * of a different port: a second vocabulary for it would make a surface rendering both
+ * translate between two shapes to reach one renderer, which is exactly what
+ * `core/refusal.ts` exists to have stopped.
+ */
+export type GrowthAnswerReading<TValue> =
+  | { readonly status: "read"; readonly value: TValue }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
+ * Read one growth-port answer, by the shape the reply actually has.
+ *
+ * NARROWED ON THE REFUSAL, NOT ON ONE DISCRIMINANT VALUE'S ABSENCE. Every call site
+ * in this pane used to ask `status === "unavailable"` and treat everything else as
+ * served. That is not the same claim, and the difference is reachable: `core`'s bare
+ * `refuse(...)` is a refusal WITHOUT the port's discriminant — `growthUnavailable`
+ * builds its own by spreading exactly that value — so such a reply passed the test as
+ * served and was then dereferenced for a `value` it does not carry. The pane published
+ * `read-threw` carrying a `TypeError` sentence, which made a wire that is simply not
+ * registered read as the console breaking, and buried the refusal that said so.
+ *
+ * MOST SPECIFIC FIRST, which is `repos/repo-reads.ts`'s `refusalFromRejection`
+ * ordering: a reply that already IS the console's one refusal shape is one, and
+ * `GrowthUnavailable` extends that shape, so the port's own refusal and a bare
+ * `refuse(...)` are recognised by the same test and neither reaches the value branch.
+ * A served answer carries no `code`, `detail`, or `origin`, so it cannot be mistaken
+ * for one in the other direction.
+ *
+ * TOTAL, because a reply that is neither is a fact rather than a crash. Rule 8 admits
+ * no silent no-op, so the third arm is a refusal a person can read and paste, naming
+ * the operation and never the reply — which may be participant content.
+ */
+export function growthAnswerReading<TValue>(
+  operation: string,
+  answer: GrowthAnswer<TValue>,
+): GrowthAnswerReading<TValue> {
+  if (isConsoleRefusal(answer)) {
+    return { status: "refused", refusal: answer };
+  }
+  if (!carriesServedValue(answer)) {
+    return {
+      status: "refused",
+      refusal: refuse(
+        ARTIFACT_READER_REFUSAL_ORIGIN,
+        ARTIFACT_REPLY_UNREADABLE_CODE,
+        `${operation} answered with a shape that is neither a served value nor a refusal, so nothing was read.`,
+      ),
+    };
+  }
+  return { status: "read", value: answer.value };
+}
+
+/**
+ * Whether an answer the types call served actually carries the member.
+ *
+ * The check the declared type cannot make: the fixture bridge is assembled behind a
+ * cast, and the live port is one process boundary away, so what arrives is whatever
+ * was sent. Presence rather than definedness — no operation on this pane serves an
+ * absent value, and testing for `undefined` would refuse one that legitimately did.
+ */
+function carriesServedValue(answer: unknown): answer is { readonly value: unknown } {
+  return typeof answer === "object" && answer !== null && "value" in answer;
 }
 
 /**
@@ -215,85 +294,6 @@ export type ArtifactDeleteOutcome =
   | { readonly status: "reconciling"; readonly receipt: ArtifactDeleteReceipt }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
   | { readonly status: "superseded" };
-
-/**
- * How a payload fetch settled, with the arm it reached on the one that served.
- *
- * `ArtifactDeleteOutcome`'s shape and its reason: the caller announces what the fetch
- * ESTABLISHED — a handle, a preview, or bytes that are not text — and reaching back
- * into the reading for it would read whatever the reading held by then rather than
- * what this fetch answered. The `reconciling` arm has no analogue here: nothing this
- * fetch establishes can be undone by a list read landing under it.
- */
-export type ArtifactPayloadOutcome =
-  | { readonly status: "settled"; readonly payload: ArtifactPayloadReading }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
-  | { readonly status: "superseded" };
-
-/**
- * Read one served payload reply as the arm the pane draws.
- *
- * THE DISCRIMINATOR IS THE REPLY'S OWN AND IS NEVER SNIFFED. `payloadEncoding` is
- * present exactly when `payload` is, and the contract is explicit that a reader
- * switches on it rather than inspecting the bytes — which is the whole reason the
- * member exists beside them. So the inline arm is recognised by that member, and the
- * deferred arm is everything else the union admits.
- *
- * A DECODE THAT FAILS IS AN ANSWER, NOT AN ERROR. Base64 that will not decode and
- * bytes that are not UTF-8 are two different facts about a served reply, and neither
- * is a refusal: the daemon answered. Both land on `opaque` with the reason named, so
- * the pane can say which without a preview that would draw replacement characters and
- * call them the payload.
- */
-export function artifactPayloadReadingFrom(
-  artifactId: string,
-  read: GrowthArtifactRead,
-): ArtifactPayloadReading {
-  if (read.payloadEncoding === undefined) {
-    return { status: "deferred", artifactId, payloadHandle: read.payloadHandle };
-  }
-  const encoding = read.payloadEncoding;
-  const decoded = decodedPayloadText(read.payload, encoding);
-  if (decoded.status === "opaque") {
-    return { status: "opaque", artifactId, encoding, reason: decoded.reason };
-  }
-  const truncated = decoded.text.length > ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP;
-  return {
-    status: "text",
-    artifactId,
-    encoding,
-    text: truncated ? decoded.text.slice(0, ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP) : decoded.text,
-    truncated,
-  };
-}
-
-/** One payload's bytes as text, or why they are not text. */
-function decodedPayloadText(
-  payload: string,
-  encoding: GrowthArtifactPayloadEncoding,
-):
-  | { readonly status: "text"; readonly text: string }
-  | { readonly status: "opaque"; readonly reason: "not-utf8" | "undecodable" } {
-  if (encoding === "utf8") {
-    return { status: "text", text: payload };
-  }
-  let bytes: Uint8Array;
-  try {
-    // RFC 4648 §4, which is what the ingest side encodes with — the two sides of one
-    // seam, and `atob` is the platform's own decoder for it.
-    const binary = atob(payload);
-    bytes = Uint8Array.from(binary, (character) => character.codePointAt(0) ?? 0);
-  } catch {
-    return { status: "opaque", reason: "undecodable" };
-  }
-  try {
-    // `fatal` so a payload that is not text SAYS so. The lenient decoder answers with
-    // replacement characters, which a preview would draw as though they were content.
-    return { status: "text", text: new TextDecoder("utf-8", { fatal: true }).decode(bytes) };
-  } catch {
-    return { status: "opaque", reason: "not-utf8" };
-  }
-}
 
 /** The row refusals with one act's refusal recorded against its row. */
 export function withRowRefusal(

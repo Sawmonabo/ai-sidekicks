@@ -6,12 +6,11 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { GrowthArtifactRead } from "../../bridge/index.js";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP, refuse } from "../../core/index.js";
+import { refuse } from "../../core/index.js";
 import type { ArtifactManifestRow, ArtifactsPanelState } from "../../repos/artifact-model.js";
 import {
   NOTHING_READ_YET,
-  artifactPayloadReadingFrom,
+  growthAnswerReading,
   readFailureRefusal,
   withReplacedRow,
   withRowRefusal,
@@ -128,106 +127,66 @@ describe("artifact pane reading — removing a row a delete answered for", () =>
   });
 });
 
-describe("artifact payload reading — the served union has two arms and each splits", () => {
-  const ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2201";
-  const MANIFEST = {
-    artifactId: ARTIFACT_ID,
-    sessionId: "session-1",
-    artifactType: "diff",
-    digest: "sha256:2b4c",
-    size: 22,
-    annotations: {},
-    visibility: "shared",
-    state: "published",
-    metadata: {},
-    createdAt: "2026-09-02T07:00:00.000Z",
-  } as unknown as GrowthArtifactRead["manifest"];
-
-  it("reads a handle-only reply as the deferred arm, carrying the handle", () => {
-    expect(
-      artifactPayloadReadingFrom(ARTIFACT_ID, {
-        manifest: MANIFEST,
-        payloadHandle: "sha256:2b4c",
-      }),
-    ).toStrictEqual({ status: "deferred", artifactId: ARTIFACT_ID, payloadHandle: "sha256:2b4c" });
-  });
-
-  it("decodes base64 bytes by the encoding the reply declared, never by sniffing", () => {
-    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
-      manifest: MANIFEST,
-      payload: "ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==",
-      payloadEncoding: "base64",
-    });
-    expect(reading).toStrictEqual({
-      status: "text",
-      artifactId: ARTIFACT_ID,
-      encoding: "base64",
-      text: "diff --git a/one b/one",
-      truncated: false,
+describe("artifact pane reading — reading one port answer", () => {
+  it("reads the port's own refusal, keeping the code and the sentence it carries", () => {
+    const answer = growthAnswerReading("The allow-list read", {
+      ...REFUSAL,
+      status: "unavailable",
+      code: "wire-unregistered",
+      operationId: "artifactAllowlistRead",
+      slateRow: "artifact-crud",
+      owningDocument: "attachments",
+    } as never);
+    expect(answer.status).toBe("refused");
+    expect(answer.status === "refused" ? answer.refusal : undefined).toMatchObject({
+      code: "wire-unregistered",
+      origin: "growth-port",
     });
   });
 
-  it("takes a utf8 payload as it stands", () => {
-    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
-      manifest: MANIFEST,
-      payload: "already text",
-      payloadEncoding: "utf8",
-    });
-    expect(reading.status === "text" ? reading.text : "").toBe("already text");
+  it("reads a refusal that carries no served discriminant", () => {
+    // THE CASE THE OLD NARROWING GOT WRONG, and the reason this function exists. A
+    // refusal built by `core`'s `refuse(...)` has the console's three refusal fields
+    // and no `status` at all — which is the value `growthUnavailable` spreads to build
+    // its own. Read as "not unavailable, therefore served", it was dereferenced for a
+    // `value` it does not carry and the pane published a `TypeError` in place of the
+    // refusal that had just told it why.
+    const answer = growthAnswerReading("The allow-list read", REFUSAL as never);
+    expect(answer.status).toBe("refused");
+    expect(answer.status === "refused" ? answer.refusal : undefined).toBe(REFUSAL);
   });
 
-  it("bounds the preview and says it did", () => {
-    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
-      manifest: MANIFEST,
-      payload: "x".repeat(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP + 1),
-      payloadEncoding: "utf8",
+  it("reads a served answer's value through untouched", () => {
+    const served = { contentTypes: ["text/plain"], maximumByteLength: 42 };
+    const answer = growthAnswerReading("The allow-list read", {
+      status: "served",
+      value: served,
     });
-    expect(reading.status === "text" ? reading.text.length : 0).toBe(
-      ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
-    );
-    expect(reading.status === "text" ? reading.truncated : false).toBe(true);
+    expect(answer.status).toBe("read");
+    expect(answer.status === "read" ? answer.value : undefined).toBe(served);
   });
 
-  it("names bytes that are not text rather than decoding them into question marks", () => {
-    // `0xFF 0xFF` is not valid UTF-8. A lenient decoder answers with replacement
-    // characters, which a preview would draw as though they were the payload.
-    expect(
-      artifactPayloadReadingFrom(ARTIFACT_ID, {
-        manifest: MANIFEST,
-        payload: "//8=",
-        payloadEncoding: "base64",
-      }),
-    ).toStrictEqual({
-      status: "opaque",
-      artifactId: ARTIFACT_ID,
-      encoding: "base64",
-      reason: "not-utf8",
+  it("negative control: a served answer whose VALUE looks like a refusal is still read", () => {
+    // Without this, recognising a refusal by its fields could be written to look
+    // anywhere in the reply and would refuse a perfectly good read whose payload
+    // happened to carry a code, a detail, and an origin. The shape test is about the
+    // ANSWER and never about what the answer is carrying.
+    const answer = growthAnswerReading("The manifest re-read", {
+      status: "served",
+      value: REFUSAL,
     });
+    expect(answer.status).toBe("read");
+    expect(answer.status === "read" ? answer.value : undefined).toBe(REFUSAL);
   });
 
-  it("names an undecodable base64 payload as its own reason", () => {
-    const reading = artifactPayloadReadingFrom(ARTIFACT_ID, {
-      manifest: MANIFEST,
-      payload: "not base64 at all!!",
-      payloadEncoding: "base64",
-    });
-    expect(reading.status === "opaque" ? reading.reason : "").toBe("undecodable");
-  });
-
-  it("negative control: nothing about the arm is inferred from the bytes", () => {
-    // The same bytes on the two encodings are two different readings, which is what
-    // makes `payloadEncoding` load-bearing rather than a hint.
-    const asBase64 = artifactPayloadReadingFrom(ARTIFACT_ID, {
-      manifest: MANIFEST,
-      payload: "ZGlmZg==",
-      payloadEncoding: "base64",
-    });
-    const asUtf8 = artifactPayloadReadingFrom(ARTIFACT_ID, {
-      manifest: MANIFEST,
-      payload: "ZGlmZg==",
-      payloadEncoding: "utf8",
-    });
-    expect(asBase64.status === "text" ? asBase64.text : "").toBe("diff");
-    expect(asUtf8.status === "text" ? asUtf8.text : "").toBe("ZGlmZg==");
+  it("refuses a reply that is neither, naming the operation and not the reply", () => {
+    // Total rather than throwing: a reply of an unexpected shape is a fact a person
+    // can act on, and an exception three frames from where the answer arrived is not.
+    const answer = growthAnswerReading("The delete", { status: "served" } as never);
+    expect(answer.status).toBe("refused");
+    const refusal = answer.status === "refused" ? answer.refusal : undefined;
+    expect(refusal?.code).toBe("reply-unreadable");
+    expect(refusal?.origin).toBe("artifact-pane-reader");
+    expect(refusal?.detail).toContain("The delete");
   });
 });

@@ -75,12 +75,9 @@ import {
   type ArtifactManifestRow,
 } from "../../repos/artifact-model.js";
 import { type ConsolePaneContext } from "../../seats/index.js";
-import type {
-  ArtifactAllowlistReading,
-  ArtifactPayloadReading,
-  ArtifactRowActOutcome,
-} from "./artifact-pane-reading.js";
-import { useArtifactPaneReading } from "./artifact-reader.js";
+import type { ArtifactAllowlistReading, ArtifactRowActOutcome } from "./artifact-pane-reading.js";
+import type { ArtifactPayloadReading } from "./artifact-payload.js";
+import { useArtifactPaneReading } from "./use-artifact-reading.js";
 
 /** What a settled act says, once, when it settles. A refusal speaks in its own words. */
 const MANIFEST_RE_READ_ANNOUNCEMENT = "Manifest re-read. The row shows what the read answered.";
@@ -244,6 +241,13 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
               type="button"
               className="meridian-repos-pane__control"
               onClick={fetchSubjectPayload}
+              // HELD WHILE A FETCH IS OUTSTANDING, and the arm the reading is on is
+              // what holds it — there is no second flag to keep in step. A payload is
+              // bounded only by the ingest cap, so a second press before the first
+              // settles is a second download of the same bytes; the reader refuses it
+              // in words, and this is what keeps a participant from meeting that
+              // refusal by pressing a control the pane was offering.
+              disabled={reading.payload.status === "fetching"}
             >
               Fetch payload
             </button>
