@@ -5,9 +5,9 @@
 // definition's topology where it has one, and a name for the region. This file
 // places them, decides whether the sequence can be drawn at all, fetches the
 // renderer's code, and stands an absence in the box until it lands. The drawing
-// itself belongs to `PhaseGraphCanvas.tsx` on the far side of an `import()`, so a
-// surface that mounts this component never names the graph library and never pulls a
-// byte of it into the initial bundle.
+// itself belongs to `PhaseGraphCanvas.tsx`, on the far side of the `import()` that
+// names this directory's `index.ts`, so a surface that mounts this component never
+// names the graph library and never pulls a byte of it into the initial bundle.
 //
 // A GRAPH WITH NO EDGES SAYS SO IN WORDS. A run read carries no topology, so a
 // caller with no definition to hand over gets placed phases and no connectors — and
