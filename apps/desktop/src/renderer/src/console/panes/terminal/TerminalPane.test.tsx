@@ -20,6 +20,7 @@ import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { growthUnavailable } from "../../bridge/growth-port.js";
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
 import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
 import { TERMINAL_HOST_NODE_ID } from "../../bridge/scenarios/terminal-cast.js";
@@ -132,10 +133,11 @@ function bridgeRejectingOutputWith(rejection: unknown): ConsoleBridge {
 /**
  * A bridge that answers the caller-identity read with one of the cast.
  *
- * The terminal scenario states no viewing participant, so the fixture port refuses
- * that read by design — which is the pane's ordinary state and the subject of its
- * own cases below. Naming a viewer here is what makes the OTHER two arms reachable:
- * the claimant's own hold, and somebody else's.
+ * The scenario names the owner as its viewer, but a case that depends on WHO is
+ * looking says so itself rather than inheriting it: the three arms the lease fold
+ * can reach — the claimant's own hold, somebody else's, and no identity at all —
+ * are each chosen here, so a scenario edit cannot silently move a case onto a
+ * different arm than the one its name claims.
  */
 function bridgeAnsweringCallerWith(participantId: string): ConsoleBridge {
   const base = bridge();
@@ -147,6 +149,23 @@ function bridgeAnsweringCallerWith(participantId: string): ConsoleBridge {
         status: "served" as const,
         value: { participantId },
       }),
+    },
+  };
+}
+
+/**
+ * A bridge whose caller-identity read is refused — the port's own "not checked"
+ * refusal, taken through the same constructor the fixture port uses when a
+ * scenario has named no viewer, so the sentences the cases assert are the wire's
+ * and not a copy that could drift from it.
+ */
+function bridgeRefusingCaller(): ConsoleBridge {
+  const base = bridge();
+  return {
+    ...base,
+    growth: {
+      ...base.growth,
+      callerParticipantRead: async () => growthUnavailable("callerParticipantRead"),
     },
   };
 }
@@ -431,10 +450,10 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
   });
 
   it("withholds the claim control and renders the refusal when the read is refused", async () => {
-    // The fixture's own answer for this scenario: it states no viewing participant,
-    // so the port refuses by name. A pane that offered the control anyway would be
+    // The port's own refusal — the answer a live bridge gives while the identity
+    // wire is unregistered. A pane that offered the control anyway would be
     // offering an act it could not attribute — and the daemon would honour it.
-    const region = renderPane(storeThrough(1));
+    const region = renderPane(storeThrough(1), bridgeRefusingCaller());
     await waitFor(() => {
       expect(region.querySelector(".meridian-lease-line .meridian-refusal--inline")).not.toBeNull();
     });
@@ -449,7 +468,7 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
     // The withholding is about the CONTROL, not about the reading. A pane that had
     // blanked the lease line would pass the case above and tell nobody who holds the
     // shell.
-    const region = renderPane(storeThrough(1));
+    const region = renderPane(storeThrough(1), bridgeRefusingCaller());
     await waitFor(() => {
       expect(region.querySelector(".meridian-lease-line .meridian-refusal--inline")).not.toBeNull();
     });
