@@ -15,14 +15,16 @@
 // imports at all, which is rules that were written and never paint; the second alone
 // would pass over a sheet reached twice.
 //
-// THE ONE EXCEPTION IS NAMED, NOT INFERRED. `PhaseGraphCanvas.tsx` imports the graph
-// library's `base.css` and this family's `phase-graph.css`, and it is reached only
-// through `phase-graph-loader.ts`'s `import()`. Both sheets ride that lazy chunk on
-// purpose: pulled into `workflows.css` they would land in the document the operator
-// waits for, and `phase-graph.css` would then load BEFORE the `base.css` it overrides
-// at equal specificity, so the library's fallback palette would paint. The allowance
-// is a path written out below, so a second one is an edit a reviewer sees rather than
-// a pattern that quietly admits the next component.
+// THERE IS NO EXEMPTION LIST, AND THAT IS THE POINT OF THE RULE'S SHAPE. A lazily
+// loaded chunk owns sheets that must NOT ride the initial document — the graph
+// library's `base.css` and `phase-graph.css` are the pair today — and an earlier
+// revision admitted them by writing the importing COMPONENT's path into this file,
+// which excepted the convention rather than enforcing it. `apps/desktop/AGENTS.md`
+// now states the rule the chunk actually needs: a sheet enters through the barrel of
+// the family or of the lazily-loaded chunk that owns it, and through no component. So
+// the chunk gets a door of its own, the `import()` names that door, and the predicate
+// below admits it for the same reason it admits every other barrel — no path written
+// out, and nothing here to keep in step with a component that moves.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, posix, relative, sep } from "node:path";
@@ -30,20 +32,6 @@ import { dirname, join, posix, relative, sep } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { CONSOLE_SOURCE_DIRECTORY } from "../paths.js";
-
-/**
- * The one module outside a family barrel that may import a stylesheet.
- *
- * A path rather than a rule about lazy chunks: the reason is real but it is not
- * checkable from the text of an import, and a predicate that admitted "anything a
- * dynamic import reaches" would admit every module the graph chunk grows.
- */
-const LAZY_CHUNK_IMPORTER = join("panes", "workflow-run", "phase-graph", "PhaseGraphCanvas.tsx");
-
-/** The stylesheets that ride the lazy chunk with the library they override. */
-const LAZY_CHUNK_STYLESHEETS: readonly string[] = [
-  join("panes", "workflow-run", "phase-graph", "phase-graph.css"),
-];
 
 /** A module that imports a stylesheet for its side effect, and the sheet it names. */
 const STYLESHEET_IMPORT = /^import\s+"([^"]+\.css)";$/gmu;
@@ -62,8 +50,16 @@ function stylesheetSpecifiers(source: string, pattern: RegExp): readonly string[
   return [...source.matchAll(pattern)].map((match) => match[1] ?? "");
 }
 
-/** Whether a console-relative module path is a family's barrel. */
-function isFamilyBarrel(modulePath: string): boolean {
+/**
+ * Whether a console-relative module path is a barrel — a family's door or a lazily
+ * loaded chunk's, which the rule treats alike.
+ *
+ * The two are the same shape on purpose. What a stylesheet edge needs is a module
+ * that is the single way into the code the sheet paints, and a door is that whether
+ * the code behind it is a family or a chunk; a predicate that tried to tell them
+ * apart would be reading intent out of a path.
+ */
+function isOwningBarrel(modulePath: string): boolean {
   return modulePath.endsWith(`${sep}index.ts`);
 }
 
@@ -103,7 +99,7 @@ function reachedStylesheets(): ReadonlySet<string> {
   const reached = new Set<string>();
   const pending: string[] = [];
   for (const modulePath of consoleFiles([".ts", ".tsx"])) {
-    if (!isFamilyBarrel(modulePath) && modulePath !== LAZY_CHUNK_IMPORTER) {
+    if (!isOwningBarrel(modulePath)) {
       continue;
     }
     for (const specifier of stylesheetSpecifiers(readConsoleFile(modulePath), STYLESHEET_IMPORT)) {
@@ -138,12 +134,14 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     // assertion below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
     expect(stylesheets.length).toBeGreaterThan(5);
-    expect(modules).toContain(LAZY_CHUNK_IMPORTER);
+    // And the scan is recursive rather than a listing of the console root: every
+    // stylesheet edge below sits at least two directories down.
+    expect(modules.some((modulePath) => modulePath.split(sep).length > 2)).toBe(true);
   });
 
-  it("only a family barrel imports a stylesheet", () => {
+  it("only an owning barrel imports a stylesheet", () => {
     const offenders = modules
-      .filter((modulePath) => !isFamilyBarrel(modulePath) && modulePath !== LAZY_CHUNK_IMPORTER)
+      .filter((modulePath) => !isOwningBarrel(modulePath))
       .map((modulePath) => ({
         modulePath,
         sheets: stylesheetSpecifiers(readConsoleFile(modulePath), STYLESHEET_IMPORT),
@@ -181,23 +179,25 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     expect(stylesheetSpecifiers(componentSource, STYLESHEET_IMPORT)).toStrictEqual([
       "./workflows-destination.css",
     ]);
-    expect(isFamilyBarrel(join("workflows", "WorkflowsDestination.tsx"))).toBe(false);
-    expect(isFamilyBarrel(join("workflows", "index.ts"))).toBe(true);
+    expect(isOwningBarrel(join("workflows", "WorkflowsDestination.tsx"))).toBe(false);
+    expect(isOwningBarrel(join("workflows", "index.ts"))).toBe(true);
   });
 
-  it("negative control: the named exception really does import a sheet", () => {
-    // An allowance for a module that imports nothing would be a hole nobody could
-    // see, and would stay open after the module it was written for changed.
-    const specifiers = stylesheetSpecifiers(
-      readConsoleFile(LAZY_CHUNK_IMPORTER),
-      STYLESHEET_IMPORT,
-    );
-    expect(specifiers.length).toBeGreaterThan(1);
-    for (const sheet of LAZY_CHUNK_STYLESHEETS) {
-      expect(stylesheets).toContain(sheet);
-      expect(specifiers.some((specifier) => sheet.endsWith(specifier.replace("./", "")))).toBe(
-        true,
-      );
-    }
+  it("the lazy chunk's door owns its sheets, and the component in it owns none", () => {
+    // The case the rule was restated for, asserted from the tree rather than from a
+    // path this file remembers: the door imports the library's sheet and this
+    // directory's, in that order, and the canvas behind it imports neither. Without
+    // the second half the door could be added and the component's edge left in place,
+    // which is two ways into one sheet and the cascade order back to a coincidence.
+    const chunkDirectory = join("panes", "workflow-run", "phase-graph");
+    expect(
+      stylesheetSpecifiers(readConsoleFile(join(chunkDirectory, "index.ts")), STYLESHEET_IMPORT),
+    ).toStrictEqual(["@xyflow/react/dist/base.css", "./phase-graph.css"]);
+    expect(
+      stylesheetSpecifiers(
+        readConsoleFile(join(chunkDirectory, "PhaseGraphCanvas.tsx")),
+        STYLESHEET_IMPORT,
+      ),
+    ).toStrictEqual([]);
   });
 });
