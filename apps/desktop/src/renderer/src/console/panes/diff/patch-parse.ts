@@ -1,5 +1,5 @@
 // The producer half of the diff family: unified patch text in, `ConsoleDiffModel`
-// out, plus the intraline word diff every changed line pair is segmented by.
+// out, plus the intraline word diff one changed line pair is segmented by.
 //
 // `Spec-023 §Console Libraries`' Diff viewer row splits this surface in two and
 // this file is the half it says to ADOPT: `diff` 9.0.0 (jsdiff, BSD-3-Clause) for
@@ -9,11 +9,21 @@
 // stay first-party — the row renderer is the half the row says to own, because no
 // candidate was both headless and virtualized.
 //
+// PARSING COMPUTES NO INTRALINE SEGMENTATION, AND THAT IS A BOUND AND NOT AN OMISSION.
+// This module used to walk every hunk and run `diffWordsWithSpace` over every
+// delete/insert pair before it returned, unbounded — so a forty-file change set paid
+// for five thousand word diffs before the virtualizer placed a row, and one long line
+// paid more than the whole rest of the patch (a single 18,889-character pair inside a
+// 5,000-line patch measured 831 ms on its own, 2026-09-02). A parsed line therefore
+// carries ONE whole-line segment, which is its text; `intraline-segments.ts` derives
+// the split when a row is materialised, memoised and size-bounded. `intralineSegments`
+// below is still this module's, because it is the adopted library's seam and
+// `Spec-023 §Console Libraries` puts "parse and intraline compute" on one side of it.
+//
 // WHY A PARSER EXISTS BEFORE ITS WIRE DOES. `diff-model.ts`'s header records the
-// obligation this file discharges: the model's `segments` arrive PRE-COMPUTED, and
-// the module that turns a unified patch into one "lands with the first caller that
-// has patch bytes to give it, in the PR that adds that dependency". The dependency
-// is added here. The caller that hands it daemon bytes is `gitflow.diffArtifactCreate`,
+// obligation this file discharges: the module that turns a unified patch into the
+// model "lands with the first caller that has patch bytes to give it, in the PR that
+// adds that dependency". The dependency is added here. The caller that hands it daemon bytes is `gitflow.diffArtifactCreate`,
 // a `Plan-023 §Console growth slate` row (`gitflow-actions`, owned by Spec-011) that
 // no namespace serves yet — so today the callers are `diff-fixture.ts`, which builds
 // the surfaces' and the endurance tier's subjects THROUGH this module rather than
@@ -277,59 +287,7 @@ function hunkLines(
       headLineNumber += 1;
     }
   }
-  return segmentChangedRuns(lines);
-}
-
-/**
- * Give every deleted line that has an inserted counterpart its word-level segments.
- *
- * A unified patch expresses a modified line as a delete run immediately followed by
- * an insert run, so the counterpart of the nth deletion is the nth insertion of the
- * run that follows it. Pairing by ORDINAL WITHIN THE RUN rather than by content
- * similarity is deliberate: similarity scoring would re-pair lines the producer had
- * already paired, and a diff whose highlight disagreed with its own line order is
- * harder to read than one with no highlight at all. Where the runs are unequal
- * lengths the surplus lines keep their whole-line segment, which reads as a plain
- * addition or removal — which is what an unpaired line is.
- */
-function segmentChangedRuns(lines: readonly DiffLine[]): readonly DiffLine[] {
-  const segmented = [...lines];
-  let index = 0;
-  while (index < segmented.length) {
-    const deleteRunStart = index;
-    while (segmented[index]?.kind === "delete") {
-      index += 1;
-    }
-    const deleteRunLength = index - deleteRunStart;
-    const insertRunStart = index;
-    while (segmented[index]?.kind === "insert") {
-      index += 1;
-    }
-    const insertRunLength = index - insertRunStart;
-    if (deleteRunLength === 0 || insertRunLength === 0) {
-      // No pair here. Advance past whatever this line was, or the loop stands still
-      // on a context line forever.
-      index = Math.max(index, deleteRunStart + 1);
-      continue;
-    }
-    const pairCount = Math.min(deleteRunLength, insertRunLength);
-    for (let pair = 0; pair < pairCount; pair += 1) {
-      const deletedLine = segmented[deleteRunStart + pair];
-      const insertedLine = segmented[insertRunStart + pair];
-      if (deletedLine === undefined || insertedLine === undefined) {
-        continue;
-      }
-      const pairSegments = intralineSegments(lineText(deletedLine), lineText(insertedLine));
-      segmented[deleteRunStart + pair] = { ...deletedLine, segments: pairSegments.deleted };
-      segmented[insertRunStart + pair] = { ...insertedLine, segments: pairSegments.inserted };
-    }
-  }
-  return segmented;
-}
-
-/** One line's text as this module built it: one whole-line segment, before pairing. */
-function lineText(line: DiffLine): string {
-  return line.segments.map((segment) => segment.text).join("");
+  return lines;
 }
 
 /**

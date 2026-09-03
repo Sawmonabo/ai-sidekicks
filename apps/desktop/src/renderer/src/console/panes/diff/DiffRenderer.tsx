@@ -25,6 +25,11 @@
 //     overflows on both axes and the wrap toggle is the other answer, and the
 //     clipped-line case is this renderer's one Never.
 //
+// AND THE INTRALINE HIGHLIGHT IS COMPUTED FOR THE ROWS IT DRAWS, NOWHERE ELSE. The
+// word diff used to run for every changed pair in the change set at parse time; it now
+// runs when a row is materialised, out of the cache below, which is what makes the
+// virtualization actually bound the cost rather than only bound the DOM.
+//
 // THE WINDOW IS THE ADOPTED VIRTUALIZER'S, AND THE FLATTENING IS OURS.
 // `Spec-023 §Console Libraries` ADOPTs `@tanstack/react-virtual` with constraints,
 // and this is the seam it is adopted at. `hunk-virtualization.ts` still answers
@@ -66,6 +71,7 @@ import {
 import type { ConsoleDiffModel, DiffViewMode } from "./diff-model.js";
 import { DiffRowView } from "./DiffRows.js";
 import { DiffRowIndex, type DiffGapExpansion } from "./hunk-virtualization.js";
+import { IntralineSegmentCache } from "./intraline-segments.js";
 
 export interface DiffRendererProps {
   readonly model: ConsoleDiffModel;
@@ -138,6 +144,12 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
     [props.model, props.expansion, props.shownFilePath, props.viewMode],
   );
 
+  // KEYED ON THE MODEL AND NOT ON THE INDEX, which is the whole reason it is a second
+  // memo. A gap expansion, a file narrowing, and a view-mode toggle each build a new
+  // index and change no line's text, so a cache tied to the index would throw away
+  // every segmentation on a keystroke that moved nothing.
+  const intraline = useMemo(() => new IntralineSegmentCache(props.model), [props.model]);
+
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
     count: index.rowCount,
     getScrollElement: () => scrollerRef.current,
@@ -182,6 +194,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
         rowIndex={virtualRow.index}
         row={row}
         index={index}
+        intraline={intraline}
         viewMode={props.viewMode}
         showAttributionMarks={props.showAttributionMarks}
         showWhitespaceChanges={props.showWhitespaceChanges}

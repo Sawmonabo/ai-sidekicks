@@ -17,11 +17,13 @@
 //   • the RULE on the marker column — solid for an insertion, dashed for a
 //     deletion, which is the signal that survives a screenshot in greyscale.
 //
-// INTRALINE IS A SEGMENT LIST, NEVER A RE-COMPUTATION. The line arrives already
-// split (`diff-model.ts` says why the producer owns that), so this file renders
-// spans and computes nothing. A renderer that recomputed a word diff per row
-// would do it once per scroll tick, which is the cost virtualization exists to
-// avoid.
+// INTRALINE IS ASKED FOR, NEVER COMPUTED HERE. `intraline-segments.ts` owns the
+// word diff and its bounds; this file asks it for the segmentation of the line
+// each cell is drawing and renders spans. The cache is what makes that safe on a
+// scroll: it is keyed by hunk and line index, so a row asked for on every scroll
+// tick is computed once — and where a pair is too long to compare, the reading
+// says so and the cell draws the note beside the whole line rather than a
+// highlight the console did not make.
 //
 // THE ROW IS MEMOISED because a five-thousand-row change set re-renders its whole
 // window on every scroll tick otherwise, and the window is the only thing that
@@ -30,9 +32,10 @@
 
 import { memo } from "react";
 
-import { Glyph } from "../../primitives/index.js";
+import { Glyph, Nothing } from "../../primitives/index.js";
 import type { DiffLine, DiffLineKind, DiffViewMode } from "./diff-model.js";
 import type { DiffRow, DiffRowIndex } from "./hunk-virtualization.js";
+import type { IntralineReading, IntralineSegmentCache } from "./intraline-segments.js";
 
 /** The marker each line kind carries, and the class its ground is painted by. */
 const LINE_KIND_MARKERS: Readonly<Record<DiffLineKind, string>> = {
@@ -54,10 +57,28 @@ const DIFF_ROW_GLYPH_SIZE = 12;
 /** Glyph edge length in the gutter, where the mark sits beside a line number. */
 const DIFF_GUTTER_GLYPH_SIZE = 10;
 
+/**
+ * What the badge on an over-bound line says when a reader hovers it.
+ *
+ * SAID RATHER THAN LEFT BLANK. A line drawn with no highlight is what a line with no
+ * intraline change looks like, so a row whose comparison was declined for size and
+ * said nothing would be the console reporting "nothing changed inside this line" about
+ * a line it never compared.
+ */
+const INTRALINE_SKIPPED_DETAIL =
+  "This line is longer than the word-level comparison is run for, so the whole line is marked changed rather than the words within it.";
+
 export interface DiffRowViewProps {
   readonly rowIndex: number;
   readonly row: DiffRow;
   readonly index: DiffRowIndex;
+  /**
+   * Where this row's word-level segmentation comes from.
+   *
+   * Held per MODEL rather than per index, so a gap expansion — which builds a new
+   * index and changes no line's text — keeps everything already computed.
+   */
+  readonly intraline: IntralineSegmentCache;
   readonly viewMode: DiffViewMode;
   readonly showAttributionMarks: boolean;
   readonly showWhitespaceChanges: boolean;
@@ -143,6 +164,7 @@ export const DiffRowView: React.MemoExoticComponent<
     return <div {...rowProps} className="meridian-diff__row meridian-diff__row--line" />;
   }
 
+  const reading = props.intraline.readingFor(row, row.lineIndex);
   if (props.viewMode === "split") {
     // WHICH LINE EACH SIDE HOLDS FOLLOWS FROM THE ROW, and the row was paired by
     // the flattening. A deletion occupies the base side and carries its paired
@@ -151,16 +173,25 @@ export const DiffRowView: React.MemoExoticComponent<
     // both. So the two cells can carry DIFFERENT text, which is the one thing
     // split view exists to show.
     const pairedLine = index.pairedLineFor(row);
+    // The head cell of a paired deletion draws the INSERTION, so it asks for that
+    // line's own reading — the two sides of one comparison, taken from one cache by
+    // the two addresses the flattening paired.
+    const pairedReading =
+      pairedLine === undefined || row.pairedLineIndex === undefined
+        ? undefined
+        : props.intraline.readingFor(row, row.pairedLineIndex);
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--line">
         <DiffSplitCell
           line={line.kind === "insert" ? undefined : line}
+          reading={reading}
           side="base"
           showAttributionMarks={props.showAttributionMarks}
           showWhitespaceChanges={props.showWhitespaceChanges}
         />
         <DiffSplitCell
           line={line.kind === "delete" ? pairedLine : line}
+          reading={line.kind === "delete" ? pairedReading : reading}
           side="head"
           showAttributionMarks={props.showAttributionMarks}
           showWhitespaceChanges={props.showWhitespaceChanges}
@@ -179,7 +210,11 @@ export const DiffRowView: React.MemoExoticComponent<
       >
         <DiffGutter line={line} side="base" showAttributionMarks={props.showAttributionMarks} />
         <DiffGutter line={line} side="head" showAttributionMarks={false} />
-        <DiffLineText line={line} showWhitespaceChanges={props.showWhitespaceChanges} />
+        <DiffLineText
+          line={line}
+          reading={reading}
+          showWhitespaceChanges={props.showWhitespaceChanges}
+        />
       </span>
     </div>
   );
@@ -200,6 +235,8 @@ export const DiffRowView: React.MemoExoticComponent<
  */
 function DiffSplitCell(props: {
   readonly line: DiffLine | undefined;
+  /** Absent exactly where the line is: an empty cell has nothing to segment. */
+  readonly reading: IntralineReading | undefined;
   readonly side: "base" | "head";
   readonly showAttributionMarks: boolean;
   readonly showWhitespaceChanges: boolean;
@@ -212,7 +249,8 @@ function DiffSplitCell(props: {
   ]
     .filter((part) => part !== "")
     .join(" ");
-  if (line === undefined) {
+  const { reading } = props;
+  if (line === undefined || reading === undefined) {
     return (
       <span className={className} role="cell">
         <span className="meridian-diff__gutter" />
@@ -223,7 +261,11 @@ function DiffSplitCell(props: {
   return (
     <span className={className} role="cell">
       <DiffGutter line={line} side={props.side} showAttributionMarks={props.showAttributionMarks} />
-      <DiffLineText line={line} showWhitespaceChanges={props.showWhitespaceChanges} />
+      <DiffLineText
+        line={line}
+        reading={reading}
+        showWhitespaceChanges={props.showWhitespaceChanges}
+      />
     </span>
   );
 }
@@ -279,6 +321,7 @@ function DiffGutter(props: {
  */
 function DiffLineText(props: {
   readonly line: DiffLine;
+  readonly reading: IntralineReading;
   readonly showWhitespaceChanges: boolean;
 }): React.JSX.Element {
   return (
@@ -288,7 +331,7 @@ function DiffLineText(props: {
       </span>
       <span className="meridian-visually-hidden">{LINE_KIND_LABELS[props.line.kind]}</span>
       <code className="meridian-diff__code">
-        {props.line.segments.map((segment, segmentIndex) => (
+        {props.reading.segments.map((segment, segmentIndex) => (
           <span
             // Segments have no identity of their own and never reorder — the list
             // is rebuilt whole whenever the line changes — so the position IS the
@@ -305,6 +348,16 @@ function DiffLineText(props: {
           </span>
         ))}
       </code>
+      {props.reading.skipped ? (
+        <span className="meridian-diff__intraline-skipped">
+          <Nothing
+            kind="not-checked"
+            placement="inline"
+            title="No word-level comparison"
+            detail={INTRALINE_SKIPPED_DETAIL}
+          />
+        </span>
+      ) : null}
     </span>
   );
 }

@@ -19,8 +19,16 @@
 // followed by a run of insertions pairs positionally, so the mapping from row to line
 // is genuinely irregular and no arithmetic predicts it. That array is built once per
 // hunk per index, which is what it costs; what it no longer costs is once per `rowAt`.
+//
+// THE PAIRING RULE HAS ONE HOME, AND IT IS THIS MODULE. Two readers want it and they
+// want different answers: the split flattening wants ROWS, and the intraline
+// segmentation wants one line's COUNTERPART. Both are the same rule — a run of
+// deletions immediately followed by a run of insertions pairs positionally — so both
+// walk runs with `runEndFrom` below rather than each carrying its own scan. A second
+// copy would agree on every hunk until the first uneven run and then disagree about
+// which line a highlight was computed against.
 
-import type { DiffLine, DiffViewMode } from "./diff-model.js";
+import type { DiffLine, DiffLineKind, DiffViewMode } from "./diff-model.js";
 
 /** Which of a hunk body's lines one row addresses. The pairing, without the row. */
 export interface HunkBodyRow {
@@ -73,14 +81,10 @@ export function buildHunkBodyLayout(
       continue;
     }
     const firstDeleteIndex = cursor;
-    while (lines[cursor]?.kind === "delete") {
-      cursor += 1;
-    }
+    cursor = runEndFrom(lines, cursor, "delete");
     const deleteCount = cursor - firstDeleteIndex;
     const firstInsertIndex = cursor;
-    while (lines[cursor]?.kind === "insert") {
-      cursor += 1;
-    }
+    cursor = runEndFrom(lines, cursor, "insert");
     const insertCount = cursor - firstInsertIndex;
     for (let offset = 0; offset < Math.max(deleteCount, insertCount); offset += 1) {
       if (offset >= deleteCount) {
@@ -114,4 +118,66 @@ export function hunkBodyRowAt(layout: HunkBodyLayout, offset: number): HunkBodyR
     return layout.rows[offset];
   }
   return offset >= 0 && offset < layout.rowCount ? { lineIndex: offset } : undefined;
+}
+
+/**
+ * The line one changed line is paired with, or `undefined` where it has no partner.
+ *
+ * THE SAME RULE THE SPLIT FLATTENING APPLIES, ASKED THE OTHER WAY ROUND. That walk
+ * knows every pairing because it walks the whole body; this one is asked about a single
+ * line, by a renderer that has materialised one row and wants that row's intraline
+ * segmentation. So it finds the run the line sits in and counts from its start, which
+ * is the same positional pairing and costs the run rather than the hunk.
+ *
+ * The pairing is a property of the HUNK BODY and not of a view mode: a modified line is
+ * a delete run immediately followed by an insert run in both layouts, and unified view
+ * draws the two rows separately without making them a different pair.
+ */
+export function pairedLineIndexFor(
+  lines: readonly DiffLine[],
+  lineIndex: number,
+): number | undefined {
+  const kind = lines[lineIndex]?.kind;
+  if (kind === "delete") {
+    const deleteRunStart = runStartFrom(lines, lineIndex, "delete");
+    const insertRunStart = runEndFrom(lines, deleteRunStart, "delete");
+    const insertLineIndex = insertRunStart + (lineIndex - deleteRunStart);
+    return insertLineIndex < runEndFrom(lines, insertRunStart, "insert")
+      ? insertLineIndex
+      : undefined;
+  }
+  if (kind !== "insert") {
+    // A context line is nobody's counterpart, and a gap's revealed lines are context by
+    // construction — so there is no pairing to look for and no highlight to compute.
+    return undefined;
+  }
+  const insertRunStart = runStartFrom(lines, lineIndex, "insert");
+  const deleteRunStart = runStartFrom(lines, insertRunStart - 1, "delete");
+  const deleteCount = insertRunStart - deleteRunStart;
+  const offset = lineIndex - insertRunStart;
+  return offset < deleteCount ? deleteRunStart + offset : undefined;
+}
+
+/** The index one past the last line of the run of `kind` starting at `start`. */
+function runEndFrom(lines: readonly DiffLine[], start: number, kind: DiffLineKind): number {
+  let cursor = start;
+  while (lines[cursor]?.kind === kind) {
+    cursor += 1;
+  }
+  return cursor;
+}
+
+/**
+ * The first line of the run of `kind` that ENDS at `end`, inclusive.
+ *
+ * Zero-length where the line at `end` is not of that kind, which is how a caller asks
+ * "is there a run of deletions immediately above this insertion" and gets `end + 1`
+ * back when there is not.
+ */
+function runStartFrom(lines: readonly DiffLine[], end: number, kind: DiffLineKind): number {
+  let cursor = end;
+  while (cursor >= 0 && lines[cursor]?.kind === kind) {
+    cursor -= 1;
+  }
+  return cursor + 1;
 }

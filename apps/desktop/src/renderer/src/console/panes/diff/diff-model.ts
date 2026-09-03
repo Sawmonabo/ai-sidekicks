@@ -18,12 +18,15 @@
 // so this model is the shape the surfaces are built against and its producer is
 // somebody else's. Two consequences are deliberate:
 //
-//   • The intraline segmentation arrives PRE-COMPUTED on `DiffLine.segments`.
+//   • `DiffLine.segments` carries the line's TEXT, as one whole-line segment.
 //     `Spec-023 §Console Libraries` adopts jsdiff for "parse and intraline
 //     compute" over patch bytes; this family own-builds the row renderer and its
-//     virtualization and computes neither. The module that turns a unified patch
-//     into this model lands with the first caller that has patch bytes to give
-//     it, in the PR that adds that dependency.
+//     virtualization. The module that turns a unified patch into this model lands
+//     with the first caller that has patch bytes to give it, in the PR that adds
+//     that dependency. The word-level SPLIT of that text is derived per rendered
+//     row by `intraline-segments.ts` — bounded, memoised, and never at parse time,
+//     because computing every pair up front costs the whole change set before the
+//     virtualizer has placed a row.
 //   • The per-line agent attribution arrives on the line. `Spec-011 §Required
 //     Behavior` names the Agent Trace standard and the `Agent-Run:` and
 //     `Co-authored-by:` git trailers as the provenance source; the console
@@ -106,9 +109,14 @@ export interface DiffLine {
   /** Line number in the head state. Absent on a deleted line. */
   readonly headLineNumber?: number;
   /**
-   * The line's text, split at its intraline boundaries. A line with no intraline
-   * change is one unchanged segment rather than an empty list, so every consumer
-   * reads text the same way.
+   * The line's text, as a segment list rather than a string.
+   *
+   * A producer supplies ONE unchanged segment — the whole line — and a consumer
+   * that wants the word-level split asks `intraline-segments.ts` for it. The list
+   * shape stays because the split has to be expressible in the same type the
+   * renderer draws from, and because a line with no intraline change is one
+   * unchanged segment rather than an empty list, so every consumer reads text the
+   * same way.
    */
   readonly segments: readonly DiffIntralineSegment[];
   readonly agentAttribution?: DiffLineAgentAttribution;

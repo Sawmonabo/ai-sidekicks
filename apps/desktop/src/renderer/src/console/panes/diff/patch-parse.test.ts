@@ -150,48 +150,29 @@ describe("parseUnifiedPatch", () => {
     }
   });
 
-  it("segments a modified line pair at its word boundaries, on both sides", () => {
+  it("gives every line one whole-line segment, computing no word diff", () => {
+    // THE BOUND, asserted where it used to be spent. This parser once ran
+    // `diffWordsWithSpace` over every delete/insert pair before it returned, so a
+    // forty-file change set paid for the whole change set before the virtualizer
+    // placed a row. The split is derived per rendered row now — `intraline-segments.ts`
+    // owns it — and a parsed line carries its text and nothing else.
+    for (const line of linesOfFirstHunk(PLAIN_PATCH)) {
+      expect(line.segments).toStrictEqual([{ text: diffLineText(line), changed: false }]);
+    }
+  });
+
+  it("negative control: the same pair through the intraline seam does split", () => {
+    // Without this the claim above would pass over a patch the word diff finds
+    // nothing in. This pair IS one it splits, so the parser's single segment is a
+    // decision rather than an absence.
     const [, deletedLine, insertedLine] = linesOfFirstHunk(PLAIN_PATCH);
-    expect(deletedLine?.segments.filter((segment) => segment.changed)).toStrictEqual([
+    const pair = intralineSegments(
+      diffLineText(deletedLine as DiffLine),
+      diffLineText(insertedLine as DiffLine),
+    );
+    expect(pair.deleted.filter((segment) => segment.changed)).toStrictEqual([
       { text: "previousBudget", changed: true },
     ]);
-    expect(insertedLine?.segments.filter((segment) => segment.changed)).toStrictEqual([
-      { text: "nextBudget", changed: true },
-    ]);
-    // The segments still reassemble to the line, which is what makes them a view of
-    // the text rather than a second copy of it.
-    expect(diffLineText(deletedLine as DiffLine)).toBe(
-      "const value = compute(previousBudget, 11);",
-    );
-    expect(diffLineText(insertedLine as DiffLine)).toBe("const value = compute(nextBudget, 11);");
-  });
-
-  it("negative control: an unpaired insertion is one unchanged segment", () => {
-    // Without this the segmentation case above would pass over a parser that marked
-    // every line's whole text as changed. The second file's insertion has no deleted
-    // counterpart, so nothing about it is a word-level change.
-    const hunk = parsePlain(PLAIN_PATCH).files[1]?.hunks[0];
-    const insertedLine = hunk?.lines[1];
-    expect(insertedLine?.kind).toBe("insert");
-    expect(insertedLine?.segments).toStrictEqual([{ text: "const added = true;", changed: false }]);
-  });
-
-  it("pairs a longer delete run with a shorter insert run by ordinal and leaves the surplus whole", () => {
-    const lines = linesOfFirstHunk(
-      [
-        "--- one.ts",
-        "+++ one.ts",
-        "@@ -1,2 +1,1 @@",
-        "-const value = compute(previousBudget, 1);",
-        "-const dropped = true;",
-        "+const value = compute(nextBudget, 1);",
-        "",
-      ].join("\n"),
-    );
-    expect(lines[0]?.segments.filter((segment) => segment.changed)).toStrictEqual([
-      { text: "previousBudget", changed: true },
-    ]);
-    expect(lines[1]?.segments).toStrictEqual([{ text: "const dropped = true;", changed: false }]);
   });
 
   it("strips the git prefixes only on a patch that declared itself git-style", () => {

@@ -264,6 +264,9 @@ describe("diff renderer — the view controls it is handed", () => {
   });
 
   it("marks the intraline change, and stops marking a whitespace-only one on request", () => {
+    // A modified PAIR rather than a hand-segmented line: the segmentation is
+    // derived per rendered row now, so a model carrying pre-split segments would
+    // assert against a shape the renderer never reads.
     const whitespaceOnlyDiff = {
       ...SMALL_DIFF,
       files: [
@@ -275,13 +278,14 @@ describe("diff renderer — the view controls it is handed", () => {
               precedingContext: [],
               lines: [
                 {
+                  kind: "delete" as const,
+                  baseLineNumber: 1,
+                  segments: [{ text: "const value = 1;", changed: false }],
+                },
+                {
                   kind: "insert" as const,
                   headLineNumber: 1,
-                  segments: [
-                    { text: "value", changed: false },
-                    { text: "   ", changed: true },
-                    { text: "= 1;", changed: false },
-                  ],
+                  segments: [{ text: "const value   = 1;", changed: false }],
                 },
               ],
             },
@@ -290,12 +294,15 @@ describe("diff renderer — the view controls it is handed", () => {
       ],
     };
     const shown = renderDiff({ model: whitespaceOnlyDiff, showWhitespaceChanges: true });
-    expect(shown.querySelectorAll(".meridian-diff__segment--changed").length).toBe(1);
+    // Two: one per side of one alignment, both of them the run of spaces.
+    expect(shown.querySelectorAll(".meridian-diff__segment--changed").length).toBe(2);
     const hidden = renderDiff({ model: whitespaceOnlyDiff, showWhitespaceChanges: false });
     expect(hidden.querySelectorAll(".meridian-diff__segment--changed").length).toBe(0);
     // The characters are still there — the toggle withholds emphasis and never
     // shortens the line.
-    expect(hidden.querySelector(".meridian-diff__code")?.textContent).toBe("value   = 1;");
+    expect(
+      [...hidden.querySelectorAll(".meridian-diff__code")].map((code) => code.textContent),
+    ).toStrictEqual(["const value = 1;", "const value   = 1;"]);
   });
 
   it("shows an attribution mark only where the trailers named somebody, and only when asked", () => {
