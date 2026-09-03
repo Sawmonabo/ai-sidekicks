@@ -33,6 +33,8 @@ import {
   type ClientCommandRecognitionInput,
 } from "./client-command-recognizer.js";
 import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
+import { addressedProviderBinding } from "./provider-command-catalog.js";
+import type { ComposerTarget } from "../chips/chip-models.js";
 
 /**
  * Build the executor for one composer.
@@ -128,8 +130,14 @@ export interface ComposerCommandZone {
 export function useComposerCommandZone(options: {
   readonly route: ConsoleRoute;
   readonly commandEnumeration: ProviderCommandEnumeration;
+  /**
+   * Where this composer is addressed, so the published-name lookup reads the
+   * addressed run's own binding. An agent can hold several live bindings at once, and
+   * a name published by one of the others is not a name this send path may recognise.
+   */
+  readonly target: ComposerTarget;
 }): ComposerCommandZone {
-  const { route, commandEnumeration } = options;
+  const { route, commandEnumeration, target } = options;
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
   const recognizeName = useCallback<ClientCommandPredicate>(
     (commandName) =>
@@ -142,9 +150,10 @@ export function useComposerCommandZone(options: {
     () => createClientCommandExecutor({ readSurface }),
     [readSurface],
   );
+  const addressed = useMemo(() => addressedProviderBinding(target), [target]);
   const recognizePublished = useCallback<ProviderCommandPredicate>(
-    (commandName) => commandEnumeration.publishedEntryNamed(commandName),
-    [commandEnumeration],
+    (commandName) => commandEnumeration.publishedEntryNamed(commandName, addressed),
+    [commandEnumeration, addressed],
   );
   return {
     recognizeClientCommand: recognizeName,

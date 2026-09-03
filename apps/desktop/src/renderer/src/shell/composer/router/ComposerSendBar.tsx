@@ -59,6 +59,10 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
   const commandZone = useComposerCommandZone({
     route: props.route,
     commandEnumeration: props.commandEnumeration,
+    // The same address the send path acts on, so the name this zone recognises as
+    // published comes from the addressed run's own binding and not from a sibling
+    // binding the same agent happens to hold.
+    target: address.target,
   });
   const controller = useSendController({
     bridge: props.bridge,

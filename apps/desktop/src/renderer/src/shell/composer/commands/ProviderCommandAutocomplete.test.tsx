@@ -10,6 +10,10 @@
 // registered run projectors, so the address these cases resolve is the address the
 // shipped surface resolves.
 
+import {
+  ProviderCommandListResultSchema,
+  type ProviderCommandBindingGroup,
+} from "@ai-sidekicks/contracts";
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -30,6 +34,27 @@ const ENUMERATION_METHOD = "driver.listProviderCommands";
 /** A prefix no console command and no enumerated provider entry begins with. */
 const UNMATCHED_PREFIX = "/zzz-nothing-begins-with-this";
 const EMPTY_STATE_SENTENCE = "No command matches what you have typed";
+/** The opening of the sentence the popover renders when no group names this run. */
+const UNADDRESSED_BINDING_SENTENCE = "This run's binding published nothing here";
+/** An entry name the scenario's own enumeration does not carry. */
+const UNADDRESSED_ENTRY_NAME = "status";
+/**
+ * A live binding on the OTHER provider, attributed to a run this composer never
+ * addresses — the second group the agent-scoped reply can carry.
+ */
+const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = {
+  runId: "019b7a11-1100-740e-8120-d1a4c1150312",
+  binding: { driverName: "codex", providerAccountId: null },
+  entries: [
+    {
+      name: UNADDRESSED_ENTRY_NAME,
+      kind: "command",
+      description: "Report the other binding's state.",
+      binding: { driverName: "codex", providerAccountId: null },
+    },
+  ],
+  complete: true,
+};
 const registeredIds: string[] = [];
 
 /** One recorded daemon call, so a re-read is distinguishable from a re-filter. */
@@ -96,6 +121,46 @@ function bridgeHoldingTheEnumeration(): ConsoleBridge {
   return bridgeAnswering((method, _params, forward) =>
     method === ENUMERATION_METHOD ? new Promise<unknown>(() => undefined) : forward(),
   );
+}
+
+/**
+ * The scenario's own enumerated groups, read back through the registered schema.
+ *
+ * Parsed rather than cast: the scenario's reply is typed `unknown`, and a cast would
+ * let a fixture that has drifted from the wire shape reach these cases as if it had
+ * not.
+ */
+function scenarioBindingGroups(): readonly ProviderCommandBindingGroup[] {
+  const reply = COMPOSER_SCENARIO.replies.find(
+    (candidate) => candidate.call === ENUMERATION_METHOD,
+  );
+  if (reply === undefined || reply.result === undefined) {
+    throw new Error("the composer scenario scripts no enumeration reply");
+  }
+  return ProviderCommandListResultSchema.parse(reply.result).bindings;
+}
+
+/** The run the scenario attributes its own Claude group to — the addressed one. */
+function addressedRunIdOfFirstAgent(): string {
+  const runId = scenarioBindingGroups()[0]?.runId;
+  if (runId === null || runId === undefined) {
+    throw new Error("the scenario's enumerated group names no run");
+  }
+  return runId;
+}
+
+/** The fixture scenario, answering the enumeration with exactly these groups. */
+function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]): ConsoleBridge {
+  return createFixtureBridge({
+    scenario: {
+      ...COMPOSER_SCENARIO,
+      id: "composer-discovery-bindings",
+      replies: [
+        ...COMPOSER_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
+        { call: ENUMERATION_METHOD, result: { bindings: groups } },
+      ],
+    },
+  });
 }
 
 /** The scenario's agents, read out of the log rather than restated. */
@@ -496,5 +561,54 @@ describe("ProviderCommandAutocomplete", () => {
 
     expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();
     expect(mounted.line.value).toBe("/rev");
+  });
+});
+
+describe("ProviderCommandAutocomplete — one binding's entries reach the list", () => {
+  it("lists the addressed run's group and none of the other binding's entries", async () => {
+    const mounted = await mountComposer({
+      bridge: bridgeEnumerating([...scenarioBindingGroups(), UNADDRESSED_CODEX_GROUP]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, "/");
+
+    // The finding: the popover composed the catalog over EVERY group in the reply,
+    // so a second live binding's commands appeared under this run's name — offering
+    // a Codex entry through a Claude-bound agent, which is exactly the routing the
+    // enumeration's own provenance pair exists to prevent.
+    expect(optionNames(mounted.container)).toEqual(expect.arrayContaining(["compact", "review"]));
+    expect(optionNames(mounted.container)).not.toContain(UNADDRESSED_ENTRY_NAME);
+  });
+
+  it("says this run's binding published nothing when no group can be attributed to it", async () => {
+    const mounted = await mountComposer({
+      bridge: bridgeEnumerating([UNADDRESSED_CODEX_GROUP]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, "/");
+
+    const state = mounted.container.querySelector(
+      ".meridian-command-discovery__state .meridian-nothing--empty",
+    );
+    expect(state?.textContent).toContain(UNADDRESSED_BINDING_SENTENCE);
+    expect(optionNames(mounted.container)).not.toContain(UNADDRESSED_ENTRY_NAME);
+  });
+
+  it("negative control: that same group IS listed for the run it names", async () => {
+    // Without this the two cases above would hold over a popover that had simply
+    // stopped rendering provider entries. The group is unchanged; only the composer's
+    // address moves, and the entries follow it.
+    const mounted = await mountComposer({
+      bridge: bridgeEnumerating([
+        { ...UNADDRESSED_CODEX_GROUP, runId: addressedRunIdOfFirstAgent() },
+      ]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, "/");
+
+    expect(optionNames(mounted.container)).toContain(UNADDRESSED_ENTRY_NAME);
   });
 });

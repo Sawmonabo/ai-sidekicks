@@ -18,10 +18,20 @@
 // explicit that an omitted description means the provider published none and that a
 // synthesized `enabled: true` would be a fabricated reading. Nothing here defaults
 // any of the three.
+//
+// AND EXACTLY ONE BINDING'S ENTRIES REACH THE LIST. The reply is agent-scoped and an
+// agent can hold several live bindings at once — an older Claude run beside a newer
+// Codex one — so it carries ONE GROUP PER BINDING, each naming the `runId` and the
+// `(driverName, providerAccountId)` it was read under. Passing every group into the
+// catalog put commands and skills from bindings the addressed run does not use under
+// the addressed run's own name, which is the routing invariant `Spec-005 §The
+// provider command and skill surface` exists to forbid. `selectAddressedBindingGroup`
+// is where that selection happens, once, for both readers of this enumeration.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import type { ConsoleCommand } from "../../../console/palette/index.js";
+import type { ComposerTarget } from "../chips/chip-models.js";
 
 /** One act this console performs, offered where the composer is mounted. */
 export interface ConsoleCatalogEntry {
@@ -50,6 +60,66 @@ export interface ProviderCatalogEntry {
 }
 
 export type CommandCatalogEntry = ConsoleCatalogEntry | ProviderCatalogEntry;
+
+/**
+ * The binding the composer is addressed to, as much of it as the console holds.
+ *
+ * Both members are `undefined`-able because both come from projections that answer
+ * with an incomplete target routinely — the run id is present exactly on the
+ * provider-bound path, and the driver name arrives only once the agent entity carries
+ * one. An absent member matches nothing rather than matching everything.
+ */
+export interface AddressedProviderBinding {
+  readonly runId: string | undefined;
+  readonly driverName: string | undefined;
+}
+
+/** What this composer's target says about the binding a reply must be routed to. */
+export function addressedProviderBinding(target: ComposerTarget): AddressedProviderBinding {
+  if (target.path !== "provider-bound") {
+    return { runId: undefined, driverName: undefined };
+  }
+  return { runId: target.targetRunId, driverName: target.driverName };
+}
+
+/**
+ * The one group whose binding the addressed run is on, or `undefined`.
+ *
+ * TWO ROUTING FACTS, TRIED IN THE ORDER THE WIRE MAKES THEM TRUSTWORTHY.
+ *
+ *   1. **The group names this run.** `runId` is the reply's own positive attribution
+ *      — the arm the contract reaches when exactly one run is live on that binding —
+ *      so a group naming the addressed run IS the addressed binding.
+ *   2. **The group names this run's driver, and no sibling does.** `runId` is `null`
+ *      on two legitimate arms: no run is live on the binding, and two or more are, in
+ *      which case the addressed run may well be one of them. The composer's own
+ *      address carries the driver the agent is bound to, so a single group on that
+ *      driver is the addressed binding by elimination.
+ *
+ * Anything else answers `undefined`, and the surface renders that as "this run's
+ * binding published nothing here" rather than falling back to another binding's
+ * entries. Ambiguity is refused rather than resolved by order: two groups claiming
+ * one run is contradictory provenance, and two groups on one driver with no run
+ * attribution is a coin flip presented as routing.
+ */
+export function selectAddressedBindingGroup(
+  groups: readonly ProviderCommandBindingGroup[],
+  addressed: AddressedProviderBinding,
+): ProviderCommandBindingGroup | undefined {
+  const namingThisRun =
+    addressed.runId === undefined ? [] : groups.filter((group) => group.runId === addressed.runId);
+  if (namingThisRun.length === 1) {
+    return namingThisRun[0];
+  }
+  if (namingThisRun.length > 1) {
+    return undefined;
+  }
+  const onThisDriver =
+    addressed.driverName === undefined
+      ? []
+      : groups.filter((group) => group.binding.driverName === addressed.driverName);
+  return onThisDriver.length === 1 ? onThisDriver[0] : undefined;
+}
 
 /** Compose the two sources into one list, console acts first. */
 export function composeCatalog(input: {
