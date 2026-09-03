@@ -102,6 +102,51 @@ function bridgeHoldingCreate(): HeldCreate {
   return { bridge, answer };
 }
 
+/** Several suspended creates at once, and the handle that answers them in order. */
+interface QueuedCreates {
+  readonly bridge: ConsoleBridge;
+  /** Lets the OLDEST still-suspended create proceed to the fixture's reply. */
+  readonly answerOldest: () => void;
+  readonly pendingCount: () => number;
+}
+
+/**
+ * The fixture bridge with every `session.create` suspended, answerable one at a time.
+ *
+ * {@link bridgeHoldingCreate} holds them all behind one promise, which cannot show
+ * what happens when an OLD draft's send settles while a new one is still running —
+ * the case where a shared flag and an unguarded continuation do their damage. The
+ * replies still come from the fixture's own door; only their order is the test's.
+ */
+function bridgeQueueingCreates(): QueuedCreates {
+  const fixture = bridgeFor({ scriptsCreate: true });
+  const suspended: (() => void)[] = [];
+  const bridge: ConsoleBridge = {
+    ...fixture,
+    sidekicks: {
+      ...fixture.sidekicks,
+      daemon: {
+        ...fixture.sidekicks.daemon,
+        call: (async (method: string, params: unknown) => {
+          await new Promise<void>((resolve) => {
+            suspended.push(resolve);
+          });
+          return await (
+            fixture.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>
+          )(method, params);
+        }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
+      },
+    },
+  };
+  return {
+    bridge,
+    answerOldest: () => {
+      suspended.shift()?.();
+    },
+    pendingCount: () => suspended.length,
+  };
+}
+
 /**
  * Press a control and let React finish reacting.
  *
@@ -118,6 +163,15 @@ async function press(name: string | RegExp): Promise<void> {
 
 function politeText(container: HTMLElement): string {
   return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
+}
+
+/** Open a draft and choose a posture — the shortest composition that can be sent. */
+async function openDraftWithPosture(): Promise<void> {
+  await press("+ New");
+  await act(async () => {
+    screen.getByRole("radio", { name: "Trusted" }).click();
+    await Promise.resolve();
+  });
 }
 
 describe("the composed new-session draft — reachable, and only on an act", () => {
@@ -239,6 +293,80 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     // by its own guard.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
     expect(container.textContent).toContain("wire-unregistered");
+  });
+
+  it("drops a discarded draft's settlement rather than showing it under its replacement", async () => {
+    // The defect: the continuation wrote its result into whatever composition was on
+    // screen when it settled. Discard is reachable while a send is in flight and
+    // "+ New" is reachable the moment it is, so a person who discarded and started
+    // again was shown a refusal for a session THIS draft never sent.
+    const queued = bridgeQueueingCreates();
+    const container = renderControlOn(queued.bridge);
+    await openDraftWithPosture();
+    await press("Send");
+
+    await press("Discard");
+    await openDraftWithPosture();
+    await act(async () => {
+      queued.answerOldest();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).not.toContain("wire-unregistered");
+    expect(politeText(container)).toBe("");
+    // The replacement is untouched and still sendable — nothing about the old send
+    // reached it, including its sending flag.
+    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("keeps Send disabled when an older draft's send settles under a newer one", async () => {
+    // The second half of the same defect. One boolean over two drafts is cleared by
+    // whichever send settles first, so the older one's `finally` re-enabled Send under
+    // a composition whose own create was still in flight.
+    const queued = bridgeQueueingCreates();
+    const container = renderControlOn(queued.bridge);
+    await openDraftWithPosture();
+    await press("Send");
+    await press("Discard");
+    await openDraftWithPosture();
+    await press("Send");
+    expect(queued.pendingCount()).toBe(2);
+
+    await act(async () => {
+      queued.answerOldest();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
+    expect(container.textContent).not.toContain("wire-unregistered");
+
+    await act(async () => {
+      queued.answerOldest();
+      await Promise.resolve();
+    });
+
+    // The newer draft's own settlement is the one that lands.
+    expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
+    expect(container.textContent).toContain("wire-unregistered");
+  });
+
+  it("negative control: a settlement for the draft still on screen is rendered", async () => {
+    // Without this, a control that dropped EVERY settlement would pass both cases
+    // above — and no send would ever report anything.
+    const queued = bridgeQueueingCreates();
+    const container = renderControlOn(queued.bridge);
+    await openDraftWithPosture();
+    await press("Send");
+
+    await act(async () => {
+      queued.answerOldest();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toContain("wire-unregistered");
+    expect(politeText(container)).toBe(
+      "The session was created, but not everything the draft asked for could be sent.",
+    );
   });
 
   // The negative control: without it, a control whose Send button was wired to
