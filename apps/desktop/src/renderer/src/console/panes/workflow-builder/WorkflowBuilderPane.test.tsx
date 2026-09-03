@@ -18,7 +18,7 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../bridge/scenarios/workflows.js";
-import { WORKFLOWS_SESSION_ID } from "../../bridge/scenarios/workflow-fixture-data.js";
+import { WORKFLOWS_SESSION_ID } from "../../bridge/scenarios/workflow-fixture-ids.js";
 import type { ConsolePaneContext } from "../../seats/index.js";
 import type { ConsoleEntityRef } from "../../store/index.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";

@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createFixtureBridge, type GrowthPort } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
-import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-data.js";
+import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 

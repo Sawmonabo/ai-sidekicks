@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
-import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-data.js";
+import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";

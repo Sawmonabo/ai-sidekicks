@@ -9,9 +9,9 @@
 //
 // WHERE THE RUNS ARE, AND WHY THEY ARE NOT BEATS
 //
-// They are data in `scenarios/workflow-fixture-data.ts`, not events on this stream,
-// and that is a fact about the wire rather than a shortcut. The twenty-four workflow
-// event types sit on `Plan-023 §Console growth slate` under
+// They are data in the `scenarios/workflow-fixture-*.ts` modules, not events on this
+// stream, and that is a fact about the wire rather than a shortcut. The twenty-four
+// workflow event types sit on `Plan-023 §Console growth slate` under
 // `workflow-event-registration` and the corpus registers none of them, so a
 // `workflow.phase_suspended` beat would be a type no daemon emits —
 // `scenarios/wire-truth.ts` refuses it, and it would yield screenshots, geometry
@@ -51,16 +51,16 @@
 //
 // A daemon cannot project a run, or a `session`-scoped definition, that predates the
 // session it belongs to — so the creation beat is the EARLIEST instant in this
-// fixture and every session-owned record in `scenarios/workflow-fixture-data.ts`
-// follows it. The scenario used to open at 10:00 while its four runs started between
-// 07:12 and 09:52 and its session-scoped definition was dated a fortnight earlier,
-// which made every screenshot, projection, and ordering assertion above it a reading
-// of a lifecycle no daemon could produce. The session moved to 07:00 rather than the
-// runs moving after 10:00 because the runs' own spread is the content — the band
-// order and the newest-first secondary key are read off it — and shifting the four
-// of them would have restated that spread instead of preserving it. Every beat keeps
-// its millisecond offset from the start, so the ordering the script claims among its
-// own beats is untouched. `scenarios/workflows.test.ts` holds the rule.
+// fixture and every session-owned record in the `scenarios/workflow-fixture-*.ts`
+// modules follows it. The scenario used to open at 10:00 while its four runs started
+// between 07:12 and 09:52 and its session-scoped definition was dated a fortnight
+// earlier, which made every screenshot, projection, and ordering assertion above it a
+// reading of a lifecycle no daemon could produce. The session moved to 07:00 rather
+// than the runs moving after 10:00 because the runs' own spread is the content — the
+// band order and the newest-first secondary key are read off it — and shifting the
+// four of them would have restated that spread instead of preserving it. Every beat
+// keeps its millisecond offset from the start, so the ordering the script claims
+// among its own beats is untouched. `scenarios/workflows.test.ts` holds the rule.
 //
 // EVERY ID IS THE UUID THE WIRE DECLARES. `scenarios/wire-truth.ts` presents each beat
 // to the strict contract layer as the whole envelope it claims to be, so a readable
@@ -69,17 +69,17 @@
 // screenshot reference and a recorded end-to-end run both name the same session twice.
 
 import {
-  WORKFLOWS_COMPLETED_PHASE_ID,
-  WORKFLOWS_PARKED_RUN,
-  WORKFLOWS_PARTICIPANT_YOU,
   WORKFLOWS_PHASE_AGENT_ID,
   WORKFLOWS_PHASE_AGENT_RUN_ID,
   WORKFLOWS_SCENARIO_AGENTS,
-  WORKFLOWS_SCENARIO_DEFINITIONS,
+} from "./workflow-fixture-agents.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
+import { WORKFLOWS_PARTICIPANT_YOU, WORKFLOWS_SESSION_ID } from "./workflow-fixture-ids.js";
+import {
+  WORKFLOWS_COMPLETED_PHASE_ID,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
-  WORKFLOWS_SCENARIO_RUNS,
-  WORKFLOWS_SESSION_ID,
-} from "./workflow-fixture-data.js";
+} from "./workflow-fixture-phase-outputs.js";
+import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
 import type { ConsoleScenario } from "../scenario.js";
 import type { WorkflowDefinitionSummary, WorkflowRunListEntry } from "../workflow-projection.js";
 
