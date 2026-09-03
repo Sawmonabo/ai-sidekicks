@@ -27,6 +27,12 @@
 //     grammar of `Spec-023 §Meridian, the design language` renders a refusal of that
 //     reach "as a **banner** across the workspace when it changes what the whole room
 //     can do".
+//   • **The sidebar is the outer split, and the deck's own group is untouched.**
+//     `Spec-023 §Console Design (Meridian)` §Layout grammar: "The workspace is a cast
+//     bar on top, the deck of panes below it, and a collapsible session sidebar". Two
+//     nested panel groups rather than one: the deck owns the arrangement of its panes
+//     and this surface owns the split between the deck and the sidebar, so a sidebar
+//     resize is not a deck layout and never reaches the deck's own record.
 //   • **A detached pane keeps its slot.** `Spec-023 §The surface set`: "the main
 //     window shows the moved pane's slot as a placeholder with a focus control". That
 //     suppresses the BODY, not the pane: closing the pane would delete its width and
@@ -35,20 +41,30 @@
 //     detached set is subscribed to here and passed down, and the slot draws a
 //     placeholder with a focus control and a way back.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
 
-import { DECK_RESTORED_PANE_CAP, refuse, type ConsoleRefusal } from "../core/index.js";
+import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { RefusalBanner, useAnnounce } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
+import { consoleCommandSurface } from "../frame/command-surface.js";
 import { CastBar } from "./CastBar.js";
 import { AuxiliaryHandoff } from "./aux-handoff.js";
 import { Deck } from "./deck/Deck.js";
-import { useDeckLayout, useDeckLayoutState, type DeckLayout } from "./deck/deck-layout.js";
+import { useDeckLayout, useDeckLayoutState } from "./deck/deck-layout.js";
 import type { DeckPane } from "./deck/deck-model.js";
-import { DeckLayoutWriter } from "./deck/layout-persistence.js";
+import { useSeparatorValueBoundsCorrection } from "./deck/separator-aria.js";
+import { useDeckPersistence } from "./layout-persistence.js";
+import { SessionSidebar } from "./sidebar/SessionSidebar.js";
+import { registerSidebarCommands } from "./sidebar/sidebar-commands.js";
+import {
+  SIDEBAR_COLLAPSED_WIDTH_PX,
+  SIDEBAR_MINIMUM_WIDTH_PERCENT,
+} from "./sidebar/sidebar-model.js";
+import { useSidebarLayout } from "./sidebar/sidebar-state.js";
 import {
   actorFollowHandler,
   composerSeatRenderer,
@@ -56,37 +72,39 @@ import {
   parseConsolePaneAddress,
   type ConsolePaneAddress,
   type ConsolePaneContext,
+  type ConsolePaneOpener,
   type ConsolePaneRegistry,
 } from "../seats/index.js";
 import { ACTOR_FOLLOW_ANNOUNCEMENTS, resolveActorFollow } from "./actor-follow.js";
 
-/** The durable record the deck's arrangement is saved under, per session. */
-const DECK_LAYOUT_RECORD_KEY = "deck-layout";
+/**
+ * The sidebar's two palette rows, contributed the moment this module is evaluated.
+ *
+ * COMPOSITION TIME, and this is the module that reaches it. A family's commands are
+ * contributed before any window renders, so they are in the palette and its chord
+ * table from the first frame and the frame's single revision bump covers them; a
+ * registration made later from an effect would land after that bump on every
+ * navigation into a session. The ledger's barrel is where a family ordinarily makes
+ * this call, and it cannot make this one: `ledger/` and `workspace/` are sibling VIEW
+ * families and `console-view-family-isolation` fails an import between two of them, so
+ * the surface that owns the acts contributes them itself. The composition root imports
+ * this module, so "when this module is evaluated" is that same moment.
+ */
+registerSidebarCommands(consoleCommandSurface);
 
-/** Why the workspace itself refused. Closed, so a second cause is a decision. */
-export const WORKSPACE_REFUSAL_CODES = ["layout-save-failed"] as const;
-
-/** One workspace refusal code. Derived, so the vocabulary is declared once. */
-export type WorkspaceRefusalCode = (typeof WORKSPACE_REFUSAL_CODES)[number];
-
-/** The subsystem name every refusal this surface raises carries. */
-export const WORKSPACE_REFUSAL_ORIGIN = "workspace";
-
-/** A typed workspace refusal — `core`'s one refusal shape, narrowed on `code`. */
-interface WorkspaceRefusal extends ConsoleRefusal {
-  readonly code: WorkspaceRefusalCode;
-}
+/** The panel ids the outer split reports its layout under. */
+const DECK_PANEL_ID = "workspace-deck";
+const SIDEBAR_PANEL_ID = "workspace-sidebar";
 
 /**
- * Raise one, from the closed vocabulary above.
+ * The narrowest the deck may be squeezed to by a sidebar drag, in percent.
  *
- * `refuse` takes its code as a `string`, so a call site that spelled one wrong
- * would compile and render a code no reader could look up. Everything this surface
- * refuses goes through here instead, where the union is what binds.
+ * A floor on the DECK rather than a ceiling on the sidebar, because the two are the
+ * same constraint read from opposite ends and the deck is the side whose own density
+ * floor is measured in pixels: this keeps the split from handing the sidebar a width
+ * that leaves the panes inside the deck below their preset's minimum.
  */
-function refuseWorkspace(code: WorkspaceRefusalCode, detail: string): WorkspaceRefusal {
-  return { ...refuse(WORKSPACE_REFUSAL_ORIGIN, code, detail), code };
-}
+const DECK_MINIMUM_WIDTH_PERCENT = 40;
 
 export interface WorkspaceProps {
   readonly bridge: ConsoleBridge;
@@ -243,6 +261,35 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   const composer = composerSeatRenderer();
   const focusedPane = useFocusedPaneAddress(deckState.panes, deckState.focusedPaneId);
 
+  // How a sidebar section opens a pane: through THIS deck, handed down rather than
+  // reached for, so a sidebar rendered in an auxiliary window opens panes in that
+  // window's deck. The address arrives kind-scoped, so the entity is read where the
+  // arm carries one and is absent where the kind has none.
+  const openPane = useCallback<ConsolePaneOpener>(
+    (address, link) => {
+      layout.open({
+        kind: address.kind,
+        entity: "entity" in address ? address.entity : undefined,
+        ...(link === undefined ? {} : { sourcePaneId: link.linkedSourcePaneId }),
+      });
+    },
+    [layout],
+  );
+
+  const sidebar = useSidebarLayout({
+    uiStateStore: props.uiStateStore,
+    sessionId,
+    onSaveRefused: raise,
+  });
+  const splitReference = useRef<HTMLDivElement>(null);
+  // The deck's own correction, reused over the outer group rather than written again.
+  // `separator-aria.ts` swaps only a CROSSED pair, so running it across a subtree the
+  // deck has already corrected leaves the deck's separators exactly as they are. The
+  // outer group holds exactly ONE separator, which is the first — the position the
+  // library gets right — so this is the same guard applied to a second group and not a
+  // second claim about it.
+  useSeparatorValueBoundsCorrection(splitReference, deckState.revision);
+
   return (
     <div className="meridian-workspace">
       {banners.map((refusal, position) => (
@@ -256,19 +303,65 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
         />
       ))}
       <CastBar sessionId={sessionId} sessionStore={props.sessionStore} onFollow={onFollow} />
-      <Deck
-        layout={layout}
-        registry={registry}
-        paneContextFor={paneContextFor}
-        onOpenInWindow={onOpenInWindow}
-        restoreRefusals={restoreRefusals}
-        detachedPaneIds={detached.paneIds}
-        onFocusDetachedWindow={onFocusDetachedWindow}
-        onReturnToDeck={onReturnToDeck}
-        {...(detached.signalRefusal === undefined
-          ? {}
-          : { detachedSignalRefusal: detached.signalRefusal })}
-      />
+      <Group
+        className="meridian-workspace__split"
+        elementRef={splitReference}
+        orientation="horizontal"
+        onLayoutChanged={(percentages) => {
+          const sidebarPercent = percentages[SIDEBAR_PANEL_ID];
+          if (sidebarPercent !== undefined) {
+            sidebar.layout.recordWidthPercent(sidebarPercent);
+          }
+        }}
+      >
+        <Panel id={DECK_PANEL_ID} minSize={`${String(DECK_MINIMUM_WIDTH_PERCENT)}%`}>
+          <Deck
+            layout={layout}
+            registry={registry}
+            paneContextFor={paneContextFor}
+            onOpenInWindow={onOpenInWindow}
+            restoreRefusals={restoreRefusals}
+            detachedPaneIds={detached.paneIds}
+            onFocusDetachedWindow={onFocusDetachedWindow}
+            onReturnToDeck={onReturnToDeck}
+            {...(detached.signalRefusal === undefined
+              ? {}
+              : { detachedSignalRefusal: detached.signalRefusal })}
+          />
+        </Panel>
+        {props.sessionStore === undefined ? null : (
+          <>
+            <Separator
+              className="meridian-workspace__separator"
+              aria-label="Resize the session sidebar"
+            />
+            {/* One panel in both states rather than two arrangements: a collapsed
+                sidebar is this panel pinned to the rail's width, so collapsing never
+                adds or removes a panel and the deck beside it is never remounted. */}
+            <Panel
+              id={SIDEBAR_PANEL_ID}
+              className="meridian-workspace__sidebar"
+              defaultSize={`${String(sidebar.snapshot.state.widthPercent)}%`}
+              minSize={
+                sidebar.snapshot.state.isCollapsed
+                  ? SIDEBAR_COLLAPSED_WIDTH_PX
+                  : `${String(SIDEBAR_MINIMUM_WIDTH_PERCENT)}%`
+              }
+              {...(sidebar.snapshot.state.isCollapsed
+                ? { maxSize: SIDEBAR_COLLAPSED_WIDTH_PX }
+                : {})}
+            >
+              <SessionSidebar
+                sessionStore={props.sessionStore}
+                bridge={props.bridge}
+                openPane={openPane}
+                layout={sidebar.layout}
+                snapshot={sidebar.snapshot}
+              />
+            </Panel>
+          </>
+        )}
+      </Group>
       {composer === undefined || props.sessionStore === undefined ? null : (
         <div className="meridian-workspace__composer">
           {composer({
@@ -349,92 +442,4 @@ function useFocusedPaneAddress(
     const address = parseConsolePaneAddress(pane.kind, pane.entity);
     return "code" in address ? undefined : address;
   }, [panes, focusedPaneId]);
-}
-
-interface DeckPersistenceOptions {
-  readonly layout: DeckLayout;
-  readonly uiStateStore: UiStateStore;
-  readonly sessionId: string | undefined;
-  readonly onSaveRefused: (refusal: ConsoleRefusal) => void;
-}
-
-/**
- * Restore the deck once, then keep it saved. Returns what the restore refused.
- *
- * A hook rather than two effects in the component body, because the two halves are
- * one story: the restore has to complete before the first save, or an empty deck
- * would overwrite the record it was about to read.
- */
-function useDeckPersistence(options: DeckPersistenceOptions): readonly ConsoleRefusal[] {
-  const { layout, uiStateStore, sessionId, onSaveRefused } = options;
-  const [restoreRefusals, setRestoreRefusals] = useState<readonly ConsoleRefusal[]>([]);
-
-  // The partition rides the REQUEST rather than being read here. A writer coalesces,
-  // so a queued arrangement settles after the act that queued it — and this component
-  // survives a navigation between two already-open sessions, because the shell opens
-  // session stores and never closes them. Reading a mutable current-session holder at
-  // write time filed the older session's arrangement under the newer one's partition
-  // and overwrote a deck the person had not touched.
-  const [writer] = useState(
-    () =>
-      new DeckLayoutWriter({
-        write: async (partition, snapshot) => {
-          const result = await uiStateStore.write(
-            partition,
-            DECK_LAYOUT_RECORD_KEY,
-            "layout",
-            snapshot,
-          );
-          if (result.outcome === "refused") {
-            onSaveRefused(result.refusal);
-          }
-        },
-        // A write that rejects is surfaced, not thrown: an unhandled rejection out
-        // of a save would take the window down over a layout the person can redraw.
-        onFailed: () => {
-          onSaveRefused(
-            refuseWorkspace(
-              "layout-save-failed",
-              "This window's pane arrangement could not be saved. It is still on screen, and it will be saved again on the next change.",
-            ),
-          );
-        },
-      }),
-  );
-
-  useEffect(() => {
-    if (sessionId === undefined) {
-      return;
-    }
-    let superseded = false;
-    void (async () => {
-      const record = await uiStateStore.read(sessionId, DECK_LAYOUT_RECORD_KEY);
-      if (superseded) {
-        return;
-      }
-      const report = record === undefined ? undefined : layout.restore(record.value);
-      if (report !== undefined && report.refusals.length > 0) {
-        setRestoreRefusals(report.refusals);
-      }
-      if (report === undefined || report.restoredPaneCount === 0) {
-        // This surface's own empty state: the workspace shows the ledger alone, full
-        // width.
-        layout.open({ kind: "timeline", entity: undefined });
-      }
-    })();
-    return () => {
-      superseded = true;
-    };
-  }, [layout, sessionId, uiStateStore]);
-
-  useEffect(() => {
-    if (sessionId === undefined) {
-      return;
-    }
-    return layout.subscribe(() => {
-      writer.request(sessionId, layout.toSnapshot());
-    });
-  }, [layout, writer, sessionId]);
-
-  return restoreRefusals;
 }

@@ -7,8 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { DeckLayoutWriter } from "./layout-persistence.js";
-import type { DeckSnapshotRecord } from "./deck-snapshot.js";
+import { CoalescingLayoutWriter } from "./layout-persistence.js";
+import type { DeckSnapshotRecord } from "./deck/deck-snapshot.js";
 
 const SESSION_A = "session-a";
 const SESSION_B = "session-b";
@@ -46,10 +46,10 @@ function heldWrite(): {
   };
 }
 
-describe("DeckLayoutWriter — coalescing", () => {
+describe("CoalescingLayoutWriter — coalescing", () => {
   it("holds one write in flight and sends only the NEWEST of what arrived meanwhile", async () => {
     const held = heldWrite();
-    const writer = new DeckLayoutWriter({
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -75,7 +75,7 @@ describe("DeckLayoutWriter — coalescing", () => {
     // Without this, the case above would pass over a writer that performed one
     // write and then stopped forever.
     const seen: PerformedWrite[] = [];
-    const writer = new DeckLayoutWriter({
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
       write: async (partition, snapshot) => {
         seen.push({ partition, snapshot });
       },
@@ -96,7 +96,7 @@ describe("DeckLayoutWriter — coalescing", () => {
 
   it("reports a rejected write rather than letting it reject unhandled", async () => {
     const failures: unknown[] = [];
-    const writer = new DeckLayoutWriter({
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
       write: async () => {
         throw new Error("the database is gone");
       },
@@ -115,7 +115,7 @@ describe("DeckLayoutWriter — coalescing", () => {
 
   it("keeps writing after a failure, because the next arrangement is still worth saving", async () => {
     let attempt = 0;
-    const writer = new DeckLayoutWriter({
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
       write: async () => {
         attempt += 1;
         if (attempt === 1) {
@@ -135,14 +135,14 @@ describe("DeckLayoutWriter — coalescing", () => {
   });
 });
 
-describe("DeckLayoutWriter — which session an arrangement is filed under", () => {
+describe("CoalescingLayoutWriter — which session an arrangement is filed under", () => {
   it("writes a queued arrangement under the session that requested it, not the newest one", async () => {
     // The defect this binding exists for: the writer coalesces, so a request settles
     // later than the act that made it. A writer that read the caller's current session
     // at write time filed session A's arrangement under session B's partition the
     // moment a person navigated between two sessions the shell already had open.
     const held = heldWrite();
-    const writer = new DeckLayoutWriter({
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -162,7 +162,7 @@ describe("DeckLayoutWriter — which session an arrangement is filed under", () 
     // Without this, the case above would pass over a writer that hard-coded the
     // first partition it ever saw, which files every later session under the first.
     const held = heldWrite();
-    const writer = new DeckLayoutWriter({
+    const writer = new CoalescingLayoutWriter<DeckSnapshotRecord>({
       write: held.write,
       onFailed: () => {
         throw new Error("no write should have failed");
@@ -186,3 +186,57 @@ async function settle(): Promise<void> {
     await Promise.resolve();
   }
 }
+
+describe("CoalescingLayoutWriter — one writer, two records", () => {
+  it("carries a record that is not the deck's, under its own key", async () => {
+    // The generalisation this class was moved out of `deck/` for. Without it the
+    // sidebar would need a second coalescing writer, which is the one thing this
+    // module exists to be — and a second one is how two write paths start
+    // disagreeing about what "the newest arrangement" means.
+    const seen: { readonly partition: string; readonly snapshot: SidebarRecord }[] = [];
+    const writer = new CoalescingLayoutWriter<SidebarRecord>({
+      write: async (partition, snapshot) => {
+        seen.push({ partition, snapshot });
+      },
+      onFailed: () => {
+        throw new Error("no write should have failed");
+      },
+    });
+
+    writer.request(SESSION_A, { $sidebar: { version: 1, widthPercent: 24, isCollapsed: false } });
+    await settle();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.snapshot["$sidebar"]?.["widthPercent"]).toBe(24);
+  });
+
+  it("negative control: two records in flight coalesce independently of each other", async () => {
+    // Without this the case above would pass over a writer holding one static slot
+    // for every caller — which would make a sidebar drag drop the deck's queued
+    // arrangement, and the deck's drag drop the sidebar's.
+    const deckWrites: DeckSnapshotRecord[] = [];
+    const sidebarWrites: SidebarRecord[] = [];
+    const deckWriter = new CoalescingLayoutWriter<DeckSnapshotRecord>({
+      write: async (_partition, snapshot) => {
+        deckWrites.push(snapshot);
+      },
+      onFailed: () => undefined,
+    });
+    const sidebarWriter = new CoalescingLayoutWriter<SidebarRecord>({
+      write: async (_partition, snapshot) => {
+        sidebarWrites.push(snapshot);
+      },
+      onFailed: () => undefined,
+    });
+
+    deckWriter.request(SESSION_A, snapshotAt(1));
+    sidebarWriter.request(SESSION_A, { $sidebar: { version: 1, widthPercent: 30 } });
+    await settle();
+
+    expect(deckWrites).toHaveLength(1);
+    expect(sidebarWrites).toHaveLength(1);
+  });
+});
+
+/** The second record the writer now carries, in the shape the sidebar keeps it. */
+type SidebarRecord = Record<string, Record<string, number | boolean | string>>;
