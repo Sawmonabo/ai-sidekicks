@@ -104,6 +104,17 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
     "The session's one shared shell moving between two people and an agent run — the run queued, started, taken on the agent path, and completed, so the run-idle release follows the acquisition it releases — reaching all five transition reasons, ending held, then losing its host so the unheld-and-read-only degraded state is reachable. The output stream is absent until the terminal pane's renderer surface is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
   participantIdsInJoinOrder: [OWNER, COLLABORATOR, AGENT],
+  // The owner is the person at this window. The lease line's `held-by-me` arm —
+  // and the handback it offers — is reachable only when the caller read names
+  // the holder, and this scenario ends with the owner holding the degraded
+  // lease; without a viewer the pane can only show that the identity is being
+  // read, which is a true state of the console and not the state this
+  // scenario exists to show. The agent holds no membership, so it takes no role.
+  viewingParticipantId: OWNER,
+  membershipRoleByParticipantId: {
+    [OWNER]: "owner",
+    [COLLABORATOR]: "collaborator",
+  },
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: [
     terminalScenarioBeat({
