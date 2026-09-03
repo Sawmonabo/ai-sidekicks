@@ -49,7 +49,7 @@
 // WHAT IS REACHABLE WITHOUT THE DAEMON IS THE MUTE, AND IT IS GLOBAL
 //
 // The OS-toast mute is shell-local, so it rides the shell-config preference carrier
-// every settings toggle shares (`shell-preferences.ts`). It is offered once, for this
+// every settings toggle shares (`shell-preferences-store.ts`). It is offered once, for this
 // machine.
 
 import {
@@ -79,7 +79,7 @@ import {
   type TogglePreferenceRow,
 } from "./notification-preference-writer.js";
 import { PreferenceToggleRow } from "./PreferenceToggleRow.js";
-import { useShellPreferences } from "./shell-preferences.js";
+import { useShellPreferences } from "./shell-preferences-holder.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */

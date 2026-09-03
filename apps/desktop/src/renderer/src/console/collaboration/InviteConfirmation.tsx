@@ -46,7 +46,7 @@ import type { JoinMode } from "@ai-sidekicks/contracts";
 
 import { renderAbsorbedInviteAcceptance } from "../frame/legacy-surfaces.js";
 import type { ConsoleBridgeSource } from "../bridge/index.js";
-import { Chip, Nothing, WireFigure, formatClockTime } from "../primitives/index.js";
+import { Chip, Nothing, WireFigure, formatDateTime } from "../primitives/index.js";
 
 /**
  * What a caller holding a pending invitation hands this surface.
@@ -138,7 +138,7 @@ export function InviteConfirmation(props: InviteConfirmationProps): React.JSX.El
               />
             ) : (
               <WireFigure
-                value={formatClockTime(pending.expiresAtIso)}
+                value={formatDateTime(pending.expiresAtIso)}
                 title={pending.expiresAtIso}
               />
             )}

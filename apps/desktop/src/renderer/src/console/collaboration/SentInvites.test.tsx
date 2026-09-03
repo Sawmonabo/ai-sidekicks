@@ -18,6 +18,7 @@ import {
 } from "../bridge/fixture-bridge-overrides.test-support.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
+import { formatClockTime, formatDateTime } from "../primitives/index.js";
 import type { SentInvite } from "./invite-ledger.js";
 import { SentInvites } from "./SentInvites.js";
 
@@ -126,6 +127,48 @@ describe("sent invites — the read", () => {
     const { container } = render(<SentInvites bridge={bridge} sessionId={undefined} />);
     await settle();
     expect(container.textContent ?? "").toContain("has not asked");
+  });
+});
+
+describe("sent invites — an expiry names the day it falls on", () => {
+  /** The same wall-clock minute as the fixture's expiry, one day later. */
+  const NEXT_DAY_SAME_MINUTE = "2026-01-09T10:05:00.000Z";
+
+  /** What each row prints for its expiry, found by the instant it carries. */
+  function expiryReadings(container: HTMLElement, instants: readonly string[]): string[] {
+    return instants.map((instant) => {
+      const figure = container.querySelector(`.meridian-invites__row-facts [title="${instant}"]`);
+      if (figure === null) {
+        throw new Error(`no expiry figure for ${instant}`);
+      }
+      return figure.textContent ?? "";
+    });
+  }
+
+  it("prints two expiries a day apart as two different readings", async () => {
+    // The ledger has no day divider to carry the date once, so a clock-only reading
+    // made "stops working tomorrow" and "stops working today" the same six
+    // characters — and the row a person would revoke first was unfindable.
+    const { container } = render(
+      <SentInvites
+        bridge={bridgeServing([
+          invite(),
+          invite({ inviteId: "invite-2", expiresAt: NEXT_DAY_SAME_MINUTE }),
+        ])}
+        sessionId="session-1"
+      />,
+    );
+    await settle();
+
+    const [today, tomorrow] = expiryReadings(container, [invite().expiresAt, NEXT_DAY_SAME_MINUTE]);
+    expect(today).toBe(formatDateTime(invite().expiresAt));
+    expect(tomorrow).not.toBe(today);
+  });
+
+  it("negative control: the clock-only reading of those two instants is one string", () => {
+    // Without this the case above would pass over two instants that were never a
+    // collision, and would prove nothing about which formatter the row reaches for.
+    expect(formatClockTime(NEXT_DAY_SAME_MINUTE)).toBe(formatClockTime(invite().expiresAt));
   });
 });
 

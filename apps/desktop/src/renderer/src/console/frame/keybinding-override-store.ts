@@ -37,7 +37,12 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import {
+  AttemptGeneration,
+  Emitter,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../core/index.js";
 import type { KeyBinding } from "../palette/index.js";
 import type { UiStateStore } from "../persistence/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
@@ -101,8 +106,9 @@ export interface KeybindingOverrideStoreOptions {
  * The override map, what it composes to, and where it is kept.
  *
  * A class because that is state with invariants over it: the cached snapshot is
- * dropped whenever the map or the recording flag moves, and the hydration never
- * overwrites a choice made while its read was in flight. Both are only checkable if
+ * dropped whenever the map or the recording flag moves, and a hydration never
+ * overwrites what happened while its read was in flight — a rebinding, or a later
+ * hydration of a store that replaced the one it read. Both are only checkable if
  * the state has one owner.
  */
 export class KeybindingOverrideStore {
@@ -115,11 +121,17 @@ export class KeybindingOverrideStore {
   #snapshot: KeybindingSurface | undefined;
   #hydrationRefusals: readonly KeybindingHydrationRefusal[] = [];
   /**
-   * How many acts have changed the map. The hydration reads it before its await and
-   * compares after: a rebinding made while the disk was slow is the newer fact and
-   * stands, which is the rule `scheme-preference.ts` states for the colour scheme.
+   * The rounds this store's overrides have moved through.
+   *
+   * TWO ROLES, ONE GENERATION, which is the shape `core/attempt-generation.ts`
+   * describes and `settings/pages/shell-preferences-store.ts` takes the same way: a
+   * rebinding SUPERSEDES a hydration already in flight — the record that read
+   * answers with is the map from before the choice, which is the rule
+   * `scheme-preference.ts` states for the colour scheme — and a second hydration
+   * supersedes the first, because two of them are two answers to one question and
+   * only the later one was asked.
    */
-  #actCount = 0;
+  readonly #overrideRounds = new AttemptGeneration();
 
   public constructor(options: KeybindingOverrideStoreOptions) {
     this.#defaults = options.defaults;
@@ -157,12 +169,21 @@ export class KeybindingOverrideStore {
    * is persisted rather than dropped for want of somewhere to put it. Each stored
    * entry is then admitted against the table built from the entries admitted before
    * it, so the composed result is installable by construction.
+   *
+   * TWO GUARDS, AND NEITHER IS THE OTHER'S SPARE. The round orders this read against
+   * a REBINDING, which replaces no store; the identity orders it against a STORE
+   * REPLACEMENT — the frame swapping the durable store under a window on a bridge or
+   * scenario change — and states the invariant the record has to satisfy directly:
+   * it is installed only into the store it was read from, and only while that store
+   * is the one this window will persist the next rebinding into. Resting the second
+   * fact on the first would work today, because this method is the only writer of
+   * the field, and would go quiet the day anything else attaches a store.
    */
   public async hydrateFrom(uiStateStore: UiStateStore): Promise<void> {
+    const round = this.#overrideRounds.begin();
     this.#uiStateStore = uiStateStore;
-    const actCountAtRead = this.#actCount;
     const record = await uiStateStore.readGlobal(KEYBINDING_OVERRIDES_KEY);
-    if (this.#actCount !== actCountAtRead) {
+    if (!this.#overrideRounds.isCurrent(round) || this.#uiStateStore !== uiStateStore) {
       return;
     }
     const stored = readOverrideMap(record?.value);
@@ -265,7 +286,7 @@ export class KeybindingOverrideStore {
     overrides: KeybindingOverrideMap,
   ): Promise<ConsoleRefusal | undefined> {
     this.#overrides = overrides;
-    this.#actCount += 1;
+    this.#overrideRounds.supersedeAll();
     // A hydration refusal names a row this window declined. The row it named has
     // just been rewritten by hand, so the refusal is stale rather than answered.
     this.#hydrationRefusals =

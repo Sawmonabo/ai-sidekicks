@@ -45,7 +45,12 @@ import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
 import { Nothing, WireFigure } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
-import { usePeerInvocationEnabled, useSessionProjectionReRead } from "./session-projection.js";
+import {
+  NOTHING_PROJECTED,
+  usePeerInvocationProjection,
+  useSessionProjectionReRead,
+  type PeerInvocationProjection,
+} from "./session-projection.js";
 
 /** Names a peer-invocation failure the thrown value carried no refusal for. */
 const PEER_INVOCATION_ORIGIN = "peer-invocation";
@@ -158,7 +163,7 @@ function PeerInvocationMount(props: {
     // No store means no partition to subscribe to and nothing for a re-read to
     // land in, so the control is mounted without either and its recovery answers
     // with the refusal that says so.
-    return <PeerInvocationControl models={models} bridge={bridge} projectedEnabled={undefined} />;
+    return <PeerInvocationControl models={models} bridge={bridge} projection={NOTHING_PROJECTED} />;
   }
   return <SubscribedPeerInvocation models={models} bridge={bridge} sessionStore={sessionStore} />;
 }
@@ -169,13 +174,13 @@ function SubscribedPeerInvocation(props: {
   readonly bridge: ConsoleBridge | undefined;
   readonly sessionStore: SessionStore;
 }): React.JSX.Element {
-  const projectedEnabled = usePeerInvocationEnabled(props.sessionStore);
+  const projection = usePeerInvocationProjection(props.sessionStore);
   return (
     <PeerInvocationControl
       models={props.models}
       bridge={props.bridge}
       sessionStore={props.sessionStore}
-      projectedEnabled={projectedEnabled}
+      projection={projection}
     />
   );
 }
@@ -193,6 +198,10 @@ function SubscribedPeerInvocation(props: {
  * The comparison is on the SESSION and never on the value, for
  * `agents/agent-console-model.ts`' reason: two sessions agreeing about the grant is
  * not one fact, it is two, and only one of them was read.
+ *
+ * A SETTLEMENT ALSO OUTLIVES ITS SUBJECT IN TIME, which the session stamp does not
+ * reach: the reply is what the daemon said ONCE, and the projection is what it has
+ * said since. The retirement below is the other half of the same rule.
  */
 type PeerInvocationSettlement =
   | { readonly sessionId: string; readonly outcome: "served"; readonly enabled: boolean }
@@ -203,11 +212,26 @@ function PeerInvocationControl(props: {
   readonly models: AgentConsoleModels | undefined;
   readonly bridge: ConsoleBridge | undefined;
   readonly sessionStore?: SessionStore | undefined;
-  readonly projectedEnabled: boolean | undefined;
+  readonly projection: PeerInvocationProjection;
 }): React.JSX.Element {
-  const { bridge, models, projectedEnabled, sessionStore } = props;
+  const { bridge, models, projection, sessionStore } = props;
   const [settlement, setSettlement] = useState<PeerInvocationSettlement | undefined>(undefined);
   const reRead = useSessionProjectionReRead(bridge, sessionStore);
+
+  // A settled reply is retired the moment the projection it was read against
+  // MOVES. Another participant's `session.peer_invocation_set`, this session's own
+  // event landing, a reconnect read — each replaces the projected row, and each is
+  // the daemon speaking more recently than the reply this control is remembering.
+  // Without it the first successful mutation won forever, so a grant turned off
+  // elsewhere kept reading as on, which is the one direction that matters.
+  //
+  // Keyed on the row rather than on the value: a grant that goes off and back on
+  // reads identical at both ends. An effect rather than a comparison in the render
+  // body, because retiring is a STATE change and a render that performed it would
+  // be deriving the settlement it is also holding.
+  useEffect(() => {
+    setSettlement(undefined);
+  }, [projection.source]);
 
   const setEnabled = useCallback(
     (enabled: boolean): void => {
@@ -242,7 +266,7 @@ function PeerInvocationControl(props: {
 
   return (
     <PeerInvocation
-      enabled={settledHere?.outcome === "served" ? settledHere.enabled : projectedEnabled}
+      enabled={settledHere?.outcome === "served" ? settledHere.enabled : projection.enabled}
       onSetEnabled={setEnabled}
       onReRead={reRead.requestReRead}
       // The two refusals are reachable from different states of this control — the

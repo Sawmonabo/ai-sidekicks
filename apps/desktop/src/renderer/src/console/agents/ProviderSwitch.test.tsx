@@ -35,6 +35,12 @@ function fieldLabels(container: HTMLElement): string[] {
   );
 }
 
+/** What the account field currently shows, which is the draft's answer for that axis. */
+function providerAccountValue(container: HTMLElement): string {
+  const input = container.querySelector(".meridian-axis-field__text") as HTMLInputElement | null;
+  return input?.value ?? "";
+}
+
 /** Edits one axis through the plain text input, which needs no popup to open. */
 function editProviderAccount(container: HTMLElement, value: string): void {
   const input = container.querySelector(".meridian-axis-field__text");
@@ -246,6 +252,87 @@ describe("provider switch — a driver move clears the axes that driver governs"
     expect(deferred?.disabled).toBe(false);
     fireEvent.click(deferred as HTMLButtonElement);
     expect(onApply).toHaveBeenCalledWith({ driverName: "codex", modelId: "gpt-5.6" }, false);
+  });
+
+  it("clears the account the source provider issued and holds the actions for one", () => {
+    // The defect: the reset cleared model, effort, and speed and left the account, so
+    // the field went on showing the source provider's account and a request could be
+    // sent carrying nothing about it — which, since an omitted axis is unchanged and
+    // accounts are provider-scoped, the daemon has to refuse.
+    const { container } = render(
+      <ProviderSwitch
+        agent={{ ...ON_CLAUDE, config: { providerAccountId: "account-claude-1" } }}
+        catalog={LOADED}
+        onApply={() => {}}
+      />,
+    );
+    expect(providerAccountValue(container)).toBe("account-claude-1");
+
+    chooseAxisValue(container, "Driver", "codex");
+    chooseAxisValue(container, "Model", "gpt-5.6");
+
+    expect(providerAccountValue(container)).toBe("");
+    const held = applyActions(container);
+    expect(held.length).toBe(2);
+    expect(held.every((action) => action.disabled)).toBe(true);
+    expect(container.textContent ?? "").toContain("an account registered there");
+  });
+
+  it("submits the account once one of the target provider is named", () => {
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch
+        agent={{ ...ON_CLAUDE, config: { providerAccountId: "account-claude-1" } }}
+        catalog={LOADED}
+        onApply={onApply}
+      />,
+    );
+    chooseAxisValue(container, "Driver", "codex");
+    chooseAxisValue(container, "Model", "gpt-5.6");
+    editProviderAccount(container, "account-codex-1");
+
+    const [deferred] = applyActions(container);
+    expect(deferred?.disabled).toBe(false);
+    fireEvent.click(deferred as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith(
+      { driverName: "codex", modelId: "gpt-5.6", providerAccountId: "account-codex-1" },
+      false,
+    );
+  });
+
+  it("negative control: a model change on the same driver keeps the account", () => {
+    // Without this the cases above would pass over a form that cleared the account on
+    // every edit, which would make an ordinary model change look like an account move
+    // the participant never asked for.
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch
+        agent={{ ...ON_CLAUDE, config: { providerAccountId: "account-claude-1" } }}
+        catalog={LOADED}
+        onApply={onApply}
+      />,
+    );
+    chooseAxisValue(container, "Model", "claude-haiku");
+
+    expect(providerAccountValue(container)).toBe("account-claude-1");
+    const [deferred] = applyActions(container);
+    expect(deferred?.disabled).toBe(false);
+    fireEvent.click(deferred as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ modelId: "claude-haiku" }, false);
+  });
+
+  it("negative control: an agent on no explicit account moves driver without naming one", () => {
+    // An omitted account on an agent running under its provider's registered default
+    // is a move the daemon resolves for itself, so holding the actions there would
+    // demand a value the participant has no reason to have.
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
+    );
+    chooseAxisValue(container, "Driver", "codex");
+    chooseAxisValue(container, "Model", "gpt-5.6");
+
+    expect(applyActions(container)[0]?.disabled).toBe(false);
+    expect(container.textContent ?? "").not.toContain("an account registered there");
   });
 
   it("negative control: staying on the agent's own driver holds nothing back", () => {

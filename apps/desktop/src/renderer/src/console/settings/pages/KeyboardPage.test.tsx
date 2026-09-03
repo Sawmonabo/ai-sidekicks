@@ -3,6 +3,7 @@
 // reaches that seam rather than a table of its own.
 
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import { useEffect, useState } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleCommands } from "../../frame/command-surface.js";
@@ -164,6 +165,97 @@ describe("keyboard page — what it reads", () => {
     const descriptor = registry.descriptorFor("keyboard");
     expect(descriptor?.label).toBe("Keyboard");
     expect(descriptor?.keywords).toContain("shortcut");
+  });
+});
+
+/**
+ * A command no `beforeEach` registers, so a case can register it LATE.
+ *
+ * The chord table names none of these ids, which is what makes it a command with no
+ * chord rather than one competing for a shipped one.
+ */
+const LATE_COMMAND = {
+  id: "frame.openContextPicker",
+  title: "Open the context picker",
+  group: "Navigation",
+  run: () => undefined,
+} as const;
+
+/**
+ * The frame's own shape: a parent that registers commands from an effect and bumps
+ * a revision, which is what re-renders the subtree the page is in.
+ *
+ * React runs a child's effects BEFORE its parent's, so the page renders once against
+ * a registry the frame has not filled yet — exactly what a window opened directly on
+ * `#/settings/keyboard` does. The revision is rendered onto the wrapper rather than
+ * passed down, because the page takes no such prop and does not need one: what the
+ * frame owes it is a render, not a value.
+ */
+function LateRegisteringFrame(): React.JSX.Element {
+  const [commandRevision, setCommandRevision] = useState(0);
+  useEffect(() => {
+    consoleCommands.register(LATE_COMMAND);
+    setCommandRevision((revision) => revision + 1);
+    return () => {
+      consoleCommands.unregister(LATE_COMMAND.id);
+    };
+  }, []);
+  return (
+    <div data-command-revision={commandRevision}>
+      <LiveAnnouncerProvider>
+        <KeyboardPage />
+      </LiveAnnouncerProvider>
+    </div>
+  );
+}
+
+describe("keyboard page — a command registered after the page first rendered", () => {
+  it("draws the row once the frame has registered it", async () => {
+    // The defect: the page snapshotted the registry in a memo keyed on nothing, so a
+    // window opened straight onto this route kept the empty registry it had before
+    // the frame's registration effect ran — no rows at all until the person left the
+    // section and came back.
+    const { container } = render(<LateRegisteringFrame />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(rowOf(container, LATE_COMMAND.id)).toBeDefined();
+  });
+
+  it("drops a row for a command that is unregistered while the page is open", async () => {
+    // The same read, in the other direction: a surface that withdraws its commands
+    // leaves no row behind claiming a chord runs something this window cannot run.
+    const { container, rerender } = render(
+      <LiveAnnouncerProvider>
+        <KeyboardPage />
+      </LiveAnnouncerProvider>,
+    );
+    expect(rowOf(container, "app.checkForUpdates")).toBeDefined();
+
+    consoleCommands.unregister("app.checkForUpdates");
+    await act(async () => {
+      rerender(
+        <LiveAnnouncerProvider>
+          <KeyboardPage />
+        </LiveAnnouncerProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(() => rowOf(container, "app.checkForUpdates")).toThrow();
+  });
+
+  it("negative control: with nothing registered the page says so rather than drawing rows", () => {
+    // Without this the cases above would pass over a page that drew a row for every
+    // id it was ever asked about, which would prove nothing about the read.
+    for (const commandId of TEST_COMMAND_IDS) {
+      consoleCommands.unregister(commandId);
+    }
+    const { container } = renderPage();
+
+    expect(container.querySelectorAll(".meridian-keymap__row")).toHaveLength(0);
+    expect(container.textContent ?? "").toContain("This window has registered no commands.");
   });
 });
 

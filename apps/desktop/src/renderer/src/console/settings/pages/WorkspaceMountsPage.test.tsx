@@ -7,7 +7,12 @@ import { describe, expect, it } from "vitest";
 
 import { MOUNT_INVENTORY_READ_CAP } from "../../core/index.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
-import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
+import {
+  LiveAnnouncer,
+  LiveAnnouncerProvider,
+  formatClockTime,
+  formatDateTime,
+} from "../../primitives/index.js";
 import { WorkspaceMountsPage, registerWorkspaceMountsPage } from "./WorkspaceMountsPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
 
@@ -154,6 +159,34 @@ describe("workspace mounts page", () => {
     expect(chipLabels).toContain("Attachment: attached");
     expect(chipLabels).toContain("Reachability: unreachable");
     expect(container.textContent ?? "").toContain("/repos/mount-a");
+  });
+
+  it("names the day a mount was last probed, and tells two days apart apart", async () => {
+    // The row has no day divider, so a clock-only reading made a probe from last
+    // week and one from this morning the same eight characters — and "last probed
+    // at" is read precisely to tell how stale the reachability chip is.
+    const probedToday = "2026-09-02T10:00:00.000Z";
+    const probedLastWeek = "2026-08-26T10:00:00.000Z";
+    const clock = new ManualClock();
+    const { page: container } = await renderSettledPage(
+      clock,
+      contextReading({
+        clock,
+        mountIds: ["mount-a", "mount-b"],
+        mountOverrides: {
+          "mount-a": { health: { status: "healthy", checkedAt: probedToday } },
+          "mount-b": { health: { status: "healthy", checkedAt: probedLastWeek } },
+        },
+      }),
+    );
+    const readings = [probedToday, probedLastWeek].map(
+      (instant) => container.querySelector(`[title="${instant}"]`)?.textContent ?? "",
+    );
+    expect(readings[0]).toBe(formatDateTime(probedToday));
+    expect(readings[1]).not.toBe(readings[0]);
+    // Without this the case would pass over two instants that were never a
+    // collision, and would prove nothing about which formatter the row reaches for.
+    expect(formatClockTime(probedLastWeek)).toBe(formatClockTime(probedToday));
   });
 
   it("keeps an unreachable mount listed rather than hiding it", async () => {

@@ -10,6 +10,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { formatClockTime, formatDateTime } from "../primitives/index.js";
 import { InviteConfirmation, type PendingInviteConfirmation } from "./InviteConfirmation.js";
 
 function pending(overrides: Partial<PendingInviteConfirmation> = {}): PendingInviteConfirmation {
@@ -33,6 +34,49 @@ describe("invite confirmation — no pending invite, no surface", () => {
       <InviteConfirmation pending={pending()} bridgeSource="fixture" onDismiss={() => undefined} />,
     );
     expect(container.innerHTML).not.toBe("");
+  });
+});
+
+describe("invite confirmation — when the invitation stops working", () => {
+  const EXPIRES_AT = "2026-01-08T10:05:00.000Z";
+  /** The same wall-clock minute, several days later. */
+  const EXPIRES_LATER = "2026-01-12T10:05:00.000Z";
+
+  /** What the expiry fact prints, found by the instant it carries. */
+  function expiryReading(container: HTMLElement, instant: string): string {
+    const figure = container.querySelector(`[title="${instant}"]`);
+    if (figure === null) {
+      throw new Error(`no expiry figure for ${instant}`);
+    }
+    return figure.textContent ?? "";
+  }
+
+  it("names the day, because this surface has no divider to carry it", () => {
+    const { container } = render(
+      <InviteConfirmation
+        pending={pending({ expiresAtIso: EXPIRES_AT })}
+        bridgeSource="fixture"
+        onDismiss={() => undefined}
+      />,
+    );
+    expect(expiryReading(container, EXPIRES_AT)).toBe(formatDateTime(EXPIRES_AT));
+  });
+
+  it("reads differently for an invitation that stops working days later", () => {
+    const { container } = render(
+      <InviteConfirmation
+        pending={pending({ expiresAtIso: EXPIRES_LATER })}
+        bridgeSource="fixture"
+        onDismiss={() => undefined}
+      />,
+    );
+    expect(expiryReading(container, EXPIRES_LATER)).not.toBe(formatDateTime(EXPIRES_AT));
+  });
+
+  it("negative control: the clock-only reading of those two instants is one string", () => {
+    // Without this the case above would pass over two instants that were never a
+    // collision, and would prove nothing about which formatter this fact reaches for.
+    expect(formatClockTime(EXPIRES_LATER)).toBe(formatClockTime(EXPIRES_AT));
   });
 });
 

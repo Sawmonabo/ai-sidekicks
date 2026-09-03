@@ -42,7 +42,7 @@ import {
   InlineRefusal,
   Nothing,
   WireFigure,
-  formatClockTime,
+  formatDateTime,
   formatCount,
   useSettlementAnnouncement,
 } from "../../primitives/index.js";
@@ -258,10 +258,7 @@ function MountRow(props: { readonly reading: MountReading }): ReactNode {
       </span>
       <span className="meridian-mount-list__probe">
         Last probed at{" "}
-        <WireFigure
-          value={formatClockTime(mount.health.checkedAt)}
-          title={mount.health.checkedAt}
-        />
+        <WireFigure value={formatDateTime(mount.health.checkedAt)} title={mount.health.checkedAt} />
       </span>
     </div>
   );

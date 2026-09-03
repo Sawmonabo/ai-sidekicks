@@ -73,8 +73,8 @@ import {
   InlineRefusal,
   Nothing,
   WireFigure,
-  formatClockTime,
   formatCount,
+  formatDateTime,
 } from "../primitives/index.js";
 import { SETTLED_INVITE_VISIBLE_CAP } from "../core/index.js";
 import {
@@ -324,7 +324,7 @@ function InviteLedgerRow(props: {
       <div className="meridian-invites__row-facts">
         <WireFigure value={invite.inviteId} />
         <Chip label={invite.state} mono tone={invite.state === "pending" ? "accent" : "neutral"} />
-        <WireFigure value={formatClockTime(invite.expiresAt)} title={invite.expiresAt} />
+        <WireFigure value={formatDateTime(invite.expiresAt)} title={invite.expiresAt} />
       </div>
       {onRevoke === undefined ? null : (
         <button
