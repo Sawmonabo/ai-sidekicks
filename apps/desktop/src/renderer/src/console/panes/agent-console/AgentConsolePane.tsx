@@ -180,6 +180,24 @@ function SubscribedPeerInvocation(props: {
   );
 }
 
+/**
+ * What one peer-invocation mutation settled with, and which session it was about.
+ *
+ * THE SESSION IS PART OF THE SETTLEMENT, which is the whole of this type. The pane
+ * stays mounted when it moves from one session to another — the deck hands it new
+ * props rather than a new instance — so an unstamped settlement kept winning over
+ * the session the console had arrived at, and a reply from the session it had left
+ * could land after the move and decide the switch for a session it was never about.
+ * Both are the same defect: a local settlement outliving its subject.
+ *
+ * The comparison is on the SESSION and never on the value, for
+ * `agents/agent-console-model.ts`' reason: two sessions agreeing about the grant is
+ * not one fact, it is two, and only one of them was read.
+ */
+type PeerInvocationSettlement =
+  | { readonly sessionId: string; readonly outcome: "served"; readonly enabled: boolean }
+  | { readonly sessionId: string; readonly outcome: "refused"; readonly refusal: ConsoleRefusal };
+
 /** The control itself: the projected grant, the mutation, and the re-read. */
 function PeerInvocationControl(props: {
   readonly models: AgentConsoleModels | undefined;
@@ -188,8 +206,7 @@ function PeerInvocationControl(props: {
   readonly projectedEnabled: boolean | undefined;
 }): React.JSX.Element {
   const { bridge, models, projectedEnabled, sessionStore } = props;
-  const [mutationRefusal, setMutationRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const [servedEnabled, setServedEnabled] = useState<boolean | undefined>(undefined);
+  const [settlement, setSettlement] = useState<PeerInvocationSettlement | undefined>(undefined);
   const reRead = useSessionProjectionReRead(bridge, sessionStore);
 
   const setEnabled = useCallback(
@@ -197,31 +214,44 @@ function PeerInvocationControl(props: {
       if (models === undefined) {
         return;
       }
+      const askedOfSessionId = models.sessionId;
       models
         .setPeerInvocation(enabled)
         // The REPLY's value, read back from the post-append projection — never the
-        // value that was asked for.
+        // value that was asked for — stamped with the session it was asked of.
         .then((reply) => {
-          setServedEnabled(reply.enabled);
-          setMutationRefusal(undefined);
+          setSettlement({ sessionId: askedOfSessionId, outcome: "served", enabled: reply.enabled });
         })
         .catch((error: unknown) => {
-          setMutationRefusal(consoleRefusalFrom(error, PEER_INVOCATION_ORIGIN));
+          setSettlement({
+            sessionId: askedOfSessionId,
+            outcome: "refused",
+            refusal: consoleRefusalFrom(error, PEER_INVOCATION_ORIGIN),
+          });
         });
     },
     [models],
   );
 
+  // Answered only while the settlement is THIS session's. A pane that has moved
+  // falls back to the new session's projection, which is the only thing anything
+  // has read about it — and to the unknown arm where that projection is absent,
+  // which is the honest answer rather than the previous session's grant.
+  const settledHere =
+    models !== undefined && settlement?.sessionId === models.sessionId ? settlement : undefined;
+
   return (
     <PeerInvocation
-      enabled={servedEnabled ?? projectedEnabled}
+      enabled={settledHere?.outcome === "served" ? settledHere.enabled : projectedEnabled}
       onSetEnabled={setEnabled}
       onReRead={reRead.requestReRead}
       // The two refusals are reachable from different states of this control — the
       // switch is drawn only where the grant is known and the re-read is offered
       // only where it is not — so the mutation's is preferred without either ever
       // hiding the other in practice.
-      refusal={mutationRefusal ?? reRead.refusal}
+      refusal={
+        (settledHere?.outcome === "refused" ? settledHere.refusal : undefined) ?? reRead.refusal
+      }
     />
   );
 }
