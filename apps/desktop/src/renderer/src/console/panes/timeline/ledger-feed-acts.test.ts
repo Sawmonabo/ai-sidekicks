@@ -29,11 +29,9 @@ import {
   buildLedgerStructureActs,
   type LedgerFeedActInputs,
 } from "./ledger-feed-acts.js";
-import {
-  type LedgerFilterState,
-  type LedgerFindState,
-  type LedgerReplayState,
-} from "./ledger-feed-model.js";
+import { type LedgerFindState } from "./ledger-find.js";
+import { type LedgerFilterState } from "./ledger-narrowing.js";
+import { type LedgerReplayState } from "./ledger-replay-window.js";
 import { deriveLedgerWindow } from "./ledger-window.js";
 
 const SESSION_ID = "session-ledger-feed-acts";
@@ -48,7 +46,7 @@ const WALKED_ROW_ID = "row-the-walk-found";
 /**
  * A find state whose members record rather than derive.
  *
- * `useLedgerFind`'s real behaviour is `ledger-feed-model.test.ts`'; what matters
+ * `useLedgerFind`'s real behaviour is `ledger-find.test.ts`'; what matters
  * here is which member an act calls, which a recording stand-in answers and a real
  * hook would only obscure.
  */
@@ -152,7 +150,7 @@ function actInputs(
   };
 }
 
-/** A narrowing whose members record. What it holds is `ledger-feed-model.test.ts`'. */
+/** A narrowing whose members record. What it holds is `ledger-narrowing.test.ts`'. */
 function recordingFilterState(isFiltered: boolean, trace: ActTrace): LedgerFilterState {
   return {
     filter: UNFILTERED_LEDGER,

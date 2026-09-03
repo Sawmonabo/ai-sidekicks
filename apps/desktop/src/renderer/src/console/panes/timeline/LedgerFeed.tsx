@@ -80,22 +80,16 @@ import {
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../seats/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
+import { densityFor, useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
+import { useLedgerFind } from "./ledger-find.js";
+import { useFilteredLedgerWindow, useLedgerFilter } from "./ledger-narrowing.js";
 import {
-  useFilteredLedgerWindow,
-  useLedgerFilter,
-  useLedgerFind,
   useLedgerReplay,
-  useRailGeometry,
   useReplayAnchorRowId,
   useReplayRevealedRows,
-  useVisibleLedgerWindow,
-} from "./ledger-feed-model.js";
-import {
-  densityFor,
-  useChapterDisclosure,
-  useFoldedChapters,
-  useLedgerProjection,
-} from "./ledger-window.js";
+} from "./ledger-replay-window.js";
+import { useRailGeometry, useVisibleLedgerWindow } from "./ledger-visible-window.js";
+import { useLedgerProjection } from "./ledger-window.js";
 
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;

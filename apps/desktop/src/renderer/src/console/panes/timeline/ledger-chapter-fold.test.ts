@@ -1,4 +1,4 @@
-// The fold, driven with no store and no React — the two decisions it makes per row.
+// The chapter fold, driven with no store and no React — what it admits per row.
 //
 // `LedgerFeedRows.test.tsx` proves the fold reaches the screen; this file proves what
 // it selects, which the mounted feed cannot show at this size: the cases below need a
@@ -12,11 +12,10 @@ import { CHAPTER_VISIBLE_ROW_CAP } from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   chapterRowIdsWithinCap,
-  deriveLedgerWindow,
   foldChapterHeaders,
   narrowChapterToAdmittedRows,
-  type LedgerWindowModel,
-} from "./ledger-window.js";
+} from "./ledger-chapter-fold.js";
+import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 const SESSION_ID = "session-chapter-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";

@@ -19,17 +19,19 @@ import { LEDGER_OVERSCAN_ROWS } from "../../ledger/frame/frame-bounds.js";
 import { ProvenanceRail, ProvenanceRailModel } from "../../ledger/structure/index.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
 import {
-  EARLY_JOINER,
-  LATE_JOINER,
   LONG_LOG_EVENT_COUNT,
   OVER_CAP_EVENT_COUNT,
-  openSessionStoreWithGeneralLog,
-  openSessionStoreWithLog,
-  openStoreWhereJoinOrderIsNotEventOrder,
   recordRailInk,
   renderFeed,
   withLaidOutViewport,
 } from "./ledger-feed-fixtures.js";
+import {
+  EARLY_JOINER,
+  LATE_JOINER,
+  openSessionStoreWithGeneralLog,
+  openSessionStoreWithLog,
+  openStoreWhereJoinOrderIsNotEventOrder,
+} from "./ledger-feed-logs.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

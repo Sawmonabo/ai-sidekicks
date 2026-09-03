@@ -17,13 +17,15 @@ import {
   LeasingRowBody,
   contributeLedgerCommands,
   dispatchConsoleCommand,
-  openSessionStoreWithSeam,
-  openSessionStoreWithTerminalChapter,
-  openSessionStoreWithToolRows,
   renderFeed,
   withLaidOutViewport,
   withdrawLedgerCommands,
 } from "./ledger-feed-fixtures.js";
+import {
+  openSessionStoreWithSeam,
+  openSessionStoreWithTerminalChapter,
+  openSessionStoreWithToolRows,
+} from "./ledger-feed-logs.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

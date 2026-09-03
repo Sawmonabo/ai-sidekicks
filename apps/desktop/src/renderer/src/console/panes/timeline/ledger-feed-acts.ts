@@ -10,7 +10,7 @@
 // the component that mounts them holds calls rather than closures.
 //
 // EVERY ACT IS A VALUE OVER STATE THE FEED ALREADY HOLDS. Nothing below reaches a
-// store, a bridge, or the DOM: find's walk is `ledger-feed-model.ts`', the scroll is
+// store, a bridge, or the DOM: find's walk is `ledger-find.ts`', the scroll is
 // the viewport binding's, and the replay engine is the replay state's. That is what
 // lets the whole set be driven by a test with no render at all.
 //
@@ -53,11 +53,9 @@ import {
   type ActorFollowOutcome,
   type ActorFollowRequest,
 } from "../../seats/index.js";
-import {
-  type LedgerFilterState,
-  type LedgerFindState,
-  type LedgerReplayState,
-} from "./ledger-feed-model.js";
+import { type LedgerFindState } from "./ledger-find.js";
+import { type LedgerFilterState } from "./ledger-narrowing.js";
+import { type LedgerReplayState } from "./ledger-replay-window.js";
 
 /**
  * What "clear ledger filters" answers over a ledger nobody has narrowed.

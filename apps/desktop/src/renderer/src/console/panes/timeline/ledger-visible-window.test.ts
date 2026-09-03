@@ -6,28 +6,20 @@
 // rail are asked about the window the VIEWPORT is showing, and that what falls
 // outside it is counted rather than walked into.
 
-import { act, renderHook, type RenderHookResult } from "@testing-library/react";
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "../../ledger/frame/frame-bounds.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
-import {
-  ProvenanceRailModel,
-  ReplayEngine,
-  type ReplayPosition,
-} from "../../ledger/structure/index.js";
+import { ProvenanceRailModel } from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
+import { useLedgerFind } from "./ledger-find.js";
 import {
-  useLedgerFind,
   useRailGeometry,
-  useReplayRevealedRows,
   useVisibleLedgerWindow,
-  type LedgerFindState,
   type VisibleLedgerWindow,
-} from "./ledger-feed-model.js";
-import { deriveLedgerWindow, foldChapterHeaders, type LedgerWindowModel } from "./ledger-window.js";
+} from "./ledger-visible-window.js";
+import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 const SESSION_ID = "session-visible-window";
 const LOG_EVENT_COUNT = 10;
@@ -242,251 +234,6 @@ describe("cap retention and replay visibility are two facts", () => {
   });
 });
 
-describe("the walk when the result moves under it", () => {
-  /** A visible window over exactly these rows, with nothing outside it. */
-  function windowOver(rows: readonly TimelineRow[]): VisibleLedgerWindow {
-    return {
-      rows,
-      prunedAwayRows: [],
-      withheldByReplayRows: [],
-      hasEarlierRows: false,
-      railModel: new ProvenanceRailModel({ rows, hasEarlierRows: false }),
-    };
-  }
-
-  /** The find state over a window a case can swap for a different one. */
-  function findOver(
-    rows: readonly TimelineRow[],
-  ): RenderHookResult<LedgerFindState, { readonly rows: readonly TimelineRow[] }> {
-    return renderHook(({ rows: currentRows }) => useLedgerFind(windowOver(currentRows)), {
-      initialProps: { rows },
-    });
-  }
-
-  const wholeLog = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false).rows;
-
-  it("reports no position once the selected row has left the result", () => {
-    const { result, rerender } = findOver(wholeLog);
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    for (let step = 0; step < LOG_EVENT_COUNT; step += 1) {
-      act(() => {
-        result.current.step("next");
-      });
-    }
-    expect(result.current.currentMatchIndex).toBe(LOG_EVENT_COUNT - 1);
-
-    // The same query over a window the replay or the cap has cut down to two rows,
-    // neither of which is the selected one. A held ordinal read "10 of 2" here.
-    rerender({ rows: wholeLog.slice(0, 2) });
-    expect(result.current.result.matches).toHaveLength(2);
-    expect(result.current.currentMatchIndex).toBe(-1);
-
-    // And the next step ENTERS the shorter list rather than resuming from an
-    // ordinal the new result cannot hold.
-    let walked: ReturnType<LedgerFindState["step"]>;
-    act(() => {
-      walked = result.current.step("next");
-    });
-    expect(walked?.index).toBe(0);
-    expect(result.current.currentMatchIndex).toBe(0);
-  });
-
-  it("keeps the selected row's position when the window only grew", () => {
-    const SELECTED_MATCH_INDEX = 3;
-    const { result, rerender } = findOver(wholeLog.slice(0, LOG_EVENT_COUNT - 2));
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    for (let step = 0; step <= SELECTED_MATCH_INDEX; step += 1) {
-      act(() => {
-        result.current.step("next");
-      });
-    }
-    expect(result.current.currentMatchIndex).toBe(SELECTED_MATCH_INDEX);
-    rerender({ rows: wholeLog });
-    expect(result.current.result.matches).toHaveLength(LOG_EVENT_COUNT);
-    expect(result.current.currentMatchIndex).toBe(SELECTED_MATCH_INDEX);
-  });
-
-  it("negative control: a new query still restarts the walk", () => {
-    // Without this the retention above could have been written as "never reset",
-    // which would resume a walk inside a match list built from a different question.
-    const { result } = findOver(wholeLog);
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    act(() => {
-      result.current.step("next");
-    });
-    expect(result.current.currentMatchIndex).toBe(0);
-    act(() => {
-      result.current.setQuery("user");
-    });
-    expect(result.current.currentMatchIndex).toBe(-1);
-  });
-});
-
-describe("what a replay reveals of a chapter", () => {
-  const CHAPTER_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
-  /** Row instants are one second apart, so an elapsed figure names a row by index. */
-  const ONE_ROW_MS = 1000;
-  const RECEIPT_ELAPSED_MS = 3 * ONE_ROW_MS;
-  const INSIDE_CHAPTER_ELAPSED_MS = 1 * ONE_ROW_MS;
-
-  /**
-   * A finished run between two session-scoped rows.
-   *
-   * The leading general row is what makes "before the chapter" a position at all: a
-   * folded chapter's receipt is otherwise the head of the engine's window, and every
-   * position would be at or after it.
-   */
-  function chapteredLog(): readonly ConsoleSessionEvent[] {
-    const at = (index: number): string =>
-      new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
-    const runPayload = { sessionId: SESSION_ID, runId: CHAPTER_RUN_ID };
-    return [
-      {
-        id: "e0",
-        sessionId: SESSION_ID,
-        sequence: 0,
-        kind: "user.message",
-        occurredAt: at(0),
-        payload: {},
-      },
-      {
-        id: "e1",
-        sessionId: SESSION_ID,
-        sequence: 1,
-        kind: "run.running",
-        occurredAt: at(1),
-        payload: runPayload,
-      },
-      {
-        id: "e2",
-        sessionId: SESSION_ID,
-        sequence: 2,
-        kind: "assistant.message",
-        occurredAt: at(2),
-        payload: runPayload,
-      },
-      {
-        id: "e3",
-        sessionId: SESSION_ID,
-        sequence: 3,
-        kind: "run.completed",
-        occurredAt: at(3),
-        payload: runPayload,
-      },
-      {
-        id: "e4",
-        sessionId: SESSION_ID,
-        sequence: 4,
-        kind: "user.message",
-        occurredAt: at(4),
-        payload: {},
-      },
-    ];
-  }
-
-  /** That log, folded — shut by default, or with the chapter a person opened. */
-  function foldedWindow(openedRunIds: readonly string[] = []): LedgerWindowModel {
-    return foldChapterHeaders(deriveLedgerWindow(chapteredLog(), false), new Set(openedRunIds));
-  }
-
-  /**
-   * The real engine over that window, parked at one elapsed position.
-   *
-   * The engine is built exactly as `useLedgerReplay` builds it — from the window's
-   * projected rows and their wire instants — so the ids in the position are the ids
-   * the production reveal is tested against.
-   */
-  function positionAt(ledgerWindow: LedgerWindowModel, elapsedMs: number): ReplayPosition {
-    const engine = new ReplayEngine({
-      clock: new ManualClock(),
-      rows: ledgerWindow.rows.map((row) => ({ rowId: row.id, occurredAt: row.timestamp })),
-    });
-    engine.scrubTo(elapsedMs);
-    return engine.position();
-  }
-
-  /** The keys the reveal admits, for a window and a position. */
-  function revealedKeysAt(ledgerWindow: LedgerWindowModel, elapsedMs: number): readonly string[] {
-    const { result } = renderHook(() =>
-      useReplayRevealedRows(ledgerWindow, positionAt(ledgerWindow, elapsedMs)),
-    );
-    return result.current.map((row) => row.key);
-  }
-
-  it("renders exactly the unreplayed window at the tail", () => {
-    const ledgerWindow = foldedWindow();
-    const tailElapsedMs = positionAt(ledgerWindow, Number.MAX_SAFE_INTEGER).spanMs;
-    expect(revealedKeysAt(ledgerWindow, tailElapsedMs)).toStrictEqual(
-      ledgerWindow.viewportRows.map((row) => row.key),
-    );
-    // Which includes the header, and the receipt is under it rather than orphaned.
-    expect(revealedKeysAt(ledgerWindow, tailElapsedMs)).toContain(CHAPTER_RUN_ID);
-  });
-
-  it("admits the header the moment its chapter is reached, receipt attached", () => {
-    const ledgerWindow = foldedWindow();
-    const revealed = revealedKeysAt(ledgerWindow, RECEIPT_ELAPSED_MS);
-    const receiptRowId = ledgerWindow.viewportRows.find(
-      (row) => row.parentKey === CHAPTER_RUN_ID,
-    )?.key;
-    expect(receiptRowId).toBeDefined();
-    expect(revealed).toContain(CHAPTER_RUN_ID);
-    expect(revealed).toContain(receiptRowId);
-    // Header before receipt, so the chapter reads as a chapter rather than as a row
-    // that happens to precede one.
-    expect(revealed.indexOf(CHAPTER_RUN_ID)).toBeLessThan(revealed.indexOf(receiptRowId ?? ""));
-  });
-
-  it("admits neither while the position is still before the chapter", () => {
-    const ledgerWindow = foldedWindow();
-    const revealed = revealedKeysAt(ledgerWindow, 0);
-    const chapterMemberKeys = new Set(
-      ledgerWindow.viewportRows
-        .filter((row) => row.parentKey === CHAPTER_RUN_ID)
-        .map((row) => row.key),
-    );
-    expect(revealed).not.toContain(CHAPTER_RUN_ID);
-    expect(revealed.some((key) => chapterMemberKeys.has(key))).toBe(false);
-    expect(revealed).toHaveLength(1);
-  });
-
-  it("admits the header of an opened chapter the position is inside", () => {
-    // An opened chapter carries its members, so there IS a position inside it — and
-    // a member row on screen under no header is the orphan the cap counts as a
-    // top-level row.
-    const ledgerWindow = foldedWindow([CHAPTER_RUN_ID]);
-    const revealed = revealedKeysAt(ledgerWindow, INSIDE_CHAPTER_ELAPSED_MS);
-    expect(revealed).toContain(CHAPTER_RUN_ID);
-    const revealedMembers = ledgerWindow.viewportRows.filter(
-      (row) => row.parentKey === CHAPTER_RUN_ID && revealed.includes(row.key),
-    );
-    expect(revealedMembers.length).toBeGreaterThan(0);
-    // And the chapter is not yet whole: this is a position inside it, not its end.
-    expect(revealed.length).toBeLessThan(ledgerWindow.viewportRows.length);
-  });
-
-  it("negative control: matching header keys against the revealed ids strips every one", () => {
-    // The old predicate, run over the same window at the same position. The engine
-    // is built from projected rows, so a run id is in `revealedRowIds` at no
-    // position — and this is what left the receipt on screen with no disclosure
-    // above it even at the tail.
-    const ledgerWindow = foldedWindow();
-    const tailPosition = positionAt(ledgerWindow, Number.MAX_SAFE_INTEGER);
-    const revealedRowIds = new Set(tailPosition.revealedRowIds);
-    const byRevealedIdAlone = ledgerWindow.viewportRows
-      .filter((row) => revealedRowIds.has(row.key))
-      .map((row) => row.key);
-    expect(byRevealedIdAlone).not.toContain(CHAPTER_RUN_ID);
-    expect(revealedKeysAt(ledgerWindow, tailPosition.spanMs)).toContain(CHAPTER_RUN_ID);
-  });
-});
-
 describe("the rail's two fractions", () => {
   const RAIL_WINDOW_ROW_COUNT = 300;
   const VISIBLE_ROW_COUNT = 5;
@@ -533,53 +280,5 @@ describe("the rail's two fractions", () => {
   it("negative control: an unmeasured box claims the whole rail rather than the head", () => {
     const { result } = renderHook(() => useRailGeometry(undefined, RAIL_WINDOW_ROW_COUNT));
     expect(result.current).toStrictEqual({ position: 0, extent: 1 });
-  });
-});
-
-describe("the find field's own open act", () => {
-  /** The find state over one whole window, with nothing pruned. */
-  function findOverWholeLog(): RenderHookResult<LedgerFindState, void> {
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
-    return renderHook(() =>
-      useLedgerFind(
-        useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows, ledgerWindow.viewportRows),
-      ),
-    );
-  }
-
-  it("reveals the field", () => {
-    const { result } = findOverWholeLog();
-    expect(result.current.isOpen).toBe(false);
-    act(() => {
-      result.current.open();
-    });
-    expect(result.current.isOpen).toBe(true);
-  });
-
-  it("leaves the query and the walk exactly where they were", () => {
-    // Which is why it is not `setQuery("")`: the palette row opens a field somebody
-    // is about to type into, and resetting a walk they were in the middle of is a
-    // different act wearing the same name.
-    const { result } = findOverWholeLog();
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    act(() => {
-      result.current.step("next");
-    });
-    const walkedIndex = result.current.currentMatchIndex;
-    act(() => {
-      result.current.open();
-    });
-    expect(result.current.query).toBe(EVERY_ROW_QUERY);
-    expect(result.current.currentMatchIndex).toBe(walkedIndex);
-  });
-
-  it("negative control: a field nobody opened stays closed", () => {
-    // Without this the case above would pass over a hook that reported `isOpen`
-    // true from its first render, which is a find field nobody asked for.
-    const { result, rerender } = findOverWholeLog();
-    rerender();
-    expect(result.current.isOpen).toBe(false);
   });
 });

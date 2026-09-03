@@ -17,20 +17,23 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveLedgerFacets } from "../../ledger/structure/index.js";
 import {
-  EARLY_JOINER,
-  FOLDED_CHAPTER_MESSAGE_ROW_COUNT,
-  LATE_JOINER,
   contributeLedgerCommands,
   dispatchConsoleCommand,
-  filterableRowId,
-  foldedMessageChapterLog,
-  openSessionStoreWithFilterableLog,
-  openSessionStoreWithFoldedMessageChapter,
   renderFeed,
   withLaidOutViewport,
   withdrawLedgerCommands,
 } from "./ledger-feed-fixtures.js";
-import { deriveLedgerWindow, foldChapterHeaders } from "./ledger-window.js";
+import {
+  EARLY_JOINER,
+  FOLDED_CHAPTER_MESSAGE_ROW_COUNT,
+  LATE_JOINER,
+  filterableRowId,
+  foldedMessageChapterLog,
+  openSessionStoreWithFilterableLog,
+  openSessionStoreWithFoldedMessageChapter,
+} from "./ledger-feed-logs.js";
+import { foldChapterHeaders } from "./ledger-chapter-fold.js";
+import { deriveLedgerWindow } from "./ledger-window.js";
 
 afterEach(() => {
   withdrawLedgerCommands();
