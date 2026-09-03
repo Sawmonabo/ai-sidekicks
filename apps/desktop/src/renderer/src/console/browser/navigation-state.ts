@@ -77,12 +77,43 @@ export type NavigationActOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["b
  * not present as live, and an arm that carried it would be an invitation to.
  */
 export type NavigationReading =
-  /** Nothing has answered yet. Not "no page" — no question has come back. */
+  /**
+   * Nothing has answered yet. Not "no page" — no question has come back.
+   *
+   * Also what a pane reads the moment its SUBJECT changes. A hook instance handed a
+   * different pane or a different bridge has asked a new question and has no answer
+   * to it, which is this arm exactly.
+   */
   | { readonly status: "unread" }
   | { readonly status: "reported"; readonly state: NavigationState }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
   /** The producer finished. The pane was being told, and is not being told now. */
   | { readonly status: "ended" };
+
+/** The reading before any subject has been answered, and after one has changed. */
+const UNREAD_NAVIGATION: NavigationReading = { status: "unread" };
+
+/**
+ * A reading and the `(bridge, paneId)` it was read under.
+ *
+ * The reading alone is not a fact about anything: it is a fact about ONE pane on ONE
+ * bridge, and a hook instance outlives both. React reuses the instance across a prop
+ * change, so a deck that swaps which pane a slot holds replaces the effect and its
+ * subscription while the state still holds the previous pane's frame — and until the
+ * replacement stream produces one, the chrome presented the OLD page's URL and
+ * enabled its history controls while dispatching Back and Forward against the NEW
+ * `paneId`. That is not a stale render; it is one pane's reading driving another
+ * pane's acts.
+ *
+ * So the reading travels with its subject and the hook compares before returning it.
+ * A stamp rather than a reset-in-an-effect, because a reset is a second render pass
+ * that the first pass — the one that dispatches — happens before.
+ */
+interface StampedNavigationReading {
+  readonly bridge: ConsoleBridge;
+  readonly paneId: string;
+  readonly reading: NavigationReading;
+}
 
 /**
  * Subscribe to the view's reported navigation state for the life of the pane.
@@ -102,13 +133,29 @@ export type NavigationReading =
  * the last URL, title, and history flags as current — a pane acting on a page nobody
  * is reporting. So the same close the failing path runs happens here too, and the
  * reading says the subscription is over rather than staying on its final frame.
+ *
+ * AND THE READING IS STAMPED TO ITS SUBJECT. Every write carries the `(bridge,
+ * paneId)` the subscription was opened under, and the return compares that stamp
+ * against the subject this render is for: a mismatch reads `unread`, so a changed
+ * pane renders its designed unread arm — no URL, no history controls — until the new
+ * stream's first frame, and a frame from the old stream that arrives after the
+ * change is dropped by the same comparison rather than by the cancellation flag
+ * alone.
  */
 export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): NavigationReading {
-  const [reading, setReading] = useState<NavigationReading>({ status: "unread" });
+  const [stamped, setStamped] = useState<StampedNavigationReading>({
+    bridge,
+    paneId,
+    reading: UNREAD_NAVIGATION,
+  });
 
   useEffect(() => {
     let stream: NavigationStream | undefined;
     let cancelled = false;
+    /** Publish a reading under the subject THIS effect subscribed to, never another. */
+    const setReading = (reading: NavigationReading): void => {
+      setStamped({ bridge, paneId, reading });
+    };
     /** Close the acquired stream at most once, from whichever path reaches it first. */
     const closeStream = (): void => {
       const acquired = stream;
@@ -171,7 +218,11 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
     };
   }, [bridge, paneId]);
 
-  return reading;
+  // The comparison the whole stamp exists for, and it runs on the render that
+  // dispatches rather than one after it.
+  return stamped.bridge === bridge && stamped.paneId === paneId
+    ? stamped.reading
+    : UNREAD_NAVIGATION;
 }
 
 /**
