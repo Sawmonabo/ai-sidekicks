@@ -96,6 +96,7 @@ describe("branchContextReadPlanFor", () => {
     const plan = branchContextReadPlanFor({
       kind: "worktree",
       workspaceId: "019b7b30-0280-7c11-8420-b1a5c0de2005",
+      repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
       worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
       executionMode: "worktree",
     });
@@ -115,11 +116,13 @@ describe("branchContextReadPlanFor", () => {
     const branchRoot = branchContextReadPlanFor({
       kind: "branch-root",
       workspaceId: "019b7b30-0280-7c11-8420-b1a5c0de2005",
+      repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
       executionMode: "branch",
     });
     const cloneRoot = branchContextReadPlanFor({
       kind: "ephemeral-clone",
       workspaceId: "019b7b30-0280-7c11-8420-b1a5c0de2005",
+      repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
       cloneId: "019b7b30-0280-7c11-8420-b1a5c0de2040",
       executionMode: "ephemeral clone",
     });
@@ -142,12 +145,19 @@ describe("branchContextReadPlanFor", () => {
     const plans = PROPOSAL_GATE_SUBJECT_KINDS.map((kind) =>
       branchContextReadPlanFor(
         kind === "worktree"
-          ? { kind, workspaceId: "workspace-1", worktreeId: "root-a", executionMode: "worktree" }
+          ? {
+              kind,
+              workspaceId: "workspace-1",
+              repoMountId: "mount-1",
+              worktreeId: "root-a",
+              executionMode: "worktree",
+            }
           : kind === "branch-root"
-            ? { kind, workspaceId: "workspace-1", executionMode: "branch" }
+            ? { kind, workspaceId: "workspace-1", repoMountId: "mount-1", executionMode: "branch" }
             : {
                 kind,
                 workspaceId: "workspace-1",
+                repoMountId: "mount-1",
                 cloneId: "clone-a",
                 executionMode: "ephemeral clone",
               },

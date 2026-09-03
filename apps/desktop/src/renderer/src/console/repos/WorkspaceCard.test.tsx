@@ -29,6 +29,7 @@ function renderRow(row: RepoWorkspaceRow): ReturnType<typeof render> {
       workspace={row}
       capabilities={undefined}
       refusal={undefined}
+      pendingMode={undefined}
       modeControlsOffered
       onSelectExecutionMode={() => undefined}
     />,

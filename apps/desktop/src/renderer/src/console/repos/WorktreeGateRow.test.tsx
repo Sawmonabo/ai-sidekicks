@@ -25,6 +25,7 @@ import type { WorktreeStatusRecord } from "./worktree-model.js";
 const SUBJECT = {
   kind: "worktree",
   workspaceId: "019b7b30-0280-7c11-8420-b1a5c0de2005",
+  repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
   worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
   executionMode: "worktree",
 } as const satisfies ProposalGateSubject;

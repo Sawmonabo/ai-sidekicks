@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
-import { GIT_WORKSPACE_ID } from "../bridge/scenarios/repos-fixture-data.js";
+import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { ProposalGateReading } from "./proposal-gate-reader.js";
@@ -330,12 +330,14 @@ describe("ProposalGateReader — the roots the registered read has no key for", 
   const BRANCH_ROOT: ProposalGateSubject = {
     kind: "branch-root",
     workspaceId: GIT_WORKSPACE_ID,
+    repoMountId: GIT_MOUNT_ID,
     executionMode: "branch",
   };
 
   const CLONE_ROOT: ProposalGateSubject = {
     kind: "ephemeral-clone",
     workspaceId: GIT_WORKSPACE_ID,
+    repoMountId: GIT_MOUNT_ID,
     cloneId: "019b7b30-0280-7c11-8420-b1a5c0de2040",
     executionMode: "ephemeral clone",
   };
