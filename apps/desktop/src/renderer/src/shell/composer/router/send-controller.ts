@@ -53,6 +53,16 @@
 // guard is the same notion of "same target" the draft store keys on rather than a
 // second one beside it.
 //
+// EVERY SETTLEMENT IS KEYED TO THE ACT THAT PRODUCED IT. The refusal used to be one
+// hook-wide slot, and a hook-wide slot cannot say which target a refusal is about or
+// which act it answers: a send to one agent that the daemon refused while the person
+// re-addressed the composer wrote its refusal under the new target, and a concurrent
+// success or a Stop cleared the slot the other operation's refusal was standing in.
+// `send-settlement.ts` holds the identity — the address, the operation, the attempt —
+// and this hook captures one at each dispatch and admits a settlement only while that
+// identity is still current. A completion whose address has moved on is discarded
+// where it lands rather than parked for a later render to find.
+//
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
 // workspace hands the composer seat a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
@@ -80,6 +90,14 @@ import {
   type DirectiveCaret,
   type DirectivePathLabel,
 } from "./directive-line.js";
+import {
+  NO_COMPOSER_REFUSALS,
+  isSettlementCurrent,
+  renderableRefusal,
+  withSettledRefusal,
+  type ComposerSendOperation,
+  type ComposerSettlementIdentity,
+} from "./send-settlement.js";
 import { ComposerSendRouter } from "./send-router.js";
 import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 
@@ -212,7 +230,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const isInterruptInFlight = useRef(false);
   const [status, setStatus] = useState<SendControllerStatus>("idle");
   const [isStopping, setStopping] = useState(false);
-  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  const [refusalSlots, setRefusalSlots] = useState(NO_COMPOSER_REFUSALS);
   const [resendOffer, setResendOffer] = useState<AddressedResendOffer | undefined>(undefined);
   // Armed by the first focus of this composer, and only where the store still owed
   // the disclosure. The store stays the source of whether one is owed at all; this
@@ -220,6 +238,41 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const [isRestartNoticeArmed, setRestartNoticeArmed] = useState(false);
 
   const draftKey = composerDraftKey(target);
+  // The address a settlement is measured against is the composer's CURRENT one, and a
+  // dispatch's own closure holds the address it was ISSUED at — so the current key
+  // travels through a ref that every render refreshes, and the two are compared where
+  // the call lands rather than assumed to be the same.
+  const currentDraftKeyRef = useRef(draftKey);
+  currentDraftKeyRef.current = draftKey;
+  // The attempt counter and the newest attempt of each operation. Refs rather than
+  // state for the reason the single-flight latches are: both are written and read
+  // inside one handler's own tick, and a state read there would see the value from
+  // the render that produced the handler.
+  const nextAttemptIdRef = useRef(0);
+  const newestAttemptIdRef = useRef<Record<ComposerSendOperation, number>>({ send: 0, stop: 0 });
+
+  /** Capture the identity of one act, and make it that operation's newest attempt. */
+  const issueSettlementIdentity = useCallback(
+    (operation: ComposerSendOperation): ComposerSettlementIdentity => {
+      nextAttemptIdRef.current += 1;
+      const attemptId = nextAttemptIdRef.current;
+      newestAttemptIdRef.current[operation] = attemptId;
+      return { draftKey: currentDraftKeyRef.current, operation, attemptId };
+    },
+    [],
+  );
+
+  /** Write one act's settlement, or discard it because its identity has moved on. */
+  const settle = useCallback(
+    (identity: ComposerSettlementIdentity, settledRefusal: ConsoleRefusal | undefined): void => {
+      if (!isSettlementCurrent(identity, currentDraftKeyRef.current, newestAttemptIdRef.current)) {
+        return;
+      }
+      setRefusalSlots((slots) => withSettledRefusal(slots, identity, settledRefusal));
+    },
+    [],
+  );
+
   const subscribeToDraft = useCallback(
     (onDraftChanged: () => void) => draftStore.subscribe(draftKey, onDraftChanged),
     [draftStore, draftKey],
@@ -239,9 +292,12 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const changeText = useCallback(
     (next: string) => {
       draftStore.write(draftKey, next);
-      // A refusal answers the act that produced it, so the next edit clears it: leaving
-      // it up would make a stale refusal read as a verdict on text nobody has sent.
-      setRefusal(undefined);
+      // A refusal answers the act that produced it, so the next edit clears every slot:
+      // leaving one up would make a stale refusal read as a verdict on text nobody has
+      // sent. Clearing the whole record rather than the send slot alone is deliberate —
+      // the person is composing again, and both acts they could have been waiting on
+      // are behind them.
+      setRefusalSlots(NO_COMPOSER_REFUSALS);
     },
     [draftStore, draftKey],
   );
@@ -256,18 +312,25 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       }
       isDispatchInFlight.current = true;
       setStatus("sending");
+      // Captured BEFORE the await, so what settles is measured against the address the
+      // person sent from rather than the one they are looking at when it lands.
+      const identity = issueSettlementIdentity("send");
       try {
         const outcome = await router.send(body, target);
         switch (outcome.status) {
           case "sent":
             history.recordSent(body);
             setResendOffer({ draftKey, body });
+            // Keyed to the captured address on every arm below, and deliberately so:
+            // the draft that was sent is the one that clears, even when the composer
+            // has since been re-addressed. Only the SETTLEMENT is discarded when the
+            // address moves; the act itself happened at the address it was issued at.
             draftStore.clear(draftKey);
-            setRefusal(undefined);
+            settle(identity, undefined);
             return;
           case "intercepted": {
             if (commandExecutor === undefined) {
-              setRefusal(composerRefusal("command-unexecutable", NO_EXECUTOR_DETAIL));
+              settle(identity, composerRefusal("command-unexecutable", NO_EXECUTOR_DETAIL));
               return;
             }
             const settled = await commandExecutor({
@@ -277,17 +340,17 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
             if (settled.status === "refused") {
               // The line is kept: the command did not run, and the text is the one
               // thing the person would otherwise have to retype to try again.
-              setRefusal(settled.refusal);
+              settle(identity, settled.refusal);
               return;
             }
             // A registered command never composes into a message: the line is
             // cleared because the act happened, and nothing was sent.
             draftStore.clear(draftKey);
-            setRefusal(undefined);
+            settle(identity, undefined);
             return;
           }
           case "refused":
-            setRefusal(outcome.refusal);
+            settle(identity, outcome.refusal);
             return;
         }
       } finally {
@@ -295,7 +358,16 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
         setStatus("idle");
       }
     },
-    [router, target, draftStore, draftKey, commandExecutor, history],
+    [
+      router,
+      target,
+      draftStore,
+      draftKey,
+      commandExecutor,
+      history,
+      issueSettlementIdentity,
+      settle,
+    ],
   );
 
   const send = useCallback(async () => {
@@ -315,14 +387,17 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     }
     isInterruptInFlight.current = true;
     setStopping(true);
+    // Stop's settlement is Stop's own: it writes the `stop` slot and clears the `stop`
+    // slot, and it neither erases nor is erased by whatever the send path settled as.
+    const identity = issueSettlementIdentity("stop");
     try {
       const outcome = await router.stop(target);
-      setRefusal(outcome.status === "refused" ? outcome.refusal : undefined);
+      settle(identity, outcome.status === "refused" ? outcome.refusal : undefined);
     } finally {
       isInterruptInFlight.current = false;
       setStopping(false);
     }
-  }, [router, target]);
+  }, [router, target, issueSettlementIdentity, settle]);
 
   const recallOlder = useCallback(
     (caret: DirectiveCaret) => {
@@ -372,7 +447,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     pathLabel: directivePathLabel(resolution),
     status,
     isStopping,
-    refusal,
+    refusal: renderableRefusal(refusalSlots, draftKey),
     resendableText: resendOffer?.draftKey === draftKey ? resendOffer.body : undefined,
     restartNotice:
       isRestartNoticeArmed && text.length > 0 ? draftStore.restartNoticeText : undefined,
