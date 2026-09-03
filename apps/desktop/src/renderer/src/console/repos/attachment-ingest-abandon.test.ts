@@ -8,6 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ATTACHMENT_CHUNK_BYTE_CAP, consoleTripwires } from "../core/index.js";
+import { INGEST_ABORT_SITE } from "./attachment-ingest.js";
 import {
   SMALL_SOURCE,
   ScriptedGrowthPort,
@@ -105,6 +106,58 @@ describe("ingest client — abandonment, including mid-call", () => {
     expect(port.chunkCalls).toHaveLength(2);
     expect(client.snapshot[0]?.state).toBe("complete");
     expect(port.abortedIngestIds).toStrictEqual([]);
+  });
+});
+
+describe("ingest client — a refused abort is recorded rather than swallowed", () => {
+  /** Open one stream, stop it, and let the abort's continuation come back. */
+  async function abandonOneStream(port: ScriptedGrowthPort): Promise<void> {
+    const client = clientOver(port);
+    port.refuseChunksWith("wire-unregistered");
+    client.attach(SMALL_SOURCE);
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    client.abandon("attachment-1");
+    await new Promise((settle) => setTimeout(settle, 0));
+  }
+
+  it("names the ingest id and the code when the daemon will not release the spool", async () => {
+    // Both callers of the abort are terminal for the entry, so there is no card left
+    // to render this on. Unrecorded, a daemon holding a spool and its byte
+    // reservation is invisible until a later upload fails capacity admission.
+    const port = new ScriptedGrowthPort();
+    port.refuseAbortsWith("artifact.ingest_not_found");
+    await abandonOneStream(port);
+
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
+    expect(consoleTripwires.firingCount("cleanup-refused")).toBe(1);
+    const [report] = consoleTripwires.reports();
+    expect(report?.site).toBe(INGEST_ABORT_SITE);
+    expect(report?.detail).toContain("ingest-1");
+    expect(report?.detail).toContain("artifact.ingest_not_found");
+  });
+
+  it("negative control: a served abort records nothing", async () => {
+    // Without this the case above would pass against a client that fired on every
+    // abort, which would report a clean reclaim as an unreclaimed spool.
+    const port = new ScriptedGrowthPort();
+    await abandonOneStream(port);
+
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
+    expect(consoleTripwires.totalFiringCount).toBe(0);
+  });
+
+  it("negative control: an abort no wire could carry is not a refused cleanup", async () => {
+    // `wire-unregistered` means this console's own port declined before any request
+    // left the process, so no daemon was asked and none refused — the `not-checked`
+    // against `refused` distinction every surface here draws. Firing would put V1's
+    // designed absence on the diagnostic band once per abandonment.
+    const port = new ScriptedGrowthPort();
+    port.refuseAbortsWith("wire-unregistered");
+    await abandonOneStream(port);
+
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
+    expect(consoleTripwires.totalFiringCount).toBe(0);
   });
 });
 

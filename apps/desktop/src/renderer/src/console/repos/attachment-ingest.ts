@@ -32,6 +32,15 @@
 // its own slate row (`artifact-allowlist-and-abort`), so this client asks for it
 // best-effort and states the honest outcome either way.
 //
+// BEST-EFFORT IS NOT UNREAD. Both callers of the abort are terminal for the entry —
+// abandonment has already moved it, disposal is taking the whole ledger — so there is
+// no entry to write a refusal onto and no surface left to render one. That is exactly
+// why the answer goes to the console's diagnostic band instead: a daemon that declined
+// to release a spool is holding bytes and an aggregate reservation until its reaper,
+// and an operator whose next upload fails capacity admission has otherwise nothing to
+// read. `core/tripwires.ts` names that kind `cleanup-refused`, and this module is its
+// one firing site.
+//
 // RETRY REPLAYS, IT DOES NOT RESTART. Every call of the trio is retry-safe: a replayed
 // chunk — same sequence number, same bytes — is acknowledged without being re-appended,
 // and a replayed completion replays its original response verbatim while the stream
@@ -59,6 +68,7 @@ import {
   ATTACHMENT_CHUNK_BYTE_CAP,
   RealClock,
   encodeBase64,
+  reportTripwire,
   type ConsoleClock,
   type Unsubscribe,
 } from "../core/index.js";
@@ -69,6 +79,18 @@ import {
   type AttachmentIngestEntry,
   type AttachmentSource,
 } from "./attachment-model.js";
+
+/** Where the unreclaimed-spool tripwire reports from, so a firing names a module. */
+export const INGEST_ABORT_SITE = "repos/attachment-ingest.ts";
+
+/**
+ * The one refusal code that means the abort was never put to a daemon.
+ *
+ * Named rather than spelled at the branch, because `bridge/growth-outcome.ts` owns the
+ * word and a literal here would be a second spelling of a closed set — the failure the
+ * console's vocabularies are all declared once to avoid.
+ */
+const INGEST_ABORT_UNASKED_CODE = "wire-unregistered";
 
 /** One growth-port answer, narrowed to what this client reads off it. */
 interface PortAnswer<TValue> {
@@ -205,7 +227,10 @@ export class AttachmentIngestClient {
    * stream, which there is nothing to reclaim from.
    *
    * FIRED AND NOT AWAITED. Disposal is synchronous — a carrier that waited on a
-   * best-effort abort would hold a closed surface open for an answer nobody reads.
+   * best-effort abort would hold a closed surface open for an answer no surface is
+   * left to render. The answer is still read, on the diagnostic band rather than on a
+   * card: `#recordUnreclaimedSpool` says what a daemon that declined to release left
+   * behind.
    *
    * IDEMPOTENT, on `repo-mounts-reader.ts`'s reason for its own guard: the ledger's
    * published snapshot outlives its disposal, so a second call would walk the same
@@ -383,19 +408,52 @@ export class AttachmentIngestClient {
   /**
    * Ask for a spool back, best-effort, for a stream the daemon actually opened.
    *
-   * THE ANSWER IS DELIBERATELY NOT READ, and disposal is why it cannot be. The abort
-   * is asynchronous and the two callers are both terminal for the entry — abandonment
-   * has already moved it, disposal is taking the whole ledger — so by the time an
-   * answer arrives there is no entry left to record it on and no surface left to
-   * render it to. That is not a swallowed failure: the port answers rather than
-   * throwing, an unreclaimed spool is claimed by the daemon's abandoned-spool reaper,
-   * and the abandonment copy states that outcome rather than promising an instant
-   * reclaim.
+   * FIRED AND NOT AWAITED, because both callers are synchronous and terminal: a
+   * carrier that waited on a best-effort abort would hold a closed surface open for an
+   * answer nobody is left to render. What the continuation does with that answer is
+   * `#recordUnreclaimedSpool`'s job.
    */
   #abort(ingestId: string | undefined): void {
-    if (ingestId !== undefined) {
-      void this.#bridge.growth.artifactIngestAbort({ ingestId });
+    if (ingestId === undefined) {
+      return;
     }
+    void this.#requestAbort(ingestId);
+  }
+
+  /** Send the abort and dispose of its answer, which is a fact whichever way it goes. */
+  async #requestAbort(ingestId: string): Promise<void> {
+    const answer: PortAnswer<void> = await this.#bridge.growth.artifactIngestAbort({ ingestId });
+    if (answer.status === "served") {
+      return;
+    }
+    this.#recordUnreclaimedSpool(ingestId, answer);
+  }
+
+  /**
+   * Say that a spool this client asked back is still the daemon's to reclaim.
+   *
+   * THE `wire-unregistered` ARM IS NOT A REFUSED CLEANUP AND IS NOT REPORTED AS ONE.
+   * That code means the console's own port declined before any request left this
+   * process, so no daemon was asked and none refused — the same `not-checked` against
+   * `refused` distinction every surface in this console draws, applied to a call whose
+   * answer nobody renders. Recording it would put a firing on the diagnostic band for
+   * V1's designed absence, and the abandonment copy already tells a participant what
+   * happens to those bytes: the reaper claims them.
+   *
+   * EVERY OTHER CODE IS A DAEMON THAT ANSWERED AND DID NOT RELEASE. The spool and the
+   * bytes reserved for it stand until that reaper runs, a later upload in the same
+   * session can fail capacity admission because of them, and the entry this abort
+   * belonged to is gone — so the tripwire record is the only place it can be seen.
+   */
+  #recordUnreclaimedSpool(ingestId: string, answer: PortAnswer<unknown>): void {
+    if (answer.code === INGEST_ABORT_UNASKED_CODE) {
+      return;
+    }
+    reportTripwire(
+      "cleanup-refused",
+      INGEST_ABORT_SITE,
+      `the daemon answered the abort of ingest ${ingestId} with \`${answer.code ?? "no code at all"}\` and did not release it; its spool and the bytes reserved for it stand until the abandoned-spool reaper claims them`,
+    );
   }
 
   /**

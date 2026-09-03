@@ -73,6 +73,7 @@ export class ScriptedGrowthPort {
   #nextIngestNumber = 1;
   #chunkRefusalCode: string | undefined;
   #completeRefusalCode: string | undefined;
+  #abortRefusalCode: string | undefined;
   #beginGate: Promise<void> | undefined;
   #chunkGate: Promise<void> | undefined;
 
@@ -82,6 +83,18 @@ export class ScriptedGrowthPort {
 
   public refuseCompletionWith(code: string | undefined): void {
     this.#completeRefusalCode = code;
+  }
+
+  /**
+   * Answer the next abort — and every later one — without releasing the spool.
+   *
+   * The id is still RECORDED, because a refused abort is a request the daemon
+   * received: a port that dropped it would make "the client asked" and "the daemon
+   * released" one fact, which is the conflation the client's own diagnostic exists to
+   * separate.
+   */
+  public refuseAbortsWith(code: string | undefined): void {
+    this.#abortRefusalCode = code;
   }
 
   /** Hold the next `begin` until the returned gate is opened; later calls run free. */
@@ -134,7 +147,9 @@ export class ScriptedGrowthPort {
             },
       artifactIngestAbort: async (request: { readonly ingestId: string }) => {
         this.abortedIngestIds.push(request.ingestId);
-        return { status: "served", value: undefined };
+        return this.#abortRefusalCode === undefined
+          ? { status: "served", value: undefined }
+          : { status: "unavailable", code: this.#abortRefusalCode, detail: "scripted refusal" };
       },
     };
     return { growth: port } as unknown as ConsoleBridge;
