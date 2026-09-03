@@ -226,7 +226,7 @@ describe("RepoSection — the mounts this session actually holds", () => {
 
 describe("RepoSection — a clone root is a writable root, so it carries a gate", () => {
   /** The disclosure a root's change-proposal gate renders into. */
-  const GATE_SELECTOR = "details.meridian-worktree-gate";
+  const GATE_SELECTOR = "details.meridian-root-gate";
 
   it("mounts one gate per clone, inside the clone's own row", async () => {
     // Before this the clone list drew bare cards, so a participant running in the

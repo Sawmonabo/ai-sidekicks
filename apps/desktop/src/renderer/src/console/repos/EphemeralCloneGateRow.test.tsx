@@ -81,7 +81,7 @@ describe("EphemeralCloneGateRow", () => {
     // The card is still there — a root that exists is reported whether or not a gate
     // can be asked about it.
     expect(within(container).getByRole("heading", { level: 4 }).textContent).toBe(CLONE.branchName);
-    const gate = container.querySelector("details.meridian-worktree-gate");
+    const gate = container.querySelector("details.meridian-root-gate");
     expect(gate).not.toBeNull();
     // Scoped to the gate rather than to the row: the same sentence is also ANNOUNCED,
     // and the announcer's live region renders it too — a document-wide query would
@@ -93,7 +93,7 @@ describe("EphemeralCloneGateRow", () => {
     // No reader, so no call: the mode a gate would report against lives on the roster
     // row and nowhere else, and choosing one here would be a guess drawn as a reading.
     const container = renderRow([{ id: "workspace-other", executionMode: "ephemeral clone" }]);
-    expect(container.querySelector("details.meridian-worktree-gate")).toBeNull();
+    expect(container.querySelector("details.meridian-root-gate")).toBeNull();
     expect(within(container).getByText(CLONE_WORKSPACE_UNNAMED_COPY)).toBeDefined();
   });
 

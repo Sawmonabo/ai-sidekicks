@@ -40,7 +40,7 @@ export interface WorktreeGateRowProps {
 
 export function WorktreeGateRow(props: WorktreeGateRowProps): React.JSX.Element {
   return (
-    <div className="meridian-worktree-gate-row">
+    <div className="meridian-root-gate-row">
       <WorktreeCard record={props.record} nowMilliseconds={props.nowMilliseconds} />
       {props.subject === undefined ? (
         // No gate at all, rather than a gate that could not ask: no reader is

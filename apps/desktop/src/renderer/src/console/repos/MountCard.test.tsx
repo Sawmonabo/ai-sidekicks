@@ -229,7 +229,7 @@ describe("MountCard — the roots, and the read that did not answer", () => {
 
   it("draws the roots the read named, and neither absence", () => {
     const { container, queryByText } = renderCard({ worktrees: [ROOT] });
-    expect(container.querySelector(".meridian-worktree-gate-row")).not.toBeNull();
+    expect(container.querySelector(".meridian-root-gate-row")).not.toBeNull();
     expect(queryByText(NO_ROOT_COPY)).toBeNull();
   });
 });
@@ -246,7 +246,7 @@ describe("the in-place root's gate", () => {
     // from root records reached none of these workspaces at all — which left one of
     // the three writable modes unable to read a branch context or prepare anything.
     const { container } = renderCard({ workspaces: [IN_PLACE_WORKSPACE] });
-    expect(container.querySelector("details.meridian-worktree-gate")).not.toBeNull();
+    expect(container.querySelector("details.meridian-root-gate")).not.toBeNull();
   });
 
   it("says which key the read takes that an in-place root has none of", () => {
@@ -260,7 +260,7 @@ describe("the in-place root's gate", () => {
     // every workspace — including ones that produce no writable branch context and
     // have nothing to prepare.
     const { container, queryByText } = renderCard();
-    expect(container.querySelector("details.meridian-worktree-gate")).toBeNull();
+    expect(container.querySelector("details.meridian-root-gate")).toBeNull();
     expect(queryByText("subject-not-addressable")).toBeNull();
   });
 });
