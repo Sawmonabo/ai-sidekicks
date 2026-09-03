@@ -93,9 +93,27 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-definition-row[aria-current="true"] {
+/*
+ * The marked row, keyed on a class rather than on `aria-current`.
+ *
+ * It was keyed on the attribute, which made the accent edge a side effect of an ARIA
+ * claim — and that claim was the wrong one: `aria-current` names the single current
+ * item in a set, while resolution is an independent predicate per definition name, so
+ * a scope can carry several. The row now says that in its accessible description, and
+ * the leading edge is stated here as what it always was, a visual mark.
+ */
+.meridian-definition-row--resolves {
   border-inline-start-color: var(--meridian-accent);
   background: var(--meridian-surface);
+}
+
+/*
+ * The mark's referable wrapper. It carries the id the row's description points at and
+ * generates no box of its own, so the chip stays the row's own flex item and sits
+ * exactly where it did before anything needed an id.
+ */
+.meridian-definition-row__resolution {
+  display: contents;
 }
 
 .meridian-definition-row__name {
