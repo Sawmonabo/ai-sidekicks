@@ -25,6 +25,22 @@
 // answered. A list that DOES have entries keeps that statement beside it, unchanged:
 // a partial list whose provider half is missing must still say the half is missing.
 //
+// ONE BINDING'S ENTRIES, AND NEVER A MERGE. The enumeration is agent-scoped and an
+// agent can hold several live bindings at once, so the reply carries one group per
+// binding. The popover renders the group the ADDRESSED RUN is on and no other:
+// `provider-command-catalog.ts` owns the selection, and where no group can be
+// attributed to this run's binding the provider half is an absence with its own
+// sentence rather than another binding's list under this run's name.
+//
+// THE LIST ACTIVATES ITS ACTIVE ROW, AND ONLY ONE KIND OF ROW CAN BE ACTIVATED. A
+// `role="listbox"` that moves an active descendant under the arrows and answers
+// neither Enter nor Space is a control a keyboard-only person can point at and never
+// use, so both keys settle the active row through the SAME executor the row's own
+// button calls — one path, so a console act cannot behave differently by which
+// gesture reached it. A provider row has no such path by design, and the key is
+// therefore a no-op that SAYS SO: silence would be indistinguishable from a surface
+// that had failed, and a disabled-looking control would assert the act exists here.
+//
 // THE SURFACE SPEAKS THROUGH ITS OWN STATUS REGION rather than through the window's
 // live announcer. The announcer exists so a read a person did not trigger and is not
 // looking at can still reach them; this popover is opened by their own keystroke and
@@ -41,8 +57,11 @@ import { createClientCommandExecutor } from "./client-command-executor.js";
 import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
 import { useDirectiveLineDiscovery } from "./directive-line-observer.js";
 import {
+  addressedProviderBinding,
   composeCatalog,
   filterCatalog,
+  selectAddressedBindingGroup,
+  type AddressedProviderBinding,
   type CommandCatalogEntry,
 } from "./provider-command-catalog.js";
 import {
@@ -81,6 +100,7 @@ export function ProviderCommandAutocomplete(
   });
 
   const readSurface = useCallback(() => composerCommandSurface(route), [route]);
+  const addressed = useMemo(() => addressedProviderBinding(target), [target]);
 
   if (!isOpen) {
     return null;
@@ -90,16 +110,29 @@ export function ProviderCommandAutocomplete(
       prefix={discovery.prefix ?? ""}
       readSurface={readSurface}
       enumeration={enumeration}
+      addressed={addressed}
       stepIntoListToken={discovery.stepIntoListToken}
       onDismiss={discovery.dismiss}
     />
   );
 }
 
+/**
+ * Why pressing a key on a provider row runs nothing.
+ *
+ * Declared once and rendered only in answer to the press: the popover's lede already
+ * carries the standing claim ("Choosing an entry starts no turn"), which the listbox
+ * names through `aria-describedby`, so this sentence exists to answer a GESTURE
+ * rather than to restate the surface's purpose a second time on every open.
+ */
+const PROVIDER_ENTRY_NOT_RUNNABLE =
+  "Provider commands and skills are listed for reference. This console starts no turn from one, so there is nothing here to run.";
+
 interface CommandDiscoveryPopoverProps {
   readonly prefix: string;
   readonly readSurface: () => ComposerCommandSurface;
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
+  readonly addressed: AddressedProviderBinding;
   readonly stepIntoListToken: number;
   readonly onDismiss: () => void;
 }
@@ -116,15 +149,26 @@ interface CommandDiscoveryPopoverProps {
  * life of the window.
  */
 function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX.Element {
-  const { prefix, readSurface, enumeration, stepIntoListToken, onDismiss } = props;
+  const { prefix, readSurface, enumeration, addressed, stepIntoListToken, onDismiss } = props;
   const listId = useId();
+  const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
+  // Set only by a press that could not be honoured, and cleared by the next move or
+  // the next act, so the region never keeps answering a gesture the person has left.
+  const [activationNotice, setActivationNotice] = useState<string | undefined>(undefined);
 
+  // The addressed run's own group, selected before the catalog is composed. A served
+  // reading whose groups name no binding this run is on contributes nothing, and the
+  // absence says so beneath the list.
+  const addressedGroup =
+    enumeration.phase === "served"
+      ? selectAddressedBindingGroup(enumeration.groups, addressed)
+      : undefined;
   const catalog = composeCatalog({
     offeredCommands: readSurface().offeredCommands,
-    providerGroups: enumeration.phase === "served" ? enumeration.groups : [],
+    providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
   const entries = filterCatalog(catalog, prefix);
   const isServedEmpty = entries.length === 0 && haveAllSourcesAnswered(enumeration);
@@ -142,16 +186,47 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
     }
   }, [stepIntoListToken]);
 
+  const runConsoleCommand = useCallback(
+    (commandId: string) => {
+      setActionOutcome(undefined);
+      setActivationNotice(undefined);
+      void executor({ commandName: commandId, text: `/${commandId}` }).then(setActionOutcome);
+    },
+    [executor],
+  );
+
   const onListKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLUListElement>) => {
       if (event.key === "ArrowDown") {
         event.preventDefault();
+        setActivationNotice(undefined);
         setActiveIndex((index) => Math.min(index + 1, entries.length - 1));
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
+        setActivationNotice(undefined);
         setActiveIndex((index) => Math.max(index - 1, 0));
+        return;
+      }
+      // Enter and Space settle the ACTIVE row — the row `aria-activedescendant`
+      // already names, read from the same bounded index the attribute is composed
+      // from, so what is announced and what is activated agree by construction
+      // rather than through a second lookup that could disagree with it. Space is
+      // prevented from its default before anything else happens: a listbox is a
+      // focusable scroll container, and a Space that both ran the act and scrolled
+      // the popover would move the list out from under the person mid-press.
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        const activeEntry = boundedIndex < 0 ? undefined : entries[boundedIndex];
+        if (activeEntry === undefined) {
+          return;
+        }
+        if (activeEntry.source === "console") {
+          runConsoleCommand(activeEntry.commandId);
+          return;
+        }
+        setActivationNotice(PROVIDER_ENTRY_NOT_RUNNABLE);
         return;
       }
       if (event.key === "Escape") {
@@ -159,20 +234,12 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
         onDismiss();
       }
     },
-    [entries.length, onDismiss],
-  );
-
-  const runConsoleCommand = useCallback(
-    (commandId: string) => {
-      setActionOutcome(undefined);
-      void executor({ commandName: commandId, text: `/${commandId}` }).then(setActionOutcome);
-    },
-    [executor],
+    [boundedIndex, entries, onDismiss, runConsoleCommand],
   );
 
   return (
     <div className="meridian-command-discovery">
-      <p className="meridian-command-discovery__lede">
+      <p className="meridian-command-discovery__lede" id={ledeId}>
         What this console can do, and what the addressed agent&rsquo;s provider offers. Choosing an
         entry starts no turn.
       </p>
@@ -184,6 +251,7 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
           role="listbox"
           tabIndex={0}
           aria-label="Commands and skills"
+          aria-describedby={ledeId}
           aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
           onKeyDown={onListKeyDown}
         >
@@ -209,7 +277,15 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
           detail="Clear the line to see everything on offer, or type // to send a message that really begins with a slash."
         />
       ) : null}
-      <EnumerationState enumeration={enumeration} />
+      {activationNotice === undefined ? null : (
+        <p className="meridian-command-discovery__notice" role="status">
+          {activationNotice}
+        </p>
+      )}
+      <EnumerationState
+        enumeration={enumeration}
+        hasAddressedGroup={addressedGroup !== undefined}
+      />
       {actionOutcome?.status === "refused" ? (
         <InlineRefusal code={actionOutcome.refusal.code} detail={actionOutcome.refusal.detail} />
       ) : null}
@@ -313,12 +389,16 @@ function haveAllSourcesAnswered(enumeration: ProviderCommandReadState): boolean 
 /**
  * What the provider half of the list is, when it is not a list.
  *
- * Four states and four different next moves, which is why none of them is an empty
+ * Five outcomes and five different next moves, which is why none of them is an empty
  * list: nobody was asked (this composer addresses a channel, not an agent), the read
- * is in flight, the daemon refused, or the provider answered and this is what it said.
+ * is in flight, the daemon refused, the provider answered for this run's binding, or
+ * it answered for bindings none of which is this run's — the last being an absence
+ * about ROUTING rather than about the provider's catalogue, and stated as one.
  */
 function EnumerationState(props: {
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
+  /** Whether the served reading carried a group this composer's run is bound to. */
+  readonly hasAddressedGroup: boolean;
 }): React.JSX.Element | null {
   const { enumeration } = props;
   switch (enumeration.phase) {
@@ -345,6 +425,14 @@ function EnumerationState(props: {
         </div>
       );
     case "served":
-      return null;
+      return props.hasAddressedGroup ? null : (
+        <div className="meridian-command-discovery__state" role="status">
+          <Nothing
+            kind="empty"
+            title="This run's binding published nothing here"
+            detail="The agent answered for the bindings it holds and none of them could be attributed to the run this composer is addressed to, so no provider entry is offered — another binding's commands are never shown under this one."
+          />
+        </div>
+      );
   }
 }

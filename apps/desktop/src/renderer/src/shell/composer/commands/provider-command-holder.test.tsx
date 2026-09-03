@@ -15,6 +15,7 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
+import { addressedProviderBinding } from "./provider-command-catalog.js";
 import {
   ProviderCommandEnumeration,
   useProviderCommandEnumeration,
@@ -59,6 +60,15 @@ function targetForAgent(agentId: string): ComposerTarget {
     providerFailureDetail: undefined,
   };
 }
+
+/**
+ * The binding the send path's lookup is scoped to.
+ *
+ * Derived from the same target the hook is driven with rather than written out, so a
+ * case cannot accidentally look up under a binding its own composer is not addressed
+ * to — which is the thing the lookup is being held to.
+ */
+const ADDRESSED = addressedProviderBinding(targetForAgent("agent-one"));
 
 function enumerationCalls(recorded: readonly RecordedCall[]): readonly RecordedCall[] {
   return recorded.filter((entry) => entry.method === ENUMERATION_METHOD);
@@ -259,7 +269,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
     const enumeration = new ProviderCommandEnumeration();
     // Nothing is named before the reading lands: the send path says what it said
     // before this holder existed rather than guessing at an answer in flight.
-    expect(enumeration.publishedEntryNamed("compact")).toBeUndefined();
+    expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeUndefined();
 
     renderHook(() =>
       useProviderCommandEnumeration({
@@ -274,12 +284,12 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       await Promise.resolve();
     });
 
-    const published = enumeration.publishedEntryNamed("compact");
+    const published = enumeration.publishedEntryNamed("compact", ADDRESSED);
     expect(published?.source).toBe("provider");
     expect(published?.name).toBe("compact");
     // A name the provider did not publish stays unnamed, so the send path keeps its
     // own vocabulary for one it has never heard of.
-    expect(enumeration.publishedEntryNamed("frame.goToSettings")).toBeUndefined();
+    expect(enumeration.publishedEntryNamed("frame.goToSettings", ADDRESSED)).toBeUndefined();
   });
 
   it("stops naming entries once the surface that opened the reading closes", async () => {
@@ -300,7 +310,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(enumeration.publishedEntryNamed("compact")).toBeDefined();
+    expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeDefined();
 
     await act(async () => {
       rerender(false);
@@ -309,6 +319,6 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
     // The lifetime ends with the surface: what is left is a reading nobody has, not
     // a list held for the next time somebody types a slash.
     expect(enumeration.snapshot().phase).toBe("not-checked");
-    expect(enumeration.publishedEntryNamed("compact")).toBeUndefined();
+    expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeUndefined();
   });
 });

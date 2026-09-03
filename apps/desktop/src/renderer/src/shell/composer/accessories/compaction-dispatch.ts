@@ -11,6 +11,27 @@
 // that every outcome flows through, and a single-flight latch that makes a second
 // press while a call is in flight a no-op rather than a second call.
 //
+// AND EVERY PIECE OF THAT STATE IS KEYED TO THE TARGET IT IS ABOUT. The hook used to
+// hold one latch and one reading for the whole composer, with the run supplied at
+// press time — so a composer re-addressed while a call was in flight carried BOTH
+// halves of the mistake across the move: the latch was still closed, which made the
+// newly addressed run's Compact button a no-op it gave no reason for, and the
+// settlement that came back was rendered beside a control it was not about. The
+// target — the bridge, the session, and the run — is therefore the hook's own
+// argument, the latch is held per run, and a reading is stored WITH the target it
+// settled for and rendered only where that target is the addressed one.
+//
+// THE DISPOSITION FOR A SETTLEMENT WHOSE TARGET IS NO LONGER ADDRESSED, stated once
+// rather than left to the reader: it is kept under its own target and rendered
+// nowhere else, so a person who presses Compact on Ada's run, looks at Priya's, and
+// comes back still learns what Ada's call answered — an outcome they asked for is
+// not thrown away merely because they looked elsewhere while it travelled. There is
+// ONE such slot, and a newer act owns it: a settlement arriving after the composer
+// has begun a compaction on another run is discarded rather than displacing that
+// run's in-flight reading. The console does not accumulate a per-run history here,
+// because the durable record of a compaction is the ledger's own boundary row and a
+// second unbounded copy of it beside a button would be a worse one.
+//
 // WHAT IS NEVER TREATED AS A COMPACTION. The reply is evidence the REQUEST settled,
 // never evidence the context was compacted — both provider mechanisms answer before
 // the work is done, and the completed state is the `usage.context_compacted` row
@@ -60,11 +81,66 @@ export type CompactionDispatchState =
 /** What the control is handed: the current state and the one act it may perform. */
 export interface CompactionDispatch {
   readonly state: CompactionDispatchState;
-  /** Dispatch one compaction for one run. A no-op while a call is in flight. */
-  readonly requestCompaction: (targetRunId: string) => void;
+  /**
+   * Dispatch one compaction for the ADDRESSED run.
+   *
+   * No argument: the run is the hook's own identity, so a caller cannot press the
+   * button for one run while the control renders another's state. A no-op while a
+   * call for this same run is in flight, and a no-op where no run is addressed.
+   */
+  readonly requestCompaction: () => void;
+}
+
+/**
+ * What a compaction call is about: the transport, the session, and the run.
+ *
+ * All three, because all three can change under a mounted composer — the pane can be
+ * re-addressed to another run, the route to another session, and the window's bridge
+ * is replaced in the fixture picker. Two of these compared equal while the third
+ * differed would let a settlement land under a control it is not about, which is the
+ * whole of what this key exists to prevent.
+ */
+export interface CompactionTarget {
+  readonly bridge: ConsoleBridge;
+  readonly sessionId: string;
+  readonly targetRunId: string;
+}
+
+/** Whether two targets name the same compaction. The bridge compares by identity. */
+export function isSameCompactionTarget(one: CompactionTarget, other: CompactionTarget): boolean {
+  return (
+    one.bridge === other.bridge &&
+    one.sessionId === other.sessionId &&
+    one.targetRunId === other.targetRunId
+  );
+}
+
+/** One reading, held under the target it is about rather than under the hook. */
+interface HeldCompactionReading {
+  readonly target: CompactionTarget;
+  readonly state: CompactionDispatchState;
 }
 
 const IDLE: CompactionDispatchState = { phase: "idle" };
+const DISPATCHING: CompactionDispatchState = { phase: "dispatching" };
+
+/**
+ * The reading to render at this address, or idle.
+ *
+ * The guard that makes the keying visible rather than incidental: a held reading
+ * whose target is not the one the control is rendering for contributes nothing, so a
+ * settlement can be stored the moment it arrives without ever being attributed to a
+ * run it is not about.
+ */
+function readingAtTarget(
+  held: HeldCompactionReading | undefined,
+  addressed: CompactionTarget | undefined,
+): CompactionDispatchState {
+  if (held === undefined || addressed === undefined) {
+    return IDLE;
+  }
+  return isSameCompactionTarget(held.target, addressed) ? held.state : IDLE;
+}
 
 /**
  * Drive one compaction request.
@@ -77,39 +153,64 @@ const IDLE: CompactionDispatchState = { phase: "idle" };
 export function useCompactionDispatch(
   bridge: ConsoleBridge,
   sessionId: string,
+  targetRunId: string | undefined,
 ): CompactionDispatch {
-  const [state, setState] = useState<CompactionDispatchState>(IDLE);
-  const isInFlight = useRef(false);
-  const isMounted = useRef(true);
+  const [held, setHeld] = useState<HeldCompactionReading | undefined>(undefined);
+  // The run ids with a call in flight, so the latch is per RUN: a second press on
+  // the run already compacting is the no-op the single-flight rule asks for, while a
+  // press on a run this composer has since moved to is a first press and dispatches.
+  // Allocated on first use rather than on every render, which a bare initialiser
+  // would do and then discard.
+  const inFlightRunIdsRef = useRef<Set<string> | null>(null);
+  const isMountedRef = useRef(true);
 
   useEffect(() => {
-    isMounted.current = true;
+    isMountedRef.current = true;
+    const inFlightRunIds = inFlightRunIdsRef;
     return () => {
       // A settle that lands after the composer unmounted has nowhere to go. The
       // latch is cleared with it so a remount starts idle rather than wedged.
-      isMounted.current = false;
-      isInFlight.current = false;
+      isMountedRef.current = false;
+      inFlightRunIds.current?.clear();
     };
   }, []);
 
-  const requestCompaction = useCallback(
-    (targetRunId: string) => {
-      if (isInFlight.current) {
+  useEffect(() => {
+    // A different transport or session is a different set of calls entirely, and no
+    // run id from the previous one names a call this hook could still be waiting on.
+    inFlightRunIdsRef.current?.clear();
+  }, [bridge, sessionId]);
+
+  const requestCompaction = useCallback(() => {
+    if (targetRunId === undefined) {
+      return;
+    }
+    const inFlightRunIds = (inFlightRunIdsRef.current ??= new Set<string>());
+    if (inFlightRunIds.has(targetRunId)) {
+      return;
+    }
+    const target: CompactionTarget = { bridge, sessionId, targetRunId };
+    inFlightRunIds.add(targetRunId);
+    setHeld({ target, state: DISPATCHING });
+    void settleCompaction(bridge, sessionId, targetRunId).then((settled) => {
+      inFlightRunIds.delete(targetRunId);
+      if (!isMountedRef.current) {
         return;
       }
-      isInFlight.current = true;
-      setState({ phase: "dispatching" });
-      void settleCompaction(bridge, sessionId, targetRunId).then((settled) => {
-        isInFlight.current = false;
-        if (isMounted.current) {
-          setState(settled);
-        }
-      });
-    },
-    [bridge, sessionId],
-  );
+      // The slot belongs to the newest act. A settlement arriving after a
+      // compaction was begun on ANOTHER run would otherwise replace that run's
+      // in-flight reading with a result about a run the control is not showing.
+      setHeld((current) =>
+        current === undefined || isSameCompactionTarget(current.target, target)
+          ? { target, state: settled }
+          : current,
+      );
+    });
+  }, [bridge, sessionId, targetRunId]);
 
-  return { state, requestCompaction };
+  const addressed: CompactionTarget | undefined =
+    targetRunId === undefined ? undefined : { bridge, sessionId, targetRunId };
+  return { state: readingAtTarget(held, addressed), requestCompaction };
 }
 
 /**

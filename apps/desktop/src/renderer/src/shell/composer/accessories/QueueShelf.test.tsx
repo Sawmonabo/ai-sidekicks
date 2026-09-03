@@ -1,5 +1,10 @@
 // What the shelf says about a cancel that is already going.
 //
+// The partial-read arm is here for the same reason: the runs pane says a delivery
+// could not be read, and a shelf over the same reading that stayed silent would let
+// a person read the composer's own queue as complete while the pane beside it said
+// otherwise.
+//
 // The shelf and the runs pane's queue are two surfaces over ONE reading, so the
 // claim worth a unit is that they agree: the row whose id the reading reports as
 // pending is disabled and `aria-busy`, and every other row stays live. The
@@ -76,5 +81,72 @@ describe("the queue shelf renders the cancel that is already going", () => {
     });
     expect(first?.disabled).toBe(false);
     expect(second?.disabled).toBe(false);
+  });
+});
+
+describe("the queue shelf says when part of its stream could not be read", () => {
+  /** The shelf with whatever partial reading the case supplies. */
+  function renderShelf(options: {
+    readonly items?: readonly QueueItemSummary[];
+    readonly unreadableDeliveryCount?: number;
+    readonly unreadableRefusal?: ConsoleRefusal;
+  }): HTMLElement {
+    const { container } = render(
+      <QueueShelf
+        items={options.items ?? [queuedRow(FIRST_ITEM)]}
+        pendingCancelIds={new Set<string>()}
+        cancelRefusalByItemId={new Map<string, ConsoleRefusal>()}
+        onCancel={() => undefined}
+        unreadableDeliveryCount={options.unreadableDeliveryCount}
+        unreadableRefusal={options.unreadableRefusal}
+      />,
+    );
+    return container;
+  }
+
+  it("keeps the rows and names how many deliveries could not be read", () => {
+    // The finding this answers: a delivery the build could not read changes no row,
+    // so a shelf that showed only rows presented a stale list as a current one.
+    const container = renderShelf({ unreadableDeliveryCount: 2 });
+
+    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
+      "2 queue deliveries could not be read — the shelf may be stale.",
+    );
+    expect(container.querySelectorAll(".meridian-queue-shelf__row")).toHaveLength(1);
+  });
+
+  it("appears with no rows at all, because an empty list is not known to be empty", () => {
+    // The shelf hides itself when nothing is waiting. That rule assumes the emptiness
+    // is READ, and an unreadable delivery is exactly the case where it is not — so
+    // the hidden arm would have hidden the only statement that a row may be missing.
+    const container = renderShelf({ items: [], unreadableDeliveryCount: 1 });
+
+    expect(container.querySelector(".meridian-queue-shelf")).not.toBeNull();
+    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
+      "1 queue delivery could not be read",
+    );
+  });
+
+  it("renders the delivery's own parse refusal beside the count", () => {
+    const container = renderShelf({
+      unreadableDeliveryCount: 1,
+      unreadableRefusal: refuse(
+        "session-queue",
+        "delivery-unreadable",
+        "A queue delivery did not match the registered row shape.",
+      ),
+    });
+
+    expect(container.querySelector(".meridian-refusal")?.textContent).toContain(
+      "delivery-unreadable",
+    );
+  });
+
+  it("negative control: a complete reading says none of it", () => {
+    const withRows = renderShelf({ unreadableDeliveryCount: 0 });
+    expect(withRows.querySelector(".meridian-queue-shelf__partial")).toBeNull();
+
+    const withNothing = renderShelf({ items: [], unreadableDeliveryCount: 0 });
+    expect(withNothing.querySelector(".meridian-queue-shelf")).toBeNull();
   });
 });

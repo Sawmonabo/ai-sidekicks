@@ -8,7 +8,11 @@ import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import type { ConsoleCommand } from "../../../console/palette/index.js";
-import { composeCatalog, filterCatalog } from "./provider-command-catalog.js";
+import {
+  composeCatalog,
+  filterCatalog,
+  selectAddressedBindingGroup,
+} from "./provider-command-catalog.js";
 
 const OFFERED: readonly ConsoleCommand[] = [
   { id: "frame.goToSettings", title: "Go to Settings", group: "Navigate", run: () => undefined },
@@ -92,5 +96,74 @@ describe("filterCatalog", () => {
     const catalog = composeCatalog({ offeredCommands: OFFERED, providerGroups: GROUPS });
 
     expect(filterCatalog(catalog, "")).toHaveLength(3);
+  });
+});
+
+describe("selectAddressedBindingGroup", () => {
+  const CLAUDE_RUN = "019b7a11-1100-740e-8110-d1a4c1150311";
+  const CODEX_RUN = "019b7a11-1100-740e-8120-d1a4c1150312";
+
+  /** The same two bindings, each now naming the run it was read under. */
+  const RUN_ATTRIBUTED: readonly ProviderCommandBindingGroup[] = [
+    { ...GROUPS[0]!, runId: CLAUDE_RUN as ProviderCommandBindingGroup["runId"] },
+    { ...GROUPS[1]!, runId: CODEX_RUN as ProviderCommandBindingGroup["runId"] },
+  ];
+
+  it("selects the group naming the addressed run", () => {
+    // The finding: an older Claude run beside a newer Codex one. Only the addressed
+    // run's binding may reach the list.
+    const selected = selectAddressedBindingGroup(RUN_ATTRIBUTED, {
+      runId: CODEX_RUN,
+      driverName: "codex",
+    });
+
+    expect(selected?.binding.driverName).toBe("codex");
+  });
+
+  it("falls back to the addressed driver where no group names the run", () => {
+    // `runId` is `null` on two legitimate arms — no live run, and two or more on one
+    // binding — and the composer's own address still names the driver it is bound to.
+    const selected = selectAddressedBindingGroup(GROUPS, {
+      runId: CLAUDE_RUN,
+      driverName: "claude",
+    });
+
+    expect(selected?.binding.driverName).toBe("claude");
+  });
+
+  it("selects nothing where two groups share the addressed driver and name no run", () => {
+    // A coin flip presented as routing is worse than an absence: the surface renders
+    // the absence and offers neither binding's entries.
+    const sameDriver: readonly ProviderCommandBindingGroup[] = [
+      GROUPS[0]!,
+      { ...GROUPS[1]!, binding: { driverName: "claude", providerAccountId: "account-1" } },
+    ];
+
+    expect(
+      selectAddressedBindingGroup(sameDriver, { runId: CLAUDE_RUN, driverName: "claude" }),
+    ).toBeUndefined();
+  });
+
+  it("selects nothing where the composer names neither a run nor a driver", () => {
+    expect(
+      selectAddressedBindingGroup(GROUPS, { runId: undefined, driverName: undefined }),
+    ).toBeUndefined();
+  });
+
+  it("negative control: composing the selected group alone drops the sibling's entries", () => {
+    // Without the selection every group reached `composeCatalog`, which is exactly
+    // what put one binding's commands under another binding's address.
+    const merged = composeCatalog({ offeredCommands: OFFERED, providerGroups: RUN_ATTRIBUTED });
+    const selected = selectAddressedBindingGroup(RUN_ATTRIBUTED, {
+      runId: CODEX_RUN,
+      driverName: "codex",
+    });
+    const scoped = composeCatalog({
+      offeredCommands: OFFERED,
+      providerGroups: selected === undefined ? [] : [selected],
+    });
+
+    expect(merged.filter((entry) => entry.source === "provider")).toHaveLength(2);
+    expect(scoped.filter((entry) => entry.source === "provider")).toHaveLength(1);
   });
 });

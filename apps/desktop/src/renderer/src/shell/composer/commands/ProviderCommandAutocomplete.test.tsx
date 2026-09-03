@@ -10,6 +10,10 @@
 // registered run projectors, so the address these cases resolve is the address the
 // shipped surface resolves.
 
+import {
+  ProviderCommandListResultSchema,
+  type ProviderCommandBindingGroup,
+} from "@ai-sidekicks/contracts";
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -30,6 +34,37 @@ const ENUMERATION_METHOD = "driver.listProviderCommands";
 /** A prefix no console command and no enumerated provider entry begins with. */
 const UNMATCHED_PREFIX = "/zzz-nothing-begins-with-this";
 const EMPTY_STATE_SENTENCE = "No command matches what you have typed";
+/** The opening of the sentence the popover renders when no group names this run. */
+const UNADDRESSED_BINDING_SENTENCE = "This run's binding published nothing here";
+/** A fragment of the sentence a press on a non-executable row is answered with. */
+const NOT_RUNNABLE_FRAGMENT = "there is nothing here to run";
+/** An entry name the scenario's own enumeration does not carry. */
+const UNADDRESSED_ENTRY_NAME = "status";
+/**
+ * A live binding on the OTHER provider, attributed to a run this composer never
+ * addresses — the second group the agent-scoped reply can carry.
+ *
+ * Built through the registered schema for the reason `scenarioBindingGroups` records
+ * below: `runId` is a branded id, and a literal asserted into that brand would let a
+ * group these cases treat as wire-shaped carry a value the wire would refuse.
+ */
+const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = ProviderCommandListResultSchema.parse({
+  bindings: [
+    {
+      runId: "019b7a11-1100-740e-8120-d1a4c1150312",
+      binding: { driverName: "codex", providerAccountId: null },
+      entries: [
+        {
+          name: UNADDRESSED_ENTRY_NAME,
+          kind: "command",
+          description: "Report the other binding's state.",
+          binding: { driverName: "codex", providerAccountId: null },
+        },
+      ],
+      complete: true,
+    },
+  ],
+}).bindings[0]!;
 const registeredIds: string[] = [];
 
 /** One recorded daemon call, so a re-read is distinguishable from a re-filter. */
@@ -96,6 +131,46 @@ function bridgeHoldingTheEnumeration(): ConsoleBridge {
   return bridgeAnswering((method, _params, forward) =>
     method === ENUMERATION_METHOD ? new Promise<unknown>(() => undefined) : forward(),
   );
+}
+
+/**
+ * The scenario's own enumerated groups, read back through the registered schema.
+ *
+ * Parsed rather than cast: the scenario's reply is typed `unknown`, and a cast would
+ * let a fixture that has drifted from the wire shape reach these cases as if it had
+ * not.
+ */
+function scenarioBindingGroups(): readonly ProviderCommandBindingGroup[] {
+  const reply = COMPOSER_SCENARIO.replies.find(
+    (candidate) => candidate.call === ENUMERATION_METHOD,
+  );
+  if (reply === undefined || reply.result === undefined) {
+    throw new Error("the composer scenario scripts no enumeration reply");
+  }
+  return ProviderCommandListResultSchema.parse(reply.result).bindings;
+}
+
+/** The run the scenario attributes its own Claude group to — the addressed one. */
+function addressedRunIdOfFirstAgent(): NonNullable<ProviderCommandBindingGroup["runId"]> {
+  const runId = scenarioBindingGroups()[0]?.runId;
+  if (runId === null || runId === undefined) {
+    throw new Error("the scenario's enumerated group names no run");
+  }
+  return runId;
+}
+
+/** The fixture scenario, answering the enumeration with exactly these groups. */
+function bridgeEnumerating(groups: readonly ProviderCommandBindingGroup[]): ConsoleBridge {
+  return createFixtureBridge({
+    scenario: {
+      ...COMPOSER_SCENARIO,
+      id: "composer-discovery-bindings",
+      replies: [
+        ...COMPOSER_SCENARIO.replies.filter((reply) => reply.call !== ENUMERATION_METHOD),
+        { call: ENUMERATION_METHOD, result: { bindings: groups } },
+      ],
+    },
+  });
 }
 
 /** The scenario's agents, read out of the log rather than restated. */
@@ -186,6 +261,38 @@ function optionNames(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll('[role="option"] .meridian-command-discovery__name')].map(
     (element) => element.textContent ?? "",
   );
+}
+
+/**
+ * Step focus into the open list, the way the line's own ArrowDown does.
+ *
+ * The list is where the activation keys are handled, so a case that fired them at the
+ * textarea would be testing the line's key handling and not the listbox's.
+ */
+async function stepIntoList(mounted: MountedComposer): Promise<HTMLElement> {
+  await act(async () => {
+    fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
+    await Promise.resolve();
+  });
+  const list = mounted.container.querySelector('[role="listbox"]');
+  if (!(list instanceof HTMLElement)) {
+    throw new Error("the surface rendered no listbox");
+  }
+  return list;
+}
+
+/** Press one key on the focused list and let the act settle. */
+async function pressOnList(list: HTMLElement, key: string): Promise<void> {
+  await act(async () => {
+    fireEvent.keyDown(list, { key });
+    await Promise.resolve();
+  });
+}
+
+/** The row `aria-activedescendant` names, resolved through the document. */
+function activeRow(container: HTMLElement, list: HTMLElement): HTMLElement | null {
+  const activeId = list.getAttribute("aria-activedescendant");
+  return activeId === null ? null : container.querySelector(`#${CSS.escape(activeId)}`);
 }
 
 afterEach(() => {
@@ -496,5 +603,148 @@ describe("ProviderCommandAutocomplete", () => {
 
     expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();
     expect(mounted.line.value).toBe("/rev");
+  });
+});
+
+describe("ProviderCommandAutocomplete — one binding's entries reach the list", () => {
+  it("lists the addressed run's group and none of the other binding's entries", async () => {
+    const mounted = await mountComposer({
+      bridge: bridgeEnumerating([...scenarioBindingGroups(), UNADDRESSED_CODEX_GROUP]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, "/");
+
+    // The finding: the popover composed the catalog over EVERY group in the reply,
+    // so a second live binding's commands appeared under this run's name — offering
+    // a Codex entry through a Claude-bound agent, which is exactly the routing the
+    // enumeration's own provenance pair exists to prevent.
+    expect(optionNames(mounted.container)).toEqual(expect.arrayContaining(["compact", "review"]));
+    expect(optionNames(mounted.container)).not.toContain(UNADDRESSED_ENTRY_NAME);
+  });
+
+  it("says this run's binding published nothing when no group can be attributed to it", async () => {
+    const mounted = await mountComposer({
+      bridge: bridgeEnumerating([UNADDRESSED_CODEX_GROUP]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, "/");
+
+    const state = mounted.container.querySelector(
+      ".meridian-command-discovery__state .meridian-nothing--empty",
+    );
+    expect(state?.textContent).toContain(UNADDRESSED_BINDING_SENTENCE);
+    expect(optionNames(mounted.container)).not.toContain(UNADDRESSED_ENTRY_NAME);
+  });
+
+  it("negative control: that same group IS listed for the run it names", async () => {
+    // Without this the two cases above would hold over a popover that had simply
+    // stopped rendering provider entries. The group is unchanged; only the composer's
+    // address moves, and the entries follow it.
+    const mounted = await mountComposer({
+      bridge: bridgeEnumerating([
+        { ...UNADDRESSED_CODEX_GROUP, runId: addressedRunIdOfFirstAgent() },
+      ]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+
+    await typeIntoLine(mounted.line, "/");
+
+    expect(optionNames(mounted.container)).toContain(UNADDRESSED_ENTRY_NAME);
+  });
+});
+
+describe("ProviderCommandAutocomplete — the list activates its active row", () => {
+  /** Registers the console act these cases activate, and counts what it ran. */
+  function registerCountedConsoleCommand(): { runCount: () => number } {
+    let ranCount = 0;
+    consoleCommands.register({
+      id: TEST_COMMAND_ID,
+      title: "A console act",
+      group: "Test",
+      run: () => {
+        ranCount += 1;
+      },
+    });
+    registeredIds.push(TEST_COMMAND_ID);
+    return { runCount: () => ranCount };
+  }
+
+  it("runs the active console row on Enter, exactly once", async () => {
+    // The finding: the arrows moved `aria-activedescendant` and neither Enter nor
+    // Space did anything, so a keyboard-only person could reach the console's own
+    // act and never perform it.
+    const counted = registerCountedConsoleCommand();
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
+    const list = await stepIntoList(mounted);
+
+    await pressOnList(list, "Enter");
+
+    expect(counted.runCount()).toBe(1);
+  });
+
+  it("runs it on Space too, through the same path", async () => {
+    const counted = registerCountedConsoleCommand();
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
+    const list = await stepIntoList(mounted);
+
+    await pressOnList(list, " ");
+
+    expect(counted.runCount()).toBe(1);
+  });
+
+  it("answers a press on a provider row instead of running anything", async () => {
+    const counted = registerCountedConsoleCommand();
+    const recorded: RecordedCall[] = [];
+    const mounted = await mountComposer({
+      bridge: recordingBridge(recorded),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, "/");
+    const list = await stepIntoList(mounted);
+    // Console entries lead the catalog, so one step down lands on the first
+    // provider row — and the assertion below reads which row that is off the
+    // attribute rather than trusting the arithmetic.
+    await pressOnList(list, "ArrowDown");
+    expect(
+      activeRow(mounted.container, list)?.querySelector(".meridian-command-discovery__run"),
+    ).toBeNull();
+
+    await pressOnList(list, "Enter");
+
+    expect(counted.runCount()).toBe(0);
+    expect(recorded.map((entry) => entry.method)).not.toContain("run.queueCreate");
+    expect(
+      mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent,
+    ).toContain(NOT_RUNNABLE_FRAGMENT);
+  });
+
+  it("negative control: the same key on the same list runs the console row beside it", async () => {
+    // Without this the case above would hold over a listbox that had gone inert
+    // again — the press must be a no-op BECAUSE of which row is active, not because
+    // the key reaches nothing.
+    const counted = registerCountedConsoleCommand();
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, "/");
+    const list = await stepIntoList(mounted);
+    await pressOnList(list, "ArrowDown");
+    await pressOnList(list, "ArrowUp");
+
+    await pressOnList(list, "Enter");
+
+    expect(counted.runCount()).toBe(1);
+    expect(mounted.container.querySelector(".meridian-command-discovery__notice")).toBeNull();
   });
 });
