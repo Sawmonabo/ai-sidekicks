@@ -29,15 +29,27 @@
 //     `SupersededIndex`'s answer and never a member the row carries.
 //   • `density` — the list's collapse state, which is `Spec-023 §Console Design
 //     (Meridian)` rule 7: a terminal run's chapter folds and the live one stays open.
+//
+// WHAT THIS MODULE PRODUCES IS THE UNFURLED WINDOW — every member row of every
+// chapter, before any fold. The fold is `ledger-chapter-fold.ts`', and it is a
+// separate module because a narrowing runs BETWEEN the two. It has to: a fold
+// performed first hands the narrowing a window in which a closed chapter is one
+// receipt, and a narrowing over that window can neither count nor admit the
+// chapter's messages, its tools, or the people in it.
+//
+// Two of this module's identity rules are exported for the fold, which re-keys rows
+// under their chapter headers: `chapterKeyFor` and `viewportRowFor`. They are
+// exported rather than duplicated because a fold that decided a row's parent key or
+// its cut unit for itself would be a second answer to a question this derivation
+// already settled.
 
-import { useCallback, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { projectFixtureShellRows } from "../../ledger/cards/index.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 import {
-  ChapterCollapseState,
   LedgerChapterIndex,
   LedgerSeamIndex,
   SupersededIndex,
@@ -45,7 +57,6 @@ import {
   type LedgerSeam,
 } from "../../ledger/structure/index.js";
 import { useSessionStore, type ConsoleSessionEvent, type SessionStore } from "../../store/index.js";
-import { type TimelineRowDensity } from "../../seats/index.js";
 
 /** Everything one render of the ledger needs, derived once per store revision. */
 export interface LedgerWindowModel {
@@ -113,7 +124,7 @@ function cutUnitFor(row: TimelineRow): string {
  * contract guarantees, and three of the four arms carry `runId` structurally while
  * the `general` arm structurally cannot.
  */
-function chapterKeyFor(row: TimelineRow): string | undefined {
+export function chapterKeyFor(row: TimelineRow): string | undefined {
   return row.kind === "general" ? undefined : row.runId;
 }
 
@@ -134,15 +145,6 @@ function collapsedRowIdsOf(chapterIndex: LedgerChapterIndex): ReadonlySet<string
   }
   return collapsed;
 }
-
-/** One row's collapse state, from the list's own decision. */
-export function densityFor(
-  rowId: string,
-  collapsedRowIds: ReadonlySet<string>,
-): TimelineRowDensity {
-  return collapsedRowIds.has(rowId) ? "collapsed" : "expanded";
-}
-
 /**
  * Derive the whole window from one log.
  *
@@ -159,7 +161,7 @@ export function deriveLedgerWindow(
   const supersededIndex = new SupersededIndex(rows);
   // The seam vocabulary has one classifier; this is the instance that reads the
   // whole log, which is what replay's next-seam jump walks. The rail's own instance
-  // reads the pruned window in `ledger-feed-model.ts`, because the rail marks what
+  // reads the pruned window in `ledger-visible-window.ts`, because the rail marks what
   // is on screen.
   const seamIndex = new LedgerSeamIndex();
   const seams = seamIndex.seams(rows);
@@ -192,153 +194,31 @@ export function deriveLedgerWindow(
     hasActiveTurn: chapterIndex.chapters().length > chapterIndex.terminalChapters().length,
   };
 }
-
-/**
- * Fold every terminal chapter that is not open into a header and its receipt.
- *
- * A SECOND PASS over the derived window rather than a branch inside the derivation,
- * because the two answer to different clocks: the derivation changes when the log
- * does and this changes when a person clicks a disclosure. Folding inside would
- * re-project ten thousand rows on every toggle.
- *
- * WHAT A HEADER ROW IS. One viewport row keyed by the run id — which is exactly the
- * key `chapterKeyFor` already hands every one of that chapter's rows as their
- * `parentKey`. So emitting it does two things in one act: it gives the chapter
- * something to draw, and it makes the chapter's rows CHILDREN of a row the window
- * holds, which is what the cap's top-level rule was written for. Before this, every
- * run row named its run and no row WAS its run, so a run-only log counted every row
- * against the cap; now a chapter counts once, folded or open.
- *
- * A FOLDED CHAPTER KEEPS ITS RECEIPT. "Header and receipt" is the whole of the
- * folded shape: the header says which run ended and how much it holds, and the
- * terminal row says how it ended, in the daemon's own words. The rest is omitted
- * from the viewport rows AND from the body lookup, so nothing can draw a row the
- * fold has hidden.
- */
-export function foldChapterHeaders(
-  model: LedgerWindowModel,
-  openedTerminalRunIds: ReadonlySet<string>,
-): LedgerWindowModel {
-  if (model.chapterByHeaderKey.size === 0) {
-    return model;
-  }
-  const viewportRows: LedgerViewportRow[] = [];
-  const rows: TimelineRow[] = [];
-  const rowsByKey = new Map<string, TimelineRow>();
-  const headeredRunIds = new Set<string>();
-  for (const row of model.rows) {
-    const runId = chapterKeyFor(row);
-    const chapter = runId === undefined ? undefined : model.chapterByHeaderKey.get(runId);
-    if (chapter === undefined || runId === undefined) {
-      viewportRows.push(viewportRowFor(row, undefined));
-      rows.push(row);
-      rowsByKey.set(row.id, row);
-      continue;
-    }
-    if (!headeredRunIds.has(runId)) {
-      headeredRunIds.add(runId);
-      // At the chapter's FIRST row, so the header sits where the chapter starts and
-      // the log's order is untouched. The header is its own cut unit: pruning it
-      // takes its subtree with it, which is the ancestor closure the cap performs.
-      viewportRows.push({ key: runId, parentKey: undefined, rootCursor: runId });
-    }
-    if (openedTerminalRunIds.has(runId) || row.id === chapter.terminalRowId) {
-      viewportRows.push(viewportRowFor(row, runId));
-      rows.push(row);
-      rowsByKey.set(row.id, row);
-    }
-  }
-  return {
-    ...model,
-    viewportRows,
-    rows,
-    rowsByKey,
-    seamByRowId: new Map([...model.seamByRowId].filter(([rowId]) => rowsByKey.has(rowId))),
-  };
-}
-
 /** One row's place in the virtualizer's identity list. */
-function viewportRowFor(row: TimelineRow, parentKey: string | undefined): LedgerViewportRow {
+export function viewportRowFor(row: TimelineRow, parentKey: string | undefined): LedgerViewportRow {
   return { key: row.id, parentKey, rootCursor: cutUnitFor(row) };
 }
-
-/** What one mount remembers about which finished chapters a person opened. */
-export interface LedgerChapterDisclosure {
-  /** The terminal chapters that are open. Every other one is folded. */
-  readonly openedTerminalRunIds: ReadonlySet<string>;
-  /** Open a folded chapter, or fold an opened one. */
-  readonly toggle: (chapter: LedgerChapter) => void;
-  /** Fold every terminal chapter — what the palette's collapse row runs. */
-  readonly collapseAllTerminal: (chapters: readonly LedgerChapter[]) => void;
-}
-
 /**
- * Hold one mount's chapter disclosure.
- *
- * `ChapterCollapseState` is the single owner of the rule — a live chapter answers
- * open before any stored state is read — so this hook does not restate it; it
- * publishes the instance's opened set into React state so a toggle repaints. The
- * set is derived from the instance and written nowhere else, which is what keeps it
- * one source of truth mirrored rather than two states kept in step.
- */
-export function useChapterDisclosure(): LedgerChapterDisclosure {
-  const [collapseState] = useState(() => new ChapterCollapseState());
-  const [openedTerminalRunIds, setOpenedTerminalRunIds] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  );
-  const publish = useCallback(() => {
-    setOpenedTerminalRunIds(new Set(collapseState.openedTerminalRunIds));
-  }, [collapseState]);
-  const toggle = useCallback(
-    (chapter: LedgerChapter) => {
-      if (collapseState.isOpen(chapter)) {
-        collapseState.close(chapter);
-      } else {
-        collapseState.open(chapter);
-      }
-      publish();
-    },
-    [collapseState, publish],
-  );
-  const collapseAllTerminal = useCallback(
-    (chapters: readonly LedgerChapter[]) => {
-      collapseState.collapseAllTerminal(chapters);
-      publish();
-    },
-    [collapseState, publish],
-  );
-  return useMemo(
-    () => ({ openedTerminalRunIds, toggle, collapseAllTerminal }),
-    [openedTerminalRunIds, toggle, collapseAllTerminal],
-  );
-}
-
-/**
- * Subscribe to one session's log and derive its window.
+ * Subscribe to one session's log and project it, UNFURLED.
  *
  * The subscription is the store's `timeline` and its gap list and nothing else, so a
  * change to an entity partition — a run transition the ledger already saw as a row —
- * does not re-fold the log. The store replaces the log's identity only when it
- * admits an event, which is what makes the memo below fire exactly then.
+ * does not re-project the log. The store replaces the log's identity only when it
+ * admits an event, which is what makes the memo fire exactly then.
+ *
+ * EVERY MEMBER ROW IS IN THE RESULT, including the ones a closed chapter will fold
+ * away. This is the window a narrowing is applied to, so a facet count and a
+ * narrowing both see a finished run's messages, tools and participants rather than
+ * only the receipt its fold would have left.
  */
-export function useLedgerWindow(
-  sessionStore: SessionStore,
-  openedTerminalRunIds: ReadonlySet<string>,
-): LedgerWindowModel {
+export function useLedgerProjection(sessionStore: SessionStore): LedgerWindowModel {
   const timeline = useSessionStore(sessionStore, readTimeline);
   const hasUnreceivedEntries = useSessionStore(sessionStore, readHasGaps);
-  const derived = useMemo(
+  return useMemo(
     () => deriveLedgerWindow(timeline, hasUnreceivedEntries),
     [timeline, hasUnreceivedEntries],
   );
-  // Two memos rather than one, so a disclosure toggle re-folds the chapters over a
-  // projection it did not have to redo.
-  return useMemo(
-    () => foldChapterHeaders(derived, openedTerminalRunIds),
-    [derived, openedTerminalRunIds],
-  );
 }
-
 /** The log this window holds. A named function, so the selector identity is stable. */
 function readTimeline(state: {
   readonly timeline: readonly ConsoleSessionEvent[];

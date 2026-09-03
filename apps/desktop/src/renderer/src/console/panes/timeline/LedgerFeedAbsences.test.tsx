@@ -7,13 +7,8 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  OVER_CAP_EVENT_COUNT,
-  SESSION_ID,
-  openSessionStoreWithGeneralLog,
-  renderFeed,
-  withLaidOutViewport,
-} from "./ledger-feed-fixtures.js";
+import { OVER_CAP_EVENT_COUNT, renderFeed, withLaidOutViewport } from "./ledger-feed-fixtures.js";
+import { SESSION_ID, openSessionStoreWithGeneralLog } from "./ledger-feed-logs.js";
 import { SessionStore } from "../../store/index.js";
 
 afterEach(() => {

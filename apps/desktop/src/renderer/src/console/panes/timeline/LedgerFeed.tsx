@@ -80,17 +80,16 @@ import {
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../seats/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
+import { densityFor, useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
+import { useLedgerFind } from "./ledger-find.js";
+import { useFilteredLedgerWindow, useLedgerFilter } from "./ledger-narrowing.js";
 import {
-  useFilteredLedgerWindow,
-  useLedgerFilter,
-  useLedgerFind,
   useLedgerReplay,
-  useRailGeometry,
   useReplayAnchorRowId,
   useReplayRevealedRows,
-  useVisibleLedgerWindow,
-} from "./ledger-feed-model.js";
-import { densityFor, useChapterDisclosure, useLedgerWindow } from "./ledger-window.js";
+} from "./ledger-replay-window.js";
+import { useRailGeometry, useVisibleLedgerWindow } from "./ledger-visible-window.js";
+import { useLedgerProjection } from "./ledger-window.js";
 
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
@@ -106,15 +105,22 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
   const chapterDisclosure = useChapterDisclosure();
-  const loadedWindow = useLedgerWindow(props.sessionStore, chapterDisclosure.openedTerminalRunIds);
-  // THE NARROWING RUNS ON THE LOG, BEFORE ANYTHING ELSE SEES IT. Everything below —
-  // the replay engine, the viewport, the visible window, find and the rail — is
-  // built over the narrowed model, so no piece has to remember that a filter
-  // exists. The facets the bar offers are the exception, and deliberately so: they
-  // are derived from the WHOLE window, or admitting one participant would take away
-  // the chip that widens back.
-  const ledgerFilter = useLedgerFilter(loadedWindow);
-  const ledgerWindow = useFilteredLedgerWindow(loadedWindow, ledgerFilter.filter);
+  // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
+  const unfurledWindow = useLedgerProjection(props.sessionStore);
+  // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
+  // below — the chapter fold, the replay engine, the viewport, the visible window,
+  // find and the rail — is built over the narrowed model, so no piece has to
+  // remember that a filter exists. The facets the bar offers are the exception, and
+  // deliberately so: they are derived from the WHOLE unfurled projection, or
+  // admitting one participant would take away the chip that widens back.
+  //
+  // AND THE FOLD RUNS AFTER IT, which is the ordering the filter needs to be
+  // truthful at all: folded first, a closed terminal chapter reaches the filter as
+  // one receipt, so its messages and tools are absent from the facet counts and
+  // unreachable by narrowing until somebody expands the chapter by hand.
+  const ledgerFilter = useLedgerFilter(unfurledWindow);
+  const narrowedWindow = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
+  const ledgerWindow = useFoldedChapters(narrowedWindow, chapterDisclosure.openedTerminalRunIds);
   const replay = useLedgerReplay(ledgerWindow);
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
@@ -146,8 +152,8 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     () =>
       findQuery.length === 0
         ? { status: "outside-window" }
-        : jumpToEventId(loadedWindow.rows, visible.rows, findQuery),
-    [loadedWindow, visible, findQuery],
+        : jumpToEventId(unfurledWindow.rows, visible.rows, findQuery),
+    [unfurledWindow, visible, findQuery],
   );
 
   // The STORE's wheel, which is the one the cast bar reads, handed to both surfaces

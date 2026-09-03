@@ -18,12 +18,12 @@ import {
   REPLAY_LOG_EVENT_COUNT,
   contributeLedgerCommands,
   dispatchConsoleCommand,
-  openSessionStoreWithLog,
   renderFeed,
   replayDockHarness,
   withdrawLedgerCommands,
   withLaidOutViewport,
 } from "./ledger-feed-fixtures.js";
+import { openSessionStoreWithLog } from "./ledger-feed-logs.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

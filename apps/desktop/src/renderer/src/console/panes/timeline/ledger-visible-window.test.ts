@@ -6,21 +6,19 @@
 // rail are asked about the window the VIEWPORT is showing, and that what falls
 // outside it is counted rather than walked into.
 
-import { act, renderHook, type RenderHookResult } from "@testing-library/react";
-import type { TimelineRow } from "@ai-sidekicks/contracts";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LEDGER_OVERSCAN_ROWS } from "../../ledger/frame/frame-bounds.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 import { ProvenanceRailModel } from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
+import { useLedgerFind } from "./ledger-find.js";
 import {
-  useLedgerFind,
   useRailGeometry,
   useVisibleLedgerWindow,
-  type LedgerFindState,
   type VisibleLedgerWindow,
-} from "./ledger-feed-model.js";
+} from "./ledger-visible-window.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 const SESSION_ID = "session-visible-window";
@@ -236,92 +234,6 @@ describe("cap retention and replay visibility are two facts", () => {
   });
 });
 
-describe("the walk when the result moves under it", () => {
-  /** A visible window over exactly these rows, with nothing outside it. */
-  function windowOver(rows: readonly TimelineRow[]): VisibleLedgerWindow {
-    return {
-      rows,
-      prunedAwayRows: [],
-      withheldByReplayRows: [],
-      hasEarlierRows: false,
-      railModel: new ProvenanceRailModel({ rows, hasEarlierRows: false }),
-    };
-  }
-
-  /** The find state over a window a case can swap for a different one. */
-  function findOver(
-    rows: readonly TimelineRow[],
-  ): RenderHookResult<LedgerFindState, { readonly rows: readonly TimelineRow[] }> {
-    return renderHook(({ rows: currentRows }) => useLedgerFind(windowOver(currentRows)), {
-      initialProps: { rows },
-    });
-  }
-
-  const wholeLog = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false).rows;
-
-  it("reports no position once the selected row has left the result", () => {
-    const { result, rerender } = findOver(wholeLog);
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    for (let step = 0; step < LOG_EVENT_COUNT; step += 1) {
-      act(() => {
-        result.current.step("next");
-      });
-    }
-    expect(result.current.currentMatchIndex).toBe(LOG_EVENT_COUNT - 1);
-
-    // The same query over a window the replay or the cap has cut down to two rows,
-    // neither of which is the selected one. A held ordinal read "10 of 2" here.
-    rerender({ rows: wholeLog.slice(0, 2) });
-    expect(result.current.result.matches).toHaveLength(2);
-    expect(result.current.currentMatchIndex).toBe(-1);
-
-    // And the next step ENTERS the shorter list rather than resuming from an
-    // ordinal the new result cannot hold.
-    let walked: ReturnType<LedgerFindState["step"]>;
-    act(() => {
-      walked = result.current.step("next");
-    });
-    expect(walked?.index).toBe(0);
-    expect(result.current.currentMatchIndex).toBe(0);
-  });
-
-  it("keeps the selected row's position when the window only grew", () => {
-    const SELECTED_MATCH_INDEX = 3;
-    const { result, rerender } = findOver(wholeLog.slice(0, LOG_EVENT_COUNT - 2));
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    for (let step = 0; step <= SELECTED_MATCH_INDEX; step += 1) {
-      act(() => {
-        result.current.step("next");
-      });
-    }
-    expect(result.current.currentMatchIndex).toBe(SELECTED_MATCH_INDEX);
-    rerender({ rows: wholeLog });
-    expect(result.current.result.matches).toHaveLength(LOG_EVENT_COUNT);
-    expect(result.current.currentMatchIndex).toBe(SELECTED_MATCH_INDEX);
-  });
-
-  it("negative control: a new query still restarts the walk", () => {
-    // Without this the retention above could have been written as "never reset",
-    // which would resume a walk inside a match list built from a different question.
-    const { result } = findOver(wholeLog);
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    act(() => {
-      result.current.step("next");
-    });
-    expect(result.current.currentMatchIndex).toBe(0);
-    act(() => {
-      result.current.setQuery("user");
-    });
-    expect(result.current.currentMatchIndex).toBe(-1);
-  });
-});
-
 describe("the rail's two fractions", () => {
   const RAIL_WINDOW_ROW_COUNT = 300;
   const VISIBLE_ROW_COUNT = 5;
@@ -368,53 +280,5 @@ describe("the rail's two fractions", () => {
   it("negative control: an unmeasured box claims the whole rail rather than the head", () => {
     const { result } = renderHook(() => useRailGeometry(undefined, RAIL_WINDOW_ROW_COUNT));
     expect(result.current).toStrictEqual({ position: 0, extent: 1 });
-  });
-});
-
-describe("the find field's own open act", () => {
-  /** The find state over one whole window, with nothing pruned. */
-  function findOverWholeLog(): RenderHookResult<LedgerFindState, void> {
-    const ledgerWindow = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false);
-    return renderHook(() =>
-      useLedgerFind(
-        useVisibleLedgerWindow(ledgerWindow, ledgerWindow.viewportRows, ledgerWindow.viewportRows),
-      ),
-    );
-  }
-
-  it("reveals the field", () => {
-    const { result } = findOverWholeLog();
-    expect(result.current.isOpen).toBe(false);
-    act(() => {
-      result.current.open();
-    });
-    expect(result.current.isOpen).toBe(true);
-  });
-
-  it("leaves the query and the walk exactly where they were", () => {
-    // Which is why it is not `setQuery("")`: the palette row opens a field somebody
-    // is about to type into, and resetting a walk they were in the middle of is a
-    // different act wearing the same name.
-    const { result } = findOverWholeLog();
-    act(() => {
-      result.current.setQuery(EVERY_ROW_QUERY);
-    });
-    act(() => {
-      result.current.step("next");
-    });
-    const walkedIndex = result.current.currentMatchIndex;
-    act(() => {
-      result.current.open();
-    });
-    expect(result.current.query).toBe(EVERY_ROW_QUERY);
-    expect(result.current.currentMatchIndex).toBe(walkedIndex);
-  });
-
-  it("negative control: a field nobody opened stays closed", () => {
-    // Without this the case above would pass over a hook that reported `isOpen`
-    // true from its first render, which is a find field nobody asked for.
-    const { result, rerender } = findOverWholeLog();
-    rerender();
-    expect(result.current.isOpen).toBe(false);
   });
 });
