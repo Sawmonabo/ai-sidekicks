@@ -12,9 +12,13 @@ export { AttemptGeneration, type Attempt } from "./attempt-generation.js";
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 export {
   APPLY_COALESCE_MS,
+  COMPOSING_NAMED_CAP,
+  COMPOSING_RECEIVED_STALE_MS,
+  HIDDEN_INVITE_CAP,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
+  MOUNT_INVENTORY_READ_CAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
@@ -23,8 +27,12 @@ export {
   PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
+  RESOLVED_PROSE_INLINE_CAP,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
+  SESSION_BACK_TIER_VISIBLE_CAP,
+  SETTLED_INVITE_VISIBLE_CAP,
+  TOOL_ALLOWLIST_NAMED_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";

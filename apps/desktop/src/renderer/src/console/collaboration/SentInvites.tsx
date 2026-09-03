@@ -76,7 +76,7 @@ import {
   formatClockTime,
   formatCount,
 } from "../primitives/index.js";
-import { SETTLED_INVITE_VISIBLE_CAP } from "./constants.js";
+import { SETTLED_INVITE_VISIBLE_CAP } from "../core/index.js";
 import {
   partitionInvites,
   withSettledInvite,

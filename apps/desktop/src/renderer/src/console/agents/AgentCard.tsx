@@ -21,7 +21,7 @@
 // inputs and reach no caller at all.
 
 import { Chip, Nothing, WireFigure } from "../primitives/index.js";
-import { RESOLVED_PROSE_INLINE_CAP, TOOL_ALLOWLIST_NAMED_CAP } from "./constants.js";
+import { RESOLVED_PROSE_INLINE_CAP, TOOL_ALLOWLIST_NAMED_CAP } from "../core/index.js";
 import { boundaryPhrase } from "./switch-settlement.js";
 import {
   AGENT_STATES,

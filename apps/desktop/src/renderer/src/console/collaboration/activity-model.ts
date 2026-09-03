@@ -47,7 +47,7 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../core/index.js";
-import { COMPOSING_RECEIVED_STALE_MS } from "./constants.js";
+import { COMPOSING_RECEIVED_STALE_MS } from "../core/index.js";
 
 /** A human composing in one channel. No content, ever — only who, where, and since. */
 export interface ComposingIndicator {

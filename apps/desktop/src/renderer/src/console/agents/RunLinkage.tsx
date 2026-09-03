@@ -12,6 +12,15 @@
 // and denied is visible at all, which is why a refusal is never hidden because the
 // run it would have created never existed.
 //
+// WHICH IS WHY THE LIST IS NOT CAPPED. Refusals accumulate for the life of a run and
+// nothing collects them, so the collection is unbounded by construction — and the
+// answer to that is a bounded REGION, not a bounded list. The group carries a
+// `max-height` and scrolls; every row is rendered inside it, so the disclosure's
+// count and the rows a person can reach are the same number. A slice here reported
+// a count it then declined to show, and the rows it dropped were the only record
+// their work was ever asked for. There is no pagination either: no refusal read
+// carries a cursor, so a "more" control would have nothing to ask.
+//
 // FOUR THINGS IT REFUSES TO DERIVE
 //
 //   • `visibility` — daemon-projected from node liveness, never inferred, and an
@@ -30,7 +39,6 @@
 
 import { Chip, Nothing, RefusalCard, WireFigure, formatCount } from "../primitives/index.js";
 import type { PushDrivenReadState } from "../seats/index.js";
-import { CHILD_RUN_REFUSAL_VISIBLE_CAP } from "./constants.js";
 import {
   CHILD_RUN_LINK_TYPES,
   CHILD_RUN_VISIBILITIES,
@@ -95,7 +103,7 @@ export function RunLinkage(props: RunLinkageProps): React.JSX.Element {
             {formatCount(rejectedCreates.length)} refused
           </summary>
           <ul className="meridian-linkage__refusal-list">
-            {rejectedCreates.slice(0, CHILD_RUN_REFUSAL_VISIBLE_CAP).map((rejection, index) => (
+            {rejectedCreates.map((rejection, index) => (
               <RefusalRow key={`${rejection.reason}-${String(index)}`} rejection={rejection} />
             ))}
           </ul>

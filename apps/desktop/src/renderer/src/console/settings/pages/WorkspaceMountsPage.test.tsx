@@ -5,7 +5,7 @@ import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { MOUNT_INVENTORY_READ_CAP } from "../constants.js";
+import { MOUNT_INVENTORY_READ_CAP } from "../../core/index.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
 import { WorkspaceMountsPage, registerWorkspaceMountsPage } from "./WorkspaceMountsPage.js";

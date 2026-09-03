@@ -145,6 +145,99 @@ describe("shell preferences — a carrier that answers", () => {
   });
 });
 
+/**
+ * A carrier read this test settles by hand.
+ *
+ * The whole subject below is the ORDER two settlements land in, and the shipped
+ * builders resolve immediately, so a case built from them could never put a choice
+ * between a read's start and its answer.
+ */
+type ServedShellConfig = Extract<
+  Awaited<ReturnType<GrowthPort["shellConfigRead"]>>,
+  { status: "served" }
+>;
+
+/** The served arm of one carrier read, resolved when a case decides to resolve it. */
+function heldRead(): {
+  readonly answer: GrowthPort["shellConfigRead"];
+  readonly serve: (values: Readonly<Record<string, boolean>>) => void;
+} {
+  let settle: (outcome: ServedShellConfig) => void = () => undefined;
+  const held = new Promise<ServedShellConfig>((resolve) => {
+    settle = resolve;
+  });
+  return {
+    answer: () => held,
+    serve: (values) => {
+      settle({ status: "served", value: values });
+    },
+  };
+}
+
+describe("shell preferences — the opening read never lands on a newer choice", () => {
+  it("keeps a value the carrier accepted while the opening read was still in flight", async () => {
+    // The defect: the write settled first and applied the accepted value, and the
+    // read's continuation then replaced the whole record with the snapshot from
+    // before the choice — so the switch reverted moments after it was saved.
+    const opening = heldRead();
+    const store = new ShellPreferenceStore(
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: opening.answer,
+        shellConfigWrite: growthServing(undefined),
+      }),
+    );
+    store.start();
+
+    await store.choose("updates.automatic", false);
+    opening.serve({ "updates.automatic": true });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(false);
+  });
+
+  it("installs a read that settled with no choice against it", async () => {
+    const opening = heldRead();
+    const store = new ShellPreferenceStore(
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: opening.answer,
+        shellConfigWrite: growthServing(undefined),
+      }),
+    );
+    store.start();
+
+    opening.serve({ "updates.automatic": false });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(store.snapshot().reading.kind).toBe("read");
+    expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(false);
+  });
+
+  it("negative control: the discard is scoped to the read a choice raced", async () => {
+    // Without this, the first case would pass over a store that discarded EVERY
+    // read — including one that settled before anybody chose — which would make the
+    // carrier's record unreachable rather than merely superseded.
+    const opening = heldRead();
+    const store = new ShellPreferenceStore(
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: opening.answer,
+        shellConfigWrite: growthServing(undefined),
+      }),
+    );
+    store.start();
+
+    opening.serve({ "diagnostics.crashReports": false });
+    await Promise.resolve();
+    await Promise.resolve();
+    await store.choose("updates.automatic", false);
+
+    // The read landed first, so its record stands beside the later choice.
+    expect(effectivePreference(store.snapshot(), "diagnostics.crashReports")).toBe(false);
+    expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(false);
+  });
+});
+
 describe("shell preferences — the store belongs to the window, not to a page", () => {
   it("hands one bridge the same store however many pages ask", async () => {
     // The defect this is the negative control for: a store built per calling
@@ -152,32 +245,38 @@ describe("shell preferences — the store belongs to the window, not to a page",
     // gone by the time the notifications section asked for it — while the row said
     // it was held for the window.
     const bridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
-    const firstPagesStore = consoleShellPreferences.storeFor(bridge);
+    const firstPagesStore = consoleShellPreferences.acquire(bridge);
     await firstPagesStore.choose("updates.automatic", false);
 
-    const secondPagesStore = consoleShellPreferences.storeFor(bridge);
+    const secondPagesStore = consoleShellPreferences.acquire(bridge);
 
     expect(secondPagesStore).toBe(firstPagesStore);
     expect(effectivePreference(secondPagesStore.snapshot(), "updates.automatic")).toBe(false);
     expect(Object.hasOwn(secondPagesStore.snapshot().heldLocally, "updates.automatic")).toBe(true);
   });
 
-  it("gives two bridges two stores, and disposes the one it superseded", async () => {
+  it("gives two bridges two stores, and disposes the one it superseded exactly once", async () => {
     // The fixture's scenario swap replaces the bridge. A store built against the old
     // one would keep answering with the old one's reading, so it is superseded
     // rather than reused — and it is dropped, so asking again mints a live store
     // rather than returning a terminal one whose replies write nothing.
     const firstBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
     const secondBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
-    const firstStore = consoleShellPreferences.storeFor(firstBridge);
+    const firstStore = consoleShellPreferences.acquire(firstBridge);
+    // Counted rather than read off the flag: `dispose` is idempotent, so a holder
+    // that disposed the same store on every ask would leave `isDisposed` looking
+    // exactly as it does here.
+    const disposals = vi.spyOn(firstStore, "dispose");
 
-    const secondStore = consoleShellPreferences.storeFor(secondBridge);
+    const secondStore = consoleShellPreferences.acquire(secondBridge);
+    consoleShellPreferences.acquire(secondBridge);
 
     expect(secondStore).not.toBe(firstStore);
+    expect(disposals).toHaveBeenCalledTimes(1);
     expect(firstStore.isDisposed).toBe(true);
     expect(secondStore.isDisposed).toBe(false);
 
-    const rebuilt = consoleShellPreferences.storeFor(firstBridge);
+    const rebuilt = consoleShellPreferences.acquire(firstBridge);
     expect(rebuilt).not.toBe(firstStore);
     expect(rebuilt.isDisposed).toBe(false);
     await rebuilt.choose("updates.automatic", false);
@@ -189,8 +288,8 @@ describe("shell preferences — the store belongs to the window, not to a page",
     // landing after the swap would publish the old bridge's answer over the new
     // bridge's store, which is the state a person cannot debug.
     const firstBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
-    const firstStore = consoleShellPreferences.storeFor(firstBridge);
-    consoleShellPreferences.storeFor(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
+    const firstStore = consoleShellPreferences.acquire(firstBridge);
+    consoleShellPreferences.acquire(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
 
     await firstStore.choose("updates.automatic", false);
 
@@ -198,5 +297,39 @@ describe("shell preferences — the store belongs to the window, not to a page",
     expect(effectivePreference(firstStore.snapshot(), "updates.automatic")).toBe(
       SHELL_PREFERENCE_DEFAULTS["updates.automatic"],
     );
+  });
+});
+
+describe("shell preferences — the lookup a render body performs", () => {
+  it("answers the live store for the bridge it is on", () => {
+    const bridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+    const acquired = consoleShellPreferences.acquire(bridge);
+
+    expect(consoleShellPreferences.storeIfCurrent(bridge)).toBe(acquired);
+  });
+
+  it("answers nothing for a bridge the holder is not on, and disposes nothing", () => {
+    // The purity claim, which is the whole of the fix: this is the call a render
+    // body makes, and a render body may run for a pass React replays or abandons.
+    // The acquiring form disposed the committed store and installed a successor
+    // right here, so an abandoned render left the mounted pages on a disposed store.
+    const committedBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+    const committed = consoleShellPreferences.acquire(committedBridge);
+    const replacementBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+
+    expect(consoleShellPreferences.storeIfCurrent(replacementBridge)).toBeUndefined();
+    expect(committed.isDisposed).toBe(false);
+    expect(consoleShellPreferences.storeIfCurrent(committedBridge)).toBe(committed);
+  });
+
+  it("negative control: acquiring the replacement is what disposes, so the two differ", () => {
+    // Without this, the case above would pass over a holder that never disposed
+    // anything at all — and the lookup would be pure because nothing was.
+    const committedBridge = fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER);
+    const committed = consoleShellPreferences.acquire(committedBridge);
+
+    consoleShellPreferences.acquire(fixtureBridgeWithGrowth(SCENARIO, REFUSING_CARRIER));
+
+    expect(committed.isDisposed).toBe(true);
   });
 });

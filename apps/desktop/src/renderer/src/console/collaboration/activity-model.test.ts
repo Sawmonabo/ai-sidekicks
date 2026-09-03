@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../core/index.js";
 import { ActivityIndicatorRegistry } from "./activity-model.js";
-import { COMPOSING_RECEIVED_STALE_MS } from "./constants.js";
+import { COMPOSING_RECEIVED_STALE_MS } from "../core/index.js";
 
 describe("activity indicators — a human's is timed", () => {
   it("clears a composing indicator once the receive bound passes", () => {
