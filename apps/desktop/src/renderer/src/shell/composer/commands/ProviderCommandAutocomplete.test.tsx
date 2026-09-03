@@ -36,6 +36,8 @@ const UNMATCHED_PREFIX = "/zzz-nothing-begins-with-this";
 const EMPTY_STATE_SENTENCE = "No command matches what you have typed";
 /** The opening of the sentence the popover renders when no group names this run. */
 const UNADDRESSED_BINDING_SENTENCE = "This run's binding published nothing here";
+/** A fragment of the sentence a press on a non-executable row is answered with. */
+const NOT_RUNNABLE_FRAGMENT = "there is nothing here to run";
 /** An entry name the scenario's own enumeration does not carry. */
 const UNADDRESSED_ENTRY_NAME = "status";
 /**
@@ -251,6 +253,38 @@ function optionNames(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll('[role="option"] .meridian-command-discovery__name')].map(
     (element) => element.textContent ?? "",
   );
+}
+
+/**
+ * Step focus into the open list, the way the line's own ArrowDown does.
+ *
+ * The list is where the activation keys are handled, so a case that fired them at the
+ * textarea would be testing the line's key handling and not the listbox's.
+ */
+async function stepIntoList(mounted: MountedComposer): Promise<HTMLElement> {
+  await act(async () => {
+    fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
+    await Promise.resolve();
+  });
+  const list = mounted.container.querySelector('[role="listbox"]');
+  if (!(list instanceof HTMLElement)) {
+    throw new Error("the surface rendered no listbox");
+  }
+  return list;
+}
+
+/** Press one key on the focused list and let the act settle. */
+async function pressOnList(list: HTMLElement, key: string): Promise<void> {
+  await act(async () => {
+    fireEvent.keyDown(list, { key });
+    await Promise.resolve();
+  });
+}
+
+/** The row `aria-activedescendant` names, resolved through the document. */
+function activeRow(container: HTMLElement, list: HTMLElement): HTMLElement | null {
+  const activeId = list.getAttribute("aria-activedescendant");
+  return activeId === null ? null : container.querySelector(`#${CSS.escape(activeId)}`);
 }
 
 afterEach(() => {
@@ -610,5 +644,99 @@ describe("ProviderCommandAutocomplete — one binding's entries reach the list",
     await typeIntoLine(mounted.line, "/");
 
     expect(optionNames(mounted.container)).toContain(UNADDRESSED_ENTRY_NAME);
+  });
+});
+
+describe("ProviderCommandAutocomplete — the list activates its active row", () => {
+  /** Registers the console act these cases activate, and counts what it ran. */
+  function registerCountedConsoleCommand(): { runCount: () => number } {
+    let ranCount = 0;
+    consoleCommands.register({
+      id: TEST_COMMAND_ID,
+      title: "A console act",
+      group: "Test",
+      run: () => {
+        ranCount += 1;
+      },
+    });
+    registeredIds.push(TEST_COMMAND_ID);
+    return { runCount: () => ranCount };
+  }
+
+  it("runs the active console row on Enter, exactly once", async () => {
+    // The finding: the arrows moved `aria-activedescendant` and neither Enter nor
+    // Space did anything, so a keyboard-only person could reach the console's own
+    // act and never perform it.
+    const counted = registerCountedConsoleCommand();
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
+    const list = await stepIntoList(mounted);
+
+    await pressOnList(list, "Enter");
+
+    expect(counted.runCount()).toBe(1);
+  });
+
+  it("runs it on Space too, through the same path", async () => {
+    const counted = registerCountedConsoleCommand();
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, `/${TEST_COMMAND_ID}`);
+    const list = await stepIntoList(mounted);
+
+    await pressOnList(list, " ");
+
+    expect(counted.runCount()).toBe(1);
+  });
+
+  it("answers a press on a provider row instead of running anything", async () => {
+    const counted = registerCountedConsoleCommand();
+    const recorded: RecordedCall[] = [];
+    const mounted = await mountComposer({
+      bridge: recordingBridge(recorded),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, "/");
+    const list = await stepIntoList(mounted);
+    // Console entries lead the catalog, so one step down lands on the first
+    // provider row — and the assertion below reads which row that is off the
+    // attribute rather than trusting the arithmetic.
+    await pressOnList(list, "ArrowDown");
+    expect(
+      activeRow(mounted.container, list)?.querySelector(".meridian-command-discovery__run"),
+    ).toBeNull();
+
+    await pressOnList(list, "Enter");
+
+    expect(counted.runCount()).toBe(0);
+    expect(recorded.map((entry) => entry.method)).not.toContain("run.queueCreate");
+    expect(
+      mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent,
+    ).toContain(NOT_RUNNABLE_FRAGMENT);
+  });
+
+  it("negative control: the same key on the same list runs the console row beside it", async () => {
+    // Without this the case above would hold over a listbox that had gone inert
+    // again — the press must be a no-op BECAUSE of which row is active, not because
+    // the key reaches nothing.
+    const counted = registerCountedConsoleCommand();
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, "/");
+    const list = await stepIntoList(mounted);
+    await pressOnList(list, "ArrowDown");
+    await pressOnList(list, "ArrowUp");
+
+    await pressOnList(list, "Enter");
+
+    expect(counted.runCount()).toBe(1);
+    expect(mounted.container.querySelector(".meridian-command-discovery__notice")).toBeNull();
   });
 });

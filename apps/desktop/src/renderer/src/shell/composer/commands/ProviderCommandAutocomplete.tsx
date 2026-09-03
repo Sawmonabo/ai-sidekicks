@@ -32,6 +32,15 @@
 // attributed to this run's binding the provider half is an absence with its own
 // sentence rather than another binding's list under this run's name.
 //
+// THE LIST ACTIVATES ITS ACTIVE ROW, AND ONLY ONE KIND OF ROW CAN BE ACTIVATED. A
+// `role="listbox"` that moves an active descendant under the arrows and answers
+// neither Enter nor Space is a control a keyboard-only person can point at and never
+// use, so both keys settle the active row through the SAME executor the row's own
+// button calls — one path, so a console act cannot behave differently by which
+// gesture reached it. A provider row has no such path by design, and the key is
+// therefore a no-op that SAYS SO: silence would be indistinguishable from a surface
+// that had failed, and a disabled-looking control would assert the act exists here.
+//
 // THE SURFACE SPEAKS THROUGH ITS OWN STATUS REGION rather than through the window's
 // live announcer. The announcer exists so a read a person did not trigger and is not
 // looking at can still reach them; this popover is opened by their own keystroke and
@@ -108,6 +117,17 @@ export function ProviderCommandAutocomplete(
   );
 }
 
+/**
+ * Why pressing a key on a provider row runs nothing.
+ *
+ * Declared once and rendered only in answer to the press: the popover's lede already
+ * carries the standing claim ("Choosing an entry starts no turn"), which the listbox
+ * names through `aria-describedby`, so this sentence exists to answer a GESTURE
+ * rather than to restate the surface's purpose a second time on every open.
+ */
+const PROVIDER_ENTRY_NOT_RUNNABLE =
+  "Provider commands and skills are listed for reference. This console starts no turn from one, so there is nothing here to run.";
+
 interface CommandDiscoveryPopoverProps {
   readonly prefix: string;
   readonly readSurface: () => ComposerCommandSurface;
@@ -131,9 +151,13 @@ interface CommandDiscoveryPopoverProps {
 function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX.Element {
   const { prefix, readSurface, enumeration, addressed, stepIntoListToken, onDismiss } = props;
   const listId = useId();
+  const ledeId = `${listId}-lede`;
   const listRef = useRef<HTMLUListElement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
+  // Set only by a press that could not be honoured, and cleared by the next move or
+  // the next act, so the region never keeps answering a gesture the person has left.
+  const [activationNotice, setActivationNotice] = useState<string | undefined>(undefined);
 
   // The addressed run's own group, selected before the catalog is composed. A served
   // reading whose groups name no binding this run is on contributes nothing, and the
@@ -162,16 +186,47 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
     }
   }, [stepIntoListToken]);
 
+  const runConsoleCommand = useCallback(
+    (commandId: string) => {
+      setActionOutcome(undefined);
+      setActivationNotice(undefined);
+      void executor({ commandName: commandId, text: `/${commandId}` }).then(setActionOutcome);
+    },
+    [executor],
+  );
+
   const onListKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLUListElement>) => {
       if (event.key === "ArrowDown") {
         event.preventDefault();
+        setActivationNotice(undefined);
         setActiveIndex((index) => Math.min(index + 1, entries.length - 1));
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
+        setActivationNotice(undefined);
         setActiveIndex((index) => Math.max(index - 1, 0));
+        return;
+      }
+      // Enter and Space settle the ACTIVE row — the row `aria-activedescendant`
+      // already names, read from the same bounded index the attribute is composed
+      // from, so what is announced and what is activated agree by construction
+      // rather than through a second lookup that could disagree with it. Space is
+      // prevented from its default before anything else happens: a listbox is a
+      // focusable scroll container, and a Space that both ran the act and scrolled
+      // the popover would move the list out from under the person mid-press.
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        const activeEntry = boundedIndex < 0 ? undefined : entries[boundedIndex];
+        if (activeEntry === undefined) {
+          return;
+        }
+        if (activeEntry.source === "console") {
+          runConsoleCommand(activeEntry.commandId);
+          return;
+        }
+        setActivationNotice(PROVIDER_ENTRY_NOT_RUNNABLE);
         return;
       }
       if (event.key === "Escape") {
@@ -179,20 +234,12 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
         onDismiss();
       }
     },
-    [entries.length, onDismiss],
-  );
-
-  const runConsoleCommand = useCallback(
-    (commandId: string) => {
-      setActionOutcome(undefined);
-      void executor({ commandName: commandId, text: `/${commandId}` }).then(setActionOutcome);
-    },
-    [executor],
+    [boundedIndex, entries, onDismiss, runConsoleCommand],
   );
 
   return (
     <div className="meridian-command-discovery">
-      <p className="meridian-command-discovery__lede">
+      <p className="meridian-command-discovery__lede" id={ledeId}>
         What this console can do, and what the addressed agent&rsquo;s provider offers. Choosing an
         entry starts no turn.
       </p>
@@ -204,6 +251,7 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
           role="listbox"
           tabIndex={0}
           aria-label="Commands and skills"
+          aria-describedby={ledeId}
           aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
           onKeyDown={onListKeyDown}
         >
@@ -229,6 +277,11 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
           detail="Clear the line to see everything on offer, or type // to send a message that really begins with a slash."
         />
       ) : null}
+      {activationNotice === undefined ? null : (
+        <p className="meridian-command-discovery__notice" role="status">
+          {activationNotice}
+        </p>
+      )}
       <EnumerationState
         enumeration={enumeration}
         hasAddressedGroup={addressedGroup !== undefined}
