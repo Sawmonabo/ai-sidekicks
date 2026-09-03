@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { refuse } from "../core/index.js";
 import { RunLinkage } from "./RunLinkage.js";
-import type { ChildRunLinkReading } from "./agent-wire.js";
+import type { ChildRunLinkReading, ChildRunRejection } from "./agent-wire.js";
 import type { PushDrivenReadState } from "../seats/index.js";
 
 function loaded(value: ChildRunLinkReading): PushDrivenReadState<ChildRunLinkReading> {
@@ -207,6 +207,19 @@ describe("run linkage — visibility is not a run state", () => {
   });
 });
 
+/**
+ * More refused creates than any cap this view ever carried.
+ *
+ * Distinct reasons, because the list keys on the reason and its index: a run of
+ * identical rows would prove nothing about how many of them survive the render.
+ */
+function manyRefusals(): readonly ChildRunRejection[] {
+  return Array.from({ length: 17 }, (_unused, index) => ({
+    reason: `orchestration.refused_${String(index)}`,
+    targetAgentId: `agent-${String(index)}`,
+  }));
+}
+
 describe("run linkage — refusals, the only record work asked for and denied gets", () => {
   it("shows a refusal even though the run it would have created never existed", () => {
     const { container } = render(
@@ -222,6 +235,46 @@ describe("run linkage — refusals, the only record work asked for and denied ge
     expect(text).toContain("orchestration.depth_exceeded");
     // Taken from the refusal's own payload rather than from a console constant.
     expect(text).toContain("1 layer of nesting");
+  });
+
+  it("renders every refusal, however many the run accumulated", () => {
+    // The defect: the disclosure counted the whole collection and then sliced it, so
+    // past the cap a person read a number they could not reach the rows behind. The
+    // group scrolls instead — a bounded REGION, not a bounded list.
+    const refusals = manyRefusals();
+    const { container } = render(
+      <RunLinkage parentRunId="run-1" state={loaded({ links: [], rejectedCreates: refusals })} />,
+    );
+
+    expect(container.querySelectorAll(".meridian-linkage__refusal")).toHaveLength(refusals.length);
+    expect(container.textContent ?? "").toContain("orchestration.refused_16");
+  });
+
+  it("says the same number it renders", () => {
+    // The count and the rows are one claim. A summary reporting more than the list
+    // holds is exactly the shape the slice left behind.
+    const refusals = manyRefusals();
+    const { container } = render(
+      <RunLinkage parentRunId="run-1" state={loaded({ links: [], rejectedCreates: refusals })} />,
+    );
+
+    expect(container.querySelector(".meridian-linkage__refusals-summary")?.textContent).toBe(
+      `${String(refusals.length)} refused`,
+    );
+    expect(container.querySelectorAll(".meridian-linkage__refusal")).toHaveLength(refusals.length);
+  });
+
+  it("negative control: the list renders the collection it was handed and not a fixed run", () => {
+    // Without this, the two cases above would pass over a view that rendered the
+    // same number of rows whatever it was given.
+    const { container } = render(
+      <RunLinkage
+        parentRunId="run-1"
+        state={loaded({ links: [], rejectedCreates: manyRefusals().slice(0, 2) })}
+      />,
+    );
+
+    expect(container.querySelectorAll(".meridian-linkage__refusal")).toHaveLength(2);
   });
 
   it("negative control: a refusal carrying no depth prints no depth sentence", () => {

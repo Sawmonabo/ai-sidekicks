@@ -14,16 +14,6 @@
 export const TOOL_ALLOWLIST_NAMED_CAP = 6;
 
 /**
- * Child-run refusal rows rendered before the group scrolls.
- *
- * Refusals accumulate for the life of a run and are never garbage-collected by the
- * fold, so the group is unbounded by construction. A cap turns it into a bounded
- * region without hiding anything: past it the group scrolls rather than pushing the
- * links that DID happen off the surface.
- */
-export const CHILD_RUN_REFUSAL_VISIBLE_CAP = 12;
-
-/**
  * Characters of a resolved instruction or goal rendered inline before it clamps.
  *
  * Both are free prose an operator wrote and either may be pages. The echo's job at
