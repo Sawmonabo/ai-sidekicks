@@ -99,6 +99,59 @@ describe("cancel is never gated, queued or disabled", () => {
     expect(cancel).not.toHaveBeenCalled();
   });
 
+  it("says so where the operator is looking, even with the disclosure closed", () => {
+    // The finding exactly. The refusal used to live inside the collapsible region, so
+    // an operator who typed a long reason, collapsed it and pressed Cancel saw a
+    // button that did nothing and no word about why.
+    const cancel = vi.fn();
+    const { container } = render(
+      <OperatorControls
+        cancel={{ kind: "admitted", cancel }}
+        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+      />,
+    );
+    const disclosure = container.querySelector("details");
+    if (!(disclosure instanceof HTMLDetailsElement)) {
+      throw new Error("the cancel control rendered no disclosure");
+    }
+
+    fireEvent.change(screen.getByLabelText("Reason"), {
+      target: { value: "a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP + 1) },
+    });
+    // The state the defect needed: the operator never opened it, or closed it again.
+    expect(disclosure.open).toBe(false);
+    // The refusal is readable from there, which is a claim about WHERE it is rather
+    // than about whether it exists — the old markup rendered it too, out of sight.
+    expect(disclosure.contains(screen.getByText("reason-past-bound"))).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: /cancel this run/iu }));
+
+    expect(cancel).not.toHaveBeenCalled();
+    // And the press points at the field to shorten rather than only refusing.
+    expect(disclosure.open).toBe(true);
+    expect(document.activeElement).toBe(screen.getByLabelText("Reason"));
+  });
+
+  it("negative control: an accepted press leaves the disclosure as the operator left it", () => {
+    // Without this, the case above would pass over a control that yanked the
+    // disclosure open on every submission, which would be the console overriding the
+    // operator's own arrangement rather than answering a refusal.
+    const cancel = vi.fn();
+    const { container } = render(
+      <OperatorControls
+        cancel={{ kind: "admitted", cancel }}
+        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+      />,
+    );
+    const disclosure = container.querySelector("details");
+
+    fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "superseded" } });
+    fireEvent.click(screen.getByRole("button", { name: /cancel this run/iu }));
+
+    expect(cancel).toHaveBeenCalledWith("superseded");
+    expect(disclosure instanceof HTMLDetailsElement ? disclosure.open : true).toBe(false);
+  });
+
   it("negative control: a reason exactly at the bound travels", () => {
     // Without this, the case above would pass over a component that refused every
     // reason, or that never called through at all.
