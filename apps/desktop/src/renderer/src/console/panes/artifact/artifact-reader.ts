@@ -70,6 +70,7 @@ import { ArtifactPaneActions, type ArtifactActionHost } from "./artifact-actions
 import {
   NOTHING_READ_YET,
   SHIPPED_DEFAULT_ALLOWLIST,
+  growthAnswerReading,
   readFailureRefusal,
   type ArtifactAllowlistReading,
   type ArtifactDeleteOutcome,
@@ -321,20 +322,36 @@ export class ArtifactPaneReader {
   }
 
   async #readArtifacts(sessionId: string): Promise<ArtifactsPanelState> {
-    const answer = await this.#bridge.growth.artifactList({ sessionId });
-    if (answer.status === "unavailable") {
-      return { kind: "refused", refusal: answer };
+    const answer = growthAnswerReading(
+      "The artifact list",
+      await this.#bridge.growth.artifactList({ sessionId }),
+    );
+    if (answer.status === "refused") {
+      return { kind: "refused", refusal: answer.refusal };
     }
-    // Served. `listed` with an empty array is a DIFFERENT arm from `not-checked` and
+    // Read. `listed` with an empty array is a DIFFERENT arm from `not-checked` and
     // the reply's own length is what decides between them — a read that found none is
     // not a read nobody made.
     return { kind: "listed", rows: answer.value.map(artifactManifestRowFromSummary) };
   }
 
+  /**
+   * The deployment's own bounds, or the shipped defaults and why they are showing.
+   *
+   * THE REFUSAL IS A DESIGNED ARM OF THIS READING AND NOT A FAILURE OF IT. A
+   * deployment that does not serve its bounds is the ordinary case on this build —
+   * the wire is unregistered — so the hint falls back to what the console ships and
+   * says which of the two a participant is looking at. Reading the refusal off the
+   * reply's own shape is what keeps it on that arm: read as served, it took the
+   * whole pane read down with a `TypeError` and reported the console as broken.
+   */
   async #readAllowlist(sessionId: string): Promise<ArtifactAllowlistReading> {
-    const answer = await this.#bridge.growth.artifactAllowlistRead({ sessionId });
-    if (answer.status === "unavailable") {
-      return { ...SHIPPED_DEFAULT_ALLOWLIST, refusal: answer };
+    const answer = growthAnswerReading(
+      "The attachment allow-list read",
+      await this.#bridge.growth.artifactAllowlistRead({ sessionId }),
+    );
+    if (answer.status === "refused") {
+      return { ...SHIPPED_DEFAULT_ALLOWLIST, refusal: answer.refusal };
     }
     return {
       source: "effective",

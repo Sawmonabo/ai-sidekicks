@@ -5,10 +5,20 @@
 // the immutable value those produce and every total function over it, so a reduction
 // can be driven directly in a test with no bridge, no clock, and no reader at all.
 //
-// Nothing here reaches the port or the wire. `repos/artifact-model.ts` owns what a
-// served manifest IS; this module owns how one reading becomes the next.
+// Nothing here CALLS the port or the wire. `repos/artifact-model.ts` owns what a
+// served manifest IS; this module owns how one reading becomes the next — and, since
+// `growthAnswerReading` below, what one port ANSWER becomes before it gets there.
+// Reading an answer is the same kind of total reduction as the rest of this file and
+// belongs beside them, which is why the one port type it names travels through the
+// bridge barrel rather than the two callers each carrying their own narrowing.
 
-import { ATTACHMENT_BYTE_CAP_DEFAULT, refuse, type ConsoleRefusal } from "../../core/index.js";
+import type { GrowthUnavailable } from "../../bridge/index.js";
+import {
+  ATTACHMENT_BYTE_CAP_DEFAULT,
+  isConsoleRefusal,
+  refuse,
+  type ConsoleRefusal,
+} from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
 import type {
   ArtifactDeleteReceipt,
@@ -104,7 +114,7 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
 export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
 
 /**
- * The two codes this pane mints. The port owns every other refusal the pane renders.
+ * The three codes this pane mints. The port owns every other refusal the pane renders.
  *
  * Declared here, beside the reading they are recorded on, rather than in either of
  * the two modules that raise them: a refusal vocabulary split across the reader and
@@ -114,6 +124,8 @@ export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
 export const ARTIFACT_READ_THREW_CODE = "read-threw";
 
 export const ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE = "payload-fetch-in-flight";
+
+export const ARTIFACT_REPLY_UNREADABLE_CODE = "reply-unreadable";
 
 /**
  * The refusal a read that threw becomes.
@@ -148,6 +160,87 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleR
     ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE,
     `The payload of ${pendingArtifactId} has been asked for and the daemon has not answered yet. Nothing else is fetched until it settles.`,
   );
+}
+
+/**
+ * One growth-port answer, in the two arms the port produces.
+ *
+ * The served arm is written out rather than imported because `GrowthOutcome` does not
+ * leave the bridge barrel, and a view family reaching past that barrel is the deep
+ * import the structure rules exist to prevent. `GrowthUnavailable` does leave it, so
+ * the arm that carries a vocabulary is the port's own value and only the two-member
+ * served arm is restated — and a served arm that lost `value` would fail to assign at
+ * every call site rather than drifting quietly.
+ */
+type GrowthAnswer<TValue> =
+  | { readonly status: "served"; readonly value: TValue }
+  | GrowthUnavailable;
+
+/**
+ * What one growth-port answer said, or why nothing was read.
+ *
+ * `repos/repo-reads.ts`'s read-or-refusal shape, because it is the same question asked
+ * of a different port: a second vocabulary for it would make a surface rendering both
+ * translate between two shapes to reach one renderer, which is exactly what
+ * `core/refusal.ts` exists to have stopped.
+ */
+export type GrowthAnswerReading<TValue> =
+  | { readonly status: "read"; readonly value: TValue }
+  | { readonly status: "refused"; readonly refusal: ConsoleRefusal };
+
+/**
+ * Read one growth-port answer, by the shape the reply actually has.
+ *
+ * NARROWED ON THE REFUSAL, NOT ON ONE DISCRIMINANT VALUE'S ABSENCE. Every call site
+ * in this pane used to ask `status === "unavailable"` and treat everything else as
+ * served. That is not the same claim, and the difference is reachable: `core`'s bare
+ * `refuse(...)` is a refusal WITHOUT the port's discriminant — `growthUnavailable`
+ * builds its own by spreading exactly that value — so such a reply passed the test as
+ * served and was then dereferenced for a `value` it does not carry. The pane published
+ * `read-threw` carrying a `TypeError` sentence, which made a wire that is simply not
+ * registered read as the console breaking, and buried the refusal that said so.
+ *
+ * MOST SPECIFIC FIRST, which is `repos/repo-reads.ts`'s `refusalFromRejection`
+ * ordering: a reply that already IS the console's one refusal shape is one, and
+ * `GrowthUnavailable` extends that shape, so the port's own refusal and a bare
+ * `refuse(...)` are recognised by the same test and neither reaches the value branch.
+ * A served answer carries no `code`, `detail`, or `origin`, so it cannot be mistaken
+ * for one in the other direction.
+ *
+ * TOTAL, because a reply that is neither is a fact rather than a crash. Rule 8 admits
+ * no silent no-op, so the third arm is a refusal a person can read and paste, naming
+ * the operation and never the reply — which may be participant content.
+ */
+export function growthAnswerReading<TValue>(
+  operation: string,
+  answer: GrowthAnswer<TValue>,
+): GrowthAnswerReading<TValue> {
+  if (isConsoleRefusal(answer)) {
+    return { status: "refused", refusal: answer };
+  }
+  if (!carriesServedValue(answer)) {
+    return {
+      status: "refused",
+      refusal: refuse(
+        ARTIFACT_READER_REFUSAL_ORIGIN,
+        ARTIFACT_REPLY_UNREADABLE_CODE,
+        `${operation} answered with a shape that is neither a served value nor a refusal, so nothing was read.`,
+      ),
+    };
+  }
+  return { status: "read", value: answer.value };
+}
+
+/**
+ * Whether an answer the types call served actually carries the member.
+ *
+ * The check the declared type cannot make: the fixture bridge is assembled behind a
+ * cast, and the live port is one process boundary away, so what arrives is whatever
+ * was sent. Presence rather than definedness — no operation on this pane serves an
+ * absent value, and testing for `undefined` would refuse one that legitimately did.
+ */
+function carriesServedValue(answer: unknown): answer is { readonly value: unknown } {
+  return typeof answer === "object" && answer !== null && "value" in answer;
 }
 
 /**

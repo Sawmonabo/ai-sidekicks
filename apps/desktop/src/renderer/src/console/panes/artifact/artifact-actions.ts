@@ -50,6 +50,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { artifactManifestRowFromSummary } from "../../repos/artifact-model.js";
 import {
+  growthAnswerReading,
   payloadFetchInFlightRefusal,
   withReplacedRow,
   withRowRefusal,
@@ -144,12 +145,15 @@ export class ArtifactPaneActions {
    */
   public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
     const generation = this.#host.scheduledReadGeneration();
-    const answer = await this.#bridge.growth.artifactRead({ artifactId });
+    const answer = growthAnswerReading(
+      "The manifest re-read",
+      await this.#bridge.growth.artifactRead({ artifactId }),
+    );
     if (generation !== this.#host.scheduledReadGeneration()) {
       return { status: "superseded" };
     }
-    if (answer.status === "unavailable") {
-      return this.#recordRowRefusal(artifactId, answer);
+    if (answer.status === "refused") {
+      return this.#recordRowRefusal(artifactId, answer.refusal);
     }
     const reading = this.#host.currentReading();
     this.#host.publish({
@@ -249,16 +253,19 @@ export class ArtifactPaneActions {
    */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     const generation = this.#host.scheduledReadGeneration();
-    const answer = await this.#bridge.growth.artifactDelete({ artifactId });
-    if (answer.status === "unavailable") {
+    const answer = growthAnswerReading(
+      "The delete",
+      await this.#bridge.growth.artifactDelete({ artifactId }),
+    );
+    if (answer.status === "refused") {
       // A refusal records an act that did NOT happen, so a stamp that moved under it
       // means the row it was about has since been re-read and the refusal has nothing
       // left to stand beside.
       if (generation !== this.#host.scheduledReadGeneration()) {
         return { status: "superseded" };
       }
-      this.#recordRowRefusal(artifactId, answer);
-      return { status: "refused", refusal: answer };
+      this.#recordRowRefusal(artifactId, answer.refusal);
+      return { status: "refused", refusal: answer.refusal };
     }
     if (this.#host.isDisposed()) {
       return { status: "superseded" };
@@ -292,16 +299,19 @@ export class ArtifactPaneActions {
   /** The call, and what its answer writes if this request still holds the register. */
   async #awaitPayload(request: InFlightPayloadFetch): Promise<ArtifactPayloadOutcome> {
     const { artifactId } = request;
-    const answer = await this.#bridge.growth.artifactRead({ artifactId, includePayload: true });
+    const answer = growthAnswerReading(
+      "The payload fetch",
+      await this.#bridge.growth.artifactRead({ artifactId, includePayload: true }),
+    );
     if (!this.#stillStandingFor(request)) {
       return { status: "superseded" };
     }
-    if (answer.status === "unavailable") {
+    if (answer.status === "refused") {
       this.#host.publish({
         ...this.#host.currentReading(),
-        payload: { status: "refused", artifactId, refusal: answer },
+        payload: { status: "refused", artifactId, refusal: answer.refusal },
       });
-      return { status: "refused", refusal: answer };
+      return { status: "refused", refusal: answer.refusal };
     }
     const payload = artifactPayloadReadingFrom(artifactId, answer.value);
     const reading = this.#host.currentReading();

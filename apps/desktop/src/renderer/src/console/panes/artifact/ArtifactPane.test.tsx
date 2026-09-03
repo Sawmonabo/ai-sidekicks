@@ -259,6 +259,40 @@ describe("artifact pane — the ingest bounds disclosure", () => {
     expect(caps?.textContent).toContain("Per upload");
   });
 
+  it("renders a refusal that carries no served discriminant, and reads the list beside it", async () => {
+    // THE SHAPE THAT TOOK THE WHOLE PANE DOWN. `core`'s `refuse(...)` is the console's
+    // three refusal fields and no `status` — the value `growthUnavailable` spreads to
+    // build its own — and a reader that asked only whether `status` was
+    // `"unavailable"` read it as served, dereferenced it for `contentTypes`, and
+    // published a `read-threw` refusal whose sentence was a `TypeError`. So both
+    // halves are asserted: the disclosure shows the refusal on its designed
+    // shipped-default arm, and the list beside it still read.
+    const { container } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: {
+          growth: {
+            artifactList: async () => LISTED_ONE_ROW,
+            artifactAllowlistRead: async () => ({
+              code: "wire-unregistered",
+              detail: "Not checked — the artifact CRUD method strings are not registered yet.",
+              origin: "growth-port",
+            }),
+          },
+        } as unknown as ConsoleBridge,
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    expect(container.querySelector(".meridian-ingest-bounds__source")?.textContent).toContain(
+      "shipped default",
+    );
+    expect(container.querySelector(".meridian-ingest-bounds__refusal")?.textContent).toContain(
+      "wire-unregistered",
+    );
+    expect(container.textContent).not.toContain("read-threw");
+    expect(container.textContent).not.toContain("contentTypes");
+  });
+
   it("negative control: the pane offers no visibility toggle", () => {
     // The wire carries an `artifact.visibility_updated` event and
     // `bridge/growth-port.ts` registers no operation that could produce one. A

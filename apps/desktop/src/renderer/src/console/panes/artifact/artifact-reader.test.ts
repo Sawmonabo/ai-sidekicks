@@ -293,6 +293,35 @@ describe("artifact pane reader — the allow-list hint", () => {
     expect(reader.snapshot.allowlist.refusal?.code).toBe("wire-unregistered");
   });
 
+  it("falls back on a refusal that carries no served discriminant, and the read still settles", async () => {
+    // THE SHAPE A FIXTURE AND THE LIVE PORT BOTH PRODUCE. `core`'s `refuse(...)` is
+    // the console's three refusal fields and nothing else — `growthUnavailable`
+    // spreads exactly that value to build its own — and a reader that asked only
+    // whether `status` was `"unavailable"` read this as served, dereferenced it for
+    // `contentTypes`, and turned the whole pane read into a `read-threw` carrying a
+    // `TypeError`. So the two assertions that matter are the fallback arm AND the
+    // list beside it: the failure this catches took both down at once.
+    const clock = new ManualClock();
+    const reader = new ArtifactPaneReader({
+      bridge: bridgeAnswering({
+        listAnswer: { status: "served", value: [SERVED_SUMMARY] },
+        allowlistAnswer: {
+          code: "wire-unregistered",
+          detail: "Not checked — the artifact CRUD method strings are not registered yet.",
+          origin: "growth-port",
+        },
+      }),
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+      clock,
+    });
+    reader.start();
+    await readThrough(clock);
+    expect(reader.snapshot.allowlist.source).toBe("shipped-default");
+    expect(reader.snapshot.allowlist.mediaTypes).toStrictEqual(ATTACHMENT_ALLOWLIST_DEFAULT);
+    expect(reader.snapshot.allowlist.refusal?.code).toBe("wire-unregistered");
+    expect(reader.snapshot.artifacts.kind).toBe("listed");
+  });
+
   it("takes the effective list wholesale when the daemon answers", async () => {
     // Wholesale, never merged: an operator override REPLACES the default, so a reading
     // that unioned the two would describe a deployment that does not exist.
