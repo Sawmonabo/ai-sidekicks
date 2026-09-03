@@ -5,7 +5,7 @@
 // manual clock's `pendingCount` after teardown is what makes the "no timer outlives
 // the section" claim a check rather than an assertion.
 
-import { WorktreeStatusReadResponseSchema } from "@ai-sidekicks/contracts";
+import { WorktreeStatusReadResponseSchema, type SessionEventType } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../bridge/index.js";
@@ -69,14 +69,20 @@ function openReader(
 }
 
 /**
- * One `workspace.stale` frame, carrying no payload.
+ * One lifecycle frame of a named kind, carrying no payload.
  *
  * Deliberately payload-free: the trigger keys on the event KIND and on nothing else,
  * and a frame carrying members here would suggest it reads one. The wire's own payload
  * shape is `bridge/scenarios/repos.ts`'s to state, where the wire-truth predicate holds
- * it to the contract.
+ * it to the contract. The kind is a PARAMETER because the section watches the whole
+ * repo / workspace / worktree namespace rather than one frame, and a helper pinned to
+ * one kind would have made every case here about that kind.
  */
-function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
+function lifecycleFrame(
+  sessionId: string,
+  sequence: number,
+  kind: SessionEventType,
+): ConsoleSessionEvent {
   return {
     // The canonical envelope names the row as well as its position, so a frame the
     // store admits carries one. Derived from the position rather than repeated, on
@@ -84,9 +90,14 @@ function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
     id: `event-${String(sequence)}`,
     sessionId,
     sequence,
-    kind: "workspace.stale",
+    kind,
     occurredAt: "2026-01-01T09:05:01.900Z",
   };
+}
+
+/** One `workspace.stale` frame — the kind the section watched before it watched them all. */
+function staleFrame(sessionId: string, sequence: number): ConsoleSessionEvent {
+  return lifecycleFrame(sessionId, sequence, "workspace.stale");
 }
 
 /** A store with a base state, which is what makes a later frame a frame and not history. */
@@ -301,6 +312,68 @@ describe("RepoMountsReader — the reasons it reads again", () => {
     expect(reader.performCount).toBe(1);
 
     sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    await settle(clock, reader);
+
+    expect(reader.performCount).toBe(2);
+  });
+
+  it("re-reads on the terminal frame a provisioning workspace settles with", async () => {
+    // The gap this closes: an accepted mode select answers `provisioning` with no
+    // execution root — the root does not exist yet — and the daemon emits
+    // `workspace.ready` carrying it. Watching only `workspace.stale` left that reply
+    // unread, so the row stayed provisioning until a focus, a reconnect, or another
+    // mutation happened along.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
+    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    reader.start();
+    await settle(clock, reader);
+    const readAtFirstSettle = reader.snapshot.readAtMilliseconds;
+    expect(reader.performCount).toBe(1);
+
+    sessionStore.applyBatch([lifecycleFrame(REPOS_SCENARIO.sessionId, 1, "workspace.ready")]);
+    await settle(clock, reader);
+
+    expect(reader.performCount).toBe(2);
+    // The reading is the NEW read's rather than the old one redrawn: the stamp moves
+    // only when the section re-reads, which is what installs whatever execution root
+    // the daemon now names.
+    expect(reader.snapshot.readAtMilliseconds).toBeGreaterThan(readAtFirstSettle);
+  });
+
+  it("re-reads when a mount leaves the session", async () => {
+    // `repo.detached` changes the mount list this whole section is drawn from. Left
+    // unwatched, the section went on drawing a mount card, its workspaces, and its
+    // execution roots for a mount the session no longer holds.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
+    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    reader.start();
+    await settle(clock, reader);
+
+    sessionStore.applyBatch([lifecycleFrame(REPOS_SCENARIO.sessionId, 1, "repo.detached")]);
+    await settle(clock, reader);
+
+    expect(reader.performCount).toBe(2);
+  });
+
+  it("coalesces a burst across the whole namespace into one read", async () => {
+    // The widened set must not cost a read per frame: a workspace reprovisioning emits
+    // several frames in one breath, and the scheduler is what makes that one burst
+    // rather than five.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore(REPOS_SCENARIO.sessionId);
+    const reader = openReader(REPOS_SCENARIO, clock, sessionStore);
+    reader.start();
+    await settle(clock, reader);
+
+    sessionStore.applyBatch([
+      lifecycleFrame(REPOS_SCENARIO.sessionId, 1, "workspace.provisioning"),
+      lifecycleFrame(REPOS_SCENARIO.sessionId, 2, "worktree.created"),
+      lifecycleFrame(REPOS_SCENARIO.sessionId, 3, "worktree.ready"),
+      lifecycleFrame(REPOS_SCENARIO.sessionId, 4, "workspace.ready"),
+      lifecycleFrame(REPOS_SCENARIO.sessionId, 5, "repo.attached"),
+    ]);
     await settle(clock, reader);
 
     expect(reader.performCount).toBe(2);
