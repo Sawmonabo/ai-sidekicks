@@ -581,6 +581,46 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     );
   });
 
+  it("holds the fetch control while one is outstanding, and gives it back when it settles", async () => {
+    // A payload is bounded only by the ingest cap, so a second press before the first
+    // settles is a second download of the same bytes — and the reader refuses it. The
+    // control is held so a participant never meets that refusal by pressing something
+    // the pane was offering, and the arm the reading is on is what holds it.
+    let releaseRead: (answer: unknown) => void = () => undefined;
+    const artifactRead = vi.fn(
+      () =>
+        new Promise((resolve) => {
+          releaseRead = resolve;
+        }),
+    );
+    const { getByRole } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: {
+          growth: {
+            artifactList: async () => LISTED_ONE_ROW,
+            artifactAllowlistRead: async () => PORT_REFUSAL,
+            artifactRead,
+            artifactDelete: async () => PORT_REFUSAL,
+          },
+        } as unknown as ConsoleBridge,
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough();
+    const control = getByRole("button", { name: "Fetch payload" });
+    fireEvent.click(control);
+    await settleAct();
+
+    expect(control).toHaveProperty("disabled", true);
+    fireEvent.click(control);
+    await settleAct();
+    expect(artifactRead).toHaveBeenCalledTimes(1);
+
+    releaseRead(readAnswering("published"));
+    await settleAct();
+    expect(control).toHaveProperty("disabled", false);
+  });
+
   it("negative control: nothing is drawn before the fetch, and no old copy survives", async () => {
     const { container } = renderPane(
       contextFor(ARTIFACT_ENTITY, { bridge: bridgeListing({}), sessionId: SESSION_ID }),

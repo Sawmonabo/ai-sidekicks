@@ -247,6 +247,9 @@ export class ArtifactPaneReader {
   public dispose(): void {
     this.#disposed = true;
     this.#generation += 1;
+    // The acts are disposed too, so a fetch still in flight settles into nothing
+    // rather than into a register whose surface has gone.
+    this.#actions.dispose();
     this.#scheduler.dispose();
     this.#triggers?.dispose();
     this.#changes.clear();

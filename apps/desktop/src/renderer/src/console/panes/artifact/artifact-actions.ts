@@ -25,14 +25,32 @@
 //   • `deleteArtifact` establishes that a row is GONE, which no in-flight list read
 //     can discover, so it reconciles rather than returning — and only disposal
 //     silences it.
-//   • `fetchPayload` drops a superseded answer rather than writing it: the reading
-//     holds ONE payload, so an answer that lands after the stamp moved would put one
-//     artifact's bytes under another's name.
+//   • `fetchPayload` is SINGLE-FLIGHT, by its own request identity rather than by the
+//     reader's refresh stamp. The reading holds ONE payload, so two fetches racing put
+//     one artifact's bytes under another's name.
+//
+// WHY THE FETCH HAS AN IDENTITY OF ITS OWN AND NO LONGER READS THE REFRESH STAMP.
+// Both questions used to be answered by the reader's `#generation`, and that conflated
+// two facts that move independently. A list refresh landing under a fetch bumped the
+// stamp, so the fetch returned `superseded` and published nothing — leaving the
+// reading on `{ status: "fetching" }` with no answer ever coming, which is precisely
+// the state the held control below would have locked forever. A scheduled read does
+// not supersede a payload fetch: `#performRead` carries the payload arm forward
+// untouched, because a list read re-establishes which artifacts exist and answers
+// nothing about anyone's bytes. So the fetch is settled by ITS OWN id, and disposal is
+// asked separately.
+//
+// SETTLED BY REQUEST IDENTITY, NOT MERELY BY LIVENESS. `#inFlightFetch` alone answers
+// "is one pending"; a continuation coming back from its await also has to answer "is
+// the pending one MINE", because a reply for a request the register has moved past
+// describes bytes a later act has already superseded, and writing it would put the
+// older payload back on the reading.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { artifactManifestRowFromSummary } from "../../repos/artifact-model.js";
 import {
+  payloadFetchInFlightRefusal,
   withReplacedRow,
   withRowRefusal,
   withoutRow,
@@ -70,6 +88,18 @@ export interface ArtifactActionHost {
   requestRefreshAfterAct(): void;
 }
 
+/**
+ * One payload fetch awaiting the bridge, and the identity that tells it from its
+ * successor.
+ *
+ * The artifact is carried so the refusal a second press produces can name what the
+ * pane is actually waiting on, rather than reporting that something is in flight.
+ */
+interface InFlightPayloadFetch {
+  readonly artifactId: string;
+  readonly requestId: number;
+}
+
 export interface ArtifactPaneActionsOptions {
   readonly bridge: ConsoleBridge;
   readonly host: ArtifactActionHost;
@@ -79,6 +109,10 @@ export interface ArtifactPaneActionsOptions {
 export class ArtifactPaneActions {
   readonly #bridge: ConsoleBridge;
   readonly #host: ArtifactActionHost;
+  /** The payload fetch awaiting the bridge. One at a time, and the reading says which. */
+  #inFlightFetch: InFlightPayloadFetch | undefined;
+  /** Monotonic, so a superseded continuation can never match the standing request. */
+  #nextRequestId = 1;
 
   public constructor(options: ArtifactPaneActionsOptions) {
     this.#bridge = options.bridge;
@@ -151,43 +185,37 @@ export class ArtifactPaneActions {
    * with a list refresh would mean a refresh silently re-fetched bytes, which is the
    * automatic download this act exists to avoid.
    *
-   * ONE AT A TIME, AND A SUPERSEDED ANSWER IS DROPPED. The reading holds one payload,
-   * so a fetch that lands while the participant has asked for another artifact's would
-   * put one artifact's bytes under another's name. The stamp answers that, and it
-   * answers disposal in the same comparison.
+   * ONE AT A TIME, AND THE SECOND PRESS IS REFUSED RATHER THAN QUEUED OR DROPPED. Two
+   * fetches in flight is two downloads of the same bounded-only-by-ingest payload, and
+   * their answers can settle in either order — so the older reply could overwrite the
+   * newer bytes AND the newer manifest it carries. The register below makes the second
+   * press unrepresentable rather than merely unlikely: the reading names the pending
+   * artifact on its `fetching` arm, which is what the pane holds its control by, and a
+   * press that reached here anyway is refused in words rather than ignored.
    */
   public async fetchPayload(artifactId: string): Promise<ArtifactPayloadOutcome> {
-    const generation = this.#host.scheduledReadGeneration();
+    const pending = this.#inFlightFetch;
+    if (pending !== undefined) {
+      const refusal = payloadFetchInFlightRefusal(pending.artifactId);
+      // Recorded against the ROW rather than on the payload arm, which the pending
+      // fetch owns: writing the refusal there would take the pane off the in-flight
+      // absence it is still genuinely in, and the answer it is waiting for would then
+      // land on top of the refusal a moment later.
+      this.#recordRowRefusal(artifactId, refusal);
+      return { status: "refused", refusal };
+    }
+    const request: InFlightPayloadFetch = { artifactId, requestId: this.#nextRequestId };
+    this.#nextRequestId += 1;
+    this.#inFlightFetch = request;
     this.#host.publish({
       ...this.#host.currentReading(),
       payload: { status: "fetching", artifactId },
     });
-    const answer = await this.#bridge.growth.artifactRead({ artifactId, includePayload: true });
-    if (generation !== this.#host.scheduledReadGeneration()) {
-      return { status: "superseded" };
+    try {
+      return await this.#awaitPayload(request);
+    } finally {
+      this.#release(request);
     }
-    if (answer.status === "unavailable") {
-      this.#host.publish({
-        ...this.#host.currentReading(),
-        payload: { status: "refused", artifactId, refusal: answer },
-      });
-      return { status: "refused", refusal: answer };
-    }
-    const payload = artifactPayloadReadingFrom(artifactId, answer.value);
-    const reading = this.#host.currentReading();
-    this.#host.publish({
-      ...reading,
-      // The reply also carries the manifest, and it is used for what it is: a fresher
-      // reading of the row this fetch was about. Dropping it would leave the row
-      // stating what an older read said while the bytes beside it came from this one.
-      artifacts: withReplacedRow(
-        reading.artifacts,
-        artifactManifestRowFromSummary(answer.value.manifest),
-      ),
-      payload,
-      refusalByArtifactId: withoutRowRefusal(reading.refusalByArtifactId, artifactId),
-    });
-    return { status: "settled", payload };
   }
 
   /**
@@ -254,6 +282,60 @@ export class ArtifactPaneActions {
     return generation === this.#host.scheduledReadGeneration()
       ? { status: "settled", receipt }
       : { status: "reconciling", receipt };
+  }
+
+  /** Terminal. A fetch still on the wire settles into nothing rather than onto a pane that unmounted. */
+  public dispose(): void {
+    this.#inFlightFetch = undefined;
+  }
+
+  /** The call, and what its answer writes if this request still holds the register. */
+  async #awaitPayload(request: InFlightPayloadFetch): Promise<ArtifactPayloadOutcome> {
+    const { artifactId } = request;
+    const answer = await this.#bridge.growth.artifactRead({ artifactId, includePayload: true });
+    if (!this.#stillStandingFor(request)) {
+      return { status: "superseded" };
+    }
+    if (answer.status === "unavailable") {
+      this.#host.publish({
+        ...this.#host.currentReading(),
+        payload: { status: "refused", artifactId, refusal: answer },
+      });
+      return { status: "refused", refusal: answer };
+    }
+    const payload = artifactPayloadReadingFrom(artifactId, answer.value);
+    const reading = this.#host.currentReading();
+    this.#host.publish({
+      ...reading,
+      // The reply also carries the manifest, and it is used for what it is: a fresher
+      // reading of the row this fetch was about. Dropping it would leave the row
+      // stating what an older read said while the bytes beside it came from this one.
+      artifacts: withReplacedRow(
+        reading.artifacts,
+        artifactManifestRowFromSummary(answer.value.manifest),
+      ),
+      payload,
+      refusalByArtifactId: withoutRowRefusal(reading.refusalByArtifactId, artifactId),
+    });
+    return { status: "settled", payload };
+  }
+
+  /**
+   * Give the register back, but only where it is still this request's to give.
+   *
+   * A disposal clears the register out from under a continuation, and a request that
+   * no longer holds it must not clear a successor's — which is the same identity check
+   * `#stillStandingFor` makes before a settlement writes.
+   */
+  #release(request: InFlightPayloadFetch): void {
+    if (this.#inFlightFetch?.requestId === request.requestId) {
+      this.#inFlightFetch = undefined;
+    }
+  }
+
+  /** Whether a settled call still speaks for the fetch the register is holding. */
+  #stillStandingFor(request: InFlightPayloadFetch): boolean {
+    return !this.#host.isDisposed() && this.#inFlightFetch?.requestId === request.requestId;
   }
 
   #recordRowRefusal(artifactId: string, refusal: ConsoleRefusal): ArtifactRowActOutcome {

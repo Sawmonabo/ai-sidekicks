@@ -103,8 +103,17 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
 /** Which subsystem refused, when the refusal is the pane's own and not the port's. */
 export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
 
-/** The one code this pane mints. The port owns every other refusal it renders. */
+/**
+ * The two codes this pane mints. The port owns every other refusal the pane renders.
+ *
+ * Declared here, beside the reading they are recorded on, rather than in either of
+ * the two modules that raise them: a refusal vocabulary split across the reader and
+ * the acts would be two closed sets for one pane, and a caller narrowing on a code
+ * would have to know which half minted it.
+ */
 export const ARTIFACT_READ_THREW_CODE = "read-threw";
+
+export const ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE = "payload-fetch-in-flight";
 
 /**
  * The refusal a read that threw becomes.
@@ -120,6 +129,24 @@ export function readFailureRefusal(error: unknown): ConsoleRefusal {
     ARTIFACT_READER_REFUSAL_ORIGIN,
     ARTIFACT_READ_THREW_CODE,
     `The artifact read failed before it could answer: ${cause}`,
+  );
+}
+
+/**
+ * The refusal a second payload fetch becomes while the first is still on the wire.
+ *
+ * NAMED RATHER THAN SILENT, and it names the artifact the pane is actually waiting
+ * on rather than the one that was pressed: a participant told "something is in
+ * flight" cannot tell what. The control that produced it is held while a fetch is
+ * pending, so this is structurally unreachable from the pane — and recorded anyway,
+ * for `repos/proposal-gate-actions.ts`'s reason: a press that produced nothing at all
+ * is the silent no-op rule 8 forbids.
+ */
+export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleRefusal {
+  return refuse(
+    ARTIFACT_READER_REFUSAL_ORIGIN,
+    ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE,
+    `The payload of ${pendingArtifactId} has been asked for and the daemon has not answered yet. Nothing else is fetched until it settles.`,
   );
 }
 
