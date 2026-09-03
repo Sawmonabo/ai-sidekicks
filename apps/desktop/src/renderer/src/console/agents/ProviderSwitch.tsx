@@ -10,13 +10,16 @@
 //
 // AN OMITTED AXIS MEANS UNCHANGED, WHICH IS WHY A DRIVER MOVE CLEARS THE AXES THAT
 // DRIVER GOVERNS. `modelId` and `effort` are per driver and per model — an effort
-// vocabulary is the MODEL's own — and `outputSpeed` is declared by the driver or not
-// at all. Carrying any of them across a driver change would submit a value the target
-// driver never published, and submitting `{ driverName }` alone would leave the
-// daemon validating the OLD model against the NEW driver, which is a refusal on the
-// most ordinary cross-provider move there is. So the draft drops them in the same act
-// that moves the driver, and the actions stay out of reach until a model in the
-// target driver's own catalog is named.
+// vocabulary is the MODEL's own — `outputSpeed` is declared by the driver or not at
+// all, and a provider ACCOUNT belongs to one provider: an account registered against
+// the source provider is not an account the target can be run under. Carrying any of
+// them across a driver change would submit a value the target driver never published,
+// and submitting `{ driverName }` alone would leave the daemon validating the OLD
+// model — and the OLD account — against the NEW driver, which is a refusal on the
+// most ordinary cross-provider move there is. So the draft drops all four in the same
+// act that moves the driver, and the actions stay out of reach until a model in the
+// target driver's own catalog is named, and until an account is named where the agent
+// was running under an explicit one.
 //
 // THREE CONTROLS THIS SURFACE DELIBERATELY DOES NOT HAVE
 //
@@ -62,8 +65,14 @@ const EMPTY_DRAFT: AxisDraft = {};
  * `modelId` is drawn from the driver's own catalog, `effort` from the chosen MODEL's
  * published vocabulary, and `outputSpeed` from the driver's declared level set. None
  * of the three survives a move to a provider that published none of them.
+ *
+ * `providerAccountId` is here for a different reason and the same consequence: an
+ * account is registered against ONE provider and a run is bound to its account for
+ * the run's lifetime, so the source provider's account is not a value the target can
+ * take. Left in the draft it rode the request unchanged and the daemon had no answer
+ * but to refuse it.
  */
-const DRIVER_GOVERNED_AXES = ["modelId", "effort", "outputSpeed"] as const;
+const DRIVER_GOVERNED_AXES = ["modelId", "effort", "outputSpeed", "providerAccountId"] as const;
 
 interface AxisDraftEdit {
   readonly axis: ProviderAxis;
@@ -181,6 +190,15 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
   // The target driver has to be TOLD its model. An omitted axis is unchanged, so a
   // move that named no model would hand the daemon the previous driver's model.
   const needsTargetModel = driverMoved && !targetModels.some((model) => model.id === draft.modelId);
+  // And its account, but only where the agent HAS an explicit one: an omitted account
+  // on an agent running under its provider's registered default is a move the daemon
+  // resolves for itself, while an omitted account on an agent pinned to one means the
+  // source provider's account, which the target cannot be run under.
+  const needsTargetAccount =
+    driverMoved &&
+    agent.config?.providerAccountId !== undefined &&
+    draft.providerAccountId === undefined;
+  const heldBack = needsTargetModel || needsTargetAccount;
 
   return (
     <section className="meridian-switch" aria-label="Change the binding">
@@ -218,7 +236,11 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
         <span className="meridian-axis-field__label">Provider account</span>
         <input
           className="meridian-axis-field__text"
-          value={draft.providerAccountId ?? agent.config?.providerAccountId ?? ""}
+          // A driver move makes the agent's own account a description of a binding
+          // that no longer applies, exactly as it does for the three axes above.
+          value={
+            draft.providerAccountId ?? (driverMoved ? "" : (agent.config?.providerAccountId ?? ""))
+          }
           onChange={(event) => setAxis("providerAccountId", event.target.value)}
         />
       </label>
@@ -242,11 +264,17 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
               it moves to.
             </p>
           ) : null}
+          {needsTargetAccount ? (
+            <p className="meridian-switch__driver-move">
+              This agent runs under an account of its current provider, and an account belongs to
+              one provider — so a move to another has to name an account registered there.
+            </p>
+          ) : null}
           <div className="meridian-switch__actions">
             <button
               type="button"
               className="meridian-switch__apply"
-              disabled={needsTargetModel || props.isSubmitting === true}
+              disabled={heldBack || props.isSubmitting === true}
               aria-busy={props.isSubmitting === true}
               onClick={() => props.onApply(submitted, false)}
             >
@@ -255,7 +283,7 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
             <button
               type="button"
               className="meridian-switch__apply"
-              disabled={needsTargetModel || props.isSubmitting === true}
+              disabled={heldBack || props.isSubmitting === true}
               aria-busy={props.isSubmitting === true}
               onClick={() => props.onApply(submitted, true)}
             >
