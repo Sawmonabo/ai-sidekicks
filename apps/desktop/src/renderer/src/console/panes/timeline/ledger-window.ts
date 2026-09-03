@@ -225,6 +225,16 @@ export function deriveLedgerWindow(
  * terminal row says how it ended, in the daemon's own words. The rest is omitted
  * from the viewport rows AND from the body lookup, so nothing can draw a row the
  * fold has hidden.
+ *
+ * AND AN OPENED CHAPTER KEEPS ONLY WHAT THE CHAPTER CAP ADMITS. Opening one used to
+ * admit every member it had, while its header went on reporting the excess as
+ * `clipped` — so the figure named rows that were on screen, and one very long run
+ * could open into a virtual window the 120-row chapter ceiling did nothing to bound.
+ * The permitted subset is selected HERE, by `chapterRowIdsWithinCap`, so the rows
+ * outside it never reach the viewport and the header's `clipped` count is exactly
+ * what is not rendered. The receipt is admitted whatever the cap says: a chapter
+ * whose terminal fell outside the window would report how it ended in a header that
+ * could no longer show it.
  */
 export function foldChapterHeaders(
   model: LedgerWindowModel,
@@ -237,6 +247,15 @@ export function foldChapterHeaders(
   const rows: TimelineRow[] = [];
   const rowsByKey = new Map<string, TimelineRow>();
   const headeredRunIds = new Set<string>();
+  // Computed once per opened chapter rather than per row: the selection is a fact
+  // about the chapter, and asking it inside the loop would re-slice a 4,000-row run
+  // four thousand times.
+  const cappedRowIdsByRunId = new Map<string, ReadonlySet<string>>();
+  for (const [runId, chapter] of model.chapterByHeaderKey) {
+    if (openedTerminalRunIds.has(runId) && chapter.clippedRowCount > 0) {
+      cappedRowIdsByRunId.set(runId, new Set(chapterRowIdsWithinCap(chapter.rowIds)));
+    }
+  }
   for (const row of model.rows) {
     const runId = chapterKeyFor(row);
     const chapter = runId === undefined ? undefined : model.chapterByHeaderKey.get(runId);
@@ -253,7 +272,10 @@ export function foldChapterHeaders(
       // takes its subtree with it, which is the ancestor closure the cap performs.
       viewportRows.push({ key: runId, parentKey: undefined, rootCursor: runId });
     }
-    if (openedTerminalRunIds.has(runId) || row.id === chapter.terminalRowId) {
+    const cappedRowIds = cappedRowIdsByRunId.get(runId);
+    const isOpenedAndWithinCap =
+      openedTerminalRunIds.has(runId) && (cappedRowIds === undefined || cappedRowIds.has(row.id));
+    if (isOpenedAndWithinCap || row.id === chapter.terminalRowId) {
       viewportRows.push(viewportRowFor(row, runId));
       rows.push(row);
       rowsByKey.set(row.id, row);
