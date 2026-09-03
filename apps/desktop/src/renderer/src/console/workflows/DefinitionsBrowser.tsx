@@ -54,7 +54,7 @@
 // precedent. Rows reach this component from its caller and are fixture-fed until the
 // wire registers.
 
-import { memo } from "react";
+import { memo, useId } from "react";
 
 import {
   WORKFLOW_DEFINITION_SCOPES,
@@ -137,12 +137,27 @@ const DefinitionListItem = memo(function DefinitionListItem(
   props: DefinitionListItemProps,
 ): React.JSX.Element {
   const { definition, onOpenDefinition } = props;
+  const resolutionMarkId = useId();
+  const resolvesHere = definition.resolvesAtThisContext;
   return (
     <li
-      className="meridian-definition-row"
-      // The resolution mark is announced as well as shown: a chip a screen reader
-      // reads as one more label among several does not say "this is the one".
-      aria-current={definition.resolvesAtThisContext ? "true" : undefined}
+      className={
+        resolvesHere
+          ? "meridian-definition-row meridian-definition-row--resolves"
+          : "meridian-definition-row"
+      }
+      // The mark is announced as well as shown — a chip a screen reader reads as one
+      // more label among several does not say what it is — but it is announced as a
+      // DESCRIPTION and not as `aria-current`.
+      //
+      // `aria-current` marks the single current item within a set, and
+      // `resolvesAtThisContext` is not that: it is an independent predicate per
+      // definition NAME, so a scope holding resolving definitions for two names marks
+      // two rows, and assistive technology then says "current" about several rows in
+      // one list without saying what any of them is current for. Pointing the row's
+      // description at the mark it already renders says the thing that is actually
+      // true, in the words the surface already chose.
+      aria-describedby={resolvesHere ? resolutionMarkId : undefined}
     >
       {onOpenDefinition === undefined ? (
         <span className="meridian-definition-row__name">{definition.name}</span>
@@ -165,8 +180,13 @@ const DefinitionListItem = memo(function DefinitionListItem(
           title={`${definition.latestVersionNumber}`}
         />
       </span>
-      {definition.resolvesAtThisContext ? (
-        <Chip tone="accent" glyph="check" label="Resolves here" />
+      {resolvesHere ? (
+        // The wrapper exists to be referable by id and for nothing else, which is why
+        // it generates no box: the mark's place on the row is a design decision, and a
+        // span introduced to carry an attribute must not quietly move it.
+        <span className="meridian-definition-row__resolution" id={resolutionMarkId}>
+          <Chip tone="accent" glyph="check" label="Resolves here" />
+        </span>
       ) : null}
     </li>
   );

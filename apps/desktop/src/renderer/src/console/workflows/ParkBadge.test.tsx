@@ -10,6 +10,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { formatClockTime, formatDateTime } from "../primitives/index.js";
 import { ParkBadge } from "./ParkBadge.js";
 import { parkSchedule } from "./run-list-rows.js";
 import type { WorkflowParkedPhase, WorkflowPhasePark } from "./run-list-projection.js";
@@ -61,6 +62,14 @@ function scheduleText(badge: HTMLElement): string {
   return badge.querySelector(".meridian-park__schedule")?.textContent ?? "";
 }
 
+/** The armed instant as the badge draws it, which is the whole subject below. */
+function scheduleFigureText(park: WorkflowPhasePark): string {
+  return (
+    renderBadge(park).querySelector(".meridian-park__schedule .meridian-figure--wire")
+      ?.textContent ?? ""
+  );
+}
+
 describe("a park with an armed schedule", () => {
   it("wears no colour, because nobody is being asked for anything", () => {
     const badge = renderBadge(WAITING_ON_CAPACITY);
@@ -76,6 +85,43 @@ describe("a park with an armed schedule", () => {
     // A formatted reading, not the raw string: the two differ, which is what makes
     // the title above load-bearing rather than decorative.
     expect(figure?.textContent).not.toBe(WAITING_ON_CAPACITY.autoResumeAt);
+  });
+});
+
+describe("an armed instant that falls on another day", () => {
+  // Two boundaries at the same wall-clock time, three days apart. No park badge
+  // stands under a day divider — it is drawn in a run row and in the run pane's stack
+  // of cards — so this is exactly the pair the ledger's date-free reading collapses
+  // into one figure, and the operator reads a promise about the wrong morning.
+  const armedOnTheFirst: WorkflowPhasePark = {
+    ...WAITING_ON_CAPACITY,
+    autoResumeAt: "2026-09-01T11:30:00.000Z",
+  };
+  const armedOnTheFourth: WorkflowPhasePark = {
+    ...WAITING_ON_CAPACITY,
+    autoResumeAt: "2026-09-04T11:30:00.000Z",
+  };
+
+  it("reads differently from one armed at the same time on a different day", () => {
+    expect(scheduleFigureText(armedOnTheFourth)).not.toBe(scheduleFigureText(armedOnTheFirst));
+  });
+
+  it("negative control: the ledger's date-free reading renders the two identically", () => {
+    // This is the finding. Without it the case above would pass over a badge that
+    // differed for some other reason, and it would not say why the ledger's own
+    // formatter cannot serve a surface with no divider above it.
+    expect(formatClockTime(armedOnTheFourth.autoResumeAt ?? "")).toBe(
+      formatClockTime(armedOnTheFirst.autoResumeAt ?? ""),
+    );
+  });
+
+  it("draws the figure chokepoint's date-carrying reading, and not a second one", () => {
+    // Against the real formatter rather than a shape: the badge's job is to reach the
+    // chokepoint, and a locale-shaped regexp here would pass over a badge that had
+    // composed its own date beside it.
+    expect(scheduleFigureText(armedOnTheFirst)).toBe(
+      formatDateTime(armedOnTheFirst.autoResumeAt ?? ""),
+    );
   });
 });
 

@@ -13,7 +13,12 @@
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowPhaseState } from "../bridge/index.js";
-import { phasePark, type WorkflowPhaseStateRow } from "./run-list-rows.js";
+import {
+  instantMilliseconds,
+  parkSchedule,
+  phasePark,
+  type WorkflowPhaseStateRow,
+} from "./run-list-rows.js";
 
 function phase(overrides: Partial<WorkflowPhaseStateRow> = {}): WorkflowPhaseStateRow {
   return { phaseId: "phase-1", phaseName: "Draft", state: "running", ...overrides };
@@ -83,5 +88,83 @@ describe("the rows are a narrowing of the wire shape, not a second one", () => {
     expect(WIRE_PHASE.phaseRunId).toBe("phase-run-01");
     expect(WIRE_PHASE.attemptNumber).toBe(2);
     expect(WIRE_PHASE.formRevision).toBe(0);
+  });
+});
+
+/*
+ * A schedule is a PROMISE about a moment, so the value it is read from has to be a
+ * moment. `Date.parse` is not that check: it answers a number for a timezone-less
+ * `2026-01-01T10:00:00` by reading it in whatever zone the operator's machine is in,
+ * and for a date-only `2026-01-01` by reading it in UTC — so both reached the armed
+ * arm, and the badge drew "Scheduled to resume at" over a time nobody had sent.
+ *
+ * The cases below drive `parkSchedule`, which is where the consequence lands, and
+ * `instantMilliseconds`, which is the single reading both this classification and the
+ * run sort take. Each malformed shape carries the control that names why the shape
+ * check is the thing doing the refusing.
+ */
+describe("an armed boundary is an instant or it is unreadable", () => {
+  function scheduleFor(autoResumeAt: string): ReturnType<typeof parkSchedule> {
+    return parkSchedule({
+      parkReason: "provider-usage-limited",
+      parkCause: "The account's allowance is spent.",
+      autoResumeAt,
+    });
+  }
+
+  it("refuses a timezone-less instant rather than reading it in the host's zone", () => {
+    expect(scheduleFor("2026-01-01T10:00:00").kind).toBe("unreadable");
+  });
+
+  it("negative control: the host's own parser accepts that value and returns a number", () => {
+    // The whole finding. Without this the case above would pass over a projection
+    // that refused the value for some other reason — a length, a stray character —
+    // and would not say that the permissive parse is what let it through.
+    expect(Number.isNaN(Date.parse("2026-01-01T10:00:00"))).toBe(false);
+    expect(instantMilliseconds("2026-01-01T10:00:00")).toBeUndefined();
+  });
+
+  it("refuses a date with no time on it", () => {
+    expect(scheduleFor("2026-01-01").kind).toBe("unreadable");
+  });
+
+  it("negative control: the host's own parser accepts a bare date too", () => {
+    expect(Number.isNaN(Date.parse("2026-01-01"))).toBe(false);
+    expect(instantMilliseconds("2026-01-01")).toBeUndefined();
+  });
+
+  it("refuses a numeric offset, because this plane declares one encoding", () => {
+    // Unambiguous to a parser and still not the encoding the wire declares. A console
+    // that read a second one is where a producer's encoding change would enter
+    // unremarked instead of arriving as the unreadable value it is.
+    expect(scheduleFor("2026-01-01T10:00:00+01:00").kind).toBe("unreadable");
+  });
+
+  it("admits a well-formed UTC instant and carries its parsed reading on the arm", () => {
+    // The control for every case above: a projection that refused everything would
+    // satisfy all of them and leave no park schedulable at all.
+    const schedule = scheduleFor("2026-01-01T10:00:00.000Z");
+    expect(schedule.kind).toBe("armed");
+    expect(schedule.kind === "armed" ? schedule.atMilliseconds : undefined).toBe(
+      Date.parse("2026-01-01T10:00:00.000Z"),
+    );
+  });
+
+  it("admits one with whole seconds and no fraction", () => {
+    expect(scheduleFor("2026-01-01T10:00:00Z").kind).toBe("armed");
+  });
+
+  it("still refuses an instant-shaped value no parser accepts", () => {
+    // The shape check does not replace the parse. This one passes the shape and is
+    // not a time, which is why both conjuncts are there.
+    expect(scheduleFor("2026-09-01T99:99:99.000Z").kind).toBe("unreadable");
+  });
+
+  it("leaves a park that armed nothing unscheduled rather than unreadable", () => {
+    // The two absences are different facts, and the guard must not fold one into the
+    // other: nothing was armed here, so there is no malformed value to report.
+    expect(
+      parkSchedule({ parkReason: "waiting-human", parkCause: "Waiting for sign-off." }).kind,
+    ).toBe("unscheduled");
   });
 });

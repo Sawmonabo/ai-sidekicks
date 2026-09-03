@@ -31,8 +31,8 @@ import {
   DerivedFigure,
   Nothing,
   WireFigure,
-  formatClockTime,
   formatCount,
+  formatDateTime,
 } from "../primitives/index.js";
 import { ParkBadge } from "./ParkBadge.js";
 import type {
@@ -175,7 +175,13 @@ const RunListItem = memo(function RunListItem(props: RunListItemProps): React.JS
       </div>
       <div className="meridian-run-row__meta">
         <WireFigure value={run.workflowRunId} />
-        <WireFigure value={formatClockTime(run.startedAt)} title={run.startedAt} />
+        {/*
+          The start carries its DATE as well as its time. A run list is not a ledger —
+          nothing above these rows divides them by day — so two runs started a week
+          apart at the same hour read as one figure under the ledger's date-free
+          clock, which is the reading this row used to draw.
+        */}
+        <WireFigure value={formatDateTime(run.startedAt)} title={run.startedAt} />
         {row.isPinnedBehindLatestVersion ? (
           <span className="meridian-run-row__pin">
             pinned <WireFigure value={run.workflowVersionId} />

@@ -168,6 +168,19 @@ describe("the scope groups", () => {
 });
 
 describe("the resolution mark", () => {
+  function markedRows(list: HTMLElement): readonly HTMLElement[] {
+    return [...list.querySelectorAll<HTMLElement>(".meridian-definition-row--resolves")];
+  }
+
+  /** The sentence assistive technology reads as the row's description, or nothing. */
+  function describedTextOf(list: HTMLElement, row: HTMLElement): string | undefined {
+    const describedBy = row.getAttribute("aria-describedby");
+    if (describedBy === null) {
+      return undefined;
+    }
+    return list.ownerDocument.getElementById(describedBy)?.textContent ?? undefined;
+  }
+
   it("marks exactly the row the daemon flagged", () => {
     const list = renderBrowser(
       <DefinitionsBrowser
@@ -182,7 +195,7 @@ describe("the resolution mark", () => {
         ]}
       />,
     );
-    const marked = [...list.querySelectorAll<HTMLElement>('[aria-current="true"]')];
+    const marked = markedRows(list);
     expect(marked).toHaveLength(1);
     const markedRow = marked[0];
     if (markedRow === undefined) {
@@ -198,7 +211,43 @@ describe("the resolution mark", () => {
     const list = renderBrowser(
       <DefinitionsBrowser definitions={[definition({ id: "session-copy", scope: "session" })]} />,
     );
-    expect(list.querySelectorAll('[aria-current="true"]')).toHaveLength(0);
+    expect(markedRows(list)).toHaveLength(0);
+    expect(list.querySelector("[aria-describedby]")).toBeNull();
+  });
+
+  it("describes each marked row rather than calling it the current one", () => {
+    // Two definitions with DIFFERENT names both resolving, which is the shape the
+    // finding is about: resolution is a predicate per definition name, so a scope can
+    // carry several, and `aria-current` — which names the single current item in a set
+    // — then said "current" about two rows without saying what either was current for.
+    const list = renderBrowser(
+      <DefinitionsBrowser
+        definitions={[
+          definition({
+            id: "checklist",
+            name: "Release checklist",
+            scope: "session",
+            resolvesAtThisContext: true,
+          }),
+          definition({
+            id: "rollback",
+            name: "Rollback drill",
+            scope: "session",
+            resolvesAtThisContext: true,
+          }),
+        ]}
+      />,
+    );
+    const marked = markedRows(list);
+    expect(marked).toHaveLength(2);
+    // No row claims to be the current one, and each says what it is instead — in the
+    // words the surface already renders, so the description is not second copy of the
+    // predicate that could drift from the chip beside it.
+    expect(list.querySelectorAll("[aria-current]")).toHaveLength(0);
+    expect(marked.map((row) => describedTextOf(list, row))).toStrictEqual([
+      "Resolves here",
+      "Resolves here",
+    ]);
   });
 });
 

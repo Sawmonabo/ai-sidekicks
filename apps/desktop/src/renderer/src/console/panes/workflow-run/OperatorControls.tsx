@@ -29,13 +29,23 @@
 // a refusal that says what to do — the loud failure the design asks for, raised
 // before anyone's round trip is spent.
 //
+// AND THAT REFUSAL IS OUTSIDE THE DISCLOSURE, WHICH IS THE POINT OF IT. It used to
+// live beside the field it is about, inside the collapsible region — so an operator
+// who typed a long reason, collapsed the disclosure, and pressed Cancel got a button
+// that did nothing and no visible word about why. A refusal a person cannot see is
+// indistinguishable from a control that is broken, which is the one failure rule 9
+// exists to prevent. The refusal therefore stands in the control's own body where the
+// button is, and the rejected submission ALSO opens the disclosure and puts the
+// operator back on the field they have to shorten: one says what happened, the other
+// says where to fix it, and neither substitutes for the other.
+//
 // ONE COMPONENT, TWO RENDERERS. The controls share the region, the reason state and
 // the re-pin selection, and splitting them into sibling components would mean
 // lifting all three into a parent that then renders nothing else. The two render
 // functions below take exactly what they need, which is the idiom `WorkflowChrome`
 // established for a switch that must stay total.
 
-import { useId, useMemo, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 
 import {
   DerivedFigure,
@@ -77,6 +87,14 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
   const [repinTarget, setRepinTarget] = useState(NO_REPIN);
   const reasonFieldId = useId();
   const repinFieldId = useId();
+  // Refs rather than a controlled `open`, deliberately. The disclosure below is the
+  // platform's own and stays that way: a `open` prop with the state to back it would
+  // be this file inventing the toggle its header says it does not have, and the
+  // operator's own opening and closing would then be a race with React. A rejected
+  // submission reaches past that and opens it, which is the one moment the console
+  // has something to say about which region the operator should be looking at.
+  const reasonDisclosure = useRef<HTMLDetailsElement>(null);
+  const reasonField = useRef<HTMLTextAreaElement>(null);
   // Memoised because the reason is bounded in KIBIBYTES, so the encode this runs is
   // over a genuinely large string on the last keystroke before the bound and would
   // otherwise repeat on every unrelated render of the pane around it.
@@ -89,6 +107,8 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
         setReason,
         reasonFieldId,
         budget,
+        reasonDisclosure,
+        reasonField,
       })}
       {renderResume(props.resume, { repinTarget, setRepinTarget, repinFieldId })}
     </section>
@@ -101,6 +121,31 @@ interface CancelFieldState {
   readonly setReason: (next: string) => void;
   readonly reasonFieldId: string;
   readonly budget: ReturnType<typeof cancelReasonBudget>;
+  /** The disclosure a rejected submission opens, so the offending field is in view. */
+  readonly reasonDisclosure: React.RefObject<HTMLDetailsElement | null>;
+  /** The field that submission is about, so the operator lands on what to shorten. */
+  readonly reasonField: React.RefObject<HTMLTextAreaElement | null>;
+}
+
+/**
+ * Puts the operator back on the field a refused submission is about.
+ *
+ * Opening is a direct write on the element rather than a state change for the reason
+ * given at the refs: the disclosure belongs to the platform, and this is a nudge on
+ * it rather than ownership of it. Focus moves with it because "in view" is a claim
+ * about a sighted reader only — an operator driving this by keyboard is told which
+ * field the refusal names by being placed in it, and nothing else here would say so.
+ *
+ * Both steps are conditional on the element existing rather than asserted: this runs
+ * from an event handler, and a handler that threw on a torn-down form would turn a
+ * refused cancellation into a crashed pane.
+ */
+function revealReasonField(fields: CancelFieldState): void {
+  const disclosure = fields.reasonDisclosure.current;
+  if (disclosure !== null) {
+    disclosure.open = true;
+  }
+  fields.reasonField.current?.focus();
 }
 
 /**
@@ -111,6 +156,11 @@ interface CancelFieldState {
  * always open would make the empty case look unfinished. `<details>` is the
  * platform's own disclosure, so it is keyboard-reachable and announced without this
  * file inventing a toggle.
+ *
+ * THE REFUSAL IS NOT BEHIND IT. Rule 7 puts the secondary CONTROL one click away; a
+ * refusal is not secondary and is not a control, and hiding one behind a disclosure
+ * the operator has already closed is how this button came to look broken. The live
+ * budget stays inside, because it is only legible while the field it counts is.
  */
 function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState): React.JSX.Element {
   if (control.kind === "refused") {
@@ -127,11 +177,15 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
       className="meridian-run-controls__control"
       onSubmit={(submitEvent) => {
         submitEvent.preventDefault();
-        // A reason past the bound does not travel. The refusal explaining why is
-        // already on screen and stays there — this is a refused act, not a silent
-        // one, which is why the button above it is never disabled: rule 9 keeps the
-        // control beside its refusal rather than removing it.
+        // A reason past the bound does not travel. The refusal explaining why is on
+        // screen OUTSIDE the disclosure and stays there, and this press additionally
+        // opens the disclosure onto the field it names — so a refused act is visibly
+        // refused however the operator had arranged the form, which is the whole
+        // difference between this and a button that appears to do nothing. It is why
+        // the button is never disabled either: rule 9 keeps the control beside its
+        // refusal rather than removing it.
         if (pastBound) {
+          revealReasonField(fields);
           return;
         }
         control.cancel(fields.reason === "" ? undefined : fields.reason);
@@ -146,13 +200,15 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
           Cancelling is never queued and never waits on a provider window.
         </span>
       </div>
-      <details className="meridian-run-controls__disclosure">
+      {pastBound ? <InlineRefusal {...reasonPastBoundRefusal(fields.budget)} /> : null}
+      <details className="meridian-run-controls__disclosure" ref={fields.reasonDisclosure}>
         <summary className="meridian-run-controls__summary">Add a reason (optional)</summary>
         <label className="meridian-run-controls__field-label" htmlFor={fields.reasonFieldId}>
           Reason
         </label>
         <textarea
           id={fields.reasonFieldId}
+          ref={fields.reasonField}
           className="meridian-run-controls__reason"
           rows={3}
           value={fields.reason}
@@ -164,7 +220,6 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
           <DerivedFigure text={formatByteQuantity(fields.budget.remainingBytes).text} />
           <span> of the reason budget left.</span>
         </p>
-        {pastBound ? <InlineRefusal {...reasonPastBoundRefusal(fields.budget)} /> : null}
       </details>
     </form>
   );
