@@ -41,7 +41,7 @@ import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks
 
 import type { ConsoleClock, ConsoleRefusal, Unsubscribe } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { MOUNT_INVENTORY_READ_CAP } from "../constants.js";
+import { MOUNT_INVENTORY_READ_CAP } from "../../core/index.js";
 import { PushDrivenRead, callDaemonMethod, consoleRefusalFrom } from "../../seats/index.js";
 
 /** The registered method that names which mounts a session holds. */

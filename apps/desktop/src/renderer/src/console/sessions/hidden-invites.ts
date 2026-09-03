@@ -27,7 +27,7 @@ import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import type { UiStateStore } from "../persistence/index.js";
-import { HIDDEN_INVITE_CAP } from "./bounds.js";
+import { HIDDEN_INVITE_CAP } from "../core/index.js";
 import { DurableViewState } from "./durable-view-state.js";
 
 /** The record key inside the global partition. Identifier-shaped, as the store requires. */

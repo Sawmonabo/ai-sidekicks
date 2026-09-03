@@ -16,7 +16,7 @@
 
 import { DerivedFigure, Glyph, formatCount } from "../primitives/index.js";
 import type { ChannelActivity, ChannelActivityLabels } from "./activity-model.js";
-import { COMPOSING_NAMED_CAP } from "./constants.js";
+import { COMPOSING_NAMED_CAP } from "../core/index.js";
 
 export interface TypingActivityProps {
   readonly activity: ChannelActivity;

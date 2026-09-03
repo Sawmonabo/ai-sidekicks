@@ -34,7 +34,7 @@
 import { memo, useMemo } from "react";
 
 import { Chip, Nothing, WireFigure, formatClockTime, formatCount } from "../primitives/index.js";
-import { SESSION_BACK_TIER_VISIBLE_CAP } from "./bounds.js";
+import { SESSION_BACK_TIER_VISIBLE_CAP } from "../core/index.js";
 import {
   foldIntoTiers,
   isAuditStubSession,
