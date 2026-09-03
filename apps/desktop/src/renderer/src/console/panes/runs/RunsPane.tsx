@@ -188,6 +188,13 @@ function RunsPaneBody(props: {
       {composerTarget !== undefined && composedRun !== undefined ? (
         <section className="meridian-runs__section" aria-label="Compose an intervention">
           <RunInterventionComposer
+            // Keyed by the identity being composed against, so pressing Steer or
+            // Rewind on a second run REMOUNTS the form rather than re-rendering the
+            // first one's body, target, refusal, and pending dispatch under a new
+            // heading. React's designed reset, and the form defends it a second time
+            // from the inside — see its own identity effect — so a later caller
+            // that drops this key does not silently reintroduce the leak.
+            key={`${composerTarget.runId}:${composerTarget.control}`}
             run={composedRun}
             control={composerTarget.control}
             surface={surface}

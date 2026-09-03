@@ -34,6 +34,18 @@
 // admission, and each arrives here as a typed rejection carrying its own reason.
 // This file refuses none of them and would be wrong to try.
 //
+// THE FORM IS KEYED BY WHAT IT IS COMPOSING AGAINST, AND DEFENDS THAT FROM INSIDE.
+// One `RunInterventionComposer` element used to be reused across a change of target:
+// press Steer on run A, type, then press Rewind on run B while the form is open, and
+// React re-rendered the same instance with a new `run` prop while the body, the
+// target position, the refusal, and the pending dispatch all survived. Confirming
+// then sent text authored for A to B, or left B waiting on A's settlement. The pane
+// keys the element by `<runId>:<control>` so a change of identity remounts it, and
+// this file holds the same rule a second time — the identity travels ON the pending
+// dispatch, so a settlement raised under one identity is never read under another,
+// and an identity change clears the fields outright. A caller that drops the key
+// cannot silently reintroduce the leak.
+//
 // THE COMPOSER OUTLIVES ITS DISPATCH. It used to close the moment a dispatch was
 // STARTED, which threw away the participant's body on every arm that did not land:
 // a composite refused before the intervention was created, a transport rejection, a
@@ -83,6 +95,19 @@ type ComposerSettlement =
 interface PendingDispatch {
   /** The newest record for this run and control before the dispatch, if any. */
   readonly recordIdBefore: string | undefined;
+  /**
+   * The run and control this dispatch was raised for.
+   *
+   * Carried on the dispatch rather than compared against the props alone, so the
+   * one render between a target change and the reset effect below cannot read a
+   * settlement raised for the previous target as this one's.
+   */
+  readonly composedIdentity: string;
+}
+
+/** What this form is composing against: one run, through one of the two controls. */
+function composedIdentityFor(runId: string, control: ComposedControl): string {
+  return `${runId}:${control}`;
 }
 
 export function RunInterventionComposer(props: RunInterventionComposerProps): React.JSX.Element {
@@ -94,13 +119,14 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
   const bodyId = useId();
   const positionId = useId();
   const comparand = surface.dispatcher.comparandFor(run.runId, run.runVersion);
+  const composedIdentity = composedIdentityFor(run.runId, control);
 
   // The dispatcher's answer, read off the record the surface appended for it. The
   // baseline is what makes "the answer to THIS dispatch" exact: records are appended
   // newest last and their ids are minted per settlement, so a newest record whose id
   // differs from the one held at dispatch time is this dispatch's own settlement.
   const settlement = useMemo((): ComposerSettlement | undefined => {
-    if (pendingDispatch === undefined) {
+    if (pendingDispatch === undefined || pendingDispatch.composedIdentity !== composedIdentity) {
       return undefined;
     }
     const newest = newestRecordFor(surface.records, run.runId, control);
@@ -108,7 +134,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       return undefined;
     }
     return readComposerSettlement(newest.outcome);
-  }, [pendingDispatch, surface.records, run.runId, control]);
+  }, [pendingDispatch, surface.records, run.runId, control, composedIdentity]);
 
   const isSending = pendingDispatch !== undefined && settlement === undefined;
   const isConfirmLatched = isSending || settlement?.kind === "recorded";
@@ -118,6 +144,23 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
   // every pass that recomputed its settlement would keep asking a parent that had
   // already stopped rendering it.
   const hasAskedToClose = useRef(false);
+
+  // The second half of the reset, for a caller that renders this form without the
+  // key the pane gives it. Held against the identity the last commit rendered rather
+  // than fired on every pass, so a mount clears nothing and only an actual change of
+  // target does — a `setState` on every render would be a loop.
+  const renderedIdentity = useRef(composedIdentity);
+  useEffect(() => {
+    if (renderedIdentity.current === composedIdentity) {
+      return;
+    }
+    renderedIdentity.current = composedIdentity;
+    setBody("");
+    setTargetPosition("");
+    setLocalRefusal(undefined);
+    setPendingDispatch(undefined);
+    hasAskedToClose.current = false;
+  }, [composedIdentity]);
 
   useEffect(() => {
     if (settlement?.kind === "landed" && !hasAskedToClose.current) {
@@ -138,6 +181,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         setLocalRefusal(undefined);
         setPendingDispatch({
           recordIdBefore: newestRecordFor(surface.records, run.runId, control)?.recordId,
+          composedIdentity,
         });
       };
       if (control === "steer") {
@@ -199,7 +243,16 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         ),
       );
     },
-    [control, body, targetPosition, surface, run.runId, comparand, isConfirmLatched],
+    [
+      control,
+      body,
+      targetPosition,
+      surface,
+      run.runId,
+      comparand,
+      isConfirmLatched,
+      composedIdentity,
+    ],
   );
 
   return (
