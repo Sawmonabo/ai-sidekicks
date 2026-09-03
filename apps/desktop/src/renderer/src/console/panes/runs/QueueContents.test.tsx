@@ -10,8 +10,12 @@ import { useMemo } from "react";
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { QueueItemSummarySchema } from "@ai-sidekicks/contracts";
+
 import { createFixtureBridge } from "../../bridge/index.js";
+import type { QueueFeed } from "../../bridge/index.js";
 import { RUNS_SCENARIO } from "../../bridge/scenarios/runs.js";
+import { refuse } from "../../core/index.js";
 import { QueueContents } from "./QueueContents.js";
 import { useQueueFeed } from "../../bridge/index.js";
 
@@ -77,5 +81,64 @@ describe("cancel before admission", () => {
     const cancel = container.querySelector(".meridian-queue__cancel");
     expect(cancel).toBeInstanceOf(HTMLButtonElement);
     expect((cancel as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+describe("a partial reading is said beside the rows, never in place of them", () => {
+  /** A reading whose tail carried a delivery this build could not read. */
+  function partialFeed(items: QueueFeed["items"]): QueueFeed {
+    return {
+      items,
+      phase: "read",
+      readRefusal: undefined,
+      pendingCancelIds: new Set(),
+      cancelRefusalByItemId: new Map(),
+      cancelItem: () => undefined,
+      unreadableDeliveryCount: 2,
+      unreadableRefusal: refuse(
+        "session-queue",
+        "delivery-unreadable",
+        "A queue delivery did not match the registered row shape, so it changed no row here: state.",
+      ),
+      isPartial: true,
+    };
+  }
+
+  /** One row of the registered shape, so the list has something to be behind on. */
+  const READ_ROW = QueueItemSummarySchema.parse({
+    id: "7c6b5a49-3827-4615-9403-2e1d0c9b8a77",
+    state: "queued",
+    priority: 0,
+    createdAt: "2026-09-02T09:00:00.000Z",
+    updatedAt: "2026-09-02T09:00:00.000Z",
+  });
+
+  it("keeps the rows and names how many deliveries could not be read", () => {
+    const { container } = render(<QueueContents feed={partialFeed([READ_ROW])} />);
+    expect(container.querySelectorAll(".meridian-queue__row")).toHaveLength(1);
+    expect(container.querySelector(".meridian-queue__partial")?.textContent).toContain(
+      "2 queue deliveries",
+    );
+    expect(container.textContent).toContain("may be behind what the daemon has sent");
+    // The delivery's own refusal, verbatim beneath the count.
+    expect(container.textContent).toContain("delivery-unreadable");
+  });
+
+  it("refuses the reassuring empty state while a delivery is unread", () => {
+    // An empty list and an unreadable delivery are both true at once, and "nothing
+    // is waiting" is the claim that cannot be made from here.
+    const { container } = render(<QueueContents feed={partialFeed([])} />);
+    expect(container.querySelector(".meridian-queue__partial")).not.toBeNull();
+    expect(container.textContent).not.toContain("Nothing is waiting.");
+  });
+
+  it("negative control: a fully readable reading says nothing about being behind", () => {
+    // Without this the cases above would pass over a surface that warned on every
+    // reading, and the empty state would be unreachable.
+    const { container } = render(
+      <QueueContents feed={{ ...partialFeed([]), unreadableDeliveryCount: 0, isPartial: false }} />,
+    );
+    expect(container.querySelector(".meridian-queue__partial")).toBeNull();
+    expect(container.textContent).toContain("Nothing is waiting.");
   });
 });

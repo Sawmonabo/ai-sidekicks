@@ -17,6 +17,12 @@
 // A CANCELED ROW STAYS. A queue row is durable and never-evented — drained but
 // never deleted — so every one of the five states renders as a row rather than as
 // an absence. Cancel is offered on the one state that can still be taken back.
+//
+// AND A PARTIAL READING SAYS SO BESIDE THE ROWS. A tail delivery this build could
+// not read changed no row, which is exactly why the rows alone cannot show it: the
+// list looks like a queue that has not moved. The feed's own count and its parse
+// refusal render above the list rather than in place of it — the rows are still the
+// best reading there is, and they are no longer offered as a complete one.
 
 import { Chip, DerivedFigure, Nothing, RefusalCard, WireFigure } from "../../primitives/index.js";
 import { formatCount, InlineRefusal } from "../../primitives/index.js";
@@ -72,7 +78,14 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   }
 
   if (feed.items.length === 0) {
-    return (
+    return feed.isPartial ? (
+      // An empty list and an unreadable delivery are both true at once, and the
+      // reassuring arm is unavailable: a row this build could not read is a row
+      // whose existence is unknown, never one known to be absent.
+      <div className="meridian-queue">
+        <PartialRead feed={feed} />
+      </div>
+    ) : (
       <Nothing
         kind="empty"
         placement="surface"
@@ -87,6 +100,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
 
   return (
     <div className="meridian-queue">
+      {feed.isPartial ? <PartialRead feed={feed} /> : null}
       <ol className="meridian-queue__rows">
         {rendered.map((item) => (
           <QueueRow
@@ -104,6 +118,29 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
           drawn here. The head of the queue is what is delivered next.
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/**
+ * The reading is live and behind at once — neither an absence nor a refusal.
+ *
+ * Two sentences and not one: the console's own count of what it could not read, and
+ * then the delivery's own parse refusal verbatim beneath it, because the count says
+ * how stale the shelf may be and the refusal says why.
+ */
+function PartialRead(props: { readonly feed: QueueFeed }): React.JSX.Element {
+  const { feed } = props;
+  return (
+    <div className="meridian-queue__partial">
+      <p className="meridian-queue__partial-copy">
+        <DerivedFigure text={formatCount(feed.unreadableDeliveryCount)} />{" "}
+        {feed.unreadableDeliveryCount === 1 ? "queue delivery" : "queue deliveries"} could not be
+        read, so what is shown here may be behind what the daemon has sent.
+      </p>
+      {feed.unreadableRefusal === undefined ? null : (
+        <InlineRefusal code={feed.unreadableRefusal.code} detail={feed.unreadableRefusal.detail} />
+      )}
     </div>
   );
 }

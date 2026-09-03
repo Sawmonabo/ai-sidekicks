@@ -319,6 +319,23 @@
   margin: 0;
 }
 
+/* The partial-read warning sits above the rows and reads as a qualifier rather
+   than a failure card: the rows below it are still the best reading there is. */
+.meridian-queue__partial {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-bottom: var(--meridian-space-2);
+}
+
+.meridian-queue__partial-copy {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
 .meridian-queue__withheld {
   margin: 0;
   color: var(--meridian-text-muted);
