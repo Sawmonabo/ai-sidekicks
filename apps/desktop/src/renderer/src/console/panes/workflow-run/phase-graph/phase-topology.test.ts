@@ -190,6 +190,44 @@ describe("a topology no graph can be drawn from", () => {
     ).toBeUndefined();
   });
 
+  it("refuses a phase declared twice while another is not declared at all", () => {
+    // The count was right and every declared identifier was a phase the run carries,
+    // so this passed — and then the order-chain path below drew `plan -> plan`, a
+    // phase depending on itself, while `ship` floated free with no order at all.
+    expect(
+      declaredEdges([phase("plan"), phase("ship")], [{ phaseId: "plan" }, { phaseId: "plan" }]),
+    ).toBeUndefined();
+    // The same shape on the explicit-dependency path, where it produced a partial
+    // edge set instead: `ship` connected to nothing and no refusal raised.
+    expect(
+      declaredEdges(
+        [phase("plan"), phase("ship")],
+        [
+          { phaseId: "plan", dependsOn: [] },
+          { phaseId: "plan", dependsOn: ["plan"] },
+        ],
+      ),
+    ).toBeUndefined();
+  });
+
+  it("draws no phase depending on itself, on either path", () => {
+    // The property the case above protects, stated over both paths rather than
+    // inferred from one of them: a self-edge is unreachable, and a picture carrying
+    // one says a phase is waiting on itself. The second topology reaches it the other
+    // way — a well-formed phase set whose declaration names its own phase — and is
+    // refused for the same reason rather than drawn.
+    for (const topology of [
+      [{ phaseId: "plan" }, { phaseId: "plan" }],
+      [
+        { phaseId: "plan", dependsOn: ["plan"] },
+        { phaseId: "ship", dependsOn: ["plan"] },
+      ],
+    ] satisfies PhaseTopology[]) {
+      const edges = declaredEdges([phase("plan"), phase("ship")], topology) ?? [];
+      expect(edges.filter((edge) => edge.sourcePhaseId === edge.targetPhaseId)).toStrictEqual([]);
+    }
+  });
+
   it("negative control: the well-formed topology beside each of these is drawable", () => {
     // Without this the five refusals above would all pass over an implementation
     // that refused every topology, and no run would ever draw an edge.
