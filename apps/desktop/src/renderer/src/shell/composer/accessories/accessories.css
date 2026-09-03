@@ -208,6 +208,21 @@
   margin: var(--meridian-space-1) 0 0;
 }
 
+/* The stream is open and some of what it carried could not be read. Quiet and
+   muted: it qualifies the rows beneath it rather than replacing them. */
+.meridian-queue-shelf__partial {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0 0 var(--meridian-space-1);
+}
+
+.meridian-queue-shelf__partial-copy {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
 /* --- Attachments and the `+` menu ---------------------------------------- */
 
 .meridian-plus-menu {

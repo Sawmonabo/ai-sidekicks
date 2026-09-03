@@ -10,6 +10,15 @@
 // operation the daemon cannot perform. Priority is the daemon's and is shown as it
 // was sent.
 //
+// AND A PARTIAL READING IS SAID EVEN WHEN NOTHING IS WAITING. A queue delivery this
+// build could not read changed no row, which is exactly why the rows alone cannot
+// show it: a shelf whose list did not move looks like a queue that did not move. So
+// the count and its parse refusal render ABOVE the rows rather than in place of
+// them — the rows are still the best reading there is and are no longer offered as a
+// complete one — and the hidden-until-an-item-exists rule above yields to it, because
+// an empty list beside an unreadable delivery is not the ordinary case the rule
+// exists to keep quiet: it is a list whose emptiness is unknown.
+//
 // A CANCEL IN FLIGHT DISABLES ITS OWN ROW AND NO OTHER. The shelf renders the state
 // the reading publishes rather than holding its own: the same set the runs pane's
 // queue reads, so two surfaces over one reading never disagree about which row is
@@ -35,18 +44,42 @@ export interface QueueShelfProps {
   readonly pendingCancelIds: ReadonlySet<string>;
   readonly cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal>;
   readonly onCancel: (queueItemId: string) => void;
+  /**
+   * Queue deliveries that parsed as no registered row since the newest snapshot.
+   *
+   * The shelf derives whether it is partial FROM this count rather than taking a
+   * second flag beside it, exactly as the session queue reading derives its own, so
+   * the two can never disagree about whether the rows are complete.
+   *
+   * Optional at this branch point and nowhere else: the member lands on `QueueFeed`
+   * in the session-queue reading's own lane, and `ComposerAccessoryRail` supplies it
+   * the moment both are in one tree. Absent means the caller passed no partial
+   * reading at all — which this surface renders as the complete arm, because there
+   * is no count from which to claim otherwise.
+   */
+  readonly unreadableDeliveryCount?: number;
+  /** The newest unreadable delivery's own parse refusal, rendered beside the count. */
+  readonly unreadableRefusal?: ConsoleRefusal;
 }
 
 const CANCEL_GLYPH_SIZE = 12;
 
 export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
-  if (props.items.length === 0) {
+  const unreadableDeliveryCount = props.unreadableDeliveryCount ?? 0;
+  const isPartial = unreadableDeliveryCount > 0;
+  if (props.items.length === 0 && !isPartial) {
     return null;
   }
   const rendered = props.items.slice(0, QUEUE_SHELF_ROW_CAP);
   const foldedCount = props.items.length - rendered.length;
   return (
     <section className="meridian-queue-shelf" aria-label="Queued messages">
+      {isPartial ? (
+        <PartialRead
+          unreadableDeliveryCount={unreadableDeliveryCount}
+          refusal={props.unreadableRefusal}
+        />
+      ) : null}
       <ul className="meridian-queue-shelf__rows">
         {rendered.map((item) => (
           <QueueShelfRow
@@ -64,6 +97,32 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
         </p>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * What the shelf says when part of its stream could not be read.
+ *
+ * Above the rows and never instead of them, and phrased about the SHELF rather than
+ * about the wire: a person reading this is deciding whether to trust what they are
+ * looking at, and "may be stale" is the consequence, while the delivery's own parse
+ * refusal beneath it is the cause for whoever needs it.
+ */
+function PartialRead(props: {
+  readonly unreadableDeliveryCount: number;
+  readonly refusal: ConsoleRefusal | undefined;
+}): React.JSX.Element {
+  return (
+    <div className="meridian-queue-shelf__partial" role="status">
+      <p className="meridian-queue-shelf__partial-copy">
+        <DerivedFigure text={formatCount(props.unreadableDeliveryCount)} />{" "}
+        {props.unreadableDeliveryCount === 1 ? "queue delivery" : "queue deliveries"} could not be
+        read — the shelf may be stale.
+      </p>
+      {props.refusal === undefined ? null : (
+        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
+      )}
+    </div>
   );
 }
 
