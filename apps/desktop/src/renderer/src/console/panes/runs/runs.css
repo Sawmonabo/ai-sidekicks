@@ -67,7 +67,7 @@
   flex-direction: column;
   gap: var(--meridian-space-1);
   padding: var(--meridian-space-2) var(--meridian-space-3);
-  border-bottom: 1px solid var(--meridian-edge-subtle);
+  border-bottom: 1px solid var(--meridian-edge);
   min-width: 0;
 }
 
