@@ -132,9 +132,18 @@ export class ShellPreferenceStore {
   #started = false;
   #disposed = false;
   /**
-   * The writes this store has attempted. Each one supersedes the one before it, so
-   * a settled call that is no longer the latest writes nothing. Being DISPOSED is a
-   * separate flag above, because that fact is terminal and this one is not.
+   * The rounds this store's writes have opened.
+   *
+   * TWO ROLES, ONE GENERATION, which is the shape `core/attempt-generation.ts`
+   * describes: a new write supersedes the one before it, so a settled call that is
+   * no longer the latest writes nothing — and the OPENING READ is superseded by any
+   * write, because the record that read answers with is the record from before the
+   * choice. `sessions/durable-view-state.ts` states the same rule for a durable
+   * hydration racing a local act; `choose` takes `begin()` and the read takes
+   * `current()`, which is what puts the read on the superseded side of it.
+   *
+   * Being DISPOSED is a separate flag above, because that fact is terminal and this
+   * one is not.
    */
   readonly #writes = new AttemptGeneration();
 
@@ -245,12 +254,29 @@ export class ShellPreferenceStore {
     });
   }
 
+  /**
+   * The opening read, whose result a later choice DISCARDS rather than installs.
+   *
+   * The captured round is what makes that checkable. A served write applies the
+   * accepted value into the carrier's own record; this read, if it settled
+   * afterwards and installed anyway, would replace that whole record with the
+   * snapshot from before the choice — so the switch reverted moments after the
+   * carrier had taken it, with nothing on screen to say why.
+   *
+   * Discarding costs the OTHER keys their stored values, because this store reads
+   * once and never refreshes: they fall back to their defaults for the rest of the
+   * window. That is the trade `sessions/durable-view-state.ts` already makes for the
+   * same race, and it is the right one — a stale record installed over an accepted
+   * choice is a value nothing on the wire claims, and a default is at least what a
+   * key reads as before anybody asks.
+   */
   async #read(): Promise<void> {
+    const writesAtRead = this.#writes.current();
     let outcome: ShellConfigReadOutcome;
     try {
       outcome = await this.#bridge.growth.shellConfigRead({});
     } catch (rejection: unknown) {
-      if (!this.#disposed) {
+      if (!this.#disposed && this.#writes.isCurrent(writesAtRead)) {
         this.#publish({
           ...this.#snapshot,
           reading: { kind: "unavailable", refusal: asRefusal(rejection) },
@@ -259,7 +285,7 @@ export class ShellPreferenceStore {
       }
       return;
     }
-    if (this.#disposed) {
+    if (this.#disposed || !this.#writes.isCurrent(writesAtRead)) {
       return;
     }
     this.#publish({
