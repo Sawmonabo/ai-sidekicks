@@ -30,13 +30,17 @@
 // lives in the daemon's own encrypted column and reaches a reader through a hydrated
 // read projection; a `TimelineRow` carries neither the body nor a reference to one, and
 // no bridge namespace serves that projection to this renderer. So every machine row here
-// renders the named absence `MachineBody` gives an unread body, and live text is absent
-// for the same honest reason: it is published by the reveal engine and handed down by
-// the viewport, which is not this seat.
+// renders the named absence `MachineBody` gives an unread body.
+//
+// LIVE TEXT IS A DIFFERENT CASE AND IS NO LONGER ABSENT BY CONSTRUCTION. It is published
+// by the reveal engine, which the feed now owns, and it reaches a row through the frame's
+// own per-row channel rather than through the seat — `ledger/frame/RowRevealProvider.tsx`
+// states why the seat is the wrong home for it. The row asks for its own lane and gets
+// `undefined` while nothing is streaming into it, which is every row of a settled log.
 
 import { useCallback, useState } from "react";
 
-import { useLedgerRowLease } from "../frame/index.js";
+import { useLedgerRowLease, useLedgerRowReveal } from "../frame/index.js";
 import { LedgerRow, Nothing } from "../../primitives/index.js";
 import {
   registerTimelineRowRenderer,
@@ -78,6 +82,10 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
   }, [density, rowId, rowLease]);
 
   const family = classifyCardFamily(props.row);
+  // THE LANE IS THE ROW, which is what `MachineBody` already claims of the member it
+  // fills: "text the reveal engine is publishing for THIS ROW right now". Keying on the
+  // run instead would give two machine rows of one turn one body between them.
+  const liveText = useLedgerRowReveal(rowId);
 
   switch (family.family) {
     case "tool-activity":
@@ -88,6 +96,7 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
           isSuperseded={props.isSuperseded}
           density={density}
           footnotes={footnotes}
+          {...(liveText === undefined ? {} : { liveText })}
           onDensityToggle={toggleDensity}
         />
       );
@@ -101,6 +110,7 @@ export function FixtureShellRow(props: TimelineRowSlotProps): React.JSX.Element 
           isSuperseded={props.isSuperseded}
           density={density}
           footnotes={footnotes}
+          {...(liveText === undefined ? {} : { liveText })}
           editAffordance={{ contract: EDIT_AFFORDANCE_SLOT, body: undefined }}
         />
       );

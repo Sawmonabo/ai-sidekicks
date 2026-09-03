@@ -25,9 +25,10 @@
 // It used to be fourteen star re-exports, on the reasoning that a NAMED barrel
 // written ahead of its consumers is just a list of dead-code findings. That was
 // true when it was written and is not true now: the pane mounts the feed, so the
-// consumers exist and can be counted. Counting them gives FOUR symbols — the feed
-// component, the hook a view binds it through, the row shape both sides speak, and
-// the per-row error boundary the cards wrap themselves in — and the star form was
+// consumers exist and can be counted. What is listed below is that count and
+// nothing beyond it — the feed component, the two hooks a view binds it through,
+// the two per-row channels a row body reads, the row shape both sides speak, and
+// the per-row error boundary the cards wrap themselves in — where the star form was
 // re-exporting seventy-six, every one of which the gate reported the moment
 // anything reached this directory at all.
 //
@@ -39,6 +40,8 @@
 
 export { LedgerRowGroup } from "./ErrorSlot.js";
 export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
+export { LedgerRowRevealProvider, useLedgerRowReveal } from "./RowRevealProvider.js";
+export { useLedgerReveal } from "./reveal-binding.js";
 export { LedgerViewport } from "./LedgerViewport.js";
 export { useLedgerViewport } from "./viewport-binding.js";
 export { type LedgerViewportRow } from "./viewport-snapshot.js";

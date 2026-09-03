@@ -9,19 +9,9 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_FRAME_CHARACTER_BUDGET } from "./frame-bounds.js";
+import { revealProse as prose } from "./reveal-fixture.js";
 import { RevealEngine } from "./reveal-engine.js";
 import type { RevealDiagnostic, RevealFrame } from "./reveal-vocabulary.js";
-
-const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
-
-/** Filler with no markdown in it, so the gate never has a reason to withhold. */
-function prose(characterCount: number): string {
-  let text = "";
-  while (text.length < characterCount) {
-    text += `${ALPHABET} `;
-  }
-  return text.slice(0, characterCount);
-}
 
 function engineOn(clock: ManualClock): RevealEngine {
   return new RevealEngine({ clock });

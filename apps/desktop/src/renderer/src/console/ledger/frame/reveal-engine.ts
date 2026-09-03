@@ -148,6 +148,17 @@ export class RevealEngine {
     return this.#armedFrame !== undefined;
   }
 
+  /**
+   * Whether this engine has been torn down.
+   *
+   * Read by the React binding's re-mint arm: a remount of the same component instance
+   * has already run the cleanup, and a disposed engine silently ignores every delta,
+   * so the second mount has to be able to tell a live engine from a corpse.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
   /** Watch drained frames. No replay: a frame is an event, not a state. */
   public subscribe(sink: (frame: RevealFrame) => void): Unsubscribe {
     return this.#frameEmitter.subscribe(sink);
