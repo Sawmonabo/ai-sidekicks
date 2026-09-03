@@ -42,6 +42,7 @@ import {
   type MountedFamilySurface,
 } from "../workflow-surfaces.js";
 import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
+import { awaitPhaseGraphSettled } from "./phase-graph-settled.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
@@ -85,6 +86,11 @@ describe("screenshot — the workflows surfaces", () => {
         // what a default install actually resolves.
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();
+        // The mount helper waits for the surface's READ. A phase graph is a
+        // lazily-loaded chunk that lands after it and is then fitted at a
+        // fractional scale, so this waits for the picture to stop moving; the
+        // module beside this one carries what a capture taken without it pinned.
+        await awaitPhaseGraphSettled(mounted.element);
 
         await expect(mounted.element).toMatchScreenshot(`${surface.referenceName}-${scheme}`);
       });
