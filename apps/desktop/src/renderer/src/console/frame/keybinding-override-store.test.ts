@@ -32,6 +32,72 @@ function uiStateStore(adapter = new MemoryPersistenceAdapter()): UiStateStore {
   return new UiStateStore({ adapter, clock: new ManualClock(1_000) });
 }
 
+/** What one durable read answers, taken from the adapter rather than restated. */
+type StoredRecordOrAbsent = Awaited<ReturnType<MemoryPersistenceAdapter["read"]>>;
+
+/**
+ * A memory adapter whose reads are held open until the case lets them answer.
+ *
+ * Two hydrations can only be in flight at once if the first read has not settled,
+ * and nothing behind the real chokepoint is slow on purpose. Held from the moment
+ * {@link holdReads} is called rather than from construction, so a case can seed the
+ * record it wants read back through the ordinary write path first.
+ */
+class HeldReadAdapter extends MemoryPersistenceAdapter {
+  #letReadAnswer: (() => void) | undefined;
+  #holdsReads = false;
+
+  public holdReads(): void {
+    this.#holdsReads = true;
+  }
+
+  public override async read(partition: string, key: string): Promise<StoredRecordOrAbsent> {
+    if (this.#holdsReads) {
+      await new Promise<void>((resolve) => {
+        this.#letReadAnswer = resolve;
+      });
+    }
+    return await super.read(partition, key);
+  }
+
+  /**
+   * Let the held read answer, and let the hydration it belongs to run to its end.
+   *
+   * The read is reached through the chokepoint's own adapter-ready await, so it is
+   * not pending in the turn the caller started it in; this waits for it rather than
+   * assuming it, and RAISES rather than returning quietly when none arrives — a
+   * release that resolved nothing would leave every assertion after it reading the
+   * state from before the read, which is the one thing these cases are about.
+   */
+  public async answer(): Promise<void> {
+    for (let pass = 0; pass < 20 && this.#letReadAnswer === undefined; pass += 1) {
+      await Promise.resolve();
+    }
+    if (this.#letReadAnswer === undefined) {
+      throw new Error("no read was held open to answer");
+    }
+    this.#letReadAnswer();
+    this.#letReadAnswer = undefined;
+    for (let pass = 0; pass < 4; pass += 1) {
+      await Promise.resolve();
+    }
+  }
+}
+
+/** One durable store holding one override, with the handle that lets its read answer. */
+interface HeldStore {
+  readonly store: UiStateStore;
+  readonly adapter: HeldReadAdapter;
+}
+
+async function heldStoreHolding(commandId: string, chord: string): Promise<HeldStore> {
+  const adapter = new HeldReadAdapter();
+  const store = uiStateStore(adapter);
+  await store.writeGlobal(KEYBINDING_OVERRIDES_KEY, "keybinding", { [commandId]: chord });
+  adapter.holdReads();
+  return { store, adapter };
+}
+
 /** A press of `Alt+1`, as the dispatch path receives it. */
 function altOnePress(): KeyboardEvent {
   return new KeyboardEvent("keydown", { key: "1", code: "Digit1", altKey: true });
@@ -194,6 +260,42 @@ describe("what one window wrote, the next one reads", () => {
     expect(reader.hydrationRefusals.map((declined) => declined.refusal.code)).toStrictEqual([
       "chord-taken",
     ]);
+  });
+
+  it("keeps the newer hydration's overrides when the older one answers last", async () => {
+    // The frame replaces this window's durable store on a bridge or scenario change,
+    // and the read the first store had open does not stop. Answering last, it used to
+    // install the map it read over the map the current store had just supplied — and
+    // the next rebinding then persisted that stale profile into the new store.
+    const replaced = await heldStoreHolding("frame.goToSessions", "Alt+Digit3");
+    const current = await heldStoreHolding("frame.goToWorkflows", "Alt+Digit4");
+    const overrides = overrideStore();
+
+    const first = overrides.hydrateFrom(replaced.store);
+    const second = overrides.hydrateFrom(current.store);
+    await current.adapter.answer();
+    await second;
+    await replaced.adapter.answer();
+    await first;
+
+    expect(overrides.overrides).toStrictEqual({ "frame.goToWorkflows": "Alt+Digit4" });
+  });
+
+  it("negative control: the newer hydration's overrides do land when it answers last", async () => {
+    // Without this the case above would pass over a store that ignored every
+    // hydration but the first, which is the same defect pointing the other way.
+    const replaced = await heldStoreHolding("frame.goToSessions", "Alt+Digit3");
+    const current = await heldStoreHolding("frame.goToWorkflows", "Alt+Digit4");
+    const overrides = overrideStore();
+
+    const first = overrides.hydrateFrom(replaced.store);
+    const second = overrides.hydrateFrom(current.store);
+    await replaced.adapter.answer();
+    await first;
+    await current.adapter.answer();
+    await second;
+
+    expect(overrides.overrides).toStrictEqual({ "frame.goToWorkflows": "Alt+Digit4" });
   });
 
   it("discloses a refused write rather than reporting a preference that was kept", async () => {
