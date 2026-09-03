@@ -58,6 +58,7 @@ import {
   findInLedger,
   isLedgerFiltered,
   stepFindMatch,
+  type LedgerChapter,
   type LedgerFacets,
   type LedgerFilter,
   type LedgerFindResult,
@@ -65,7 +66,7 @@ import {
   type ReplaySpeed,
   type ReplayState,
 } from "../../ledger/structure/index.js";
-import { type LedgerWindowModel } from "./ledger-window.js";
+import { narrowChapterToAdmittedRows, type LedgerWindowModel } from "./ledger-window.js";
 
 /** The window the viewport is showing, and what fell outside it. */
 export interface VisibleLedgerWindow {
@@ -158,7 +159,7 @@ export function useVisibleLedgerWindow(
 /** What a person has narrowed this ledger to, and what the bar may offer them. */
 export interface LedgerFilterState {
   readonly filter: LedgerFilter;
-  /** Derived from the WHOLE loaded window, never from the narrowed one. */
+  /** Derived from the whole UNFURLED projection, never from the narrowed or folded one. */
   readonly facets: LedgerFacets;
   readonly isFiltered: boolean;
   readonly setFilter: (filter: LedgerFilter) => void;
@@ -169,10 +170,14 @@ export interface LedgerFilterState {
 /**
  * Hold one mount's narrowing, and derive what the bar can offer.
  *
- * THE FACETS COME OFF THE UNFILTERED WINDOW, which is the only choice that leaves
- * the bar usable: derived from the narrowed rows instead, admitting one participant
- * would collapse the offer to that participant and there would be no chip left to
- * press to get back — a control that removes itself the first time it is used.
+ * THE FACETS COME OFF THE UNFURLED, UNFILTERED PROJECTION, and each half of that is
+ * load-bearing. Unfiltered, because derived from the narrowed rows instead,
+ * admitting one participant would collapse the offer to that participant and there
+ * would be no chip left to press to get back — a control that removes itself the
+ * first time it is used. Unfurled, because a closed terminal chapter is one receipt
+ * in the folded window: counted there, a finished run's messages, tool calls and
+ * participants offer no chip at all, and the families they belong to are missing
+ * from the bar entirely for as long as nobody hand-expands the chapter.
  */
 export function useLedgerFilter(ledgerWindow: LedgerWindowModel): LedgerFilterState {
   const [filter, setFilter] = useState<LedgerFilter>(UNFILTERED_LEDGER);
@@ -187,19 +192,29 @@ export function useLedgerFilter(ledgerWindow: LedgerWindowModel): LedgerFilterSt
 }
 
 /**
- * Narrow one loaded window, before anything downstream of it has seen it.
+ * Narrow the UNFURLED projection, before anything downstream of it has seen it.
  *
- * THE ORDER IS THE WHOLE DESIGN: filter, then replay's reveal, then the viewport,
- * then the visible window. The filter runs on the LOG because that is what
- * `Spec-023 §Console Design (Meridian)` narrows — everything after it then holds
- * without restatement. Replay plays over rows the filter admitted, the cap prunes
- * what the filter left, and find and the rail keep reading only rows the one scroll
- * writer can reach. Applying it after the viewport instead would have left the rail
- * marking rows the feed no longer draws.
+ * THE ORDER IS THE WHOLE DESIGN: narrow, then fold the chapters, then replay's
+ * reveal, then the viewport, then the visible window. The narrowing runs on the
+ * unfurled projection because that is what `Spec-023 §Console Design (Meridian)`
+ * narrows — the loaded log, every row of it — and everything after it then holds
+ * without restatement. The fold runs on what the narrowing admitted, replay plays
+ * over rows the fold left, the cap prunes what replay revealed, and find and the
+ * rail keep reading only rows the one scroll writer can reach.
  *
- * A NARROWED CHAPTER KEEPS ITS HEADER, and a chapter the filter emptied loses one:
- * the header is a row of the list keyed by its run, so leaving one over nothing
- * would draw a finished run that this narrowing has no rows for.
+ * NARROWING AFTER THE FOLD WAS THE DEFECT. A closed terminal chapter is a header
+ * and one receipt, so a filter handed that window saw neither the chapter's messages
+ * nor its tool calls nor the people in it: a completed run full of message rows
+ * offered no message-family chip, and narrowing to one could not reveal them
+ * without somebody first opening the chapter by hand. Applying it before the
+ * viewport is a separate necessity — after it, the rail would mark rows the feed no
+ * longer draws.
+ *
+ * A NARROWED CHAPTER KEEPS ITS HEADER AND RE-COUNTS IT, and a chapter the narrowing
+ * emptied loses its header: the header is a row of the list keyed by its run, so
+ * leaving one over nothing would draw a finished run this narrowing has no rows for,
+ * and leaving its whole-run count on it would put a figure over a body that cannot
+ * hold that many. `narrowChapterToAdmittedRows` is the one place that decides both.
  *
  * The unnarrowed case returns the model BY IDENTITY, so a ledger nobody has
  * filtered reconciles nothing and pays nothing — `foldChapterHeaders`' own early
@@ -215,22 +230,22 @@ export function useFilteredLedgerWindow(
     }
     const rows = applyLedgerFilter(ledgerWindow.rows, filter);
     const admittedRowIds = new Set(rows.map((row) => row.id));
-    const admittedRunIds = new Set<string>();
-    for (const row of rows) {
-      if (row.kind !== "general") {
-        admittedRunIds.add(row.runId);
+    const chapterByHeaderKey = new Map<string, LedgerChapter>();
+    for (const [runId, chapter] of ledgerWindow.chapterByHeaderKey) {
+      const narrowedChapter = narrowChapterToAdmittedRows(chapter, admittedRowIds);
+      if (narrowedChapter !== undefined) {
+        chapterByHeaderKey.set(runId, narrowedChapter);
       }
     }
     return {
       ...ledgerWindow,
       rows,
       rowsByKey: new Map([...ledgerWindow.rowsByKey].filter(([key]) => admittedRowIds.has(key))),
-      viewportRows: ledgerWindow.viewportRows.filter(
-        (row) => admittedRowIds.has(row.key) || admittedRunIds.has(row.key),
-      ),
-      chapterByHeaderKey: new Map(
-        [...ledgerWindow.chapterByHeaderKey].filter(([runId]) => admittedRunIds.has(runId)),
-      ),
+      // Row keys only: this runs on the unfurled projection, whose viewport rows are
+      // one per projected row. The synthetic header keys appear downstream, in the
+      // fold this window is handed to.
+      viewportRows: ledgerWindow.viewportRows.filter((row) => admittedRowIds.has(row.key)),
+      chapterByHeaderKey,
       // The dock's next-seam jump walks these, so a seam the filter took out must
       // leave with it: scrubbing to a row the feed is not drawing would move the
       // position and reveal nothing.

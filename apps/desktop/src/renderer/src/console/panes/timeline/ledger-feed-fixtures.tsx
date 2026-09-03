@@ -20,7 +20,7 @@ import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { consoleCommandSurface, consoleCommands } from "../../frame/command-surface.js";
 import { LEDGER_WINDOW_ROW_CAP } from "../../ledger/frame/frame-bounds.js";
 import { LEDGER_COMMAND_OWNER, registerLedgerCommands } from "../../ledger/structure/index.js";
-import { SessionStore } from "../../store/index.js";
+import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { type TimelineRowSlotProps } from "../../seats/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
 
@@ -253,6 +253,75 @@ export function openSessionStoreWithTerminalChapter(): SessionStore {
       payload: { sessionId: SESSION_ID, runId: LIVE_RUN_ID },
     },
   ]);
+  return sessionStore;
+}
+
+/** Message rows the finished run in `foldedMessageChapterLog` holds, all folded away. */
+export const FOLDED_CHAPTER_MESSAGE_ROW_COUNT = 3;
+
+/**
+ * A finished run full of message rows, beside a live run holding a tool call.
+ *
+ * Shaped for the narrowing's ordering and for nothing else. The finished run's
+ * members are `assistant_output` and the live run's is `tool_activity`, so the two
+ * families name the two chapters: narrowing to the first can only be satisfied from
+ * inside a chapter that is folded shut by default, and narrowing to the second
+ * empties that chapter entirely. A single-family log would pass over a narrowing
+ * that never looked inside a fold at all.
+ */
+export function foldedMessageChapterLog(): readonly ConsoleSessionEvent[] {
+  const at = (index: number): string => new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
+  const messageRows = Array.from(
+    { length: FOLDED_CHAPTER_MESSAGE_ROW_COUNT },
+    (_unused, index) => ({
+      id: fixtureEventId(index + 1),
+      sessionId: SESSION_ID,
+      sequence: index + 1,
+      kind: "assistant.message",
+      occurredAt: at(index + 1),
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+    }),
+  );
+  const afterMessages = FOLDED_CHAPTER_MESSAGE_ROW_COUNT + 1;
+  return [
+    {
+      id: fixtureEventId(0),
+      sessionId: SESSION_ID,
+      sequence: 0,
+      kind: "run.running",
+      occurredAt: at(0),
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+    },
+    ...messageRows,
+    {
+      id: fixtureEventId(afterMessages),
+      sessionId: SESSION_ID,
+      sequence: afterMessages,
+      kind: "run.completed",
+      occurredAt: at(afterMessages),
+      payload: { sessionId: SESSION_ID, runId: TERMINAL_RUN_ID },
+    },
+    {
+      id: fixtureEventId(afterMessages + 1),
+      sessionId: SESSION_ID,
+      sequence: afterMessages + 1,
+      kind: "tool.invoked",
+      occurredAt: at(afterMessages + 1),
+      payload: {
+        sessionId: SESSION_ID,
+        runId: LIVE_RUN_ID,
+        toolName: "read_file",
+        toolCallId: "call-live-0",
+      },
+    },
+  ];
+}
+
+/** That log, in a real store. */
+export function openSessionStoreWithFoldedMessageChapter(): SessionStore {
+  const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+  sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+  sessionStore.applyBatch([...foldedMessageChapterLog()]);
   return sessionStore;
 }
 
