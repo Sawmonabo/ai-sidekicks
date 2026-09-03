@@ -17,11 +17,12 @@
 // slate` has not registered it. A hand-rolled stub would let the refusal render
 // pass against a shape the port does not produce.
 
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { refuse } from "../core/index.js";
+import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../bridge/scenarios/terminal.js";
 import { LeaseLine, type TerminalParticipantMark } from "./LeaseLine.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
@@ -52,6 +53,15 @@ const HOLDER = TERMINAL_SCENARIO_CAST.collaborator;
  * assert on is the one a daemon would actually be handed.
  */
 const SESSION_ID = TERMINAL_SCENARIO.sessionId;
+
+/**
+ * The other session this window can be rebound to, read off another scenario.
+ *
+ * A second wire-declared id rather than a readable placeholder, for the reason the
+ * first one is read off a scenario: the claim's whole subject is the session it was
+ * made under, so the id it is compared against has to be one a daemon could emit.
+ */
+const OTHER_SESSION_ID = FLAGSHIP_SCENARIO.sessionId;
 
 function refusingBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: TERMINAL_SCENARIO });
@@ -95,6 +105,41 @@ function bridgeRejectingWith(rejection: unknown): ConsoleBridge {
       ...base.growth,
       terminalAcquireWriteLease: () => Promise.reject(rejection),
       terminalReleaseWriteLease: () => Promise.reject(rejection),
+    },
+  };
+}
+
+/**
+ * A bridge whose claim never settles until the case says so.
+ *
+ * The rebind cases need a call that is genuinely still out across a prop change, and
+ * a promise the test holds the settlement of is the only way to have one: a fixture
+ * that answers on its own microtask has already resolved by the time a rerender can
+ * run. It rejects rather than resolves, so the settlement carries the wire's own code
+ * and a case can say exactly which session's answer reached the screen.
+ */
+function bridgeWithUnsettledClaim(): {
+  readonly bridge: ConsoleBridge;
+  readonly rejectTheHeldClaim: () => void;
+} {
+  const base = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+  let rejectHeldClaim: ((rejection: unknown) => void) | undefined;
+  return {
+    bridge: {
+      ...base,
+      growth: {
+        ...base.growth,
+        terminalAcquireWriteLease: () =>
+          new Promise<never>((_resolve, reject) => {
+            rejectHeldClaim = reject;
+          }),
+      },
+    },
+    rejectTheHeldClaim: () => {
+      rejectHeldClaim?.({
+        code: "terminal.lease_conflict",
+        message: "Another participant holds the shell.",
+      });
     },
   };
 }
@@ -527,6 +572,67 @@ describe("the claim control — one affordance, and three things it never does",
       expect(call).toHaveBeenCalledWith({ sessionId: SESSION_ID });
     });
   }
+
+  it("hands a rebound pane its own control rather than the last session's wait", async () => {
+    // The finding. A claim is about a bridge and a session, and the two facts this
+    // surface keeps about one — a call is out, a call was refused — are renderer-
+    // local, so nothing outside the hook could tell that they belonged to a session
+    // the pane had left. A pane rebound while a take was unresolved kept the disabled
+    // control on the new session, for as long as the old call stayed out.
+    const { bridge, rejectTheHeldClaim } = bridgeWithUnsettledClaim();
+    const state = leaseState({ holding: "unheld", holderVouching: "vouched" });
+    const view = render(
+      <LeaseLine
+        bridge={bridge}
+        sessionId={SESSION_ID}
+        state={state}
+        markFor={markFor}
+        viewerIdentity={VIEWER_IDENTITY_READ}
+      />,
+    );
+    fireEvent.click(claimControl(view.container));
+    expect(claimControl(view.container).disabled).toBe(true);
+
+    view.rerender(
+      <LeaseLine
+        bridge={bridge}
+        sessionId={OTHER_SESSION_ID}
+        state={state}
+        markFor={markFor}
+        viewerIdentity={VIEWER_IDENTITY_READ}
+      />,
+    );
+
+    expect(claimControl(view.container).disabled).toBe(false);
+
+    await act(async () => {
+      rejectTheHeldClaim();
+    });
+
+    // And the answer to a question about the other session is not rendered against
+    // this one: a lease conflict names a shell the person is no longer looking at.
+    expect(view.container.textContent).not.toContain("terminal.lease_conflict");
+    expect(view.container.querySelector(".meridian-refusal--inline")).toBeNull();
+    expect(claimControl(view.container).disabled).toBe(false);
+  });
+
+  it("negative control: the session it is still on DOES render its own refusal", async () => {
+    // Without it the case above would pass against a hook that dropped every
+    // completion, which is a claim control that never reports anything at all.
+    const { bridge, rejectTheHeldClaim } = bridgeWithUnsettledClaim();
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      bridge,
+    );
+    fireEvent.click(claimControl(container));
+
+    await act(async () => {
+      rejectTheHeldClaim();
+    });
+
+    expect(container.textContent).toContain("terminal.lease_conflict");
+    expect(claimControl(container).disabled).toBe(false);
+  });
 
   it("negative control: the pane-keyed shape the daemon refuses is not this one", () => {
     // The same predicate over the request this surface used to send. Without it a

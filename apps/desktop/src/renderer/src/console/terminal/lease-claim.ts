@@ -13,6 +13,11 @@
 // was refused) and the fold in `lease-model.ts` owns everything else. The moment
 // this file acquires a rule about WHO HOLDS the shell, that rule belongs in the fold
 // where it can be tested without React.
+//
+// BOTH OF THOSE FACTS ARE ABOUT A SUBJECT, which is what the generation below keeps
+// them attached to. They are renderer-local, not session-local, so nothing outside
+// this hook can tell that a disabled control and a refusal on screen belong to a
+// session the pane has since left.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -60,20 +65,37 @@ export function useTerminalLeaseClaim(
 ): TerminalLeaseClaim {
   const [isInFlight, setIsInFlight] = useState(false);
   const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const isMountedRef = useRef(true);
+  // WHICH INPUTS THE CALLS IN FLIGHT WERE MADE UNDER, as a number that advances the
+  // moment those inputs stop being the current ones.
+  //
+  // The two state values below are ABOUT a call, and a call is about a bridge and a
+  // session. A pane rebound from one session to another kept both: the control stayed
+  // disabled on the new session for as long as the old session's call was unresolved
+  // — indefinitely, if it never resolved — and the old session's refusal was rendered
+  // beside a lease it had nothing to do with, under a code naming a shell the person
+  // was no longer looking at. The generation is what tells the two apart, and an
+  // unmount advances it too, so a reply that lands after the pane closed is dropped
+  // by the same test rather than by a second flag.
+  //
+  // The pane's own terminal id is deliberately not part of it: `session.takeControl`
+  // and `session.releaseControl` both take `{ sessionId }` and V1 gives a session one
+  // shared shell, so a terminal id is not an input any call here was made under.
+  const callGenerationRef = useRef(0);
 
   useEffect(() => {
-    isMountedRef.current = true;
+    // The new subject inherits no call state. Whatever was in flight, and whatever
+    // refused, belonged to the inputs the cleanup below has just retired.
+    setIsInFlight(false);
+    setRefusal(undefined);
     return () => {
-      // A reply that lands after the pane closed has nothing to render into, and
-      // setting state on an unmounted tree is how a console grows a warning it
-      // then learns to ignore.
-      isMountedRef.current = false;
+      callGenerationRef.current += 1;
     };
-  }, []);
+  }, [bridge, sessionId]);
 
   const call = useCallback(
     (operation: "acquire" | "release"): void => {
+      const dispatchedUnderGeneration = callGenerationRef.current;
+      const isStillCurrent = (): boolean => callGenerationRef.current === dispatchedUnderGeneration;
       setIsInFlight(true);
       setRefusal(undefined);
       const request = { sessionId };
@@ -83,19 +105,19 @@ export function useTerminalLeaseClaim(
           : bridge.growth.terminalReleaseWriteLease(request);
       void pending
         .then((outcome) => {
-          if (!isMountedRef.current) {
+          if (!isStillCurrent()) {
             return;
           }
           setRefusal(outcome.status === "unavailable" ? outcome : undefined);
         })
         .catch((error: unknown) => {
-          if (!isMountedRef.current) {
+          if (!isStillCurrent()) {
             return;
           }
           setRefusal(refusalFromRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error));
         })
         .finally(() => {
-          if (isMountedRef.current) {
+          if (isStillCurrent()) {
             setIsInFlight(false);
           }
         });
