@@ -204,6 +204,48 @@ describe("the resolution mark", () => {
     expect(rowNames(markedRow)).toStrictEqual(["Project copy"]);
   });
 
+  it("marks a resolving row without the interactive hue", () => {
+    // Rule 3 spends the accent on interactive affordances. The mark is a fact the
+    // daemon reported and the row's only control is its name, so neither the chip nor
+    // the row's leading edge may carry it.
+    const list = renderBrowser(
+      <DefinitionsBrowser
+        definitions={[
+          definition({ id: "project-copy", scope: "project", resolvesAtThisContext: true }),
+        ]}
+      />,
+    );
+    const marked = markedRows(list)[0];
+    if (marked === undefined) {
+      throw new Error("no row carried the resolution mark");
+    }
+    const chip = marked.querySelector(".meridian-chip");
+    expect(chip?.classList.contains("meridian-chip--accent")).toBe(false);
+    expect(chip?.classList.contains("meridian-chip--neutral")).toBe(true);
+    // The row's leading edge is the sheet's and this tier renders no sheet, so what is
+    // asserted here is the class the sheet keys on — the edge's token moved with it,
+    // and the two committed browser references are what hold that.
+    expect(marked.classList.contains("meridian-definition-row--resolves")).toBe(true);
+  });
+
+  it("leaves the row's one affordance where the accent belongs", () => {
+    // The guard against over-correcting the case above: neutralising the MARK is the
+    // fix, and a row that had also stopped offering its name as the way in would pass
+    // that case while having lost the one thing on it the accent is spent on.
+    const list = renderBrowser(
+      <DefinitionsBrowser
+        definitions={[
+          definition({ id: "project-copy", scope: "project", resolvesAtThisContext: true }),
+        ]}
+        onOpenDefinition={() => undefined}
+      />,
+    );
+    const marked = markedRows(list)[0];
+    const controls = marked?.querySelectorAll("button") ?? [];
+    expect(controls).toHaveLength(1);
+    expect(controls[0]?.className).toContain("meridian-definition-row__open");
+  });
+
   it("negative control: nothing is marked when the daemon flagged nothing", () => {
     // The case above would pass over a renderer that marked the first `session` row
     // by re-walking the scope order — which is precisely the derivation this surface

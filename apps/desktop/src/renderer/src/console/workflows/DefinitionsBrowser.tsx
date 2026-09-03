@@ -185,7 +185,14 @@ const DefinitionListItem = memo(function DefinitionListItem(
         // it generates no box: the mark's place on the row is a design decision, and a
         // span introduced to carry an attribute must not quietly move it.
         <span className="meridian-definition-row__resolution" id={resolutionMarkId}>
-          <Chip tone="accent" glyph="check" label="Resolves here" />
+          {/*
+           * NEUTRAL, and that is the whole of the treatment. Rule 3 spends the accent
+           * on interactive affordances, and a resolution mark is a fact the daemon
+           * reported about this row — nothing here is pressable, and the row's one
+           * control is the name beside it. Toned accent, the mark advertised a
+           * non-actionable reading as the thing to click.
+           */}
+          <Chip glyph="check" label="Resolves here" />
         </span>
       ) : null}
     </li>
