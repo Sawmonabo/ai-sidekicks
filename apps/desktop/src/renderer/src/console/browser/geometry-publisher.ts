@@ -324,14 +324,31 @@ function readElementRect(element: Element): PaneRect {
  * a stylesheet-free document reports the empty string for every box. Under that
  * reading every pane is clipped by an unlaid-out ancestor to a zero rectangle and
  * hides itself, which looks exactly like a pane that never attached.
+ *
+ * A TUPLE AND NOT A `Set`. It was a module-level `Set` singleton, which
+ * `apps/desktop/AGENTS.md` rejects — and the rule is right about this one rather than
+ * merely applying to it: five frozen literals need no collection to be read, a
+ * membership test over five strings is not a lookup worth a hash table, and a
+ * container built at module load is mutable for the life of the process while what it
+ * holds is a constant. The tuple is the declaration, the union is derived from it, and
+ * a sixth value is added in exactly one place.
  */
-const CLIPPING_OVERFLOW_VALUES: ReadonlySet<string> = new Set([
-  "hidden",
-  "clip",
-  "scroll",
-  "auto",
-  "overlay",
-]);
+export const CLIPPING_OVERFLOW_VALUES = ["hidden", "clip", "scroll", "auto", "overlay"] as const;
+
+/** One computed `overflow` value that clips. Derived from the tuple, never restated. */
+export type ClippingOverflowValue = (typeof CLIPPING_OVERFLOW_VALUES)[number];
+
+/**
+ * Whether one computed `overflow` value clips its contents.
+ *
+ * A comparison over the tuple, on `terminal/lease-transition.ts`'s
+ * `asTerminalLeaseTransitionReason` shape: the set is small, this module holds no
+ * state between calls, and `includes` on a literal tuple would need a cast at the
+ * call site to widen the parameter that a `===` comparison takes for free.
+ */
+function clipsItsContents(overflowValue: string): boolean {
+  return CLIPPING_OVERFLOW_VALUES.some((clippingValue) => clippingValue === overflowValue);
+}
 
 /** Every ancestor that clips, outermost first. Both axes are read, because
  *  `overflow-x: hidden` alone clips and a shorthand check would miss it. */
@@ -343,10 +360,7 @@ function readClippingAncestorRects(element: HTMLElement): readonly PaneRect[] {
   let ancestor: HTMLElement | null = element.parentElement;
   while (ancestor !== null) {
     const style = window.getComputedStyle(ancestor);
-    if (
-      CLIPPING_OVERFLOW_VALUES.has(style.overflowX) ||
-      CLIPPING_OVERFLOW_VALUES.has(style.overflowY)
-    ) {
+    if (clipsItsContents(style.overflowX) || clipsItsContents(style.overflowY)) {
       rects.push(readElementRect(ancestor));
     }
     ancestor = ancestor.parentElement;
