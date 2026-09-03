@@ -137,6 +137,16 @@ function latest(observed: readonly WorkflowDefinitionDirectory[]): WorkflowDefin
   return directory;
 }
 
+function firstState(
+  observed: readonly WorkflowDefinitionDirectory[],
+): WorkflowDefinitionDirectoryState {
+  const directory = observed[0];
+  if (directory === undefined) {
+    throw new Error("the probe never rendered, so there is nothing to read");
+  }
+  return directory.state;
+}
+
 function lastState(
   observed: readonly WorkflowDefinitionDirectory[],
 ): WorkflowDefinitionDirectoryState {
@@ -162,10 +172,21 @@ describe("useWorkflowDefinitionDirectory — one read, four answers", () => {
 
   it("puts no question at all where no session is in scope", () => {
     // `unasked` and never `reading`: a spinner over an address that names no session
-    // would promise an answer that is never coming.
-    expect(lastState(observeDirectory(createRefusingGrowthPort(), undefined)).status).toBe(
-      "unasked",
-    );
+    // would promise an answer that is never coming. Asserted on the FIRST render as
+    // well as the last, so the arm that must stay `unasked` is held to the same
+    // moment as the arm below that must not be.
+    const observed = observeDirectory(createRefusingGrowthPort(), undefined);
+    expect(firstState(observed).status).toBe("unasked");
+    expect(lastState(observed).status).toBe("unasked");
+  });
+
+  it("is already reading on the first render a session is in scope for", () => {
+    // The state was initialised `unasked` and only became `reading` in the effect,
+    // which runs after the commit — so every scoped load had one committed render
+    // claiming nobody had asked, and the browser draws that as three served-looking
+    // empty groups ("No session definitions") before the request has answered.
+    const growth = createFixtureBridge({ scenario: scenarioAnsweringTheEnumeration([]) }).growth;
+    expect(firstState(observeDirectory(growth, PROBE_SESSION_ID)).status).toBe("reading");
   });
 
   it("starts as a read in flight and settles on what the scenario serves", async () => {
