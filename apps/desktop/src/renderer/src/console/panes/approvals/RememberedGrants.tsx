@@ -22,10 +22,19 @@
 // The scope-kind is rendered from the ratified enum and never as free text; a value
 // outside it renders verbatim under an unrecognized treatment rather than being
 // asserted into a member.
+//
+// AND AN EMPTY LIST IS TWO DIFFERENT FACTS, WHICH IS WHY THE ARMS ARE ORDERED. A
+// reply whose rows all failed the parse produces the same `rules: []` a session with
+// no standing permission produces, and the reassuring sentence — that every request
+// is answered one at a time — is the SAFEST possible claim, so a list that reached
+// it while grants were in force would hide the one thing a person opens this panel
+// to check. The unreadable count is therefore read FIRST: rows this build could not
+// read are rows whose existence is unknown, never rows known to be absent, and only
+// a reply that was fully readable and carried nothing may say nothing is in force.
 
 import { useState } from "react";
 
-import { Chip, InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
+import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { type RememberedRule } from "./approval-records.js";
 import {
@@ -47,7 +56,14 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
   const [confirmingRuleId, setConfirmingRuleId] = useState<string | undefined>(undefined);
 
   if (props.rules.length === 0) {
-    return (
+    return props.unreadableCount > 0 ? (
+      <Nothing
+        kind="error"
+        placement="surface"
+        title="Standing permissions could not be read."
+        detail={`The daemon answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
+      />
+    ) : (
       <Nothing
         kind="empty"
         placement="surface"
