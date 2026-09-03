@@ -76,34 +76,32 @@ export function KeyboardPage(): ReactNode {
   // differs from the one installed.
   const keybindingSurface = useKeybindingSurface(consoleKeybindingOverrides);
 
-  // Commands are read once per visit: the registry is a mutable object with no change
-  // signal, so the honest scope of this read is "the commands this window had
-  // registered when the page opened", which is what leaving the section and coming
-  // back re-reads. The BINDINGS are live, because those are what this page changes.
-  const commands = useMemo(() => consoleCommands.all(), []);
-  const rows = useMemo(
-    () =>
-      composeKeybindingRows({
-        commands,
-        bindings: keybindingSurface.bindings,
-        overrides: consoleKeybindingOverrides.overrides,
-      }),
-    [commands, keybindingSurface],
-  );
+  // Commands are read on EVERY render pass, not once per visit. The registry is a
+  // mutable object with no change signal of its own, and the frame registers this
+  // window's commands from an effect — which React runs AFTER a child page's first
+  // render. A memo keyed on nothing therefore kept the empty registry a window that
+  // opened directly on this route had, and the page showed no rows until the person
+  // left the section and came back. The frame bumps its own command revision the
+  // moment it registers, and that re-renders this subtree; reading here rather than
+  // remembering is what lets the page see it, and it adds no second subscription to
+  // a registry that publishes none. The BINDINGS are live for their own reason:
+  // those are what this page changes.
+  const commands = consoleCommands.all();
+  const rows = composeKeybindingRows({
+    commands,
+    bindings: keybindingSurface.bindings,
+    overrides: consoleKeybindingOverrides.overrides,
+  });
   const audit = useMemo(() => auditKeybindings(keybindingSurface.bindings), [keybindingSurface]);
   // The chords this window is holding for commands it cannot find. Composed from the
   // SHIPPED table rather than the effective one, which is that table with these very
   // entries already appended.
-  const staleOverrideRows = useMemo(
-    () =>
-      composeStaleOverrideRows({
-        commands,
-        shippedBindings: FRAME_KEY_BINDINGS,
-        overrides: consoleKeybindingOverrides.overrides,
-      }),
-    [commands, keybindingSurface],
-  );
-  const visibleRows = useMemo(() => matchKeybindingRows(rows, query), [rows, query]);
+  const staleOverrideRows = composeStaleOverrideRows({
+    commands,
+    shippedBindings: FRAME_KEY_BINDINGS,
+    overrides: consoleKeybindingOverrides.overrides,
+  });
+  const visibleRows = matchKeybindingRows(rows, query);
   const overriddenRowCount = rows.filter((row) => row.overridden).length;
 
   // A recorder still armed when the page goes away would leave the console keyboard
@@ -212,7 +210,7 @@ export function KeyboardPage(): ReactNode {
             }
             detail={
               rows.length === 0
-                ? "Commands are contributed by the surfaces that own them, and none of them had registered when this page opened."
+                ? "Commands are contributed by the surfaces that own them, and this window has none registered yet. A row appears here as soon as one does."
                 : "The filter matches a command's name, its id, and its category. Clearing the field brings every command back."
             }
           />
