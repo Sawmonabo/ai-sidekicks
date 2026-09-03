@@ -54,6 +54,42 @@ export const TERMINAL_LEASE_TRANSITION_REASONS = [
 /** One transition reason. Derived, never restated. */
 export type TerminalLeaseTransitionReason = (typeof TERMINAL_LEASE_TRANSITION_REASONS)[number];
 
+/**
+ * What each reason says the holder looks like AFTER it, which is the other half of
+ * reading a transition.
+ *
+ * A reason alone was taken as the whole reading, and the holder was then read
+ * tolerantly beside it: any non-empty string became a holder and everything else
+ * became the free lease. So a `taken` whose payload named nobody was presented as a
+ * FREE lease — a shell the daemon has just handed to someone, offered here as one
+ * anybody may claim — and a `released` that carried the viewer's own id was presented
+ * as `held-by-you`, which opens stdin until the daemon rejects the writes. Neither
+ * payload is a transition this build understands, and the honest reading of a
+ * transition it cannot understand is the unread one.
+ *
+ * Two shapes and not five, because the direction is what the holder member reports:
+ * a take names who holds it, and every release — the operator's own and the three
+ * automatic ones alike — leaves nobody holding it. The member is documented as who
+ * holds the lease AFTER the transition, so a release that named a holder is
+ * contradicting itself rather than naming the participant it took the shell from;
+ * that participant is the `previousHolderParticipantId` the same payload carries.
+ *
+ * The check is HERE because there is nowhere else for it. `packages/contracts`
+ * registers `pty.control_changed` as an event type and no payload variant for it, so
+ * this module is the console's one declaration of the shape and the tolerant envelope
+ * above it validates nothing. Keyed by the reason union so a sixth reason is a
+ * compile error rather than a payload nothing checks.
+ */
+const TRANSITION_HOLDER_SHAPES: Readonly<
+  Record<TerminalLeaseTransitionReason, "names-the-holder" | "names-nobody">
+> = {
+  taken: "names-the-holder",
+  released: "names-nobody",
+  auto_released_disconnect: "names-nobody",
+  auto_released_authorization_lost: "names-nobody",
+  auto_released_run_idle: "names-nobody",
+};
+
 /** A reason the wire sent, or `undefined` when it sent something outside the set. */
 export function asTerminalLeaseTransitionReason(
   candidate: unknown,
@@ -110,6 +146,38 @@ export const TERMINAL_HOLDER_VOUCHINGS = ["not-checked", "vouched", "unvouched"]
 export type TerminalHolderVouching = (typeof TERMINAL_HOLDER_VOUCHINGS)[number];
 
 /**
+ * What an offline node MEANS for this lease, which is not one sentence.
+ *
+ * The reading used to be a bare node id, projected whenever a roster read found the
+ * host offline. But a lease can already be free when that happens — a `released`
+ * transition and then the sole node dropping — and the surface then said "Nobody
+ * holds the shell" and "The holding node … is offline" at once: one sentence naming a
+ * holder the other says does not exist, about a machine the first says nobody is
+ * using.
+ *
+ * So the two readings are told apart here, where the fold knows which one it made,
+ * rather than left to a renderer to infer from a null holder it cannot attribute.
+ * There IS something to say in both cases — an offline host is why the shell stays
+ * read-only either way — and it is a different sentence, so the effect travels with
+ * the node id and the line renders one sentence per member.
+ *
+ * `no-holder-shown` and not `already-free`, because it covers both ways this surface
+ * ends up showing nobody: the newest readable transition was a release, and a
+ * transition arrived that this build could not read at all. Neither is a holder the
+ * node reading collapsed, and a sentence claiming one would be as wrong in the second
+ * case as in the first.
+ */
+export const TERMINAL_OFFLINE_NODE_EFFECTS = ["holder-collapsed", "no-holder-shown"] as const;
+
+export type TerminalOfflineNodeEffect = (typeof TERMINAL_OFFLINE_NODE_EFFECTS)[number];
+
+/** An offline host, and what its being offline did to the lease. */
+export interface TerminalOfflineNodeReading {
+  readonly nodeId: string;
+  readonly effect: TerminalOfflineNodeEffect;
+}
+
+/**
  * A lease transition the console could not read, kept so the surface can say so.
  *
  * The wire moved the lease and this build does not understand the move. Skipping it
@@ -136,10 +204,11 @@ export interface TerminalLeaseState {
   readonly holderParticipantId: string | null;
   readonly holderVouching: TerminalHolderVouching;
   /**
-   * The node whose health made the holder unvouchable, when one did. Rendered so
-   * the degraded line names it rather than saying "somewhere".
+   * The host a roster read found offline, and what that did to this lease, when one
+   * was found offline. Rendered so the degraded line names the node rather than
+   * saying "somewhere" — and says the right thing about the holder.
    */
-  readonly unvouchedNodeId: string | undefined;
+  readonly offlineNode: TerminalOfflineNodeReading | undefined;
   /**
    * The newest transition the fold could not read, when one arrived after every
    * transition it could. Present means the lease state is unknown rather than
@@ -188,7 +257,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
   holding: "not-checked",
   holderParticipantId: null,
   holderVouching: "not-checked",
-  unvouchedNodeId: undefined,
+  offlineNode: undefined,
   unreadTransition: undefined,
   transitions: [],
   transitionCount: 0,
@@ -198,9 +267,10 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
  * Fold a session's events into the lease state.
  *
  * Total and pure. Events of other kinds are skipped. A `pty.control_changed` this
- * build cannot read — a reason outside the closed set, a payload that carries
- * none — is NOT skipped: it is recorded as the unread transition and the
- * projection settles into the arm that shows no holder and writes nothing.
+ * build cannot read — a reason outside the closed set, a payload that carries none,
+ * or a holder shape that contradicts the reason it arrived under — is NOT skipped: it
+ * is recorded as the unread transition and the projection settles into the arm that
+ * shows no holder and writes nothing.
  *
  * That direction is the whole point. Skipping it left the transition before it
  * standing as the newest state, so a daemon that moved the lease under a reason a
@@ -238,7 +308,8 @@ export function projectTerminalLease(
 
   const newest = transitions.at(-1);
   const wireHolderParticipantId = newest === undefined ? null : newest.holderParticipantId;
-  const vouching = readVouching(input.holdingNode);
+  const holdingNode = input.holdingNode;
+  const vouching = readVouching(holdingNode);
 
   // Fail-closed, and in this order: an unvouchable holder AND an unread transition
   // each collapse to the free lease BEFORE the viewer comparison, so a surface can
@@ -256,7 +327,11 @@ export function projectTerminalLease(
     }),
     holderParticipantId,
     holderVouching: vouching,
-    unvouchedNodeId: vouching === "unvouched" ? input.holdingNode?.nodeId : undefined,
+    offlineNode: readOfflineNode({
+      holdingNode,
+      hasWireHolder: wireHolderParticipantId !== null,
+      unreadTransition,
+    }),
     unreadTransition,
     transitions,
     transitionCount,
@@ -315,7 +390,14 @@ function readUnreadTransition(event: ConsoleSessionEvent): TerminalLeaseUnreadTr
   };
 }
 
-/** Read one transition off an event, or `undefined` when the payload is not one. */
+/**
+ * Read one transition off an event, or `undefined` when the payload is not one.
+ *
+ * Both halves have to agree. A recognised reason with a holder shape that
+ * contradicts it is not a transition this build can read, and returning it with the
+ * holder quietly normalised is how a malformed `taken` became a free lease and a
+ * `released` carrying the viewer became `held-by-you`.
+ */
 function readTransition(event: ConsoleSessionEvent): TerminalLeaseTransition | undefined {
   const payload = event.payload;
   if (payload === undefined) {
@@ -325,11 +407,16 @@ function readTransition(event: ConsoleSessionEvent): TerminalLeaseTransition | u
   if (reason === undefined) {
     return undefined;
   }
+  const holderParticipantId = readParticipantId(payload["holderParticipantId"]);
+  const namesAHolder = holderParticipantId !== null;
+  if (namesAHolder !== (TRANSITION_HOLDER_SHAPES[reason] === "names-the-holder")) {
+    return undefined;
+  }
   return {
     sequence: event.sequence,
     occurredAtIso: event.occurredAt,
     reason,
-    holderParticipantId: readParticipantId(payload["holderParticipantId"]),
+    holderParticipantId,
     previousHolderParticipantId: readParticipantId(payload["previousHolderParticipantId"]),
     actorId: event.actorId,
   };
@@ -354,6 +441,33 @@ function readVouching(
     return "not-checked";
   }
   return holdingNode.isReachable ? "vouched" : "unvouched";
+}
+
+/**
+ * The offline-host reading, or nothing when the roster read found no host offline.
+ *
+ * The effect is read from what this fold was about to show, not from the vouching:
+ * an unvouchable HOLDER is the only case where an offline node took a holder off the
+ * screen, and the fold knows both of the ways it can end up showing nobody without
+ * one — the newest readable transition was a release, and a transition arrived that
+ * this build cannot read.
+ */
+function readOfflineNode(state: {
+  readonly holdingNode: TerminalLeaseProjectionInput["holdingNode"];
+  readonly hasWireHolder: boolean;
+  readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
+}): TerminalOfflineNodeReading | undefined {
+  const holdingNode = state.holdingNode;
+  if (holdingNode === undefined || holdingNode.isReachable) {
+    return undefined;
+  }
+  return {
+    nodeId: holdingNode.nodeId,
+    effect:
+      state.hasWireHolder && state.unreadTransition === undefined
+        ? "holder-collapsed"
+        : "no-holder-shown",
+  };
 }
 
 /**

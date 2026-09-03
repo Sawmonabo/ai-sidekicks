@@ -15,6 +15,15 @@
 // expensive mistake on a shared shell is sending a keystroke nobody was allowed to
 // send.
 //
+// THE GATE IS A CONJUNCTION, AND THE SECOND HALF IS THIS OBJECT'S. The lease says
+// whether this participant may write; the host says whether there is a surface to
+// write into. An emulator that has been taken off screen has neither a box a person
+// can click nor a size to be measured against, and the write state belongs to the
+// TIE rather than to the emulator — so a detached binding reports the shut gate and
+// re-opens it, without being told again, on the host that takes the emulator next.
+// Storing the lease's answer and composing it with the host is what makes that one
+// answer rather than two fields a caller has to re-synchronise.
+//
 // WHAT IT DOES NOT DO. It never decides who may write: it is handed that answer by a
 // surface that read it off the lease. An emulator that consulted a lease would be a
 // second place eligibility is decided, and the renderer decides it nowhere.
@@ -33,6 +42,8 @@ import type { Unsubscribe } from "../core/index.js";
 import { observeElementResize } from "../primitives/index.js";
 
 export interface TerminalHostBindingOptions {
+  /** Whether the lease already says this participant may type. Absent is watch mode. */
+  readonly isWriteEnabled?: boolean | undefined;
   /** Where a participant's keystrokes go. Absent means this surface never writes. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /**
@@ -54,9 +65,10 @@ export class TerminalHostBinding {
   #hostElement: HTMLElement | undefined;
   #detachHostSizeObserver: Unsubscribe | undefined;
   #keystrokeSubscription: IDisposable | undefined;
-  #isWriteEnabled = false;
+  #isWriteAllowedByLease: boolean;
 
   public constructor(options: TerminalHostBindingOptions) {
+    this.#isWriteAllowedByLease = options.isWriteEnabled ?? false;
     this.#onKeystroke = options.onKeystroke;
     this.#onHostResize = options.onHostResize;
   }
@@ -66,19 +78,23 @@ export class TerminalHostBinding {
     return this.#hostElement;
   }
 
+  /** Whether a keystroke may reach the wire: the lease allows it AND a host holds it. */
   public get isWriteEnabled(): boolean {
-    return this.#isWriteEnabled;
+    return this.#isWriteAllowedByLease && this.#hostElement !== undefined;
   }
 
   /**
    * The `disableStdin` a fresh emulator is constructed with.
    *
-   * Read from the same field the gate is, rather than hard-coded `true`: a surface
-   * that was told the lease before its emulator existed must not have that answer
-   * dropped on the floor when the emulator arrives.
+   * Read from the same composed answer the gate is, rather than hard-coded `true`: a
+   * surface that was told the lease before its emulator existed must not have that
+   * answer dropped on the floor when the emulator arrives. A fresh emulator is built
+   * before its host is recorded, so this is `true` at every build and `showOn` is
+   * what opens it — inside the same `attach()` call, with no turn in between for a
+   * keystroke to land in.
    */
   public get isStdinDisabledAtBuild(): boolean {
-    return !this.#isWriteEnabled;
+    return !this.isWriteEnabled;
   }
 
   /**
@@ -97,7 +113,7 @@ export class TerminalHostBinding {
     this.#terminal = terminal;
     if (this.#onKeystroke !== undefined) {
       this.#keystrokeSubscription = terminal.onData((data: string) => {
-        if (this.#isWriteEnabled) {
+        if (this.isWriteEnabled) {
           this.#onKeystroke?.(data);
         }
       });
@@ -109,12 +125,14 @@ export class TerminalHostBinding {
    * log and handed down. Disabled is the default and the fallback: 8.8 makes watch
    * mode what every non-holder gets, and a guess here would guess in the direction
    * that lets somebody type into a shell they do not hold.
+   *
+   * The lease's answer is REMEMBERED rather than applied and forgotten, so a surface
+   * that is told the lease while the emulator is off screen still gets the gate it
+   * was promised when a host takes the emulator back.
    */
   public setWriteEnabled(isWriteEnabled: boolean): void {
-    this.#isWriteEnabled = isWriteEnabled;
-    if (this.#terminal !== undefined) {
-      this.#terminal.options.disableStdin = !isWriteEnabled;
-    }
+    this.#isWriteAllowedByLease = isWriteEnabled;
+    this.#applyStdinGate();
   }
 
   /** Record the host the emulator is now on, and re-fit whenever its box changes. */
@@ -124,6 +142,7 @@ export class TerminalHostBinding {
     this.#detachHostSizeObserver = observeElementResize(hostElement, () => {
       this.#onHostResize();
     });
+    this.#applyStdinGate();
   }
 
   /** Take the emulator off screen. The emulator itself survives — only the tie ends. */
@@ -131,6 +150,7 @@ export class TerminalHostBinding {
     this.#detachHostSizeObserver?.();
     this.#detachHostSizeObserver = undefined;
     this.#hostElement = undefined;
+    this.#applyStdinGate();
   }
 
   /**
@@ -144,5 +164,15 @@ export class TerminalHostBinding {
     this.#keystrokeSubscription?.dispose();
     this.#keystrokeSubscription = undefined;
     this.#terminal = undefined;
+  }
+
+  /**
+   * Push the composed answer onto the library's own option. The ONE writer of it, so
+   * neither half of the conjunction can move the gate without the other being read.
+   */
+  #applyStdinGate(): void {
+    if (this.#terminal !== undefined) {
+      this.#terminal.options.disableStdin = !this.isWriteEnabled;
+    }
   }
 }

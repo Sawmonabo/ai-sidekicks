@@ -158,14 +158,15 @@ describe("hasRunningDocumentMotion", () => {
   });
 });
 
-// The three ways a pane moves while its own box stays exactly the shape it was.
+// The four ways a pane moves while its own box stays exactly the shape it was.
 //
 // Each source below is a case a size observer on the element reports as nothing at
 // all: the deck reorders its seats, a sibling shrinks and the flex line redistributes,
-// a rail slides in carrying everything inside it. The pane's rectangle is wrong for
-// the whole of each of them and the platform never says so on the element itself.
-// The last two cases are the budget: nothing is armed at rest, and nothing survives
-// the disposer.
+// a rail slides in carrying everything inside it, and a fixed-size box beside it is
+// given a new width in one step by a class. The pane's rectangle is wrong for the
+// whole of each of them and the platform never says so on the element itself. The
+// last two cases are the budget: nothing is armed at rest, and nothing survives the
+// disposer.
 describe("observeElementPosition", () => {
   it("reports a reorder of the element's ancestors, which changes no size", async () => {
     installFakeResizeObserver();
@@ -285,6 +286,86 @@ describe("observeElementPosition", () => {
     detach();
   });
 
+  it("reports a fixed-size sibling resized in one step, which animates nothing", async () => {
+    // The finding, in its non-animated shape. A width written straight onto a
+    // sibling fires no `transitionrun` and no `animationstart`, so the frame sampler
+    // never arms; and the sibling, this element, and the ancestor holding both keep
+    // the sizes they had, so no size observer fires either. The element moved and
+    // every other source in this module says nothing happened.
+    installFakeResizeObserver();
+    const { ancestor, element } = attachedPair();
+    const sibling = document.createElement("div");
+    ancestor.append(sibling);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+    sibling.style.width = "240px";
+    await settleMutationRecords();
+
+    expect(onMove).toHaveBeenCalledTimes(1);
+    detach();
+  });
+
+  it("reports an instant resize beside an ANCESTOR, not only beside the element", async () => {
+    // Why the watch is rooted at the outermost ancestor. A fixed-size box beside the
+    // deck moves the pane exactly as one beside the pane does, and a subtree rooted
+    // at the element's own parent contains neither that box nor its mutation.
+    installFakeResizeObserver();
+    const { element } = attachedPair();
+    const ancestorSibling = document.createElement("div");
+    document.body.append(ancestorSibling);
+    attachedRoots.push(ancestorSibling);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+    ancestorSibling.className = "meridian-rail meridian-rail--collapsed";
+    await settleMutationRecords();
+
+    expect(onMove).toHaveBeenCalledTimes(1);
+    detach();
+  });
+
+  it("costs one reading for a burst of attribute mutations, not one per mutation", async () => {
+    // The budget this arm has to hold. Every call above reads a rectangle and a
+    // clipping-ancestor walk synchronously, so a per-mutation invalidation would turn
+    // one class-driven relayout into fifty forced layouts. The observer delivers one
+    // callback per delivery turn carrying every record queued in it, which is what
+    // makes the burst free.
+    installFakeResizeObserver();
+    const { ancestor, element } = attachedPair();
+    const sibling = document.createElement("div");
+    ancestor.append(sibling);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+    for (let mutation = 0; mutation < 50; mutation += 1) {
+      sibling.className = `meridian-rail meridian-rail--step-${mutation}`;
+    }
+    await settleMutationRecords();
+
+    expect(onMove).toHaveBeenCalledTimes(1);
+    detach();
+  });
+
+  it("negative control: an attribute outside the layout filter moves nothing", async () => {
+    // The filter is what keeps a document-wide watch affordable. Without it every
+    // `aria-expanded` toggle and every `data-` flag the console writes would take a
+    // rectangle reading, on a subtree that is the whole document body.
+    installFakeResizeObserver();
+    const { ancestor, element } = attachedPair();
+    const sibling = document.createElement("div");
+    ancestor.append(sibling);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
+    sibling.setAttribute("aria-expanded", "true");
+    sibling.setAttribute("data-pane-kind", "browser");
+    await settleMutationRecords();
+
+    expect(onMove).not.toHaveBeenCalled();
+    detach();
+  });
+
   it("starts sampling when an ancestor's motion begins after it was armed", () => {
     installFakeResizeObserver();
     const clock = new ManualClock();
@@ -320,10 +401,12 @@ describe("observeElementPosition", () => {
     detach();
   });
 
-  it("disarms all three sources on dispose, mid-animation included", async () => {
+  it("disarms every source on dispose, mid-animation included", async () => {
     const resizeObserver = installFakeResizeObserver();
     const clock = new ManualClock();
     const { ancestor, element } = attachedPair();
+    const sibling = document.createElement("div");
+    ancestor.append(sibling);
     const motion = movingAnimation();
     withAnimations(element, []);
     withAnimations(ancestor, [motion.animation]);
@@ -339,6 +422,7 @@ describe("observeElementPosition", () => {
     ancestor.insertBefore(document.createElement("div"), element);
     resizeObserver.deliverFor(ancestor);
     ancestor.dispatchEvent(new Event("transitionrun", { bubbles: true }));
+    sibling.style.width = "240px";
     await settleMutationRecords();
     clock.runFrame();
     expect(onMove).not.toHaveBeenCalled();

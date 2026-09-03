@@ -30,8 +30,9 @@
 // to "did this element change WHERE it is", which no single platform observer
 // reports: a pane keeps its size and its animation state while a sibling shrinks,
 // while the deck reorders around it, and while an ancestor is carried across the
-// screen. Three sources cover those three ways, they share the one motion sampler
-// below, and none of them samples at rest.
+// screen, and while a fixed-size box beside it is resized in one step by a class.
+// Four sources cover those four ways, they share the one motion sampler below, and
+// none of them samples at rest.
 
 import type { ConsoleClock, ScheduledHandle, Unsubscribe } from "../core/index.js";
 import { observeElementResize } from "../primitives/index.js";
@@ -231,6 +232,11 @@ export interface ElementPositionObserverOptions {
  *   3. TRANSFORMS AND TRANSITIONS — motion starting ANYWHERE in the document arms
  *      the shared frame sampler, which reads where this element actually is and
  *      stops the moment nothing is running.
+ *   4. INSTANT RELAYOUT — every `class` and `style` change in the outermost
+ *      ancestor's subtree. A width written in one step animates nothing, so source 3
+ *      never arms; and where the box that changed is a FIXED-SIZE sibling of this
+ *      element or of any ancestor, source 2 reports nothing either, because no
+ *      watched box changed shape. The pane moved and no other source can say so.
  *
  * SOURCE 3 DELIBERATELY DOES NOT ASK WHETHER THE MOTION CARRIES THIS ELEMENT. The
  * containment test the overlay registry uses answers "no" for the case this observer
@@ -253,7 +259,10 @@ export interface ElementPositionObserverOptions {
 export function observeElementPosition(options: ElementPositionObserverOptions): Unsubscribe {
   const { element, clock, onMove } = options;
   const ancestors = readPositionAncestry(element);
-  const detachers: Unsubscribe[] = [observeAncestorReorder(ancestors, onMove)];
+  const detachers: Unsubscribe[] = [
+    observeAncestorReorder(ancestors, onMove),
+    observeLayoutAttributes(ancestors, onMove),
+  ];
   for (const ancestor of ancestors) {
     detachers.push(observeElementResize(ancestor, onMove));
   }
@@ -311,6 +320,64 @@ function observeAncestorReorder(ancestors: readonly Element[], onReorder: () => 
   for (const ancestor of ancestors) {
     observer.observe(ancestor, { childList: true });
   }
+  return () => {
+    observer.disconnect();
+  };
+}
+
+/**
+ * The attributes an INSTANT layout change arrives on.
+ *
+ * `class` and `style`, and nothing else: those are the two a script writes a box's
+ * width through without animating it. A filter of two is also what keeps a
+ * document-wide watch from waking on every `aria-expanded`, every `data-` flag, and
+ * every `value` the console writes — mutations that move no box at all.
+ */
+const LAYOUT_ATTRIBUTE_NAMES = ["class", "style"] as const;
+
+/**
+ * Watch every `class` and `style` change in the outermost ancestor's subtree.
+ *
+ * WHY A SECOND OBSERVER RATHER THAN A WIDER OPTION SET ON THE FIRST. A
+ * `MutationObserver`'s registration is per node, and a second `observe()` call on a
+ * node REPLACES the options the first gave it — so folding `attributes` into the
+ * reorder watch means the two questions share one width. Either the attribute arm
+ * inherits `subtree: false` and sees no sibling's attribute at all, which is the
+ * whole case; or the reorder arm inherits `subtree: true` and fires on every node
+ * inserted anywhere in the document, which on a console with a live feed is a
+ * forced layout per appended row. Two observers keep each question at the width it
+ * needs.
+ *
+ * WHY THE OUTERMOST ANCESTOR AND NOT EACH OF THEM. The box that moved this element
+ * can sit beside ANY ancestor, not only beside the element: a fixed-size sibling of
+ * the deck moves the pane exactly as a fixed-size sibling of the pane does, and a
+ * subtree rooted at the innermost ancestor contains neither. The outermost ancestor
+ * is the one subtree that holds every one of them, and registering the inner ones
+ * as well would queue duplicate records for one mutation without covering one more
+ * node.
+ *
+ * WHAT COALESCES A BURST. A `MutationObserver` delivers ONE callback per delivery
+ * turn carrying every record queued during it, so fifty class writes in one turn
+ * reach `onLayoutAttributeChange` once. The publisher above then takes one reading
+ * per call and queues one frame for the write. Nothing on this path reads a layout
+ * per mutation, and nothing here reads one at all.
+ */
+function observeLayoutAttributes(
+  ancestors: readonly Element[],
+  onLayoutAttributeChange: () => void,
+): Unsubscribe {
+  const outermostAncestor = ancestors.at(-1);
+  if (typeof MutationObserver === "undefined" || outermostAncestor === undefined) {
+    return () => undefined;
+  }
+  const observer = new MutationObserver(() => {
+    onLayoutAttributeChange();
+  });
+  observer.observe(outermostAncestor, {
+    attributes: true,
+    attributeFilter: [...LAYOUT_ATTRIBUTE_NAMES],
+    subtree: true,
+  });
   return () => {
     observer.disconnect();
   };

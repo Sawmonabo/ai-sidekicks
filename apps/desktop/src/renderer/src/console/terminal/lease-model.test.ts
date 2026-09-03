@@ -266,13 +266,93 @@ describe("an unread transition — ignorance about a write lease is not the old 
   });
 });
 
+// A reason alone is not a reading. The holder member is the other half, and the two
+// have to agree: a take names who holds it, and every release — the operator's own
+// and the three automatic ones — leaves nobody holding it.
+//
+// Both malformed shapes below used to be presented as CONFIDENT states rather than as
+// the ignorance they are, and each is the expensive direction: a take that named
+// nobody read as a free lease, and a release that named the viewer read as their own
+// hold and opened stdin against a shell the daemon had already taken back.
+describe("a holder shape that contradicts its reason is unread, not normalised", () => {
+  it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {
+    const state = projectTerminalLease(
+      [transitionEvent(1, "taken", OTHER), transitionEvent(2, "taken", null, OTHER)],
+      { viewerParticipantId: VIEWER },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holderParticipantId).toBeNull();
+    // The lease itself did not move: the readable take is still the only counted
+    // transition, and the unread one is reported in its own right.
+    expect(state.transitionCount).toBe(1);
+    expect(state.transitions).toHaveLength(1);
+    expect(state.unreadTransition?.sequence).toBe(2);
+    expect(state.unreadTransition?.reason).toBe("taken");
+  });
+
+  it("refuses a `released` that names the viewer, rather than reading it as their hold", () => {
+    const state = projectTerminalLease([transitionEvent(1, "released", VIEWER, VIEWER)], {
+      viewerParticipantId: VIEWER,
+    });
+    // The one reading that opens stdin for somebody the daemon has just taken the
+    // shell from, and leaves them typing until the writes are rejected.
+    expect(state.holding).not.toBe("held-by-you");
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.holderParticipantId).toBeNull();
+  });
+
+  it("refuses an automatic release that names a holder too", () => {
+    // The three automatic reasons are releases, so the same rule reads them: the
+    // participant a release took the shell FROM travels as the previous holder.
+    const state = projectTerminalLease(
+      [transitionEvent(1, "auto_released_disconnect", OTHER, OTHER)],
+      { viewerParticipantId: VIEWER },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+  });
+
+  it("negative control: both well-formed directions still read", () => {
+    // Without this the three cases above would pass against a fold that called every
+    // transition unreadable, which is a lease surface that never says anything.
+    const takenByOther = projectTerminalLease([transitionEvent(1, "taken", OTHER)], {
+      viewerParticipantId: VIEWER,
+    });
+    expect(takenByOther.holding).toBe("held-by-another");
+    const releasedByOther = projectTerminalLease(
+      [transitionEvent(1, "taken", OTHER), transitionEvent(2, "released", null, OTHER)],
+      { viewerParticipantId: VIEWER },
+    );
+    expect(releasedByOther.holding).toBe("unheld");
+    expect(releasedByOther.transitionCount).toBe(2);
+  });
+
+  it("negative control: a holder member of the wrong TYPE is unread on a take", () => {
+    // The tolerant read turned every non-string into the free lease, so a numeric or
+    // absent holder on a take was the same silent normalisation in a second shape.
+    const state = projectTerminalLease(
+      [
+        {
+          id: "event-1",
+          sessionId: "session-terminal",
+          sequence: 1,
+          kind: TERMINAL_LEASE_EVENT_KIND,
+          occurredAt: "2026-01-01T16:40:01.000Z",
+          payload: { reason: "taken", holderParticipantId: "" },
+        },
+      ],
+      { viewerParticipantId: VIEWER },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+  });
+});
+
 describe("vouching — a holder the control plane cannot vouch for is not shown", () => {
   const held = [transitionEvent(1, "taken", VIEWER)];
 
   it("reports `not-checked` when no roster read was performed", () => {
     const state = projectTerminalLease(held, { viewerParticipantId: VIEWER });
     expect(state.holderVouching).toBe("not-checked");
-    expect(state.unvouchedNodeId).toBeUndefined();
+    expect(state.offlineNode).toBeUndefined();
     expect(state.holding).toBe("held-by-you");
   });
 
@@ -292,7 +372,52 @@ describe("vouching — a holder the control plane cannot vouch for is not shown"
     });
     expect(state.holding).toBe("unheld");
     expect(state.holderParticipantId).toBeNull();
-    expect(state.unvouchedNodeId).toBe("node-1");
+    // The node AND what it did: this reading is the one where an offline host took
+    // a holder off the screen, which is a different sentence from an offline host
+    // under a lease that was already free.
+    expect(state.offlineNode).toStrictEqual({ nodeId: "node-1", effect: "holder-collapsed" });
+  });
+
+  it("keeps the offline node without a holder claim when the lease was already free", () => {
+    // The finding. A `released` transition and then the sole node dropping: the
+    // fold nulled the holder because the wire said nobody holds it, and projected an
+    // unvouched HOLDER beside it anyway, so the line said "Nobody holds the shell"
+    // and "The holding node … is offline" at once.
+    const state = projectTerminalLease(
+      [transitionEvent(1, "taken", VIEWER), transitionEvent(2, "released", null, VIEWER)],
+      { viewerParticipantId: VIEWER, holdingNode: { nodeId: "node-1", isReachable: false } },
+    );
+    expect(state.holding).toBe("unheld");
+    expect(state.holderParticipantId).toBeNull();
+    // Still worth saying — the host is down and that is why the shell is read-only —
+    // and said without claiming there is a holder the node reading took away.
+    expect(state.offlineNode).toStrictEqual({ nodeId: "node-1", effect: "no-holder-shown" });
+    // The roster reading itself is unchanged: a read happened and found the host
+    // offline, which is a fact about the READ and not about who holds the lease.
+    expect(state.holderVouching).toBe("unvouched");
+  });
+
+  it("claims no holder either when the transition that moved the lease was unread", () => {
+    // The other way this surface shows nobody. "The holding node is offline, so the
+    // shell reads as free" would contradict the paragraph beside it, which says the
+    // console cannot read who holds the shell at all.
+    const state = projectTerminalLease(
+      [transitionEvent(1, "taken", VIEWER), transitionEvent(2, "seized", OTHER)],
+      { viewerParticipantId: VIEWER, holdingNode: { nodeId: "node-1", isReachable: false } },
+    );
+    expect(state.holding).toBe("unrecognized-transition");
+    expect(state.offlineNode).toStrictEqual({ nodeId: "node-1", effect: "no-holder-shown" });
+  });
+
+  it("negative control: a reachable node produces no offline reading at all", () => {
+    // Without it the cases above would pass against a fold that reported an offline
+    // node for every roster read, which would put a host-down sentence on a healthy
+    // session.
+    const state = projectTerminalLease(
+      [transitionEvent(1, "taken", VIEWER), transitionEvent(2, "released", null, VIEWER)],
+      { viewerParticipantId: VIEWER, holdingNode: { nodeId: "node-1", isReachable: true } },
+    );
+    expect(state.offlineNode).toBeUndefined();
   });
 
   it("negative control: the collapse runs BEFORE the viewer comparison", () => {
