@@ -231,6 +231,50 @@ describe("the adapter, when the context it was drawing on goes away", () => {
 
     expect(pool.holds("adapter-reclaimed")).toBe(false);
   });
+
+  it("gives it back even when a renderer-mode subscriber throws on the way out", () => {
+    // The finding. `Emitter` re-raises what a sink threw, so a consumer that fails
+    // ends the fallback wherever the emission sits — and with the reclaim after it,
+    // the addon was already disposed and the instance already permanently on the DOM
+    // renderer while the page-wide ledger went on counting a context the host had
+    // destroyed. Nothing gives that allowance back before a reload.
+    const pool = new TerminalRendererPool();
+    const adapter = new XtermTerminalAdapter({ terminalId: "adapter-throwing-sink", pool });
+    liveAdapters.push(adapter);
+    adapter.attach(attachedHost());
+    // The premise: without a context taken, the reclaim below would hold vacuously.
+    expect(pool.holds("adapter-throwing-sink")).toBe(true);
+    adapter.subscribeToRendererMode((mode) => {
+      if (mode === "dom") {
+        throw new Error("a renderer-mode consumer failed");
+      }
+    });
+
+    // Still raised, because the ledger is right before the notification rather than
+    // instead of it: this path reports the consumer's defect, it does not swallow it.
+    expect(() => {
+      newestRenderer().loseContext();
+    }).toThrow("a renderer-mode consumer failed");
+
+    expect(pool.holds("adapter-throwing-sink")).toBe(false);
+    expect(adapter.rendererMode).toBe("dom");
+  });
+
+  it("negative control: a subscriber that returns normally raises nothing", () => {
+    // Without it the case above would pass against a fallback that raised on every
+    // context loss, which would make the assertion about the emitter rather than
+    // about the sink.
+    const pool = new TerminalRendererPool();
+    const adapter = new XtermTerminalAdapter({ terminalId: "adapter-quiet-sink", pool });
+    liveAdapters.push(adapter);
+    adapter.attach(attachedHost());
+    adapter.subscribeToRendererMode(() => undefined);
+
+    expect(() => {
+      newestRenderer().loseContext();
+    }).not.toThrow();
+    expect(pool.holds("adapter-quiet-sink")).toBe(false);
+  });
 });
 
 // A lost context is permanent for the LIFE OF THE INSTANCE, and a remount is not a

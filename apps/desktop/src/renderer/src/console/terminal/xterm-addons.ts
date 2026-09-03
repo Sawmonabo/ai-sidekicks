@@ -216,6 +216,17 @@ export class TerminalAddonSuite {
    * terminal from here on. This is the one teardown-shaped path that reclaims: the
    * host destroyed the context rather than this code dropping a reference to it, so
    * counting it would spend the page's allowance on something that no longer exists.
+   *
+   * EVERY STATE CHANGE HAPPENS BEFORE THE NOTIFICATION, and the ledger is the one
+   * that has to. `Emitter` delivers to every sink and then re-raises what any of them
+   * threw, so a consumer of `onRendererMode` that fails — a surface mid-render, a
+   * diagnostic that asserted — ends this method wherever the emission sits. With the
+   * reclaim after it, the fall-back was already permanent and the addon already
+   * disposed while the page-wide ledger went on counting a context the host had
+   * destroyed, for the life of the page: an allowance spent on nothing, which the
+   * next terminal to open pays for by starting on the DOM renderer. Putting the
+   * reclaim first makes the notification the last thing this method does, and a
+   * failure in it can no longer leave the ledger disagreeing with the GPU.
    */
   #fallBackToDomRenderer(webglAddon: WebglAddon): void {
     if (this.#webglAddon !== webglAddon) {
@@ -223,12 +234,14 @@ export class TerminalAddonSuite {
     }
     webglAddon.dispose();
     this.#webglAddon = undefined;
-    // The one write. Everything below this line is reversible by a remount — the
-    // addon reference and the pool slot both are — and this is what makes the
-    // fallback the permanent thing the header above claims it is.
+    // The one write. Everything around it is reversible by a remount — the addon
+    // reference and the pool slot both are — and this is what makes the fallback the
+    // permanent thing the header above claims it is.
     this.#hasLostWebglContext = true;
-    this.#setRendererMode("dom");
     this.#pool.reclaim(this.#terminalId);
+    // Last, and re-raising: the invariant above is already restored, so what a sink
+    // throws reaches the caller instead of being swallowed here.
+    this.#setRendererMode("dom");
   }
 
   /**
