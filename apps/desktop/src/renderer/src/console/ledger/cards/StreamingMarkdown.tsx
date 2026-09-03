@@ -44,6 +44,14 @@
 // from the volatile tail into the prefix. The prefix is append-only — the segmenter grows
 // `#completeBlocks` at the end and slices from the front — so block N stays at index N for
 // as long as the message does, and the settling of a later block moves nothing.
+//
+// WHAT A RE-RENDER WITH NO NEW TEXT COSTS: NOTHING. The segmenter's split is memoised on
+// the snapshot it was taken from, so every derivation below it — both parse passes, the
+// declared-identifier set, the preamble, the uncited walk, and the definition
+// registration — is keyed on an identity that only a change in this body's own text can
+// move. A re-render caused by the viewport, the layout, or a neighbouring row therefore
+// walks none of them. That property was the whole point of the committed prefix and it
+// was lost the moment one of these derivations depended on an array rebuilt per render.
 
 import type { RootContent } from "mdast";
 import { memo, useEffect, useMemo, useRef } from "react";
@@ -73,6 +81,9 @@ const NO_NODES: readonly RootContent[] = Object.freeze([]);
 
 /** No uncited definitions, once — a streaming body allocates none asking. */
 const NO_IDENTIFIERS: readonly string[] = Object.freeze([]);
+
+/** Nothing registered yet, once — the state a freshly mounted body starts in. */
+const NO_NODE_LISTS: readonly (readonly RootContent[])[] = Object.freeze([]);
 
 export interface StreamingMarkdownProps {
   /**
@@ -107,8 +118,13 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   // definition wherever it lands. A REFERENCE is not — GFM leaves `[^1]` as literal
   // characters in a block holding no matching definition — which is why there is a
   // second pass at all rather than one walk over these same trees.
-  const declaredSettledNodeLists = segmentation.settledBlocks.map(
-    (block) => parseSettledBlock(block).children,
+  //
+  // Memoised on the settled prefix itself, which the hook above keeps referentially
+  // stable across a render the text did not change in. See the registration effect
+  // below for what that identity buys.
+  const declaredSettledNodeLists = useMemo(
+    () => segmentation.settledBlocks.map((block) => parseSettledBlock(block).children),
+    [segmentation.settledBlocks],
   );
   const declaredVolatileNodes = useMemo(
     () =>
@@ -118,13 +134,13 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
     [segmentation.volatileTail],
   );
 
-  // Keyed on the published text rather than on the node arrays: the text determines both
-  // splits, and the arrays are rebuilt per render even when their contents are the cached
-  // ones, so depending on them would recompute the set — and every context below it — on
-  // every frame.
+  // Keyed on the node arrays themselves, which is only possible because both are
+  // memoised above: until they were, a fresh array per render meant depending on them
+  // recomputed this set — and every context below it — on every frame, so the text
+  // stood in for them. The arrays are the honest key, and now they are stable.
   const definedFootnoteIdentifiers = useMemo(
     () => collectDefinedIdentifiers(declaredSettledNodeLists, declaredVolatileNodes),
-    [props.publishedText, declaredVolatileNodes],
+    [declaredSettledNodeLists, declaredVolatileNodes],
   );
   const definitionPreamble = useMemo(
     () => footnoteDefinitionPreamble(definedFootnoteIdentifiers),
@@ -135,12 +151,15 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   // makes `cite[^1]` in one block a reference to `[^1]: …` in another. A body declaring
   // no footnotes has an empty preamble, so these are the pass-one arrays unchanged: same
   // cache entries, same identities, same cost.
-  const settledNodeLists =
-    definitionPreamble === ""
-      ? declaredSettledNodeLists
-      : segmentation.settledBlocks.map(
-          (block) => parseSettledBlock(block, definitionPreamble).children,
-        );
+  const settledNodeLists = useMemo(
+    () =>
+      definitionPreamble === ""
+        ? declaredSettledNodeLists
+        : segmentation.settledBlocks.map(
+            (block) => parseSettledBlock(block, definitionPreamble).children,
+          ),
+    [definitionPreamble, declaredSettledNodeLists, segmentation.settledBlocks],
+  );
   const volatileNodes = useMemo(
     () =>
       definitionPreamble === "" || segmentation.volatileTail === ""
@@ -156,9 +175,7 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
   const uncitedFootnoteIdentifiers = useMemo(
     () =>
       props.isComplete ? uncitedIdentifiersOf(settledNodeLists, volatileNodes) : NO_IDENTIFIERS,
-    // `settledNodeLists` is rebuilt per render from a cache and is deliberately not a
-    // dependency, for the reason the registration effect below gives.
-    [props.publishedText, volatileNodes, props.isComplete],
+    [settledNodeLists, volatileNodes, props.isComplete],
   );
 
   const settledContext = useMemo<MarkdownRenderContext>(
@@ -172,21 +189,12 @@ export function StreamingMarkdown(props: StreamingMarkdownProps): React.JSX.Elem
 
   // Registration is an effect and not a render, so the mapper stays a pure function of the
   // parse and no render mutates a registry two cards share.
-  const { footnotes, sourceId } = props;
-  useEffect(() => {
-    for (const nodes of [...settledNodeLists, volatileNodes]) {
-      for (const definition of collectFootnoteDefinitions(nodes).definitions) {
-        footnotes.register({
-          sourceId,
-          identifier: definition.identifier,
-          bodyNodes: definition.children,
-        });
-      }
-    }
-    // `settledNodeLists` is rebuilt per render from a cache, so it is deliberately NOT a
-    // dependency: depending on it would run this effect every frame. The published text is
-    // what decides its contents, and that is the dependency this effect keys on.
-  }, [props.publishedText, volatileNodes, footnotes, sourceId, settledNodeLists]);
+  useFootnoteDefinitionRegistration({
+    settledNodeLists,
+    volatileNodes,
+    footnotes: props.footnotes,
+    sourceId: props.sourceId,
+  });
 
   return (
     <FootnotePopoverHost
@@ -229,6 +237,13 @@ function settledBlockKey(block: string, positionInPrefix: number): string {
  * `apps/desktop/AGENTS.md` puts construction in a class or a hook and never in a render.
  * The segmenter's own `segment` is idempotent for a repeated snapshot, which is what
  * makes calling it during render safe under a double-invoked render.
+ *
+ * MEMOISED ON THE SNAPSHOT, and that is what makes every derivation below cheap on a
+ * render the text did not change in. `segment` returns fresh arrays each call, so an
+ * unmemoised split hands every consumer a new identity on a re-render caused by the
+ * viewport, the layout, or a neighbouring row — and each of them then redoes work
+ * about a body that did not move. Idempotence is what makes the memo safe rather than
+ * merely fast: a cache React discards is recomputed to the same split.
  */
 function useBlockSegmentation(
   publishedText: string,
@@ -236,7 +251,66 @@ function useBlockSegmentation(
 ): ReturnType<MarkdownBlockSegmenter["segment"]> {
   const segmenterRef = useRef<MarkdownBlockSegmenter | undefined>(undefined);
   segmenterRef.current ??= new MarkdownBlockSegmenter();
-  return segmenterRef.current.segment(publishedText, { isFinal: isComplete });
+  const segmenter = segmenterRef.current;
+  return useMemo(
+    () => segmenter.segment(publishedText, { isFinal: isComplete }),
+    [segmenter, publishedText, isComplete],
+  );
+}
+
+/**
+ * Record every footnote definition this body declares, and re-walk only what changed.
+ *
+ * TWO PROPERTIES, AND THE SECOND IS WHY THIS IS A HOOK WITH A MEMORY.
+ *
+ *   • It runs when the CONTENT changes and not when the component renders. The node
+ *     lists it is handed are memoised on the settled prefix and the volatile tail, so
+ *     a viewport, layout, or ledger update that does not change a word of this body
+ *     leaves every dependency identical and this effect does not run at all.
+ *   • When it does run, it walks the blocks that changed. A settled block's nodes are
+ *     content-addressed and referentially stable, so a block whose identity is the one
+ *     registered last time holds exactly the definitions registered last time. A long
+ *     completed message that grows one block therefore walks one block, rather than
+ *     re-walking every block behind it — which is the same claim the settled-block
+ *     memoisation makes about rendering, made about registration.
+ *
+ * The volatile tail is always walked: it is re-parsed on every frame it changes in by
+ * construction, so there is nothing stable about it to compare against.
+ */
+function useFootnoteDefinitionRegistration(input: {
+  readonly settledNodeLists: readonly (readonly RootContent[])[];
+  readonly volatileNodes: readonly RootContent[];
+  readonly footnotes: FootnoteRegistry;
+  readonly sourceId: string;
+}): void {
+  const { footnotes, settledNodeLists, sourceId, volatileNodes } = input;
+  const registeredSettledNodeLists = useRef<readonly (readonly RootContent[])[]>(NO_NODE_LISTS);
+  useEffect(() => {
+    const alreadyRegistered = registeredSettledNodeLists.current;
+    for (const [index, nodes] of settledNodeLists.entries()) {
+      if (alreadyRegistered[index] === nodes) {
+        continue;
+      }
+      registerDefinitionsIn(nodes, footnotes, sourceId);
+    }
+    registeredSettledNodeLists.current = settledNodeLists;
+    registerDefinitionsIn(volatileNodes, footnotes, sourceId);
+  }, [settledNodeLists, volatileNodes, footnotes, sourceId]);
+}
+
+/** One block's definitions, into the registry under this body's own source. */
+function registerDefinitionsIn(
+  nodes: readonly RootContent[],
+  footnotes: FootnoteRegistry,
+  sourceId: string,
+): void {
+  for (const definition of collectFootnoteDefinitions(nodes).definitions) {
+    footnotes.register({
+      sourceId,
+      identifier: definition.identifier,
+      bodyNodes: definition.children,
+    });
+  }
 }
 
 /**
