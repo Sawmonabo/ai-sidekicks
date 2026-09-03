@@ -224,6 +224,41 @@ describe("RepoSection — the mounts this session actually holds", () => {
   });
 });
 
+describe("RepoSection — the in-place root reaches the screen from the scenario", () => {
+  /** The in-place root's gate sits on the workspace itself, because that IS the root. */
+  const IN_PLACE_GATE_SELECTOR = ".meridian-mount-card__workspace > details.meridian-root-gate";
+
+  it("draws one gate for the branch-mode workspace and none for the read-only one", async () => {
+    // A workspace has three writable execution modes and the third one — `branch` —
+    // mints no worktree and no clone, so its gate hangs on the workspace card. While
+    // every scenario row was bound `read-only` the fixture reached two of the three
+    // roots, and the screenshot and accessibility tiers framed a section the in-place
+    // gate never appeared in.
+    //
+    // Exactly one is the negative control as well as the claim: the scenario states
+    // two workspaces, and a card that hung a gate on every one of them — including the
+    // read-only row that produces no writable branch context — would draw two.
+    const container = renderSection(REPOS_SCENARIO);
+
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll(MOUNT_CARD_SELECTOR).length).toBeGreaterThan(0);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    await waitFor(
+      () => {
+        expect(container.querySelectorAll(IN_PLACE_GATE_SELECTOR)).toHaveLength(1);
+      },
+      { timeout: READ_TIMEOUT_MS },
+    );
+    // In the in-place root's own words: the branch-context read is keyed by a context
+    // id nothing this console can call mints, so the question is not put.
+    const gate = container.querySelector(IN_PLACE_GATE_SELECTOR);
+    expect(gate?.textContent).toContain("not addressable");
+  });
+});
+
 describe("RepoSection — a clone root is a writable root, so it carries a gate", () => {
   /** The disclosure a root's change-proposal gate renders into. */
   const GATE_SELECTOR = "details.meridian-root-gate";
@@ -255,6 +290,13 @@ describe("RepoSection — a clone root is a writable root, so it carries a gate"
     // Without this the case above would pass against a section that had made every
     // gate unaddressable — which would silently retire the one root the registered
     // request does have a key for.
+    //
+    // SCOPED TO THE ROOT ROWS, not to the whole mount card. The scenario's git
+    // workspace is bound `branch`, so its card also carries the in-place root's gate —
+    // and that one IS unaddressable, for the same reason the clone's is. The claim
+    // here is about the worktree roots, which are the rows; a card-wide sweep would
+    // read the workspace's own gate as a worktree's and fail on the fixture stating
+    // the third writable mode at all.
     const container = renderSection(REPOS_SCENARIO);
     await cloneList(container);
 
@@ -264,10 +306,13 @@ describe("RepoSection — a clone root is a writable root, so it carries a gate"
       },
       { timeout: READ_TIMEOUT_MS },
     );
-    const mountGates = [...container.querySelectorAll(MOUNT_CARD_SELECTOR)].flatMap((card) => [
-      ...card.querySelectorAll(GATE_SELECTOR),
+    const worktreeGates = [...container.querySelectorAll(MOUNT_CARD_SELECTOR)].flatMap((card) => [
+      ...card.querySelectorAll(`.meridian-root-gate-row ${GATE_SELECTOR}`),
     ]);
-    for (const gate of mountGates) {
+    // Non-vacuous: a section that drew no worktree row at all would otherwise satisfy
+    // an empty loop, which is the pass this control exists to refuse.
+    expect(worktreeGates.length).toBeGreaterThan(0);
+    for (const gate of worktreeGates) {
       expect(gate.textContent).not.toContain("subject-not-addressable");
     }
   });

@@ -88,11 +88,11 @@ const MOUNT_READS_BY_MOUNT_ID: Readonly<Record<string, unknown>> = {
 /**
  * What the workspace-scoped arm of `repo.executionModeCapabilitiesRead` answers.
  *
- * `defaultMode` is deliberately NOT the workspace's current mode: both workspace rows
- * below are bound `read-only`, which is what a new workspace stays until a run
- * explicitly selects otherwise, while this field reports the default for the next
- * writable coding run. The picker labels the two separately and a reader who conflates
- * them will think one is wrong.
+ * `defaultMode` is deliberately NOT the workspace's current mode: the git row below is
+ * bound `branch` and the plain one `read-only`, while this field reports the default
+ * for the next writable coding run — `worktree` on the git mount, which agrees with
+ * neither. The picker labels the two separately and a reader who conflates them will
+ * think one is wrong.
  *
  * The plain workspace is the D-009-5 answer for a `none` mount: `read-only` alone,
  * `read-only` as the default because no writable mode exists to default to, and a
@@ -163,17 +163,22 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     },
   },
   {
-    // Session-scoped rather than mount-scoped. The git workspace is `read-only`,
-    // which is what a new workspace stays until a run explicitly selects a writable
-    // mode; the plain one is `stale`, agreeing with the beat above it, and carries
-    // the daemon's own sentence about why rather than an empty row.
+    // Session-scoped rather than mount-scoped. The git workspace is bound `branch`,
+    // which is the one writable mode whose execution root is the mount's own checkout
+    // and mints no worktree and no clone row — so it is the only binding under which a
+    // fixture reaches the in-place root's change-proposal gate at all, and a scenario
+    // that left both rows `read-only` drew two of the three writable roots and never
+    // the third. The plain one stays `read-only`: its mount is `none`-vcs, and the
+    // capabilities read above restricts every writable mode on it with a reason. That
+    // row is `stale` besides, agreeing with the beat above it, and carries the
+    // daemon's own sentence about why rather than an empty row.
     call: "repo.workspaceList",
     result: {
       workspaces: [
         {
           id: GIT_WORKSPACE_ID,
           repoMountId: GIT_MOUNT_ID,
-          executionMode: "read-only",
+          executionMode: "branch",
           state: "ready",
           fsRoot: "/Users/dev/code/ai-sidekicks",
         },
