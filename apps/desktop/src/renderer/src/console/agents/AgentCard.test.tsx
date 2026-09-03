@@ -193,6 +193,39 @@ describe("agent card — the attach echo", () => {
     expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
   });
 
+  it("claims no definition for an echo that names none", () => {
+    // An inline attach resolves a configuration and names no definition. Calling
+    // that "attached from a definition" invented a row, and the note then promised
+    // something about editing or deleting one that does not exist.
+    const { container } = render(
+      <AgentCard agent={{ ...RUNNING, resolvedConfiguration: FULLY_REPORTED }} />,
+    );
+    const disclosure =
+      container.querySelector(".meridian-agent-card__disclosure")?.textContent ?? "";
+    expect(disclosure).toContain("Resolved configuration");
+    expect(disclosure).not.toContain("Attached from a definition");
+    expect(disclosure).not.toContain("Editing or deleting the definition");
+  });
+
+  it("negative control: an echo that DOES name one is attributed to it", () => {
+    // Without this the case above would pass over a card that had stopped naming a
+    // definition at all, which loses the one thing the disclosure exists to say.
+    const { container } = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          resolvedFromDefinitionId: "definition-scout",
+          resolvedConfiguration: FULLY_REPORTED,
+        }}
+      />,
+    );
+    const disclosure =
+      container.querySelector(".meridian-agent-card__disclosure")?.textContent ?? "";
+    expect(disclosure).toContain("Attached from a definition");
+    expect(disclosure).toContain("definition-scout");
+    expect(disclosure).toContain("Editing or deleting the definition");
+  });
+
   it("renders an empty allowlist as the restriction it is", () => {
     // "No tools at all" is the applied configuration and the strictest posture the
     // agent can have — a choice somebody made, not the daemon staying silent.

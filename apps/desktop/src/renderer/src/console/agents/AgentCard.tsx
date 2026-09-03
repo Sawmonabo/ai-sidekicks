@@ -12,9 +12,10 @@
 // The refusals, stated where they are enforced below: `appliesAt` is never
 // re-derived from the axis names, `interruptRequested` is never re-derived from
 // `appliesAt`, `observedOutputSpeed` absence is never rendered as "off" and
-// `outputSpeed` is never substituted for it, and the resolved configuration is never
+// `outputSpeed` is never substituted for it, the resolved configuration is never
 // re-read from the definition registry — the attach echo is the only read, and the
-// registry row may already have moved.
+// registry row may already have moved — and an echo naming NO definition is never
+// attributed to one, because an inline attach resolves a configuration too.
 //
 // TWO FIELDS ARE DELIBERATELY NOT RENDERED ANYWHERE: the admitting principal and the
 // interrupt-dispatch progress marker. Both live in the durable slot as recovery
@@ -88,7 +89,9 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
       {agent.resolvedConfiguration === undefined ? null : (
         <details className="meridian-agent-card__disclosure">
           <summary className="meridian-agent-card__disclosure-summary">
-            Attached from a definition
+            {agent.resolvedFromDefinitionId === undefined
+              ? "Resolved configuration"
+              : "Attached from a definition"}
           </summary>
           <ResolvedConfigurationEcho
             resolved={agent.resolvedConfiguration}
@@ -268,7 +271,12 @@ function PendingSwitchLine(props: {
   );
 }
 
-/** The echo captured at attach. Fixed for the agent's life; never re-read. */
+/**
+ * The echo captured at attach. Fixed for the agent's life; never re-read.
+ *
+ * The definition row and the note turn on whether one was NAMED, because the echo is
+ * present either way and an inline attach has no row to edit or delete.
+ */
 function ResolvedConfigurationEcho(props: {
   readonly resolved: AgentResolvedConfiguration;
   readonly definitionId: string | undefined;
@@ -303,8 +311,9 @@ function ResolvedConfigurationEcho(props: {
       <ProseRow label="Instructions" text={resolved.instructions} />
       <ProseRow label="Goal" text={resolved.goal} />
       <p className="meridian-agent-card__snapshot-note">
-        This is a snapshot taken when the agent was attached. Editing or deleting the definition
-        afterwards reaches this agent never, and no update carries these four axes.
+        {props.definitionId === undefined
+          ? "This is what the attach resolved to, captured then. No definition was named, so there is none to edit, and no update carries these four axes."
+          : "This is a snapshot taken when the agent was attached. Editing or deleting the definition afterwards reaches this agent never, and no update carries these four axes."}
       </p>
     </dl>
   );
