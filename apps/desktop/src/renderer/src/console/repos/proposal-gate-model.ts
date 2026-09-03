@@ -89,22 +89,36 @@ export const SUBJECT_NOT_ADDRESSABLE: ProposalGateRefusalCode = "subject-not-add
  * that already holds it rather than read again: the served context carries no mode of
  * its own, the summary reports the one the row is drawn under, and a second read of it
  * here could disagree with that row.
+ *
+ * `repoMountId` is on every arm for a different reason: it is not what the gate READS
+ * under — the branch-context read is keyed by the workspace and the root — but it is
+ * the only identity the registered `GitActionExecuteRequest` takes, so an act sent from
+ * a subject that did not carry it could not name what it was acting on. Every arm
+ * resolves it from the SAME place, the workspace row's own `repoMountId`: a branch
+ * root and a clone are built from that row directly, and a worktree's is the row it was
+ * paired under, which `worktree-gate-pairing.ts` resolves by that very mount. The
+ * worktree record carries a `repoMountId` of its own and it is the same value by
+ * construction — that pairing filters both sides on it — so this is one fact read once
+ * rather than two that could disagree.
  */
 export type ProposalGateSubject =
   | {
       readonly kind: "worktree";
       readonly workspaceId: string;
+      readonly repoMountId: string;
       readonly worktreeId: string;
       readonly executionMode: ExecutionMode;
     }
   | {
       readonly kind: "branch-root";
       readonly workspaceId: string;
+      readonly repoMountId: string;
       readonly executionMode: ExecutionMode;
     }
   | {
       readonly kind: "ephemeral-clone";
       readonly workspaceId: string;
+      readonly repoMountId: string;
       readonly cloneId: string;
       readonly executionMode: ExecutionMode;
     };
@@ -202,11 +216,13 @@ export function branchContextReadPlanFor(subject: ProposalGateSubject): BranchCo
  */
 export function branchRootGateSubject(workspace: {
   readonly id: string;
+  readonly repoMountId: string;
   readonly executionMode: ExecutionMode;
 }): ProposalGateSubject {
   return {
     kind: "branch-root",
     workspaceId: workspace.id,
+    repoMountId: workspace.repoMountId,
     executionMode: workspace.executionMode,
   };
 }
@@ -222,7 +238,11 @@ export function branchRootGateSubject(workspace: {
  */
 export function ephemeralCloneGateSubject(
   clone: { readonly cloneId: string; readonly workspaceId: string },
-  workspaces: readonly { readonly id: string; readonly executionMode: ExecutionMode }[],
+  workspaces: readonly {
+    readonly id: string;
+    readonly repoMountId: string;
+    readonly executionMode: ExecutionMode;
+  }[],
 ): ProposalGateSubject | undefined {
   const workspace = workspaces.find((row) => row.id === clone.workspaceId);
   if (workspace === undefined) {
@@ -231,6 +251,10 @@ export function ephemeralCloneGateSubject(
   return {
     kind: "ephemeral-clone",
     workspaceId: clone.workspaceId,
+    // The clone row names no mount at all — `ephemeral_clones` is workspace-anchored —
+    // so the mount an act is sent under comes from the roster row the mode came from,
+    // which is the same row and the same read. Two facts from one lookup, never two.
+    repoMountId: workspace.repoMountId,
     cloneId: clone.cloneId,
     executionMode: workspace.executionMode,
   };

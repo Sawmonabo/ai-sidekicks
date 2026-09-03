@@ -164,21 +164,32 @@ describe("branchContextReadPlanFor", () => {
 
 describe("the two subjects built straight from the row they belong to", () => {
   it("builds an in-place root from the workspace alone, mode wire-verbatim", () => {
-    expect(branchRootGateSubject({ id: "workspace-1", executionMode: "branch" })).toStrictEqual({
+    expect(
+      branchRootGateSubject({
+        id: "workspace-1",
+        repoMountId: "mount-1",
+        executionMode: "branch",
+      }),
+    ).toStrictEqual({
       kind: "branch-root",
       workspaceId: "workspace-1",
+      // The mount an act names on the wire, straight off the row this subject IS.
+      repoMountId: "mount-1",
       executionMode: "branch",
     });
   });
 
   it("takes a clone's mode from the roster row the clone itself names", () => {
     const subject = ephemeralCloneGateSubject({ cloneId: "clone-a", workspaceId: "workspace-2" }, [
-      { id: "workspace-1", executionMode: "branch" },
-      { id: "workspace-2", executionMode: "ephemeral clone" },
+      { id: "workspace-1", repoMountId: "mount-1", executionMode: "branch" },
+      { id: "workspace-2", repoMountId: "mount-2", executionMode: "ephemeral clone" },
     ]);
     expect(subject).toStrictEqual({
       kind: "ephemeral-clone",
       workspaceId: "workspace-2",
+      // The clone row names no mount at all, so both the mode and the mount come from
+      // the roster row it names — one lookup, and never the first row in the list.
+      repoMountId: "mount-2",
       cloneId: "clone-a",
       executionMode: "ephemeral clone",
     });
@@ -189,7 +200,7 @@ describe("the two subjects built straight from the row they belong to", () => {
     // module's rule, applied to the one relation a clone list can be missing.
     expect(
       ephemeralCloneGateSubject({ cloneId: "clone-a", workspaceId: "workspace-2" }, [
-        { id: "workspace-1", executionMode: "branch" },
+        { id: "workspace-1", repoMountId: "mount-1", executionMode: "branch" },
       ]),
     ).toBeUndefined();
   });

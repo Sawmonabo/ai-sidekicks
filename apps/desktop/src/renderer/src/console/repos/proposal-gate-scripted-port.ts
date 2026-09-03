@@ -19,8 +19,10 @@
 import { type ConsoleBridge } from "../bridge/index.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
 import {
+  GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_WORKTREE_ID,
+  PARTICIPANT_YOU,
 } from "../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
 import { SessionStore } from "../store/index.js";
@@ -32,6 +34,9 @@ import type { ProposalGateSubject } from "./proposal-gate-model.js";
 export const SUBJECT: ProposalGateSubject = {
   kind: "worktree",
   workspaceId: GIT_WORKSPACE_ID,
+  // The mount an act names on the wire. The scenario's own, so a case asserting the
+  // registered request is comparing against the id the fixture actually mounts.
+  repoMountId: GIT_MOUNT_ID,
   worktreeId: IMPLEMENTER_WORKTREE_ID,
   executionMode: "worktree",
 };
@@ -91,8 +96,19 @@ export const SERVED_PREPARATION = {
   },
 } as const;
 
-/** What the daemon answers an act it took with. Named once because three cases send one. */
-export const ACCEPTED_ACTION = { status: "served", value: { accepted: true } } as const;
+/**
+ * What the daemon answers an act it took with. Named once because three cases send one.
+ *
+ * `success`, which is `GitActionExecuteResponse`'s own member. The `accepted` this used
+ * to carry was never on that reply at all.
+ */
+export const ACCEPTED_ACTION = { status: "served", value: { success: true } } as const;
+
+/** The identity the caller read answers with, so an act carries the fixture's causation. */
+export const SERVED_CALLER_PARTICIPANT: {
+  readonly status: "served";
+  readonly value: Record<string, unknown>;
+} = { status: "served", value: { participantId: PARTICIPANT_YOU } };
 
 /** One served context, with whichever of the pairing members a case wants moved. */
 export function servedContext(overrides: Partial<ProposalContextKey>): {
@@ -105,11 +121,21 @@ export function servedContext(overrides: Partial<ProposalContextKey>): {
   };
 }
 
-/** What each of the three growth operations answers, for one case. */
+/** What each of the four growth operations answers, for one case. */
 export interface PortScript {
   readonly branchContext: unknown;
   readonly prepare?: unknown;
   readonly gitAction?: unknown;
+  /**
+   * The caller-identity read, which every case gets an answer to by default.
+   *
+   * Defaulted rather than required, because it is not what any case is about: an act
+   * carries the caller's id as CAUSATION, so a case scripting only a git action still
+   * needs the read to answer or it would be asserting against a request whose causation
+   * went missing for a reason the case never stated. A case that wants the unread arm
+   * scripts a refusal here deliberately.
+   */
+  readonly callerParticipant?: unknown;
 }
 
 /**
@@ -125,8 +151,42 @@ export function bridgeAnswering(script: PortScript): ConsoleBridge {
       gitflowBranchContextRead: async () => script.branchContext,
       gitflowPrPrepare: async () => script.prepare,
       gitActionExecute: async () => script.gitAction,
+      callerParticipantRead: async () => script.callerParticipant ?? SERVED_CALLER_PARTICIPANT,
     },
   } as unknown as ConsoleBridge;
+}
+
+/** A bridge that keeps every git-action request it was sent, in the order they went. */
+export interface RecordingPort {
+  readonly bridge: ConsoleBridge;
+  /** Every request `gitflow.gitActionExecute` was called with, wire-verbatim. */
+  readonly gitActionRequests: () => readonly unknown[];
+}
+
+/**
+ * A bridge that records what an act SENT rather than only what it answered.
+ *
+ * THE ONLY WAY TO ASSERT A REQUEST SHAPE. Every other port here scripts a reply and
+ * discards the request, which is exactly why a call carrying a member the registered
+ * contract does not have — and missing two it requires — passed every case in this
+ * family: nothing had ever looked at the argument.
+ */
+export function recordingPort(script: PortScript): RecordingPort {
+  const requests: unknown[] = [];
+  return {
+    bridge: {
+      growth: {
+        gitflowBranchContextRead: async () => script.branchContext,
+        gitflowPrPrepare: async () => script.prepare,
+        gitActionExecute: async (request: unknown) => {
+          requests.push(request);
+          return script.gitAction ?? ACCEPTED_ACTION;
+        },
+        callerParticipantRead: async () => script.callerParticipant ?? SERVED_CALLER_PARTICIPANT,
+      },
+    } as unknown as ConsoleBridge,
+    gitActionRequests: () => requests,
+  };
 }
 
 /** A bridge whose answers a case can MOVE between calls, and the two movers for it. */
@@ -153,6 +213,7 @@ export function bridgeWithMovingAnswers(prepare: unknown = SERVED_PREPARATION): 
         gitflowBranchContextRead: async () => branchContext,
         gitflowPrPrepare: async () => prepare,
         gitActionExecute: async () => gitAction,
+        callerParticipantRead: async () => SERVED_CALLER_PARTICIPANT,
       },
     } as unknown as ConsoleBridge,
     serveContext: (answer: unknown) => {

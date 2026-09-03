@@ -23,13 +23,16 @@ import {
   REPLY_ABANDONED,
   SERVED_CONTEXT,
   SERVED_PREPARATION,
+  SUBJECT,
   WIRE_UNREGISTERED,
   bridgeAnswering,
   bridgeWithMovingAnswers,
   publishedProposalOf,
+  recordingPort,
   settle,
   settleAct,
 } from "./proposal-gate-scripted-port.js";
+import { PARTICIPANT_YOU } from "../bridge/scenarios/repos-fixture-data.js";
 
 const readers = new OpenReaders();
 
@@ -333,5 +336,119 @@ describe("ProposalGateActions — one act at a time", () => {
     await settleAct(clock, reader);
 
     expect(reader.snapshot).toStrictEqual(readingBeforeDisposal);
+  });
+});
+
+describe("ProposalGateActions — the request a git action puts on the wire", () => {
+  /** Send one act against a recording port and give back the request it produced. */
+  async function requestSentBy(
+    action: ProposalAction,
+    script: { readonly callerParticipant?: unknown } = {},
+  ): Promise<unknown> {
+    const clock = new ManualClock();
+    const port = recordingPort({ branchContext: SERVED_CONTEXT, ...script });
+    const reader = readers.open(port.bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction(action);
+    await settleAct(clock, reader);
+
+    const [request] = port.gitActionRequests();
+    if (request === undefined) {
+      throw new Error("the act has to reach the git action for there to be a request");
+    }
+    return request;
+  }
+
+  it("sends Commit as the registered request: mount, action, params, causation", async () => {
+    // The shape `docs/architecture/contracts/api-payload-contracts.md` registers. This
+    // call used to send `{ workspaceId, action }` — a member that contract does not
+    // have, missing the two it requires — so a contract-valid daemon would have refused
+    // every commit and every push before running it.
+    expect(await requestSentBy("commit")).toStrictEqual({
+      repoMountId: SUBJECT.repoMountId,
+      action: "commit",
+      params: {
+        branchContextId: SERVED_CONTEXT.value["branchContextId"],
+        headBranch: SERVED_CONTEXT.value["headBranch"],
+      },
+      causationParticipantId: PARTICIPANT_YOU,
+    });
+  });
+
+  it("sends Push with the context's own push target beside the same mount and causation", async () => {
+    expect(await requestSentBy("push")).toStrictEqual({
+      repoMountId: SUBJECT.repoMountId,
+      action: "push",
+      params: {
+        branchContextId: SERVED_CONTEXT.value["branchContextId"],
+        headBranch: SERVED_CONTEXT.value["headBranch"],
+        upstreamRef: SERVED_CONTEXT.value["upstreamRef"],
+      },
+      causationParticipantId: PARTICIPANT_YOU,
+    });
+  });
+
+  it("sends the act without causation where the caller identity read refused", async () => {
+    // The identity is attribution and not authority, so the act still goes — and the
+    // member is absent rather than empty, because a placeholder would be a claim about
+    // who acted.
+    const request = await requestSentBy("commit", { callerParticipant: WIRE_UNREGISTERED });
+
+    expect(Object.keys(request as object)).not.toContain("causationParticipantId");
+    expect((request as { readonly repoMountId: unknown }).repoMountId).toBe(SUBJECT.repoMountId);
+  });
+
+  it("negative control: no act sends the workspace the gate was read under", async () => {
+    // `workspaceId` is what this call used to name and what the registered request does
+    // not have. Without this case a sender that spread the whole gate subject would
+    // satisfy every assertion above while still sending the member that made the
+    // request unacceptable.
+    for (const action of ["commit", "push"] as const) {
+      const request = await requestSentBy(action);
+      expect(Object.keys(request as object)).not.toContain("workspaceId");
+      const { params } = request as { readonly params: Record<string, unknown> };
+      expect(Object.keys(params)).not.toContain("workspaceId");
+    }
+  });
+});
+
+describe("ProposalGateActions — a served act the daemon did not take", () => {
+  /** Send one act against a port answering `gitAction`, and give back its refusal text. */
+  async function refusalTextFor(gitAction: unknown): Promise<string | undefined> {
+    const clock = new ManualClock();
+    const reader = readers.open(
+      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+    return reader.snapshot.actionRefusals.get("push")?.detail;
+  }
+
+  it("renders the reply's own error verbatim", async () => {
+    // Rule 9: the console never paraphrases a refusal it did not author. The reply
+    // carries an `error` member, and that sentence is what stands beside the control.
+    const error =
+      "! [rejected] feat/rate-limit-wiring -> feat/rate-limit-wiring (non-fast-forward)";
+
+    expect(await refusalTextFor({ status: "served", value: { success: false, error } })).toBe(
+      error,
+    );
+  });
+
+  it("negative control: a failure that named no reason gets the console's own sentence", async () => {
+    // Without this the case above would pass against a sender that rendered whatever
+    // `error` held — including `undefined` — leaving a refused act with no sentence at
+    // all beside its control, which is the silent no-op rule 8 forbids.
+    const detail = await refusalTextFor({ status: "served", value: { success: false } });
+
+    expect(detail).toBe(
+      "The daemon answered this action without taking it, and named no reason. Nothing was sent.",
+    );
   });
 });

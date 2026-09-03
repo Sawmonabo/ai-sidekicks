@@ -8,10 +8,16 @@
 // neither can publish the other's refusal.
 //
 // THE ACTS ARE NEXT DOOR, AND THIS CLASS IS THEIR HOST. `requestAction` delegates to
-// `ProposalGateActions`, which is handed the six operations `ProposalGateActionHost`
-// names and nothing else: the standing reading, the served context, the publish, the
-// two writes to the held proposal, and the refresh an accepted act asks for. So an act
-// cannot start a read and this class cannot decide what an act sends.
+// `ProposalGateActions`, which is handed the seven operations `ProposalGateActionHost`
+// names and nothing else: the standing reading, the served context, the caller's own
+// participant id, the publish, the two writes to the held proposal, and the refresh an
+// accepted act asks for. So an act cannot start a read and this class cannot decide
+// what an act sends.
+//
+// THE CALLER-IDENTITY READ IS THIS CLASS'S BECAUSE IT IS A READ. An act carries the
+// participant who pressed it as the registered request's `causationParticipantId`, and
+// which participant this window is comes off `callerParticipantRead` — so it belongs to
+// the half that reads, held as one settled answer per gate rather than one per press.
 //
 // EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER, AND EVERY REASON THROUGH ONE
 // TRIGGER CLASS. `Spec-023 §Rules every console surface obeys` fixes the policy —
@@ -121,6 +127,8 @@ export interface ProposalGateReaderOptions {
 export class ProposalGateReader {
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
+  /** The session the caller-identity read is asked under. The store's own, never minted. */
+  readonly #sessionId: string;
   /** Resolved once: whether this root can be asked about, and with what. */
   readonly #readPlan: BranchContextReadPlan;
   readonly #scheduler: RefreshScheduler;
@@ -137,6 +145,17 @@ export class ProposalGateReader {
    * id it was given.
    */
   #context: BranchContextReading | undefined;
+  /**
+   * The caller-identity read, in flight or settled — one per reader, never one per act.
+   *
+   * A PROMISE HELD RATHER THAN A VALUE, and never re-issued: the read answers which
+   * participant this window is, which does not change while a gate is mounted, so a
+   * second act reuses the first act's answer rather than putting the same question on
+   * the wire again. Held from the first act that needs it rather than started at
+   * `start()`, because a gate a participant never acts on should not spend a call on
+   * an identity nothing is going to attribute.
+   */
+  #callerParticipantIdRead: Promise<string | undefined> | undefined;
   #proposal: PreparedProposal | undefined;
   /** The context the held proposal was prepared AGAINST. `prepared-proposal.ts` says why. */
   #proposalPreparedFor: ProposalContextKey | undefined;
@@ -178,9 +197,13 @@ export class ProposalGateReader {
       scheduler: this.#scheduler,
       sessionStore: options.sessionStore,
     });
+    this.#sessionId = options.sessionStore.sessionId;
     this.#actions = new ProposalGateActions({
       bridge: options.bridge,
-      workspaceId: options.subject.workspaceId,
+      // The mount, because that is the one identity the registered git-action request
+      // takes. Which root inside it an act runs in is said in the request's `params`,
+      // off the context this reader served.
+      repoMountId: options.subject.repoMountId,
       host: this.#actionHost(),
     });
   }
@@ -261,6 +284,7 @@ export class ProposalGateReader {
     return {
       currentReading: () => this.#reading,
       servedContext: () => this.#context,
+      callerParticipantId: async () => await this.#readCallerParticipantId(),
       publish: (reading: ProposalGateReading) => {
         this.#publish(reading);
       },
@@ -275,6 +299,36 @@ export class ProposalGateReader {
         this.#scheduler.request("terminal-event");
       },
     };
+  }
+
+  /**
+   * Which participant this window is, for an act's causation — or the honest absence.
+   *
+   * THE REFUSAL IS ABSORBED HERE AND ON PURPOSE. `causationParticipantId` is optional
+   * on the registered request and is attribution rather than authority: the daemon
+   * resolves the principal an act runs under from the transport, so an unreadable
+   * identity is a member this console cannot fill and not a reason to refuse a press.
+   * Absorbing it into `undefined` is therefore the whole handling — there is no arm to
+   * publish and nothing for a participant to do about it — and it is deliberately NOT
+   * turned into a placeholder, which would be a claim about who acted.
+   *
+   * A rejection is caught for the same reason a served refusal is: the growth port
+   * answers with an outcome, but a live bridge whose IPC never reaches the daemon
+   * rejects instead, and an unhandled rejection here would take down an act that had
+   * already been admitted.
+   */
+  async #readCallerParticipantId(): Promise<string | undefined> {
+    this.#callerParticipantIdRead ??= (async () => {
+      try {
+        const outcome = await this.#bridge.growth.callerParticipantRead({
+          sessionId: this.#sessionId,
+        });
+        return outcome.status === "served" ? outcome.value.participantId : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    return await this.#callerParticipantIdRead;
   }
 
   async #performRead(): Promise<void> {
