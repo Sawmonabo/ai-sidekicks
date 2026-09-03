@@ -116,6 +116,9 @@ describe("the viewport controller — holding the reading position", () => {
   it("follows the tail while following, and holds the anchor while reading", () => {
     const { controller } = attachedController();
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    // The tail glide is ARMED by the reconcile and performed once the new height is
+    // committed — see the group below for why, and for the case that pins it.
+    controller.commitPendingTailGlide();
     expect(controller.scroll.writeCount("follow-tail")).toBeGreaterThan(0);
 
     controller.anchor.observeGeometry({
@@ -335,9 +338,116 @@ describe("the viewport controller — pruning under a reader", () => {
 
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
 
+    controller.commitPendingTailGlide();
     expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
     expect(controller.scroll.writeCount("prune-compensation")).toBe(0);
     expect(controller.scroll.writeCount("follow-tail")).toBeGreaterThan(0);
+  });
+});
+
+describe("the viewport controller — the tail glide and the height it lands against", () => {
+  /** A viewport parked at the bottom of its content, in the tail's own arithmetic. */
+  const VIEWPORT_HEIGHT_PX = 300;
+  const CONTENT_HEIGHT_BEFORE_PX = 4000;
+  const CONTENT_HEIGHT_AFTER_PX = 5000;
+  const TAIL_BEFORE_PX = CONTENT_HEIGHT_BEFORE_PX - VIEWPORT_HEIGHT_PX;
+  const TAIL_AFTER_PX = CONTENT_HEIGHT_AFTER_PX - VIEWPORT_HEIGHT_PX;
+
+  /**
+   * A follower at the tail, with rows already reconciled.
+   *
+   * `resizeTo` here stands for the SIZER growing rather than the pane changing size:
+   * the virtualizer writes the container's height directly under `directDomUpdates`,
+   * and what the chokepoint sees of that write is a taller `scrollHeight` under an
+   * unchanged `clientHeight`.
+   */
+  function followerAtTail(): {
+    controller: LedgerViewportController;
+    surface: ReturnType<typeof countingSurface>;
+  } {
+    const surface = countingSurface({
+      initialScrollTop: TAIL_BEFORE_PX,
+      clientHeight: VIEWPORT_HEIGHT_PX,
+      scrollHeight: CONTENT_HEIGHT_BEFORE_PX,
+    });
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+    controller.commitPendingTailGlide();
+    expect(controller.anchor.state.mode).toBe("following");
+    return { controller, surface };
+  }
+
+  it("lands on the tail the appended rows produced, not the one they replaced", () => {
+    const { controller, surface } = followerAtTail();
+    const followsBeforeAppend = controller.scroll.writeCount("follow-tail");
+
+    controller.reconcile({ rows: syntheticRows(24), ...CALM });
+    // NO GLIDE HAS BEEN PERFORMED YET, and that is the fix: React has not rendered
+    // the four new rows, so the sizer still carries the old total size and a glide
+    // here would scroll to the bottom of the log as it was BEFORE the append. This is
+    // the reading that fails against the pre-commit glide.
+    expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeAppend);
+    expect(surface.scrollTop).toBe(TAIL_BEFORE_PX);
+
+    surface.resizeTo(VIEWPORT_HEIGHT_PX, CONTENT_HEIGHT_AFTER_PX);
+    controller.commitPendingTailGlide();
+
+    expect(surface.scrollTop).toBe(TAIL_AFTER_PX);
+    // The negative control rides the same two readings: the offset the pre-commit
+    // glide would have chosen is a different number, and it is the one the reader was
+    // left at before this fix.
+    expect(TAIL_BEFORE_PX).not.toBe(TAIL_AFTER_PX);
+  });
+
+  it("performs one glide per append, not one per render", () => {
+    // The binding calls the commit after every render, so a commit that re-glided on
+    // an unarmed pass would write the offset on every frame a streaming lane causes.
+    const { controller } = followerAtTail();
+    controller.reconcile({ rows: syntheticRows(24), ...CALM });
+    const followsBeforeCommit = controller.scroll.writeCount("follow-tail");
+
+    controller.commitPendingTailGlide();
+    controller.commitPendingTailGlide();
+    controller.commitPendingTailGlide();
+
+    expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeCommit + 1);
+  });
+
+  it("negative control: a reader who left the tail before the commit is not dragged to it", () => {
+    // The arming says what was true at the reconcile; the commit runs a render later,
+    // and a reader who scrolled in between is no longer following. Without the
+    // re-check the deferral would reintroduce exactly the teleport the anchor exists
+    // to prevent.
+    const { controller, surface } = followerAtTail();
+    controller.reconcile({ rows: syntheticRows(24), ...CALM });
+    const followsBeforeCommit = controller.scroll.writeCount("follow-tail");
+
+    surface.moveTo(500);
+    expect(controller.anchor.state.mode).not.toBe("following");
+    surface.resizeTo(VIEWPORT_HEIGHT_PX, CONTENT_HEIGHT_AFTER_PX);
+    controller.commitPendingTailGlide();
+
+    expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeCommit);
+    expect(surface.scrollTop).toBe(500);
+  });
+
+  it("holds a reader's anchor during the reconcile itself, deferring nothing", () => {
+    // Only the following arm is deferred: the anchor arm's index lookup is measured
+    // in the pre-render offset space on purpose, so moving it would break it.
+    const surface = countingSurface({
+      initialScrollTop: 500,
+      clientHeight: VIEWPORT_HEIGHT_PX,
+      scrollHeight: CONTENT_HEIGHT_BEFORE_PX,
+    });
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    controller.anchor.capture({ rowKey: "row-5", offsetWithinViewportPx: -8 });
+
+    controller.reconcile({ rows: syntheticRows(20), ...CALM });
+
+    expect(controller.scroll.writeCount("hold-reading-position")).toBe(1);
+    expect(controller.scroll.writeCount("follow-tail")).toBe(0);
   });
 });
 
