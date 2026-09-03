@@ -55,8 +55,31 @@ function rateLimitPayload(
   };
 }
 
-describe("newestContextWindowReading — a partial payload is no reading", () => {
-  it("reads a complete payload", () => {
+describe("newestContextWindowReading — the registered members, and a pair or nothing", () => {
+  it("reads the registered payload and derives the percentage from its counts", () => {
+    const reading = newestContextWindowReading([
+      event(1, CONTEXT_WINDOW_EVENT_KIND, {
+        windowUsedTokens: 124_000,
+        windowMaxTokens: 200_000,
+        windowSource: "provider_reported",
+        exceeded: false,
+      }),
+    ]);
+    expect(reading).toStrictEqual({
+      usagePercent: 62,
+      windowUsedTokens: 124_000,
+      windowMaxTokens: 200_000,
+      windowSource: "provider_reported",
+      exceeded: false,
+      sequence: 1,
+    });
+  });
+
+  it("negative control: the fixture's own member names read as no payload at all", () => {
+    // The finding itself. `usagePercent`, `tokenCount`, and `maxTokens` are names
+    // this repository's fixtures used and no registered payload carries, so a
+    // narrowing built on them could never have matched a daemon-sent row — and this
+    // case is what fails if one is reintroduced.
     const reading = newestContextWindowReading([
       event(1, CONTEXT_WINDOW_EVENT_KIND, {
         usagePercent: 62,
@@ -64,39 +87,65 @@ describe("newestContextWindowReading — a partial payload is no reading", () =>
         maxTokens: 200_000,
       }),
     ]);
-    expect(reading).toStrictEqual({
-      usagePercent: 62,
-      tokenCount: 124_000,
-      maxTokens: 200_000,
-      sequence: 1,
-    });
+    expect(reading).toBeUndefined();
   });
 
-  it("negative control: a payload missing one member yields nothing at all", () => {
-    // The same row with `maxTokens` dropped. A narrowing that filled the hole with
-    // a default would return a reading here, and the meter would draw a bar out of
-    // a denominator the daemon never sent.
+  it("negative control: one half of the count pair yields nothing rather than a 0%", () => {
+    // The counts travel as a pair. A numerator with no denominator would render as
+    // 0% of an unknown window, which is a confident answer to a question the row
+    // did not answer.
     const reading = newestContextWindowReading([
-      event(1, CONTEXT_WINDOW_EVENT_KIND, { usagePercent: 62, tokenCount: 124_000 }),
+      event(1, CONTEXT_WINDOW_EVENT_KIND, { windowUsedTokens: 124_000 }),
     ]);
     expect(reading).toBeUndefined();
   });
 
-  it("negative control: an out-of-range percent is refused rather than clamped", () => {
+  it("negative control: a zero window is a size the row did not state", () => {
+    const reading = newestContextWindowReading([
+      event(1, CONTEXT_WINDOW_EVENT_KIND, { windowUsedTokens: 0, windowMaxTokens: 0 }),
+    ]);
+    expect(reading).toBeUndefined();
+  });
+
+  it("carries the estimated grade rather than presenting it as a measurement", () => {
     const reading = newestContextWindowReading([
       event(1, CONTEXT_WINDOW_EVENT_KIND, {
-        usagePercent: 140,
-        tokenCount: 1,
-        maxTokens: 2,
+        windowUsedTokens: 1,
+        windowMaxTokens: 4,
+        windowSource: "estimated",
       }),
     ]);
-    expect(reading).toBeUndefined();
+    expect(reading?.windowSource).toBe("estimated");
+    expect(reading?.usagePercent).toBe(25);
+  });
+
+  it("refuses a provenance the registered vocabulary does not carry", () => {
+    const reading = newestContextWindowReading([
+      event(1, CONTEXT_WINDOW_EVENT_KIND, {
+        windowUsedTokens: 1,
+        windowMaxTokens: 4,
+        windowSource: "guessed",
+      }),
+    ]);
+    expect(reading?.windowSource).toBeUndefined();
+  });
+
+  it("clamps a window the provider reports more than full, rather than drawing nothing", () => {
+    const reading = newestContextWindowReading([
+      event(1, CONTEXT_WINDOW_EVENT_KIND, {
+        windowUsedTokens: 21,
+        windowMaxTokens: 10,
+        exceeded: true,
+      }),
+    ]);
+    expect(reading?.usagePercent).toBe(100);
+    expect(reading?.exceeded).toBe(true);
   });
 
   it("takes the highest sequence, not the last element", () => {
     const reading = newestContextWindowReading([
-      event(9, CONTEXT_WINDOW_EVENT_KIND, { usagePercent: 80, tokenCount: 8, maxTokens: 10 }),
-      event(2, CONTEXT_WINDOW_EVENT_KIND, { usagePercent: 20, tokenCount: 2, maxTokens: 10 }),
+      event(9, CONTEXT_WINDOW_EVENT_KIND, { windowUsedTokens: 8, windowMaxTokens: 10 }),
+      event(2, CONTEXT_WINDOW_EVENT_KIND, { windowUsedTokens: 2, windowMaxTokens: 10 }),
     ]);
     expect(reading?.usagePercent).toBe(80);
   });
@@ -221,7 +270,7 @@ describe("newestCompactionBoundarySequence", () => {
   it("negative control: a timeline with no boundary reports none", () => {
     expect(
       newestCompactionBoundarySequence(
-        [event(4, CONTEXT_WINDOW_EVENT_KIND, { usagePercent: 1, tokenCount: 1, maxTokens: 2 })],
+        [event(4, CONTEXT_WINDOW_EVENT_KIND, { windowUsedTokens: 1, windowMaxTokens: 2 })],
         FIRST_RUN,
       ),
     ).toBeUndefined();

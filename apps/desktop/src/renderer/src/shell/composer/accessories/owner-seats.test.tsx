@@ -47,8 +47,10 @@ const SEAT_SCENARIO: ConsoleScenario = {
 
 const CONTEXT_READING: ContextWindowReading = {
   usagePercent: 42,
-  tokenCount: 84_000,
-  maxTokens: 200_000,
+  windowUsedTokens: 84_000,
+  windowMaxTokens: 200_000,
+  windowSource: "provider_reported",
+  exceeded: false,
   sequence: 3,
 };
 

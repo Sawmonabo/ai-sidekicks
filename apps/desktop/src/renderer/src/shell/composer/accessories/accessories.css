@@ -81,6 +81,27 @@
   color: var(--meridian-amber-text);
 }
 
+/* The window's own provenance, beside the figures. Muted: it qualifies the bar
+   rather than competing with it. */
+.meridian-context-meter__source {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* What that provenance means, on the two grades where it changes the reading. */
+.meridian-context-meter__source-note {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* Past the end of the window the provider declared. Distinct from the near-full
+   band, because the two carry different advice. */
+.meridian-context-meter__fill[data-exceeded="true"] {
+  background: var(--meridian-red-mark);
+}
+
 /* --- Rate chips ---------------------------------------------------------- */
 
 .meridian-rate-chips {

@@ -14,6 +14,27 @@
 // meter that invented the other half. The surfaces above then render the
 // "not checked" absence, which is the honest answer to "we have not been told".
 //
+// AND THE MEMBERS ARE THE REGISTERED ONES, NOT THE ONES A FIXTURE HAPPENED TO SEND.
+// The context reading used to be narrowed from `usagePercent`, `tokenCount`, and
+// `maxTokens` — three names that appear in this repository's own fixtures and in no
+// registered payload. `Spec-006 §Usage Telemetry (usage_telemetry)` gives this
+// type `windowUsedTokens?`, `windowMaxTokens?`, `windowSource?`, and `exceeded?`, so
+// the shipped narrowing could never have matched a daemon-sent row and the meter
+// would have rendered the "not reported" absence against a live session forever. The
+// adaptation happens HERE and nowhere above: the wire sends counts and this module
+// derives the presentation percentage from them, because the wire sends no
+// percentage and a surface that read one would be reading a member that does not
+// exist.
+//
+// THE COUNTS TRAVEL AS A PAIR, and this reading requires both. A payload naming one
+// of them is an emitter bug by that spec's own words, and the reading it would
+// otherwise produce is worse than none: a numerator with no denominator renders as
+// 0% of an unknown window, which is a confident answer to a question nobody asked.
+// The recorded limit is the mirror case — a counts-absent row carrying only
+// provenance and `exceeded` is a headroom-unknown signal this meter does not read,
+// because this meter draws a ratio and there is none; the protective responses that
+// signal authorizes belong to the run-control layer and are not a bar's to make.
+//
 // Nothing here reaches the bridge, a clock, or a store. It is a pure fold over rows
 // the store already holds, so one input always yields one reading and a test can
 // state the whole contract with three literals.
@@ -35,12 +56,46 @@ export const RATE_LIMIT_EVENT_KIND = "usage.rate_limit_update";
  */
 export const CONTEXT_COMPACTED_EVENT_KIND = "usage.context_compacted";
 
+/**
+ * How the counts in a context-window row were obtained.
+ *
+ * The registered vocabulary, closed and declared once, so a fourth value fails to
+ * narrow rather than rendering under whichever arm a fallback picked.
+ */
+export const CONTEXT_WINDOW_SOURCES = ["provider_reported", "model_default", "estimated"] as const;
+
+/** One such provenance. Derived from the enumeration above. */
+export type ContextWindowSource = (typeof CONTEXT_WINDOW_SOURCES)[number];
+
 /** How full the conversation is, as the daemon last reported it. */
 export interface ContextWindowReading {
-  /** Whole percent, 0 to 100, exactly as the wire stated it. */
+  /**
+   * Whole percent, 0 to 100, DERIVED from the pair below.
+   *
+   * Derived and not read: the registered payload carries no percentage at all. It
+   * is rounded to a whole percent because that is what the bar and the figure both
+   * render, and clamped because a provider reporting more used than its own window
+   * holds is a real reading of an exceeded window rather than a reason to draw
+   * nothing.
+   */
   readonly usagePercent: number;
-  readonly tokenCount: number;
-  readonly maxTokens: number;
+  readonly windowUsedTokens: number;
+  readonly windowMaxTokens: number;
+  /**
+   * How the counts were obtained, when the wire named it.
+   *
+   * Absent is pre-amendment history rather than a fourth grade — a post-B1 emitter
+   * MUST set it — and a surface renders provenance only where the wire named one.
+   */
+  readonly windowSource: ContextWindowSource | undefined;
+  /**
+   * The provider's own terminal statement that the window is exhausted.
+   *
+   * Carried as sent. A surface renders the exceeded arm on `true` alone and never
+   * on an absence, because absence is what a pre-amendment emitter sends and not a
+   * provider saying the window is fine.
+   */
+  readonly exceeded: boolean | undefined;
   /** The row this reading came from, so two readings can be ordered. */
   readonly sequence: number;
 }
@@ -236,13 +291,36 @@ function compareByLabels(left: FoldedRateLimitReading, right: FoldedRateLimitRea
 }
 
 function readContextWindow(event: ConsoleSessionEvent): ContextWindowReading | undefined {
-  const usagePercent = wholePercent(event.payload?.["usagePercent"]);
-  const tokenCount = wholeCount(event.payload?.["tokenCount"]);
-  const maxTokens = wholeCount(event.payload?.["maxTokens"]);
-  if (usagePercent === undefined || tokenCount === undefined || maxTokens === undefined) {
+  const windowUsedTokens = wholeCount(event.payload?.["windowUsedTokens"]);
+  const windowMaxTokens = wholeCount(event.payload?.["windowMaxTokens"]);
+  // A zero denominator joins the absent ones: it is not a full window and it is not
+  // an empty one, it is a window whose size the row did not state.
+  if (windowUsedTokens === undefined || windowMaxTokens === undefined || windowMaxTokens === 0) {
     return undefined;
   }
-  return { usagePercent, tokenCount, maxTokens, sequence: event.sequence };
+  return {
+    usagePercent: percentOf(windowUsedTokens, windowMaxTokens),
+    windowUsedTokens,
+    windowMaxTokens,
+    windowSource: contextWindowSource(event.payload?.["windowSource"]),
+    exceeded: booleanOrUndefined(event.payload?.["exceeded"]),
+    sequence: event.sequence,
+  };
+}
+
+/** The presentation percentage: whole, and clamped into the bar's own range. */
+function percentOf(used: number, max: number): number {
+  return Math.min(100, Math.max(0, Math.round((used / max) * 100)));
+}
+
+/** One registered provenance value, or nothing. Never a free string. */
+function contextWindowSource(value: unknown): ContextWindowSource | undefined {
+  return CONTEXT_WINDOW_SOURCES.find((source) => source === value);
+}
+
+/** A boolean exactly as sent, or nothing. A truthy non-boolean is not a boolean. */
+function booleanOrUndefined(value: unknown): boolean | undefined {
+  return typeof value === "boolean" ? value : undefined;
 }
 
 function readRateLimit(event: ConsoleSessionEvent): RateLimitReading | undefined {

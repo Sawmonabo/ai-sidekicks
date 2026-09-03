@@ -76,7 +76,12 @@ function contextWindowEvent(sequence: number): ConsoleSessionEvent {
     sequence,
     kind: CONTEXT_WINDOW_EVENT_KIND,
     occurredAt: "2026-01-01T00:00:10.000Z",
-    payload: { usagePercent: 84, tokenCount: 168_000, maxTokens: 200_000 },
+    payload: {
+      windowUsedTokens: 168_000,
+      windowMaxTokens: 200_000,
+      windowSource: "provider_reported",
+      exceeded: false,
+    },
   };
 }
 
@@ -100,10 +105,67 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
     const below = mountRail([
       {
         ...contextWindowEvent(1),
-        payload: { usagePercent: 12, tokenCount: 24_000, maxTokens: 200_000 },
+        payload: {
+          windowUsedTokens: 24_000,
+          windowMaxTokens: 200_000,
+          windowSource: "provider_reported",
+          exceeded: false,
+        },
       },
     ]);
     expect(below.querySelector(".meridian-context-meter__hint")).toBeNull();
+  });
+
+  it("states the provenance the row carried, and what an estimate means", () => {
+    // The meter draws the same bar for all three grades and says which one it is.
+    // A bar whose numbers were estimated and a bar whose numbers the provider
+    // measured are different readings, and the difference is invisible in the bar.
+    const container = mountRail([
+      {
+        ...contextWindowEvent(1),
+        payload: { windowUsedTokens: 24_000, windowMaxTokens: 200_000, windowSource: "estimated" },
+      },
+    ]);
+
+    expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
+      "estimated",
+    );
+    expect(container.querySelector(".meridian-context-meter__source-note")?.textContent).toContain(
+      "approximate",
+    );
+  });
+
+  it("negative control: a provider-reported reading carries no grade sentence", () => {
+    // Without this the case above would hold over a meter that explained itself on
+    // every reading, which would make the two grades that matter invisible.
+    const container = mountRail([contextWindowEvent(1)]);
+    expect(container.querySelector(".meridian-context-meter__source-note")).toBeNull();
+    expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
+      "provider_reported",
+    );
+  });
+
+  it("replaces the near-full advice with the provider's own exhaustion statement", () => {
+    // Advising someone to compact soon is the wrong sentence beside a window the
+    // provider has already declared full, and both at once would be worse.
+    const container = mountRail([
+      {
+        ...contextWindowEvent(1),
+        payload: {
+          windowUsedTokens: 210_000,
+          windowMaxTokens: 200_000,
+          windowSource: "provider_reported",
+          exceeded: true,
+        },
+      },
+    ]);
+
+    const hints = container.querySelectorAll(".meridian-context-meter__hint");
+    expect(hints).toHaveLength(1);
+    expect(hints[0]?.textContent).toContain("context window is full");
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "100",
+    );
   });
 
   it("hides the queue shelf while nothing is queued", () => {
