@@ -133,7 +133,7 @@ function browserModeOptions(providerOptions?: PlaywrightProviderOptions): {
  * reference for a tier whose comment says it measures 1440×900. Matching the page
  * to the iframe makes the scale exactly 1 and the capture 1:1.
  *
- * The other three are Playwright's current defaults, restated so they are pinned by
+ * Three of the rest are Playwright's current defaults, restated so they are pinned by
  * this file rather than by the version range: `deviceScaleFactor` because it
  * multiplies straight into the reference's dimensions (`screenshotOptions.scale` is
  * `"device"`), and the two media emulations because the console's generated base
@@ -141,6 +141,25 @@ function browserModeOptions(providerOptions?: PlaywrightProviderOptions): {
  * colors. `colorScheme` is deliberately ABSENT: the harness drives that per test
  * through `Emulation.setEmulatedMedia`, and a context-level value would be a second
  * writer of the same emulated media state.
+ *
+ * `timezoneId` AND `locale` ARE A DIFFERENT CLASS AGAIN — not a library default
+ * restated, but a value the tier took from whatever HOST it happened to run on.
+ * `primitives/wire-figures.ts`'s `formatClockTime` builds its `Intl.DateTimeFormat`
+ * with neither, which is right for a product — a person reads a probe time in their
+ * own zone and their own numerals — and fatal for a reference. The repos scenario
+ * probes at `09:05:01Z`, so the mount card renders `09:05:01` on the runner that
+ * mints the references and `04:05:01` on a developer Mac in New York, and
+ * `repos-section-degraded-mount` went red on two hour digits in both schemes. `UTC`
+ * is what the committed images already hold — GitHub-hosted runners run in it — so
+ * the pin moves no reference; it states the condition they were minted under instead
+ * of leaving it to the machine.
+ *
+ * PINNED AT THE TIER AND NOT IN THE FORMATTER, because the formatter is not wrong: a
+ * clock rendered in the reader's own zone is the product's behaviour, and hard-coding
+ * a zone there would make every participant read a daemon's probe time in somebody
+ * else's. The unstated assumption was the tier's, so it is the tier that states it.
+ * Not `TZ` either — that is an environment variable of the Node process running
+ * Vitest, and the page under test is a separate browser process it never reaches.
  */
 const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
   contextOptions: {
@@ -148,6 +167,8 @@ const SCREENSHOT_TIER_PROVIDER_OPTIONS: PlaywrightProviderOptions = {
     deviceScaleFactor: 1,
     reducedMotion: "no-preference",
     forcedColors: "none",
+    timezoneId: "UTC",
+    locale: "en-US",
   },
 };
 
