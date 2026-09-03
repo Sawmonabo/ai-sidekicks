@@ -1,5 +1,10 @@
 // Moving a pane into a window of its own, and bringing it back.
 //
+// This file is the STATE: which panes are in windows right now, which windows were
+// lost, and which subscription is open. What a hand-off is made of — the refusal
+// vocabulary, the value shapes, and the route grammar the third gate runs — lives in
+// `aux-handoff-contract.ts`, which holds no state and reaches no wire.
+//
 // `Spec-023 §The surface set`: "`timeline` and `agent-console` panes can be moved into
 // their own hardened `BrowserWindow` … An auxiliary window loads the same renderer
 // bundle at a window route, carries its own preload and bridge instance, subscribes to
@@ -40,66 +45,33 @@
 // empty detached set can report nothing and its refusal would be a permanent notice
 // about a hazard the window does not currently have. A refused subscription is
 // rendered in the placeholder it belongs to: it does not mean "no crashes".
+//
+// AND THE CRASH ITSELF IS KEPT, NOT MERELY REPORTED ONCE. The pane goes back into
+// the deck the instant the signal arrives, so a reason handed to the caller of
+// `noteWindowLost` and held nowhere would be gone by the time the deck rendered the
+// slot again. The reason is therefore stored against the pane id, published with
+// every other change, and cleared by exactly two acts: the person dismissing it, or
+// the same pane being detached again — which puts its body back in a window and
+// makes a note about the last one a note about nothing.
 
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import { Emitter, type Unsubscribe } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import {
   AUXILIARY_ROUTE_LABELS,
   IMPLEMENTED_AUXILIARY_ROUTES,
-  InvalidAuxiliaryRouteTargetError,
-  formatAuxiliaryFragment,
   isAuxiliaryRouteName,
-  type AuxiliaryRouteName,
 } from "../../../../shared/auxiliary-routes.js";
 import { type PaneKind } from "../seats/index.js";
-
-/** Why a hand-off was refused. Closed, so a fifth cause is a decision. */
-export const AUXILIARY_HANDOFF_REFUSAL_CODES = [
-  "kind-not-detachable",
-  "route-not-implemented",
-  "target-context-invalid",
-  "wire-unregistered",
-] as const;
-
-/** One hand-off refusal code. Derived, so the vocabulary is declared once. */
-export type AuxiliaryHandoffRefusalCode = (typeof AUXILIARY_HANDOFF_REFUSAL_CODES)[number];
-
-/** The subsystem name every refusal this module raises carries. */
-export const AUXILIARY_HANDOFF_REFUSAL_ORIGIN = "aux-handoff";
-
-/** A typed hand-off refusal — `core`'s one refusal shape, narrowed on `code`. */
-export interface AuxiliaryHandoffRefusal extends ConsoleRefusal {
-  readonly code: AuxiliaryHandoffRefusalCode;
-}
-
-function refuseHandoff(code: AuxiliaryHandoffRefusalCode, detail: string): AuxiliaryHandoffRefusal {
-  return { ...refuse(AUXILIARY_HANDOFF_REFUSAL_ORIGIN, code, detail), code };
-}
-
-/** One pane currently shown in a window of its own. */
-export interface DetachedPane {
-  readonly paneId: string;
-  readonly route: AuxiliaryRouteName;
-  readonly windowId: string;
-  /** The fragment that window loaded, produced by the shared route grammar. */
-  readonly fragment: string;
-  /** Set when the window was lost rather than closed — rendered in the error slot. */
-  readonly lostReason: string | undefined;
-}
-
-/** What a detach attempt did. A refusal is a value, not an exception. */
-export type AuxiliaryHandoffOutcome =
-  | { readonly outcome: "detached"; readonly detached: DetachedPane }
-  | { readonly outcome: "refused"; readonly refusal: AuxiliaryHandoffRefusal };
-
-/** Where a pane is detached to. Route-shaped, so an incoherent target cannot be built. */
-export interface AuxiliaryHandoffRequest {
-  readonly paneId: string;
-  readonly kind: PaneKind;
-  readonly sessionId: string | undefined;
-  /** Required by the `agent-console` route's grammar, and forbidden by `timeline`'s. */
-  readonly agentId?: string;
-}
+import {
+  auxiliaryTarget,
+  formatAuxiliaryTargetOrRefuse,
+  refuseHandoff,
+  type AuxiliaryHandoffOutcome,
+  type AuxiliaryHandoffRefusal,
+  type AuxiliaryHandoffRequest,
+  type DetachedPane,
+  type LostAuxiliaryWindow,
+} from "./aux-handoff-contract.js";
 
 /**
  * The growth port, reached as the bridge's own member rather than by importing the
@@ -125,6 +97,15 @@ type PaneErrorSignal = Extract<
 export class AuxiliaryHandoff {
   readonly #growth: ConsoleGrowthPort;
   readonly #detachedByPaneId = new Map<string, DetachedPane>();
+  /**
+   * The windows that were lost, by the pane each one had.
+   *
+   * A SECOND map rather than a flag on the first, because the two hold panes in
+   * opposite states: a detached pane's body is elsewhere, and a lost window's pane
+   * is back in the deck. Keeping one record in both would mean the deck had to read
+   * a member to decide which of the two it was looking at.
+   */
+  readonly #lostByPaneId = new Map<string, LostAuxiliaryWindow>();
   readonly #changes = new Emitter<readonly DetachedPane[]>("auxiliary hand-off change");
   #paneErrorStream: PaneErrorSignal | undefined;
   #paneErrorRefusal: AuxiliaryHandoffRefusal | undefined;
@@ -151,6 +132,34 @@ export class AuxiliaryHandoff {
 
   public detachedPane(paneId: string): DetachedPane | undefined {
     return this.#detachedByPaneId.get(paneId);
+  }
+
+  /**
+   * Every pane whose window was lost and has not been answered, in loss order.
+   *
+   * Published rather than returned-and-forgotten: the crash is noticed by a
+   * subscription and the slot that has to show it renders on a later frame, so a
+   * record handed back to the drain loop would reach nobody.
+   */
+  public lostWindows(): readonly LostAuxiliaryWindow[] {
+    return [...this.#lostByPaneId.values()];
+  }
+
+  public lostWindow(paneId: string): LostAuxiliaryWindow | undefined {
+    return this.#lostByPaneId.get(paneId);
+  }
+
+  /**
+   * Clear one pane's crash record, because the person has read it.
+   *
+   * The other way it clears is a fresh {@link detach} of the same pane: a pane whose
+   * body has just gone back into a window is not a pane carrying a note about the
+   * last window it was in.
+   */
+  public dismissLostWindow(paneId: string): void {
+    if (this.#lostByPaneId.delete(paneId)) {
+      this.#publish();
+    }
   }
 
   public subscribe(listener: (detached: readonly DetachedPane[]) => void): Unsubscribe {
@@ -195,22 +204,9 @@ export class AuxiliaryHandoff {
       };
     }
 
-    let fragment: string;
-    try {
-      fragment = formatAuxiliaryFragment(auxiliaryTarget(request.kind, request));
-    } catch (error) {
-      if (!(error instanceof InvalidAuxiliaryRouteTargetError)) {
-        throw error;
-      }
-      // The route's own grammar refused. Never echo the offending value: an id that
-      // failed a shape check is untrusted input, which is that module's own rule.
-      return {
-        outcome: "refused",
-        refusal: refuseHandoff(
-          "target-context-invalid",
-          "This pane does not name enough of a session to open in a window of its own.",
-        ),
-      };
+    const fragment = formatAuxiliaryTargetOrRefuse(auxiliaryTarget(request.kind, request));
+    if (typeof fragment !== "string") {
+      return { outcome: "refused", refusal: fragment.refusal };
     }
 
     const answer = await this.#growth.windowDetachPane({ paneId: request.paneId });
@@ -226,6 +222,9 @@ export class AuxiliaryHandoff {
       lostReason: undefined,
     };
     this.#detachedByPaneId.set(request.paneId, detached);
+    // The pane is in a window again, so the note about the last window it was in is
+    // no longer about anything on screen.
+    this.#lostByPaneId.delete(request.paneId);
     this.#publish();
     return { outcome: "detached", detached };
   }
@@ -270,15 +269,22 @@ export class AuxiliaryHandoff {
    * window returns the pane to the deck with the crash noted in the pane's error slot"
    * — and the reason is kept for that slot, because a pane
    * that silently reappears tells the person nothing about why.
+   *
+   * The record is STORED before the placeholder is removed, and in the same act: a
+   * reason returned to the caller and nowhere else is a reason the slot never sees,
+   * which is what the second half of that sentence asks for and what this method
+   * used to leave undone.
    */
-  public noteWindowLost(paneId: string, reason: string): DetachedPane | undefined {
+  public noteWindowLost(paneId: string, reason: string): LostAuxiliaryWindow | undefined {
     const detached = this.#detachedByPaneId.get(paneId);
     if (detached === undefined) {
       return undefined;
     }
+    const lost: LostAuxiliaryWindow = { ...detached, lostReason: reason };
+    this.#lostByPaneId.set(paneId, lost);
     this.#detachedByPaneId.delete(paneId);
     this.#publish();
-    return { ...detached, lostReason: reason };
+    return lost;
   }
 
   /**
@@ -336,32 +342,4 @@ export class AuxiliaryHandoff {
 /** An unknown thrown value as one sentence, without inventing a shape for it. */
 function describeStreamFailure(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-/**
- * The route-discriminated target for a request.
- *
- * A switch rather than a spread, for `parseAuxiliaryFragment`'s own reason:
- * building a member of a discriminated union is the one step that genuinely needs
- * per-route code, and the `never` fall-through makes a third route a compile error
- * here rather than a silently unhandled arm. An absent context member produces the
- * BARE arm, which the grammar then refuses or admits on its own terms — this
- * function never decides that.
- */
-function auxiliaryTarget(
-  route: AuxiliaryRouteName,
-  request: AuxiliaryHandoffRequest,
-): Parameters<typeof formatAuxiliaryFragment>[0] {
-  switch (route) {
-    case "timeline":
-      return request.sessionId === undefined ? { route } : { route, sessionId: request.sessionId };
-    case "agent-console":
-      return request.sessionId === undefined || request.agentId === undefined
-        ? { route }
-        : { route, sessionId: request.sessionId, agentId: request.agentId };
-    default: {
-      const unhandled: never = route;
-      return unhandled;
-    }
-  }
 }

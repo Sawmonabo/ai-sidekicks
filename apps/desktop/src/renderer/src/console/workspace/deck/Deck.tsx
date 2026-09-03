@@ -91,6 +91,16 @@ export interface DeckProps {
   readonly onReturnToDeck?: (paneId: string) => void;
   /** Why the crashed-window signal is not being received, where it is not. */
   readonly detachedSignalRefusal?: ConsoleRefusal;
+  /**
+   * The crash note a pane came back with, by pane id
+   * (`Spec-023 §The surface set`: "a crashed auxiliary window returns the pane to the
+   * deck with the crash noted in the pane's error slot").
+   *
+   * A pane named here is NOT detached — its body is in the deck again — so the two
+   * sets never overlap and one slot is never asked to draw both.
+   */
+  readonly lostWindowNoticesByPaneId?: ReadonlyMap<string, ConsoleRefusal>;
+  readonly onDismissLostWindow?: (paneId: string) => void;
   /** Where measured pane rects go, for a body that hosts a native view.
    * `deck/rect-discipline.ts` holds the rules. */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
@@ -104,6 +114,9 @@ export interface DeckProps {
    */
   readonly airspace?: AirspaceRegistry;
 }
+
+/** No pane came back from a lost window, once — a stable identity for the default. */
+const NO_LOST_WINDOW_NOTICES: ReadonlyMap<string, ConsoleRefusal> = new Map();
 
 export function Deck(props: DeckProps): React.JSX.Element {
   const { layout } = props;
@@ -242,6 +255,7 @@ export function Deck(props: DeckProps): React.JSX.Element {
 
   const refusals = props.restoreRefusals ?? [];
   const detachedPaneIds = props.detachedPaneIds ?? [];
+  const lostWindowNotices = props.lostWindowNoticesByPaneId ?? NO_LOST_WINDOW_NOTICES;
   const defaultLayout = useMemo(() => toPaneSizePercentages(state.panes), [state.panes]);
 
   return (
@@ -279,44 +293,51 @@ export function Deck(props: DeckProps): React.JSX.Element {
           onLayoutChange={onLayoutMoving}
           onLayoutChanged={onLayoutSettled}
         >
-          {state.panes.map((pane, position) => (
-            <Fragment key={pane.paneId}>
-              {position === 0 ? null : (
-                <Separator
-                  className="meridian-deck__separator"
-                  aria-label="Resize the pane to the left"
+          {state.panes.map((pane, position) => {
+            const lostWindowNotice = lostWindowNotices.get(pane.paneId);
+            return (
+              <Fragment key={pane.paneId}>
+                {position === 0 ? null : (
+                  <Separator
+                    className="meridian-deck__separator"
+                    aria-label="Resize the pane to the left"
+                  />
+                )}
+                <DeckPaneSlot
+                  pane={pane}
+                  isFocused={pane.paneId === state.focusedPaneId}
+                  density={state.density}
+                  registry={props.registry}
+                  paneContextFor={props.paneContextFor}
+                  dragCoordinator={dragCoordinator}
+                  dropIndicator={
+                    dropIndicator?.overPaneId === pane.paneId ? dropIndicator.edge : undefined
+                  }
+                  onFocus={focusPane}
+                  onClose={closePane}
+                  isDetached={detachedPaneIds.includes(pane.paneId)}
+                  {...(props.onOpenInWindow === undefined
+                    ? {}
+                    : { onOpenInWindow: props.onOpenInWindow })}
+                  {...(props.onFocusDetachedWindow === undefined
+                    ? {}
+                    : { onFocusDetachedWindow: props.onFocusDetachedWindow })}
+                  {...(props.onReturnToDeck === undefined
+                    ? {}
+                    : { onReturnToDeck: props.onReturnToDeck })}
+                  {...(props.detachedSignalRefusal === undefined
+                    ? {}
+                    : { detachedSignalRefusal: props.detachedSignalRefusal })}
+                  {...(lostWindowNotice === undefined ? {} : { lostWindowNotice })}
+                  {...(props.onDismissLostWindow === undefined
+                    ? {}
+                    : { onDismissLostWindow: props.onDismissLostWindow })}
+                  trackElement={trackElement}
+                  untrackElement={untrackElement}
                 />
-              )}
-              <DeckPaneSlot
-                pane={pane}
-                isFocused={pane.paneId === state.focusedPaneId}
-                density={state.density}
-                registry={props.registry}
-                paneContextFor={props.paneContextFor}
-                dragCoordinator={dragCoordinator}
-                dropIndicator={
-                  dropIndicator?.overPaneId === pane.paneId ? dropIndicator.edge : undefined
-                }
-                onFocus={focusPane}
-                onClose={closePane}
-                isDetached={detachedPaneIds.includes(pane.paneId)}
-                {...(props.onOpenInWindow === undefined
-                  ? {}
-                  : { onOpenInWindow: props.onOpenInWindow })}
-                {...(props.onFocusDetachedWindow === undefined
-                  ? {}
-                  : { onFocusDetachedWindow: props.onFocusDetachedWindow })}
-                {...(props.onReturnToDeck === undefined
-                  ? {}
-                  : { onReturnToDeck: props.onReturnToDeck })}
-                {...(props.detachedSignalRefusal === undefined
-                  ? {}
-                  : { detachedSignalRefusal: props.detachedSignalRefusal })}
-                trackElement={trackElement}
-                untrackElement={untrackElement}
-              />
-            </Fragment>
-          ))}
+              </Fragment>
+            );
+          })}
         </Group>
       )}
     </div>

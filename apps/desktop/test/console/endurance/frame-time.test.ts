@@ -6,17 +6,43 @@
 // registry's own `evaluateBudget`, so the number this gate uses and the number the
 // spec wrote are one number read from one file.
 //
-// WHY THIS ROW GATES ON ONE MACHINE AND REPORTS ON EVERY OTHER
+// WHAT THE INSTRUMENT MEASURES, AND WHY IT IS NOT THE INTERVAL BETWEEN FRAMES
+//
+// The row bounds frame DURATION — `budgets.json`'s own subject line says so, "the
+// 95th-percentile frame duration of the renderer" — which is the main-thread work
+// one frame costs. Until 2026-09-02 this file sampled the INTERVAL between
+// consecutive `requestAnimationFrame` callbacks instead, and that is a different
+// quantity: on a surface that presents at 60 Hz a healthy renderer is called back
+// every ~16.67 ms whatever it does, so its p95 interval is ~16.7 ms by construction
+// and cannot be under a 16.7 ms ceiling. The spec's own reference profile is "one
+// 60 Hz display", so the interval reading made the row unpassable on the very
+// machine its figure is written for — and on the Xvfb software begin-frame source
+// the pinned runner presents through, which is also 60 Hz. The p50 is printed
+// beside the p95 for exactly that reason: a p50 pinned at ~16.67 ms is the surface's
+// cadence being reported, not the console's work.
+//
+// So the sample is taken from the START of the frame's animation-frame callback to
+// the first task that runs after that frame's rendering has been committed. The
+// ordering is the HTML event loop's own: the callback runs inside "update the
+// rendering" (whose steps run the animation frame callbacks and then update the
+// rendering of the document), while a `MessageChannel` message posted from inside
+// that callback is queued on a TASK queue, and the event loop cannot select a task
+// until it has finished the rendering update it is in. The first such task
+// therefore observes style, layout, and paint for that frame as already done.
+// `setTimeout(0)` is not used for this: its timeout is clamped — and clamped harder
+// once nested — so it would add the clamp to every reading.
+//
+// WHY THIS ROW STILL GATES ON ONE MACHINE AND REPORTS ON EVERY OTHER
 //
 // It is the first hardware-dependent row in the registry to be measured at all.
 // `budgets.json`'s `measurementProtocol.hardwareDependent` has always said such a
 // reading gates "on the pinned CI runner class the desktop workflow names by
-// label", and `pinned-runner-class.ts` is that sentence given a mechanism. A frame
-// interval is a property of the display's refresh rate as much as of the console:
-// this laptop's compositor delivers frames every ~8 ms and a 60 Hz surface delivers
-// them every ~16.7 ms, so the same healthy renderer produces two readings that sit
-// on opposite sides of the ceiling. The figure is therefore printed everywhere —
-// the tier still exercises the instrument on every runner — and asserted on one.
+// label", and `pinned-runner-class.ts` is that sentence given a mechanism. A
+// duration is not a property of the display, but it is squarely a property of the
+// machine: the main-thread work in a frame is what this CPU does in that frame, and
+// a runner rasterizing in software is not the reference profile's integrated GPU.
+// The figure is therefore printed everywhere — the tier still exercises the
+// instrument on every runner — and asserted on one.
 //
 // The negative control is NOT pinned, on the screenshot tier's reasoning for its
 // own fail-closed guard: whether the instrument can tell a stalled frame from a
@@ -82,7 +108,7 @@ const registry = ConsoleBudgetRegistry.load();
 const budget = registry.requireBudget(FRAME_TIME_BUDGET_ID);
 
 /**
- * How many frame intervals one run samples.
+ * How many frame durations one run samples.
  *
  * Three hundred is the floor a 95th percentile is worth taking at: the statistic is
  * the fifteenth-slowest of them, so a single hiccup moves it by one rank rather
@@ -114,9 +140,10 @@ const MEASURED_RUN_COUNT = 3;
  * The per-frame stall the negative control plants, in milliseconds.
  *
  * Comfortably over the ceiling on its own, so the control's verdict does not depend
- * on the machine's own frame cadence: a display delivering frames every 8 ms and one
- * delivering them every 16.7 ms both cross once every frame carries this much
- * synchronous work. Measured p95 34.3 ms against a 9.1–10.6 ms clean reading.
+ * on the machine: the stall is synchronous work inside the frame's own callback, so
+ * it lands in the measured duration whatever the surface's cadence is. Measured p95
+ * 37.40–38.30 ms against a 6.80–9.20 ms clean reading, each pair taken in the same
+ * pass of this file on the same machine.
  */
 const PLANTED_FRAME_STALL_MS = 30;
 
@@ -146,12 +173,19 @@ interface FrameTimingRun {
 }
 
 /**
- * Sample frame intervals while the flagship script delivers into the open session.
+ * Sample frame durations while the flagship script delivers into the open session.
  *
  * The whole loop runs inside the renderer. A driver round trip per frame would be
- * the largest thing in every interval it measured, which is the harness timing
+ * the largest thing in every duration it measured, which is the harness timing
  * itself; and the scenario handle is on the page, so the frozen clock can be walked
- * from the same callback that reads the frame's timestamp.
+ * from the same callback the frame's work is timed from.
+ *
+ * One frame is opened by `requestAnimationFrame` and closed by the message the
+ * callback posts to itself — see this file's header for why that message is the
+ * first thing to run after the frame's rendering has been committed, and why a
+ * timer is not used in its place. The next frame is requested from the CLOSING
+ * side, so exactly one measurement is ever open and a frame can never be paired
+ * with the wrong one's start.
  */
 async function sampleFrameTimings(
   consoleApplication: ConsoleApplication,
@@ -179,17 +213,14 @@ async function sampleFrameTimings(
       const frameDurationsMs: number[] = [];
       let beatsAtWindowStart = -1;
       await new Promise<void>((resolve) => {
-        let previousFrameAtMs: number | undefined;
+        const afterFrame = new MessageChannel();
         let frameIndex = 0;
-        const onFrame = (frameAtMs: number): void => {
+        let frameStartedAtMs = 0;
+        const onFrame = (): void => {
+          frameStartedAtMs = performance.now();
           if (frameIndex === warmUpFrames) {
             beatsAtWindowStart = scenarioControl.deliveredBeatCount();
           }
-          if (previousFrameAtMs !== undefined && frameIndex > warmUpFrames) {
-            frameDurationsMs.push(frameAtMs - previousFrameAtMs);
-          }
-          previousFrameAtMs = frameAtMs;
-          frameIndex += 1;
           scenarioControl.advance(advanceMilliseconds);
           if (stallMilliseconds > 0) {
             const stallUntil = performance.now() + stallMilliseconds;
@@ -197,7 +228,16 @@ async function sampleFrameTimings(
               /* hold the frame, the way a renderer over its budget does */
             }
           }
+          afterFrame.port2.postMessage(0);
+        };
+        afterFrame.port1.onmessage = (): void => {
+          if (frameIndex > warmUpFrames) {
+            frameDurationsMs.push(performance.now() - frameStartedAtMs);
+          }
+          frameIndex += 1;
           if (frameDurationsMs.length >= sampledFrames) {
+            afterFrame.port1.close();
+            afterFrame.port2.close();
             resolve();
             return;
           }
@@ -285,12 +325,14 @@ describe("the four-lane frame-time budget row", () => {
 });
 
 describe.skipIf(!bundleIsBuilt)("endurance — frame time with the flagship session open", () => {
-  it("holds the 95th-percentile frame interval under the budget's ceiling", async () => {
+  it("holds the 95th-percentile frame duration under the budget's ceiling", async () => {
     const perRunPercentiles: number[] = [];
+    const perRunMedians: number[] = [];
     for (let runIndex = 0; runIndex < MEASURED_RUN_COUNT; runIndex += 1) {
       const run = await runOnce(0);
       expectFourLaneWorkloadInsideWindow(run);
       perRunPercentiles.push(percentileByNearestRank(run.frameDurationsMs, 0.95));
+      perRunMedians.push(medianOf(run.frameDurationsMs));
     }
     const measuredP95 = medianOf(perRunPercentiles);
     const verdict = evaluateBudget(budget, measuredP95);
@@ -298,19 +340,26 @@ describe.skipIf(!bundleIsBuilt)("endurance — frame time with the flagship sess
     // Reported before the assertion, and reported on every machine: the figure is
     // the whole value of this run off the pinned class, and on it a reviewer still
     // needs to see a margin shrink before the run that crosses.
+    //
+    // The p50 is beside the p95 because it is what tells the two possible readings
+    // apart. A typical frame's WORK is a small fraction of the frame; a p50 sitting
+    // at the surface's own cadence — ~16.67 ms on a 60 Hz presenter — would mean the
+    // instrument had gone back to reporting how often frames arrive.
     process.stdout.write(
       `[console-endurance] frame time p95 ${measuredP95.toFixed(2)} ms ` +
         `(median of ${String(MEASURED_RUN_COUNT)} runs: ` +
         `${perRunPercentiles.map((value) => value.toFixed(2)).join(", ")}) ` +
         `of a ${String(budget.limit.canonicalValue)} ms ceiling ` +
-        `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) — ` +
+        `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget); ` +
+        `p50 ${medianOf(perRunMedians).toFixed(2)} ms ` +
+        `(${perRunMedians.map((value) => value.toFixed(2)).join(", ")}) — ` +
         `${RUNNER_CLASS_DESCRIPTION}\n`,
     );
 
     if (!isPinnedRunnerClass) {
       // Not a skip: the run happened, the instrument was exercised, and the figure
-      // is on the record. What is withheld is the COMPARISON, because a frame
-      // interval on an unpinned machine is a reading about that machine's display.
+      // is on the record. What is withheld is the COMPARISON, because the work a
+      // frame costs on an unpinned machine is a reading about that machine.
       return;
     }
     expect(

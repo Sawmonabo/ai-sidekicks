@@ -21,6 +21,24 @@ const REBASED_BLOCKS = "other\n\nwords\n\nx\n\ny\n\nz\n\nw";
 
 const PARAGRAPH_SELECTOR = ".meridian-markdown__paragraph";
 
+/**
+ * A definition far enough behind the tail to have settled, with filler behind it.
+ *
+ * The settle lag is two blocks, so the definition has to be third from the end
+ * before it is in the committed prefix at all — which is what these cases are about.
+ */
+const SETTLED_FOOTNOTE_BODY =
+  "[^1]: the first note\n\nfiller one\n\nfiller two\n\nfiller three\n\n";
+
+/** More blocks behind it, declaring nothing — the ordinary shape of a body growing. */
+const PLAIN_GROWTH_BLOCKS = "filler four\n\nfiller five\n\nfiller six\n\n";
+
+/** One more settled block, carrying a definition of its own. */
+const GROWN_FOOTNOTE_BLOCK = "[^2]: the second note\n\nfiller seven\n\nfiller eight\n\n";
+
+/** The same shape from a different history — what a rebase hands the segmenter. */
+const REBASED_FOOTNOTE_BODY = "[^1]: a different note\n\nother one\n\nother two\n\nother three\n\n";
+
 afterEach(() => {
   vi.restoreAllMocks();
 });
@@ -169,6 +187,112 @@ describe("a streaming body", () => {
     const rebasedFirst = container.querySelector(PARAGRAPH_SELECTOR);
     expect(rebasedFirst?.textContent).toBe("other");
     expect(rebasedFirst).not.toBe(firstSettled);
+  });
+
+  it("registers nothing again when a re-render carries no new text", () => {
+    // The defect the settled-block memoisation exists to prevent, reached through the
+    // registration effect instead of through rendering: the settled node lists were
+    // rebuilt by a `map` on every render, so an unrelated viewport, layout, or ledger
+    // update re-walked every settled block of every long completed message.
+    const footnotes = new FootnoteRegistry();
+    const register = vi.spyOn(footnotes, "register");
+    // A FRESH element each time, carrying the same values. Re-rendering the same
+    // element object is a React bail-out — the component would not run at all, and a
+    // case built on one would pass over any amount of per-render work.
+    const bodyWithNoNewText = (): React.JSX.Element => (
+      <StreamingMarkdown
+        publishedText={SETTLED_FOOTNOTE_BODY}
+        sourceId="event-40"
+        footnotes={footnotes}
+        isComplete
+      />
+    );
+    const { container, rerender } = render(bodyWithNoNewText());
+    expect(register).toHaveBeenCalledTimes(1);
+    const settledBefore = container.querySelector(PARAGRAPH_SELECTOR);
+    register.mockClear();
+
+    rerender(bodyWithNoNewText());
+    rerender(bodyWithNoNewText());
+
+    expect(register).not.toHaveBeenCalled();
+    // And the render did happen — the settled block is the same element rather than a
+    // remount, which is the other half of what the memoisation is for.
+    expect(container.querySelector(PARAGRAPH_SELECTOR)).toBe(settledBefore);
+  });
+
+  it("walks only what changed as the body grows behind a settled definition", () => {
+    // A settled block's parse is content-addressed, so a block whose nodes are the
+    // ones registered last time holds the definitions registered last time. Growth
+    // costs the growth rather than the whole prefix — the same claim the settled-block
+    // memo makes about rendering, made about registration.
+    const footnotes = new FootnoteRegistry();
+    const register = vi.spyOn(footnotes, "register");
+    const { rerender } = render(
+      <StreamingMarkdown
+        publishedText={SETTLED_FOOTNOTE_BODY}
+        sourceId="event-41"
+        footnotes={footnotes}
+        isComplete={false}
+      />,
+    );
+    register.mockClear();
+
+    rerender(
+      <StreamingMarkdown
+        publishedText={SETTLED_FOOTNOTE_BODY + PLAIN_GROWTH_BLOCKS}
+        sourceId="event-41"
+        footnotes={footnotes}
+        isComplete={false}
+      />,
+    );
+
+    // Nothing: the arriving blocks declare nothing, and the settled definition behind
+    // them is not walked again. On the old code the whole prefix was re-registered on
+    // every one of these frames.
+    expect(register).not.toHaveBeenCalled();
+
+    // And a block that DOES declare something still lands — restating the body's
+    // definitions ahead of every block is what makes a cross-block reference resolve,
+    // so a new definition changes the preamble and the prefix is re-read on purpose.
+    rerender(
+      <StreamingMarkdown
+        publishedText={SETTLED_FOOTNOTE_BODY + PLAIN_GROWTH_BLOCKS + GROWN_FOOTNOTE_BLOCK}
+        sourceId="event-41"
+        footnotes={footnotes}
+        isComplete={false}
+      />,
+    );
+    expect(footnotes.resolve("event-41", "2")).not.toBeUndefined();
+  });
+
+  it("negative control: a rebase re-registers the prefix it re-derived", () => {
+    // Without this, an effect that never re-walked a settled block would pass both
+    // cases above and leave the previous history's definitions answering this one's
+    // references.
+    const footnotes = new FootnoteRegistry();
+    const register = vi.spyOn(footnotes, "register");
+    const { rerender } = render(
+      <StreamingMarkdown
+        publishedText={SETTLED_FOOTNOTE_BODY}
+        sourceId="event-42"
+        footnotes={footnotes}
+        isComplete={false}
+      />,
+    );
+    register.mockClear();
+
+    rerender(
+      <StreamingMarkdown
+        publishedText={REBASED_FOOTNOTE_BODY}
+        sourceId="event-42"
+        footnotes={footnotes}
+        isComplete={false}
+      />,
+    );
+
+    expect(register).toHaveBeenCalled();
+    expect(footnotes.resolve("event-42", "1")?.bodyNodes).not.toBeUndefined();
   });
 
   it("negative control: it registers nothing for a body with no definitions", () => {
