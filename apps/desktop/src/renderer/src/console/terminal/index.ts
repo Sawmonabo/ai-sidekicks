@@ -19,7 +19,8 @@
 // (`xterm-host-binding.ts`) — and the deferred edge into it (`emulator-loader.ts`),
 // the page-wide WebGL slot allocator (`renderer-pool.ts`), the link scheme guard
 // (`link-guard.ts`), the mount point (`XtermHost.tsx`), the lease fold
-// (`lease-model.ts`), the host-presence fold (`node-presence-model.ts`), the viewer's
+// (`lease-model.ts`) over the one-event reader beneath it (`lease-transition.ts`),
+// the host-presence fold (`node-presence-model.ts`), the viewer's
 // identity read (`viewer-identity.ts`), and the lease line (`LeaseLine.tsx`) with the
 // one wire call it makes (`lease-claim.ts`). Those
 // are reached by the pane body beside them through deep imports inside the family —

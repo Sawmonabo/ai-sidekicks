@@ -30,8 +30,8 @@ import {
   TERMINAL_LEASE_HOLDINGS,
   UNREAD_TERMINAL_LEASE,
   type TerminalLeaseState,
-  type TerminalLeaseTransition,
 } from "./lease-model.js";
+import type { TerminalLeaseTransition } from "./lease-transition.js";
 
 /**
  * The holder and the viewer, read off the scenario's join log rather than invented.

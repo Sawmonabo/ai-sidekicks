@@ -136,7 +136,7 @@ export function projectNodePresence(
  * Whether one event kind is one this fold reads a node state from.
  *
  * A comparison over the tuple rather than a `Set` built at module load, on
- * `lease-model.ts`'s `asTerminalLeaseTransitionReason` shape: the set has three
+ * `lease-transition.ts`'s `asTerminalLeaseTransitionReason` shape: the set has three
  * members, the module holds no state between calls, and a module-level `Set` is the
  * singleton `apps/desktop/AGENTS.md` rejects.
  */

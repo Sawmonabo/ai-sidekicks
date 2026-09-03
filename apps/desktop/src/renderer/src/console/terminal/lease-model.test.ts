@@ -1,27 +1,24 @@
 // The lease fold, held to 8.8's prohibitions rather than to its own shape.
 //
-// Three of the design's "never" clauses are properties of THIS module and are
-// asserted here as properties rather than as example outputs: the holder comes off
-// the wire and nowhere else, an unvouchable holder collapses to the free lease
-// before anyone is compared to it, and the five reasons render five distinct
-// sentences. Each has a negative control, because every one of them would pass
-// against a fold that simply returned the last payload it saw.
+// Two of the design's "never" clauses are properties of THIS module and are asserted
+// here as properties rather than as example outputs: an unvouchable holder collapses
+// to the free lease before anyone is compared to it, and a transition the reader
+// refused leaves nobody holding the shell rather than the holder before it. Each has
+// a negative control, because both would pass against a fold that simply returned the
+// last payload it saw.
+//
+// The READER's own claims are `lease-transition.test.ts`'s — a payload's reason and
+// holder shape agreeing, and the five sentences staying distinct, are answerable with
+// one event and no session. What is asserted here is the fold's ANSWER to a refusal,
+// which is a different claim and needs an ordering to state at all.
 
 import { describe, expect, it } from "vitest";
 
 import { TERMINAL_SCENARIO_CAST } from "../bridge/scenarios/terminal.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { TERMINAL_LEASE_LEDGER_CAP } from "./constants.js";
-import {
-  TERMINAL_LEASE_EVENT_KIND,
-  TERMINAL_LEASE_TRANSITION_REASONS,
-  UNREAD_TERMINAL_LEASE,
-  asTerminalLeaseTransitionReason,
-  projectTerminalLease,
-  terminalLeaseTransitionSentence,
-  type TerminalLeaseTransition,
-  type TerminalLeaseTransitionReason,
-} from "./lease-model.js";
+import { UNREAD_TERMINAL_LEASE, projectTerminalLease } from "./lease-model.js";
+import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
 
 /**
  * Two participants, taken from the scenario rather than written down.
@@ -55,17 +52,6 @@ function transitionEvent(
     occurredAt: `2026-01-01T16:40:0${String(sequence % 10)}.000Z`,
     ...(actorId === undefined ? {} : { actorId }),
     payload: { holderParticipantId, previousHolderParticipantId, reason },
-  };
-}
-
-function transitionOf(reason: TerminalLeaseTransitionReason): TerminalLeaseTransition {
-  return {
-    sequence: 1,
-    occurredAtIso: "2026-01-01T16:40:00.000Z",
-    reason,
-    holderParticipantId: reason === "taken" ? OTHER : null,
-    previousHolderParticipantId: reason === "taken" ? null : OTHER,
-    actorId: OTHER,
   };
 }
 
@@ -429,53 +415,5 @@ describe("vouching — a holder the control plane cannot vouch for is not shown"
       holdingNode: { nodeId: "node-1", isReachable: false },
     });
     expect(state.holding).not.toBe("held-by-you");
-  });
-});
-
-describe("transition sentences — five reasons, five sentences", () => {
-  const labelFor = (participantId: string): string =>
-    participantId === OTHER ? "Priya" : participantId;
-
-  it("gives every reason in the closed set a distinct sentence", () => {
-    const sentences = TERMINAL_LEASE_TRANSITION_REASONS.map((reason) =>
-      terminalLeaseTransitionSentence(transitionOf(reason), labelFor),
-    );
-    expect(new Set(sentences).size).toBe(TERMINAL_LEASE_TRANSITION_REASONS.length);
-  });
-
-  it("keeps the three automatic reasons apart from each other and from a release", () => {
-    const [, released, disconnect, authorizationLost, runIdle] = TERMINAL_LEASE_TRANSITION_REASONS;
-    const sentenceFor = (reason: TerminalLeaseTransitionReason): string =>
-      terminalLeaseTransitionSentence(transitionOf(reason), labelFor);
-    expect(sentenceFor(released)).toContain("released the shell");
-    expect(sentenceFor(disconnect)).toContain("disconnected");
-    expect(sentenceFor(authorizationLost)).toContain("lost authorization");
-    expect(sentenceFor(runIdle)).toContain("running state");
-  });
-
-  it("names the participant the label function knows, and the wire id when it does not", () => {
-    expect(terminalLeaseTransitionSentence(transitionOf("taken"), labelFor)).toContain("Priya");
-    expect(
-      terminalLeaseTransitionSentence(transitionOf("taken"), (participantId) => participantId),
-    ).toContain(OTHER);
-  });
-
-  it("negative control: a collapsed table would fail the distinctness claim", () => {
-    const collapsed = TERMINAL_LEASE_TRANSITION_REASONS.map(() => "The lease changed.");
-    expect(new Set(collapsed).size).not.toBe(TERMINAL_LEASE_TRANSITION_REASONS.length);
-  });
-});
-
-describe("the reason guard", () => {
-  it("admits every member of the closed set", () => {
-    for (const reason of TERMINAL_LEASE_TRANSITION_REASONS) {
-      expect(asTerminalLeaseTransitionReason(reason)).toBe(reason);
-    }
-  });
-
-  it("negative control: refuses a plausible non-member and a non-string", () => {
-    expect(asTerminalLeaseTransitionReason("auto_released_timeout")).toBeUndefined();
-    expect(asTerminalLeaseTransitionReason(undefined)).toBeUndefined();
-    expect(asTerminalLeaseTransitionReason(4)).toBeUndefined();
   });
 });
