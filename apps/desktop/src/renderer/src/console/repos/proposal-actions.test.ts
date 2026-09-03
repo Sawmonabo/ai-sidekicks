@@ -11,12 +11,14 @@ import { describe, expect, it } from "vitest";
 import type { BranchContextReading } from "./branch-context-model.js";
 import type { PreparedProposal } from "./prepared-proposal.js";
 import {
+  GIT_ACTION_PROPOSAL_ACTIONS,
   PROPOSAL_ACTIONS,
   PROPOSAL_ACTION_HEAD_EFFECT,
   PROPOSAL_ACTION_PRESENTATION,
   PROPOSAL_ACTION_REACH,
   PROPOSAL_NOT_SENDABLE_COPY,
   offeredProposalActions,
+  reachesGitAction,
   withheldRemoteActionCopy,
 } from "./proposal-actions.js";
 import type { ProposalGateState } from "./proposal-gate-state.js";
@@ -40,13 +42,12 @@ const READY_PROPOSAL: PreparedProposal = {
 const DRAFT_PROPOSAL: PreparedProposal = { ...READY_PROPOSAL, state: "draft" };
 
 /**
- * One state per arm, total by construction — a seventh arm does not compile until it has
+ * One state per arm, total by construction — a sixth arm does not compile until it has
  * a sample here, which is what makes the sweep below a claim about every arm rather than
- * about the five somebody remembered.
+ * about the four somebody remembered.
  */
 const STATE_PER_ARM: Readonly<Record<ProposalGateState["kind"], ProposalGateState>> = {
   "not-checked": { kind: "not-checked" },
-  "no-context": { kind: "no-context", executionMode: "read-only" },
   preparing: { kind: "preparing" },
   prepared: { kind: "prepared", context: BRANCH_CONTEXT, proposal: READY_PROPOSAL },
   "hosting-unavailable": {
@@ -201,5 +202,29 @@ describe("PROPOSAL_ACTION_HEAD_EFFECT — what an accepted act leaves of a propo
       (action) => PROPOSAL_ACTION_HEAD_EFFECT[action] === "moves-head",
     );
     expect(movers).toStrictEqual(["commit"]);
+  });
+});
+
+describe("GIT_ACTION_PROPOSAL_ACTIONS — which acts reach the git action", () => {
+  it("partitions the closed action set, leaving exactly the preparation call behind", () => {
+    // The two sets are declared independently — the whole tuple in one place, this
+    // subset in another — so this holds them against each other rather than trusting
+    // that they agree. A fourth act added to `PROPOSAL_ACTIONS` and to neither side of
+    // this partition fails here rather than being routed to a wire by default.
+    const routedElsewhere = PROPOSAL_ACTIONS.filter((action) => !reachesGitAction(action));
+
+    expect([...GIT_ACTION_PROPOSAL_ACTIONS].sort()).toStrictEqual(["commit", "push"]);
+    expect(routedElsewhere).toStrictEqual(["prepare-proposal"]);
+    expect(GIT_ACTION_PROPOSAL_ACTIONS.length + routedElsewhere.length).toBe(
+      PROPOSAL_ACTIONS.length,
+    );
+  });
+
+  it("negative control: the guard rejects the act that is not on that wire", () => {
+    // Without this, a guard that answered `true` for everything would satisfy the
+    // subset assertion above while handing the preparation act to the request builder.
+    expect(reachesGitAction("prepare-proposal")).toBe(false);
+    expect(reachesGitAction("commit")).toBe(true);
+    expect(reachesGitAction("push")).toBe(true);
   });
 });

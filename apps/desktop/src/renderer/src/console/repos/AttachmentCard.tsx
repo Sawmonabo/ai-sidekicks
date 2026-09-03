@@ -28,6 +28,8 @@
 // reach the progress element as attributes, which are a measurement rather than a
 // figure a person reads.
 
+import { Fragment } from "react";
+
 import {
   Chip,
   DerivedFigure,
@@ -39,9 +41,11 @@ import {
   formatDuration,
 } from "../primitives/index.js";
 import {
+  ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   INGEST_ABANDON_COPY,
   INGEST_DISPOSITION_COPY,
   UNRESOLVED_ATTACHMENT_PRESENTATION,
+  attachmentMediaTypeReadings,
   ingestCeilingRemainingMs,
   isIngestStalled,
   type AttachmentIngestEntry,
@@ -128,13 +132,22 @@ function renderIngesting(
         ) : (
           <WireFigure value={entry.derived.normalizedName} />
         )}
-        {entry.declared.declaredMediaType === undefined ? null : (
-          <Chip
-            label={entry.derived?.derivedMediaType ?? entry.declared.declaredMediaType}
-            mono
-            tone={entry.derived === undefined ? "neutral" : "accent"}
-          />
-        )}
+        {/* EITHER READING EARNS THE CHIP, and where the two disagree both are shown
+            with the derived one leading. `attachment-model.ts` owns the rule; this
+            renders it. Labelled by provenance rather than by tone alone, because a
+            colour cannot say whose claim a media type is. */}
+        {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (
+          <Fragment key={mediaTypeReading.provenance}>
+            {mediaTypeReading.provenance === "declared" ? (
+              <DerivedFigure text={ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL} />
+            ) : null}
+            <Chip
+              label={mediaTypeReading.mediaType}
+              mono
+              tone={mediaTypeReading.provenance === "derived" ? "accent" : "neutral"}
+            />
+          </Fragment>
+        ))}
         <span className="meridian-attachment__bytes">
           <WireFigure value={receivedFigure.text} title={String(entry.receivedBytes)} />
           <DerivedFigure text="of" />

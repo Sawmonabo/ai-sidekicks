@@ -46,9 +46,13 @@ describe("worktreeGateRowSubjects", () => {
     expect(rows[0]?.subject).toStrictEqual({
       kind: "worktree",
       workspaceId: "workspace-1",
+      // The mount an act is sent under, from the workspace row rather than the worktree
+      // record: both are filtered on it, so the two are the same value and reading one
+      // of them is what keeps it one fact.
+      repoMountId: GIT_MOUNT,
       worktreeId: "root-a",
-      // The workspace's own mode, wire-verbatim, so the gate's `no-context` arm names
-      // the mode the row above it is showing.
+      // The workspace's own mode, wire-verbatim, so the gate's refusal arm names the
+      // mode the row above it is showing.
       executionMode: "branch",
     });
     expect(rows[1]?.subject?.worktreeId).toBe("root-b");
@@ -63,6 +67,20 @@ describe("worktreeGateRowSubjects", () => {
     // The root exists and is reported; only the question about it is not put.
     expect(rows).toHaveLength(1);
     expect(rows[0]?.subject).toBeUndefined();
+  });
+
+  it("names the mount the subject was paired under, never the other one", () => {
+    // Without this the mount could be read off whichever row came first and every case
+    // here would still pass, because the fixtures above put one mount on both sides.
+    // A subject naming the wrong mount sends an act against a repository the gate was
+    // never drawn for.
+    const rows = worktreeGateRowSubjects(
+      [worktree("root-a", GIT_MOUNT), worktree("root-b", OTHER_MOUNT)],
+      [workspace("workspace-1", GIT_MOUNT), workspace("workspace-2", OTHER_MOUNT)],
+      OTHER_MOUNT,
+    );
+    expect(rows[0]?.subject?.repoMountId).toBe(OTHER_MOUNT);
+    expect(rows[0]?.subject?.worktreeId).toBe("root-b");
   });
 
   it("negative control: the same two workspaces on DIFFERENT mounts still pair", () => {

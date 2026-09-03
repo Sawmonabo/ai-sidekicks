@@ -184,7 +184,7 @@ interface EphemeralCloneListProps {
  *
  * The subject is resolved HERE, from the roster this same reading carries, because the
  * clone row names its workspace but not that workspace's execution mode — and the mode
- * is what a gate's `no-context` arm has to report against. Where the roster names no
+ * is what a gate's summary reports the context under. Where the roster names no
  * such workspace the row draws its absence instead, which is the pairing module's rule
  * applied to the one relation this list can be missing.
  */
@@ -272,6 +272,7 @@ function MountList(props: MountListProps): React.JSX.Element {
             workspaces={reading.workspaces.filter((row) => row.repoMountId === mount.id)}
             capabilitiesByWorkspaceId={reading.capabilitiesByWorkspaceId}
             refusalByWorkspaceId={reading.refusalByWorkspaceId}
+            pendingModeByWorkspaceId={reading.pendingModeByWorkspaceId}
             worktrees={reading.worktrees}
             worktreeRefusal={reading.worktreeRefusal}
             nowMilliseconds={reading.readAtMilliseconds}

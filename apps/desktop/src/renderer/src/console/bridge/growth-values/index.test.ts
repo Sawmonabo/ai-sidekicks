@@ -41,11 +41,17 @@ const barrelSources = import.meta.glob("./index.ts", {
 const barrelSource = Object.values(barrelSources)[0] ?? "";
 
 /**
- * Every name the single `growth-values.ts` exported on the day it was split.
+ * Every name the single `growth-values.ts` exported on the day it was split, plus
+ * every name a later change deliberately added.
  *
  * Transcribed rather than derived, because a census derived from the thing it
- * censuses proves nothing: this list is the record of the surface BEFORE the move,
- * and its whole job is to disagree with the barrel if the move lost a name.
+ * censuses proves nothing: this list is the record of the surface the split had to
+ * preserve, and its whole job is to disagree with the barrel if a name is lost. A
+ * name is added here only in the diff that adds the export, which is what keeps
+ * "nothing silently added under cover of a refactor" a real claim rather than a
+ * comment. `GrowthBranchContextReadRequest` is the one such addition: the registered
+ * branch-context read is keyed by one of two arms, and the union naming them earned a
+ * name once the signature table and the gate's read plan both read it.
  */
 const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GROWTH_ARTIFACT_REPLICATION_STATUSES",
@@ -67,6 +73,7 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthAttachmentIngestCompletion",
   "GrowthAttentionPreference",
   "GrowthBranchContext",
+  "GrowthBranchContextReadRequest",
   "GrowthBudgetState",
   "GrowthCallbackTool",
   "GrowthCostReceipt",

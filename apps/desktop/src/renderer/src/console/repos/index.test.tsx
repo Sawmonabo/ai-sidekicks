@@ -25,6 +25,7 @@ import {
   type ConsolePaneContext,
   type SidebarSectionContext,
 } from "../seats/index.js";
+import * as reposDoorModule from "./index.js";
 import { registerRepos, registerReposPanes } from "./index.js";
 
 /** The kinds this family owns, in `PANE_KINDS` declaration order — which is what the registry answers in. */
@@ -191,5 +192,24 @@ describe("repos family — the deck's pane kinds", () => {
         within(container).getByRole("region", { name: PANE_REGION_NAME_BY_KIND[kind] }),
       ).toBeDefined();
     }
+  });
+});
+
+describe("repos door — the bodies a sibling family mounts", () => {
+  it("publishes the file-restore disclosure through the door", () => {
+    // The disclosure renders the rollback intervention's own result and is mounted by
+    // the runs pane, a sibling view family: the layering gate forbids either family
+    // from importing the other's modules, so the door is the only way across. Read
+    // through the barrel rather than through the declaring module, because a symbol
+    // reachable only by a deep specifier is one the mounting family may not reach.
+    expect(typeof reposDoorModule.FileRestoreDisclosure).toBe("function");
+  });
+
+  it("negative control: the door publishes no body the family does not own", () => {
+    // Without this the case above would pass over a barrel that re-exported the whole
+    // family, which is what the one-door rule exists to prevent.
+    const doorExports = Object.keys(reposDoorModule);
+    expect(doorExports).not.toContain("RestorePathList");
+    expect(doorExports).not.toContain("ProposalGate");
   });
 });

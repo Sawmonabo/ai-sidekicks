@@ -96,6 +96,7 @@ describe("branchContextReadPlanFor", () => {
     const plan = branchContextReadPlanFor({
       kind: "worktree",
       workspaceId: "019b7b30-0280-7c11-8420-b1a5c0de2005",
+      repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
       worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
       executionMode: "worktree",
     });
@@ -115,11 +116,13 @@ describe("branchContextReadPlanFor", () => {
     const branchRoot = branchContextReadPlanFor({
       kind: "branch-root",
       workspaceId: "019b7b30-0280-7c11-8420-b1a5c0de2005",
+      repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
       executionMode: "branch",
     });
     const cloneRoot = branchContextReadPlanFor({
       kind: "ephemeral-clone",
       workspaceId: "019b7b30-0280-7c11-8420-b1a5c0de2005",
+      repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
       cloneId: "019b7b30-0280-7c11-8420-b1a5c0de2040",
       executionMode: "ephemeral clone",
     });
@@ -142,12 +145,19 @@ describe("branchContextReadPlanFor", () => {
     const plans = PROPOSAL_GATE_SUBJECT_KINDS.map((kind) =>
       branchContextReadPlanFor(
         kind === "worktree"
-          ? { kind, workspaceId: "workspace-1", worktreeId: "root-a", executionMode: "worktree" }
+          ? {
+              kind,
+              workspaceId: "workspace-1",
+              repoMountId: "mount-1",
+              worktreeId: "root-a",
+              executionMode: "worktree",
+            }
           : kind === "branch-root"
-            ? { kind, workspaceId: "workspace-1", executionMode: "branch" }
+            ? { kind, workspaceId: "workspace-1", repoMountId: "mount-1", executionMode: "branch" }
             : {
                 kind,
                 workspaceId: "workspace-1",
+                repoMountId: "mount-1",
                 cloneId: "clone-a",
                 executionMode: "ephemeral clone",
               },
@@ -164,21 +174,32 @@ describe("branchContextReadPlanFor", () => {
 
 describe("the two subjects built straight from the row they belong to", () => {
   it("builds an in-place root from the workspace alone, mode wire-verbatim", () => {
-    expect(branchRootGateSubject({ id: "workspace-1", executionMode: "branch" })).toStrictEqual({
+    expect(
+      branchRootGateSubject({
+        id: "workspace-1",
+        repoMountId: "mount-1",
+        executionMode: "branch",
+      }),
+    ).toStrictEqual({
       kind: "branch-root",
       workspaceId: "workspace-1",
+      // The mount an act names on the wire, straight off the row this subject IS.
+      repoMountId: "mount-1",
       executionMode: "branch",
     });
   });
 
   it("takes a clone's mode from the roster row the clone itself names", () => {
     const subject = ephemeralCloneGateSubject({ cloneId: "clone-a", workspaceId: "workspace-2" }, [
-      { id: "workspace-1", executionMode: "branch" },
-      { id: "workspace-2", executionMode: "ephemeral clone" },
+      { id: "workspace-1", repoMountId: "mount-1", executionMode: "branch" },
+      { id: "workspace-2", repoMountId: "mount-2", executionMode: "ephemeral clone" },
     ]);
     expect(subject).toStrictEqual({
       kind: "ephemeral-clone",
       workspaceId: "workspace-2",
+      // The clone row names no mount at all, so both the mode and the mount come from
+      // the roster row it names — one lookup, and never the first row in the list.
+      repoMountId: "mount-2",
       cloneId: "clone-a",
       executionMode: "ephemeral clone",
     });
@@ -189,7 +210,7 @@ describe("the two subjects built straight from the row they belong to", () => {
     // module's rule, applied to the one relation a clone list can be missing.
     expect(
       ephemeralCloneGateSubject({ cloneId: "clone-a", workspaceId: "workspace-2" }, [
-        { id: "workspace-1", executionMode: "branch" },
+        { id: "workspace-1", repoMountId: "mount-1", executionMode: "branch" },
       ]),
     ).toBeUndefined();
   });

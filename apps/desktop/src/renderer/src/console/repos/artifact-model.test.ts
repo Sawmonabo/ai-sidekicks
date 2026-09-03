@@ -15,6 +15,7 @@ import {
   REPOS_VIEWING_PARTICIPANT_ID,
 } from "../bridge/scenarios/repos.js";
 import {
+  ARTIFACT_DELETE_CONSEQUENCE,
   ARTIFACT_PAYLOAD_DISPOSITIONS,
   ARTIFACT_PAYLOAD_DISPOSITION_COPY,
   ARTIFACT_PRODUCER_ABSENT_LABEL,
@@ -25,6 +26,7 @@ import {
   ARTIFACT_TYPES,
   ARTIFACT_TYPE_FILTER_ALL,
   ARTIFACT_VISIBILITIES,
+  artifactDeleteReceiptSentence,
   artifactProducerLabel,
   artifactReplicationPresentation,
   artifactTypeCounts,
@@ -165,5 +167,41 @@ describe("artifact-model — the degraded sentences say what the design says", (
     );
     expect(new Set(sentences).size).toBe(ARTIFACT_PAYLOAD_DISPOSITIONS.length);
     expect(ARTIFACT_PAYLOAD_DISPOSITION_COPY.retained_by_references).toContain("another manifest");
+  });
+});
+
+describe("artifact-model — the delete disclosure states only what is known when it is stated", () => {
+  it("makes the pre-action consequence conditional on a fact the receipt settles", () => {
+    // `rePublishForeclosed` is a property of the row the daemon observes as it goes,
+    // so before the act the console knows only that deletion MAY cost the re-publish.
+    expect(ARTIFACT_DELETE_CONSEQUENCE).toContain("may foreclose re-publishing");
+    expect(ARTIFACT_DELETE_CONSEQUENCE).toContain("retained relay key");
+    expect(ARTIFACT_DELETE_CONSEQUENCE).toContain("receipt");
+    // Negative control: the unconditional claim this copy replaced. It was false for
+    // every artifact whose receipt comes back `rePublishForeclosed: false`, and the
+    // panel then printed the contradiction two lines further down.
+    expect(ARTIFACT_DELETE_CONSEQUENCE).not.toContain("Deleting forecloses");
+  });
+
+  it("reports re-publishing as still possible where the receipt says no key died", () => {
+    const sentence = artifactDeleteReceiptSentence({
+      artifactId: "artifact-01",
+      rePublishForeclosed: false,
+      payloadDisposition: "retained_by_references",
+    });
+    expect(sentence).toContain("Re-publishing is still possible.");
+    expect(sentence).not.toContain("permanently impossible");
+  });
+
+  it("reports the foreclosure as a fact where the receipt says the key died", () => {
+    const sentence = artifactDeleteReceiptSentence({
+      artifactId: "artifact-01",
+      rePublishForeclosed: true,
+      payloadDisposition: "reclaimed",
+    });
+    expect(sentence).toContain("permanently impossible");
+    // Negative control on the pair: the two receipts must not read the same, which is
+    // the whole reason the flag rides the reply.
+    expect(sentence).not.toContain("still possible");
   });
 });

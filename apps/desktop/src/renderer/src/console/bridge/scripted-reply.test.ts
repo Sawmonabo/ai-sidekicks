@@ -34,14 +34,17 @@ const BRANCH_CONTEXT_CALL = "gitflow.branchContextRead";
 /** Longer than one tick, so a reply parked on it is observably pending. */
 const SCRIPTED_LATENCY_MS = 120;
 
-/** The branch context a scripted reply states, asserted verbatim so a stub cannot pass. */
+/**
+ * The branch context a scripted reply states, asserted verbatim so a stub cannot pass.
+ *
+ * FLAT, exactly as `BranchContextReadResponse` returns it — the context's fields ARE
+ * the reply and there is no envelope member to wrap them in.
+ */
 const SCRIPTED_BRANCH_CONTEXT = {
-  branchContext: {
-    branchContextId: "branch-context-1",
-    workspaceId: "workspace-1",
-    baseBranch: "develop",
-    headBranch: "feature/topic",
-  },
+  branchContextId: "branch-context-1",
+  workspaceId: "workspace-1",
+  baseBranch: "develop",
+  headBranch: "feature/topic",
 };
 
 /** The request every branch-context read in this file makes. */
@@ -145,16 +148,15 @@ describe("the scripted-reply seam — one classification, two refusal vocabulari
 });
 
 describe("the fixture growth port's scripted reads — served, refused, or named", () => {
-  it("answers the absence when the scenario scripts no reply at all", async () => {
-    // Unscripted is not a failure on this port: the operation IS answered, and what it
-    // found is nothing. The flagship scenario scripts no branch-context reply, which is
-    // what makes this the arm that runs for every shipped scenario today.
+  it("refuses when the scenario scripts no reply at all", async () => {
+    // The registered reply is flat and carries no absence, so an unscripted read has
+    // nothing honest to serve: a fabricated empty context would be a shape no daemon
+    // sends. The flagship scenario scripts no branch-context reply, which is what makes
+    // this the arm that runs for every scenario but the repos one.
     const outcome = await readBranchContext(fixtureFor(FLAGSHIP_SCENARIO));
 
-    expect(outcome.status).toBe("served");
-    if (outcome.status === "served") {
-      expect(outcome.value).toStrictEqual({ branchContext: undefined });
-    }
+    expect(outcome.status).toBe("unavailable");
+    expect(outcome).not.toHaveProperty("value");
   });
 
   it("serves the scripted reply when a scenario states one", async () => {
@@ -197,8 +199,9 @@ describe("the fixture growth port's scripted reads — served, refused, or named
     fixture.engine.dispose();
 
     // The rule the code exists for: a reply that never arrived reaches the surface as a
-    // refusal it can render, never as `{branchContext: undefined}` — which would say
-    // this workspace has no branch context, a fact nothing checked.
+    // refusal it can render, never as a fabricated empty context — which would say
+    // this workspace has a branch context whose every field is missing, a shape
+    // nothing sends and a fact nothing checked.
     const outcome = await pending;
     expect(outcome.status).toBe("unavailable");
     if (outcome.status === "unavailable") {

@@ -42,7 +42,11 @@ export const REVIEWER_WORKTREE_ID: string = "9f2c4a10-0000-4000-8000-00000000002
 // undrawable.
 export const EPHEMERAL_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000022";
 export const IMPLEMENTER_RUN_ID: string = "9f2c4a10-0000-4000-8000-000000000030";
-export const BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000040";
+// One branch context per worktree, because `branch_contexts` upserts a row per
+// `(workspace, worktree)` binding: two roots in one workspace are two contexts, and a
+// fixture answering both with one would let a gate render the other root's branch.
+export const IMPLEMENTER_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000040";
+export const REVIEWER_BRANCH_CONTEXT_ID: string = "9f2c4a10-0000-4000-8000-000000000041";
 export const DIFF_ARTIFACT_ID: string = "9f2c4a10-0000-4000-8000-000000000050";
 export const PINNED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000051";
 export const REPLICATING_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000052";

@@ -92,6 +92,8 @@ export interface MountCardProps {
     Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
   >;
   readonly refusalByWorkspaceId: Readonly<Record<string, ConsoleRefusal>>;
+  /** Per workspace: the mode a switch is on the wire for, where one is. */
+  readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
   /** Every execution root this session holds. Filtered to this mount's here, not by the caller. */
   readonly worktrees: readonly WorktreeStatusRecord[];
   /** The root read's own failure, where it had one. Rendered where the roots would be. */
@@ -220,6 +222,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                 workspace={workspace}
                 capabilities={props.capabilitiesByWorkspaceId[workspace.id]}
                 refusal={props.refusalByWorkspaceId[workspace.id]}
+                pendingMode={props.pendingModeByWorkspaceId[workspace.id]}
                 modeControlsOffered={posture.offered}
                 onSelectExecutionMode={(executionMode) => {
                   props.onSelectExecutionMode(workspace.id, executionMode);

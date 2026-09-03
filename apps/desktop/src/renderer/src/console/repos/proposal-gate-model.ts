@@ -34,13 +34,15 @@ import type { ProposalGateState } from "./proposal-gate-state.js";
  * closed set — the failure mode `apps/desktop/AGENTS.md` names outright. Deriving it
  * means a member added to, renamed on, or removed from the registered signature is a
  * compile error in the mapper below rather than a silently dropped field.
+ *
+ * THE SERVED VALUE IS THE CONTEXT ITSELF. `BranchContextReadResponse` is flat, so
+ * there is no envelope member to reach through and no `NonNullable` to strip: a
+ * served reply IS a context, and a pair that resolves none refuses instead.
  */
-type ServedBranchContext = NonNullable<
-  Extract<
-    Awaited<ReturnType<ConsoleBridge["growth"]["gitflowBranchContextRead"]>>,
-    { readonly status: "served" }
-  >["value"]["branchContext"]
->;
+type ServedBranchContext = Extract<
+  Awaited<ReturnType<ConsoleBridge["growth"]["gitflowBranchContextRead"]>>,
+  { readonly status: "served" }
+>["value"];
 
 /** The subsystem every refusal the gate reader mints names as its author. */
 export const PROPOSAL_GATE_REFUSAL_ORIGIN = "proposal-gate";
@@ -84,25 +86,39 @@ export const SUBJECT_NOT_ADDRESSABLE: ProposalGateRefusalCode = "subject-not-add
  * which is exactly the value the read below cannot be built from.
  *
  * `executionMode` is on every arm and is the WORKSPACE's own, supplied by the surface
- * that already holds it rather than read again: the `no-context` arm has to name the
- * mode that explains the absence, and a second read of it here could disagree with the
- * row the gate is drawn under.
+ * that already holds it rather than read again: the served context carries no mode of
+ * its own, the summary reports the one the row is drawn under, and a second read of it
+ * here could disagree with that row.
+ *
+ * `repoMountId` is on every arm for a different reason: it is not what the gate READS
+ * under — the branch-context read is keyed by the workspace and the root — but it is
+ * the only identity the registered `GitActionExecuteRequest` takes, so an act sent from
+ * a subject that did not carry it could not name what it was acting on. Every arm
+ * resolves it from the SAME place, the workspace row's own `repoMountId`: a branch
+ * root and a clone are built from that row directly, and a worktree's is the row it was
+ * paired under, which `worktree-gate-pairing.ts` resolves by that very mount. The
+ * worktree record carries a `repoMountId` of its own and it is the same value by
+ * construction — that pairing filters both sides on it — so this is one fact read once
+ * rather than two that could disagree.
  */
 export type ProposalGateSubject =
   | {
       readonly kind: "worktree";
       readonly workspaceId: string;
+      readonly repoMountId: string;
       readonly worktreeId: string;
       readonly executionMode: ExecutionMode;
     }
   | {
       readonly kind: "branch-root";
       readonly workspaceId: string;
+      readonly repoMountId: string;
       readonly executionMode: ExecutionMode;
     }
   | {
       readonly kind: "ephemeral-clone";
       readonly workspaceId: string;
+      readonly repoMountId: string;
       readonly cloneId: string;
       readonly executionMode: ExecutionMode;
     };
@@ -200,11 +216,13 @@ export function branchContextReadPlanFor(subject: ProposalGateSubject): BranchCo
  */
 export function branchRootGateSubject(workspace: {
   readonly id: string;
+  readonly repoMountId: string;
   readonly executionMode: ExecutionMode;
 }): ProposalGateSubject {
   return {
     kind: "branch-root",
     workspaceId: workspace.id,
+    repoMountId: workspace.repoMountId,
     executionMode: workspace.executionMode,
   };
 }
@@ -220,7 +238,11 @@ export function branchRootGateSubject(workspace: {
  */
 export function ephemeralCloneGateSubject(
   clone: { readonly cloneId: string; readonly workspaceId: string },
-  workspaces: readonly { readonly id: string; readonly executionMode: ExecutionMode }[],
+  workspaces: readonly {
+    readonly id: string;
+    readonly repoMountId: string;
+    readonly executionMode: ExecutionMode;
+  }[],
 ): ProposalGateSubject | undefined {
   const workspace = workspaces.find((row) => row.id === clone.workspaceId);
   if (workspace === undefined) {
@@ -229,6 +251,10 @@ export function ephemeralCloneGateSubject(
   return {
     kind: "ephemeral-clone",
     workspaceId: clone.workspaceId,
+    // The clone row names no mount at all — `ephemeral_clones` is workspace-anchored —
+    // so the mount an act is sent under comes from the roster row the mode came from,
+    // which is the same row and the same read. Two facts from one lookup, never two.
+    repoMountId: workspace.repoMountId,
     cloneId: clone.cloneId,
     executionMode: workspace.executionMode,
   };
@@ -241,14 +267,13 @@ export const CLONE_WORKSPACE_UNNAMED_COPY =
 /**
  * Which settled arms are announced, and what each one says.
  *
- * A closed table rather than sentences composed at the four publish sites, so one arm
- * is never announced two ways. `not-checked` has NO entry, deliberately: its sentence
- * is the growth port's own refusal, which names the wire and the document that owes
- * it, and a console sentence beside it would paraphrase a refusal the console did not
+ * A closed table rather than sentences composed at the publish sites, so one arm is
+ * never announced two ways. `not-checked` has NO entry, deliberately: its sentence is
+ * the growth port's own refusal, which names the wire and the document that owes it,
+ * and a console sentence beside it would paraphrase a refusal the console did not
  * author — which rule 9 forbids.
  */
 export const GATE_SETTLEMENT_COPY: Readonly<Record<AnnouncedGateSettlement, string>> = {
-  "no-context": "This workspace has no writable branch context.",
   prepared: "A branch context was read. No proposal has been prepared yet.",
   "prepared-with-proposal": "A branch context and a prepared proposal were read.",
   refused: "The branch context could not be read.",
@@ -256,7 +281,6 @@ export const GATE_SETTLEMENT_COPY: Readonly<Record<AnnouncedGateSettlement, stri
 
 /** The settlements that have a sentence of their own. Declared once, derived above. */
 export const ANNOUNCED_GATE_SETTLEMENTS = [
-  "no-context",
   "prepared",
   "prepared-with-proposal",
   "refused",

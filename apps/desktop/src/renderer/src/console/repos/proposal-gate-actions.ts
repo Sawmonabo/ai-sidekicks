@@ -13,11 +13,19 @@
 // rejects.
 //
 // THEY MEET AT ONE OBJECT, WHICH IS THE WHOLE SEAM. `ProposalGateActionHost` is the
-// six things an act needs from the half that read: the standing reading, the served
-// context, the publish, the two writes to the held proposal, and the refresh an
-// accepted act asks for. Nothing else crosses — this class holds no scheduler, no
-// trigger, and no arm of its own, so a read cannot be started from here and an act
-// cannot invent a context.
+// seven things an act needs from the half that read: the standing reading, the served
+// context, the caller's own participant id, the publish, the two writes to the held
+// proposal, and the refresh an accepted act asks for. Nothing else crosses — this class
+// holds no scheduler, no trigger, and no arm of its own, so a read cannot be started
+// from here and an act cannot invent a context.
+//
+// THE CAUSATION IS ASKED FOR THROUGH THE SAME SEAM AND NEVER READ HERE. The registered
+// `GitActionExecuteRequest` carries an optional `causationParticipantId`, and which
+// participant this window is comes from a read — so it is the reading half's to
+// perform, exactly as the branch context is. This class awaits the answer and sends
+// what it gets: an identity that could not be read omits the member rather than
+// blocking the press, because the daemon resolves the principal an act runs under from
+// the transport and takes this member as attribution.
 //
 // ONE ACT AT A TIME, AND THE SECOND PRESS IS REFUSED RATHER THAN QUEUED OR DROPPED.
 // Two overlapping preparations can settle out of order and the older proposal then
@@ -39,9 +47,12 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import type { BranchContextReading } from "./branch-context-model.js";
 import type { PreparedProposal } from "./prepared-proposal.js";
+import { gitActionExecuteRequest } from "./git-action-request.js";
 import {
   PROPOSAL_ACTION_HEAD_EFFECT,
   PROPOSAL_ACTION_PRESENTATION,
+  reachesGitAction,
+  type GitActionProposalAction,
   type ProposalAction,
 } from "./proposal-actions.js";
 import {
@@ -71,6 +82,16 @@ export interface ProposalGateActionHost {
    * carries one and an act must not have to narrow an arm to find the id it was given.
    */
   servedContext(): BranchContextReading | undefined;
+  /**
+   * Which participant this window is, or `undefined` where the read did not answer.
+   *
+   * A PROMISE RATHER THAN A SETTLED VALUE, because the identity read and the
+   * branch-context read are issued together and neither waits on the other: an act
+   * pressed the instant a context lands would otherwise send no causation for the
+   * ordinary reason that one read finished first. The reading half performs it once and
+   * every act awaits that same answer.
+   */
+  callerParticipantId(): Promise<string | undefined>;
   publish(reading: ProposalGateReading): void;
   /** Hold a prepared proposal, keyed by the context it was prepared against. */
   holdPreparedProposal(proposal: PreparedProposal, preparedFor: BranchContextReading): void;
@@ -95,15 +116,23 @@ interface InFlightProposalAction {
 
 export interface ProposalGateActionsOptions {
   readonly bridge: ConsoleBridge;
-  /** The workspace the git action names — the one part of the subject an act sends. */
-  readonly workspaceId: string;
+  /**
+   * The mount the git action names — the one part of the SUBJECT an act sends.
+   *
+   * The registered request takes a mount and no workspace: this call used to send
+   * `workspaceId`, a member `GitActionExecuteRequest` does not have, so a
+   * contract-valid daemon would have refused every act before running it. Which root
+   * inside that mount is being acted on is said in `params`, off the served context —
+   * `git-action-request.ts` owns that, and it is why the mount alone is enough here.
+   */
+  readonly repoMountId: string;
   readonly host: ProposalGateActionHost;
 }
 
 /** The three modelled acts, the register that holds one, and what each answer writes. */
 export class ProposalGateActions {
   readonly #bridge: ConsoleBridge;
-  readonly #workspaceId: string;
+  readonly #repoMountId: string;
   readonly #host: ProposalGateActionHost;
   /** The act awaiting the bridge. One at a time, and the gate says which. */
   #inFlight: InFlightProposalAction | undefined;
@@ -113,7 +142,7 @@ export class ProposalGateActions {
 
   public constructor(options: ProposalGateActionsOptions) {
     this.#bridge = options.bridge;
-    this.#workspaceId = options.workspaceId;
+    this.#repoMountId = options.repoMountId;
     this.#host = options.host;
   }
 
@@ -166,11 +195,15 @@ export class ProposalGateActions {
     this.#nextRequestId += 1;
     this.#holdFor(request);
     try {
-      if (action === "prepare-proposal") {
+      // Routed by the table rather than by naming the act: `PROPOSAL_ACTION_WIRE` is
+      // where the two wires are declared, so a fourth act has to say which one it
+      // reaches before it can be sent from here — and the guard NARROWS, so the request
+      // builder below is handed an act the git action can actually take.
+      if (!reachesGitAction(action)) {
         await this.#prepareProposal(context, request);
         return;
       }
-      await this.#executeGitAction(action, request);
+      await this.#executeGitAction(action, context, request);
     } finally {
       this.#release(request);
     }
@@ -240,11 +273,24 @@ export class ProposalGateActions {
     this.#host.requestRefreshAfterAct();
   }
 
-  async #executeGitAction(action: ProposalAction, request: InFlightProposalAction): Promise<void> {
-    const outcome = await this.#bridge.growth.gitActionExecute({
-      workspaceId: this.#workspaceId,
-      action,
-    });
+  async #executeGitAction(
+    action: GitActionProposalAction,
+    context: BranchContextReading,
+    request: InFlightProposalAction,
+  ): Promise<void> {
+    // Awaited before the act rather than alongside it: the causation travels ON the
+    // request, so there is nothing to parallelise — and the answer is read once by the
+    // half that reads, so this await resolves immediately for every act after the first.
+    const causationParticipantId = await this.#host.callerParticipantId();
+    if (!this.#stillStandingFor(request)) {
+      return;
+    }
+    const outcome = await this.#bridge.growth.gitActionExecute(
+      gitActionExecuteRequest(action, context, {
+        repoMountId: this.#repoMountId,
+        causationParticipantId,
+      }),
+    );
     if (!this.#stillStandingFor(request)) {
       return;
     }
@@ -252,16 +298,19 @@ export class ProposalGateActions {
       this.#recordActionRefusal(action, outcome);
       return;
     }
-    if (!outcome.value.accepted) {
+    if (!outcome.value.success) {
       // A served answer that did not take the act. Rendered rather than treated as a
-      // success: the wire said `accepted: false`, and the sentence says exactly that
-      // rather than guessing at a reason the reply does not carry.
+      // success — and the reply's OWN `error` is what stands there when it carries one,
+      // verbatim, because rule 9 forbids paraphrasing a refusal the console did not
+      // author. The console's sentence is the fallback for a reply that failed and said
+      // why nowhere, and it claims nothing about the reason.
       this.#recordActionRefusal(
         action,
         refuse(
           PROPOSAL_GATE_REFUSAL_ORIGIN,
           "action-not-accepted" satisfies ProposalGateRefusalCode,
-          `The daemon answered this action without accepting it. Nothing was ${action === "commit" ? "recorded" : "sent"}.`,
+          outcome.value.error ??
+            `The daemon answered this action without taking it, and named no reason. Nothing was ${action === "commit" ? "recorded" : "sent"}.`,
         ),
       );
       return;

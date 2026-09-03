@@ -126,8 +126,13 @@ export interface ArtifactDeleteReceipt {
   readonly artifactId: string;
   /**
    * True when re-publish is permanently impossible for this artifact and the
-   * late-join remedy is gone. Stated before the act as a consequence and reported
-   * after it as a fact — the design requires both halves.
+   * late-join remedy is gone.
+   *
+   * THE ONLY PLACE THIS FACT EXISTS. Nothing before the delete can answer it — the
+   * daemon settles it by observing whether the row carried the retained relay key at
+   * the moment the row went — so the confirmation states the possibility and this
+   * member states what happened. Two halves of one disclosure, and only the second
+   * one is a fact.
    */
   readonly rePublishForeclosed: boolean;
   readonly payloadDisposition: ArtifactPayloadDisposition;
@@ -243,9 +248,23 @@ export function artifactDeleteReceiptSentence(receipt: ArtifactDeleteReceipt): s
   return `${ARTIFACT_PAYLOAD_DISPOSITION_COPY[receipt.payloadDisposition]} ${rePublish}`;
 }
 
-/** The consequence a delete confirm states BEFORE the act. */
+/**
+ * The consequence a delete confirm states BEFORE the act.
+ *
+ * CONDITIONAL, BECAUSE THE FACT IS NOT KNOWN YET. Whether a delete forecloses
+ * re-publishing is `rePublishForeclosed` on the receipt, and the receipt exists only
+ * AFTER the act: the daemon reports whether this row carried the publisher-retained
+ * relay key and that key died with it, which is local state no read on this surface
+ * has asked for. A confirmation that stated the foreclosure flatly was therefore
+ * false for every artifact that carried no such key — and contradicted the receipt
+ * the same panel prints a moment later, which says re-publishing is still possible.
+ *
+ * So this sentence says what deletion MAY cost and names the receipt as what settles
+ * it. It does not soften the warning: the destructive case is stated in full, and the
+ * only thing removed is the claim that it is the case here.
+ */
 export const ARTIFACT_DELETE_CONSEQUENCE =
-  "Deleting forecloses re-publishing this artifact. A participant who joins later has no way back to it.";
+  "Deleting may foreclose re-publishing this artifact: where this row carried the retained relay key, that key is destroyed with it and a participant who joins later has no way back to it. The receipt this delete answers with reports whether that happened.";
 
 /** The filter's "every type" member, which is not an artifact type. */
 export const ARTIFACT_TYPE_FILTER_ALL = "all";

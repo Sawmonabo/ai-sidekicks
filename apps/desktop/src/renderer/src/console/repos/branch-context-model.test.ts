@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   BRANCH_CONTEXT_ASSOCIATIONS,
-  NO_BRANCH_CONTEXT_REASON,
   branchContextAssociationReading,
   type BranchContextReading,
 } from "./branch-context-model.js";
@@ -77,39 +76,5 @@ describe("branchContextAssociationReading — the mode decides, never the id", (
     );
     expect(reading.association).toBe("in-place");
     expect(reading.boundId).toBeUndefined();
-  });
-});
-
-describe("NO_BRANCH_CONTEXT_REASON — read-only is the only mode that produces none", () => {
-  it("names read-only's own reason, and names the side effects it does not produce", () => {
-    const reason = NO_BRANCH_CONTEXT_REASON["read-only"];
-    expect(reason).toBeDefined();
-    expect(reason).toContain("read-only");
-    expect(reason).toContain("preparation side effects");
-  });
-
-  it("negative control: no writable mode carries a reason, because none produces none", () => {
-    // A table over all four modes would have had to invent three sentences that are
-    // never true. Their absence is what routes a writable mode to the unread copy.
-    expect(NO_BRANCH_CONTEXT_REASON.branch).toBeUndefined();
-    expect(NO_BRANCH_CONTEXT_REASON.worktree).toBeUndefined();
-    expect(NO_BRANCH_CONTEXT_REASON["ephemeral clone"]).toBeUndefined();
-  });
-});
-
-describe("NO_BRANCH_CONTEXT_REASON — read-only is the only mode that produces none", () => {
-  it("names read-only's own reason, and names the side effects it does not produce", () => {
-    const reason = NO_BRANCH_CONTEXT_REASON["read-only"];
-    expect(reason).toBeDefined();
-    expect(reason).toContain("read-only");
-    expect(reason).toContain("preparation side effects");
-  });
-
-  it("negative control: no writable mode carries a reason, because none produces none", () => {
-    // A table over all four modes would have had to invent three sentences that are
-    // never true. Their absence is what routes a writable mode to the unread copy.
-    expect(NO_BRANCH_CONTEXT_REASON.branch).toBeUndefined();
-    expect(NO_BRANCH_CONTEXT_REASON.worktree).toBeUndefined();
-    expect(NO_BRANCH_CONTEXT_REASON["ephemeral clone"]).toBeUndefined();
   });
 });

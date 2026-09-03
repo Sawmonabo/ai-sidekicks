@@ -23,8 +23,10 @@ import {
 import {
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
+  IMPLEMENTER_WORKTREE_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
+  REVIEWER_WORKTREE_ID,
 } from "./repos-fixture-data.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
 import type { ConsoleScenario } from "../scenario.js";
@@ -159,24 +161,60 @@ describe("the repos scenario — the facts the repos family is drawn against", (
 });
 
 describe("the repos scenario — the growth reads it answers", () => {
-  it("serves the branch context from the script rather than from the port's absence", async () => {
+  it("answers each execution root with its own branch context", async () => {
+    // The read is keyed by the `(workspaceId, worktreeId)` PAIR, and this session holds
+    // two roots in one workspace. A method-only reply handed both gates one answer, so
+    // the reviewer's gate showed the implementer's context id and head branch and the
+    // scenario's screenshots passed over a gate that had never been bound per root.
     const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
 
-    const outcome = await bridge.growth.gitflowBranchContextRead({
-      workspaceId: "unread-by-the-fixture",
+    const implementer = await bridge.growth.gitflowBranchContextRead({
+      workspaceId: GIT_WORKSPACE_ID,
+      worktreeId: IMPLEMENTER_WORKTREE_ID,
+    });
+    const reviewer = await bridge.growth.gitflowBranchContextRead({
+      workspaceId: GIT_WORKSPACE_ID,
+      worktreeId: REVIEWER_WORKTREE_ID,
+    });
+
+    expect(implementer.status).toBe("served");
+    expect(reviewer.status).toBe("served");
+    if (implementer.status !== "served" || reviewer.status !== "served") {
+      throw new Error("the fixture refused a branch-context read this scenario scripts");
+    }
+    // The values `Spec-011 §Interfaces And Contracts` requires, read straight off the
+    // reply — the registered response is flat.
+    expect(implementer.value.baseBranch).toBe("develop");
+    expect(implementer.value.headBranch).toBe("feat/rate-limit-wiring");
+    expect(implementer.value.worktreeId).toBe(IMPLEMENTER_WORKTREE_ID);
+    expect(reviewer.value.headBranch).toBe("review/rate-limit-wiring");
+    expect(reviewer.value.worktreeId).toBe(REVIEWER_WORKTREE_ID);
+    expect(reviewer.value.branchContextId).not.toBe(implementer.value.branchContextId);
+  });
+
+  it("names each root's head branch the same way its status row does", () => {
+    // The gate drawn under a root and the root itself are one piece of work, so two
+    // spellings of one branch is how a fixture stops representing a session.
+    const roots = REPOS_SCENARIO.replies.find((reply) => reply.call === "repo.worktreeStatusRead");
+    const scripted = (roots as { readonly result: { readonly worktrees: readonly unknown[] } })
+      .result.worktrees as readonly { readonly worktreeId: string; readonly branchName: string }[];
+    expect(scripted.find((root) => root.worktreeId === REVIEWER_WORKTREE_ID)?.branchName).toBe(
+      "review/rate-limit-wiring",
+    );
+  });
+
+  it("negative control: a root this scenario does not hold is refused, not answered", async () => {
+    // Without this the case above would pass against a fixture that answered whatever
+    // it had for any request — which is the defect it exists to catch, one step removed.
+    const bridge = createFixtureBridge({ scenario: REPOS_SCENARIO });
+
+    const unheld = await bridge.growth.gitflowBranchContextRead({
+      workspaceId: GIT_WORKSPACE_ID,
       worktreeId: "unread-by-the-fixture",
     });
 
-    expect(outcome.status).toBe("served");
-    if (outcome.status === "served") {
-      // The four values `Spec-011 §Interfaces And Contracts` requires, and the
-      // association this context actually has. Absence here would be the honest
-      // answer for a scenario that scripts nothing — which is exactly what this
-      // scenario exists to stop being the only reachable one.
-      expect(outcome.value.branchContext?.baseBranch).toBe("develop");
-      expect(outcome.value.branchContext?.headBranch).toBe("feat/rate-limit-wiring");
-      expect(outcome.value.branchContext?.worktreeId).toBeDefined();
-    }
+    expect(unheld.status).toBe("unavailable");
+    expect(unheld).not.toHaveProperty("value");
   });
 
   it("answers the caller-identity read with the viewer it states", async () => {

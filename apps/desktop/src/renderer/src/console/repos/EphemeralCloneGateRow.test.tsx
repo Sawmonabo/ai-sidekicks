@@ -44,20 +44,24 @@ const SERVING_BRIDGE = {
   growth: {
     gitflowBranchContextRead: async () => ({
       status: "served",
+      // Flat, exactly as `BranchContextReadResponse` returns it: the context's fields
+      // ARE the reply, and there is no envelope member to reach through.
       value: {
-        branchContext: {
-          branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
-          workspaceId: CLONE.workspaceId,
-          baseBranch: "develop",
-          headBranch: CLONE.branchName,
-        },
+        branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
+        workspaceId: CLONE.workspaceId,
+        baseBranch: "develop",
+        headBranch: CLONE.branchName,
       },
     }),
   },
 } as unknown as ConsoleBridge;
 
 function renderRow(
-  workspaces: readonly { readonly id: string; readonly executionMode: "ephemeral clone" }[],
+  workspaces: readonly {
+    readonly id: string;
+    readonly repoMountId: string;
+    readonly executionMode: "ephemeral clone";
+  }[],
 ): HTMLElement {
   const { container } = render(
     <LiveAnnouncerProvider clock={new ManualClock()}>
@@ -73,7 +77,13 @@ function renderRow(
   return container;
 }
 
-const ROSTER = [{ id: CLONE.workspaceId, executionMode: "ephemeral clone" }] as const;
+const ROSTER = [
+  {
+    id: CLONE.workspaceId,
+    repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
+    executionMode: "ephemeral clone",
+  },
+] as const;
 
 describe("EphemeralCloneGateRow", () => {
   it("draws the clone and a gate that says which key the read has none of", () => {
@@ -92,7 +102,13 @@ describe("EphemeralCloneGateRow", () => {
   it("builds no gate at all where the roster names no such workspace", () => {
     // No reader, so no call: the mode a gate would report against lives on the roster
     // row and nowhere else, and choosing one here would be a guess drawn as a reading.
-    const container = renderRow([{ id: "workspace-other", executionMode: "ephemeral clone" }]);
+    const container = renderRow([
+      {
+        id: "workspace-other",
+        repoMountId: "019b7b30-0280-7c11-8420-b1a5c0de2003",
+        executionMode: "ephemeral clone",
+      },
+    ]);
     expect(container.querySelector("details.meridian-root-gate")).toBeNull();
     expect(within(container).getByText(CLONE_WORKSPACE_UNNAMED_COPY)).toBeDefined();
   });

@@ -422,6 +422,14 @@
   color: var(--meridian-text-muted);
 }
 
+/* The switch this picker is held for. Reads as progress rather than as a failure,
+   which is why it takes the muted text colour and not the refusal card's. */
+.meridian-mode-picker__pending {
+  margin: var(--meridian-space-1) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
 .meridian-repo-section__count {
   font-family: var(--meridian-font-mono);
   color: var(--meridian-text-muted);

@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { AttachmentCard } from "./AttachmentCard.js";
 import {
+  ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   INGEST_STREAM_INVALID_CODE,
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   attachmentSourceFrom,
@@ -203,5 +204,75 @@ describe("attachment card — the unread arm", () => {
     );
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
+  });
+});
+
+describe("attachment card — the media type is shown from either reading", () => {
+  const derivedTruth = {
+    artifactId: "artifact-1",
+    normalizedName: "screenshot.png",
+    derivedMediaType: "image/png",
+    derivedSizeBytes: 300,
+  };
+
+  function renderCard(subject: AttachmentIngestEntry): string {
+    const { container } = render(
+      <AttachmentCard
+        reading={{ kind: "ingesting", entry: subject }}
+        nowMilliseconds={NOW_MILLISECONDS}
+      />,
+    );
+    return container.textContent ?? "";
+  }
+
+  it("shows the derived type where the client declared none", () => {
+    // A paste, and any client that omits `File.type`, arrives with no declaration —
+    // and that is exactly the payload whose derived signature is worth reporting.
+    const text = renderCard(
+      entry({
+        declared: attachmentSourceFrom({
+          localId: "attachment-1",
+          declaredName: "screenshot.png",
+          payload: new Blob([new Uint8Array(300)]),
+        }),
+        derived: derivedTruth,
+      }),
+    );
+    expect(text).toContain("image/png");
+  });
+
+  it("shows the declaration on its own before anything has been derived", () => {
+    expect(renderCard(entry())).toContain("text/plain");
+  });
+
+  it("leads with the derived type and keeps the declaration where the two disagree", () => {
+    const text = renderCard(entry({ derived: derivedTruth }));
+    expect(text).toContain("image/png");
+    expect(text).toContain("text/plain");
+    expect(text).toContain(ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL);
+    expect(text.indexOf("image/png")).toBeLessThan(text.indexOf("text/plain"));
+  });
+
+  it("negative control: neither reading present renders no media type at all", () => {
+    // Without this the cases above would pass over a card that always drew a chip,
+    // which would put an empty label on every attachment whose type nobody knows.
+    const { container } = render(
+      <AttachmentCard
+        reading={{
+          kind: "ingesting",
+          entry: entry({
+            declared: attachmentSourceFrom({
+              localId: "attachment-1",
+              declaredName: "notes",
+              payload: new Blob([new Uint8Array(300)]),
+            }),
+          }),
+        }}
+        nowMilliseconds={NOW_MILLISECONDS}
+      />,
+    );
+    expect(container.textContent).not.toContain(ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL);
+    expect(container.textContent).not.toContain("text/plain");
+    expect(container.textContent).not.toContain("image/png");
   });
 });

@@ -11,14 +11,14 @@
 // verdict the console's repos design renders lands with Plan-009's own phase, and a
 // fixture that served it now would be scripting a value no daemon can send.
 //
-// THE TWO ENTITY-SCOPED READS ANSWER PER ENTITY. `ScenarioEngine.replyFor` matches on
-// the method name, so a constant reply is one answer for every call of that method —
+// THE THREE ENTITY-SCOPED READS ANSWER PER ENTITY. `ScenarioEngine.replyFor` matches
+// on the method name, so a constant reply is one answer for every call of that method —
 // right for `repo.workspaceList`, which is session-scoped, and wrong for
-// `repo.mountRead` and `repo.executionModeCapabilitiesRead`, which each name the thing
-// they want. Both are `resultFor` computations over the request, keyed by the tables
-// below; a request naming neither entity returns `undefined` and the fixture refuses,
-// which is the honest answer for a scenario that scripts two mounts and is asked about
-// a third.
+// `repo.mountRead`, `repo.executionModeCapabilitiesRead`, and `gitflow.branchContextRead`,
+// which each name the thing they want. All three are `resultFor` computations over the
+// request, keyed by the tables below; a request naming no entity this scenario holds
+// returns `undefined` and the fixture refuses, which is the honest answer for a
+// scenario that scripts two mounts and is asked about a third.
 //
 // THE PLAIN MOUNT IS NOT A COPY OF THE GIT ONE WITH A DIFFERENT ID. It is `none`-vcs
 // and `unreachable`, agreeing with the `workspace.stale` beat and with the workspace
@@ -30,14 +30,15 @@
 import type { ConsoleScenario } from "../scenario.js";
 
 import {
-  BRANCH_CONTEXT_ID,
   EPHEMERAL_CLONE_ID,
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
+  IMPLEMENTER_BRANCH_CONTEXT_ID,
   IMPLEMENTER_WORKTREE_ID,
   NODE_ID,
   PLAIN_MOUNT_ID,
   PLAIN_WORKSPACE_ID,
+  REVIEWER_BRANCH_CONTEXT_ID,
   REVIEWER_WORKTREE_ID,
   SESSION_ID,
 } from "./repos-fixture-data.js";
@@ -135,6 +136,60 @@ function answerFor(
   }
   const requestedEntityId = (request as Readonly<Record<string, unknown>>)[entityIdMember];
   return typeof requestedEntityId === "string" ? answersByEntityId[requestedEntityId] : undefined;
+}
+
+/**
+ * What `gitflow.branchContextRead` answers, per execution root.
+ *
+ * FLAT, because `BranchContextReadResponse` is: the context's fields ride the reply
+ * directly and there is no `branchContext` envelope. A fixture that wrapped them
+ * scripted a shape no daemon sends.
+ *
+ * Two rows, and the pair is the point. Each names its own `branchContextId` and its own
+ * head branch — the same string the matching `repo.worktreeStatusRead` row carries as
+ * that root's `branchName`, because the gate drawn under a root and the root itself are
+ * one piece of work. `workspaceId` is the same on both: two worktrees of one mount
+ * belong to one workspace, which is exactly why the worktree alone is not the key.
+ */
+const BRANCH_CONTEXTS_BY_WORKTREE_ID: Readonly<Record<string, unknown>> = {
+  [IMPLEMENTER_WORKTREE_ID]: {
+    branchContextId: IMPLEMENTER_BRANCH_CONTEXT_ID,
+    workspaceId: GIT_WORKSPACE_ID,
+    baseBranch: "develop",
+    headBranch: "feat/rate-limit-wiring",
+    upstreamRef: "origin/feat/rate-limit-wiring",
+    worktreeId: IMPLEMENTER_WORKTREE_ID,
+  },
+  [REVIEWER_WORKTREE_ID]: {
+    branchContextId: REVIEWER_BRANCH_CONTEXT_ID,
+    workspaceId: GIT_WORKSPACE_ID,
+    baseBranch: "develop",
+    headBranch: "review/rate-limit-wiring",
+    // No `upstreamRef`: the reviewer's branch has not been pushed, which is the state
+    // that makes the member's absence reachable rather than a value nothing exercises.
+    worktreeId: REVIEWER_WORKTREE_ID,
+  },
+};
+
+/**
+ * The context this scenario holds for the root one request names, or `undefined`.
+ *
+ * BOTH KEYS ARE CHECKED, because the pair is the key: a request naming another
+ * workspace's id would resolve no row on the real wire, and answering it from the
+ * worktree alone would teach a surface that a worktree id is globally unique when
+ * `branch_contexts` retains one across workspaces. A request this scenario has no
+ * context for returns `undefined` and settles as unscripted, which the fixture answers
+ * with its own refusal.
+ */
+function branchContextFor(request: unknown): unknown {
+  if (typeof request !== "object" || request === null) {
+    return undefined;
+  }
+  const { workspaceId, worktreeId } = request as Readonly<Record<string, unknown>>;
+  if (workspaceId !== GIT_WORKSPACE_ID || typeof worktreeId !== "string") {
+    return undefined;
+  }
+  return BRANCH_CONTEXTS_BY_WORKTREE_ID[worktreeId];
 }
 
 /** Every scripted answer this scenario has, in the order a reader meets them. */
@@ -269,15 +324,12 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // actually has — `branch_contexts` carries an at-most-one association check, so
     // naming `ephemeralCloneId` beside it would be a shape no producer can emit.
     call: "gitflow.branchContextRead",
-    result: {
-      branchContext: {
-        branchContextId: BRANCH_CONTEXT_ID,
-        workspaceId: GIT_WORKSPACE_ID,
-        baseBranch: "develop",
-        headBranch: "feat/rate-limit-wiring",
-        upstreamRef: "origin/feat/rate-limit-wiring",
-        worktreeId: IMPLEMENTER_WORKTREE_ID,
-      },
-    },
+    // ANSWERED PER ROOT, on the same rule the two entity-scoped `repo.*` reads above
+    // follow. A method-only reply is one answer for every call, and this read is keyed
+    // by the `(workspaceId, worktreeId)` PAIR — so a constant handed the reviewer's
+    // gate the implementer's context id and the implementer's head branch, and the
+    // scenario's screenshots and accessibility checks passed over a gate that had
+    // never been bound per root at all.
+    resultFor: (request) => branchContextFor(request),
   },
 ];

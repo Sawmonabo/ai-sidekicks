@@ -7,14 +7,12 @@
 // them. The values they carry are `prepared-proposal.ts`'s, `hosting-status.ts`'s, and
 // `branch-context-model.ts`'s; nothing here re-declares any of them.
 
-import type { ExecutionMode } from "@ai-sidekicks/contracts";
-
 import type { BranchContextReading } from "./branch-context-model.js";
 import type { ProposalStatusReading } from "./hosting-status.js";
 import type { PreparedProposal } from "./prepared-proposal.js";
 
 /**
- * The gate's arms. Six, and none stands in for another — rule 8's whole claim, applied
+ * The gate's arms. Five, and none stands in for another — rule 8's whole claim, applied
  * to a surface whose absences are unusually easy to conflate.
  *
  *   • `not-checked`  — the question could not be put. The branch-context read is a
@@ -23,8 +21,6 @@ import type { PreparedProposal } from "./prepared-proposal.js";
  *                      as "this workspace has no context". The port's own refusal
  *                      sentence travels beside it, because this arm carries no
  *                      message of its own.
- *   • `no-context`   — the question was put and the mode is the answer. Carries the
- *                      mode so the reason names it rather than generalising.
  *   • `preparing`    — a read is in flight.
  *   • `prepared`     — a context, optionally a proposal, optionally its host status.
  *   • `hosting-unavailable` — the DEGRADED arm, which is a required feature rather
@@ -37,11 +33,18 @@ import type { PreparedProposal } from "./prepared-proposal.js";
  *                      because `Spec-011 §Fallback Behavior` makes the degraded
  *                      summary required behaviour, and the gate draws it for any
  *                      caller that can state it.
- *   • `refused`      — a first-class failure carrying the daemon's own message.
+ *   • `refused`      — a first-class failure carrying the daemon's own message. This
+ *                      is where "this workspace has no branch context" lands, and it
+ *                      is not a console reading of an empty reply: the registered
+ *                      response is flat and carries no absence, so a `(workspace,
+ *                      worktree)` pair that resolves no row refuses — and the sentence
+ *                      a participant reads is the daemon's own rather than a
+ *                      paraphrase. A `no-context` arm was removed for exactly that
+ *                      reason: nothing could produce it, and an arm with no producer
+ *                      is a state minted ahead of its reader.
  */
 export type ProposalGateState =
   | { readonly kind: "not-checked" }
-  | { readonly kind: "no-context"; readonly executionMode: ExecutionMode }
   | { readonly kind: "preparing" }
   | {
       readonly kind: "prepared";

@@ -8,10 +8,16 @@
 // neither can publish the other's refusal.
 //
 // THE ACTS ARE NEXT DOOR, AND THIS CLASS IS THEIR HOST. `requestAction` delegates to
-// `ProposalGateActions`, which is handed the six operations `ProposalGateActionHost`
-// names and nothing else: the standing reading, the served context, the publish, the
-// two writes to the held proposal, and the refresh an accepted act asks for. So an act
-// cannot start a read and this class cannot decide what an act sends.
+// `ProposalGateActions`, which is handed the seven operations `ProposalGateActionHost`
+// names and nothing else: the standing reading, the served context, the caller's own
+// participant id, the publish, the two writes to the held proposal, and the refresh an
+// accepted act asks for. So an act cannot start a read and this class cannot decide
+// what an act sends.
+//
+// THE CALLER-IDENTITY READ IS THIS CLASS'S BECAUSE IT IS A READ. An act carries the
+// participant who pressed it as the registered request's `causationParticipantId`, and
+// which participant this window is comes off `callerParticipantRead` — so it belongs to
+// the half that reads, held as one settled answer per gate rather than one per press.
 //
 // EVERY READ GOES THROUGH THE CONSOLE'S ONE SCHEDULER, AND EVERY REASON THROUGH ONE
 // TRIGGER CLASS. `Spec-023 §Rules every console surface obeys` fixes the policy —
@@ -42,6 +48,14 @@
 // owns, and the live bridge refuses each of them by name. So the ordinary arm on a
 // release build is `not-checked` carrying the port's own sentence — never an empty
 // gate, and never a gate that looks prepared because nothing came back.
+//
+// A SERVED REPLY IS A CONTEXT, AND "THERE IS NONE" IS A REFUSAL. The registered
+// `BranchContextReadResponse` returns the context's fields directly, so there is no
+// envelope member for an absence to ride: a `(workspace, worktree)` pair that resolves
+// no row refuses on that wire, and the daemon's own sentence lands on the `refused`
+// arm. This reader therefore publishes no "no context" state of its own — the arm it
+// used to publish whenever an envelope member was absent, which a contract-shaped
+// reply made true on every single read.
 //
 // WHAT THIS READER DELIBERATELY CANNOT PUBLISH, AND WHY IT IS A WIRE FACT
 //
@@ -77,6 +91,7 @@ import {
   type ProposalContextKey,
 } from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
+import { refusalFromRejection } from "./repo-reads.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
 /**
@@ -88,6 +103,9 @@ import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
  * value through the object that produces it.
  */
 export type { ProposalGateReading };
+
+/** The wire this reader asks on, named once so a refusal can say which call failed. */
+const BRANCH_CONTEXT_READ_CALL = "gitflow.branchContextRead";
 
 const NOTHING_ASKED: ProposalGateReading = {
   state: { kind: "not-checked" },
@@ -109,6 +127,8 @@ export interface ProposalGateReaderOptions {
 export class ProposalGateReader {
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
+  /** The session the caller-identity read is asked under. The store's own, never minted. */
+  readonly #sessionId: string;
   /** Resolved once: whether this root can be asked about, and with what. */
   readonly #readPlan: BranchContextReadPlan;
   readonly #scheduler: RefreshScheduler;
@@ -125,6 +145,17 @@ export class ProposalGateReader {
    * id it was given.
    */
   #context: BranchContextReading | undefined;
+  /**
+   * The caller-identity read, in flight or settled — one per reader, never one per act.
+   *
+   * A PROMISE HELD RATHER THAN A VALUE, and never re-issued: the read answers which
+   * participant this window is, which does not change while a gate is mounted, so a
+   * second act reuses the first act's answer rather than putting the same question on
+   * the wire again. Held from the first act that needs it rather than started at
+   * `start()`, because a gate a participant never acts on should not spend a call on
+   * an identity nothing is going to attribute.
+   */
+  #callerParticipantIdRead: Promise<string | undefined> | undefined;
   #proposal: PreparedProposal | undefined;
   /** The context the held proposal was prepared AGAINST. `prepared-proposal.ts` says why. */
   #proposalPreparedFor: ProposalContextKey | undefined;
@@ -145,10 +176,17 @@ export class ProposalGateReader {
       // A read that threw past its own refusal handling lands in the reading as the
       // `refused` arm. Re-throwing into a timer callback reaches nobody, and
       // swallowing would leave a gate showing the wait it never came out of.
+      // The daemon's own refusal, normalized rather than stringified. A scripted or
+      // live rejection arrives as the wire's `{code, message}` envelope, which is not
+      // an `Error` — so a bare `String(error)` printed `[object Object]` on exactly
+      // the path that now carries "this workspace has no branch context".
       onError: (error: unknown) => {
         this.#publish({
           ...this.#reading,
-          state: { kind: "refused", message: rejectionText(error) },
+          state: {
+            kind: "refused",
+            message: refusalFromRejection(BRANCH_CONTEXT_READ_CALL, error).detail,
+          },
           refusal: undefined,
           settlement: GATE_SETTLEMENT_COPY.refused,
         });
@@ -159,9 +197,13 @@ export class ProposalGateReader {
       scheduler: this.#scheduler,
       sessionStore: options.sessionStore,
     });
+    this.#sessionId = options.sessionStore.sessionId;
     this.#actions = new ProposalGateActions({
       bridge: options.bridge,
-      workspaceId: options.subject.workspaceId,
+      // The mount, because that is the one identity the registered git-action request
+      // takes. Which root inside it an act runs in is said in the request's `params`,
+      // off the context this reader served.
+      repoMountId: options.subject.repoMountId,
       host: this.#actionHost(),
     });
   }
@@ -242,6 +284,7 @@ export class ProposalGateReader {
     return {
       currentReading: () => this.#reading,
       servedContext: () => this.#context,
+      callerParticipantId: async () => await this.#readCallerParticipantId(),
       publish: (reading: ProposalGateReading) => {
         this.#publish(reading);
       },
@@ -256,6 +299,36 @@ export class ProposalGateReader {
         this.#scheduler.request("terminal-event");
       },
     };
+  }
+
+  /**
+   * Which participant this window is, for an act's causation — or the honest absence.
+   *
+   * THE REFUSAL IS ABSORBED HERE AND ON PURPOSE. `causationParticipantId` is optional
+   * on the registered request and is attribution rather than authority: the daemon
+   * resolves the principal an act runs under from the transport, so an unreadable
+   * identity is a member this console cannot fill and not a reason to refuse a press.
+   * Absorbing it into `undefined` is therefore the whole handling — there is no arm to
+   * publish and nothing for a participant to do about it — and it is deliberately NOT
+   * turned into a placeholder, which would be a claim about who acted.
+   *
+   * A rejection is caught for the same reason a served refusal is: the growth port
+   * answers with an outcome, but a live bridge whose IPC never reaches the daemon
+   * rejects instead, and an unhandled rejection here would take down an act that had
+   * already been admitted.
+   */
+  async #readCallerParticipantId(): Promise<string | undefined> {
+    this.#callerParticipantIdRead ??= (async () => {
+      try {
+        const outcome = await this.#bridge.growth.callerParticipantRead({
+          sessionId: this.#sessionId,
+        });
+        return outcome.status === "served" ? outcome.value.participantId : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    return await this.#callerParticipantIdRead;
   }
 
   async #performRead(): Promise<void> {
@@ -303,20 +376,13 @@ export class ProposalGateReader {
       return;
     }
 
-    const branchContext = outcome.value.branchContext;
-    if (branchContext === undefined) {
-      this.#context = undefined;
-      this.#discardProposal();
-      this.#publish({
-        ...this.#reading,
-        state: { kind: "no-context", executionMode: this.#subject.executionMode },
-        refusal: undefined,
-        settlement: GATE_SETTLEMENT_COPY["no-context"],
-      });
-      return;
-    }
-
-    const context = branchContextReadingFrom(branchContext, this.#subject.executionMode);
+    // A SERVED REPLY IS A CONTEXT. `BranchContextReadResponse` is flat and carries no
+    // member on which "there is none" could ride: a `(workspace, worktree)` pair that
+    // resolves no row REFUSES, and that refusal lands on the arm above carrying the
+    // daemon's own sentence. So there is nothing to test for here, and the arm this
+    // reader used to publish for an absent envelope member — which a contract-shaped
+    // reply produced on every read — is gone with the envelope.
+    const context = branchContextReadingFrom(outcome.value, this.#subject.executionMode);
     this.#context = context;
     // A REFRESHED CONTEXT NEVER CARRIES A PROPOSAL PREPARED FOR A DIFFERENT ONE. An
     // external checkout or a repair can move the base or the head between reads, and a
@@ -347,10 +413,10 @@ export class ProposalGateReader {
   /**
    * Say that this root cannot be asked about, and why.
    *
-   * `not-checked` and never `no-context`: the question was not PUT, which is a
-   * different fact from a workspace that has none — and the arm carries no message of
-   * its own, so the reason travels beside it as the refusal the surface renders. The
-   * refusal is the reader's own, because nothing refused it: no call was made.
+   * `not-checked` and never `refused`: the question was not PUT, which is a different
+   * fact from a daemon that refused one — and the arm carries no message of its own, so
+   * the reason travels beside it as the refusal the surface renders. The refusal is the
+   * reader's own, because nothing refused it: no call was made.
    */
   #publishUnaddressable(reason: string): void {
     this.#context = undefined;
@@ -373,9 +439,4 @@ export class ProposalGateReader {
     this.#reading = reading;
     this.#changes.emit(reading);
   }
-}
-
-/** What a thrown read says, without asserting a shape the throw may not have. */
-function rejectionText(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

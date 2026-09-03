@@ -64,31 +64,26 @@ describe("ProposalGate — the absences do not stand in for each other", () => {
     expect(container.textContent).toContain("the question could not be put");
   });
 
-  it("names the mode as the reason a read-only workspace produces no context", () => {
+  it("reports a workspace with no branch context in the daemon's own words", () => {
+    // Where a `(workspace, worktree)` pair resolves no row the registered read
+    // REFUSES — the reply is flat and carries no absence — so this arm is where "there
+    // is no context here" lands, and the sentence is the daemon's rather than a
+    // console reading of an empty envelope.
     const { container } = render(
-      <ProposalGate state={{ kind: "no-context", executionMode: "read-only" }} />,
+      <ProposalGate state={{ kind: "refused", message: "worktree.not_found: no such worktree" }} />,
     );
-    expect(container.textContent).toContain("read-only");
-    expect(container.textContent).toContain("preparation side effects");
+    expect(container.textContent).toContain("no such worktree");
   });
 
-  it("negative control: the read-only arm is an empty and not an unasked question", () => {
-    // The two arms must not share copy. A read-only workspace was asked and answered;
-    // the unregistered wire was never asked at all.
-    const readOnly = render(
-      <ProposalGate state={{ kind: "no-context", executionMode: "read-only" }} />,
+  it("negative control: a refused read is not an unasked question", () => {
+    // The two arms must not share copy. A refused read was asked and answered; the
+    // unregistered wire was never asked at all.
+    const refused = render(
+      <ProposalGate state={{ kind: "refused", message: "worktree.not_found: no such worktree" }} />,
     );
     const notChecked = render(<ProposalGate state={{ kind: "not-checked" }} />);
-    expect(readOnly.container.textContent).not.toContain("Nothing has asked");
-    expect(notChecked.container.textContent).not.toContain("read-only");
-  });
-
-  it("routes a writable mode with no context to the unread sentence, not the read-only one", () => {
-    const { container } = render(
-      <ProposalGate state={{ kind: "no-context", executionMode: "worktree" }} />,
-    );
-    expect(container.textContent).toContain("has a branch context");
-    expect(container.textContent).not.toContain("read-only");
+    expect(refused.container.textContent).not.toContain("the question could not be put");
+    expect(notChecked.container.textContent).not.toContain("no such worktree");
   });
 
   it("renders a failed action as a first-class failure carrying the daemon's own text", () => {

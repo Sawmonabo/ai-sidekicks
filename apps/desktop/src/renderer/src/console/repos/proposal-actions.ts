@@ -23,8 +23,10 @@
 // NEVER, and each is a property of THIS file:
 //   • No fourth action. `PROPOSAL_ACTIONS` is closed at the three `Spec-011 §Required
 //     Behavior` names, so an action the console could send is an edit to that tuple.
-//   • No parse of a git action's `output`. There is no function here that reads it; it
-//     is diagnostic text the gate renders and the console never scrapes.
+//   • No parse of a git action's `output`. There is no function here that reads it, and
+//     no surface draws it: it is the act's own diagnostic text and this console never
+//     scrapes it. What a REFUSED act says for itself is the reply's `error`, rendered
+//     verbatim beside the control that was pressed.
 
 import type { ProposalGateState } from "./proposal-gate-state.js";
 
@@ -99,6 +101,45 @@ export const PROPOSAL_ACTION_HEAD_EFFECT: Readonly<
   push: "leaves-head",
 };
 
+/**
+ * The acts that reach `gitflow.gitActionExecute`, as opposed to the preparation call.
+ *
+ * A SET HERE RATHER THAN A LITERAL IN THE SENDER. `proposal-gate-actions.ts` routed by
+ * comparing the action against the string `"prepare-proposal"`, so the one act that
+ * does not reach the git action was named in the class that sends rather than in the
+ * module that owns which acts exist — and that class then held the whole action union
+ * where the registered request takes only the acts this wire can serve.
+ *
+ * A SUBSET RATHER THAN A SECOND TOTAL TABLE, because the honest answer for
+ * `prepare-proposal` is that it is not on this wire at all — not an empty parameter
+ * list, which would read as "it sends nothing" rather than "it does not send". The
+ * complement is asserted against `PROPOSAL_ACTIONS` in this module's tests, so the two
+ * sets are held against each other rather than trusted to agree.
+ */
+export const GIT_ACTION_PROPOSAL_ACTIONS = ["commit", "push"] as const;
+
+/**
+ * One act the git action can take. Derived, so the set is declared exactly once.
+ *
+ * Assignable to `ProposalAction` by the guard below — a type predicate's type must be
+ * assignable to the parameter it narrows, so a member misspelled in the tuple above
+ * fails to compile here rather than becoming a fourth action nobody declared.
+ */
+export type GitActionProposalAction = (typeof GIT_ACTION_PROPOSAL_ACTIONS)[number];
+
+/**
+ * Whether one act reaches the git action, narrowing it where it does.
+ *
+ * A GUARD RATHER THAN A COMPARISON AT THE CALL SITE, because the caller needs the
+ * NARROWING and not only the answer: the request builder takes the derived type, so a
+ * sender that merely tested membership would still be holding the whole action union
+ * and would have to assert its way into the call.
+ */
+export function reachesGitAction(action: ProposalAction): action is GitActionProposalAction {
+  const gitActions: readonly ProposalAction[] = GIT_ACTION_PROPOSAL_ACTIONS;
+  return gitActions.includes(action);
+}
+
 /** What each action is called on screen and what pressing it does. */
 export interface ProposalActionPresentation {
   readonly label: string;
@@ -142,20 +183,20 @@ export const PROPOSAL_ACTION_PRESENTATION: Readonly<
 type GateArmActionAvailability = "no-acts" | "acts-offered";
 
 /**
- * Total over `ProposalGateState["kind"]` by construction — a seventh arm does not
+ * Total over `ProposalGateState["kind"]` by construction — a sixth arm does not
  * compile until it says whether anything can be acted on from there.
  *
- * Five arms answer `no-acts` and each for its own reason: `not-checked`, `no-context`,
- * and `preparing` have no branch context to act against, `refused` reports an act that
- * did not happen, and `hosting-unavailable` is the arm whose whole content is what to do
- * BY HAND because the host is out of reach — offering a send there would offer a send to
- * a host the same arm says is unreachable.
+ * Four arms answer `no-acts` and each for its own reason: `not-checked` and `preparing`
+ * have no branch context to act against, `refused` reports an act that did not happen —
+ * and is where a workspace with no context lands, since the registered read refuses
+ * rather than serving an absence — and `hosting-unavailable` is the arm whose whole
+ * content is what to do BY HAND because the host is out of reach, so offering a send
+ * there would offer a send to a host the same arm says is unreachable.
  */
 const GATE_ARM_ACTION_AVAILABILITY: Readonly<
   Record<ProposalGateState["kind"], GateArmActionAvailability>
 > = {
   "not-checked": "no-acts",
-  "no-context": "no-acts",
   preparing: "no-acts",
   prepared: "acts-offered",
   "hosting-unavailable": "no-acts",

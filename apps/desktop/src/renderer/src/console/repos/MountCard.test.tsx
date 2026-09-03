@@ -74,6 +74,7 @@ function renderCard(
         workspaces={[WORKSPACE]}
         capabilitiesByWorkspaceId={{}}
         refusalByWorkspaceId={{}}
+        pendingModeByWorkspaceId={{}}
         worktrees={[]}
         worktreeRefusal={undefined}
         nowMilliseconds={Date.parse("2026-01-01T09:05:02.000Z")}
