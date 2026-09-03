@@ -46,6 +46,23 @@
 // and an identity change clears the fields outright. A caller that drops the key
 // cannot silently reintroduce the leak.
 //
+// AND IT WAITS ON ITS OWN DISPATCH AND NO OTHER. The form used to mark itself
+// pending BEFORE calling `surface.dispatch`, and identify its settlement as
+// "whichever record for this run and control is newer than the one held at dispatch
+// time". Both halves failed together on one reachable sequence: cancel the form with
+// its request still in flight, reopen the same run and control, type a new body,
+// confirm. The surface's latch was still held, so the call was dropped — and the OLD
+// request's settlement, landing afterwards, differed from the new form's baseline
+// and was read as the new body's. An old success then closed the form and discarded
+// text that never went anywhere.
+//
+// So the surface answers, and the form records nothing until it does. An admitted
+// dispatch carries the token its settlement will be recorded under and the form
+// reads the record by that token, which is exact rather than newest-wins. A refused
+// one renders as what it is — an earlier request for this run is still settling —
+// with the body kept and the confirm live, so the participant confirms again when
+// the first one lands rather than losing what they typed.
+//
 // THE COMPOSER OUTLIVES ITS DISPATCH. It used to close the moment a dispatch was
 // STARTED, which threw away the participant's body on every arm that did not land:
 // a composite refused before the intervention was created, a transport rejection, a
@@ -62,8 +79,12 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { InlineRefusal } from "../../primitives/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { parseRewindPosition } from "./rewind-position.js";
-import { RUN_CONTROL_REFUSAL_ORIGIN, type RunControlOutcome } from "./run-control-dispatch.js";
-import type { RunControlRecord, RunControlSurface } from "./run-control-surface.js";
+import {
+  RUN_CONTROL_REFUSAL_ORIGIN,
+  type RunControlDispatcher,
+  type RunControlOutcome,
+} from "./run-control-dispatch.js";
+import type { RunControlAdmissionRefusal, RunControlSurface } from "./run-control-surface.js";
 import type { RunProjection } from "./run-state-feed.js";
 
 /** Which of the two body-carrying controls is being composed. */
@@ -91,10 +112,10 @@ type ComposerSettlement =
   | { readonly kind: "refused"; readonly notice: ConsoleRefusal }
   | { readonly kind: "recorded"; readonly notice: ConsoleRefusal };
 
-/** The dispatch this form is waiting on, named by what the record ledger held first. */
+/** The dispatch this form is waiting on, named by the token the surface admitted. */
 interface PendingDispatch {
-  /** The newest record for this run and control before the dispatch, if any. */
-  readonly recordIdBefore: string | undefined;
+  /** The token this form's own settlement will be recorded under. */
+  readonly dispatchToken: string;
   /**
    * The run and control this dispatch was raised for.
    *
@@ -121,20 +142,17 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
   const comparand = surface.dispatcher.comparandFor(run.runId, run.runVersion);
   const composedIdentity = composedIdentityFor(run.runId, control);
 
-  // The dispatcher's answer, read off the record the surface appended for it. The
-  // baseline is what makes "the answer to THIS dispatch" exact: records are appended
-  // newest last and their ids are minted per settlement, so a newest record whose id
-  // differs from the one held at dispatch time is this dispatch's own settlement.
+  // The dispatcher's answer, read off the record the surface appended for THIS
+  // dispatch. The token is what makes that exact: it is minted at admission and is
+  // the record's own id, so a record carrying another token is another request's
+  // settlement and this form is still waiting.
   const settlement = useMemo((): ComposerSettlement | undefined => {
     if (pendingDispatch === undefined || pendingDispatch.composedIdentity !== composedIdentity) {
       return undefined;
     }
-    const newest = newestRecordFor(surface.records, run.runId, control);
-    if (newest === undefined || newest.recordId === pendingDispatch.recordIdBefore) {
-      return undefined;
-    }
-    return readComposerSettlement(newest.outcome);
-  }, [pendingDispatch, surface.records, run.runId, control, composedIdentity]);
+    const own = surface.records.find((record) => record.recordId === pendingDispatch.dispatchToken);
+    return own === undefined ? undefined : readComposerSettlement(own.outcome);
+  }, [pendingDispatch, surface.records, composedIdentity]);
 
   const isSending = pendingDispatch !== undefined && settlement === undefined;
   const isConfirmLatched = isSending || settlement?.kind === "recorded";
@@ -177,12 +195,19 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         // second dispatch of one body is a second intervention.
         return;
       }
-      const beginDispatch = (): void => {
+      // Dispatch first, then record — and record nothing at all unless the surface
+      // admitted the call. The old order marked the form pending and then found out
+      // whether anything had been sent.
+      const dispatch = (
+        perform: (dispatcher: RunControlDispatcher) => Promise<RunControlOutcome>,
+      ): void => {
+        const admission = surface.dispatch(run.runId, control, perform);
+        if (!admission.admitted) {
+          setLocalRefusal(admissionRefusal(admission.reason));
+          return;
+        }
         setLocalRefusal(undefined);
-        setPendingDispatch({
-          recordIdBefore: newestRecordFor(surface.records, run.runId, control)?.recordId,
-          composedIdentity,
-        });
+        setPendingDispatch({ dispatchToken: admission.dispatchToken, composedIdentity });
       };
       if (control === "steer") {
         if (body.trim().length === 0) {
@@ -195,8 +220,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
           );
           return;
         }
-        beginDispatch();
-        surface.dispatch(run.runId, "steer", (dispatcher) =>
+        dispatch((dispatcher) =>
           dispatcher.steer({ runId: run.runId, expectedRunVersion: comparand }, { content: body }),
         );
         return;
@@ -233,8 +257,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         );
         return;
       }
-      beginDispatch();
-      surface.dispatch(run.runId, "rollback", (dispatcher) =>
+      dispatch((dispatcher) =>
         dispatcher.rollback(
           { runId: run.runId, expectedRunVersion: comparand },
           isReplacementBlank
@@ -323,20 +346,20 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
   );
 }
 
-/** The newest record this run and control has, or none. Records are newest last. */
-function newestRecordFor(
-  records: readonly RunControlRecord[],
-  runId: string,
-  control: ComposedControl,
-): RunControlRecord | undefined {
-  for (let position = records.length - 1; position >= 0; position -= 1) {
-    const record = records[position];
-    if (record !== undefined && record.runId === runId && record.control === control) {
-      return record;
-    }
-  }
-  return undefined;
+/**
+ * What a refused admission says, in this form's own words.
+ *
+ * Total over the closed refusal set, so a second reason fails to compile here rather
+ * than reaching a participant as an empty sentence beside a form that did nothing.
+ */
+function admissionRefusal(reason: RunControlAdmissionRefusal): ConsoleRefusal {
+  return refuse(RUN_CONTROL_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
 }
+
+const ADMISSION_REFUSAL_DETAIL: Readonly<Record<RunControlAdmissionRefusal, string>> = {
+  "in-flight":
+    "An earlier request for this run is still settling, so nothing was sent. What you typed is still here — confirm again once it lands.",
+};
 
 /**
  * Read one settled dispatch the way this form has to act on it.

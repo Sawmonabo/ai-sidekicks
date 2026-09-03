@@ -7,6 +7,21 @@
 // lets a test drive every guard and every refusal arm against a stub bridge with no
 // rendered tree at all.
 //
+// AND THE LATCH ANSWERS. `dispatch` used to return `void` and drop a latched call
+// silently, which is right for a control the row disables — the person pressed it
+// twice — and wrong for a form that records a pending baseline of its own before
+// calling. A participant could cancel a form with its request still in flight,
+// reopen the same run and control, type a new body, and confirm: the form marked
+// itself pending, the surface dropped the call, and the OLD request's settlement
+// then differed from the new form's baseline and was read as the new body's — an
+// old success closing the form and discarding text that never went anywhere.
+//
+// So the latch returns a verdict. An admitted dispatch carries the token its own
+// settlement will be recorded under, and a refused one carries the reason it was
+// not admitted. The token is the record's own id rather than a second identifier
+// beside it: one admitted dispatch appends exactly one record, so minting a second
+// value to relate them would be two names for one thing.
+//
 // THE SINGLE-FLIGHT LATCH IS A REF AND NOT THE STATE. `inFlightKeys` is what the
 // row RENDERS, and a handler reading it sees the value from the render that produced
 // the handler — so a double click, or repeated Enter on an intervention form before
@@ -40,11 +55,34 @@ import {
 
 /** One recorded dispatch, for the pane's own intervention history. */
 export interface RunControlRecord {
+  /** The token its dispatch was admitted under. One admitted dispatch, one record. */
   readonly recordId: string;
   readonly runId: string;
   readonly control: RunControl;
   readonly outcome: RunControlOutcome;
 }
+
+/**
+ * Why a dispatch was not admitted. Closed, and declared once.
+ *
+ * One member today because one thing refuses a dispatch: this run and control
+ * already have one going. A second reason lands here and every caller's exhaustive
+ * read fails to compile until it says what that reason means on screen.
+ */
+export type RunControlAdmissionRefusal = "in-flight";
+
+/**
+ * Whether a dispatch was admitted, and what a caller may do with the answer.
+ *
+ * The admitted arm carries the `dispatchToken` the settlement will be recorded
+ * under — the record's own `recordId` — so a caller waiting on ITS dispatch reads
+ * the record by that token rather than by whichever record happens to be newest.
+ * That is the difference between "this run's newest settlement" and "the settlement
+ * of the request I made".
+ */
+export type RunControlAdmission =
+  | { readonly admitted: true; readonly dispatchToken: string }
+  | { readonly admitted: false; readonly reason: RunControlAdmissionRefusal };
 
 /** What the pane holds for the six controls: the dispatcher and its own record. */
 export interface RunControlSurface {
@@ -57,7 +95,7 @@ export interface RunControlSurface {
     runId: string,
     control: RunControl,
     perform: (dispatcher: RunControlDispatcher) => Promise<RunControlOutcome>,
-  ) => void;
+  ) => RunControlAdmission;
 }
 
 /** The key one in-flight dispatch is held under. One control per run at a time. */
@@ -80,7 +118,7 @@ export function useRunControlSurface(
 ): RunControlSurface {
   const [records, setRecords] = useState<readonly RunControlRecord[]>(EMPTY_RECORDS);
   const [inFlightKeys, setInFlightKeys] = useState<ReadonlySet<string>>(EMPTY_KEYS);
-  const nextRecordOrdinal = useRef(0);
+  const nextDispatchOrdinal = useRef(0);
   const isMounted = useRef(true);
   const heldControlKeys = useRef<Set<string>>(new Set());
 
@@ -104,12 +142,17 @@ export function useRunControlSurface(
       runId: string,
       control: RunControl,
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
-    ) => {
+    ): RunControlAdmission => {
       const key = inFlightKeyFor(runId, control);
       if (heldControlKeys.current.has(key)) {
-        return;
+        return { admitted: false, reason: "in-flight" };
       }
       heldControlKeys.current.add(key);
+      // Minted here rather than at settlement, because the caller needs it NOW: a
+      // form that waits on its own settlement has to know which record will be its
+      // own before the answer exists.
+      nextDispatchOrdinal.current += 1;
+      const dispatchToken = `${runId}:${control}:${String(nextDispatchOrdinal.current)}`;
       setInFlightKeys((held) => {
         const next = new Set(held);
         next.add(key);
@@ -124,13 +167,7 @@ export function useRunControlSurface(
         if (!isMounted.current) {
           return;
         }
-        nextRecordOrdinal.current += 1;
-        const record: RunControlRecord = {
-          recordId: `${runId}:${control}:${String(nextRecordOrdinal.current)}`,
-          runId,
-          control,
-          outcome,
-        };
+        const record: RunControlRecord = { recordId: dispatchToken, runId, control, outcome };
         setInFlightKeys((held) => {
           const next = new Set(held);
           next.delete(key);
@@ -156,6 +193,7 @@ export function useRunControlSurface(
       } catch (rejection) {
         settleRejection(rejection);
       }
+      return { admitted: true, dispatchToken };
     },
     [dispatcher],
   );
