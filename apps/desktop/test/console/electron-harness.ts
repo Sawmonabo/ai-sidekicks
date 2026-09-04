@@ -71,31 +71,30 @@ const PACKAGE_ROOT = resolve(HERE, "..", "..");
 /** The built main entry both tiers launch. Produced by `pnpm build:fixtures`. */
 export const MAIN_ENTRY_PATH: string = join(PACKAGE_ROOT, "out", "main", "index.js");
 
-/**
- * The property a fixture build hangs the tripwire registry on.
- *
- * Re-exported from the renderer module that SETS it rather than copied. A string
- * duplicated across this boundary cannot go wrong loudly: a rename in the
- * renderer would leave the endurance tier reading `undefined` from a global that
- * no longer exists, at the far end of the longest tier in the suite, with a
- * message about a missing property rather than about a rename. Importing makes
- * that a compile error.
- *
- * These tiers compile under `tsconfig.console-electron-test.json`, which carries
- * both the Node and the DOM libs precisely so the driver can name what the
- * renderer declares; the build-time signals the console's modules read are
- * substituted for the driver process by each tier's `define` in `vitest.config.ts`.
- */
+// THE THREE PROPERTIES A FIXTURE BUILD HANGS ITS HANDLES ON
+//
+// Each is RE-EXPORTED from the renderer module that sets it, never retyped here.
+// A string duplicated across this boundary cannot go wrong loudly: a rename in
+// the renderer would leave a tier reading `undefined` from a global that no
+// longer exists — at the far end of the longest tier in the suite, reporting a
+// missing property rather than a rename. Importing makes it a compile error
+// instead. Stated once for all three rather than three times, because a rule
+// restated per export is a rule with three places to drift.
+//
+// These tiers compile under `tsconfig.console-electron-test.json`, which carries
+// both the Node and the DOM libs precisely so the driver can name what the
+// renderer declares; the build-time signals the console's modules read are
+// substituted for the driver process by each tier's `define` in
+// `vitest.config.ts`.
+
+/** The tripwire registry. */
 export { TRIPWIRE_FIXTURE_GLOBAL } from "../../src/renderer/src/console/core/tripwires.js";
 
 /**
- * The property a fixture build hangs the scenario control on, and its shape.
+ * The scenario control, and its shape.
  *
- * Re-exported from the module that declares it, for the reason above: a tier that
- * retyped the string would read `undefined` from a property that no longer exists
- * and report a missing member rather than a rename. The module is reached
- * directly rather than through `console/bridge/index.js` because that barrel pulls
- * the provider's `.tsx` in, and this program has no JSX.
+ * Reached directly rather than through `console/bridge/index.js`, because that
+ * barrel pulls the provider's `.tsx` in and this program has no JSX.
  */
 export {
   SCENARIO_FIXTURE_GLOBAL,
@@ -103,15 +102,10 @@ export {
 } from "../../src/renderer/src/console/bridge/scenario-selection.js";
 
 /**
- * The property a fixture build hangs the session-store diagnostics on, and its
- * shape.
+ * The session-store diagnostics, and their shape.
  *
- * The third of the three handles these tiers read, re-exported on the same rule
- * as the two above: the string is imported from the module that sets it, never
- * retyped, so a rename is a compile error rather than a tier reading `undefined`
- * from a property that no longer exists. Beats delivered by the scenario engine
- * and events admitted to a store's apply chokepoint are two different claims, and
- * the endurance tier asserts both.
+ * Beats delivered by the scenario engine and events admitted to a store's apply
+ * chokepoint are two different claims, and the endurance tier asserts both.
  */
 export {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
@@ -175,20 +169,15 @@ export interface LaunchConsoleOptions {
   /**
    * Extra command-line switches for the launched Electron.
    *
-   * APPENDED to the two the harness owns — the private `--user-data-dir` and the
-   * built main entry. Naming either of those here is REFUSED with a
-   * `HarnessOwnedSwitchError` rather than quietly appended, because Chromium
-   * assigns the LAST duplicate of a switch: a caller's own `--user-data-dir`
-   * would replace the private profile, not sit inert behind it, and a launch back
-   * on Electron's machine-wide `SingletonLock` quits before opening a window
-   * (see `launch-args.ts`).
+   * For switches that are a property of the RUNNER rather than of the console —
+   * forcing ANGLE onto SwiftShader on a headless GPU-less runner, so a tier can
+   * tell a real WebGL renderer tier from a silent canvas fallback.
    *
-   * For the switches that are a property of the RUNNER rather than of the
-   * console: forcing ANGLE onto SwiftShader on a headless GPU-less runner, for
-   * instance, so a tier can tell a real WebGL renderer tier from a silent canvas
-   * fallback. Chromium reads switches from the whole command line, so appending
-   * reaches the GPU process; they also land in the launched app's own
-   * `process.argv`, which this fixture parses not at all.
+   * Appended to the two the harness owns, and naming either of THOSE is refused
+   * with a `HarnessOwnedSwitchError` rather than quietly accepted. Why refusal
+   * rather than ordering is the whole subject of `launch-args.ts`, which is where
+   * that reasoning lives rather than in two places that would have to stay true
+   * together.
    */
   readonly launchArgs?: readonly string[];
 }
