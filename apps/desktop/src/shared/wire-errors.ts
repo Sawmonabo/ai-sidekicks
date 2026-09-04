@@ -114,8 +114,8 @@ export function lossyStringify(value: unknown): string {
   }
 }
 
-/** How far {@link normalizeWireRejection} must go to render a hostile value. */
-export interface NormalizeWireRejectionOptions {
+/** How far {@link wireRejectionToError} must go to render a hostile value. */
+export interface WireRejectionToErrorOptions {
   /**
    * `true` renders a non-`Error`, non-envelope rejection through
    * {@link lossyStringify} instead of bare `String(...)`.
@@ -133,7 +133,16 @@ export interface NormalizeWireRejectionOptions {
 }
 
 /**
- * Normalizes a rejection into a render-ready `Error`.
+ * Renders a rejection as an `Error`, for a surface whose view state holds one.
+ *
+ * NAMED FOR WHAT IT ANSWERS, not for what it does to its input. It was
+ * `normalizeWireRejection`, which is also what `console/core/wire-rejection.ts` is
+ * called — and that one answers a `ConsoleRefusal` and keeps the daemon's own code
+ * where this one flattens it onto `Error.name`. Two functions, one name, two return
+ * types, and an import from the wrong module compiles wherever the result is only
+ * rendered. The console's cannot live here (its answer is a renderer-only shape and
+ * `src/shared/` may import the contracts package and nothing else), so the collision
+ * is closed by naming rather than by a lint rule.
  *
  *   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt as
  *     a fresh `Error` with the wire `code` as `Error.name`, so the rendered
@@ -143,9 +152,9 @@ export interface NormalizeWireRejectionOptions {
  *   • Any other `Error` passes through unchanged.
  *   • Anything else is wrapped, per `options.total`.
  */
-export function normalizeWireRejection(
+export function wireRejectionToError(
   rejection: unknown,
-  options: NormalizeWireRejectionOptions = {},
+  options: WireRejectionToErrorOptions = {},
 ): Error {
   if (isWireErrorEnvelope(rejection)) {
     const envelopeError = new Error(rejection.message);

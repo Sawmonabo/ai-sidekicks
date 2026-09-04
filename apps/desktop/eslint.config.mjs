@@ -283,11 +283,22 @@ export default [
     },
   },
   // The console's two single-reading chokepoints, enforced as SYNTAX because they are
-  // not import bans and `no-restricted-imports` cannot express either one. This is the
+  // not import bans and `no-restricted-imports` cannot express any of them. This is the
   // package's first and only `no-restricted-syntax` invocation: flat config replaces a
   // rule's options at the LAST matching config object, so a later block that also
   // configures this rule for any file under `console/` or `shell/` must restate every
   // selector below rather than add to them.
+  //
+  // A FOURTH selector lived here and is gone. It banned importing
+  // `normalizeWireRejection` from `src/shared/wire-errors.ts`, back when a function of
+  // that name lived in both that module and `console/core/wire-rejection.ts` with two
+  // different return types — an import from the wrong one compiled wherever the result
+  // was only rendered. The shared function is now `wireRejectionToError`, named for
+  // what it answers, so the collision is closed at its source. What the selector used
+  // to catch, `tsc` now catches first and better: the stale import is
+  // `error TS2305: Module ... has no exported member 'normalizeWireRejection'`
+  // (measured against the real typecheck script, not assumed). A lint rule whose only
+  // reachable target is a symbol that does not exist guards nothing.
   //
   // Scope is `console/**` and `shell/**`, tests included. `shell/**` matches nothing on
   // this branch and is named anyway: it is a `console-unit` resident by
@@ -334,20 +345,6 @@ export default [
           selector: 'CatchClause CallExpression[callee.name="String"]',
           message:
             "`String(...)` inside a `catch` is not total: it runs ToPrimitive, which throws on a null-prototype value carrying no `toString` and on any hostile accessor — inside the expression that exists to report a failure, and inside a `catch` that has already been left. Use `lossyStringify` from `src/shared/wire-errors.ts`, or `normalizeWireRejection` from `console/core/wire-rejection.ts` where the result is a refusal.",
-        },
-        {
-          // Two functions of this name exist and they answer different types. The
-          // console's takes an `origin` and answers a `ConsoleRefusal`; the shared one
-          // answers an `Error` and serves the three `runtime-node-attach/` components,
-          // which sit outside this block's scope and keep it. Stated as a syntax
-          // selector rather than a `no-restricted-imports` entry because the existing
-          // renderer-wide `no-restricted-imports` invocation covers these same files,
-          // and a second one scoped to them would REPLACE its options — silently
-          // dropping the `electron` and `node:*` bans for the whole console.
-          selector:
-            'ImportDeclaration[source.value=/wire-errors/] > ImportSpecifier[imported.name="normalizeWireRejection"]',
-          message:
-            "`src/shared/wire-errors.ts` exports a rejection normalizer that answers an `Error`; the console's answers a `ConsoleRefusal` and keeps the daemon's own code. Import `normalizeWireRejection` from `console/core/index.js`.",
         },
       ],
     },
