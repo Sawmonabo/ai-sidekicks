@@ -120,6 +120,18 @@ export interface DiffLine {
    */
   readonly segments: readonly DiffIntralineSegment[];
   readonly agentAttribution?: DiffLineAgentAttribution;
+  /**
+   * True where the patch marked this line as the file's last, with no terminator.
+   *
+   * A FACT ABOUT THE LINE AND NOT A LINE OF ITS OWN. A unified patch spells it as a
+   * `\ No newline at end of file` marker on the line BELOW the one it annotates, and
+   * it is the entire content of some changes: a patch that only adds or removes a
+   * terminating newline has a deleted line and an inserted line whose TEXT is
+   * identical, so a renderer that dropped the marker drew two identical lines with
+   * nothing to say what changed. Absent means the patch said nothing, which for every
+   * line but a file's last is the only thing it could say.
+   */
+  readonly noNewlineAtEnd?: boolean;
 }
 
 /**

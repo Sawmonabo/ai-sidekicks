@@ -304,15 +304,31 @@ const LINE_KIND_BY_PREFIX: Readonly<Record<string, DiffLineKind>> = {
 };
 
 /**
+ * The prefix the unified format reserves for its one annotation.
+ *
+ * `\ No newline at end of file` is the only thing a `\` line has ever meant in a
+ * unified patch, so the PREFIX is what this reads rather than the sentence after it:
+ * the text is a producer's, it is localised by some of them, and a console matching
+ * on English words would drop the annotation for exactly the patches it did not
+ * write. Anything else the prefix could later carry is still an annotation of the
+ * line above it, which is the fact this file records.
+ */
+const NO_NEWLINE_MARKER_PREFIX = "\\";
+
+/**
  * Map one hunk's prefixed lines onto the model, numbering both sides as it goes.
  *
  * The two counters advance independently — an inserted line consumes a head number
  * and no base number, a deleted line the reverse — which is the arithmetic a
  * hand-built fixture is most likely to get wrong by advancing both in lockstep.
  *
- * A `\ No newline at end of file` marker carries no prefix this map knows and is
- * skipped: it annotates the line above it rather than being a line of its own, and
- * a row drawn for it would be a row the file does not have.
+ * A `\ No newline at end of file` marker is still not a row — it annotates the line
+ * above it, and a row drawn for it would be a row the file does not have — but it is
+ * no longer DISCARDED. It was, and that lost the whole content of one class of change:
+ * a patch that only adds or removes a terminating newline spells it as a deletion and
+ * an insertion whose text is identical, so both surfaces drew two indistinguishable
+ * lines and the marker that said which was which had been thrown away. It is carried
+ * onto the line it annotates, which is the one immediately before it.
  */
 function hunkLines(
   prefixedLines: readonly string[],
@@ -323,6 +339,16 @@ function hunkLines(
   let baseLineNumber = oldStart;
   let headLineNumber = newStart;
   for (const prefixedLine of prefixedLines) {
+    if (prefixedLine.startsWith(NO_NEWLINE_MARKER_PREFIX)) {
+      // Onto the line above, and onto nothing at all where the marker opens a hunk —
+      // which no producer writes, and which a console must not read as an annotation
+      // of whatever line comes next.
+      const annotated = lines.at(-1);
+      if (annotated !== undefined) {
+        lines[lines.length - 1] = { ...annotated, noNewlineAtEnd: true };
+      }
+      continue;
+    }
     const kind = LINE_KIND_BY_PREFIX[prefixedLine.slice(0, 1)];
     if (kind === undefined) {
       continue;

@@ -407,6 +407,25 @@
   margin-inline-start: var(--meridian-space-2);
 }
 
+/*
+ * The patch's terminator annotation, beside the line it is about.
+ *
+ * After the code and never inside it, on the badge above's rule: the line's own
+ * characters and their column positions are untouched, and an unwrapped row keeps its
+ * fixed block size. Sans and faint, so it reads as the console saying something ABOUT
+ * the line rather than as characters the file contains — which, on a newline-only
+ * change, is the whole distinction the row exists to draw.
+ */
+.meridian-diff__no-newline {
+  flex: 0 0 auto;
+  margin-inline-start: var(--meridian-space-2);
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+  font-style: italic;
+  white-space: nowrap;
+}
+
 /* Intraline: a heavier ground on the run that changed, never a hue. */
 .meridian-diff__segment--changed {
   border-radius: var(--meridian-radius-sm);

@@ -27,6 +27,7 @@ import {
   EXTENDED_HEADER_DIFF_SHAPE,
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
+  TERMINAL_NEWLINE_FIXTURE_FILE,
   buildDiffFixture,
 } from "./diff-fixture.js";
 import {
@@ -495,5 +496,55 @@ describe("diff renderer — the file header carries what the extended headers sa
     // case above while telling a reader that every file in the change set had moved.
     const container = renderDiff({ model: SMALL_DIFF });
     expect(container.querySelector(".meridian-diff__file-change")).toBeNull();
+  });
+});
+
+describe("diff renderer — the line that ends the file without a newline", () => {
+  const TERMINAL_NEWLINE_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
+
+  /** The file whose two changed rows carry the same text, narrowed to itself. */
+  function terminalNewlineRows(viewMode: "unified" | "split"): readonly HTMLElement[] {
+    const container = renderDiff({
+      model: TERMINAL_NEWLINE_DIFF,
+      shownFilePath: TERMINAL_NEWLINE_FIXTURE_FILE.path,
+      viewMode,
+    });
+    return [...container.querySelectorAll<HTMLElement>(".meridian-diff__row--line")];
+  }
+
+  it("says which of two identical lines is the one with no terminator", () => {
+    // The whole subject: the deletion and the insertion are the same characters, so
+    // without the annotation the pane draws two rows a reader cannot tell apart and
+    // gives no account of what the change was.
+    const rows = terminalNewlineRows("unified");
+    const annotated = rows.filter(
+      (row) => row.querySelector(".meridian-diff__no-newline") !== null,
+    );
+
+    expect(annotated).toHaveLength(1);
+    expect(annotated[0]?.textContent).toContain("No newline at end of file");
+    expect(annotated[0]?.textContent).toContain(TERMINAL_NEWLINE_FIXTURE_FILE.lastLine);
+  });
+
+  it("puts the annotation on the side that carries it in split view", () => {
+    // A paired row holds a deletion and an insertion at once, and only one of them
+    // is the line without a terminator — so a marker drawn on the row rather than
+    // the cell would claim it of both.
+    const [pairedRow] = terminalNewlineRows("split").filter(
+      (row) => row.querySelector(".meridian-diff__no-newline") !== null,
+    );
+    const headCell = pairedRow?.querySelector(".meridian-diff__side--head");
+    const baseCell = pairedRow?.querySelector(".meridian-diff__side--base");
+
+    expect(headCell?.querySelector(".meridian-diff__no-newline")).not.toBeNull();
+    expect(baseCell?.querySelector(".meridian-diff__no-newline")).toBeNull();
+  });
+
+  it("negative control: an ordinary change set draws the annotation nowhere", () => {
+    // Without this, a row that stamped every last line would pass the cases above
+    // while telling a reader that every file in the change set ends without a
+    // newline.
+    const container = renderDiff({ model: SMALL_DIFF });
+    expect(container.querySelector(".meridian-diff__no-newline")).toBeNull();
   });
 });
