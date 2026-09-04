@@ -1,11 +1,14 @@
 // The sessions on this node, as a surface can honestly know them.
 //
-// Two surfaces ask the same question — the sessions destination lists them, the
-// auxiliary context picker offers them — and until this hook neither could ask it
-// at all. The only session set the renderer could name was the set this window
-// happens to have open, which is a different question with a different answer: a
-// node with six sessions and a window that has opened none of them is not an empty
-// node.
+// Every surface that has to OFFER sessions asks the same question — the sessions
+// destination lists them, the auxiliary context picker asks which one a window should
+// follow, the workflows destination asks which one its definitions resolve from — and
+// until this hook none of them could ask it at all. The only session set the renderer
+// could name was the set this window happens to have open, which is a different
+// question with a different answer: a node with six sessions and a window that has
+// opened none of them is not an empty node. The callers are deliberately not counted
+// here: a count is a claim that goes stale the first time a surface is added without
+// it.
 //
 // WHY IT LIVES IN `bridge/`
 //

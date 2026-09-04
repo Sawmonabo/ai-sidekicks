@@ -52,10 +52,10 @@ export {
 export { createFixtureBridge } from "./fixture-bridge.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
-// read over it and two surfaces read the session directory through it, so the
-// port type, the one summary shape those surfaces render, the refusal they render
-// instead, and the builder that mints one all leave through this door — the same
-// door the bridge itself does, because a growth refusal IS what this bridge
+// read over it and every surface that offers sessions reads the directory through
+// it, so the port type, the one summary shape those surfaces render, the refusal
+// they render instead, and the builder that mints one all leave through this door —
+// the same door the bridge itself does, because a growth refusal IS what this bridge
 // answers for a wire the corpus has not registered.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
