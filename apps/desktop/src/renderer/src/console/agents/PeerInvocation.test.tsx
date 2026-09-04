@@ -4,7 +4,7 @@
 // enabled session as safe. So absence is its own state with a re-read, and the two
 // tools are named in every state because both are registered at spawn regardless.
 
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { PeerInvocation } from "./PeerInvocation.js";
@@ -72,5 +72,42 @@ describe("peer invocation — visibility", () => {
       <PeerInvocation enabled onSetEnabled={() => {}} onReRead={() => {}} />,
     );
     expect(container.textContent ?? "").toContain("no invisible peer invocation");
+  });
+});
+
+describe("peer invocation — a change already outstanding", () => {
+  it("stops taking presses and says why, where a screen reader is pointed", () => {
+    const { container } = render(
+      <PeerInvocation enabled={false} isPending onSetEnabled={() => {}} onReRead={() => {}} />,
+    );
+    const control = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+
+    // Disabled is half the answer. A control that stops responding and says
+    // nothing is indistinguishable from one that is broken, so the reason is
+    // reachable from the control itself rather than only visible beside it.
+    expect(control?.disabled).toBe(true);
+    const describedBy = control?.getAttribute("aria-describedby") ?? "";
+    expect(document.getElementById(describedBy)?.textContent ?? "").toContain(
+      "takes no second change until the first is answered",
+    );
+  });
+
+  it("negative control: with nothing outstanding it is live and takes the press", () => {
+    // Without this, the case above would hold for a control that is disabled and
+    // silent in every state — a switch nobody can ever use.
+    const pressed: boolean[] = [];
+    const { container } = render(
+      <PeerInvocation
+        enabled={false}
+        onSetEnabled={(enabled) => pressed.push(enabled)}
+        onReRead={() => {}}
+      />,
+    );
+    const control = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+
+    expect(control?.disabled).toBe(false);
+    expect(control?.getAttribute("aria-describedby")).toBeNull();
+    fireEvent.click(control as HTMLElement);
+    expect(pressed).toStrictEqual([true]);
   });
 });

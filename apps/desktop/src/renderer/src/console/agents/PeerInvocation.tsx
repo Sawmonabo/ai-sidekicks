@@ -19,6 +19,8 @@
 // error code here — it arrives on the callback-tool result's denied or failed arm and
 // lands as an ordinary tool-activity row in the timeline.
 
+import { useId } from "react";
+
 import type { ConsoleRefusal } from "../core/index.js";
 import { Chip, Nothing, RefusalCard, WireFigure } from "../primitives/index.js";
 import { PEER_INVOCATION_TOOLS } from "./agent-wire.js";
@@ -30,12 +32,24 @@ export interface PeerInvocationProps {
    */
   readonly enabled: boolean | undefined;
   readonly onSetEnabled: (enabled: boolean) => void;
+  /**
+   * True while a change to this grant is outstanding. The switch stops taking
+   * presses and says why.
+   *
+   * The grant is DURABLE, so a second press while the first is unanswered is a
+   * second appended record of one intended act. Nothing behind the bridge is
+   * cancellable, so the honest thing to show is that the change is not taken yet —
+   * never a control that looks live and quietly drops what it is given.
+   */
+  readonly isPending?: boolean | undefined;
   /** Re-reads the session projection. Offered only in the unknown state. */
   readonly onReRead: () => void;
   readonly refusal?: ConsoleRefusal | undefined;
 }
 
 export function PeerInvocation(props: PeerInvocationProps): React.JSX.Element {
+  const pendingDescriptionId = useId();
+  const isPending = props.isPending ?? false;
   return (
     <section className="meridian-peer" aria-label="Peer invocation">
       <h4 className="meridian-peer__title">Sidekicks reaching each other</h4>
@@ -58,12 +72,21 @@ export function PeerInvocation(props: PeerInvocationProps): React.JSX.Element {
             <input
               type="checkbox"
               checked={props.enabled}
+              disabled={isPending}
+              aria-describedby={isPending ? pendingDescriptionId : undefined}
               onChange={(event) => props.onSetEnabled(event.target.checked)}
             />
             <span className="meridian-peer__switch-label">
               {props.enabled ? "On for this session" : "Off — the default in every new session"}
             </span>
           </label>
+          {isPending ? (
+            <p className="meridian-peer__meaning" id={pendingDescriptionId}>
+              Waiting for the daemon to answer the change you just made. This grant is durable and
+              nothing here cancels a request, so the switch takes no second change until the first
+              is answered.
+            </p>
+          ) : null}
           <p className="meridian-peer__meaning">
             {props.enabled
               ? "Sidekicks may invoke each other for the remainder of this session, with no per-call prompt."

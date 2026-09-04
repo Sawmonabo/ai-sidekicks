@@ -42,10 +42,16 @@ const OWNED_AGENT_ID = "agent-scout";
  * settles immediately lands before anything could move.
  */
 class PeerInvocationDaemon {
-  #releaseHeldReply: ((reading: unknown) => void) | undefined;
+  readonly #heldReplies: ((reading: unknown) => void)[] = [];
   #holdsNextReply = false;
+  #callCount = 0;
 
-  /** Hold the next mutation open until {@link settleHeldReply}. */
+  /** Mutations this daemon was actually asked to perform. The latch's instrument. */
+  public get callCount(): number {
+    return this.#callCount;
+  }
+
+  /** Hold the next mutation open until one of the settle methods releases it. */
   public holdNextReply(): void {
     this.#holdsNextReply = true;
   }
@@ -56,19 +62,32 @@ class PeerInvocationDaemon {
       // refuses a call its scenario scripts no reply for.
       throw new Error(`this daemon scripts no reply for ${method}`);
     }
+    this.#callCount += 1;
     const requested = (params as { readonly enabled: boolean }).enabled;
     if (!this.#holdsNextReply) {
       return { enabled: requested };
     }
     this.#holdsNextReply = false;
     return await new Promise<unknown>((resolve) => {
-      this.#releaseHeldReply = resolve;
+      this.#heldReplies.push(resolve);
     });
   };
 
+  /** Settle the OLDEST held reply — the one a reversed order lands last. */
   public async settleHeldReply(enabled: boolean): Promise<void> {
-    this.#releaseHeldReply?.({ enabled });
-    this.#releaseHeldReply = undefined;
+    await this.#release(this.#heldReplies.shift(), enabled);
+  }
+
+  /** Settle the NEWEST held reply, leaving anything older still outstanding. */
+  public async settleNewestHeldReply(enabled: boolean): Promise<void> {
+    await this.#release(this.#heldReplies.pop(), enabled);
+  }
+
+  async #release(
+    resolve: ((reading: unknown) => void) | undefined,
+    enabled: boolean,
+  ): Promise<void> {
+    resolve?.({ enabled });
     await Promise.resolve();
     await Promise.resolve();
   }
@@ -237,5 +256,95 @@ describe("agent console — the peer-invocation settlement belongs to one sessio
     await settleReads(bridge);
 
     expect(switchState(container)).toBe(true);
+  });
+});
+
+/** The grant switch itself, so a case can read what it is doing. */
+function grantSwitch(container: HTMLElement): HTMLInputElement {
+  return container.querySelector<HTMLInputElement>(
+    ".meridian-peer__switch input",
+  ) as HTMLInputElement;
+}
+
+/** Move the projected row, which is what this control's own append does when it lands. */
+async function projectGrant(sessionStore: SessionStore, enabled: boolean): Promise<void> {
+  await act(async () => {
+    sessionStore.initialise({
+      cursor: 9,
+      entities: [
+        { kind: "session", id: sessionStore.sessionId, body: { peerInvocationEnabled: enabled } },
+      ],
+      participantJoinLog: [],
+    });
+    await Promise.resolve();
+  });
+}
+
+describe("agent console — one peer-invocation change at a time", () => {
+  it("takes no second change while the daemon has not answered the first", async () => {
+    const daemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(daemon);
+    daemon.holdNextReply();
+    const { container } = render(pane(bridge, storeProjecting(FIRST_SESSION_ID, false)));
+    await settleReads(bridge);
+
+    await pressGrantOn(container);
+    await settleReads(bridge);
+
+    // The grant is durable: a second appended record for one intended act is two
+    // records, and their replies race to decide which settlement is shown.
+    expect(grantSwitch(container).disabled).toBe(true);
+    await pressGrantOn(container);
+    expect(daemon.callCount).toBe(1);
+  });
+
+  it("discards a reply whose round the projection had already replaced", async () => {
+    // The race the latch alone does not reach. This control's own append lands in
+    // the store as a projected row BEFORE its reply comes back; the projection
+    // moving retires that round and hands the switch back, so a second change is
+    // admitted and the two replies may land in either order.
+    const daemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(daemon);
+    const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
+    const { container } = render(pane(bridge, sessionStore));
+    await settleReads(bridge);
+
+    daemon.holdNextReply();
+    await pressGrantOn(container);
+    await projectGrant(sessionStore, true);
+    expect(grantSwitch(container).disabled).toBe(false);
+
+    daemon.holdNextReply();
+    await pressGrantOn(container);
+    await act(async () => {
+      await daemon.settleNewestHeldReply(false);
+    });
+    await settleReads(bridge);
+    expect(switchState(container)).toBe(false);
+
+    // The older reply lands last and says the opposite of the settlement on screen.
+    await act(async () => {
+      await daemon.settleHeldReply(true);
+    });
+    await settleReads(bridge);
+
+    expect(switchState(container)).toBe(false);
+  });
+
+  it("negative control: with no change outstanding the switch is live", async () => {
+    // Without this, the disabled case above would hold for a control that never
+    // takes a press at all, which is a switch nobody can use rather than one that
+    // refuses a second change.
+    const daemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(pane(bridge, storeProjecting(FIRST_SESSION_ID, false)));
+    await settleReads(bridge);
+
+    expect(grantSwitch(container).disabled).toBe(false);
+    await pressGrantOn(container);
+    await settleReads(bridge);
+
+    expect(daemon.callCount).toBe(1);
+    expect(grantSwitch(container).disabled).toBe(false);
   });
 });
