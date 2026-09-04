@@ -28,13 +28,28 @@ interface PortScript {
   readonly allowlistAnswer: unknown;
 }
 
+/**
+ * A port answering exactly what a case scripts — or REJECTING, where it scripts an
+ * `Error`.
+ *
+ * The shape the port's own union cannot express and the live bridge produces anyway:
+ * an IPC disconnect makes a call throw rather than answer. An `Error` is never a
+ * scripted answer here, so it needs no marker type to be told from one.
+ */
 function bridgeAnswering(script: PortScript): ConsoleBridge {
   return {
     growth: {
-      artifactList: async () => script.listAnswer,
-      artifactAllowlistRead: async () => script.allowlistAnswer,
+      artifactList: async () => scriptedAnswer(script.listAnswer),
+      artifactAllowlistRead: async () => scriptedAnswer(script.allowlistAnswer),
     },
   } as unknown as ConsoleBridge;
+}
+
+async function scriptedAnswer(scripted: unknown): Promise<unknown> {
+  if (scripted instanceof Error) {
+    throw scripted;
+  }
+  return scripted;
 }
 
 /** One manifest row as the growth port serves it, with every member populated. */
@@ -440,16 +455,19 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // The scheduler performs the read inside a timer callback, where a rejection
     // reaches nobody. A reader with no error sink leaves the pane on the in-flight
     // absence for the rest of its life.
+    //
+    // DRIVEN THROUGH A SERVED ROW THE MAPPING CANNOT READ, which is what still
+    // reaches this sink: a call that REJECTS is now read by the leg that made it and
+    // becomes that leg's own refusal, so the sink is the backstop for everything else
+    // the read does — and the port is assembled behind a cast, so a served list whose
+    // rows are not the shape the mapping expects is a live possibility rather than a
+    // hypothetical.
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
-      bridge: {
-        growth: {
-          artifactList: async () => {
-            throw new Error("the socket closed");
-          },
-          artifactAllowlistRead: async () => REFUSAL,
-        },
-      } as unknown as ConsoleBridge,
+      bridge: bridgeAnswering({
+        listAnswer: { status: "served", value: [null] },
+        allowlistAnswer: REFUSAL,
+      }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
@@ -459,7 +477,6 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     const state = reader.snapshot.artifacts;
     expect(state.kind).toBe("refused");
     expect(state.kind === "refused" ? state.refusal.code : undefined).toBe("read-threw");
-    expect(state.kind === "refused" ? state.refusal.detail : "").toContain("the socket closed");
   });
 
   it("discards a completion that outlived the pane it was read for", async () => {
@@ -490,5 +507,89 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     await settle();
 
     expect(reader.snapshot.artifacts.kind).toBe("loading");
+  });
+});
+
+describe("artifact pane reader — one leg that did not come back", () => {
+  /** What an IPC disconnect leaves in the caller's hands: a rejection, not an answer. */
+  const DISCONNECTED = new Error("the bridge went away mid-read");
+
+  /** The bounds read served, so a case can assert the leg that DID answer. */
+  const SERVED_ALLOWLIST = {
+    status: "served",
+    value: { contentTypes: ["image/svg+xml"], maximumByteLength: 42 },
+  };
+
+  /** One read of a pane whose two legs answer whatever the case scripts. */
+  async function readingOf(script: PortScript): Promise<ArtifactPaneReading> {
+    const clock = new ManualClock();
+    const reader = new ArtifactPaneReader({
+      bridge: bridgeAnswering(script),
+      sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+      clock,
+    });
+    reader.start();
+    await readThrough(clock);
+    return reader.snapshot;
+  }
+
+  it("keeps the manifests a rejected bounds read has nothing to say about", async () => {
+    // The whole defect: the two legs were joined by a `Promise.all`, so a bridge that
+    // dropped only the bounds read rejected the refresh, the scheduler marked
+    // `artifacts` refused, and a session's manifests were discarded because an
+    // unrelated read had no answer.
+    const reading = await readingOf({
+      listAnswer: { status: "served", value: [SERVED_SUMMARY] },
+      allowlistAnswer: DISCONNECTED,
+    });
+
+    expect(reading.artifacts.kind).toBe("listed");
+    expect(reading.artifacts.kind === "listed" ? reading.artifacts.rows.length : 0).toBe(1);
+    // And the leg that did not come back says so, on the arm that arm has: the shipped
+    // defaults, named as such, carrying why the deployment's own were not read.
+    expect(reading.allowlist.source).toBe("shipped-default");
+    expect(reading.allowlist.mediaTypes).toStrictEqual(ATTACHMENT_ALLOWLIST_DEFAULT);
+    expect(reading.allowlist.refusal?.code).toBe("call-rejected");
+    expect(reading.allowlist.refusal?.detail).toContain(DISCONNECTED.message);
+  });
+
+  it("keeps the bounds a rejected list read has nothing to say about", async () => {
+    const reading = await readingOf({
+      listAnswer: DISCONNECTED,
+      allowlistAnswer: SERVED_ALLOWLIST,
+    });
+
+    expect(reading.artifacts.kind).toBe("refused");
+    expect(reading.artifacts.kind === "refused" ? reading.artifacts.refusal.code : undefined).toBe(
+      "call-rejected",
+    );
+    expect(reading.allowlist.source).toBe("effective");
+    expect(reading.allowlist.mediaTypes).toStrictEqual(["image/svg+xml"]);
+  });
+
+  it("gives each leg its own refusal when neither came back", async () => {
+    // Negative control for both cases above: a fix that caught the join rather than
+    // the legs would satisfy them by publishing ONE refusal over both readings — and
+    // the sentence a participant read would then name whichever call lost the race.
+    const reading = await readingOf({ listAnswer: DISCONNECTED, allowlistAnswer: DISCONNECTED });
+
+    expect(reading.artifacts.kind === "refused" ? reading.artifacts.refusal.detail : "").toContain(
+      "The artifact list",
+    );
+    expect(reading.allowlist.refusal?.detail).toContain("The attachment allow-list read");
+  });
+
+  it("negative control: two answered legs still publish one snapshot, unrefused", async () => {
+    // Without this the cases above would pass against a reader that had stopped joining
+    // the legs at all — which is the race the join exists to prevent: a snapshot
+    // holding a list from one refresh beside an allow-list from another.
+    const reading = await readingOf({
+      listAnswer: { status: "served", value: [SERVED_SUMMARY] },
+      allowlistAnswer: SERVED_ALLOWLIST,
+    });
+
+    expect(reading.artifacts.kind).toBe("listed");
+    expect(reading.allowlist.source).toBe("effective");
+    expect(reading.allowlist.refusal).toBeUndefined();
   });
 });
