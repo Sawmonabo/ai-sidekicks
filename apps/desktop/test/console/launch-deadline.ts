@@ -134,9 +134,23 @@ export class LaunchDeadline {
     this.#expiresAt = now() + budgetMs;
   }
 
-  /** Whether the budget is spent. Distinct from `remainingMs`, which never says so. */
-  expired(): boolean {
-    return this.#now() >= this.#expiresAt;
+  /**
+   * Whether the budget is spent once `reservedMs` is held back.
+   *
+   * Takes the same reserve `remainingMs` does, and for a reason that was a live
+   * defect rather than symmetry for its own sake. A readiness phase draws
+   * `remainingMs(POST_READINESS_RESERVE_MS)`, so it runs out of time 25 000 ms
+   * BEFORE the launch deadline expires — and a caller asking the unreserved
+   * question at that moment is told the budget is fine. `readinessFailure` asked
+   * exactly that, so the one case it exists for, a ladder that used its whole
+   * aggregate allowance, returned the raw phase timeout ("Timeout 1ms exceeded")
+   * instead of the sentence explaining what the phases share.
+   *
+   * Distinct from `remainingMs`, which never says a budget is spent because it
+   * cannot: it is floored at 1 for a caller that hands it straight to Playwright.
+   */
+  expired(reservedMs = 0): boolean {
+    return this.#now() >= this.#expiresAt - reservedMs;
   }
 
   /**
@@ -212,7 +226,11 @@ export class LaunchDeadline {
  * untouched rather than being blamed on a clock with time left on it.
  */
 export function readinessFailure(deadline: LaunchDeadline, error: unknown): unknown {
-  if (!deadline.expired()) {
+  // Asked WITH the reserve, because the readiness ladder ran out of time when its
+  // own allowance was gone, not when the whole launch deadline expires — those
+  // are 25 000 ms apart, and asking the unreserved question meant this returned
+  // the raw phase timeout in precisely the case it was written for.
+  if (!deadline.expired(POST_READINESS_RESERVE_MS)) {
     return error;
   }
   return new Error(

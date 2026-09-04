@@ -29,6 +29,9 @@ import {
   LAUNCH_BUDGET_MS,
   LaunchDeadline,
   MINIMUM_SETTLEMENT_RESIDUAL_MS,
+  POST_READINESS_RESERVE_MS,
+  READINESS_BUDGET_MS,
+  readinessFailure,
 } from "../launch-deadline.js";
 import { resolveVitestProjects, type ResolvedVitestProjects } from "../vitest-projects.js";
 
@@ -137,6 +140,47 @@ describe("launch deadline — one clock, drawn from", () => {
     clock.advance(500_000);
     expect(deadline.expired()).toBe(true);
     expect(deadline.remainingMs()).toBe(1);
+  });
+
+  it("reports readiness spent when ITS allowance is gone, not the launch's", () => {
+    // The reserve is what separates the two questions, and conflating them was a
+    // live defect: a ladder that used its full 30 000 ms still has the 25 000 ms
+    // witness-and-cleanup reserve in front of it, so the unreserved question
+    // answers "plenty of time" at exactly the moment readiness has none.
+    const clock = stoppedClock(1_000);
+    const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS, clock.now);
+    clock.advance(READINESS_BUDGET_MS);
+    expect(deadline.expired(POST_READINESS_RESERVE_MS)).toBe(true);
+    // Same instant, same object: the LAUNCH is not spent, and the reserve the
+    // witness and cleanup are owed is intact. Both answers are correct; asking
+    // the wrong one is what produced the wrong diagnostic.
+    expect(deadline.expired()).toBe(false);
+    expect(deadline.remainingMs()).toBe(POST_READINESS_RESERVE_MS);
+  });
+
+  it("words a readiness overrun as one, once readiness is out of time", () => {
+    // The consumer of the predicate above, checked through its own seam rather
+    // than by re-deriving it. Before the reserve was passed, this case returned
+    // Playwright's own "Timeout 1ms exceeded" — a number that describes what was
+    // LEFT of a shared budget and names neither the budget nor the phases sharing
+    // it, which is the whole reason the wrapper exists.
+    const clock = stoppedClock(1_000);
+    const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS, clock.now);
+    const phaseTimeout = new Error("Timeout 1ms exceeded.");
+
+    // Before the ladder's allowance is gone, a failure is its own: a missing
+    // selector or a crashed process must not be blamed on a clock with time left.
+    clock.advance(READINESS_BUDGET_MS - 1);
+    expect(readinessFailure(deadline, phaseTimeout)).toBe(phaseTimeout);
+
+    clock.advance(1);
+    const worded = readinessFailure(deadline, phaseTimeout);
+    expect(worded).not.toBe(phaseTimeout);
+    expect(worded).toBeInstanceOf(Error);
+    expect((worded as Error).message).toContain(String(READINESS_BUDGET_MS));
+    // The original is kept rather than replaced — which phase ran out is still
+    // the first thing a reader wants.
+    expect((worded as Error).cause).toBe(phaseTimeout);
   });
 
   it("lets an operation that settles in time through untouched", () => {
