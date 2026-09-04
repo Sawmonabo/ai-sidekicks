@@ -125,24 +125,52 @@ export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
 export async function mountBrowserPaneForSubject(
   bridge: ConsoleBridge,
   paneId: string,
-): Promise<{ readonly rebindTo: (nextPaneId: string) => Promise<void> }> {
+  ProbeComponent?: React.ComponentType,
+): Promise<BrowserPaneSubjectMount> {
   const built = paneContext(bridge, paneId);
   let mounted: RenderResult | undefined;
+  // A component type rather than a ready-made node, and that is load-bearing: React
+  // skips re-rendering a child whose element is referentially identical, so a probe
+  // passed as a node would mount once and then observe none of the commits it exists
+  // to observe. Instantiated here, each render hands it a fresh element.
+  const tree = (subject: { readonly context: ConsolePaneContext }): React.JSX.Element => (
+    <>
+      <BrowserPane {...subject.context} />
+      {ProbeComponent === undefined ? null : <ProbeComponent />}
+    </>
+  );
   await act(async () => {
-    mounted = render(<BrowserPane {...built.context} />);
+    mounted = render(tree(built));
   });
   const rendered = mounted;
   if (rendered === undefined) {
     throw new Error("the browser pane did not mount");
   }
-  return {
-    rebindTo: async (nextPaneId: string): Promise<void> => {
-      const rebound = paneContext(bridge, nextPaneId);
-      await act(async () => {
-        rendered.rerender(<BrowserPane {...rebound.context} />);
-      });
-    },
+  const rerenderFor = async (nextBridge: ConsoleBridge, nextPaneId: string): Promise<void> => {
+    const rebound = paneContext(nextBridge, nextPaneId);
+    await act(async () => {
+      rendered.rerender(tree(rebound));
+    });
   };
+  return {
+    rebindTo: async (nextPaneId: string): Promise<void> => rerenderFor(bridge, nextPaneId),
+    rebindToBridge: async (nextBridge: ConsoleBridge): Promise<void> =>
+      rerenderFor(nextBridge, paneId),
+  };
+}
+
+/**
+ * The two swaps a mounted pane can be put through without being remounted.
+ *
+ * Both are things a real composition does and neither is a fresh tree: a deck moves
+ * a slot to another pane, and a window hands the tree another bridge. They are named
+ * together because the pane's state has to say WHOSE it is against both, and a suite
+ * that could only reach one of them would leave the other's stale-subject case
+ * untested.
+ */
+export interface BrowserPaneSubjectMount {
+  readonly rebindTo: (nextPaneId: string) => Promise<void>;
+  readonly rebindToBridge: (nextBridge: ConsoleBridge) => Promise<void>;
 }
 
 /**
