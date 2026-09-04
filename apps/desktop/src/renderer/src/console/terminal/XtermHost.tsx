@@ -127,22 +127,39 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
         : undefined,
     });
     adapterRef.current = adapter;
-    adapter.attach(hostElement);
-    // After the attach, because the renderer selection happens synchronously
-    // inside it and the subscription delivers the current mode on subscribe — so
-    // this order reports the SETTLED mode once rather than the constructed one
-    // followed by the selected one. Every later delivery is a context loss, which
-    // reaches the adapter asynchronously and so cannot slip through this gap.
-    const unsubscribeFromRendererMode = adapter.subscribeToRendererMode((mode) => {
-      setRendererMode(mode);
-      callbacksRef.current.onRendererMode?.(mode);
-    });
+    let unsubscribeFromRendererMode: (() => void) | undefined;
+    // EVERY STEP THAT CAN LEAVE AN EMULATOR BEHIND, UNDER ONE GUARD, and the reason
+    // is that React only pairs a construction with a disposal through the cleanup
+    // this effect RETURNS. An attach opens the terminal and can take a pooled WebGL
+    // context; the subscription that follows delivers the settled mode
+    // SYNCHRONOUSLY, so a parent's `onRendererMode` that throws — a render-phase
+    // store write, a consumer that asserts — threw out of the effect body before the
+    // cleanup existed. React then had no disposer for a live emulator: its terminal,
+    // its observers, and its renderer allocation stayed for the life of the page,
+    // and the page's context allowance stayed spent. Disposing here and re-raising
+    // keeps the failure visible while leaving nothing running behind it.
+    try {
+      adapter.attach(hostElement);
+      // After the attach, because the renderer selection happens synchronously
+      // inside it and the subscription delivers the current mode on subscribe — so
+      // this order reports the SETTLED mode once rather than the constructed one
+      // followed by the selected one. Every later delivery is a context loss, which
+      // reaches the adapter asynchronously and so cannot slip through this gap.
+      unsubscribeFromRendererMode = adapter.subscribeToRendererMode((mode) => {
+        setRendererMode(mode);
+        callbacksRef.current.onRendererMode?.(mode);
+      });
+    } catch (setupFailure: unknown) {
+      adapterRef.current = undefined;
+      adapter.dispose();
+      throw setupFailure;
+    }
     return () => {
       adapterRef.current = undefined;
       // Before the disposal, which resets the mode: a delivery from a teardown
       // would be a state write against a tree React is dropping, and it would say
       // the renderer fell back when what happened is that the pane closed.
-      unsubscribeFromRendererMode();
+      unsubscribeFromRendererMode?.();
       // Final, not `detach()`. The pane is going away, so the emulator's hold on
       // its renderer has to go back — a detach would keep the instance alive for
       // a remount that is never coming.
