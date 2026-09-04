@@ -16,10 +16,21 @@
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
 
-// The family's stylesheet is imported HERE and nowhere else, which is the rule
-// `primitives/index.ts` and `frame/index.ts` already follow: one edge into the sheet
+// The family's stylesheets are imported HERE and nowhere else, which is the rule
+// `primitives/index.ts` and `frame/index.ts` already follow: one edge into each sheet
 // per bundle, and no surface can render a shape whose CSS never arrived.
-import "./browser.css";
+//
+// FIVE SHEETS AND NOT ONE, because one file carried five surfaces — the settings
+// page, the shared controls, the produced-object cards, the pane shell, and the
+// bounds table — and a reader looking for the pane's chrome had to scroll past the
+// partition table to find it. They are imported one by one rather than through a
+// `@import` chain so every edge into this family's CSS is visible at the door, which
+// is what makes "imported here and nowhere else" checkable rather than promised.
+import "./styles/browser-settings.css";
+import "./styles/browser-controls.css";
+import "./styles/browser-cards.css";
+import "./styles/browser-pane.css";
+import "./styles/browser-bounds.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import { BROWSER_PANE_DESCRIPTOR } from "../panes/browser/index.js";
