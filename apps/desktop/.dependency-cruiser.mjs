@@ -55,12 +55,13 @@ const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
  * `frame/surface-registry.ts` declares `ConsoleSurfaceContext` and the registry a view
  * family registers itself into, and a view family cannot import the FRAME's door to
  * reach them: that door composes the view families through `families.ts`, so an import
- * back closes a cycle `no-circular` fails. Its home is `seats/` — it is a contract
+ * back closes a cycle `no-circular` fails. Its right home is `seats/` — it is a contract
  * through which families hand each other bodies, and it imports nothing above `bridge/`
- * — and the module moves there under the change that also threads the pane registry
- * through the surface context. Naming the one module rather than excepting `frame/`
- * keeps the rule's reach exact: a second deep specifier into this family, including a
- * second one into this same module's neighbours, still fails.
+ * — and the pane registry now travels through the surface context, but the module still
+ * sits in `frame/`; moving it is the cross-family structure audit's, at which point this
+ * exemption is deleted and the rule covers the whole console. Naming the one module
+ * rather than excepting `frame/` keeps the rule's reach exact: a second deep specifier
+ * into this family, including one into this same module's neighbours, still fails.
  */
 const FRAME_SURFACE_REGISTRY = `${CONSOLE}/frame/surface-registry\\.ts$`;
 

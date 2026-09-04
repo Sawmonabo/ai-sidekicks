@@ -83,6 +83,14 @@ describe("workflow run pane — what the graph says a park is waiting for", () =
     await waitFor(() => {
       expect(section.querySelectorAll(".meridian-park").length).toBeGreaterThan(1);
     });
+    // The park cards render with the served snapshot; the nodes exist only once the
+    // graph module's dynamic import has resolved, so the node count is awaited too —
+    // asserting on nodes straight after the cards raced that import under load.
+    await waitFor(() => {
+      expect(section.querySelectorAll(".meridian-phase-node")).toHaveLength(
+        WORKFLOWS_PARKED_RUN.phaseStates.length,
+      );
+    });
 
     const amberNodes = section.querySelectorAll(
       '.meridian-phase-node[data-park="awaiting-person"]',
