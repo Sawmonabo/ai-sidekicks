@@ -93,12 +93,12 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     const feed = renderFeed(openSessionStoreWithFoldedMessageChapter());
 
     typeIntoFind(feed, projectedRowId(SESSION_ID, 1));
-    expect(feed.textContent).toContain("inside a chapter this window is not showing");
+    expect(feed.textContent).toContain("inside a chapter that is not showing it");
     expect(feed.textContent).not.toContain("hidden by the filter");
 
     pressJumpAction(feed);
 
-    expect(feed.textContent).not.toContain("inside a chapter this window is not showing");
+    expect(feed.textContent).not.toContain("inside a chapter that is not showing it");
     expect(jumpActionLabel(feed)).toBe(REACHED);
   });
 

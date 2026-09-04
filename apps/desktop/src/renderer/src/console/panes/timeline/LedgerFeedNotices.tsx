@@ -30,8 +30,14 @@ const JUMP_ABSENCE_WORDS = {
     detail: "is in this window, but the current narrowing does not admit it.",
   },
   "folded-into-chapter": {
-    title: "That entry is inside a chapter this window is not showing.",
-    detail: "belongs to a run whose rows are folded away behind their chapter.",
+    // TRUE OF BOTH WAYS A CHAPTER WITHHOLDS A ROW, which is what the previous
+    // wording was not: it said the run's rows were "folded away behind their
+    // chapter", and this arm also fires for a chapter that is OPEN — the arm with
+    // no act — where the row sits past the ceiling the chapter draws at once.
+    // Naming only the fold told somebody to open a chapter that was already open.
+    title: "That entry is inside a chapter that is not showing it.",
+    detail:
+      "belongs to a run whose chapter is folded shut, or is open and holds more entries than it draws at once.",
   },
   "withheld-by-replay": {
     title: "That entry is behind the replay position.",
