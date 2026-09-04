@@ -15,7 +15,7 @@
 // would be the console asserting that this context sees no definitions, which is a
 // claim about the daemon nothing established.
 //
-// ONE READ PER MOUNT, AND NO POLLING, for `frame/session-directory.ts`'s reason:
+// ONE READ PER MOUNT, AND NO POLLING, for `bridge/session-directory.ts`'s reason:
 // a directory that refreshed itself on a timer is a second source of truth running
 // beside the event stream, and the cheapest way to hold two answers to one question
 // is to keep asking it. A navigation back to the surface remounts and re-reads,

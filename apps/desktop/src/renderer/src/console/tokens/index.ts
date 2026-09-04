@@ -50,6 +50,17 @@ export {
 export { formatOklch } from "./color.js";
 
 export type { GlyphName } from "./glyphs.js";
+// The glyph family's drawing constants leave through this door beside its name type,
+// for the same reason every other token does: `primitives/Glyph.tsx` is the one
+// component that draws them, and reaching past this barrel for the module that
+// happens to hold them today would make a move inside this family break a file with
+// no business knowing this family has more than one module.
+export {
+  GLYPH_DEFAULT_SIZE,
+  GLYPH_PATHS,
+  GLYPH_STROKE_WIDTH,
+  GLYPH_VIEWBOX_SIZE,
+} from "./glyphs.js";
 
 export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";
 export { ParticipantHueAllocator, RING_TREATMENTS } from "./participant-hue.js";

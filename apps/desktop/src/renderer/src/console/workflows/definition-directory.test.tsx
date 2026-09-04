@@ -6,7 +6,7 @@
 // like one. The paging cases cannot: the scenario engine matches a scripted reply on
 // the call name alone, so one scenario can serve exactly one page and a second is
 // unscriptable there. They therefore answer from the real port with one method
-// replaced, the shape `frame/session-directory.test.tsx` already uses to count reads
+// replaced, the shape `bridge/session-directory.test.tsx` already uses to count reads
 // — the value returned is still the registered one, so a page this fixture serves is
 // a page the wire could send.
 
