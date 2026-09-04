@@ -446,10 +446,25 @@ export function ingestCeilingRemainingMs(
   return Math.max(0, INGEST_STREAM_LIFETIME_CEILING_MS - elapsed);
 }
 
+/**
+ * The instant this upload's silence becomes worth disclosing, or `undefined` where
+ * there is nothing outstanding to go quiet.
+ *
+ * The DEADLINE rather than only the predicate, because two callers need it and they
+ * need the same one: the card asks whether the instant it was handed is past it, and
+ * the carrier asks when to hand the card a fresher instant. Two subtractions against
+ * one threshold would be two places for the threshold to be spent, and a carrier that
+ * woke a second early would render a card that was still not stalled.
+ */
+export function ingestStallDisclosureAtMs(entry: AttachmentIngestEntry): number | undefined {
+  if (entry.state !== "ingesting" || entry.lastProgressAtMilliseconds === undefined) {
+    return undefined;
+  }
+  return entry.lastProgressAtMilliseconds + INGEST_STALL_DISCLOSURE_MS;
+}
+
 /** Whether this upload has been silent long enough to disclose the ceiling. */
 export function isIngestStalled(entry: AttachmentIngestEntry, nowMilliseconds: number): boolean {
-  if (entry.state !== "ingesting" || entry.lastProgressAtMilliseconds === undefined) {
-    return false;
-  }
-  return nowMilliseconds - entry.lastProgressAtMilliseconds >= INGEST_STALL_DISCLOSURE_MS;
+  const disclosureAtMilliseconds = ingestStallDisclosureAtMs(entry);
+  return disclosureAtMilliseconds !== undefined && nowMilliseconds >= disclosureAtMilliseconds;
 }
