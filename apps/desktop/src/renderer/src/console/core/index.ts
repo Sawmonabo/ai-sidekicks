@@ -34,6 +34,19 @@ export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // release-absence sweep, which imports the leaf directly — a barrel line no
 // importer reaches is a dead export the structure gate reports.
 export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./fixture-globals.js";
+export {
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  compareInstants,
+  parseInstant,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type Instant,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type InstantOrder,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type InstantReading,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  type MalformedInstant,
+} from "./instant.js";
 export { DuplicateRegistrationError, KeyedRegistry } from "./keyed-registry.js";
 export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
 export { consoleTripwires, reportTripwire } from "./tripwires.js";
