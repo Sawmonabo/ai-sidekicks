@@ -8,7 +8,8 @@
 // on the console's own frozen clock and renders the real card from the snapshot it
 // publishes, which is the exact composition `AttachmentCarrierSection` makes.
 
-import { render } from "@testing-library/react";
+import { act, render } from "@testing-library/react";
+import { StrictMode } from "react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -16,8 +17,13 @@ import {
   INGEST_STALL_DISCLOSURE_MS,
   ManualClock,
 } from "../core/index.js";
+import type { ConsoleBridge } from "../bridge/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";
-import { AttachmentCarrier } from "./attachment-carrier.js";
+import {
+  AttachmentCarrier,
+  useAttachmentCarrier,
+  type AttachmentCarrierBinding,
+} from "./attachment-carrier.js";
 import { ScriptedGrowthPort, patternedBytes } from "./attachment-ingest-scripted-port.js";
 
 /** The instant every case starts at, so a stamp in an assertion is a real reading. */
@@ -192,5 +198,80 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     clock.advance(INGEST_STALL_DISCLOSURE_MS * 3);
     expect(publishCount).toBe(0);
     expect(carrier.snapshot.publishedAtMilliseconds).toBe(START_MILLISECONDS);
+  });
+});
+
+/** A surface that holds the binding and hands its one control back to the case. */
+function CarrierProbe(props: {
+  readonly bridge: ConsoleBridge;
+  readonly onBinding: (binding: AttachmentCarrierBinding) => void;
+}): React.JSX.Element {
+  const binding = useAttachmentCarrier(props.bridge, "session-1");
+  props.onBinding(binding);
+  return <span>{String(binding.snapshot.entries.length)}</span>;
+}
+
+describe("useAttachmentCarrier — a disposed carrier is re-minted on the replayed setup", () => {
+  it("reaches a live client after StrictMode has torn one down and mounted again", async () => {
+    // The bug, exercised: StrictMode runs the cleanup and then the setup again on the
+    // same component instance, and a memoised carrier survives that. The cleanup
+    // terminally disposed the ingest client, so every file chosen afterwards reached a
+    // client whose `attach` returns at once — the surface inert, and silently.
+    const port = new ScriptedGrowthPort();
+    let binding: AttachmentCarrierBinding | undefined;
+    render(
+      <StrictMode>
+        <CarrierProbe
+          bridge={port.asBridge()}
+          onBinding={(taken) => {
+            binding = taken;
+          }}
+        />
+      </StrictMode>,
+    );
+
+    await act(async () => {
+      binding?.attachFiles([pickedFile(300)]);
+      await settle();
+    });
+
+    expect(port.initCalls).toHaveLength(1);
+    expect(port.chunkCalls).toHaveLength(1);
+    expect(binding?.snapshot.entries[0]?.state).toBe("complete");
+  });
+
+  it("negative control: a changed collaborator re-mints once, not once per render", async () => {
+    // The same cleanup runs when the bridge or the session moves, so this drives the
+    // re-mint through the other door — and asserts that exactly ONE stream opens. A
+    // hook that minted a carrier on every render would satisfy the case above while
+    // opening a stream per pass, which is the leak the memo existed to prevent dressed
+    // as a fix for the one it caused.
+    const port = new ScriptedGrowthPort();
+    let binding: AttachmentCarrierBinding | undefined;
+    const { rerender } = render(
+      <CarrierProbe
+        bridge={port.asBridge()}
+        onBinding={(taken) => {
+          binding = taken;
+        }}
+      />,
+    );
+    const bridge = port.asBridge();
+    rerender(
+      <CarrierProbe
+        bridge={bridge}
+        onBinding={(taken) => {
+          binding = taken;
+        }}
+      />,
+    );
+
+    await act(async () => {
+      binding?.attachFiles([pickedFile(300)]);
+      await settle();
+    });
+
+    expect(port.initCalls).toHaveLength(1);
+    expect(binding?.snapshot.entries).toHaveLength(1);
   });
 });
