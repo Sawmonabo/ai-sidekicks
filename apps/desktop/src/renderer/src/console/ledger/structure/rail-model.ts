@@ -199,6 +199,15 @@ export interface RailViewportBand {
   readonly extent: number;
 }
 
+/** Where the mark for the row at `rowIndex` sits, in a window of `retainedRowCount`. */
+export function railRowBandCentre(rowIndex: number, retainedRowCount: number): number {
+  // A rail with no bands has no centre to give. Unreachable from the derivation,
+  // which places a mark only for a row it found an index for, and answered rather
+  // than divided by zero because the two callers of a geometry are what this
+  // module exists to keep in step.
+  return retainedRowCount === 0 ? 0 : (rowIndex + 0.5) / retainedRowCount;
+}
+
 /**
  * The band the rows `firstRowIndex` through `lastRowIndex` occupy.
  *
@@ -256,7 +265,10 @@ export interface RailTick {
    * grace applies only to the card OPENING: there is no debounce on the read.
    */
   readonly summary: string;
-  /** Where along the rail this tick sits, 0 at the window's head and 1 at its tail. */
+  /**
+   * Where along the rail this tick sits — the centre of its row's band, per the
+   * row-band model above. Never an axis of its own.
+   */
   readonly position: number;
 }
 
@@ -281,6 +293,22 @@ export interface RailModel {
 /** What the caller knows about the window it handed in. */
 export interface RailWindowInput {
   readonly rows: readonly TimelineRow[];
+  /**
+   * Every retained viewport row key, in the order the feed renders them.
+   *
+   * THE ORDERING IS THE RAIL'S AXIS, and it is asked of the caller because only the
+   * viewport knows it. It is not `rows` re-keyed: the feed's list also carries rows
+   * that are not projected log rows — a folded chapter's synthetic header is one —
+   * and each of those occupies a band on the rail whether or not it can take a
+   * mark. Handing the rail the rows alone made every header shift the marks away
+   * from the thumb the same header had already shifted.
+   *
+   * Absent, the rows ARE the ordering, which is the caller asserting the feed
+   * renders these rows and nothing between them. True of a window with no folded
+   * chapter in it; false the moment one appears, which is why the composing hook
+   * always supplies the viewport's own list.
+   */
+  readonly retainedRowKeys?: readonly string[];
   /**
    * Whether rows exist before the window's head.
    *
@@ -378,12 +406,17 @@ export class ProvenanceRailModel {
       earliestLoadedSequence: first?.sequence,
       latestLoadedSequence: last?.sequence,
     };
-    const span = first === undefined || last === undefined ? 0 : last.sequence - first.sequence;
+    const retainedRowKeys = this.#input.retainedRowKeys ?? rows.map((row) => row.id);
+    const bandIndexByRowId = new Map(retainedRowKeys.map((key, index) => [key, index]));
 
     const ticks: RailTick[] = [];
     for (const row of rows) {
       const kind = this.#tickKindOf(row);
-      if (kind === undefined) {
+      const bandIndex = bandIndexByRowId.get(row.id);
+      // No band, no mark. A row the feed is not rendering has nowhere on the rail
+      // to be, and placing it anyway is how a mark ends up pointing at a row
+      // nobody can scroll to.
+      if (kind === undefined || bandIndex === undefined) {
         continue;
       }
       const binding = RAIL_TICK_BINDINGS[kind];
@@ -396,10 +429,7 @@ export class ProvenanceRailModel {
         tone: binding.tone,
         glyph: binding.glyph,
         summary: row.summary,
-        // A single-row window is one tick at the tail rather than a division by
-        // zero: the head and the tail are the same instant, and the tail is where
-        // the live marker sits.
-        position: span === 0 || first === undefined ? 1 : (row.sequence - first.sequence) / span,
+        position: railRowBandCentre(bandIndex, retainedRowKeys.length),
       });
     }
     return { ticks, clip };

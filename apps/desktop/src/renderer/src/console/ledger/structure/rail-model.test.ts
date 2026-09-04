@@ -15,6 +15,7 @@ import {
   RAIL_TICK_BINDINGS,
   RAIL_TICK_KINDS,
   RAIL_TICK_TONES,
+  railRowBandCentre,
   railTickKindsWithoutRegisteredWire,
   railViewportBand,
 } from "./rail-model.js";
@@ -197,18 +198,134 @@ describe("rail — ticks come from rows in the window and from nowhere else", ()
     expect(ticks[0]?.summary).toBe("asked for the deploy plan");
   });
 
-  it("places the head at 0 and the tail at 1", () => {
-    const { ticks } = railOver(storyWindow()).model();
-    expect(ticks[0]?.position).toBe(0);
-    expect(ticks[ticks.length - 1]?.position).toBeCloseTo(7 / 9);
+  it("places each mark at the centre of its row's band", () => {
+    const rows = storyWindow();
+    const { ticks } = railOver(rows).model();
+    for (const tick of ticks) {
+      const rowIndex = rows.findIndex((row) => row.id === tick.rowId);
+      expect(tick.position).toBeCloseTo(railRowBandCentre(rowIndex, rows.length), 12);
+    }
   });
 
-  it("negative control: a single-row window is one mark at the tail, not a division by zero", () => {
+  it("negative control: sequence distance places the same marks somewhere else", () => {
+    // The axis that shipped. `storyWindow` runs one row per sequence, so this is
+    // the FRIENDLIEST case sequence placement gets — and the two answers still
+    // differ on every mark, because one measures across the span of sequences and
+    // the other across the bands of rendered rows.
+    const rows = storyWindow();
+    const firstSequence = rows[0]?.sequence ?? 0;
+    const sequenceSpan = (rows[rows.length - 1]?.sequence ?? 0) - firstSequence;
+    for (const tick of railOver(rows).model().ticks) {
+      const bySequenceDistance = (tick.sequence - firstSequence) / sequenceSpan;
+      expect(tick.position).not.toBeCloseTo(bySequenceDistance, 6);
+    }
+  });
+
+  it("negative control: a single-row window is one mark in the middle, not a division by zero", () => {
+    // The one band covers the whole rail, so its centre is the middle of it —
+    // which is exactly where the thumb over that same one band is centred.
     const { ticks } = railOver([
       generalRow({ id: "m1", sequence: 4, type: "user.message", category: "interactive_request" }),
     ]).model();
-    expect(ticks[0]?.position).toBe(1);
+    expect(ticks[0]?.position).toBe(0.5);
     expect(Number.isFinite(ticks[0]?.position ?? Number.NaN)).toBe(true);
+  });
+});
+
+describe("rail — the marks and the thumb read one row ordering", () => {
+  /**
+   * The retained viewport ordering the feed renders, with a folded chapter's
+   * synthetic header at its head.
+   *
+   * The header's shape is the fold's own — one row keyed by the run id, standing
+   * for a chapter and carrying no projected row — so the rail sees exactly what a
+   * mounted feed hands it.
+   */
+  const CHAPTER_HEADER_KEY = "run-a";
+
+  function railOverOrdering(
+    rows: readonly TimelineRow[],
+    retainedRowKeys: readonly string[],
+  ): ProvenanceRailModel {
+    return new ProvenanceRailModel({ rows, retainedRowKeys, hasEarlierRows: false });
+  }
+
+  /**
+   * The two visible rows the cases below compare on, and why these two.
+   *
+   * With one header band ahead of the log, band index and row index differ by one
+   * everywhere — so the divergence between the two axes is widest near the head,
+   * where the header's band has already pushed the marks down while sequence
+   * distance has not moved them at all. Bands 3 and 4 are the first window where
+   * that gap is larger than the window itself.
+   */
+  const FIRST_VISIBLE_BAND = 3;
+  const LAST_VISIBLE_BAND = 4;
+
+  it("puts every mark of a viewport's rows inside that viewport's thumb", () => {
+    const rows = storyWindow();
+    const retainedRowKeys = [CHAPTER_HEADER_KEY, ...rows.map((row) => row.id)];
+    const { ticks } = railOverOrdering(rows, retainedRowKeys).model();
+    const band = railViewportBand(FIRST_VISIBLE_BAND, LAST_VISIBLE_BAND, retainedRowKeys.length);
+    const visibleRowIds = new Set(retainedRowKeys.slice(FIRST_VISIBLE_BAND, LAST_VISIBLE_BAND + 1));
+    const visibleTicks = ticks.filter((tick) => visibleRowIds.has(tick.rowId));
+    expect(visibleTicks.length).toBeGreaterThan(0);
+    for (const tick of visibleTicks) {
+      expect(tick.position).toBeGreaterThanOrEqual(band.position);
+      expect(tick.position).toBeLessThanOrEqual(band.position + band.extent);
+    }
+  });
+
+  it("negative control: sequence placement puts one of those marks above the thumb", () => {
+    // The two derivations that shipped, on the same window: marks by sequence
+    // distance, thumb top by row index against the last index. A visible row's
+    // mark lands above the thumb that is supposed to be identifying it — and the
+    // stale top is used rather than the band's, so the comparison is not made
+    // easier by the fix it exists to justify.
+    const rows = storyWindow();
+    const retainedRowKeys = [CHAPTER_HEADER_KEY, ...rows.map((row) => row.id)];
+    const staleTop = FIRST_VISIBLE_BAND / (retainedRowKeys.length - 1);
+    const firstSequence = rows[0]?.sequence ?? 0;
+    const sequenceSpan = (rows[rows.length - 1]?.sequence ?? 0) - firstSequence;
+    const visibleRowIds = new Set(retainedRowKeys.slice(FIRST_VISIBLE_BAND, LAST_VISIBLE_BAND + 1));
+    const escaped = rows
+      .filter((row) => visibleRowIds.has(row.id))
+      .map((row) => (row.sequence - firstSequence) / sequenceSpan)
+      .filter((position) => position < staleTop);
+    expect(escaped.length).toBeGreaterThan(0);
+  });
+
+  it("shifts the marks by exactly the bands a chapter header takes", () => {
+    const rows = storyWindow();
+    const withoutHeader = railOverOrdering(
+      rows,
+      rows.map((row) => row.id),
+    )
+      .model()
+      .ticks.map((tick) => tick.position);
+    const withHeader = railOverOrdering(rows, [CHAPTER_HEADER_KEY, ...rows.map((row) => row.id)])
+      .model()
+      .ticks.map((tick) => tick.position);
+    expect(withHeader).toHaveLength(withoutHeader.length);
+    // One more band, and every mark one band further down: the same arithmetic the
+    // thumb over that ordering performs, so the two move together.
+    for (const [index, position] of withHeader.entries()) {
+      expect(position).toBeCloseTo(railRowBandCentre(index + 1, rows.length + 1), 12);
+    }
+    expect(withHeader[0]).not.toBeCloseTo(withoutHeader[0] ?? Number.NaN, 6);
+  });
+
+  it("places no mark for a row the retained ordering does not hold", () => {
+    // A row the feed is not rendering has no band. Marking it anyway would offer a
+    // jump to a row the viewport cannot scroll to.
+    const rows = storyWindow();
+    const retainedRowKeys = rows.slice(2).map((row) => row.id);
+    const { ticks } = railOverOrdering(rows, retainedRowKeys).model();
+    const retained = new Set(retainedRowKeys);
+    for (const tick of ticks) {
+      expect(retained.has(tick.rowId)).toBe(true);
+    }
+    expect(ticks.map((tick) => tick.rowId)).not.toContain("m1");
   });
 });
 

@@ -132,7 +132,15 @@ export function useVisibleLedgerWindow(
       prunedAwayRows,
       withheldByReplayRows,
       hasEarlierRows,
-      railModel: new ProvenanceRailModel({ rows, hasEarlierRows }),
+      // THE ROW ORDERING, not the rows. `useRailGeometry` sizes the thumb by index
+      // into this same list, so handing the rail anything else would put the marks
+      // on one axis and the thumb on another — and this list is the one that
+      // carries a folded chapter's header, which owns a band and takes no mark.
+      railModel: new ProvenanceRailModel({
+        rows,
+        retainedRowKeys: viewportRows.map((row) => row.key),
+        hasEarlierRows,
+      }),
     };
   }, [ledgerWindow, revealedRows, viewportRows]);
 }

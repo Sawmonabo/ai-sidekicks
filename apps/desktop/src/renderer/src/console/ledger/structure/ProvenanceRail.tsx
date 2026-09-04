@@ -329,13 +329,15 @@ function previewStyle(offsetFraction: number): React.CSSProperties {
 /**
  * A fraction of the rail as a CSS percentage.
  *
- * Fixed to `RAIL_PERCENT_FRACTION_DIGITS` rather than printed raw: binary doubles
+ * Rounded to `RAIL_PERCENT_FRACTION_DIGITS` rather than printed raw: binary doubles
  * make `0.9 * 100` read `90.00000000000001`, and a top and a height that should sum
  * to exactly the rail's length would instead sum to a hair over it and to a string
- * nobody reviewing a computed style can read.
+ * nobody reviewing a computed style can read. Back through `Number` so the rounding
+ * does not also pad — a whole percentage stays `100%` rather than becoming
+ * `100.0000%`.
  */
 function railPercent(fraction: number): string {
-  return `${(fraction * 100).toFixed(RAIL_PERCENT_FRACTION_DIGITS)}%`;
+  return `${String(Number((fraction * 100).toFixed(RAIL_PERCENT_FRACTION_DIGITS)))}%`;
 }
 
 /**
