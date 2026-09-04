@@ -46,6 +46,11 @@ import { _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
+import {
+  FRAME_WITNESS_TIMEOUT_MS,
+  FrameWitness,
+  type RendererFrameSource,
+} from "./frame-witness.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");
@@ -123,13 +128,19 @@ const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
 export const WINDOW_APPEAR_TIMEOUT_MS = 30_000;
 
 /**
- * How long two consecutive animation frames may take to arrive before the
- * launch is declared throttled. A painting renderer delivers them within two
- * display refreshes; a hidden or occluded one under Chromium's default
- * throttling delivers none at all, so the bound only has to be clearly above
- * a refresh interval and clearly below a tier's patience.
+ * The prefix every launch breadcrumb carries.
+ *
+ * One tag, so a CI log is greppable for the whole set: a tier that failed on a
+ * late first frame is diagnosable only if the passing launches printed what
+ * their own first frame cost. The smoke test's boot fix records the same shape
+ * for the same runner (`[SIDEKICKS_SMOKE_READY]`); this one is unconditional
+ * rather than opt-in, because a breadcrumb nobody enabled is a breadcrumb nobody
+ * has when the run they need it for has already finished.
+ *
+ * Lower-case and bracketed rather than the smoke tag's shouted form: that one is
+ * parsed by a scanner and this one is only read.
  */
-const FRAME_WITNESS_TIMEOUT_MS = 2_000;
+const LAUNCH_TRACE_TAG = "[sidekicks-console-launch]";
 
 export interface ConsoleApplication {
   readonly application: ElectronApplication;
@@ -217,9 +228,18 @@ export async function launchConsole(
 
   try {
     const window = await application.firstWindow({ timeout: WINDOW_APPEAR_TIMEOUT_MS });
-    // The frame element, not `domcontentloaded`: the document exists before React
-    // has mounted anything, so waiting on the document would let a test assert
-    // against an empty body and call it a pass.
+    // READINESS FIRST, THEN THE FRAME QUESTION. Both waits below are bounded by
+    // the COLD-START budget, not by the frame budget, and that split is the fix
+    // for the flake this harness used to produce: a slow boot is charged to the
+    // thing that is slow, and the frame witness is armed only once the renderer
+    // has said it is ready. The signals, in the order the renderer reaches them:
+    //
+    //   • `load` — the document and its subresources are in. Cheap, and it can
+    //     land AFTER React has mounted, so it is not implied by the selector.
+    //   • the frame element, not `domcontentloaded`: the document exists before
+    //     React has mounted anything, so waiting on the document alone would let
+    //     a test assert against an empty body and call it a pass.
+    await window.waitForLoadState("load", { timeout: WINDOW_APPEAR_TIMEOUT_MS });
     await window.waitForSelector(".meridian-frame", { timeout: WINDOW_APPEAR_TIMEOUT_MS });
     // A measurement from a throttled renderer is a false one. The window is
     // never revealed on macOS and revealed inactive elsewhere, so Chromium would
@@ -236,14 +256,22 @@ export async function launchConsole(
           `${UNOBTRUSIVE_WINDOWS_ENV} by disabling background throttling (src/main/window-reveal.ts)`,
       );
     }
-    const framesArrive = await witnessAnimationFrames(window);
-    if (!framesArrive) {
+    const frames = await new FrameWitness(rendererFrameSource(window)).witness();
+    if (!frames.painting) {
       throw new Error(
-        `no animation frame arrived within ${String(FRAME_WITNESS_TIMEOUT_MS)} ms, so the renderer ` +
-          "is not painting and nothing timed in it would describe the console; an unrevealed " +
-          `window paints only with background throttling off (src/main/window-reveal.ts)`,
+        `no animation frame arrived within ${String(FRAME_WITNESS_TIMEOUT_MS)} ms of the renderer ` +
+          "signalling ready, so it is not painting and nothing timed in it would describe the " +
+          "console; an unrevealed window paints only with background throttling off " +
+          "(src/main/window-reveal.ts)",
       );
     }
+    // Printed on EVERY launch, passing ones included. The bound above can only
+    // be re-derived from figures a real runner produced, and a figure that is
+    // printed only when it is already too late is no evidence at all.
+    console.error(
+      `${LAUNCH_TRACE_TAG} first frame ${String(Math.round(frames.frameIntervalMs))} ms in-renderer, ` +
+        `${String(frames.waitedMs)} ms driver-side, against a ${String(FRAME_WITNESS_TIMEOUT_MS)} ms bound`,
+    );
     return { application, window, close };
   } catch (error: unknown) {
     await close();
@@ -271,32 +299,28 @@ export function fixtureBundleExists(): boolean {
 }
 
 /**
- * Whether the renderer delivers two consecutive animation frames in bounded
- * time. Two rather than one: a single callback can be the tail of a frame the
- * compositor was already producing, while the second proves the schedule is
- * running. The timer is cleared on either outcome so a passing launch leaves
- * nothing armed.
+ * The Playwright implementation of the witness's seam.
+ *
+ * The interval is timed INSIDE the renderer, by `performance.now()` either side
+ * of the two callbacks, so the figure the harness prints is the frame schedule
+ * itself rather than the frame schedule plus a CDP round trip on a loaded
+ * runner. The witness separately records the driver-side wall time, so a launch
+ * where the two disagree says which half was slow — which is the diagnosis the
+ * old single number could not give.
  */
-async function witnessAnimationFrames(window: Page): Promise<boolean> {
-  let timeoutHandle: NodeJS.Timeout | undefined;
-  const timedOut = new Promise<false>((resolve) => {
-    timeoutHandle = setTimeout(() => {
-      resolve(false);
-    }, FRAME_WITNESS_TIMEOUT_MS);
-  });
-  const framed = window.evaluate(
-    () =>
-      new Promise<true>((resolve) => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            resolve(true);
-          });
-        });
-      }),
-  );
-  try {
-    return await Promise.race([framed, timedOut]);
-  } finally {
-    clearTimeout(timeoutHandle);
-  }
+function rendererFrameSource(window: Page): RendererFrameSource {
+  return {
+    awaitTwoFrames: () =>
+      window.evaluate(
+        () =>
+          new Promise<number>((resolveInterval) => {
+            const requestedAt = performance.now();
+            requestAnimationFrame(() => {
+              requestAnimationFrame(() => {
+                resolveInterval(performance.now() - requestedAt);
+              });
+            });
+          }),
+      ),
+  };
 }
