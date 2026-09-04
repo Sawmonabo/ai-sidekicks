@@ -72,13 +72,12 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
+import { fixtureBundleExists, launchConsole } from "../electron-harness.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   TRIPWIRE_FIXTURE_GLOBAL,
-  fixtureBundleExists,
-  launchConsole,
-} from "../electron-harness.js";
+} from "../fixture-handles.js";
 import {
   FLAGSHIP_SESSION_ID,
   SETTINGS_SURFACE_SELECTOR,

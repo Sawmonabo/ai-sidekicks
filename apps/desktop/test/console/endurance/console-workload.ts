@@ -41,7 +41,7 @@ import {
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
   type ConsoleSessionDiagnostics,
   type ScenarioFixtureHandle,
-} from "../electron-harness.js";
+} from "../fixture-handles.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 
 /** The session the flagship script plays into, and the route that opens it. */

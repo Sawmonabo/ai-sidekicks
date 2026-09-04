@@ -48,6 +48,7 @@ import type { ElectronApplication, Page } from "@playwright/test";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
 import {
   BoundedCleanup,
+  cleanupFailure,
   type CleanupOutcome,
   ELECTRON_PROCESS_TERMINATOR,
   withCleanupOutcome,
@@ -70,47 +71,6 @@ const PACKAGE_ROOT = resolve(HERE, "..", "..");
 
 /** The built main entry both tiers launch. Produced by `pnpm build:fixtures`. */
 export const MAIN_ENTRY_PATH: string = join(PACKAGE_ROOT, "out", "main", "index.js");
-
-// THE THREE PROPERTIES A FIXTURE BUILD HANGS ITS HANDLES ON
-//
-// Each is RE-EXPORTED from the renderer module that sets it, never retyped here.
-// A string duplicated across this boundary cannot go wrong loudly: a rename in
-// the renderer would leave a tier reading `undefined` from a global that no
-// longer exists — at the far end of the longest tier in the suite, reporting a
-// missing property rather than a rename. Importing makes it a compile error
-// instead. Stated once for all three rather than three times, because a rule
-// restated per export is a rule with three places to drift.
-//
-// These tiers compile under `tsconfig.console-electron-test.json`, which carries
-// both the Node and the DOM libs precisely so the driver can name what the
-// renderer declares; the build-time signals the console's modules read are
-// substituted for the driver process by each tier's `define` in
-// `vitest.config.ts`.
-
-/** The tripwire registry. */
-export { TRIPWIRE_FIXTURE_GLOBAL } from "../../src/renderer/src/console/core/tripwires.js";
-
-/**
- * The scenario control, and its shape.
- *
- * Reached directly rather than through `console/bridge/index.js`, because that
- * barrel pulls the provider's `.tsx` in and this program has no JSX.
- */
-export {
-  SCENARIO_FIXTURE_GLOBAL,
-  type ScenarioFixtureHandle,
-} from "../../src/renderer/src/console/bridge/scenario-selection.js";
-
-/**
- * The session-store diagnostics, and their shape.
- *
- * Beats delivered by the scenario engine and events admitted to a store's apply
- * chokepoint are two different claims, and the endurance tier asserts both.
- */
-export {
-  SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
-  type ConsoleSessionDiagnostics,
-} from "../../src/renderer/src/console/frame/session-event-binder.js";
 
 /**
  * The environment variable the built main process reads a scenario id from.
@@ -141,7 +101,16 @@ const LAUNCH_TRACE_TAG = "[sidekicks-console-launch]";
 export interface ConsoleApplication {
   readonly application: ElectronApplication;
   readonly window: Page;
-  /** Close the app and remove its private profile. Safe to call twice. */
+  /**
+   * Close the app and remove its private profile. Safe to call twice.
+   *
+   * REJECTS when cleanup did not end in a clean close — a close that timed out,
+   * one whose termination was refused, or one that rejected outright. A caller
+   * that awaits this in a `finally` therefore fails a test whose assertions
+   * passed but which leaked an Electron, which is the point: vitest does not read
+   * logs, and the process would otherwise survive into the launches after it. The
+   * second call is a no-op and never throws.
+   */
   readonly close: () => Promise<void>;
 }
 
@@ -264,13 +233,20 @@ export async function launchConsole(
     } finally {
       rmSync(userDataDirectory, { recursive: true, force: true });
     }
-    if (cleanupOutcome.settlement !== "closed") {
-      console.error(
-        `${LAUNCH_TRACE_TAG} close did not settle within the ${String(cleanupOutcome.budgetMs)} ms it was given — ` +
-          `${cleanupOutcome.settlement === "terminated" ? "SIGKILLed the process tree" : "COULD NOT terminate the process, which may still hold a profile"} ` +
-          `after ${String(cleanupOutcome.waitedMs)} ms`,
-      );
+    const failure = cleanupFailure(cleanupOutcome);
+    if (failure === undefined) {
+      return;
     }
+    // Breadcrumbed AND thrown. The log is for the launch-failure path, which
+    // swallows this rejection to keep the original error on top; the throw is for
+    // the ordinary path, where a `console.error` is not a failure to vitest and a
+    // tier whose assertions passed would otherwise report success while leaving an
+    // Electron alive for every launch after it.
+    console.error(
+      `${LAUNCH_TRACE_TAG} close settled ${cleanupOutcome.settlement} after ` +
+        `${String(cleanupOutcome.waitedMs)} ms of the ${String(cleanupOutcome.budgetMs)} ms it was given`,
+    );
+    throw failure;
   };
 
   try {
@@ -345,7 +321,15 @@ export async function launchConsole(
     );
     return { application, window, close };
   } catch (error: unknown) {
-    await close();
+    // `close()` rejects on abnormal cleanup, and here that rejection must NOT
+    // win: the launch already failed and its error is the one that explains the
+    // run. So it is swallowed and the cleanup outcome is attached to the original
+    // instead — one error carrying both, never two with the wrong one on top.
+    try {
+      await close();
+    } catch {
+      // Recorded in `cleanupOutcome`, and attached by the throw below.
+    }
     throw withCleanupOutcome(error, cleanupOutcome);
   }
 }

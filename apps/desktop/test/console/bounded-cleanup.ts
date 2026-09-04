@@ -107,6 +107,13 @@ export interface CleanupOutcome {
    * that misdescribes the very measurement it is reporting.
    */
   readonly budgetMs: number;
+  /**
+   * The process the settlement is about, when one was still addressable.
+   *
+   * Carried so a failure can NAME it: an operator told only that termination was
+   * refused has nothing to look for in `ps`.
+   */
+  readonly processId?: number | undefined;
 }
 
 /**
@@ -274,6 +281,7 @@ export class BoundedCleanup {
           waitedMs: Date.now() - startedAt,
           budgetMs,
           closeRejection,
+          processId,
         };
       }
       return {
@@ -281,6 +289,7 @@ export class BoundedCleanup {
         waitedMs: Date.now() - startedAt,
         budgetMs,
         closeRejection,
+        processId,
       };
     }
     // The budget expired with the close still outstanding, so the process is
@@ -291,6 +300,7 @@ export class BoundedCleanup {
       settlement: terminated ? "terminated" : "unterminable",
       waitedMs: Date.now() - startedAt,
       budgetMs,
+      processId,
     };
   }
 }
@@ -308,10 +318,14 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
   if (outcome === undefined || outcome.settlement === "closed") {
     return error;
   }
+  const rejectionNote =
+    outcome.closeRejection instanceof Error
+      ? ` (close rejected: ${outcome.closeRejection.message})`
+      : "";
   if (outcome.settlement === "closed-after-rejection") {
     return new Error(
-      `a launch failed, and closing the Electron process then failed too — though the process did ` +
-        `exit, so nothing was left running; the failure that started this is the cause below`,
+      `a launch failed, and closing the Electron process then failed too${rejectionNote} — though the ` +
+        `process did exit, so nothing was left running; the failure that started this is the cause below`,
       { cause: error },
     );
   }
@@ -323,7 +337,54 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
   return new Error(
     `a launch failed, and the Electron process then did not close within the ${String(outcome.budgetMs)} ms ` +
       "it was given " +
-      `(waited ${String(outcome.waitedMs)} ms) ${consequence}; the failure that started this is the cause below`,
+      `(waited ${String(outcome.waitedMs)} ms)${rejectionNote} ${consequence}; the failure that started this is the cause below`,
     { cause: error },
   );
+}
+
+/**
+ * Raised when a launch's cleanup did not end in a clean close.
+ *
+ * Thrown rather than logged, which is the whole point. A `console.error` is not a
+ * failure to vitest, so a tier whose assertions passed reported success while
+ * leaving an Electron alive — consuming the runner and, because every Playwright
+ * tier shares one harness, interfering with the launches after it. The one
+ * outcome a test cannot be allowed to ignore is the one it cannot see.
+ *
+ * Names the settlement AND the process id: an operator told only that termination
+ * was refused has nothing to look for.
+ */
+export class CleanupFailedError extends Error {
+  readonly settlement: CleanupSettlement;
+  readonly processId: number | undefined;
+
+  constructor(outcome: CleanupOutcome) {
+    const target =
+      outcome.processId === undefined
+        ? "an unidentified process"
+        : `pid ${String(outcome.processId)}`;
+    super(
+      `the launched Electron did not close cleanly: ${outcome.settlement} for ${target} after ` +
+        `${String(outcome.waitedMs)} ms of the ${String(outcome.budgetMs)} ms it was given` +
+        (outcome.settlement === "unterminable"
+          ? " — it may still be running and holding its profile, and a later launch in the same job " +
+            "losing `requestSingleInstanceLock()` starts here"
+          : ""),
+      outcome.closeRejection === undefined ? undefined : { cause: outcome.closeRejection },
+    );
+    this.name = "CleanupFailedError";
+    this.settlement = outcome.settlement;
+    this.processId = outcome.processId;
+  }
+}
+
+/**
+ * The error a caller must be shown, or `undefined` when cleanup was clean.
+ *
+ * A function rather than a conditional at the call site so the rule — every
+ * settlement but `closed` is a failure — is stated once and can be tested without
+ * launching Electron, which is the only way to reach these settlements for real.
+ */
+export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | undefined {
+  return outcome.settlement === "closed" ? undefined : new CleanupFailedError(outcome);
 }

@@ -73,10 +73,15 @@
     "test/console/accessibility/**",
     "test/console/e2e/**",
     "test/console/endurance/**",
-    // The launcher the two Electron tiers share. It sits beside them rather than
-    // inside either, so it needs its own line: it names renderer constants (and
-    // so reads the console's build-time signals) for the same reason those tiers
-    // do, and is typechecked with them by `tsconfig.console-electron-test.json`.
-    "test/console/electron-harness.ts"
+    // The launcher the two Electron tiers share, and the module naming the three
+    // fixture globals they read off a built renderer. Both sit beside those tiers
+    // rather than inside either, so both need their own line: they name renderer
+    // constants (and so read the console's build-time signals) for the same reason
+    // those tiers do, and are typechecked with them by
+    // `tsconfig.console-electron-test.json`. The launcher's other siblings here —
+    // `bounded-cleanup.ts`, `launch-deadline.ts`, `frame-witness.ts`,
+    // `launch-args.ts` — import no renderer module and stay in this config.
+    "test/console/electron-harness.ts",
+    "test/console/fixture-handles.ts"
   ]
 }
