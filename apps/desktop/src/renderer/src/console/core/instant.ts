@@ -51,6 +51,8 @@
 // one, so it reads as malformed here. Nothing this console talks to emits one, and
 // it fails CLOSED — an em dash and a row sorted last, never a wrong instant.
 
+import { lossyStringify } from "../../../../shared/wire-errors.js";
+
 /**
  * RFC 3339 §5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case,
  * as that section's note permits), `partial-time` with an optional fraction of any
@@ -136,12 +138,23 @@ export type InstantReading = Instant | MalformedInstant;
  * A fraction wider than milliseconds is TRUNCATED, never rounded: `.9999Z` reads
  * as `.999`, so a reading is never later than the instant the wire named.
  *
- * Total. Every input answers a reading; nothing throws. A non-string reaching here
- * past the type (a wire value the console did not itself validate) matches no
- * grammar and is refused like any other malformed value, so no runtime `typeof`
- * guard is needed to make that claim true.
+ * TOTAL, and the runtime guard is what makes that true rather than the type. A
+ * non-string reaching here past the type is the reachable case — this reader is fed
+ * wire values the console did not itself validate — and it does NOT simply "match no
+ * grammar": `RegExp.prototype.exec` runs `ToString` on its argument first, which
+ * THROWS for a null-prototype object, for a symbol, and for any hostile or merely
+ * broken `toString`. So the guard runs before the grammar, and it is the only reason
+ * the totality claim holds.
+ *
+ * Such a value is refused like any other malformed one, and the malformed arm quotes
+ * what it was given — `text` is declared `string` and is what a refusal renders, so
+ * the spelling comes through {@link lossyStringify}, which is total for the same
+ * reason this function has to be.
  */
 export function parseInstant(text: string): InstantReading {
+  if (typeof text !== "string") {
+    return { kind: "malformed", text: lossyStringify(text) };
+  }
   const match = RFC_3339_DATE_TIME.exec(text);
   if (match === null) {
     return { kind: "malformed", text };
