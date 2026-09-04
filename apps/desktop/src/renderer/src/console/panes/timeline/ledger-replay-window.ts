@@ -94,7 +94,8 @@ interface LedgerReplayWalk {
 /** The two facts a replaced walk carries across the re-mint. */
 interface LedgerReplayResumePoint {
   readonly elapsedMs: number;
-  readonly isPlaying: boolean;
+  /** What the replaced walk was doing, so the re-minted one is doing it too. */
+  readonly state: ReplayState;
 }
 
 export interface LedgerReplayInputs {
@@ -154,12 +155,12 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
     setWalk({
       rows: ledgerWindow.rows,
       loadedRows: loadedWindow.rows,
-      // A walk re-minted at the very end resumes PAUSED at the very end: the engine
-      // reaches `at-tail` only by advancing into it, and the rows a paused position
-      // at the span's end reveals are the rows `at-tail` reveals. The dock therefore
-      // offers "resume" where it had offered "follow", which is the whole of the
-      // difference and is stated rather than hidden.
-      resumeFrom: { elapsedMs: position.elapsedMs, isPlaying: position.state === "playing" },
+      // The position AND what the walk was doing at it, because the two states a
+      // replay can be stopped in offer different next moves: a walk re-minted at
+      // the very end settles `at-tail` through the engine's own scrub, so the dock
+      // still offers to replay from the beginning rather than to resume a walk with
+      // nothing left to play.
+      resumeFrom: { elapsedMs: position.elapsedMs, state: position.state },
     });
   }
 
@@ -177,7 +178,12 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
       // walk already reveals the rows the replaced one had reached — an effect would
       // paint the whole window at elapsed zero first.
       mintedEngine.scrubTo(walk.resumeFrom.elapsedMs);
-      if (walk.resumeFrom.isPlaying) {
+      // Resumed only from `paused`, which is where the scrub leaves a position with
+      // window left to play. `play()` from `at-tail` restarts at the HEAD by design,
+      // so a walk whose rows narrowed under it — the position clamped onto the new
+      // span's end — would have been thrown back to the beginning by the very call
+      // meant to carry it across.
+      if (walk.resumeFrom.state === "playing" && mintedEngine.position().state === "paused") {
         mintedEngine.play();
       }
     }

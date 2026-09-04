@@ -5,14 +5,14 @@
 // translation from a position to viewport rows, which is where a synthetic header
 // keyed by its run id and a revealed set keyed by event ids meet.
 
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { ManualClock } from "../../core/index.js";
-import { ReplayEngine, type ReplayPosition } from "../../ledger/structure/index.js";
+import { ReplayControls, ReplayEngine, type ReplayPosition } from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import { foldChapterHeaders } from "./ledger-chapter-fold.js";
 import {
@@ -344,6 +344,31 @@ describe("a replay across a projection change", () => {
   });
 });
 
+/**
+ * What the replay dock's primary control offers at one position.
+ *
+ * The REAL control rather than a reading of the state beside it: what a person is
+ * offered at the end of a walk is the claim, and the state is only how the dock
+ * decides it. A case that asserted the state alone would pass over a dock that
+ * labelled `at-tail` as a resume.
+ */
+function primaryDockOffer(position: ReplayPosition): string {
+  const { container } = render(
+    createElement(ReplayControls, {
+      position,
+      isRevealed: true,
+      onPlay: () => undefined,
+      onPause: () => undefined,
+      onSpeedChange: () => undefined,
+      onScrub: () => undefined,
+      onJumpToNextSeam: () => undefined,
+      onReplayFromRowInView: () => undefined,
+    }),
+  );
+  const primary = container.querySelector(".meridian-replay__primary");
+  return primary?.getAttribute("aria-label") ?? "";
+}
+
 describe("a replay across a fold or a filter change", () => {
   /**
    * The chapter's own message row — in the loaded log, out of the shut window.
@@ -411,6 +436,45 @@ describe("a replay across a fold or a filter change", () => {
     expect(replay.result.current.position.revealedRowIds).toContain(CHAPTER_MEMBER_ROW_ID);
     // And the walk is still a walk: the position it was at is the position it is at.
     expect(isReplayEngaged(replay.result.current.position.state)).toBe(true);
+  });
+
+  it("leaves a walk disclosed at the tail still at the tail", () => {
+    // THE REGRESSION THIS CLOSES. The re-minted engine could only be scrubbed to the
+    // position the replaced one held, and `at-tail` was reachable only by ADVANCING
+    // into it — so disclosing a chapter while following the tail settled `paused`,
+    // and the dock offered to resume a walk with nothing left to play.
+    const { loadedWindow, shut, open } = chapterDisclosure();
+    const replay = mountReplayOver({ ledgerWindow: shut, loadedWindow });
+    act(() => {
+      replay.result.current.scrub(Number.MAX_SAFE_INTEGER);
+    });
+    expect(replay.result.current.position.state).toBe("at-tail");
+
+    act(() => {
+      replay.rerender({ ledgerWindow: open, loadedWindow });
+    });
+
+    expect(replay.result.current.position.state).toBe("at-tail");
+    expect(primaryDockOffer(replay.result.current.position)).toBe("Replay from the beginning");
+  });
+
+  it("negative control: a walk paused mid-log re-mints paused where it was", () => {
+    // Without this the fix could be "always settle at the tail", which would tell
+    // somebody parked halfway through a session that there was nothing left to play.
+    const { loadedWindow, shut, open } = chapterDisclosure();
+    const replay = mountReplayOver({ ledgerWindow: shut, loadedWindow });
+    act(() => {
+      replay.result.current.scrub(ONE_ROW_MS);
+    });
+    expect(replay.result.current.position.state).toBe("paused");
+
+    act(() => {
+      replay.rerender({ ledgerWindow: open, loadedWindow });
+    });
+
+    expect(replay.result.current.position.state).toBe("paused");
+    expect(replay.result.current.position.elapsedMs).toBe(ONE_ROW_MS);
+    expect(primaryDockOffer(replay.result.current.position)).toBe("Resume the replay");
   });
 
   it("carries a playing walk across the disclosure at the position it held", () => {
