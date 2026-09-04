@@ -11,6 +11,7 @@ import { describe, expect, it, vi } from "vitest";
 import { SessionGoalCard } from "./SessionGoalCard.js";
 import { ACCENT_FILL_CLASS } from "../../primitives/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import { type SessionGoalProjection } from "./session-goal.js";
 
 // The revisions below stand for whatever entry the fold read each projection from.
@@ -23,6 +24,21 @@ const A_GOAL: SessionGoalProjection = {
   revision: "o:1:node-alpha",
 };
 
+const FIRST_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b5";
+const SECOND_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";
+
+/**
+ * A bridge this card only ever compares by identity.
+ *
+ * The card reads no member of it — the subject the editor is held under is the pair
+ * `(bridge, sessionId)` and the comparison is `===` — so a stub with nothing on it
+ * is the honest double here, and a second one below stands for a replaced window
+ * transport.
+ */
+function inertBridge(): ConsoleBridge {
+  return {} as unknown as ConsoleBridge;
+}
+
 function renderCard(
   overrides: {
     goal?: SessionGoalProjection;
@@ -31,9 +47,17 @@ function renderCard(
     isMutating?: boolean;
     onUpdate?: (text: string) => void;
     onClear?: () => void;
+    bridge?: ConsoleBridge;
+    sessionId?: string;
   } = {},
-): { rerender: (goal: SessionGoalProjection) => void } {
+): {
+  rerender: (goal: SessionGoalProjection) => void;
+  /** Rebind the mounted card to another subject, as a pane rebind does. */
+  rebindTo: (subject: { bridge?: ConsoleBridge; sessionId?: string }) => void;
+} {
   const props = {
+    bridge: overrides.bridge ?? inertBridge(),
+    sessionId: overrides.sessionId ?? FIRST_SESSION_ID,
     goal: overrides.goal ?? NO_GOAL,
     canMutate: "canMutate" in overrides ? overrides.canMutate : true,
     authorizationRefusal: overrides.authorizationRefusal,
@@ -46,6 +70,15 @@ function renderCard(
   return {
     rerender: (goal) => {
       view.rerender(<SessionGoalCard {...props} goal={goal} />);
+    },
+    rebindTo: (subject) => {
+      view.rerender(
+        <SessionGoalCard
+          {...props}
+          bridge={subject.bridge ?? props.bridge}
+          sessionId={subject.sessionId ?? props.sessionId}
+        />,
+      );
     },
   };
 }
@@ -226,6 +259,65 @@ describe("nothing is optimistic", () => {
   });
 });
 
+describe("the editor belongs to the session it was opened for", () => {
+  it("closes the editor and drops the draft when the card is rebound to another session", () => {
+    // The finding: the reset watched only the goal revision, and every session with
+    // no goal reads the same `"unset"` one — so the open editor and the half-typed
+    // text survived the rebind and Save dispatched them through the new session's
+    // own `onUpdate`. The two projections here are the SAME object, which is what
+    // makes the revision identical rather than merely similar.
+    const onUpdate = vi.fn();
+    const driven = renderCard({ goal: NO_GOAL, sessionId: FIRST_SESSION_ID, onUpdate });
+    fireEvent.click(screen.getByRole("button", { name: "Set a goal" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Half a sentence" } });
+
+    driven.rebindTo({ sessionId: SECOND_SESSION_ID });
+
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save goal" })).toBeNull();
+    expect(onUpdate).not.toHaveBeenCalled();
+  });
+
+  it("opens the second session's editor empty rather than on the first one's draft", () => {
+    // The other half: closing is not enough if the text is still held. Re-opening
+    // under the new session has to meet an empty field, because a draft written for
+    // one session is not an offer to send it to another.
+    const driven = renderCard({ goal: NO_GOAL, sessionId: FIRST_SESSION_ID });
+    fireEvent.click(screen.getByRole("button", { name: "Set a goal" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Half a sentence" } });
+
+    driven.rebindTo({ sessionId: SECOND_SESSION_ID });
+    fireEvent.click(screen.getByRole("button", { name: "Set a goal" }));
+
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+  });
+
+  it("closes the editor when the window's bridge is replaced under one session", () => {
+    // The subject is the pair. A replaced transport is a different subject even
+    // where the session id is character-for-character the one before it.
+    const driven = renderCard({ goal: NO_GOAL, sessionId: FIRST_SESSION_ID });
+    fireEvent.click(screen.getByRole("button", { name: "Set a goal" }));
+
+    driven.rebindTo({ bridge: inertBridge() });
+
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("negative control: the same session and the same revision keep the editor open", () => {
+    // Without this, a card that had simply stopped keeping the editor open at all
+    // would pass every case above. It is also the rule the rebind must not be read
+    // as contradicting: a re-render that moved neither subject nor log changes
+    // nothing about what somebody is typing.
+    const driven = renderCard({ goal: NO_GOAL, sessionId: FIRST_SESSION_ID });
+    fireEvent.click(screen.getByRole("button", { name: "Set a goal" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Half a sentence" } });
+
+    driven.rebindTo({ sessionId: FIRST_SESSION_ID });
+
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Half a sentence");
+  });
+});
+
 describe("the readings that are not a goal", () => {
   it("says no goal is set rather than showing an empty line", () => {
     renderCard({ goal: NO_GOAL });
@@ -240,6 +332,8 @@ describe("the readings that are not a goal", () => {
   it("renders a refusal beside the card", () => {
     render(
       <SessionGoalCard
+        bridge={inertBridge()}
+        sessionId={FIRST_SESSION_ID}
         goal={A_GOAL}
         canMutate
         authorizationRefusal={undefined}

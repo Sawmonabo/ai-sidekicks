@@ -1,9 +1,9 @@
 // The one structured goal a session may hold, with setting and clearing as two
 // different acts.
 //
-// Five rules, each visible in the code. The first and the fourth are the corpus's —
+// Six rules, each visible in the code. The first and the fourth are the corpus's —
 // `api-payload-contracts.md §Plan-016 — Multi-Agent Channels And Orchestration`
-// registers the two operations and the field's bounds — and the other three are
+// registers the two operations and the field's bounds — and the other four are
 // this card's own, because no committed document states them:
 //
 //   • **Set and clear are two controls.** There is no single control with an empty
@@ -24,13 +24,24 @@
 //     the fail-closed arm. Where the role could not be READ, the caller hands the
 //     refusal down with it and the card renders that sentence, so a missing control
 //     is explained rather than silently absent.
+//   • **The editor belongs to the session it was opened for.** The pane is rebound
+//     from one session to another by a prop change, and a card that closed only on
+//     a goal revision kept the open editor and the half-typed text across that move
+//     — every session with no goal reads the same `"unset"` revision, and an
+//     origin-keyed one names the appending daemon rather than the session, so two
+//     sessions routinely present the same revision and the effect never fired. Save
+//     then dispatched text authored for one session through the other's `onUpdate`.
+//     So the editor rides `useSessionScopedState`, which resets it during the render
+//     that first sees a new `(bridge, sessionId)`: the first frame under the new
+//     session is the closed editor, and the draft is gone rather than re-addressed.
+//     The revision rule stands beside it, closing the editor when the LOG moves.
 //
 // Turn-boundary effectiveness and cross-node honesty are stated in the copy rather
 // than implied by an animation: a goal change governs the NEXT turn, an in-flight
 // turn completes under the prior prompt, and a leg on a remote node may run a turn
 // under the prior goal while the relayed event is still travelling.
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId } from "react";
 
 import {
   ACCENT_FILL_CLASS,
@@ -39,10 +50,33 @@ import {
   Nothing,
 } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
+import { useSessionScopedState, type ConsoleBridge } from "../../bridge/index.js";
 import { SESSION_GOAL_MAX_LENGTH } from "./approvals-bounds.js";
 import { sessionGoalTextSchema, type SessionGoalProjection } from "./session-goal.js";
 
+/**
+ * The editor, which is either closed or open over one draft.
+ *
+ * One value rather than a flag beside a string, so "closed" cannot carry a draft:
+ * the state a rebind resets is the whole editor, and there is no second field left
+ * holding text authored for the session the card has moved off.
+ */
+type GoalEditorState =
+  | { readonly isOpen: false }
+  | { readonly isOpen: true; readonly draftText: string };
+
+const CLOSED_GOAL_EDITOR: GoalEditorState = { isOpen: false };
+
 export interface SessionGoalCardProps {
+  /**
+   * The transport the goal belongs to, and the session it belongs to.
+   *
+   * Both, because both can change under a mounted card — the pane is rebound to
+   * another session by a prop change and the window's bridge is replaced by the
+   * fixture picker — and the editor belongs to the pair rather than to the mount.
+   */
+  readonly bridge: ConsoleBridge;
+  readonly sessionId: string;
   readonly goal: SessionGoalProjection;
   /**
    * Whether this participant's role may mutate the goal.
@@ -70,8 +104,15 @@ export interface SessionGoalCardProps {
 export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element {
   const { goal } = props;
   const fieldId = useId();
-  const [isEditing, setIsEditing] = useState(false);
-  const [draftText, setDraftText] = useState("");
+  // Held under the session it was opened for. The reset runs during the render that
+  // first sees a new subject, so no frame commits one session's draft under another
+  // — an effect would clear it one frame late, with Save reachable in between.
+  const [editor, publishEditor] = useSessionScopedState<GoalEditorState>(
+    props.bridge,
+    props.sessionId,
+    CLOSED_GOAL_EDITOR,
+  );
+  const draftText = editor.isOpen ? editor.draftText : "";
 
   // The editor closes when the LOG moves, which is the only thing that commits a
   // goal. Closing on the reply instead would leave the card showing the new text
@@ -83,10 +124,15 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
   // — on any `usage.*` beat or run transition that happened to land while somebody
   // was typing. The revision moves when a different goal event wins the fold and at
   // no other time, which is exactly the condition this effect is about.
+  //
+  // It answers the LOG's movement and nothing else. A rebind to another session is a
+  // different question — the revisions of two sessions are not comparable, and two
+  // goal-less ones are equal — and it is answered above, by the subject the editor
+  // is held under, rather than by widening this effect's key.
   const goalRevision = goal.revision;
   useEffect(() => {
-    setIsEditing(false);
-  }, [goalRevision]);
+    publishEditor(CLOSED_GOAL_EDITOR);
+  }, [goalRevision, publishEditor]);
 
   const submit = useCallback(() => {
     const parsed = sessionGoalTextSchema.safeParse(draftText);
@@ -103,13 +149,15 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
     <section className="meridian-goal" aria-label="Session goal">
       <div className="meridian-goal__line">
         <GoalReading goal={goal} />
-        {props.canMutate === true && !isEditing ? (
+        {props.canMutate === true && !editor.isOpen ? (
           <button
             className="meridian-goal__open"
             type="button"
             onClick={() => {
-              setDraftText(goal.status === "set" ? goal.text : "");
-              setIsEditing(true);
+              publishEditor({
+                isOpen: true,
+                draftText: goal.status === "set" ? goal.text : "",
+              });
             }}
           >
             {goal.status === "set" ? "Change goal" : "Set a goal"}
@@ -117,7 +165,7 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
         ) : null}
       </div>
 
-      {props.canMutate === true && isEditing ? (
+      {props.canMutate === true && editor.isOpen ? (
         <div className="meridian-goal__editor">
           <label className="meridian-goal__label" htmlFor={fieldId}>
             The goal this session is working towards
@@ -128,7 +176,7 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
             maxLength={SESSION_GOAL_MAX_LENGTH}
             value={draftText}
             onChange={(event) => {
-              setDraftText(event.target.value);
+              publishEditor({ isOpen: true, draftText: event.target.value });
             }}
           />
           <p className="meridian-goal__effectiveness">
@@ -165,7 +213,7 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
               className="meridian-goal__cancel"
               type="button"
               onClick={() => {
-                setIsEditing(false);
+                publishEditor(CLOSED_GOAL_EDITOR);
               }}
             >
               Cancel
