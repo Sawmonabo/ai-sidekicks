@@ -9,6 +9,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { growthUnavailable, type AttentionItem } from "../../bridge/index.js";
+import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
 import {
   AttentionPlane,
@@ -254,5 +255,50 @@ describe("a read that did not cover every session", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("One session could not be checked.");
     expect(text).toContain("One item in that read");
+  });
+});
+
+describe("when an attention item was raised", () => {
+  // The two instants are one calendar day apart at the same wall-clock minute, which
+  // is the collision the reading has to survive: rows are grouped by session and by
+  // nothing else, so nothing else on this surface says which day an item belongs to.
+  const RAISED_TODAY = "2026-01-01T10:00:00.000Z";
+  const RAISED_NEXT_DAY = "2026-01-02T10:00:00.000Z";
+
+  function attentionReadings(container: HTMLElement): readonly string[] {
+    return [...container.querySelectorAll(".meridian-attention__row .meridian-figure--wire")]
+      .map((figure) => figure.textContent ?? "")
+      .filter((text) => text !== "");
+  }
+
+  it("renders two items a day apart as two different readings", () => {
+    const { container } = render(
+      <NotificationCenter
+        reading={readingOf([
+          item({ id: "attention-today", createdAt: RAISED_TODAY }),
+          item({ id: "attention-next-day", createdAt: RAISED_NEXT_DAY }),
+        ])}
+      />,
+    );
+    const [today, nextDay] = attentionReadings(container);
+    expect(today).toBe(formatDateTime(RAISED_TODAY));
+    expect(nextDay).toBe(formatDateTime(RAISED_NEXT_DAY));
+    expect(nextDay).not.toBe(today);
+  });
+
+  it("negative control: the clock-only reading of those two instants is one string", () => {
+    // Without this the case above would pass over two instants that were never a
+    // collision, and would prove nothing about which formatter the row reaches for.
+    expect(formatClockTime(RAISED_NEXT_DAY)).toBe(formatClockTime(RAISED_TODAY));
+  });
+
+  it("keeps the exact instant on the row's own title, unformatted", () => {
+    const { container } = render(
+      <NotificationCenter reading={readingOf([item({ createdAt: RAISED_TODAY })])} />,
+    );
+    const titles = [...container.querySelectorAll(".meridian-attention__row [title]")].map(
+      (element) => element.getAttribute("title"),
+    );
+    expect(titles).toContain(RAISED_TODAY);
   });
 });

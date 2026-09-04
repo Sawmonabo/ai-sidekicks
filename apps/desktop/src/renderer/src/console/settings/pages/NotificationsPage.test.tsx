@@ -55,6 +55,7 @@ function contextWith(bridge: ConsoleBridge, retainedSessionId: string | undefine
     bridge,
     openSection: () => undefined,
     retainedSessionId,
+    retainedSessionStore: undefined,
   } satisfies SettingsPageContext;
 }
 

@@ -17,7 +17,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { FrameStore } from "../store/index.js";
+import { FrameStore, SessionStoreRegistry } from "../store/index.js";
 import { SettingsSurface } from "./SettingsSurface.js";
 import { registerSettingsPages } from "./index.js";
 import { SETTINGS_SECTION_IDS, SettingsPageRegistry } from "./settings-page-registry.js";
@@ -88,11 +88,17 @@ function windowAt(
       route: frameStore.getState().route,
       bridge: { source: "fixture" },
       frameStore,
+      // The REAL registry rather than a stub: the surface resolves the retained
+      // session's store through it, so a hand-built object would let this file
+      // assert a resolution the shipped registry does not perform. No session is
+      // opened on it here — a settings window that has opened none is the ordinary
+      // case, and it is the one this harness renders.
+      sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
     } as unknown as ConsoleSurfaceContext,
   };
 }
 
-/** The three fields this surface reads, and nothing else. */
+/** The four fields this surface reads, and nothing else. */
 function contextFor(page: string | undefined): ConsoleSurfaceContext {
   return windowAt(page).context;
 }

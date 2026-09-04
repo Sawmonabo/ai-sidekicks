@@ -7,7 +7,31 @@ import { describe, expect, it } from "vitest";
 import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { MOUNT_INVENTORY_READ_CAP } from "../../core/index.js";
+import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { createMountInventoryRead, distinctMountIds } from "./mount-inventory.js";
+
+/** An initialised store, so an appended event is admitted rather than buffered. */
+function initialisedStore(sessionId: string): SessionStore {
+  const sessionStore = new SessionStore({ sessionId });
+  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  return sessionStore;
+}
+
+/** One admitted event of the given kind, numbered so the store's cursor moves. */
+function eventOfKind(
+  sessionStore: SessionStore,
+  kind: ConsoleSessionEvent["kind"],
+  sequence: number,
+): ConsoleSessionEvent {
+  return {
+    id: `event-${String(sequence)}`,
+    sessionId: sessionStore.sessionId,
+    sequence,
+    kind,
+    occurredAt: "2026-09-02T10:00:00.000Z",
+    payload: {},
+  };
+}
 
 /**
  * Let the scheduler's in-flight read settle without advancing the clock.
@@ -104,7 +128,12 @@ describe("mount inventory read", () => {
   it("reads each distinct mount once, after listing the session's workspaces", async () => {
     const clock = new ManualClock();
     const { bridge, calls } = bridgeAnswering({ mountIds: ["mount-a", "mount-b", "mount-a"] });
-    const read = createMountInventoryRead({ bridge, sessionId: "session-1", clock });
+    const read = createMountInventoryRead({
+      bridge,
+      sessionId: "session-1",
+      clock,
+      sessionStore: undefined,
+    });
     read.start();
     clock.advance(500);
     await settle();
@@ -121,7 +150,12 @@ describe("mount inventory read", () => {
       mountIds: ["mount-a", "mount-b"],
       refuseMountIds: ["mount-b"],
     });
-    const read = createMountInventoryRead({ bridge, sessionId: "session-1", clock });
+    const read = createMountInventoryRead({
+      bridge,
+      sessionId: "session-1",
+      clock,
+      sessionStore: undefined,
+    });
     read.start();
     clock.advance(500);
     await settle();
@@ -152,7 +186,12 @@ describe("mount inventory read", () => {
         },
       },
     } as unknown as ConsoleBridge;
-    const read = createMountInventoryRead({ bridge, sessionId: "session-1", clock });
+    const read = createMountInventoryRead({
+      bridge,
+      sessionId: "session-1",
+      clock,
+      sessionStore: undefined,
+    });
     read.start();
     clock.advance(500);
     await settle();
@@ -167,7 +206,12 @@ describe("mount inventory read", () => {
       (_unused, index) => `mount-${String(index).padStart(3, "0")}`,
     );
     const { bridge, calls } = bridgeAnswering({ mountIds });
-    const read = createMountInventoryRead({ bridge, sessionId: "session-1", clock });
+    const read = createMountInventoryRead({
+      bridge,
+      sessionId: "session-1",
+      clock,
+      sessionStore: undefined,
+    });
     read.start();
     clock.advance(500);
     await settle();
@@ -178,18 +222,148 @@ describe("mount inventory read", () => {
     expect(state.kind === "loaded" ? state.value.unreadMountCount : undefined).toBe(3);
   });
 
-  it("opens no subscription that would refresh it, and arms no timer once disposed", async () => {
-    // The honest fact this module names: the settings context carries no session
-    // store, so there is no push signal to open. What must still hold is that
-    // nothing is left armed behind the page.
+  it("opens no subscription where this window has no store for the session", async () => {
+    // The one honest absence left: no store open means no stream to bind. What must
+    // still hold is that nothing is armed behind the page once it leaves.
     const clock = new ManualClock();
     const { bridge } = bridgeAnswering({ mountIds: ["mount-a"] });
-    const read = createMountInventoryRead({ bridge, sessionId: "session-1", clock });
+    const read = createMountInventoryRead({
+      bridge,
+      sessionId: "session-1",
+      clock,
+      sessionStore: undefined,
+    });
     read.start();
     clock.advance(500);
     await settle();
+    expect(read.isSubscribed).toBe(true);
     read.dispose();
     read.refresh("window-focus");
+    expect(clock.pendingCount).toBe(0);
+  });
+});
+
+/**
+ * The signals the section names, bound to the stream the console already has open.
+ *
+ * Every case drives the REAL store and the real signal filter — the read under test
+ * is what composes them — so a re-read counted here is one the page would have
+ * performed in a window.
+ */
+describe("what refreshes the inventory", () => {
+  /** A started read over one mount, already settled on its first reading. */
+  async function startedRead(sessionStore: SessionStore | undefined): Promise<{
+    readonly clock: ManualClock;
+    readonly read: ReturnType<typeof createMountInventoryRead>;
+    readonly listCallCount: () => number;
+  }> {
+    const clock = new ManualClock();
+    const { bridge, calls } = bridgeAnswering({ mountIds: ["mount-a"] });
+    const read = createMountInventoryRead({ bridge, sessionId: "session-1", clock, sessionStore });
+    read.start();
+    clock.advance(500);
+    await settle();
+    return {
+      clock,
+      read,
+      listCallCount: () => calls.filter((call) => call.method === "repo.workspaceList").length,
+    };
+  }
+
+  it("re-reads when a run this session was executing reaches a terminal", async () => {
+    const sessionStore = initialisedStore("session-1");
+    const { clock, read, listCallCount } = await startedRead(sessionStore);
+    expect(listCallCount()).toBe(1);
+
+    sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
+    clock.advance(500);
+    await settle();
+
+    expect(listCallCount()).toBe(2);
+    read.dispose();
+  });
+
+  it("re-reads when the mount's own attachment lifecycle moves", async () => {
+    const sessionStore = initialisedStore("session-1");
+    const { clock, read, listCallCount } = await startedRead(sessionStore);
+
+    sessionStore.apply(eventOfKind(sessionStore, "repo.detached", 1));
+    clock.advance(500);
+    await settle();
+
+    expect(listCallCount()).toBe(2);
+    read.dispose();
+  });
+
+  it("re-reads when a workspace lifecycle event changes which mounts this session names", async () => {
+    const sessionStore = initialisedStore("session-1");
+    const { clock, read, listCallCount } = await startedRead(sessionStore);
+
+    sessionStore.apply(eventOfKind(sessionStore, "workspace.ready", 1));
+    clock.advance(500);
+    await settle();
+
+    expect(listCallCount()).toBe(2);
+    read.dispose();
+  });
+
+  it("costs one re-read for a burst, never one per event", async () => {
+    // The coalescing claim, counted rather than assumed: three mount-affecting
+    // events inside one window are one inventory read on the other side of it.
+    const sessionStore = initialisedStore("session-1");
+    const { clock, read, listCallCount } = await startedRead(sessionStore);
+
+    sessionStore.applyBatch([
+      eventOfKind(sessionStore, "run.completed", 1),
+      eventOfKind(sessionStore, "repo.attached", 2),
+      eventOfKind(sessionStore, "workspace.ready", 3),
+    ]);
+    clock.advance(500);
+    await settle();
+
+    expect(listCallCount()).toBe(2);
+    read.dispose();
+  });
+
+  it("negative control: an event outside the watched set refreshes nothing", async () => {
+    // Without this the cases above would pass over a read that re-read on every
+    // store transition, which is a poll wearing a subscription's clothes.
+    const sessionStore = initialisedStore("session-1");
+    const { clock, read, listCallCount } = await startedRead(sessionStore);
+
+    sessionStore.apply(eventOfKind(sessionStore, "run.starting", 1));
+    clock.advance(500);
+    await settle();
+
+    expect(listCallCount()).toBe(1);
+    read.dispose();
+  });
+
+  it("negative control: the same event refreshes nothing when no store was handed over", async () => {
+    // The store IS the signal. Without one the read is focus-driven, which is the
+    // state this case pins so the binding above cannot be mistaken for something
+    // the read does on its own.
+    const sessionStore = initialisedStore("session-1");
+    const { clock, read, listCallCount } = await startedRead(undefined);
+
+    sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
+    clock.advance(500);
+    await settle();
+
+    expect(listCallCount()).toBe(1);
+    read.dispose();
+  });
+
+  it("hears nothing more once the page has left", async () => {
+    const sessionStore = initialisedStore("session-1");
+    const { clock, read, listCallCount } = await startedRead(sessionStore);
+    read.dispose();
+
+    sessionStore.apply(eventOfKind(sessionStore, "run.failed", 1));
+    clock.advance(500);
+    await settle();
+
+    expect(listCallCount()).toBe(1);
     expect(clock.pendingCount).toBe(0);
   });
 });

@@ -43,8 +43,8 @@ import {
   Nothing,
   RefusalCard,
   WireFigure,
-  formatClockTime,
   formatCount,
+  formatDateTime,
 } from "../../primitives/index.js";
 import type {
   AttentionReading,
@@ -296,6 +296,14 @@ function AttentionItemList(props: {
  * scope reads off `runId` exactly as the projection discriminates it: an item
  * carrying one is that run's, an item without one is the session's aggregate,
  * and the console labels which without recomputing either.
+ *
+ * THE INSTANT CARRIES ITS DAY. Rows are grouped by SESSION and by nothing else —
+ * there is no day divider anywhere on this surface — so a clock-only reading made
+ * an item raised this afternoon and one raised last Tuesday at the same minute the
+ * same eight characters, separated only by a hover title a keyboard never reaches.
+ * `formatDateTime` is the console's formatter for exactly that case and says so in
+ * its own words; the alternative is a divider this list cannot have, because its
+ * one grouping axis is already spent on the session.
  */
 function AttentionRow(props: {
   readonly item: AttentionItem;
@@ -313,7 +321,7 @@ function AttentionRow(props: {
             label={TRIGGER_LABELS[item.trigger]}
           />
         )}
-        <WireFigure value={formatClockTime(item.createdAt)} title={item.createdAt} />
+        <WireFigure value={formatDateTime(item.createdAt)} title={item.createdAt} />
       </span>
       <span className="meridian-attention__row-summary">{item.summary}</span>
       <span className="meridian-attention__row-scope">

@@ -38,6 +38,7 @@ import {
   InlineRefusal,
   Nothing,
   formatChordForPlatform,
+  formatCount,
   useAnnounce,
 } from "../../primitives/index.js";
 import { KeybindingRowBody } from "./KeybindingRowBody.js";
@@ -277,7 +278,8 @@ export function KeyboardPage(): ReactNode {
               void resetEveryRow();
             }}
           >
-            Reset all {overriddenRowCount} changed {overriddenRowCount === 1 ? "chord" : "chords"}
+            Reset all {formatCount(overriddenRowCount)} changed{" "}
+            {overriddenRowCount === 1 ? "chord" : "chords"}
           </button>
         )}
       </section>

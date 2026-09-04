@@ -13,6 +13,7 @@ import {
   formatClockTime,
   formatDateTime,
 } from "../../primitives/index.js";
+import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { WorkspaceMountsPage, registerWorkspaceMountsPage } from "./WorkspaceMountsPage.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
 
@@ -60,6 +61,8 @@ function contextReading(options: {
   readonly mountIds: readonly string[];
   readonly mountOverrides?: Readonly<Record<string, Partial<RepoMountReadResponse>>>;
   readonly retainedSessionId?: string | undefined;
+  /** The retained session's store, where the window has one open. */
+  readonly sessionStore?: SessionStore | undefined;
   /** Counts what the page asked for, so a refresh can be proved rather than assumed. */
   readonly onCall?: (method: string) => void;
   /** Makes the enumerating read reject, which is the list's own refused arm. */
@@ -87,6 +90,7 @@ function contextReading(options: {
     },
     openSection: () => undefined,
     retainedSessionId: "retainedSessionId" in options ? options.retainedSessionId : "session-1",
+    retainedSessionStore: options.sessionStore,
   } as unknown as SettingsPageContext;
 }
 
@@ -321,5 +325,83 @@ describe("workspace mounts page — the read says it landed, once", () => {
     // rather than a read that never ran.
     expect(methodsAsked.length).toBeGreaterThan(askedOnFirstRead);
     expect(politeText()).toBe("");
+  });
+});
+
+/** An initialised store, so an appended event is admitted rather than buffered. */
+function initialisedStore(sessionId: string): SessionStore {
+  const sessionStore = new SessionStore({ sessionId });
+  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  return sessionStore;
+}
+
+/** One admitted event of the given kind, numbered so the store's cursor moves. */
+function eventOfKind(
+  sessionStore: SessionStore,
+  kind: ConsoleSessionEvent["kind"],
+  sequence: number,
+): ConsoleSessionEvent {
+  return {
+    id: `event-${String(sequence)}`,
+    sessionId: sessionStore.sessionId,
+    sequence,
+    kind,
+    occurredAt: "2026-09-02T10:00:00.000Z",
+    payload: {},
+  };
+}
+
+describe("the page's refresh signals", () => {
+  it("re-reads the inventory when the retained session reports a run terminal", async () => {
+    // The wire this case pins is the PAGE's: the surface resolves the retained
+    // session's store, the page hands it to the read, and the read binds it. A page
+    // that dropped the member on its way through would still render, and the list
+    // would go quietly stale.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore("session-1");
+    const listMethods: string[] = [];
+    const context = contextReading({
+      clock,
+      mountIds: ["mount-a"],
+      sessionStore,
+      onCall: (method) => {
+        listMethods.push(method);
+      },
+    });
+    const { settle } = await renderSettledPage(clock, context);
+    const listReadsBefore = listMethods.filter((method) => method === "repo.workspaceList").length;
+    expect(listReadsBefore).toBe(1);
+
+    await act(async () => {
+      sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
+      clock.advance(500);
+      await settle();
+    });
+
+    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(2);
+  });
+
+  it("negative control: the same event moves nothing when the window holds no store", async () => {
+    // Without this the case above would pass over a page that re-read on any
+    // render, and would prove nothing about which signal reached the read.
+    const clock = new ManualClock();
+    const sessionStore = initialisedStore("session-1");
+    const listMethods: string[] = [];
+    const context = contextReading({
+      clock,
+      mountIds: ["mount-a"],
+      onCall: (method) => {
+        listMethods.push(method);
+      },
+    });
+    const { settle } = await renderSettledPage(clock, context);
+
+    await act(async () => {
+      sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
+      clock.advance(500);
+      await settle();
+    });
+
+    expect(listMethods.filter((method) => method === "repo.workspaceList")).toHaveLength(1);
   });
 });
