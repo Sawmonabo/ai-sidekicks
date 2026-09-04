@@ -25,8 +25,9 @@
 //     guess: a row under the wrong category is filtered and grouped wrongly by
 //     every surface downstream, which is worse than a row that is missing and
 //     said to be missing.
-//   • `runId` on the run arm — read from the payload member the registered
-//     shapes carry, and only when it is a string.
+//   • `runId` on the run arm — read from the payload members the registered shapes
+//     carry, derived from those shapes rather than listed, and only when the value
+//     is a string.
 //   • A boundary row's `position` — `RunRolledBackEvent.targetPosition`, verbatim,
 //     which is what the arm's own schema refines it against.
 //
@@ -73,8 +74,14 @@
 
 import {
   RunRolledBackEventSchema,
+  type AssistantOutputPayload,
+  type InterventionRequestPayload,
+  type RunRolledBackEvent,
+  type RunStateChangeEvent,
+  type ToolActivityPayload,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
+  TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
   type EventCategory,
   type RunId,
@@ -119,12 +126,69 @@ const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_
 const EMPTY_PROJECTION: FixtureShellProjection = { rows: [], unprojectableEventCount: 0 };
 
 /**
- * The payload member every run-scoped registered shape carries.
+ * The payload members that attribute a row to a run — THE CONTRACT'S OWN LIST.
  *
- * One binding rather than the literal at three call sites: the member's name is a
- * wire fact, and three spellings of it is three chances for two of them to drift.
+ * `TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS` is `["runId", "targetRunId"]`, and the
+ * second one is the whole finding: `Spec-006` spells run identity `runId` on every
+ * run-attributed family except interventions, whose registered shape names the run
+ * `targetRunId`. This shell read the first member and nothing else, so every
+ * `intervention.*` event projected as a session-level `general` row and sat outside
+ * the run chapter it belongs to — on a ledger whose whole shape is runs.
+ *
+ * CONSUMED RATHER THAN RE-DERIVED, because the contracts package already declares
+ * this set once, with its reasoning, in the package that owns the wire. A second
+ * list here would be the drift a closed set is declared once to prevent.
  */
-const RUN_ATTRIBUTION_PAYLOAD_MEMBER = "runId";
+const RUN_ATTRIBUTION_PAYLOAD_MEMBERS: readonly string[] = TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS;
+
+/**
+ * Every payload member in the registered shapes that NAMES a run, decided.
+ *
+ * THE COMPLETENESS PROOF FOR THE LIST ABOVE, and it catches what a shared runtime
+ * constant cannot: a run-naming member added to a payload type that nobody adds to
+ * that constant either. The union takes every member of every arm called `runId`
+ * or ending in `RunId` — matched per arm, because a naked `keyof` over a union
+ * yields only the members all its arms share — and the table is total over it, so
+ * such a member fails to compile here until somebody says which run it names.
+ *
+ * Deciding every member rather than listing the attributing ones is what keeps
+ * `parentRunId` out: `run.queued` carries it beside its own `runId`, and reading
+ * whichever run-naming member turned up first would file a child run's rows in its
+ * parent's chapter — the same defect pointing the other way.
+ *
+ * THE TWO ARTIFACTS ARE BOTH LIVE, and they meet in `runIdOf`: the contract names
+ * the candidates and this table decides each one, so a member the contract grows
+ * and this file has not decided is SKIPPED rather than trusted — a row that stays
+ * session-level, which is the fail-closed direction, instead of one attributed to
+ * whichever run a member nobody has read happens to name.
+ */
+type RunNamingMemberOf<TPayload> = TPayload extends unknown
+  ? Extract<keyof TPayload, "runId" | `${string}RunId`>
+  : never;
+
+type RunNamingPayloadMember = RunNamingMemberOf<
+  | AssistantOutputPayload
+  | ToolActivityPayload
+  | RunStateChangeEvent
+  | RunRolledBackEvent
+  | InterventionRequestPayload
+>;
+
+/** Whether a member names the run the event is ABOUT, or some other run. */
+type RunAttributionRole = "this-run" | "another-run";
+
+const RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER = {
+  runId: "this-run",
+  targetRunId: "this-run",
+  parentRunId: "another-run",
+} as const satisfies Readonly<Record<RunNamingPayloadMember, RunAttributionRole>>;
+
+/** The decided members that attribute, as the lookup below asks them. */
+const ATTRIBUTING_PAYLOAD_MEMBERS: ReadonlySet<string> = new Set(
+  Object.entries(RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER)
+    .filter(([, role]) => role === "this-run")
+    .map(([member]) => member),
+);
 
 /**
  * Read the run this event belongs to, or `undefined` where it belongs to none.
@@ -134,8 +198,16 @@ const RUN_ATTRIBUTION_PAYLOAD_MEMBER = "runId";
  * claims a kind is what narrows it, and this shell claims every kind.
  */
 function runIdOf(event: ConsoleSessionEvent): string | undefined {
-  const candidate = event.payload?.[RUN_ATTRIBUTION_PAYLOAD_MEMBER];
-  return typeof candidate === "string" && candidate.length > 0 ? candidate : undefined;
+  for (const member of RUN_ATTRIBUTION_PAYLOAD_MEMBERS) {
+    if (!ATTRIBUTING_PAYLOAD_MEMBERS.has(member)) {
+      continue;
+    }
+    const candidate = event.payload?.[member];
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate;
+    }
+  }
+  return undefined;
 }
 
 /**

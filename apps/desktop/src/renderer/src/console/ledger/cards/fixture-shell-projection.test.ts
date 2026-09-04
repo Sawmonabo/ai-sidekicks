@@ -228,3 +228,93 @@ describe("counting through a rewind", () => {
     ]);
   });
 });
+
+describe("which payload member names a row's run", () => {
+  /** An intervention as the wire spells it: the run is `targetRunId`, never `runId`. */
+  function interventionEvent(sequence: number, targetRunId: string): ConsoleSessionEvent {
+    return event({
+      sequence,
+      kind: "intervention.applied",
+      actorId: PARTICIPANT,
+      payload: {
+        sessionId: SESSION_ID,
+        type: "interrupt",
+        targetRunId,
+        expectedRunVersion: 1,
+        clientIdempotencyKey: "019b793b-7b60-7ea1-8110-e5e0d1150001",
+      },
+    });
+  }
+
+  it("files an intervention under the run it names, beside that run's own rows", () => {
+    // The defect: `intervention.*` spells the affected run `targetRunId`, so every
+    // one of them projected as a session-level row and sat outside the run chapter
+    // it belongs to — on a ledger whose whole shape is runs.
+    const projection = projectFixtureShellRows([
+      runEvent(1, RUN_ONE),
+      interventionEvent(2, RUN_ONE),
+      runEvent(3, RUN_ONE, "run.completed"),
+    ]);
+
+    expect(projection.rows.map((row) => row.kind)).toStrictEqual(["run", "run", "run"]);
+    expect(
+      projection.rows.map((row) => (row.kind === "run" ? row.runId : undefined)),
+    ).toStrictEqual([RUN_ONE, RUN_ONE, RUN_ONE]);
+    // And it takes its ordinal in that run's own sequence rather than sitting
+    // outside the counting: chapters fold on this number and the rail lays its
+    // marks along it.
+    expect(runOrdinals(projection.rows)).toStrictEqual([
+      [0, 0],
+      [1, 0],
+      [2, 0],
+    ]);
+  });
+
+  it("leaves every other run-keyed kind exactly where it was", () => {
+    const projection = projectFixtureShellRows([
+      runEvent(1, RUN_ONE),
+      runEvent(2, RUN_TWO),
+      rollbackEvent(3, RUN_ONE, 0),
+      runEvent(4, RUN_ONE),
+    ]);
+
+    expect(projection.rows.map((row) => row.kind)).toStrictEqual([
+      "run",
+      "run",
+      "rollback_boundary",
+      "run",
+    ]);
+    expect(projection.unprojectableEventCount).toBe(0);
+  });
+
+  it("attributes a child run to itself and never to the parent it names", () => {
+    // `run.queued` carries `parentRunId` beside its own `runId`. Reading any
+    // run-naming member would file the child's rows in the parent's chapter, which
+    // is the same defect in the other direction.
+    const projection = projectFixtureShellRows([
+      event({
+        sequence: 1,
+        kind: "run.queued",
+        payload: { sessionId: SESSION_ID, runId: RUN_TWO, parentRunId: RUN_ONE },
+      }),
+    ]);
+
+    const [row] = projection.rows;
+    expect(row?.kind).toBe("run");
+    expect(row?.kind === "run" ? row.runId : undefined).toBe(RUN_TWO);
+  });
+
+  it("negative control: an event naming no run at all stays a session row", () => {
+    // Without this the lookup could answer with any string it found, which would
+    // file session rows under whatever the payload happened to carry.
+    const projection = projectFixtureShellRows([
+      event({
+        sequence: 1,
+        kind: "session.renamed",
+        payload: { sessionId: SESSION_ID, name: "a session, renamed" },
+      }),
+    ]);
+
+    expect(projection.rows.map((row) => row.kind)).toStrictEqual(["general"]);
+  });
+});
