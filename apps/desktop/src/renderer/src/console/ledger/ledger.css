@@ -955,6 +955,15 @@
  * three-block shape the code palette above uses.
  */
 .meridian-ansi {
+  /*
+   * The two colours this body paints when the stream names none, declared once so the
+   * body below and the reverse-video swap in `ansi-spans.ts` read the SAME pair. A
+   * reversed run with one unset channel resolves that channel here, so what it swaps
+   * against is what the reader is looking at rather than a second opinion about it.
+   */
+  --meridian-ansi-default-foreground: var(--meridian-text);
+  --meridian-ansi-default-background: var(--meridian-surface-sunken);
+
   --meridian-ansi-black: var(--meridian-text-faint);
   --meridian-ansi-white: var(--meridian-text-muted);
   --meridian-ansi-bright-black: var(--meridian-text-muted);
@@ -1011,7 +1020,8 @@
   padding: var(--meridian-space-2) var(--meridian-space-3);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
-  background: var(--meridian-surface-sunken);
+  color: var(--meridian-ansi-default-foreground);
+  background: var(--meridian-ansi-default-background);
   overflow-x: auto;
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-sm);
@@ -1116,6 +1126,19 @@
 }
 .meridian-ansi__bg--bright-white {
   background: var(--meridian-ansi-bright-white);
+}
+
+/*
+ * The two channel values only reverse video reaches, and the only two of the four
+ * combinations that are reachable at all: a reversed run paints the body's background
+ * as its FOREGROUND and the body's foreground as its BACKGROUND. The other two would be
+ * a run painting the colour it already had, which nothing emits.
+ */
+.meridian-ansi__fg--default-background {
+  color: var(--meridian-ansi-default-background);
+}
+.meridian-ansi__bg--default-foreground {
+  background: var(--meridian-ansi-default-foreground);
 }
 
 .meridian-ansi--bold {
