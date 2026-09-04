@@ -50,6 +50,8 @@ export interface ArtifactRowProps {
   readonly nowMilliseconds: number;
   /** What the last act on THIS row answered. Refusals only; absent means none. */
   readonly refusal?: ConsoleRefusal | undefined;
+  /** Whether this row's manifest re-read is on the wire. Holds the control that sent it. */
+  readonly isManifestReadInFlight?: boolean | undefined;
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
   readonly onChangeVisibility?: ((row: ArtifactManifestRow) => void) | undefined;
   readonly onDelete?: ((row: ArtifactManifestRow) => void) | undefined;
@@ -94,6 +96,13 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
             type="button"
             className="meridian-artifact-row__act meridian-artifact-row__act--primary"
             onClick={() => props.onReadManifest?.(row)}
+            // HELD WHILE THIS ROW'S RE-READ IS OUTSTANDING, and the surface's own
+            // register is what holds it — there is no second flag to keep in step. Two
+            // reads of one manifest settle in either order, so the second press is a
+            // press whose answer could be the staler row; the acts refuse it in words,
+            // and this is what keeps a participant from meeting that refusal by
+            // pressing a control the panel was offering.
+            disabled={props.isManifestReadInFlight ?? false}
           >
             Read manifest
           </button>

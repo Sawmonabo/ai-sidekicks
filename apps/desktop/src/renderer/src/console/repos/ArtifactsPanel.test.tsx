@@ -292,6 +292,41 @@ describe("ArtifactsPanel — the acts", () => {
     expect(onReadManifest).toHaveBeenCalledTimes(1);
   });
 
+  it("holds the re-read control on a row whose read is on the wire", () => {
+    // The press is single-flight per row, so offering the control while that row's
+    // call is outstanding is offering a press whose only possible answer is the
+    // refusal saying one is already in flight.
+    const { container } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow()] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        manifestReadInFlightArtifactIds={new Set([artifactRow().id])}
+        onReadManifest={vi.fn()}
+      />,
+    );
+    const control = within(container).getByRole("button", { name: "Read manifest" });
+    expect(control.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("negative control: a row nobody is reading keeps its control, and a sibling's read does not take it", () => {
+    // Without this, a control disabled unconditionally would pass the case above
+    // while making the act unreachable — and a register read per PANEL rather than
+    // per row would hold one row's control because another row was waiting.
+    const { container } = render(
+      <ArtifactsPanel
+        state={{ kind: "listed", rows: [artifactRow(), artifactRow({ id: "artifact-02" })] }}
+        nowMilliseconds={NOW_MILLISECONDS}
+        manifestReadInFlightArtifactIds={new Set(["artifact-02"])}
+        onReadManifest={vi.fn()}
+      />,
+    );
+    const [firstControl, secondControl] = within(container).getAllByRole("button", {
+      name: "Read manifest",
+    });
+    expect(firstControl?.hasAttribute("disabled")).toBe(false);
+    expect(secondControl?.hasAttribute("disabled")).toBe(true);
+  });
+
   it("negative control: no control claims to fetch a payload", () => {
     // The read serves a manifest summary and no registered reply member carries
     // bytes or a handle, so a control named for a payload fetch would promise a

@@ -23,6 +23,14 @@
 // string in the in-flight arm and is REPLACED by `normalizedName` the moment one
 // exists. Nothing in this file concatenates a name with anything.
 //
+// AND THE LABEL READS THE SAME NAME THE FACE DOES, from one place. A completed ingest
+// stays on the in-flight arm of the reading — `complete` is a state of an entry, not a
+// second reading — so the face had switched to the daemon's normalized name while the
+// accessible label was still reading the declaration beside it. On exactly the
+// attachments where normalization changed something, a screen-reader user heard a
+// different artifact identity from a sighted one. `attachment-provenance.ts` answers
+// which name an entry goes by, and both renderings ask it.
+//
 // EVERY BYTE FIGURE GOES THROUGH THE CHOKEPOINT. `formatByteQuantity` is the console's
 // only byte formatter and this card holds no arithmetic of its own; the raw counts
 // reach the progress element as attributes, which are a measurement rather than a
@@ -43,7 +51,8 @@ import {
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   attachmentMediaTypeReadings,
-} from "./attachment-media-type.js";
+  attachmentNameReading,
+} from "./attachment-provenance.js";
 import {
   INGEST_ABANDON_COPY,
   INGEST_DISPOSITION_COPY,
@@ -58,6 +67,9 @@ import type { AttachmentIngestEntry, AttachmentReading } from "./attachment-shap
 
 /** Glyph edge length in the card's chrome, matching the primitives' inline size. */
 const ATTACHMENT_GLYPH_SIZE = 12;
+
+/** Whose claim a name is, where the name shown is still the caller's own. */
+const DECLARED_NAME_TITLE = "Declared by the sender";
 
 export interface AttachmentCardProps {
   readonly reading: AttachmentReading;
@@ -104,7 +116,7 @@ export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
 /** What a screen reader is told this card is about, in every arm. */
 function attachmentLabel(reading: AttachmentReading): string {
   if (reading.kind === "ingesting") {
-    return `Attachment ${reading.entry.declared.declaredName}`;
+    return `Attachment ${attachmentNameReading(reading.entry).name}`;
   }
   if (reading.kind === "resolved") {
     return `Attachment ${reading.derived.normalizedName}`;
@@ -126,17 +138,18 @@ function renderIngesting(
   const receivedFigure = formatByteQuantity(entry.receivedBytes);
   const declaredFigure = formatByteQuantity(entry.declared.byteLength);
   const ceilingRemainingMs = ingestCeilingRemainingMs(entry, props.nowMilliseconds);
+  const nameReading = attachmentNameReading(entry);
   return (
     <>
       <div className="meridian-attachment__face">
         <Glyph name="artifact" size={ATTACHMENT_GLYPH_SIZE} />
-        {entry.derived === undefined ? (
-          <WireFigure value={entry.declared.declaredName} title="Declared by the sender" />
+        {nameReading.provenance === "declared" ? (
+          <WireFigure value={nameReading.name} title={DECLARED_NAME_TITLE} />
         ) : (
-          <WireFigure value={entry.derived.normalizedName} />
+          <WireFigure value={nameReading.name} />
         )}
         {/* EITHER READING EARNS THE CHIP, and where the two disagree both are shown
-            with the derived one leading. `attachment-media-type.ts` owns the rule; this
+            with the derived one leading. `attachment-provenance.ts` owns the rule; this
             renders it. Labelled by provenance rather than by tone alone, because a
             colour cannot say whose claim a media type is. */}
         {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (

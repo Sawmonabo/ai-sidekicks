@@ -198,13 +198,22 @@ export interface GrowthOperationSignatures {
   // with no binary serialization, so a payload byte reaches the daemon encoded or it
   // does not reach it at all. An offset is not among them: the daemon appends in
   // sequence order and keeps the spooled count itself.
+  //
+  // AND IT ANSWERS THAT COUNT, WHICH IS WHY THIS IS NOT `void`.
+  // `api-payload-contracts.md §Plan-014 — Artifacts Files And Attachments` registers
+  // `AttachmentIngestChunkResponse` as `{ ingestId, receivedBytes }`, the second being
+  // the spooled running total of DECODED bytes after this chunk and the very bound the
+  // daemon enforces. Declared `void`, a contract-shaped implementation could not
+  // satisfy this port without a cast, and the caller could not say which stream had
+  // been acknowledged or how far it had got — so the client charted what it had SENT
+  // instead, which is a different number the moment anything is dropped or replayed.
   artifactIngestWriteChunk: {
     request: {
       readonly ingestId: string;
       readonly sequenceNumber: number;
       readonly chunk: string;
     };
-    value: void;
+    value: { readonly ingestId: string; readonly receivedBytes: number };
   };
   artifactIngestComplete: {
     request: { readonly ingestId: string };

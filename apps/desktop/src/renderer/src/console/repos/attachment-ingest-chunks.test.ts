@@ -9,6 +9,7 @@ import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ATTACHMENT_CHUNK_BYTE_CAP, consoleTripwires, encodeBase64 } from "../core/index.js";
+import { CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE } from "./attachment-ingest-acknowledgement.js";
 import {
   ScriptedGrowthPort,
   clientOver,
@@ -80,5 +81,67 @@ describe("ingest client — the payload reaches the daemon", () => {
     expect(port.chunkCalls).toHaveLength(1);
     expect(client.snapshot[0]?.state).toBe("refused");
     expect(client.snapshot[0]?.refusal?.code).toBe(INGEST_CAPACITY_EXHAUSTED_CODE);
+  });
+});
+
+describe("ingest client — the ledger advances on what the daemon acknowledged", () => {
+  it("charts the reply's running total rather than the bytes it sent", async () => {
+    // The bug, exercised through the real loop: the ledger used to add the local slice
+    // length and never read the reply, so the progress figure recorded what went on the
+    // wire rather than what the daemon spooled — and the client could not have told the
+    // two apart, because it was never looking at the acknowledgement.
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    const byteLength = ATTACHMENT_CHUNK_BYTE_CAP + 7;
+    client.attach(sourceOver("attachment-four", "capture.bin", byteLength));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 1]);
+    expect(client.snapshot[0]?.receivedBytes).toBe(byteLength);
+    expect(client.snapshot[0]?.state).toBe("complete");
+  });
+
+  it("refuses an acknowledgement that names another stream", async () => {
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    port.acknowledgeChunksWith({ ingestId: "ingest-7", receivedBytes: 300 });
+    client.attach(sourceOver("attachment-four", "notes.md", 300));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(port.chunkCalls).toHaveLength(1);
+    expect(client.snapshot[0]?.state).toBe("refused");
+    expect(client.snapshot[0]?.refusal?.code).toBe(CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE);
+    // `restart` and not the retry-in-place default: that default assumes the two sides
+    // still share an offset, which is what this reply has broken.
+    expect(client.snapshot[0]?.disposition).toBe("restart");
+  });
+
+  it("refuses a total that did not advance rather than re-slicing forever", async () => {
+    // The offset IS the ledger, so a client that accepted a standing total would send
+    // the same chunk for as long as the daemon kept answering. The refusal is what makes
+    // the loop terminate on the daemon's own answer, and the call count is the proof.
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
+    client.attach(sourceOver("attachment-four", "capture.bin", ATTACHMENT_CHUNK_BYTE_CAP * 2));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(port.chunkCalls).toHaveLength(1);
+    expect(client.snapshot[0]?.state).toBe("refused");
+    expect(client.snapshot[0]?.receivedBytes).toBe(0);
+  });
+
+  it("negative control: the daemon's own partial total is taken verbatim and the stream goes on", async () => {
+    // Without this, a check that refused whenever the reply disagreed with the local
+    // count would pass both cases above while making every lawful partial spool a
+    // refusal — which is precisely the daemon's answer this change exists to trust.
+    const port = new ScriptedGrowthPort();
+    const client = clientOver(port);
+    client.attach(sourceOver("attachment-four", "notes.md", 300));
+    await new Promise((settle) => setTimeout(settle, 0));
+
+    expect(client.snapshot[0]?.state).toBe("complete");
+    expect(client.snapshot[0]?.refusal).toBeUndefined();
+    expect(consoleTripwires.totalFiringCount).toBe(0);
   });
 });

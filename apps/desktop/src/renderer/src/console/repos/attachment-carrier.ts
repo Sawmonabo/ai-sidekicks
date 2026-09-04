@@ -31,7 +31,7 @@
 // the declared name would silently drop the second of two `notes.md`. The counter
 // rises and never repeats, which is the whole requirement.
 
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import {
@@ -69,6 +69,7 @@ export class AttachmentCarrier {
   #clientSubscription: Unsubscribe | undefined;
   #nextLocalNumber = 1;
   #stallWakeUpHandle: ScheduledHandle | undefined;
+  #disposed = false;
 
   public constructor(options: AttachmentCarrierOptions) {
     this.#clock = options.clock ?? new RealClock();
@@ -86,6 +87,17 @@ export class AttachmentCarrier {
   }
 
   /**
+   * Whether this carrier has been torn down. Read by the hook that owns its lifetime.
+   *
+   * ASKED RATHER THAN REMEMBERED, on `UiStateStore.isClosed`'s reason: the owner
+   * deciding whether to re-mint has one question, and a second flag beside it would be
+   * a copy of this one to keep in step.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
+  /**
    * Begin following the ledger.
    *
    * IDEMPOTENT, on `dispose`'s own reason next door: React runs an effect twice in
@@ -93,6 +105,11 @@ export class AttachmentCarrier {
    * every publish forever after.
    */
   public start(): void {
+    if (this.#disposed) {
+      // A disposed carrier's client refuses every attach, so subscribing to it would
+      // follow a ledger nothing can add to. The owner re-mints instead — see the hook.
+      return;
+    }
     this.#clientSubscription ??= this.#client.subscribe((entries) => {
       this.#publish(entries);
     });
@@ -141,6 +158,7 @@ export class AttachmentCarrier {
    * gone, which is a stamp nobody reads and a handle nobody can cancel.
    */
   public dispose(): void {
+    this.#disposed = true;
     this.#cancelStallWakeUp();
     this.#clientSubscription?.();
     this.#clientSubscription = undefined;
@@ -218,22 +236,42 @@ export interface AttachmentCarrierBinding {
 /**
  * Bind one carrier to one component's lifetime.
  *
- * The carrier is memoised on its collaborators rather than built in the render body,
- * so a re-render does not mint a second client over the same session — which would
- * leave the first one's open streams unreachable and its spools to the daemon's
- * reaper.
+ * The carrier is built once per mounted component and never in a render body, so a
+ * re-render does not mint a second client over the same session — which would leave the
+ * first one's open streams unreachable and its spools to the daemon's reaper.
+ *
+ * A `useState` INITIALIZER, NOT `useMemo`, AND A RE-MINT ARM — the shape
+ * `frame/ui-state-lifecycle.ts` and `frame/session-lifecycle.ts` already use for the
+ * two other objects a window owns, and for exactly the reason they give. React's
+ * StrictMode double-mount runs this effect's cleanup and then its setup again on the
+ * SAME component instance, and a memo is preserved across that: the cleanup terminally
+ * disposed the ingest client, the replayed setup called `start()` on the corpse, and
+ * every file the participant chose afterwards reached a client whose `attach` returns
+ * at once — the attachment surface inert, with nothing on screen to say so. Asking the
+ * carrier whether it is disposed is what makes that arm correct without a second flag,
+ * and a memo cannot be re-minted at all because a memo is not state.
+ *
+ * The collaborators stay in the dependency list: a bridge or a session that changes
+ * disposes the carrier through the same cleanup, and the pass that follows finds a
+ * disposed one and mints the replacement over the new pair.
  */
 export function useAttachmentCarrier(
   bridge: ConsoleBridge,
   sessionId: string,
 ): AttachmentCarrierBinding {
-  const carrier = useMemo(() => new AttachmentCarrier({ bridge, sessionId }), [bridge, sessionId]);
+  const [carrier, setCarrier] = useState<AttachmentCarrier>(
+    () => new AttachmentCarrier({ bridge, sessionId }),
+  );
   useEffect(() => {
+    if (carrier.isDisposed) {
+      setCarrier(new AttachmentCarrier({ bridge, sessionId }));
+      return;
+    }
     carrier.start();
     return () => {
       carrier.dispose();
     };
-  }, [carrier]);
+  }, [carrier, bridge, sessionId]);
   const subscribe = useCallback(
     (onCarrierChange: () => void) => carrier.subscribe(onCarrierChange),
     [carrier],

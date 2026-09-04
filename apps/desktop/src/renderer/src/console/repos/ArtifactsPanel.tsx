@@ -96,6 +96,16 @@ export interface ArtifactsPanelProps {
    * pressing it.
    */
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
+  /**
+   * The rows whose manifest re-read is on the wire, so each one's control holds.
+   *
+   * The mounting surface's register and never a second copy: the acts single-flight the
+   * re-read per row, and a control offered while that row's call is outstanding is a
+   * press whose only possible answer is the refusal that says one is already in flight.
+   * Absent means the surface performs no re-read at all, which is the panel's own
+   * read-only mount.
+   */
+  readonly manifestReadInFlightArtifactIds?: ReadonlySet<string> | undefined;
   readonly onChangeVisibility?: ((row: ArtifactManifestRow) => void) | undefined;
   readonly onDelete?: ((row: ArtifactManifestRow) => void) | undefined;
 }
@@ -245,6 +255,7 @@ function renderPanelBody(
             row={row}
             nowMilliseconds={props.nowMilliseconds}
             refusal={props.rowRefusals?.get(row.id)}
+            isManifestReadInFlight={props.manifestReadInFlightArtifactIds?.has(row.id) ?? false}
             onReadManifest={props.onReadManifest}
             onChangeVisibility={props.onChangeVisibility}
             onDelete={props.onDelete}

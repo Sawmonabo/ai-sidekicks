@@ -330,6 +330,10 @@ export class ArtifactPaneReader {
       // The payload survives: it is about an artifact this read either returned or did
       // not, and either way nothing here re-fetched bytes to answer for it.
       payload: this.#reading.payload,
+      // Carried for the same reason, and it is the acts' register rather than this
+      // read's: a row whose re-read is still on the wire is still holding its control,
+      // and a publish that rebuilt the set would offer it back mid-flight.
+      manifestReadInFlightArtifactIds: this.#reading.manifestReadInFlightArtifactIds,
       refusalByArtifactId: this.#reading.refusalByArtifactId,
     });
   }

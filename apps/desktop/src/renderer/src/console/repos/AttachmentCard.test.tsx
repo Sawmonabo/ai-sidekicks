@@ -9,8 +9,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AttachmentCard } from "./AttachmentCard.js";
-import { ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL } from "./attachment-media-type.js";
 import { INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
+import { ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL } from "./attachment-provenance.js";
 import { UNRESOLVED_ATTACHMENT_PRESENTATION } from "./attachment-presentation.js";
 import {
   attachmentSourceFrom,
@@ -281,5 +281,59 @@ describe("attachment card — the media type is shown from either reading", () =
     expect(container.textContent).not.toContain(ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL);
     expect(container.textContent).not.toContain("text/plain");
     expect(container.textContent).not.toContain("image/png");
+  });
+});
+
+describe("attachment card — the label and the face name one artifact", () => {
+  /** A completed ingest: still the in-flight arm of the reading, with derived truth on it. */
+  function completedEntry(normalizedName: string): AttachmentIngestEntry {
+    return {
+      declared: entry().declared,
+      state: "complete",
+      receivedBytes: 300,
+      ingestId: "ingest-1",
+      derived: {
+        artifactId: "artifact-9",
+        normalizedName,
+        derivedMediaType: "text/plain",
+        derivedSizeBytes: 300,
+      },
+      refusal: undefined,
+      disposition: undefined,
+      openedAtMilliseconds: NOW_MILLISECONDS,
+      lastProgressAtMilliseconds: NOW_MILLISECONDS,
+    };
+  }
+
+  it("labels a completed ingest with the same name the card shows", () => {
+    // The bug, exercised: `complete` is a state of an entry rather than a second
+    // reading, so the card stays on the in-flight arm — and the face had switched to
+    // the daemon's normalized name while the label was still reading the declaration.
+    // On an attachment whose name normalization changed, a screen-reader user heard a
+    // different artifact from a sighted one.
+    const { container } = render(
+      <AttachmentCard
+        reading={{ kind: "ingesting", entry: completedEntry("passwd.txt") }}
+        nowMilliseconds={NOW_MILLISECONDS}
+      />,
+    );
+    const card = container.querySelector(".meridian-attachment");
+    expect(card?.getAttribute("aria-label")).toBe("Attachment passwd.txt");
+    expect(container.textContent).toContain("passwd.txt");
+    expect(container.textContent).not.toContain("../../etc/passwd");
+  });
+
+  it("negative control: before derivation both read the declaration", () => {
+    // Without this, a label hard-wired to the derived member would pass the case above
+    // and name nothing at all on the arm every attachment starts in.
+    const { container } = render(
+      <AttachmentCard
+        reading={{ kind: "ingesting", entry: entry() }}
+        nowMilliseconds={NOW_MILLISECONDS}
+      />,
+    );
+    const card = container.querySelector(".meridian-attachment");
+    expect(card?.getAttribute("aria-label")).toBe("Attachment ../../etc/passwd");
+    expect(container.textContent).toContain("../../etc/passwd");
   });
 });
