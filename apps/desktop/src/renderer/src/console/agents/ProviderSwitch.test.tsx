@@ -9,7 +9,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { refuse } from "../core/index.js";
 import { ProviderSwitch } from "./ProviderSwitch.js";
-import { DRIVER_CATALOG_FIXTURE } from "./driver-catalog-fixtures.js";
+import {
+  DRIVER_CATALOG_FIXTURE,
+  OVERLAPPING_DRIVER_CATALOG_FIXTURE,
+} from "./driver-catalog-fixtures.js";
 import type { AgentRosterEntry } from "./agent-wire.js";
 import type { DriverCatalogReading } from "./driver-catalog.js";
 import type { PushDrivenReadState } from "../seats/index.js";
@@ -417,5 +420,118 @@ describe("provider switch — the settlement rides the reply", () => {
       <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
     );
     expect(container.querySelector(".meridian-settlement")).toBeNull();
+  });
+});
+
+describe("provider switch — an inherited axis is held to the chain it lands in", () => {
+  /** The overlapping reading, where two models of one driver disagree about effort. */
+  const OVERLAPPING: PushDrivenReadState<DriverCatalogReading> = {
+    kind: "loaded",
+    value: OVERLAPPING_DRIVER_CATALOG_FIXTURE,
+  };
+
+  /** An agent whose effort is published by its current model and by only one sibling. */
+  const RUNNING_HIGH: AgentRosterEntry = {
+    ...ON_CLAUDE,
+    modelId: "shared-model",
+    config: { effort: "high" },
+  };
+
+  it("holds the actions when a model change retires the effort the agent runs under", () => {
+    // The defect: only the draft was examined, so the model edit submitted alone, the
+    // effort rode the request as an omission — which the contract defines as
+    // unchanged — and the daemon validated `high` against a model publishing only
+    // `low` and refused the switch.
+    const { container } = render(
+      <ProviderSwitch agent={RUNNING_HIGH} catalog={OVERLAPPING} onApply={() => {}} />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+
+    const held = applyActions(container);
+    expect(held.length).toBe(2);
+    expect(held.every((action) => action.disabled)).toBe(true);
+    expect(container.textContent ?? "").toContain("has to name one that is");
+  });
+
+  it("marks the effort field itself, beside the reason under the actions", () => {
+    const { container } = render(
+      <ProviderSwitch agent={RUNNING_HIGH} catalog={OVERLAPPING} onApply={() => {}} />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+
+    expect(axisField(container, "Effort")?.textContent ?? "").toContain(
+      "Not one this model publishes",
+    );
+  });
+
+  it("releases the actions once a compatible effort is named, and submits it", () => {
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch agent={RUNNING_HIGH} catalog={OVERLAPPING} onApply={onApply} />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+    chooseAxisValue(container, "Effort", "low");
+
+    const [deferred] = applyActions(container);
+    expect(deferred?.disabled).toBe(false);
+    fireEvent.click(deferred as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ modelId: "claude-only", effort: "low" }, false);
+  });
+
+  it("negative control: a model that still publishes the agent's effort holds nothing", () => {
+    // Without this, the cases above would pass over a form that held its actions for
+    // every model change, which would make an ordinary edit unusable — and the
+    // effort is deliberately NOT submitted here, because unchanged is what it is.
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch
+        agent={{ ...RUNNING_HIGH, config: { effort: "low" } }}
+        catalog={OVERLAPPING}
+        onApply={onApply}
+      />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+
+    const [deferred] = applyActions(container);
+    expect(deferred?.disabled).toBe(false);
+    expect(container.textContent ?? "").not.toContain("has to name one that is");
+    fireEvent.click(deferred as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ modelId: "claude-only" }, false);
+  });
+
+  it("negative control: an agent running under no effort at all holds nothing", () => {
+    // The axis is only in question where there is an inherited value to carry.
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={OVERLAPPING} onApply={() => {}} />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+    expect(applyActions(container)[0]?.disabled).toBe(false);
+  });
+
+  it("says so plainly where the target model publishes no effort surface at all", () => {
+    // No control is drawn for an absent vocabulary, so "choose a compatible level"
+    // would be an instruction this form does not offer anywhere. `claude-haiku`
+    // publishes none, and nothing on this surface clears an axis.
+    const { container } = render(
+      <ProviderSwitch
+        agent={{ ...ON_CLAUDE, config: { effort: "high" } }}
+        catalog={LOADED}
+        onApply={() => {}}
+      />,
+    );
+    chooseAxisValue(container, "Model", "claude-haiku");
+
+    expect(fieldLabels(container)).not.toContain("Effort");
+    expect(applyActions(container).every((action) => action.disabled)).toBe(true);
+    expect(container.textContent ?? "").toContain("publishes no effort at all");
+  });
+
+  it("keeps showing the effort the agent runs under, because that is what unchanged is", () => {
+    const { container } = render(
+      <ProviderSwitch agent={RUNNING_HIGH} catalog={OVERLAPPING} onApply={() => {}} />,
+    );
+    expect(axisValueOf(container, "Effort")).toBe("high");
+    chooseAxisValue(container, "Model", "claude-only");
+    expect(axisValueOf(container, "Effort")).toBe("high");
   });
 });
