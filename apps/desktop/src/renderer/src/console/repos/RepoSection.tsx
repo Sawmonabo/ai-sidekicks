@@ -54,6 +54,7 @@ import { type ConsoleRefusal } from "../core/index.js";
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
 import { type SidebarSectionContext } from "../seats/index.js";
+import { useCloneExpiryInstant } from "./clone-expiry-wake-up.js";
 import { EphemeralCloneGateRow } from "./EphemeralCloneGateRow.js";
 import { MountCard } from "./MountCard.js";
 import { ephemeralCloneGateSubject } from "./proposal-gate-model.js";
@@ -157,12 +158,22 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
  * modes, so a list that drew the root and no gate left a participant running in that
  * mode with no way to read a branch context, prepare a proposal, or ask for a reviewed
  * act at all.
+ *
+ * THIS LIST IS THE ONE PLACE IN THE SECTION WITH A DEADLINE RATHER THAN AN AGE, which
+ * is why it holds the hook and the mount list does not. `clone-expiry-wake-up.ts` says
+ * what the wake-up is and what it refuses to be; the instant it answers with is the
+ * read's own until a disposal time this read did not reach passes.
  */
 function EphemeralCloneList(props: EphemeralCloneListProps): React.JSX.Element {
+  const nowMilliseconds = useCloneExpiryInstant(
+    props.reading.ephemeralClones,
+    props.reading.readAtMilliseconds,
+    props.bridge,
+  );
   return (
     <div className="meridian-repo-section__clones">
       <h4 className="meridian-repo-section__clones-heading">{CLONE_LIST_HEADING}</h4>
-      {renderCloneRows(props)}
+      {renderCloneRows(props, nowMilliseconds)}
     </div>
   );
 }
@@ -188,7 +199,10 @@ interface EphemeralCloneListProps {
  * such workspace the row draws its absence instead, which is the pairing module's rule
  * applied to the one relation this list can be missing.
  */
-function renderCloneRows(props: EphemeralCloneListProps): React.JSX.Element {
+function renderCloneRows(
+  props: EphemeralCloneListProps,
+  nowMilliseconds: number,
+): React.JSX.Element {
   const { reading } = props;
   if (reading.ephemeralClones.length > 0) {
     return (
@@ -200,7 +214,7 @@ function renderCloneRows(props: EphemeralCloneListProps): React.JSX.Element {
             subject={ephemeralCloneGateSubject(record, reading.workspaces)}
             bridge={props.bridge}
             sessionStore={props.sessionStore}
-            nowMilliseconds={reading.readAtMilliseconds}
+            nowMilliseconds={nowMilliseconds}
           />
         ))}
       </>

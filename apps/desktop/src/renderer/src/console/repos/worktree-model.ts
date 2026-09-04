@@ -213,14 +213,33 @@ export function cloneExpiryReading(
   record: EphemeralCloneStatusRecord,
   nowMilliseconds: number,
 ): CloneExpiryReading {
-  if (record.cleanedAt !== undefined) {
-    return "reclaimed";
-  }
-  const expiresAtMilliseconds = Date.parse(record.expiresAt);
-  if (Number.isNaN(expiresAtMilliseconds)) {
-    return "scheduled";
+  const expiresAtMilliseconds = cloneExpiryAtMs(record);
+  if (expiresAtMilliseconds === undefined) {
+    return record.cleanedAt === undefined ? "scheduled" : "reclaimed";
   }
   return expiresAtMilliseconds <= nowMilliseconds ? "elapsed" : "scheduled";
+}
+
+/**
+ * The instant this clone's disposal is due, or `undefined` where there is none to count
+ * towards.
+ *
+ * THE ONE PLACE `expiresAt` IS PARSED, and it is exported because two callers need the
+ * same answer: the reading above asks whether the deadline has passed, and the section's
+ * wake-up asks when the earliest one will. Two parses would be two chances for a card
+ * that says a clone is still scheduled to sit under a timer that already fired.
+ *
+ * ABSENT ON BOTH ARMS THAT HAVE NOTHING TO COUNT: a swept row, whose files are gone
+ * whatever the deadline said, and an unparseable stamp, which the reading takes as
+ * `scheduled` on the fail-safe direction stated above and which nothing can be woken
+ * for.
+ */
+export function cloneExpiryAtMs(record: EphemeralCloneStatusRecord): number | undefined {
+  if (record.cleanedAt !== undefined) {
+    return undefined;
+  }
+  const expiresAtMilliseconds = Date.parse(record.expiresAt);
+  return Number.isNaN(expiresAtMilliseconds) ? undefined : expiresAtMilliseconds;
 }
 
 /**
