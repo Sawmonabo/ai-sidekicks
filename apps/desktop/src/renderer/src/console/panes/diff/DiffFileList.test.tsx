@@ -77,6 +77,24 @@ function entryFor(container: HTMLElement, path: string): HTMLElement {
   return entry;
 }
 
+/**
+ * One file of a change set, by index.
+ *
+ * Thrown for rather than answered as optional, because a fixture shorter than a case
+ * assumes is a broken case and not a state to assert about — and a `function`
+ * declaration below carries no narrowing a guard beside the fixture would have made.
+ */
+function fixtureFileAt(
+  diff: ConsoleDiffModel,
+  fileIndex: number,
+): ConsoleDiffModel["files"][number] {
+  const file = diff.files[fileIndex];
+  if (file === undefined) {
+    throw new Error(`the generated change set has no file at ${String(fileIndex)}`);
+  }
+  return file;
+}
+
 /** Type into the list's own filter, which is how every filtering case narrows it. */
 function filterTo(container: HTMLElement, filterText: string): void {
   const filter = container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input");
@@ -198,10 +216,7 @@ describe("diff file list — a change set too long to mount", () => {
   it("opens the window on a selection the window would not otherwise reach", () => {
     // A narrowing whose row is off-window is a control a reader cannot see the state
     // of — and a pane reopened on a file a thousand rows down opens on exactly that.
-    const selected = REPOSITORY_WIDE_DIFF.files[4_000]?.path;
-    if (selected === undefined) {
-      throw new Error("the generated change set is shorter than the case assumes");
-    }
+    const selected = fixtureFileAt(REPOSITORY_WIDE_DIFF, 4_000).path;
     const container = renderFileList(REPOSITORY_WIDE_DIFF, selected);
 
     const current = container.querySelector('.meridian-diff-files__entry[aria-current="true"]');
@@ -283,10 +298,8 @@ describe("diff file list — reaching an entry the window has not mounted", () =
 });
 
 describe("diff file list — a narrowing this filter hides", () => {
-  const [FIRST_FILE, SECOND_FILE] = TEXTUAL_ONLY_DIFF.files;
-  if (FIRST_FILE === undefined || SECOND_FILE === undefined) {
-    throw new Error("the small change set is shorter than these cases assume");
-  }
+  const FIRST_FILE = fixtureFileAt(TEXTUAL_ONLY_DIFF, 0);
+  const SECOND_FILE = fixtureFileAt(TEXTUAL_ONLY_DIFF, 1);
 
   /** The list, narrowed to the first file and filtered to the second. */
   function renderWithHiddenNarrowing(): {
@@ -432,7 +445,10 @@ describe("diff file list — a window is a slice, and each row says so", () => {
   it("negative control: the position is the row's own and not the window's", () => {
     // Without this, rows numbered from the top of the mounted window would satisfy
     // the first case for row zero and misreport every row below the fold.
-    const container = renderFileList(REPOSITORY_WIDE_DIFF, REPOSITORY_WIDE_DIFF.files[4_000]?.path);
+    const container = renderFileList(
+      REPOSITORY_WIDE_DIFF,
+      fixtureFileAt(REPOSITORY_WIDE_DIFF, 4_000).path,
+    );
 
     const rows = [...container.querySelectorAll(".meridian-diff-files__row")];
     const first = rows[0];
