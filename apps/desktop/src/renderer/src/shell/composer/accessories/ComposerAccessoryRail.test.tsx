@@ -623,6 +623,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
     // button now says what it is doing and takes no second press at all.
     const compactionCalls: unknown[] = [];
     let releaseCompaction: (() => void) | undefined;
+    const clock = new ManualClock();
     const bridge = {
       sidekicks: {
         daemon: {
@@ -646,7 +647,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       growth: {},
       growthServedOperations: new Set(),
       source: "fixture",
-      scenarioEngine: undefined,
+      scenarioEngine: { clock },
     } as unknown as ConsoleBridge;
 
     let container: HTMLElement = document.createElement("div");
@@ -657,6 +658,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
         focusedPane: ON_THE_AGENT,
       });
     });
+    await settleCapabilityRead(clock);
     const compact = container.querySelector(".meridian-compaction__action");
     if (!(compact instanceof HTMLButtonElement)) {
       throw new Error("the rail offered no compaction control");
