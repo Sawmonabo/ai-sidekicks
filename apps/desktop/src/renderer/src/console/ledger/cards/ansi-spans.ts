@@ -27,8 +27,10 @@
 //     answer an unrecognized enum member gets everywhere else in this console, and never
 //     a nearest-neighbour guess.
 //
-// Reverse video IS reproduced, by swapping the two class names: it is a relation between
-// the span's own two colours, so honouring it needs no palette the console lacks.
+// Reverse video IS reproduced, by swapping the two channels at render. It is a relation
+// between the two colours a span paints, so honouring it needs no palette the console
+// lacks — only the console's OWN default pair for whichever channel the stream left
+// unset, which is what `ANSI_DEFAULT_COLORS` names and `ledger.css` resolves.
 
 import Anser from "anser";
 
@@ -72,6 +74,27 @@ export const ANSI_COLOR_NAMES = [
 export type AnsiColorName = (typeof ANSI_COLOR_NAMES)[number];
 
 /**
+ * The console's own two defaults, as channel values a span can paint.
+ *
+ * They exist for exactly one caller: reverse video. A stream that reverses without having
+ * set both colours is reversing against the terminal's defaults, so honouring it needs a
+ * name for "the colour this body paints when the stream says nothing" on each channel.
+ * These are those names, and `ledger.css` binds them to the same two tokens the body
+ * itself reads, so the swap resolves to what the reader is actually looking at rather
+ * than to a second opinion about it.
+ *
+ * A span the stream did not reverse never carries one: an unset channel inherits, which
+ * is a weaker claim than painting a token and is the right one to make.
+ */
+export const ANSI_DEFAULT_COLORS = ["default-foreground", "default-background"] as const;
+
+/** One console default, as a channel value. Derived from the enumeration. */
+export type AnsiDefaultColor = (typeof ANSI_DEFAULT_COLORS)[number];
+
+/** Everything one channel can paint: a stream's colour, or the console's own default. */
+export type AnsiRenderedColor = AnsiColorName | AnsiDefaultColor;
+
+/**
  * The decorations the console reproduces. Closed, and SMALLER than anser's own set
  * for the reasons in this file's header — `blink` and `hidden` are absent by
  * decision and their absence is asserted by a test, so a later widening is a
@@ -86,8 +109,19 @@ export type AnsiDecoration = (typeof ANSI_DECORATIONS)[number];
 export interface AnsiSpan {
   /** The text, wire-verbatim. Never escaped here: React escapes at render. */
   readonly text: string;
+  /** What the stream set this channel to, BEFORE any reverse-video swap. */
   readonly foreground: AnsiColorName | undefined;
+  /** What the stream set this channel to, BEFORE any reverse-video swap. */
   readonly background: AnsiColorName | undefined;
+  /**
+   * Whether the stream asked for reverse video over this run.
+   *
+   * Carried rather than folded into the two channels above, because the fold is lossy
+   * exactly where it matters: a reversed run that set neither colour has nothing to
+   * swap, and only the console — which knows what its own body paints — can say what
+   * the two ends of that swap are. `ansiSpanClassNames` is where it knows.
+   */
+  readonly reversed: boolean;
   readonly decorations: readonly AnsiDecoration[];
 }
 
@@ -166,7 +200,7 @@ export function isReproducedAnsiDecoration(decoration: string): decoration is An
 }
 
 /** The class name a foreground or background colour renders under. */
-export function ansiColorClassName(channel: "fg" | "bg", color: AnsiColorName): string {
+export function ansiColorClassName(channel: "fg" | "bg", color: AnsiRenderedColor): string {
   return `meridian-ansi__${channel}--${color}`;
 }
 
@@ -175,14 +209,25 @@ export function ansiDecorationClassName(decoration: AnsiDecoration): string {
   return `meridian-ansi--${decoration}`;
 }
 
-/** Every class one span carries, in a stable order. */
+/**
+ * Every class one span carries, in a stable order.
+ *
+ * THE REVERSE-VIDEO SWAP HAPPENS HERE, and not in the parse, because a swap needs both
+ * ends and a stream that reversed without setting both colours supplied only one of them
+ * — or neither, which `ESC[7m` on its own is and which is the common case. The missing
+ * end is the console's own default for the OTHER channel, a fact that lives with the
+ * class names and the tokens rather than with the parser.
+ */
 export function ansiSpanClassNames(span: AnsiSpan): readonly string[] {
+  const foreground = span.reversed ? (span.background ?? "default-background") : span.foreground;
+  const background = span.reversed ? (span.foreground ?? "default-foreground") : span.background;
+
   const names: string[] = [];
-  if (span.foreground !== undefined) {
-    names.push(ansiColorClassName("fg", span.foreground));
+  if (foreground !== undefined) {
+    names.push(ansiColorClassName("fg", foreground));
   }
-  if (span.background !== undefined) {
-    names.push(ansiColorClassName("bg", span.background));
+  if (background !== undefined) {
+    names.push(ansiColorClassName("bg", background));
   }
   for (const decoration of span.decorations) {
     names.push(ansiDecorationClassName(decoration));
@@ -190,18 +235,56 @@ export function ansiSpanClassNames(span: AnsiSpan): readonly string[] {
   return names;
 }
 
+/**
+ * The two colour names anser substitutes for a channel the stream left unset, just
+ * before it performs its own reverse swap: white for the foreground, black for the
+ * background, its reading of a conventional terminal's defaults.
+ *
+ * They are undone rather than rendered. The console binds `black` and `white` to two
+ * points on its READING scale, so a run that reached the surface carrying anser's pair
+ * would paint muted grey on faint grey — a substitution that is invisible in this
+ * console and reversed in none.
+ *
+ * UNDOING THEM IS AMBIGUOUS AT EXACTLY TWO INPUTS, and the ambiguity is accepted rather
+ * than hidden: an explicit `ESC[40m` under reverse is indistinguishable from a
+ * substituted background, and an explicit `ESC[37m` from a substituted foreground. Both
+ * collapse onto the console's default for that channel, which is what the terminal the
+ * stream was written for would have shown, since there black IS the default background
+ * and white IS the default foreground. Telling them apart would mean running the SGR
+ * state machine a second time beside the library that already runs it.
+ */
+const ANSER_SUBSTITUTED_FOREGROUND: AnsiColorName = "white";
+const ANSER_SUBSTITUTED_BACKGROUND: AnsiColorName = "black";
+
 function toSpan(entry: AnserJsonEntry): AnsiSpan {
-  const foreground = resolveColor(entry.fg);
-  const background = resolveColor(entry.bg);
-  // Reverse video is a relation between this span's own two colours, so the swap is
-  // the whole of honouring it — and an unset side stays unset rather than becoming
-  // some default the console would then have to choose.
-  const isReversed = entry.decorations.includes("reverse");
+  // Anser strips `reverse` from `decorations` and publishes the state as `isInverted`
+  // instead, so reading the decoration list for it finds nothing, always. The member is
+  // absent from the shipped declaration, so it is reached through an `in` narrowing —
+  // no cast — and the test "reads reverse video from the flag anser actually publishes"
+  // fails the moment the pinned library stops setting it.
+  const isReversed = "isInverted" in entry && entry.isInverted === true;
+  if (!isReversed) {
+    return {
+      text: entry.content,
+      foreground: resolveColor(entry.fg),
+      background: resolveColor(entry.bg),
+      reversed: false,
+      decorations: entry.decorations.filter(isReproducedAnsiDecoration),
+    };
+  }
+
+  // Anser has already swapped, so its `fg` holds what the stream set as the background
+  // and its `bg` what the stream set as the foreground. Both are undone here so the span
+  // reports what the STREAM said; `ansiSpanClassNames` re-applies the swap where the
+  // console's own defaults are known.
+  const streamBackground = resolveColor(entry.fg);
+  const streamForeground = resolveColor(entry.bg);
 
   return {
     text: entry.content,
-    foreground: isReversed ? background : foreground,
-    background: isReversed ? foreground : background,
+    foreground: streamForeground === ANSER_SUBSTITUTED_FOREGROUND ? undefined : streamForeground,
+    background: streamBackground === ANSER_SUBSTITUTED_BACKGROUND ? undefined : streamBackground,
+    reversed: true,
     decorations: entry.decorations.filter(isReproducedAnsiDecoration),
   };
 }

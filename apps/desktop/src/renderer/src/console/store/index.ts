@@ -69,5 +69,6 @@ export {
   useOpenSessionStore,
   useSessionInitialised,
   useSessionPartition,
+  useSessionProjectionRevision,
   useSessionStore,
 } from "./hooks.js";

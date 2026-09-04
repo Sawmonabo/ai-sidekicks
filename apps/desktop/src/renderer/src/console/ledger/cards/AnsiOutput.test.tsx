@@ -37,6 +37,22 @@ describe("rendering ANSI output", () => {
     expect(container.querySelector("pre")?.getAttribute("aria-label")).toBe("Output of ls");
   });
 
+  it("renders a bare reverse-video run in the console's own default pair", () => {
+    // End to end, because the two halves live apart: the parse reports the reverse state
+    // and the class mapper resolves it against the tokens the body itself paints.
+    const { container } = render(<AnsiOutput source={`${ESCAPE}[7minverted`} label="Output" />);
+    expect(container.querySelector(".meridian-ansi__fg--default-background")).not.toBeNull();
+    expect(container.querySelector(".meridian-ansi__bg--default-foreground")).not.toBeNull();
+    expect(container.textContent).toContain("inverted");
+  });
+
+  it("negative control: a plain run carries neither default class", () => {
+    // Without this, a mapper that painted the default pair on every run would pass above.
+    const { container } = render(<AnsiOutput source="plain" label="Output" />);
+    expect(container.querySelector(".meridian-ansi__fg--default-background")).toBeNull();
+    expect(container.querySelector(".meridian-ansi__bg--default-foreground")).toBeNull();
+  });
+
   it("negative control: markup in the output reaches the screen as characters", () => {
     // The mapper is the whole path; there is no HTML string anywhere on it, which is why
     // a tool that prints a tag prints a tag rather than creating one.

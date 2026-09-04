@@ -284,6 +284,140 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     expect(handoff.detached()).toHaveLength(1);
   });
 
+  /**
+   * A port whose subscription request the test decides the settlement of, and which
+   * records every stream it handed out plus whether that stream was closed.
+   *
+   * The three cases below are all about ORDER — what a stop reaches while a request is
+   * still in flight — so the request has to be held open, and the assertion has to be
+   * about the streams themselves rather than about what the handoff happened to
+   * publish afterwards.
+   */
+  function heldSubscriptionPort(): {
+    readonly port: GrowthPort;
+    /** Settle the oldest unsettled request. */
+    readonly settleNext: () => void;
+    readonly streams: { closed: boolean; drained: boolean }[];
+  } {
+    const settlers: (() => void)[] = [];
+    const streams: { closed: boolean; drained: boolean }[] = [];
+    return {
+      streams,
+      settleNext: () => {
+        settlers.shift()?.();
+      },
+      port: {
+        ...servingPort(),
+        windowSubscribePaneErrors: async () => {
+          await new Promise<void>((resolve) => {
+            settlers.push(resolve);
+          });
+          const stream = { closed: false, drained: false };
+          streams.push(stream);
+          return {
+            status: "served",
+            value: {
+              events: (async function* deliver() {
+                stream.drained = true;
+                // Never ends on its own: a watch is closed, not waited out.
+                await new Promise<void>(() => undefined);
+                yield { paneId: "pane-never", reason: "unreachable" };
+              })(),
+              close: () => {
+                stream.closed = true;
+              },
+            },
+          };
+        },
+      },
+    };
+  }
+
+  /** Let the held request's continuation run, without advancing any timer. */
+  async function drainMicrotasks(): Promise<void> {
+    for (let turn = 0; turn < 8; turn += 1) {
+      await Promise.resolve();
+    }
+  }
+
+  it("closes a subscription that arrives after the watch was stopped, and drains nothing", async () => {
+    // The defect: the stop saw no installed stream, so it could neither cancel nor
+    // invalidate the request — and the response then installed a stream and drained
+    // it for a window with nothing detached.
+    const held = heldSubscriptionPort();
+    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+    handoff.stopWatchingPaneErrors();
+    held.settleNext();
+    await drainMicrotasks();
+
+    expect(held.streams).toHaveLength(1);
+    expect(held.streams[0]?.closed).toBe(true);
+    expect(held.streams[0]?.drained).toBe(false);
+  });
+
+  it("holds exactly one stream open through a detach, a stop, and a second detach", async () => {
+    // The leak: the guard recorded only the RESOLVED stream, so a detach arriving
+    // while the first request was in flight started a second subscription and one of
+    // the two was left open with nobody holding it.
+    const held = heldSubscriptionPort();
+    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+    handoff.stopWatchingPaneErrors();
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+
+    held.settleNext();
+    held.settleNext();
+    await drainMicrotasks();
+
+    expect(held.streams).toHaveLength(2);
+    const live = held.streams.filter((stream) => !stream.closed);
+    expect(live).toHaveLength(1);
+    expect(live[0]?.drained).toBe(true);
+  });
+
+  it("negative control: a second watch while the first is still in flight asks once", async () => {
+    // Without this, the case above would pass over a guard that started a fresh
+    // subscription on every call and merely closed the extras afterwards.
+    const held = heldSubscriptionPort();
+    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    void handoff.watchPaneErrors();
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+    held.settleNext();
+    held.settleNext();
+    await drainMicrotasks();
+
+    expect(held.streams).toHaveLength(1);
+    expect(held.streams[0]?.closed).toBe(false);
+  });
+
+  it("negative control: an uninterrupted watch installs its stream and drains it", async () => {
+    // Without this, every case above would pass over a watch that closed whatever it
+    // opened and never received a crash at all.
+    const held = heldSubscriptionPort();
+    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+    held.settleNext();
+    await drainMicrotasks();
+
+    expect(held.streams).toHaveLength(1);
+    expect(held.streams[0]?.closed).toBe(false);
+    expect(held.streams[0]?.drained).toBe(true);
+  });
+
   it("says so when the signal itself ends in a failure", async () => {
     const handoff = new AuxiliaryHandoff({
       growth: {

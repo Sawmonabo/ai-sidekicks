@@ -29,7 +29,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing, useAnnounce } from "../../primitives/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import type { SessionStore } from "../../store/index.js";
+import { useSessionProjectionRevision, type SessionStore } from "../../store/index.js";
 import {
   SIDEBAR_SECTION_IDS,
   sidebarSectionRegistry,
@@ -75,6 +75,18 @@ export function SessionSidebar(props: SessionSidebarProps): React.JSX.Element {
   // than the first time a record settles.
   const announce = useAnnounce();
 
+  // THE PROJECTION MOVES UNDER THIS COLUMN, and the containers it moves inside do not.
+  // A section reports off its own family's projection of the session store, and that
+  // store keeps ONE identity for the life of the session — so a memo keyed on the
+  // registry and the two containers would be computed once at mount and never again,
+  // and an approval that arrived a second later would reach no marker, open no section,
+  // and stay marked after it resolved. The store's own transition counter is the value
+  // that says the projection moved; it is what the readers are reading behind.
+  //
+  // ONE SUBSCRIPTION FOR THE COLUMN, not one per section: the counter names no
+  // partition, so eight of them would deliver the same number eight times.
+  const projectionRevision = useSessionProjectionRevision(props.sessionStore);
+
   // What each section reports right now, read off state its family already holds.
   // Never a read: the seat's own contract says the reader is called during render and
   // answers from a projection, which is what keeps a collapsed section free.
@@ -89,7 +101,9 @@ export function SessionSidebar(props: SessionSidebarProps): React.JSX.Element {
       }
     }
     return attention;
-  }, [registry, props.sessionStore, props.bridge]);
+    // `projectionRevision` is read by the readers above rather than by this body, which
+    // is the whole of why it is here: it is the dependency that makes them re-run.
+  }, [registry, props.sessionStore, props.bridge, projectionRevision]);
 
   const openSectionId = resolveOpenSectionId(attentionBySectionId, snapshot.state.chosenSectionId);
 

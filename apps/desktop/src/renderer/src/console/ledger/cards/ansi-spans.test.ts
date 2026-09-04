@@ -54,10 +54,50 @@ describe("parsing ANSI output", () => {
     expect(spans[0]?.foreground).toBeUndefined();
   });
 
-  it("swaps the two colours for reverse video", () => {
+  it("reads reverse video from the flag anser actually publishes", () => {
+    // The library strips `reverse` from `decorations` and reports the state as
+    // `isInverted`, a member its shipped declaration omits. This pins both halves: a
+    // release that stopped setting the flag, or started leaving the decoration in place,
+    // fails here rather than silently rendering every reversed run unreversed.
+    const { spans } = parseAnsiSpans(`${ESCAPE}[7mswapped`);
+    expect(spans[0]?.reversed).toBe(true);
+    expect(spans[0]?.decorations).toStrictEqual([]);
+  });
+
+  it("keeps the stream's own two colours under reverse video, unswapped", () => {
+    // The span reports what the STREAM said; the swap is a render-time relation between
+    // the two channels, and lives with the class names.
     const { spans } = parseAnsiSpans(`${ESCAPE}[31m${ESCAPE}[42m${ESCAPE}[7mswapped`);
-    expect(spans[0]?.foreground).toBe("green");
-    expect(spans[0]?.background).toBe("red");
+    expect(spans[0]?.foreground).toBe("red");
+    expect(spans[0]?.background).toBe("green");
+    expect(spans[0]?.reversed).toBe(true);
+  });
+
+  it("undoes the library's own default substitution, leaving the unset channel unset", () => {
+    // Anser fills a missing channel with white/black before it swaps. Rendered, that pair
+    // is muted grey on faint grey in this console — a substitution that reverses nothing.
+    const bare = parseAnsiSpans(`${ESCAPE}[7mbare`);
+    expect(bare.spans[0]?.foreground).toBeUndefined();
+    expect(bare.spans[0]?.background).toBeUndefined();
+
+    const foregroundOnly = parseAnsiSpans(`${ESCAPE}[31m${ESCAPE}[7mhalf`);
+    expect(foregroundOnly.spans[0]?.foreground).toBe("red");
+    expect(foregroundOnly.spans[0]?.background).toBeUndefined();
+  });
+
+  it("clears reverse video on the sequence that turns it off", () => {
+    const { spans } = parseAnsiSpans(`${ESCAPE}[7mon${ESCAPE}[27moff`);
+    expect(spans[0]?.text).toBe("on");
+    expect(spans[0]?.reversed).toBe(true);
+    expect(spans[1]?.text).toBe("off");
+    expect(spans[1]?.reversed).toBe(false);
+  });
+
+  it("negative control: an unreversed run carries no reverse state", () => {
+    // Without this, a parser that reported every run reversed would pass every assertion
+    // above, and every plain line of build output would render inverted.
+    const { spans } = parseAnsiSpans(`${ESCAPE}[31mfailed`);
+    expect(spans[0]?.reversed).toBe(false);
   });
 
   it("reproduces bold and underline", () => {
@@ -122,6 +162,7 @@ describe("the class names one span carries", () => {
       text: "x",
       foreground: "red",
       background: "bright-blue",
+      reversed: false,
       decorations: ["bold"],
     });
     expect(names).toStrictEqual([
@@ -137,8 +178,85 @@ describe("the class names one span carries", () => {
         text: "x",
         foreground: undefined,
         background: undefined,
+        reversed: false,
         decorations: [],
       }),
     ).toStrictEqual([]);
+  });
+
+  it("paints a bare reversed run in the console's own default pair, swapped", () => {
+    // `ESC[7m` on its own sets neither colour, so both ends of the swap are the console's
+    // defaults: the body's background becomes the text colour and its foreground the fill.
+    expect(
+      ansiSpanClassNames({
+        text: "x",
+        foreground: undefined,
+        background: undefined,
+        reversed: true,
+        decorations: [],
+      }),
+    ).toStrictEqual([
+      "meridian-ansi__fg--default-background",
+      "meridian-ansi__bg--default-foreground",
+    ]);
+  });
+
+  it("swaps one explicit colour against the console's default for the other channel", () => {
+    expect(
+      ansiSpanClassNames({
+        text: "x",
+        foreground: "red",
+        background: undefined,
+        reversed: true,
+        decorations: [],
+      }),
+    ).toStrictEqual(["meridian-ansi__fg--default-background", "meridian-ansi__bg--red"]);
+    expect(
+      ansiSpanClassNames({
+        text: "x",
+        foreground: undefined,
+        background: "green",
+        reversed: true,
+        decorations: [],
+      }),
+    ).toStrictEqual(["meridian-ansi__fg--green", "meridian-ansi__bg--default-foreground"]);
+  });
+
+  it("swaps two explicit colours and keeps every decoration", () => {
+    expect(
+      ansiSpanClassNames({
+        text: "x",
+        foreground: "red",
+        background: "green",
+        reversed: true,
+        decorations: ["bold"],
+      }),
+    ).toStrictEqual(["meridian-ansi__fg--green", "meridian-ansi__bg--red", "meridian-ansi--bold"]);
+  });
+
+  it("negative control: swapping two undefined channels would name nothing", () => {
+    // The defect this replaced: with both channels unset, a swap that carried the two
+    // `undefined`s across produced no classes at all and the run rendered unreversed.
+    const bare = ansiSpanClassNames({
+      text: "x",
+      foreground: undefined,
+      background: undefined,
+      reversed: true,
+      decorations: [],
+    });
+    expect(bare).not.toStrictEqual([]);
+    expect(bare).toHaveLength(2);
+  });
+
+  it("negative control: an unreversed span with both colours does not swap them", () => {
+    expect(
+      ansiSpanClassNames({
+        text: "x",
+        foreground: "red",
+        background: "green",
+        reversed: false,
+        decorations: [],
+      }),
+    ).toStrictEqual(["meridian-ansi__fg--red", "meridian-ansi__bg--green"]);
   });
 });

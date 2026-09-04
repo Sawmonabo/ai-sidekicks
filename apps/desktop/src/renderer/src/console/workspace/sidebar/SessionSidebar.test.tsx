@@ -61,6 +61,15 @@ interface HarnessProps {
   readonly registry: SidebarSectionRegistry;
   readonly commandSeat: MountedSidebarSeat;
   readonly bridge: ConsoleBridge;
+  /**
+   * ONE store for the mount, built by the caller.
+   *
+   * Built here it would be a fresh store on every pass, which is a store construction in
+   * a render body and, worse for these cases, a container identity that changes every
+   * time — so a memo keyed on it would recompute whatever its other dependencies said,
+   * and the case below could not tell a subscribed sidebar from an unsubscribed one.
+   */
+  readonly sessionStore: SessionStore;
 }
 
 /**
@@ -77,7 +86,7 @@ function MountedSidebar(props: HarnessProps): React.JSX.Element {
   });
   return (
     <SessionSidebar
-      sessionStore={sessionStore()}
+      sessionStore={props.sessionStore}
       bridge={props.bridge}
       openPane={() => undefined}
       layout={sidebar.layout}
@@ -93,6 +102,7 @@ interface RenderedSidebar {
   readonly uiStateStore: UiStateStore;
   readonly registry: SidebarSectionRegistry;
   readonly commandSeat: MountedSidebarSeat;
+  readonly store: SessionStore;
   readonly unmount: () => void;
   readonly remount: () => void;
 }
@@ -100,6 +110,7 @@ interface RenderedSidebar {
 function renderSidebar(
   uiStateStore: UiStateStore = memoryStore(),
   registry: SidebarSectionRegistry = new SidebarSectionRegistry(),
+  store: SessionStore = sessionStore(),
 ): RenderedSidebar {
   const commandSeat = new MountedSidebarSeat();
   const bridge = createFixtureBridge({ scenario: SCENARIO });
@@ -110,6 +121,7 @@ function renderSidebar(
         registry={registry}
         commandSeat={commandSeat}
         bridge={bridge}
+        sessionStore={store}
       />
     </LiveAnnouncerProvider>
   );
@@ -119,6 +131,7 @@ function renderSidebar(
     uiStateStore,
     registry,
     commandSeat,
+    store,
     unmount: view.unmount,
     remount: () => {
       view.unmount();
@@ -289,6 +302,102 @@ describe("the sidebar — a section that is calling for somebody", () => {
     );
     await settled(rendered.container);
     expect(openSectionIds(rendered.container)).toStrictEqual(["runs"]);
+  });
+
+  /**
+   * A section whose reader answers off the session store itself, as a real family does.
+   *
+   * The newest event decides: an approval that is waiting is calling for somebody, and
+   * one that has been decided is not. Nothing here is held in a test-local variable, so
+   * what these cases drive is the projection moving and not a fixture being retyped.
+   */
+  function registryReadingTheStore(sectionId: SidebarSectionId): SidebarSectionRegistry {
+    const registry = new SidebarSectionRegistry();
+    registry.register({
+      id: sectionId,
+      owner: "sidebar-test",
+      render: () => <p data-section-body={sectionId}>{sectionId} body</p>,
+      attention: ({ sessionStore: store }) => {
+        const timeline = store.snapshot().timeline;
+        const newest = timeline[timeline.length - 1];
+        return newest?.kind === "run.waiting_for_approval" ? "attention" : undefined;
+      },
+    });
+    return registry;
+  }
+
+  function applyEvent(store: SessionStore, sequence: number, kind: string): void {
+    act(() => {
+      store.apply({
+        id: `event-${String(sequence)}`,
+        sessionId: SESSION_ID,
+        sequence,
+        kind,
+        occurredAt: new Date(Date.UTC(2026, 0, 1, 9, 0, sequence)).toISOString(),
+        payload: {},
+      });
+    });
+  }
+
+  it("marks and opens a section for an approval that arrives after mount", async () => {
+    // The whole of the defect: the registry and both containers keep one identity for
+    // the life of a session, so a sidebar memoized on those alone is computed at mount
+    // and never again, and an approval that arrives a second later reaches no marker.
+    const store = sessionStore();
+    const rendered = renderSidebar(memoryStore(), registryReadingTheStore("approvals"), store);
+    await settled(rendered.container);
+    expect(openSectionIds(rendered.container)).toStrictEqual([]);
+
+    applyEvent(store, 1, "run.waiting_for_approval");
+
+    expect(headerFor(rendered.container, "approvals").getAttribute("data-attention")).toBe(
+      "attention",
+    );
+    expect(openSectionIds(rendered.container)).toStrictEqual(["approvals"]);
+  });
+
+  it("clears the marker when the item resolves", async () => {
+    const store = sessionStore();
+    const rendered = renderSidebar(memoryStore(), registryReadingTheStore("approvals"), store);
+    await settled(rendered.container);
+    applyEvent(store, 1, "run.waiting_for_approval");
+    expect(headerFor(rendered.container, "approvals").getAttribute("data-attention")).toBe(
+      "attention",
+    );
+
+    applyEvent(store, 2, "approval.decided");
+
+    expect(headerFor(rendered.container, "approvals").getAttribute("data-attention")).toBeNull();
+    expect(openSectionIds(rendered.container)).toStrictEqual([]);
+  });
+
+  it("asks each section once per transition, and not again while the projection stands", async () => {
+    // The subscription is one number for the whole column, so a store that has not moved
+    // costs a pointer comparison and no reader runs. Counted rather than asserted,
+    // because a memo that recomputed every pass would still render the right marker.
+    const store = sessionStore();
+    let readerCallCount = 0;
+    const registry = new SidebarSectionRegistry();
+    registry.register({
+      id: "approvals",
+      owner: "sidebar-test",
+      render: () => <p data-section-body="approvals">approvals body</p>,
+      attention: () => {
+        readerCallCount += 1;
+        return undefined;
+      },
+    });
+    const rendered = renderSidebar(memoryStore(), registry, store);
+    await settled(rendered.container);
+
+    const afterMount = readerCallCount;
+    applyEvent(store, 1, "run.starting");
+    const afterOneTransition = readerCallCount;
+    expect(afterOneTransition).toBeGreaterThan(afterMount);
+
+    // A press moves the person's choice and not the projection, so the fold stands.
+    press(headerFor(rendered.container, "approvals"));
+    expect(readerCallCount).toBe(afterOneTransition);
   });
 
   it("negative control: a registry reporting nothing leaves the person's choice alone", async () => {
