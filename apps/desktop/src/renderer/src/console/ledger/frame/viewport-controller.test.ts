@@ -463,3 +463,117 @@ describe("the viewport controller — teardown", () => {
     expect(clock.pendingCount).toBe(0);
   });
 });
+
+describe("the viewport controller — a prune the window refused, re-asked", () => {
+  const LOADED_ROW_COUNT = 4400;
+  const READER_SCROLL_TOP_PX = 2000;
+  const VIEWPORT_HEIGHT_PX = 300;
+  const CONTENT_HEIGHT_PX = 400_000;
+  const TAIL_OFFSET_PX = CONTENT_HEIGHT_PX - VIEWPORT_HEIGHT_PX;
+
+  /** A reader parked above the tail, on the oldest row the cap wanted to take. */
+  function readerAboveTheTail(): {
+    controller: LedgerViewportController;
+    surface: ReturnType<typeof countingSurface>;
+  } {
+    const surface = countingSurface({
+      initialScrollTop: READER_SCROLL_TOP_PX,
+      clientHeight: VIEWPORT_HEIGHT_PX,
+      scrollHeight: CONTENT_HEIGHT_PX,
+    });
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    controller.anchor.capture({ rowKey: "row-0", offsetWithinViewportPx: 0 });
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    expect(controller.snapshot().lastPrune?.deferredBecause).toBe("reading-floor");
+    expect(controller.snapshot().rowKeys).toHaveLength(LOADED_ROW_COUNT);
+    return { controller, surface };
+  }
+
+  it("takes the rows the reading floor held back, with no second reconcile", () => {
+    // THE CASE THE ROW SET COULD NOT REPORT. Nothing about the log changes when a
+    // reader comes back to the tail, so the reconcile that would have re-asked never
+    // arrives on a quiet session — and the window stayed over its cap for as long as
+    // nobody typed. `reconcile` is deliberately not called again here.
+    const { controller, surface } = readerAboveTheTail();
+
+    surface.moveTo(TAIL_OFFSET_PX);
+    expect(controller.anchor.state.mode).toBe("following");
+    controller.retryDeferredPrune();
+
+    expect(controller.snapshot().lastPrune?.applied).toBe(true);
+    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+    expect(controller.snapshot().rowKeys[0]).toBe(
+      `row-${String(LOADED_ROW_COUNT - LEDGER_WINDOW_ROW_CAP)}`,
+    );
+  });
+
+  it("takes them when a pin lifts, likewise without one", () => {
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(countingSurface({ clientHeight: VIEWPORT_HEIGHT_PX, scrollHeight: 4000 }));
+    controller.anchor.pin("cursor-3");
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    expect(controller.snapshot().lastPrune?.deferredBecause).toBe("pinned-history");
+
+    controller.anchor.unpin();
+    controller.retryDeferredPrune();
+
+    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+  });
+
+  it("takes them when the write that vetoed the prune has finished", () => {
+    // The veto is raised and dropped inside ONE synchronous glide, so the only way to
+    // reconcile under it is from a subscriber the glide itself wakes — which is
+    // exactly how the effect that reconciles reaches it in a tree. Nothing observes
+    // the veto lifting, which is why the retry is keyed on the refusal instead.
+    const surface = countingSurface({
+      initialScrollTop: READER_SCROLL_TOP_PX,
+      clientHeight: VIEWPORT_HEIGHT_PX,
+      scrollHeight: CONTENT_HEIGHT_PX,
+    });
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(surface);
+    let reconciledUnderTheVeto = false;
+    controller.scroll.subscribeToGeometry(() => {
+      if (reconciledUnderTheVeto || !controller.scroll.vetoesPrune()) {
+        return;
+      }
+      reconciledUnderTheVeto = true;
+      controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    });
+
+    controller.jumpToTail();
+    expect(reconciledUnderTheVeto).toBe(true);
+    expect(controller.snapshot().lastPrune?.deferredBecause).toBe("scroll-write");
+    expect(controller.snapshot().rowKeys).toHaveLength(LOADED_ROW_COUNT);
+
+    controller.retryDeferredPrune();
+
+    expect(controller.snapshot().rowKeys).toHaveLength(LEDGER_WINDOW_ROW_CAP);
+  });
+
+  it("negative control: re-asking changes nothing while the reader is still above the tail", () => {
+    // Without this the retry could be a cap that ignores the reading floor outright,
+    // which is the promise the floor exists to keep.
+    const { controller } = readerAboveTheTail();
+
+    controller.retryDeferredPrune();
+
+    expect(controller.snapshot().lastPrune?.deferredBecause).toBe("reading-floor");
+    expect(controller.snapshot().rowKeys).toHaveLength(LOADED_ROW_COUNT);
+  });
+
+  it("negative control: re-asking after a prune that landed does nothing at all", () => {
+    const controller = new LedgerViewportController({ clock: new ManualClock() });
+    controller.attach(countingSurface({ clientHeight: VIEWPORT_HEIGHT_PX, scrollHeight: 4000 }));
+    controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
+    const settled = controller.snapshot();
+    expect(settled.lastPrune?.applied).toBe(true);
+
+    controller.retryDeferredPrune();
+
+    // Identity, not length: a retry that re-ran the fold would publish a new snapshot
+    // for a window nothing had changed, and every memo below the frame keys on these.
+    expect(controller.snapshot()).toBe(settled);
+  });
+});

@@ -50,7 +50,7 @@ import {
   type LedgerViewportSnapshot,
 } from "./viewport-snapshot.js";
 import { LedgerVirtualizerSeams, type LedgerRowVirtualizer } from "./virtualizer-seams.js";
-import { LedgerWindow, type PruneOutcome } from "./window-cap.js";
+import { LedgerWindow, type PruneDeferralReason, type PruneOutcome } from "./window-cap.js";
 
 export interface LedgerViewportControllerOptions {
   readonly clock: ConsoleClock;
@@ -74,6 +74,15 @@ export class LedgerViewportController {
   #rowKeys: readonly string[] = [];
   #snapshot: LedgerViewportSnapshot;
   #lastPrune: PruneOutcome | undefined;
+  /**
+   * The conditions the last reconcile folded in, kept so a deferred prune can be
+   * re-asked with them.
+   *
+   * The surrounding surface reports these on a render, and the three of them are
+   * exactly what a re-ask must NOT invent: re-running the prune against a row set
+   * this frame made up would apply the cap to a window nobody is showing.
+   */
+  #lastConditions: LedgerViewportConditions | undefined;
   #publishFrame: ScheduledHandle | undefined;
   #tailGlidePending = false;
   #disposed = false;
@@ -158,6 +167,7 @@ export class LedgerViewportController {
    * the steps before it can change what is above the fold.
    */
   public reconcile(conditions: LedgerViewportConditions): void {
+    this.#lastConditions = conditions;
     const previousTailKey = this.#rowKeys[this.#rowKeys.length - 1];
     const readingFloorRowKey = this.#readingFloorRowKey();
     this.window.ingest(conditions.rows);
@@ -243,6 +253,65 @@ export class LedgerViewportController {
   }
 
   /**
+   * Re-ask for a prune the window refused, now that the refusal's condition is
+   * gone.
+   *
+   * WHY A SECOND ENTRY POINT AND NOT A WIDER RECONCILE. `reconcile` is driven by
+   * the three conditions the surrounding surface reports — the row set, the turn
+   * activity, the reveal drain — and three of the six refusals below are conditions
+   * NONE of those three carry: a reader above the tail, a pin, and a programmatic
+   * write in flight are facts about this controller. A window left over its cap by
+   * one of them therefore stayed over cap until the log happened to change, which on
+   * an idle session is never — the reader came back to the tail and the rows the cap
+   * had already refused to take stayed in memory indefinitely.
+   *
+   * Idempotent and cheap when nothing is owed: a window whose last prune applied,
+   * or was refused for a reason still true, does no work at all — which is what lets
+   * the binding call it on a reading transition without checking anything first.
+   */
+  public retryDeferredPrune(): void {
+    const conditions = this.#lastConditions;
+    const deferredBecause = this.#lastPrune?.deferredBecause;
+    if (this.#disposed || conditions === undefined || deferredBecause === undefined) {
+      return;
+    }
+    if (!this.#deferralHasCleared(deferredBecause)) {
+      return;
+    }
+    this.reconcile(conditions);
+  }
+
+  /**
+   * Whether the condition that refused the last prune is gone.
+   *
+   * TOTAL over `PRUNE_DEFERRAL_REASONS`, so a reason `window-cap.ts` registers is a
+   * compile error here until it is classified — which is the point: the failure this
+   * method exists to prevent is a refusal nobody re-asks about, and a new refusal
+   * that silently fell through to "never retry" would be exactly that failure again.
+   *
+   * THE THREE ARMS THAT ANSWER `false` ARE NOT UNOBSERVABLE, THEY ARE ALREADY
+   * OBSERVED. `under-cap` is not a refusal to retry at all — the window is within
+   * its cap and there is nothing owed. `active-turn` and `reveal-drain` are read
+   * straight off `LedgerViewportConditions`, so the surface that reports them
+   * re-runs `reconcile` the moment either changes; retrying them here would be a
+   * second reader of one fact, racing the first.
+   */
+  #deferralHasCleared(deferredBecause: PruneDeferralReason): boolean {
+    switch (deferredBecause) {
+      case "scroll-write":
+        return !this.scroll.vetoesPrune();
+      case "pinned-history":
+        return this.anchor.state.pinnedRootCursor === undefined;
+      case "reading-floor":
+        return this.#readingFloorRowKey() === undefined;
+      case "under-cap":
+      case "active-turn":
+      case "reveal-drain":
+        return false;
+    }
+  }
+
+  /**
    * Declare the display every measurement is being taken on.
    *
    * A change drops this ledger's priors AND the library's, in one act: two caches
@@ -301,6 +370,10 @@ export class LedgerViewportController {
   /** Terminal. Every subscription this controller opened is closed here. */
   public dispose(): void {
     this.#tailGlidePending = false;
+    // The retry's hold on the last row set goes with the subscriptions: a disposed
+    // controller that kept it would hold a whole window's identity list alive for
+    // as long as anything still referenced the corpse.
+    this.#lastConditions = undefined;
     for (const unsubscribe of this.#teardown) {
       unsubscribe();
     }
