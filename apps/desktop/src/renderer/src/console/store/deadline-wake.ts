@@ -10,9 +10,12 @@
 //
 // AND THE FIX IS NOT A POLL. `Spec-023 §Console Design (Meridian)`'s "No interval
 // polling" rule and the idle-CPU budget behind it both hold, so this arms ONE
-// timeout, for the earliest deadline still ahead, and re-arms from inside its own
-// tick: a chain of single shots that stops on its own the moment nothing is
-// outstanding. Nothing is read when it fires — it publishes an INSTANT — which is
+// timeout at a time, for the earliest deadline still ahead, and re-arms from inside
+// its own tick: a chain of single shots that stops on its own the moment nothing is
+// outstanding. A deadline further out than a platform timer can hold is walked in
+// steps of that ceiling rather than armed for in one go — see
+// `MAXIMUM_TIMEOUT_MILLISECONDS`, where a single unclamped arm fires immediately and
+// forever. Nothing is read when it fires — it publishes an INSTANT — which is
 // why this is not a refresh and does not belong to `scheduling.ts` beside it. That
 // module decides when to ask the daemon again; this one decides nothing at all
 // except what time it is for the rows already in hand.
@@ -33,7 +36,25 @@
 
 import { useEffect, useState } from "react";
 
-import type { ConsoleClock } from "../core/index.js";
+import type { ConsoleClock, ScheduledHandle } from "../core/index.js";
+
+/**
+ * The largest delay a platform timer holds, and therefore the largest step this
+ * module ever arms.
+ *
+ * `setTimeout` stores its delay in a signed 32-bit integer, so a delay above this
+ * does not fire late — it fires on the NEXT TICK. Measured on Node 22:
+ * `setTimeout(fn, 2 ** 31)` warns `TimeoutOverflowWarning` and runs `fn` two
+ * milliseconds later. A deadline more than about 24.8 days out is ordinary here — a
+ * clone scheduled for disposal in two months, an invitation good for a quarter — so
+ * an unclamped delay would publish that far-future instant immediately and render
+ * every row in the list past its deadline, permanently: with the instant beyond
+ * every threshold, nothing is outstanding and nothing re-arms.
+ *
+ * It is a platform constant rather than a console cap, which is why it lives beside
+ * the one module that arms against it rather than in the caps table.
+ */
+const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
 
 /**
  * The soonest deadline still ahead of `nowMilliseconds`, or `undefined`.
@@ -82,24 +103,38 @@ export function useDeadlineWake(clock: ConsoleClock, deadlines: readonly number[
 
   useEffect(() => {
     if (dueAtMilliseconds === undefined) {
-      return;
+      return undefined;
     }
-    const handle = clock.scheduleTimeout(
-      () => {
+    // One deadline, armed in steps no longer than a timer can hold. Each step asks
+    // the clock again rather than counting its own, so a step that ran late or a
+    // host that slept moves the wake-up nowhere: the remaining time is always the
+    // difference between the deadline and what the clock says now.
+    let armedHandle: ScheduledHandle | undefined;
+    const armNextStep = (): void => {
+      const remainingMilliseconds = dueAtMilliseconds - clock.now();
+      if (remainingMilliseconds <= 0) {
+        armedHandle = undefined;
         // The deadline itself, and never the clock's reading of now: the caller's
         // rows turn on whether that instant has passed, and waking to a later one
         // would cross thresholds nobody in the list is measured against. `Math.max`
         // rather than a bare assignment because two consumers of one clock can
         // settle out of order and the instant is monotone by construction.
         setWokeAtMilliseconds((heldMilliseconds) => Math.max(heldMilliseconds, dueAtMilliseconds));
-      },
-      Math.max(0, dueAtMilliseconds - clock.now()),
-    );
+        return;
+      }
+      armedHandle = clock.scheduleTimeout(
+        armNextStep,
+        Math.min(remainingMilliseconds, MAXIMUM_TIMEOUT_MILLISECONDS),
+      );
+    };
+    armNextStep();
     return () => {
       // Cancelled when the earliest deadline changes, when the wake-up has landed,
       // and when the consumer unmounts — a timeout that outlived its surface would
       // set state on a component that is gone.
-      clock.cancel(handle);
+      if (armedHandle !== undefined) {
+        clock.cancel(armedHandle);
+      }
     };
   }, [clock, dueAtMilliseconds]);
 
