@@ -33,7 +33,7 @@
 
 import { memo, useMemo } from "react";
 
-import { Chip, Nothing, WireFigure, formatClockTime, formatCount } from "../primitives/index.js";
+import { Chip, Nothing, WireFigure, formatCount, formatDateTime } from "../primitives/index.js";
 import { SESSION_BACK_TIER_VISIBLE_CAP } from "../core/index.js";
 import {
   foldIntoTiers,
@@ -168,6 +168,16 @@ const SessionRow = memo(function SessionRow(props: SessionRowProps): React.JSX.E
   );
 });
 
+/**
+ * A row's facts, including the instant it was last touched.
+ *
+ * THAT INSTANT CARRIES ITS DAY. The list groups by tier and by nothing else — it
+ * has no day divider and cannot grow one, since the tiers are what a person pinned
+ * — so a clock-only reading made a session touched an hour ago and one touched last
+ * week at the same minute the same eight characters, and the sort order was the only
+ * thing left saying which was which. `formatDateTime` exists for exactly the surface
+ * that has no other carrier of the day, and says so in its own words.
+ */
 function SessionRowFacts(props: { readonly row: PlacedSessionRow }): React.JSX.Element {
   const { row } = props;
   return (
@@ -188,7 +198,7 @@ function SessionRowFacts(props: { readonly row: PlacedSessionRow }): React.JSX.E
         />
       )}
       {row.touchedAtIso === undefined ? null : (
-        <WireFigure value={formatClockTime(row.touchedAtIso)} title={row.touchedAtIso} />
+        <WireFigure value={formatDateTime(row.touchedAtIso)} title={row.touchedAtIso} />
       )}
       {row.participantIds.length === 0 ? null : (
         <span className="meridian-session-row__participants">
