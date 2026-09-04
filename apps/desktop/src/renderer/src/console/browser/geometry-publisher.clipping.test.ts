@@ -7,6 +7,7 @@ import {
   type ClippingOverflowValue,
 } from "./geometry-publisher.js";
 import { PaneOcclusionRegistry } from "./occlusion-registry.js";
+import type { PaneRect } from "./pane-geometry.js";
 import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.test-support.js";
 
 // Which ancestors clip, and the shape the answer is declared in.
