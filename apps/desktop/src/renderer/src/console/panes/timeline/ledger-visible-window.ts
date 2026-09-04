@@ -84,6 +84,17 @@ export interface VisibleLedgerWindow {
    * drawn on this build.
    */
   readonly hasEarlierRows: boolean;
+  /**
+   * The keys the replay position had reached, and the keys the viewport kept.
+   *
+   * The two sets this partition is DECIDED by, published rather than re-derived:
+   * an id-to-absence classifier asks exactly these two questions, and rebuilding
+   * either from `withheldByReplayRows` or `prunedAwayRows` would be a second
+   * expression of the same membership — one that a later edit could leave
+   * disagreeing with the piles beside it.
+   */
+  readonly revealedRowKeys: ReadonlySet<string>;
+  readonly heldRowKeys: ReadonlySet<string>;
   /** The rail's derivation over the rows on screen. */
   readonly railModel: ProvenanceRailModel;
 }
@@ -132,6 +143,8 @@ export function useVisibleLedgerWindow(
       prunedAwayRows,
       withheldByReplayRows,
       hasEarlierRows,
+      revealedRowKeys: revealedKeys,
+      heldRowKeys: visibleKeys,
       // THE ROW ORDERING, not the rows. `useRailGeometry` sizes the thumb by index
       // into this same list, so handing the rail anything else would put the marks
       // on one axis and the thumb on another — and this list is the one that

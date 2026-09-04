@@ -16,6 +16,7 @@ import {
   deriveLedgerFacets,
   isLedgerFiltered,
   jumpToEventId,
+  type LedgerJumpStages,
   withToggledCategory,
   withToggledParticipant,
 } from "./filters.js";
@@ -215,25 +216,84 @@ describe("filters — the menu is derived from the window, never from a hand-wri
   });
 });
 
-describe("filters — jump by id tells the two failures apart", () => {
+describe("filters — jump by id names which narrowing is hiding the row", () => {
   const rows = twoRunWindow();
-  const visible = applyLedgerFilter(rows, { participantIds: ["agent-one"], categories: [] });
+  const narrowed = applyLedgerFilter(rows, { participantIds: ["agent-one"], categories: [] });
 
-  it("finds a row the view is showing", () => {
-    const outcome = jumpToEventId(rows, visible, "a1");
-    expect(outcome.status).toBe("found");
+  /**
+   * The four stages, each admitting whatever it is handed.
+   *
+   * Built from row lists rather than from a window model, because the classifier's
+   * whole claim is that it answers from the STAGES and not from either end of
+   * them — a case that had to build a feed to exercise one arm would be testing
+   * the feed.
+   */
+  function stagesOver(admissions: {
+    filter?: readonly TimelineRow[];
+    fold?: readonly TimelineRow[];
+    replay?: readonly TimelineRow[];
+    viewport?: readonly TimelineRow[];
+  }): LedgerJumpStages {
+    const idsOf = (admitted: readonly TimelineRow[] | undefined): ReadonlySet<string> =>
+      new Set((admitted ?? rows).map((row) => row.id));
+    return {
+      "hidden-by-filter": idsOf(admissions.filter),
+      "folded-into-chapter": idsOf(admissions.fold),
+      "withheld-by-replay": idsOf(admissions.replay),
+      "outside-window": idsOf(admissions.viewport),
+    };
+  }
+
+  it("finds a row every stage admitted", () => {
+    expect(jumpToEventId(rows, stagesOver({}), "a1").status).toBe("found");
   });
 
-  it("distinguishes a row the filter is hiding from one the window does not hold", () => {
-    // Collapsing these two would tell a person to load rows they already have.
-    expect(jumpToEventId(rows, visible, "b1").status).toBe("hidden-by-filter");
-    expect(jumpToEventId(rows, visible, "an-id-from-earlier-in-the-session").status).toBe(
+  it("names the filter for a row the narrowing dropped", () => {
+    expect(jumpToEventId(rows, stagesOver({ filter: narrowed }), "b1").status).toBe(
+      "hidden-by-filter",
+    );
+  });
+
+  it("names the chapter fold, the replay and the cap, each for its own stage", () => {
+    // The three arms that used to be reported as the filter's. Each stage is the
+    // only one narrowed in its case, so the answer can come from nowhere else.
+    const foldedAway = rows.filter((row) => row.id !== "b1");
+    expect(jumpToEventId(rows, stagesOver({ fold: foldedAway }), "b1").status).toBe(
+      "folded-into-chapter",
+    );
+    expect(jumpToEventId(rows, stagesOver({ replay: foldedAway }), "b1").status).toBe(
+      "withheld-by-replay",
+    );
+    expect(jumpToEventId(rows, stagesOver({ viewport: foldedAway }), "b1").status).toBe(
       "outside-window",
     );
   });
 
-  it("negative control: over an unfiltered view nothing is ever hidden-by-filter", () => {
-    expect(jumpToEventId(rows, rows, "b1").status).toBe("found");
+  it("names the earliest stage that dropped the row, not the last", () => {
+    // The stages nest, so a row the filter dropped is absent from every stage after
+    // it. Reading the last would report the cap for a row a narrowing removed —
+    // and offer an act that does nothing about the filter still on the ledger.
+    const withoutB1 = rows.filter((row) => row.id !== "b1");
+    const outcome = jumpToEventId(
+      rows,
+      stagesOver({ filter: withoutB1, fold: withoutB1, replay: withoutB1, viewport: withoutB1 }),
+      "b1",
+    );
+    expect(outcome.status).toBe("hidden-by-filter");
+  });
+
+  it("separates an id this window never held from every narrowing", () => {
+    expect(jumpToEventId(rows, stagesOver({}), "an-id-from-earlier-in-the-session").status).toBe(
+      "not-in-loaded-log",
+    );
+  });
+
+  it("negative control: with every stage admitting everything nothing is ever absent", () => {
+    // Without this the cases above would pass over a classifier that reported an
+    // absence for every id, which would put a permanent notice on a whole ledger.
+    for (const row of rows) {
+      expect(jumpToEventId(rows, stagesOver({}), row.id).status).toBe("found");
+    }
   });
 });
 

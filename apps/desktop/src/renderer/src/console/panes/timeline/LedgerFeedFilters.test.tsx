@@ -17,8 +17,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { deriveLedgerFacets } from "../../ledger/structure/index.js";
 import {
+  LEDGER_FACET_CHIP,
   contributeLedgerCommands,
   dispatchConsoleCommand,
+  facetChip,
   renderFeed,
   withLaidOutViewport,
   withdrawLedgerCommands,
@@ -27,7 +29,6 @@ import {
   EARLY_JOINER,
   FOLDED_CHAPTER_MESSAGE_ROW_COUNT,
   LATE_JOINER,
-  filterableRowId,
   foldedMessageChapterLog,
   openSessionStoreWithFilterableLog,
   openSessionStoreWithFoldedMessageChapter,
@@ -40,24 +41,11 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const FACET = ".meridian-ledger-filter__facet";
 const SEAT_ROW = ".meridian-ledger-viewport__row";
 const CHAPTER_HEADER = ".meridian-chapter-header";
 const CHAPTER_DISCLOSURE = ".meridian-chapter-header__disclosure";
 const MESSAGE_FAMILY = "assistant_output";
 const TOOL_FAMILY = "tool_activity";
-
-/** One facet chip, by the value it offers. Refuses rather than answering null. */
-function facetChip(feed: HTMLElement, value: string): HTMLElement {
-  const chip = [...feed.querySelectorAll<HTMLElement>(FACET)].find(
-    (candidate) =>
-      candidate.querySelector(".meridian-ledger-filter__facet-value")?.textContent === value,
-  );
-  if (chip === undefined) {
-    throw new Error(`the bar offered no facet for ${value}`);
-  }
-  return chip;
-}
 
 /** Every facet value the bar offers, in the order it offers them. */
 function offeredFacets(feed: HTMLElement): readonly string[] {
@@ -122,7 +110,7 @@ describe("the ledger's facet bar — a press narrows the feed", () => {
     const feed = renderFeed(openSessionStoreWithFilterableLog());
 
     expect(seatRowCount(feed)).toBeGreaterThan(0);
-    for (const chip of feed.querySelectorAll<HTMLElement>(FACET)) {
+    for (const chip of feed.querySelectorAll<HTMLElement>(LEDGER_FACET_CHIP)) {
       expect(chip.getAttribute("aria-pressed")).toBe("false");
     }
     expect(feed.querySelector(".meridian-ledger-filter__clear")).toBeNull();
@@ -246,51 +234,5 @@ describe("the ledger's clear command — real, and refusing only what it must", 
     fireEvent.click(clear);
 
     expect(seatRowCount(feed)).toBe(unfilteredRowCount);
-  });
-});
-
-describe("the ledger's jump by event id — reached through the field somebody has open", () => {
-  /** Open the find field the way the palette does, and type into it. */
-  function typeIntoFind(feed: HTMLElement, query: string): void {
-    contributeLedgerCommands();
-    dispatchConsoleCommand("ledger.find");
-    const input = feed.querySelector<HTMLInputElement>(".meridian-find__input");
-    if (input === null) {
-      throw new Error("the find command opened no field");
-    }
-    fireEvent.change(input, { target: { value: query } });
-  }
-
-  it("offers a jump when the query names a row this window is showing", () => {
-    withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithFilterableLog());
-
-    typeIntoFind(feed, filterableRowId(0));
-
-    expect(feed.querySelector(".meridian-ledger__jump-action")).not.toBeNull();
-  });
-
-  it("says a row is hidden by the filter rather than telling anyone to load it again", () => {
-    // The arm that could not be reached before this ledger could be narrowed at
-    // all: an id nobody holds and an id the filter is hiding call for different
-    // words, and the second one is fixed by clearing the filter.
-    withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithFilterableLog());
-
-    fireEvent.click(facetChip(feed, LATE_JOINER));
-    typeIntoFind(feed, filterableRowId(0));
-
-    expect(feed.querySelector(".meridian-ledger__jump-action")).toBeNull();
-    expect(feed.textContent).toContain("hidden by the filter");
-  });
-
-  it("negative control: an ordinary text query offers no jump at all", () => {
-    withLaidOutViewport();
-    const feed = renderFeed(openSessionStoreWithFilterableLog());
-
-    typeIntoFind(feed, "run");
-
-    expect(feed.querySelector(".meridian-ledger__jump-action")).toBeNull();
-    expect(feed.textContent).not.toContain("hidden by the filter");
   });
 });

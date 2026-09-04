@@ -15,7 +15,7 @@
 // the virtualizer to have a range stubs the two reads the chokepoint makes —
 // `LedgerViewport.test.tsx`' stub, for its reason.
 
-import { act, render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
@@ -184,4 +184,30 @@ export function recordRailInk(): string[] {
     LAID_OUT_RAIL_BOX as DOMRect,
   );
   return inkPerMark;
+}
+
+/** The facet bar's chip selector — shared, so two files never name it twice. */
+export const LEDGER_FACET_CHIP = ".meridian-ledger-filter__facet";
+
+/** One facet chip, by the value it offers. Refuses rather than answering null. */
+export function facetChip(feed: HTMLElement, value: string): HTMLElement {
+  const chip = [...feed.querySelectorAll<HTMLElement>(LEDGER_FACET_CHIP)].find(
+    (candidate) =>
+      candidate.querySelector(".meridian-ledger-filter__facet-value")?.textContent === value,
+  );
+  if (chip === undefined) {
+    throw new Error(`the bar offered no facet for ${value}`);
+  }
+  return chip;
+}
+
+/** Open the find field the way the palette does, and type into it. */
+export function typeIntoFind(feed: HTMLElement, query: string): void {
+  contributeLedgerCommands();
+  dispatchConsoleCommand("ledger.find");
+  const input = feed.querySelector<HTMLInputElement>(".meridian-find__input");
+  if (input === null) {
+    throw new Error("the find command opened no field");
+  }
+  fireEvent.change(input, { target: { value: query } });
 }

@@ -59,6 +59,8 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 
+import { type TimelineRow } from "@ai-sidekicks/contracts";
+
 import { useConsoleClock } from "../../bridge/index.js";
 import {
   LedgerRowLeaseProvider,
@@ -72,8 +74,7 @@ import {
   LedgerFilterBar,
   ProvenanceRail,
   ReplayControls,
-  jumpToEventId,
-  type LedgerJumpOutcome,
+  UNFILTERED_LEDGER,
 } from "../../ledger/structure/index.js";
 import {
   LedgerEventIdJump,
@@ -88,6 +89,12 @@ import { type TimelineRowRenderer } from "../../seats/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
 import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
 import { useLedgerFind } from "./ledger-find.js";
+import {
+  chapterRunIdOf,
+  useDeferredRowJump,
+  useEventIdJumpOutcome,
+  useLedgerJumpReach,
+} from "./ledger-jump.js";
 import { useFilteredLedgerWindow, useLedgerFilter } from "./ledger-narrowing.js";
 import {
   useLedgerReplay,
@@ -167,17 +174,16 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     viewport.snapshot.rows,
   );
   const find = useLedgerFind(visible);
-  // Memoized and short-circuited on an empty query: this is a scan of the whole
-  // loaded window, and the field is closed — with an empty query — for most of a
-  // ledger's life.
-  const findQuery = find.query.trim();
-  const eventIdJump = useMemo<LedgerJumpOutcome>(
-    () =>
-      findQuery.length === 0
-        ? { status: "outside-window" }
-        : jumpToEventId(unfurledWindow.rows, visible.rows, findQuery),
-    [unfurledWindow, visible, findQuery],
-  );
+  // Classified against every stage between the log and the screen rather than
+  // against the rows on it, so an id the fold, the replay or the cap took is not
+  // reported as one the filter is hiding.
+  const eventIdJump = useEventIdJumpOutcome({
+    unfurledWindow,
+    narrowedWindow,
+    foldedWindow: ledgerWindow,
+    visible,
+    query: find.query.trim(),
+  });
 
   // The STORE's wheel, which is the one the cast bar reads, handed to both surfaces
   // that colour by actor — the rows and the rail's marks — so one person wears one
@@ -218,6 +224,37 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // the box, off the same range the rail's thumb is sized from.
   const replayAnchorRowId = useReplayAnchorRowId(viewport.visibleRange, viewport.snapshot.rows);
   const jumpToRow = viewport.jumpToRow;
+  // The act each absence deserves cannot itself jump — every one of them widens the
+  // window on the next render — so the jump is requested and spent when the row is
+  // one the viewport holds.
+  const requestJump = useDeferredRowJump(visible.rows, jumpToRow);
+  const setLedgerFilter = ledgerFilter.setFilter;
+  const clearLedgerFilter = useCallback(() => {
+    setLedgerFilter(UNFILTERED_LEDGER);
+  }, [setLedgerFilter]);
+  const openChapterOfRow = useCallback(
+    (row: TimelineRow) => {
+      const chapterRunId = chapterRunIdOf(row, ledgerWindow);
+      const chapter =
+        chapterRunId === undefined ? undefined : ledgerWindow.chapterByHeaderKey.get(chapterRunId);
+      if (chapter !== undefined) {
+        // A toggle, and the arm that offers this act is only reachable while the
+        // chapter is shut — `useLedgerJumpReach` withholds the offer otherwise, so
+        // this never closes one.
+        toggleChapter(chapter);
+      }
+    },
+    [ledgerWindow, toggleChapter],
+  );
+  const eventIdJumpReach = useLedgerJumpReach({
+    outcome: eventIdJump,
+    foldedWindow: ledgerWindow,
+    openedTerminalRunIds,
+    clearFilter: clearLedgerFilter,
+    openChapterOfRow,
+    endReplay: replay.end,
+    requestJump,
+  });
   const onStepFind = useCallback(
     (direction: "next" | "previous") => {
       const step = find.step(direction);
@@ -296,7 +333,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         filter={ledgerFilter.filter}
         onFilterChange={ledgerFilter.setFilter}
       />
-      <LedgerEventIdJump outcome={eventIdJump} onJumpToRow={jumpToRow} />
+      <LedgerEventIdJump outcome={eventIdJump} reach={eventIdJumpReach} onJumpToRow={jumpToRow} />
       <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
       <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
       <LedgerRowsAdmittedDuringReplayNotice
