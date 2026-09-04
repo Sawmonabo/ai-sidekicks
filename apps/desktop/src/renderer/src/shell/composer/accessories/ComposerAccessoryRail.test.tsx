@@ -595,6 +595,68 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
     ]);
   });
 
+  it("refuses a second press while its own call is still travelling", async () => {
+    // `aria-busy` announces and stops no pointer, so the control carried the marker
+    // and stayed clickable. The latch swallowed the duplicate silently at best; the
+    // button now says what it is doing and takes no second press at all.
+    const compactionCalls: unknown[] = [];
+    let releaseCompaction: (() => void) | undefined;
+    const bridge = {
+      sidekicks: {
+        daemon: {
+          call: async (method: string, params: unknown) => {
+            if (method === "driver.listCapabilities") {
+              return { drivers: [reportFor("claude", ["context_compaction"])] };
+            }
+            if (method === PROVIDER_ACCOUNT_LIST_METHOD) {
+              return EMPTY_REGISTRY;
+            }
+            compactionCalls.push({ method, params });
+            return await new Promise((resolve) => {
+              releaseCompaction = () => {
+                resolve({ status: "applied", boundaryPosition: 12 });
+              };
+            });
+          },
+          subscribe: () => () => undefined,
+        },
+      },
+      growth: {},
+      growthServedOperations: new Set(),
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], {
+        bridge,
+        entities: [AGENT, RUNNING_RUN],
+        focusedPane: ON_THE_AGENT,
+      });
+    });
+    const compact = container.querySelector(".meridian-compaction__action");
+    if (!(compact instanceof HTMLButtonElement)) {
+      throw new Error("the rail offered no compaction control");
+    }
+    await act(async () => {
+      fireEvent.click(compact);
+    });
+
+    expect(compact.disabled).toBe(true);
+    expect(compact.getAttribute("aria-busy")).toBe("true");
+    await act(async () => {
+      fireEvent.click(compact);
+    });
+    expect(compactionCalls).toHaveLength(1);
+
+    await act(async () => {
+      releaseCompaction?.();
+      await Promise.resolve();
+    });
+    expect(compact.disabled).toBe(false);
+  });
+
   it("is absent, not disabled, when the bound driver does not declare it", async () => {
     // Scoped to the meters row, and the meter is given a reading so its own
     // `not-checked` badge is off screen: what is asserted is that the composer
