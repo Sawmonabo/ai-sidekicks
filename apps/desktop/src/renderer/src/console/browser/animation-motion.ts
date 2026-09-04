@@ -31,40 +31,48 @@
  * observer exists to catch. Every entry is a paint-time property: it changes what a
  * box looks like and can change neither its size nor where it sits.
  *
+ * A TUPLE AND NOT A `Set`, on `browser/geometry-publisher.ts`'s
+ * `CLIPPING_OVERFLOW_VALUES` shape and for the reason `apps/desktop/AGENTS.md`
+ * states: a module-level collection is mutable for the life of the process while
+ * what it holds is a constant, and `ReadonlySet` restricts only the binding rather
+ * than the collection underneath it. The tuple is the declaration, the union below
+ * is derived from it, and membership is a comparison over twenty-six frozen literals
+ * rather than a hash lookup built at module load.
+ *
  * Compared in a normalized form — lower-cased with the separators dropped — because
  * `getKeyframes()` answers in camel case (`backgroundColor`) while a stylesheet is
- * authored in kebab (`background-color`), and one set has to cover both spellings.
+ * authored in kebab (`background-color`), and one declaration has to cover both
+ * spellings. The normalization runs at COMPARISON time on both sides, which is what
+ * lets the entries below stay the authored spellings a reader recognises.
  */
-const PAINT_ONLY_ANIMATED_PROPERTIES: ReadonlySet<string> = new Set(
-  [
-    "opacity",
-    "color",
-    "background",
-    "background-color",
-    "background-image",
-    "background-position",
-    "background-size",
-    "border-color",
-    "border-block-color",
-    "border-inline-color",
-    "border-top-color",
-    "border-right-color",
-    "border-bottom-color",
-    "border-left-color",
-    "outline-color",
-    "box-shadow",
-    "text-shadow",
-    "text-decoration-color",
-    "column-rule-color",
-    "caret-color",
-    "accent-color",
-    "filter",
-    "backdrop-filter",
-    "fill",
-    "stroke",
-    "visibility",
-  ].map(normalizeAnimatedPropertyName),
-);
+export const PAINT_ONLY_ANIMATED_PROPERTIES = [
+  "opacity",
+  "color",
+  "background",
+  "background-color",
+  "background-image",
+  "background-position",
+  "background-size",
+  "border-color",
+  "border-block-color",
+  "border-inline-color",
+  "border-top-color",
+  "border-right-color",
+  "border-bottom-color",
+  "border-left-color",
+  "outline-color",
+  "box-shadow",
+  "text-shadow",
+  "text-decoration-color",
+  "column-rule-color",
+  "caret-color",
+  "accent-color",
+  "filter",
+  "backdrop-filter",
+  "fill",
+  "stroke",
+  "visibility",
+] as const;
 
 /**
  * The keys `getKeyframes()` returns that are not properties at all.
@@ -72,12 +80,34 @@ const PAINT_ONLY_ANIMATED_PROPERTIES: ReadonlySet<string> = new Set(
  * A keyframe carries its own timing beside the properties it sets, and counting
  * `easing` as an animated property would make every animation layout-affecting —
  * which is the undiscriminated reading this module replaces.
+ *
+ * NO `satisfies` MIRROR, AND THE REASON IS CHECKABLE. The union these four keys
+ * belong to would be `keyof ComputedKeyframe`, and that interface carries a string
+ * index signature — `[property: string]: string | number | null | undefined` — so
+ * `keyof` widens to `string | number` and a `satisfies` clause against it would
+ * assert nothing while reading like a guard. A vacuous guard is worse than none, so
+ * the tuple stands as the declaration and the disjointness the module actually
+ * depends on is asserted beside it in the test.
  */
-const KEYFRAME_TIMING_KEYS: ReadonlySet<string> = new Set(
-  ["offset", "computedOffset", "composite", "easing"].map(normalizeAnimatedPropertyName),
-);
+export const KEYFRAME_TIMING_KEYS = ["offset", "computedOffset", "composite", "easing"] as const;
 
-function normalizeAnimatedPropertyName(name: string): string {
+/**
+ * Whether a closed set of authored property names holds this normalized one.
+ *
+ * One helper for both tuples rather than a comparison written twice: the two sets
+ * are asked the same question in the same expression below, and two spellings of one
+ * membership test are how the normalization on each side starts to drift.
+ */
+function namesNormalizedProperty(
+  authoredNames: readonly string[],
+  normalizedProperty: string,
+): boolean {
+  return authoredNames.some(
+    (authoredName) => normalizeAnimatedPropertyName(authoredName) === normalizedProperty,
+  );
+}
+
+export function normalizeAnimatedPropertyName(name: string): string {
   return name.toLowerCase().replaceAll("-", "");
 }
 
@@ -121,7 +151,8 @@ function affectsLayoutOrPosition(animation: Animation): boolean {
     Object.keys(keyframe).some((property) => {
       const normalized = normalizeAnimatedPropertyName(property);
       return (
-        !KEYFRAME_TIMING_KEYS.has(normalized) && !PAINT_ONLY_ANIMATED_PROPERTIES.has(normalized)
+        !namesNormalizedProperty(KEYFRAME_TIMING_KEYS, normalized) &&
+        !namesNormalizedProperty(PAINT_ONLY_ANIMATED_PROPERTIES, normalized)
       );
     }),
   );
