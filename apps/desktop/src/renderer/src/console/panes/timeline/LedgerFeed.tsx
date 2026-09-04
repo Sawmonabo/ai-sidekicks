@@ -79,6 +79,7 @@ import {
   LedgerEventIdJump,
   LedgerMatchesNotYetReplayedNotice,
   LedgerMatchesOutsideWindowNotice,
+  LedgerRowsAdmittedDuringReplayNotice,
   LedgerWindowAbsences,
 } from "./LedgerFeedNotices.js";
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
@@ -298,6 +299,10 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       <LedgerEventIdJump outcome={eventIdJump} onJumpToRow={jumpToRow} />
       <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
       <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
+      <LedgerRowsAdmittedDuringReplayNotice
+        count={replay.rowsAdmittedSinceReplayBegan}
+        onEndReplay={replay.end}
+      />
       <div className="meridian-ledger__body">
         <LedgerRowLeaseProvider channel={rowLeaseChannel}>
           <LedgerRowRevealProvider channel={reveal.channel}>
@@ -347,7 +352,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}
         droppedRowCount={visible.prunedAwayRows.length}
-        withheldByReplayRowCount={visible.withheldByReplayRows.length}
+        // The rows a walk began after are a SUBSET of what replay is withholding —
+        // they are in no revealed set at any position — so they are subtracted here
+        // and reported above under their own exit. Leaving them in would tell
+        // somebody to scrub forward for rows scrubbing cannot reach.
+        withheldByReplayRowCount={
+          visible.withheldByReplayRows.length - replay.rowsAdmittedSinceReplayBegan
+        }
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
       />
     </div>

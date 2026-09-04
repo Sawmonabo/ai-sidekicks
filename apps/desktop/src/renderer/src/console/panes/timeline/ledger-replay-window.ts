@@ -9,6 +9,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { type TimelineRow } from "@ai-sidekicks/contracts";
+
 import { useConsoleClock } from "../../bridge/index.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 // The frame's door carries the four symbols a stranger holds; this range is the
@@ -27,6 +29,13 @@ import { type LedgerWindowModel } from "./ledger-window.js";
 export interface LedgerReplayState {
   readonly position: ReplayPosition;
   readonly isRevealed: boolean;
+  /**
+   * Rows the log admitted after this walk began.
+   *
+   * Zero while nobody is replaying, and zero again the moment the walk ends. A
+   * non-zero count is a real absence with an exit of its own — see `end`.
+   */
+  readonly rowsAdmittedSinceReplayBegan: number;
   readonly reveal: () => void;
   readonly conceal: () => void;
   readonly play: () => void;
@@ -34,6 +43,14 @@ export interface LedgerReplayState {
   readonly setSpeed: (speed: ReplaySpeed) => void;
   readonly scrub: (elapsedMs: number) => void;
   readonly jumpToNextSeam: () => void;
+  /**
+   * Abandon the walk and return to the live log.
+   *
+   * The one act that reaches a row admitted mid-replay: the walk is over a fixed
+   * set, so scrubbing to the end of it does not reveal a row that was never in it.
+   * A fresh walk over the window as it now stands is what does.
+   */
+  readonly end: () => void;
   /**
    * Scrub to where one row sits on the replay clock — the design's "replay from
    * here".
@@ -46,25 +63,54 @@ export interface LedgerReplayState {
   readonly replayFromRow: (rowId: string) => boolean;
 }
 
+/**
+ * The row set one walk is over.
+ *
+ * A WRAPPER rather than the array itself, because the object's identity is what
+ * decides when the engine is re-minted, and ending a walk over an unchanged window
+ * has to re-mint one. The array alone could not say "same rows, new walk".
+ */
+interface LedgerReplayWalk {
+  readonly rows: readonly TimelineRow[];
+}
+
 export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplayState {
   const clock = useConsoleClock();
   const [isRevealed, setIsRevealed] = useState(false);
 
-  // One engine per loaded window. Re-minted when the window changes because the
-  // engine's whole ordering is built from the rows at construction, and disposed on
-  // the way out so a playing replay never outlives the rows it was revealing.
+  // REPLAY IS A WALK OVER A FIXED SET, AND THIS IS WHERE THAT SET IS FIXED.
+  //
+  // The engine's whole ordering is built from its rows at construction, so the
+  // window identity used to key the mint — and every admitted event, filter change
+  // and chapter disclosure mints a new one. A person watching a session replay
+  // therefore had the replay stopped and the whole window revealed by the next event
+  // the session happened to emit, which is the one moment they were least likely to
+  // be looking away.
+  //
+  // So the walk's rows are STATE, adjusted during render rather than derived: while
+  // nothing is being replayed the walk is whatever the log now holds, and from the
+  // moment playback begins it is frozen until the walk ends. An event admitted
+  // mid-walk joins the tail AFTER the walk rather than the walk itself — it is
+  // counted below and named on screen, because a row a walk can never reach is an
+  // absence and not a rendering detail.
   const [position, setPosition] = useState<ReplayPosition | undefined>(undefined);
+  const [walk, setWalk] = useState<LedgerReplayWalk>(() => ({ rows: ledgerWindow.rows }));
+  const isEngaged = position !== undefined && isReplayEngaged(position.state);
+  if (!isEngaged && walk.rows !== ledgerWindow.rows) {
+    setWalk({ rows: ledgerWindow.rows });
+  }
+
   const engine = useMemo(
     () =>
       new ReplayEngine({
         clock,
-        rows: ledgerWindow.rows.map((row) => ({ rowId: row.id, occurredAt: row.timestamp })),
+        rows: walk.rows.map((row) => ({ rowId: row.id, occurredAt: row.timestamp })),
         // The engine publishes rather than being polled: playback advances on its own
         // armed handle, so a surface reading `position()` per render would show the
         // frame before last on every tick the render did not coincide with.
         onPositionChange: setPosition,
       }),
-    [clock, ledgerWindow],
+    [clock, walk],
   );
 
   useEffect(() => {
@@ -74,11 +120,30 @@ export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplaySt
     };
   }, [engine]);
 
+  // Counted by id rather than by length, because the window loses rows at the head
+  // as well as gaining them at the tail: a subtraction would report a pruned walk as
+  // having admitted nothing. The identity short-circuit is what keeps an unreplayed
+  // ledger free — while nobody is walking, the walk IS the window.
+  const rowsAdmittedSinceReplayBegan = useMemo(() => {
+    if (walk.rows === ledgerWindow.rows) {
+      return 0;
+    }
+    const walkedRowIds = new Set(walk.rows.map((row) => row.id));
+    let admittedCount = 0;
+    for (const row of ledgerWindow.rows) {
+      if (!walkedRowIds.has(row.id)) {
+        admittedCount += 1;
+      }
+    }
+    return admittedCount;
+  }, [walk, ledgerWindow]);
+
   return {
     // Before the first publication the engine's own current position is the truth,
     // and it is a pure read — there is no state to hold that would not be a copy.
     position: position ?? engine.position(),
     isRevealed,
+    rowsAdmittedSinceReplayBegan,
     reveal: useCallback(() => {
       setIsRevealed(true);
     }, []),
@@ -106,6 +171,11 @@ export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplaySt
     jumpToNextSeam: useCallback(() => {
       engine.jumpToNextSeam(ledgerWindow.seams);
     }, [engine, ledgerWindow]),
+    end: useCallback(() => {
+      // A fresh wrapper every time, so a walk ends over an unchanged window too —
+      // the memo above re-mints, and its own cleanup disposes the walk being left.
+      setWalk({ rows: ledgerWindow.rows });
+    }, [ledgerWindow]),
     replayFromRow: useCallback((rowId: string) => engine.replayFrom(rowId), [engine]),
   };
 }

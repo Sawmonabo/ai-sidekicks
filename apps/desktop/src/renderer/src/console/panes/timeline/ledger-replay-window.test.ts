@@ -5,14 +5,21 @@
 // translation from a position to viewport rows, which is where a synthetic header
 // keyed by its run id and a revealed set keyed by event ids meet.
 
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
+import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 
+import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { ManualClock } from "../../core/index.js";
 import { ReplayEngine, type ReplayPosition } from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import { foldChapterHeaders } from "./ledger-chapter-fold.js";
-import { useReplayRevealedRows } from "./ledger-replay-window.js";
+import {
+  useLedgerReplay,
+  useReplayRevealedRows,
+  type LedgerReplayState,
+} from "./ledger-replay-window.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 const SESSION_ID = "session-visible-window";
@@ -173,5 +180,138 @@ describe("what a replay reveals of a chapter", () => {
       .map((row) => row.key);
     expect(byRevealedIdAlone).not.toContain(CHAPTER_RUN_ID);
     expect(revealedKeysAt(ledgerWindow, tailPosition.spanMs)).toContain(CHAPTER_RUN_ID);
+  });
+});
+
+describe("a replay across a projection change", () => {
+  const REPLAY_SESSION_ID = "session-replay-walk";
+
+  /** A log of session-scoped rows one second apart, so an index names an instant. */
+  function messageLog(eventCount: number): readonly ConsoleSessionEvent[] {
+    return Array.from({ length: eventCount }, (_unused, index) => ({
+      id: `m${String(index)}`,
+      sessionId: REPLAY_SESSION_ID,
+      sequence: index,
+      kind: "user.message",
+      occurredAt: new Date(Date.UTC(2026, 0, 1, 12, 0, index)).toISOString(),
+      payload: {},
+    }));
+  }
+
+  function windowOver(eventCount: number): LedgerWindowModel {
+    return deriveLedgerWindow(messageLog(eventCount), false);
+  }
+
+  const STARTING_EVENT_COUNT = 4;
+  /** The id the projection gives the fifth event — the one admitted mid-walk. */
+  const ADMITTED_ROW_ID = `${REPLAY_SESSION_ID}:${String(STARTING_EVENT_COUNT)}`;
+
+  /** The hook under a bridge, because the replay reads the console clock. */
+  function mountReplay(): ReturnType<typeof renderHook<LedgerReplayState, LedgerWindowModel>> {
+    const bridge = createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO });
+    return renderHook((ledgerWindow: LedgerWindowModel) => useLedgerReplay(ledgerWindow), {
+      initialProps: windowOver(STARTING_EVENT_COUNT),
+      wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
+        createElement(SidekicksBridgeProvider, { bridge }, children),
+    });
+  }
+
+  /** Every row id the position reveals when scrubbed to the very end of the walk. */
+  function revealedAtEndOfWalk(replay: ReturnType<typeof mountReplay>): readonly string[] {
+    act(() => {
+      replay.result.current.scrub(Number.MAX_SAFE_INTEGER);
+    });
+    // Read AFTER the act: a scrub publishes a new position, so the reading held
+    // before it is the one this assertion is not about.
+    return replay.result.current.position.revealedRowIds;
+  }
+
+  it("keeps playing across an admitted event, and the new row waits out the walk", () => {
+    // THE DEFECT: the engine was keyed on the window's identity, so the next event
+    // the session emitted disposed the playing engine, published an idle position,
+    // and revealed the whole window — mid-replay, with nobody having touched a
+    // control.
+    const replay = mountReplay();
+    act(() => {
+      replay.result.current.play();
+    });
+    expect(replay.result.current.position.state).toBe("playing");
+
+    act(() => {
+      replay.rerender(windowOver(STARTING_EVENT_COUNT + 1));
+    });
+
+    expect(replay.result.current.position.state).toBe("playing");
+    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(1);
+    // A walk is over a fixed set, so the row is not reachable by scrubbing — which
+    // is why it is counted rather than left to look like a row still ahead.
+    expect(revealedAtEndOfWalk(replay)).not.toContain(ADMITTED_ROW_ID);
+  });
+
+  it("holds a paused walk at its position across an admitted event", () => {
+    const replay = mountReplay();
+    act(() => {
+      replay.result.current.scrub(1000);
+    });
+    expect(replay.result.current.position.state).toBe("paused");
+    const pausedElapsedMs = replay.result.current.position.elapsedMs;
+
+    act(() => {
+      replay.rerender(windowOver(STARTING_EVENT_COUNT + 1));
+    });
+
+    expect(replay.result.current.position.state).toBe("paused");
+    expect(replay.result.current.position.elapsedMs).toBe(pausedElapsedMs);
+    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(1);
+  });
+
+  it("survives a projection rebuilt over the same log", () => {
+    // A filter change and a chapter disclosure both hand the feed a fresh model
+    // built from rows that did not move. Under the identity key that was a restart;
+    // here it is nothing at all, which is what the count says.
+    const replay = mountReplay();
+    act(() => {
+      replay.result.current.play();
+    });
+
+    act(() => {
+      replay.rerender(windowOver(STARTING_EVENT_COUNT));
+    });
+
+    expect(replay.result.current.position.state).toBe("playing");
+    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(0);
+  });
+
+  it("ends the walk over the window as it now stands", () => {
+    const replay = mountReplay();
+    act(() => {
+      replay.result.current.play();
+    });
+    act(() => {
+      replay.rerender(windowOver(STARTING_EVENT_COUNT + 1));
+    });
+    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(1);
+
+    act(() => {
+      replay.result.current.end();
+    });
+
+    expect(replay.result.current.position.state).toBe("idle");
+    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(0);
+    expect(revealedAtEndOfWalk(replay)).toContain(ADMITTED_ROW_ID);
+  });
+
+  it("negative control: an unengaged replay walks whatever the log now holds", () => {
+    // Without this the freeze could be permanent, which would leave a ledger nobody
+    // had replayed showing the window it happened to mount with.
+    const replay = mountReplay();
+
+    act(() => {
+      replay.rerender(windowOver(STARTING_EVENT_COUNT + 1));
+    });
+
+    expect(replay.result.current.position.state).toBe("idle");
+    expect(replay.result.current.rowsAdmittedSinceReplayBegan).toBe(0);
+    expect(revealedAtEndOfWalk(replay)).toContain(ADMITTED_ROW_ID);
   });
 });
