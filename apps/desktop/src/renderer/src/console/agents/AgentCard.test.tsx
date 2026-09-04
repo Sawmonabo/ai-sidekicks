@@ -7,6 +7,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import { TOOL_ALLOWLIST_NAMED_CAP } from "../core/index.js";
+import { formatCount } from "../primitives/index.js";
 import { AgentCard, AgentRosterEmpty } from "./AgentCard.js";
 import type { AgentRosterEntry } from "./agent-wire.js";
 
@@ -249,6 +251,32 @@ describe("agent card — the attach echo", () => {
     const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
     expect(resolved).toContain("not reported");
     expect(resolved).not.toContain("empty allowlist");
+  });
+
+  it("counts the unnamed tail through the console's own figure formatter", () => {
+    // The allowlist is the daemon's, so its length is unbounded by anything this
+    // console decides. Four figures is where the two spellings part company: a
+    // stringified tail reads "1200" beside every other quantity in the console
+    // reading "1,200", which is a second formatting path in the one place the
+    // chokepoint exists to keep single.
+    const unnamedToolCount = 1200;
+    const toolAllowlist = Array.from(
+      { length: TOOL_ALLOWLIST_NAMED_CAP + unnamedToolCount },
+      (_unused, index) => `tool-${String(index)}`,
+    );
+    const { container } = render(
+      <AgentCard
+        agent={{ ...RUNNING, resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist } }}
+      />,
+    );
+    const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
+    expect(resolved).toContain(` and ${formatCount(unnamedToolCount)} more`);
+  });
+
+  it("negative control: the two spellings of that tail are different strings", () => {
+    // Without this the case above would pass over a host whose locale groups
+    // nothing, and would prove nothing about which formatter the tail reaches for.
+    expect(formatCount(1200, "en-US")).not.toBe(String(1200));
   });
 
   it("negative control: a populated allowlist still names its tools", () => {

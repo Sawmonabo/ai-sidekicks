@@ -23,7 +23,7 @@
 
 import { useId } from "react";
 
-import { Chip, Nothing, WireFigure } from "../primitives/index.js";
+import { Chip, Nothing, WireFigure, formatCount } from "../primitives/index.js";
 import { RESOLVED_PROSE_INLINE_CAP, TOOL_ALLOWLIST_NAMED_CAP } from "../core/index.js";
 import { boundaryPhrase } from "./switch-settlement.js";
 import {
@@ -365,7 +365,7 @@ function ToolAllowlist(props: {
         <WireFigure key={toolName} value={toolName} />
       ))}
       {allowlist.length > TOOL_ALLOWLIST_NAMED_CAP
-        ? ` and ${String(allowlist.length - TOOL_ALLOWLIST_NAMED_CAP)} more`
+        ? ` and ${formatCount(allowlist.length - TOOL_ALLOWLIST_NAMED_CAP)} more`
         : null}
     </>
   );

@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleCommands } from "../../frame/command-surface.js";
 import { consoleKeybindingOverrides } from "../../frame/keybinding-override-store.js";
-import { LiveAnnouncerProvider } from "../../primitives/index.js";
+import { LiveAnnouncerProvider, formatCount } from "../../primitives/index.js";
 import { KeyboardPage, registerKeyboardPage } from "./KeyboardPage.js";
 import { SettingsPageRegistry } from "../settings-page-registry.js";
 
@@ -449,5 +449,36 @@ describe("keyboard page — a chord kept for a command this build does not have"
     // The rebinding really did land, so the silence is about staleness rather than
     // about a page that read no overrides at all.
     expect(consoleKeybindingOverrides.overrides["frame.goToSessions"]).toBe("Alt+KeyQ");
+  });
+});
+
+describe("the changed-chord count", () => {
+  /**
+   * The reset-all control's whole label, or `undefined` where no row is changed.
+   *
+   * The figure is asserted through the label rather than a fragment of it, because
+   * what has to hold is that the number a person reads came from the chokepoint —
+   * a substring check would pass on "2" inside "12".
+   */
+  function resetAllLabel(container: HTMLElement): string | undefined {
+    return container.querySelector(".meridian-keymap__reset-all")?.textContent ?? undefined;
+  }
+
+  it("reads the changed rows through the console's own figure formatter", async () => {
+    // Two rows rather than one: the singular arm renders a different noun, so a
+    // count assertion on one row would be asserting the noun as much as the figure.
+    await consoleKeybindingOverrides.bind("frame.goToSessions", "Alt+KeyJ");
+    await consoleKeybindingOverrides.bind("frame.goToWorkflows", "Alt+KeyK");
+    const { container } = renderPage();
+
+    expect(resetAllLabel(container)).toBe(`Reset all ${formatCount(2)} changed chords`);
+  });
+
+  it("negative control: no changed row draws no reset-all control at all", async () => {
+    // Without this the case above would pass over a page that drew the control
+    // unconditionally, and the count would be asserting a constant.
+    const { container } = renderPage();
+    expect(resetAllLabel(container)).toBeUndefined();
+    expect(container.textContent ?? "").toContain("Every chord is the one the console ships.");
   });
 });
