@@ -1,4 +1,4 @@
-// A leg that REJECTS rather than answering, at each of the four places one can.
+// A leg that REJECTS rather than answering, at every place one can.
 //
 // The sibling files drive refusals — answers whose status says the daemon declined.
 // This one drives the other failure: a call that never produced an answer at all,
@@ -182,6 +182,33 @@ describe("ingest client — the drive promise settles rather than escaping", () 
       await settle();
       // Reported a macrotask after the microtask queue drains, so a body that awaited
       // only microtasks would report clean whether or not one escaped.
+      await settle();
+    } finally {
+      runnerHost.process.off("unhandledRejection", record);
+    }
+
+    expect(escaped).toStrictEqual([]);
+  });
+
+  it("leaves none behind when the spool reclaim rejects either", async () => {
+    // The fifth call, and the only one whose answer no entry is left to render: the
+    // reclaim is fired and not awaited by a caller that is terminal for its entry, so
+    // a rejection here had no `catch` anywhere above it. What it recorded instead is
+    // `attachment-ingest-abandon.test.ts`'s claim; this is the promise's half.
+    const escaped: string[] = [];
+    const record = (reason: unknown): void => {
+      escaped.push(String(reason));
+    };
+    runnerHost.process.on("unhandledRejection", record);
+    try {
+      const port = new ScriptedGrowthPort();
+      const client = clientOver(port);
+      port.refuseChunksWith("wire-unregistered");
+      port.rejectAbortsWith(new Error("the bridge namespace is gone"));
+      client.attach(SMALL_SOURCE);
+      await settle();
+      client.abandon("attachment-1");
+      await settle();
       await settle();
     } finally {
       runnerHost.process.off("unhandledRejection", record);
