@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { diffFileListReading, selectedEntryIndex } from "./diff-file-entries.js";
+import { diffFileListReading, selectedEntryRow } from "./diff-file-entries.js";
 import {
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
@@ -59,19 +59,33 @@ describe("diffFileListReading", () => {
   });
 });
 
-describe("selectedEntryIndex", () => {
+describe("selectedEntryRow", () => {
   it("puts the whole change set on row zero", () => {
-    expect(selectedEntryIndex(diffFileListReading(DIFF, "").entries, undefined)).toBe(0);
+    expect(selectedEntryRow(diffFileListReading(DIFF, "").entries, undefined)).toStrictEqual({
+      kind: "row",
+      index: 0,
+    });
   });
 
   it("finds the row a selected path is on", () => {
-    expect(selectedEntryIndex(diffFileListReading(DIFF, "").entries, FIRST_PATH)).toBe(1);
+    expect(selectedEntryRow(diffFileListReading(DIFF, "").entries, FIRST_PATH)).toStrictEqual({
+      kind: "row",
+      index: 1,
+    });
   });
 
-  it("negative control: a selection the filter hid falls back to row zero", () => {
-    // Without this a hidden selection would answer `-1`, and the window would open at
-    // a negative offset while the keyboard started on a row that is not there.
+  it("answers that the filter hides the narrowing rather than naming another row", () => {
+    // Row zero is the control that CLEARS the narrowing, so answering it for a
+    // narrowing the filter hid made the list mark "All files" current while the
+    // renderer went on showing the hidden file.
     const { entries } = diffFileListReading(DIFF, "module-01");
-    expect(selectedEntryIndex(entries, FIRST_PATH)).toBe(0);
+    expect(selectedEntryRow(entries, FIRST_PATH)).toStrictEqual({ kind: "hidden-by-filter" });
+  });
+
+  it("negative control: a filter that still shows the narrowing answers its row", () => {
+    // Without this the arm above would pass against a reading that called every
+    // narrowing hidden the moment a filter was typed at all.
+    const { entries } = diffFileListReading(DIFF, FIRST_PATH);
+    expect(selectedEntryRow(entries, FIRST_PATH)).toStrictEqual({ kind: "row", index: 1 });
   });
 });

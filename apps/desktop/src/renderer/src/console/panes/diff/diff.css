@@ -248,7 +248,8 @@
   color: var(--meridian-text-faint);
 }
 
-.meridian-diff-files__no-match {
+.meridian-diff-files__no-match,
+.meridian-diff-files__hidden-selection {
   margin: 0;
   padding: var(--meridian-space-3);
   color: var(--meridian-text-faint);

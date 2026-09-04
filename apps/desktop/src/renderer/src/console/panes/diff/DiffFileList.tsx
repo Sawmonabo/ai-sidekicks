@@ -45,8 +45,9 @@ import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react"
 import { DerivedFigure, Glyph } from "../../primitives/index.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD, DIFF_FILE_ROW_HEIGHT_PX } from "./diff-bounds.js";
 import {
+  HIDDEN_SELECTION_COPY,
   diffFileListReading,
-  selectedEntryIndex,
+  selectedEntryRow,
   type DiffFileListEntry,
 } from "./diff-file-entries.js";
 import type { ConsoleDiffModel } from "./diff-model.js";
@@ -74,7 +75,14 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     () => diffFileListReading(props.diff, filterText),
     [props.diff, filterText],
   );
-  const selectedIndex = selectedEntryIndex(entries, props.selectedFilePath);
+  const selectedRow = selectedEntryRow(entries, props.selectedFilePath);
+  // The row `aria-current` goes on, and `undefined` where the narrowing has none: a
+  // hidden selection marks nothing rather than marking the reset control, which would
+  // say the list is showing every file while the renderer shows one.
+  const currentIndex = selectedRow.kind === "row" ? selectedRow.index : undefined;
+  // Where the window opens and where the keyboard starts. Row zero for a hidden
+  // selection, which is the only row a filter that hides the narrowing always draws.
+  const openingIndex = currentIndex ?? 0;
 
   const entryWindow = useRowWindow({
     rowCount: entries.length,
@@ -83,12 +91,12 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     // Where the list OPENS. A first paint happens before anything can scroll, so a
     // pane reopened on a selection a thousand rows down would otherwise open at the
     // top with the selected row unmounted; the effect below carries every later move.
-    initialOffsetPx: selectedIndex * DIFF_FILE_ROW_HEIGHT_PX,
+    initialOffsetPx: openingIndex * DIFF_FILE_ROW_HEIGHT_PX,
   });
   const { activeIndex, onKeyDown } = useRovingEntryFocus({
     entryWindow,
     entryCount: entries.length,
-    selectedIndex,
+    selectedIndex: openingIndex,
     scrollerRef,
   });
 
@@ -96,8 +104,8 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   // control a reader cannot see the state of. Asked for on every change rather than
   // only on mount, because the filter can move a selected file's index under it.
   useEffect(() => {
-    entryWindow.scrollToIndex(selectedIndex);
-  }, [entryWindow, selectedIndex]);
+    entryWindow.scrollToIndex(openingIndex);
+  }, [entryWindow, openingIndex]);
 
   const isScrolling = props.diff.files.length > DIFF_FILE_LIST_SCROLL_THRESHOLD;
   const virtualRows = entryWindow.getVirtualItems();
@@ -144,7 +152,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
                 <DiffFileEntryButton
                   entry={entry}
                   entryIndex={virtualRow.index}
-                  isSelected={virtualRow.index === selectedIndex}
+                  isSelected={virtualRow.index === currentIndex}
                   isTabbable={virtualRow.index === activeIndex}
                   onSelectFilePath={props.onSelectFilePath}
                 />
@@ -155,6 +163,12 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
       </div>
       {matchCount === 0 ? (
         <p className="meridian-diff-files__no-match">No changed file matches that filter.</p>
+      ) : null}
+      {selectedRow.kind === "hidden-by-filter" ? (
+        // Said out loud rather than left to an absent highlight: the rows on the right
+        // are still the narrowed file's, and a list with nothing current and no line
+        // explaining it reads as a list that lost the selection.
+        <p className="meridian-diff-files__hidden-selection">{HIDDEN_SELECTION_COPY}</p>
       ) : null}
     </div>
   );

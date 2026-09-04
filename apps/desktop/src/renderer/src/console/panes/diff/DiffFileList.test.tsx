@@ -13,7 +13,7 @@
 // nothing, which is the state that makes such a bound meaningless.
 
 import { fireEvent, render } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
 import {
@@ -24,6 +24,7 @@ import {
 } from "./diff-fixture.js";
 import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
 import { DiffFileList } from "./DiffFileList.js";
+import { HIDDEN_SELECTION_COPY } from "./diff-file-entries.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
 
 const EXTENDED_HEADER_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
@@ -58,6 +59,15 @@ function entryFor(container: HTMLElement, path: string): HTMLElement {
     throw new Error(`the list drew no entry for ${path}`);
   }
   return entry;
+}
+
+/** Type into the list's own filter, which is how every filtering case narrows it. */
+function filterTo(container: HTMLElement, filterText: string): void {
+  const filter = container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input");
+  if (filter === null) {
+    throw new Error("the list drew no filter input");
+  }
+  fireEvent.change(filter, { target: { value: filterText } });
 }
 
 /** The change note on one path's entry, or `undefined` where it drew none. */
@@ -264,5 +274,74 @@ describe("diff file list — reaching an entry the window has not mounted", () =
     fireEvent.keyDown(firstEntry(container), { key: "a" });
 
     expect(focusedEntryIndex(container)).toBe(0);
+  });
+});
+
+describe("diff file list — a narrowing this filter hides", () => {
+  const [FIRST_FILE, SECOND_FILE] = TEXTUAL_ONLY_DIFF.files;
+  if (FIRST_FILE === undefined || SECOND_FILE === undefined) {
+    throw new Error("the small change set is shorter than these cases assume");
+  }
+
+  /** The list, narrowed to the first file and filtered to the second. */
+  function renderWithHiddenNarrowing(): {
+    readonly container: HTMLElement;
+    readonly onSelectFilePath: ReturnType<typeof vi.fn>;
+  } {
+    const onSelectFilePath = vi.fn<(path: string | undefined) => void>();
+    const { container } = render(
+      <DiffFileList
+        diff={TEXTUAL_ONLY_DIFF}
+        selectedFilePath={FIRST_FILE.path}
+        onSelectFilePath={onSelectFilePath}
+      />,
+    );
+    filterTo(container, SECOND_FILE.path);
+    return { container, onSelectFilePath };
+  }
+
+  it("marks no row current, because the row the narrowing is on is not drawn", () => {
+    // The whole defect: the hidden narrowing fell back to row zero, so "All files"
+    // took `aria-current` while the renderer beside it went on showing one file.
+    const { container } = renderWithHiddenNarrowing();
+
+    expect(container.querySelector('.meridian-diff-files__entry[aria-current="true"]')).toBeNull();
+    expect(container.textContent).toContain(HIDDEN_SELECTION_COPY);
+  });
+
+  it("keeps the narrowing the participant chose rather than clearing it", () => {
+    // The filter is a way of looking at the list; the narrowing is a choice. Clearing
+    // it here would change what the pane renders as a side effect of typing.
+    const { onSelectFilePath } = renderWithHiddenNarrowing();
+
+    expect(onSelectFilePath).not.toHaveBeenCalled();
+  });
+
+  it("marks the row current again once the filter stops hiding it", () => {
+    const { container } = renderWithHiddenNarrowing();
+
+    filterTo(container, "");
+
+    const current = container.querySelector('.meridian-diff-files__entry[aria-current="true"]');
+    expect(current?.textContent).toContain(FIRST_FILE.path);
+    expect(container.textContent).not.toContain(HIDDEN_SELECTION_COPY);
+  });
+
+  it("negative control: a filter that still shows the narrowing marks its row", () => {
+    // Without this the cases above would pass against a list that marked nothing
+    // current and printed the line under every filter anybody typed.
+    const { container } = render(
+      <DiffFileList
+        diff={TEXTUAL_ONLY_DIFF}
+        selectedFilePath={FIRST_FILE.path}
+        onSelectFilePath={() => undefined}
+      />,
+    );
+
+    filterTo(container, FIRST_FILE.path);
+
+    const current = container.querySelector('.meridian-diff-files__entry[aria-current="true"]');
+    expect(current?.textContent).toContain(FIRST_FILE.path);
+    expect(container.textContent).not.toContain(HIDDEN_SELECTION_COPY);
   });
 });
