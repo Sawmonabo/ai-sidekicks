@@ -8,7 +8,8 @@
 //
 //   • a terminal that has taken ten thousand lines is holding a BOUNDED buffer,
 //     not a growing one: the eviction that the scrollback promises actually
-//     happens, and a second ten thousand lines does not cost a second buffer;
+//     happens, in lines AND in bytes, so a second ten thousand lines costs neither
+//     a second buffer nor a second allocation;
 //   • one instance gives its bytes back when it is disposed, and an undisposed one
 //     is still holding them — the pair that makes "released" a claim about
 //     something rather than about a sampler that always reads the baseline;
@@ -17,25 +18,25 @@
 //     because a console is left open for a working day and a pane is opened and
 //     closed dozens of times in one.
 //
-// WHAT THIS FILE IS NOT. It is not the `terminal-instance-memory` budget's
-// measurement, and it does not claim to be: that row's subject is a whole terminal
-// PANE — the emulator, its WebGL renderer, and the pane's own React, lease, and
-// store state — and this process holds only the adapter. The row's own harness is
-// `terminal-instance-memory.test.ts`, beside this file in this tier, which opens
-// that pane in the built console through the deck's registry and reads the
-// difference it makes to a real renderer's heap. The ceiling below is READ from
-// that row as a reference figure, never restated, because comparing an adapter
-// against a number chosen here instead would be a second source of truth for a
-// budget the spec already fixed.
+// WHAT THIS FILE IS NOT. It is not the `terminal-instance-memory` budget's gate,
+// and — since 2026-09-04 — it makes no ceiling claim at all. That row's subject is
+// a populated terminal PANE, and its harness beside this file in this tier now
+// prices BOTH halves of it and compares their sum to the ceiling once. Measuring a
+// full scrollback against that same ceiling HERE was not a second opinion, it was a
+// second allowance: each half would receive the whole 20 MiB, so a 19.5 MiB buffer
+// beside a 1 MiB pane passed two green checks while the instance the row names sat
+// over its ceiling. The scrollback measurement moved to the harness that adds it up
+// (`terminal-adapter-workload.ts`, which this file shares), and what stays here is
+// what only this process can say: that the buffer is bounded, that a disposal gives
+// it back, and that a working day of churn leaves nothing behind.
 //
 // WHY THIS FILE DRIVES THE ADAPTER IN PROCESS RATHER THAN A REAL WINDOW. Its
 // subject is the adapter, and the three claims below are about the adapter's own
-// bookkeeping: that a full scrollback evicts rather than grows, that a disposal
-// gives the bytes back, and that a working day of cycles leaves the ledger where it
-// started. Driving those through a window would put a renderer, a React tree, and a
-// pane's store between the write and the reading, which is the right arrangement for
-// the budget's harness and the wrong one for a claim about eviction — and the two
-// files are separate precisely so neither has to answer the other's question.
+// bookkeeping. Driving those through a window would put a renderer, a React tree,
+// and a pane's store between the write and the reading, which is the right
+// arrangement for the budget's harness and the wrong one for a claim about
+// eviction — and the two files are separate precisely so neither has to answer the
+// other's question.
 //
 // WHAT THAT COSTS, STATED. The DOM shim has no WebGL2, so every instance settles
 // on the fallback renderer, and the WebGL context leak this pool exists to bound
@@ -45,11 +46,11 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { ConsoleBudgetRegistry, evaluateBudget } from "../../../scripts/budget/budget-registry.mjs";
+import { ConsoleBudgetRegistry } from "../../../scripts/budget/budget-registry.mjs";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/core/constants.js";
-import { XtermTerminalAdapter } from "../../../src/renderer/src/console/terminal/xterm-adapter.js";
 import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/renderer-pool.js";
 import { HeapSampler, retainedGrowthBytes } from "../heap-sampling.js";
+import { requireHeapCollector, TerminalAdapterWorkload } from "./terminal-adapter-workload.js";
 
 const registry = ConsoleBudgetRegistry.load();
 
@@ -64,64 +65,29 @@ const registry = ConsoleBudgetRegistry.load();
 const heapSampler = new HeapSampler();
 
 /**
- * The reference ceiling, read from the budget row rather than restated here.
+ * The budget row, read for the SCALE its ceiling gives a leak bound — not as a
+ * ceiling this file gates on.
  *
- * Read and not claimed: the row's `measuredBy` names the file beside this one, so
- * nothing here is its gate, and the assertions below say what the ADAPTER does
- * against a figure the spec already fixed. Restating the number would put one
- * ceiling in two places, which the package's config single-sourcing rule refuses.
+ * The row's `measuredBy` names the file beside this one and that file holds its one
+ * gate. What the churn case below needs is a number that is large against a single
+ * instance and small against twelve of them leaking, and one instance's budget is
+ * exactly that number. Read rather than restated, because putting a second figure
+ * here would be a second source of truth for a bound the spec already fixed.
  */
 const terminalBudget = registry.requireBudget("terminal-instance-memory");
-
-/** Columns a terminal is driven at. The same working width the budget is read at. */
-const MEASURED_COLUMNS = 120;
-
-/** Lines per `write`. Batched: a per-line await pays a task hop ten thousand times. */
-const WRITE_BATCH_LINES = 500;
 
 /** How many open-and-close cycles stand in for a working day's pane churn. */
 const CHURN_CYCLES = 12;
 
-const liveAdapters: XtermTerminalAdapter[] = [];
-const liveHosts: HTMLElement[] = [];
+/** Lines per cycle in the ledger case, where the question is the ledger not the fill. */
+const LEDGER_CASE_LINES = 500;
+
+/** This file's mounted adapters and their hosts, given back after every case. */
+const adapterWorkload = new TerminalAdapterWorkload();
 
 afterEach(() => {
-  for (const adapter of liveAdapters.splice(0)) {
-    adapter.dispose();
-  }
-  for (const host of liveHosts.splice(0)) {
-    host.remove();
-  }
+  adapterWorkload.disposeEverything();
 });
-
-function mountAdapter(terminalId: string, pool: TerminalRendererPool): XtermTerminalAdapter {
-  const host = document.createElement("div");
-  document.body.append(host);
-  liveHosts.push(host);
-  const adapter = new XtermTerminalAdapter({ terminalId, pool });
-  liveAdapters.push(adapter);
-  adapter.attach(host);
-  return adapter;
-}
-
-async function writeLines(adapter: XtermTerminalAdapter, lines: number): Promise<void> {
-  const line = `${"W".repeat(MEASURED_COLUMNS)}\n`;
-  for (let written = 0; written < lines; written += WRITE_BATCH_LINES) {
-    const batchLines = Math.min(WRITE_BATCH_LINES, lines - written);
-    await new Promise<void>((resolve) => {
-      adapter.write(line.repeat(batchLines), resolve);
-    });
-  }
-}
-
-function requireHeapCollector(): void {
-  if (!heapSampler.isCollectorAvailable) {
-    // Named rather than skipped: a heap reading with no collection behind it is
-    // noise, and a tier that is green because it measured noise is worse than one
-    // that is loud about the gap.
-    expect.fail("no garbage collector is reachable, so no heap reading is admissible");
-  }
-}
 
 /** Ten thousand lines through the real parser, twelve times, on a slow runner. */
 const ENDURANCE_CASE_TIMEOUT_MS = 300_000;
@@ -131,11 +97,11 @@ describe("a terminal held open over a long stream", () => {
     "evicts rather than grows once the scrollback is full",
     async () => {
       const pool = new TerminalRendererPool();
-      const adapter = mountAdapter("endurance-terminal", pool);
+      const adapter = adapterWorkload.mount("endurance-terminal", pool);
 
-      await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      await adapterWorkload.writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
       const afterFirstFill = adapter.bufferLineCount;
-      await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      await adapterWorkload.writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
       const afterSecondFill = adapter.bufferLineCount;
 
       // The buffer is at its cap and stays there: twenty thousand lines cost the
@@ -152,26 +118,37 @@ describe("a terminal held open over a long stream", () => {
   );
 
   it(
-    "keeps the adapter under the reference ceiling after twice its scrollback",
+    "buys no second buffer for the second ten thousand lines",
     async () => {
-      requireHeapCollector();
+      requireHeapCollector(heapSampler);
       const pool = new TerminalRendererPool();
-      const before = await heapSampler.sample();
-      const adapter = mountAdapter("endurance-budget-terminal", pool);
-      await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES * 2);
-      // Held live across the sample on purpose: the figure is what the instance
-      // RETAINS, so it has to still be reachable when the heap is read.
-      expect(adapter.bufferLineCount).toBeGreaterThan(0);
-      const after = await heapSampler.sample();
+      const baseline = await heapSampler.sample();
+      const adapter = adapterWorkload.mount("endurance-eviction-terminal", pool);
 
-      // A long stream must not buy an emulator a bigger allowance than a full one
-      // gets. Against the reference figure, which the pane the budget bounds also
-      // has to fit inside — so an adapter over it is already over the pane's.
-      const verdict = evaluateBudget(terminalBudget, retainedGrowthBytes(before, after));
+      await adapterWorkload.writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      // Held live across both samples on purpose: the figures are what the instance
+      // RETAINS, so it has to still be reachable when each heap reading is taken.
+      expect(adapter.bufferLineCount).toBeGreaterThan(TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      const filledOnce = await heapSampler.sample();
+      await adapterWorkload.writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      const filledTwice = await heapSampler.sample();
+
+      // The eviction claim in BYTES, which is the half the line count cannot make:
+      // a buffer capped at ten thousand lines whose evicted lines stayed reachable
+      // would report the same count above and twice the memory here. The bound is
+      // the first fill's own cost, so it needs no figure of its own and no ceiling
+      // — a second fill that cost anything like a first one is the defect.
+      const firstFillBytes = retainedGrowthBytes(baseline, filledOnce);
+      const secondFillBytes = retainedGrowthBytes(filledOnce, filledTwice);
       expect(
-        verdict.withinBudget,
-        `${verdict.budgetId}: ${verdict.measuredCanonicalValue} of ${verdict.limitCanonicalValue} ${verdict.canonicalUnit}`,
-      ).toBe(true);
+        firstFillBytes,
+        "the first ten thousand lines retained nothing, so the comparison below measures nothing",
+      ).toBeGreaterThan(1_000_000);
+      expect(
+        secondFillBytes,
+        `the second ten thousand lines retained ${String(secondFillBytes)} bytes against the ` +
+          `first's ${String(firstFillBytes)}, so the scrollback is growing rather than evicting`,
+      ).toBeLessThan(firstFillBytes / 2);
     },
     ENDURANCE_CASE_TIMEOUT_MS,
   );
@@ -179,11 +156,11 @@ describe("a terminal held open over a long stream", () => {
   it(
     "gives the memory back on disposal",
     async () => {
-      requireHeapCollector();
+      requireHeapCollector(heapSampler);
       const pool = new TerminalRendererPool();
       const baseline = await heapSampler.sample();
-      const adapter = mountAdapter("teardown-terminal", pool);
-      await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      const adapter = adapterWorkload.mount("teardown-terminal", pool);
+      await adapterWorkload.writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
       const held = await heapSampler.sample();
       adapter.dispose();
       const released = await heapSampler.sample();
@@ -201,11 +178,11 @@ describe("a terminal held open over a long stream", () => {
   it(
     "negative control: an undisposed instance is still holding it",
     async () => {
-      requireHeapCollector();
+      requireHeapCollector(heapSampler);
       const pool = new TerminalRendererPool();
       const baseline = await heapSampler.sample();
-      const adapter = mountAdapter("undisposed-terminal", pool);
-      await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      const adapter = adapterWorkload.mount("undisposed-terminal", pool);
+      await adapterWorkload.writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
       const held = await heapSampler.sample();
       // Deliberately NOT disposed. Without this case the release assertion above
       // would pass against a sampler that always read the baseline back, and every
@@ -222,8 +199,8 @@ describe("a working day of opening and closing the pane", () => {
     async () => {
       const pool = new TerminalRendererPool();
       for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
-        const adapter = mountAdapter(`churn-terminal-${String(cycle)}`, pool);
-        await writeLines(adapter, WRITE_BATCH_LINES);
+        const adapter = adapterWorkload.mount(`churn-terminal-${String(cycle)}`, pool);
+        await adapterWorkload.writeLines(adapter, LEDGER_CASE_LINES);
         adapter.dispose();
       }
       // Twelve cycles, and nothing drawing at the end: no teardown left a hold
@@ -239,28 +216,29 @@ describe("a working day of opening and closing the pane", () => {
   it(
     "leaves the retained bytes near where they started",
     async () => {
-      requireHeapCollector();
+      requireHeapCollector(heapSampler);
       const pool = new TerminalRendererPool();
 
       // One cycle first, so the reading below is against a settled process rather
       // than against one that has never built an emulator: the library's own
       // module-level state is allocated once and is not a leak.
-      const warmUp = mountAdapter("churn-warm-up", pool);
-      await writeLines(warmUp, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+      const warmUp = adapterWorkload.mount("churn-warm-up", pool);
+      await adapterWorkload.writeLines(warmUp, TERMINAL_DEFAULT_SCROLLBACK_LINES);
       warmUp.dispose();
 
       const baseline = await heapSampler.sample();
       for (let cycle = 0; cycle < CHURN_CYCLES; cycle += 1) {
-        const adapter = mountAdapter(`churn-heap-terminal-${String(cycle)}`, pool);
-        await writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
+        const adapter = adapterWorkload.mount(`churn-heap-terminal-${String(cycle)}`, pool);
+        await adapterWorkload.writeLines(adapter, TERMINAL_DEFAULT_SCROLLBACK_LINES);
         adapter.dispose();
       }
       const afterChurn = await heapSampler.sample();
 
       // The leak signal: twelve full terminals came and went, so a per-cycle
       // retention would show up here twelve times over. The allowance is ONE
-      // instance's budget — anything under that cannot be a per-cycle leak, and
-      // anything over it is one.
+      // instance's budget used as a SCALE — anything under that cannot be a
+      // per-cycle leak, and anything over it is one. It is not a claim that this
+      // process fits the row's ceiling; that comparison is the harness's.
       const drift = retainedGrowthBytes(baseline, afterChurn);
       expect(drift, `${String(CHURN_CYCLES)} cycles drifted ${String(drift)} bytes`).toBeLessThan(
         terminalBudget.limit.canonicalValue,

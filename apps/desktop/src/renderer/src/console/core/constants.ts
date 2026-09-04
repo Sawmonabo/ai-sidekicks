@@ -180,6 +180,10 @@ export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
 //
 // Spent by three different modules under `console/terminal/`, and two of them are
 // also read by a test tier that must not construct an emulator to learn a number.
+// One of them is spent by that tier ALONE — the width a terminal is measured at —
+// and it lives here rather than beside the harness because the budget row's meaning
+// depends on it exactly as it depends on the scrollback depth below, and the two
+// files that price the row's two halves have to read one number, not two.
 
 /**
  * Lines of scrollback one terminal keeps.
@@ -190,6 +194,17 @@ export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
  * measured at, so moving this moves what the budget means.
  */
 export const TERMINAL_DEFAULT_SCROLLBACK_LINES = 10_000;
+
+/**
+ * Columns a terminal is driven at when this budget's halves are measured.
+ *
+ * A buffer line allocates twelve bytes per cell eagerly, so the width is a
+ * multiplier on everything the `terminal-instance-memory` row bounds — changing it
+ * changes the figure without changing a line of the code being measured. A working
+ * width rather than a wide one: the row bounds a terminal someone is using, and a
+ * width chosen to make the number small would be measuring a different pane.
+ */
+export const TERMINAL_BUDGET_MEASUREMENT_COLUMNS = 120;
 
 /**
  * How many terminals may hold a WebGL renderer at once.
