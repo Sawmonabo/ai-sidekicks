@@ -144,9 +144,10 @@ const MEASURED_INSTANCE_COUNT = 3;
  * mean the gated figure is not the worst case it claims to be.
  *
  * The band is wide against what the instrument actually delivers: measured on macOS
- * over three consecutive runs, 937 kB against a slope of 824 kB, a ratio of 0.88
- * that did not move by a kilobyte between runs. The width is headroom for a
- * different runner's allocator rather than slack this reading needs.
+ * over five runs, a first instance of 937-942 kB against a slope of 824-827 kB. The
+ * absolute figures move by a few kilobytes between runs and the RATIO does not — it
+ * read 0.88 in every one — which is the quantity this control is about. The width is
+ * headroom for a different runner's allocator rather than slack this reading needs.
  */
 const SLOPE_AGREEMENT_LOWER_FACTOR = 0.5;
 const SLOPE_AGREEMENT_UPPER_FACTOR = 2;
