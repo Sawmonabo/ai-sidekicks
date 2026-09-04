@@ -38,6 +38,33 @@ export function movingAnimation(): { readonly animation: Animation; settle: () =
   };
 }
 
+/**
+ * One animation with the effect the motion discrimination actually reads: the
+ * properties its keyframes name, and the element it runs on.
+ *
+ * Separate from `fakeAnimation`, which carries only a play state and so reports as
+ * unreadable — the fail-safe arm, and the arm every case written before the
+ * discrimination landed depends on. A case about WHICH animations count has to hand
+ * over an effect, and this is the smallest one that answers both questions.
+ */
+export function fakeAnimationOf(options: {
+  readonly playState: AnimationPlayState;
+  readonly properties: readonly string[];
+  readonly target?: Element;
+}): Animation {
+  const keyframe: Record<string, unknown> = { offset: 0, easing: "linear", composite: "auto" };
+  for (const property of options.properties) {
+    keyframe[property] = "0";
+  }
+  return {
+    playState: options.playState,
+    effect: {
+      target: options.target ?? null,
+      getKeyframes: () => [keyframe],
+    },
+  } as unknown as Animation;
+}
+
 /** Give one element a Web Animations reading, or take the whole method away. */
 export function withAnimations(
   element: Element,

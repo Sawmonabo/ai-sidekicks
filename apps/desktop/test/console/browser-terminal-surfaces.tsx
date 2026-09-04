@@ -29,6 +29,7 @@ import { renderSettled } from "./console-harness.js";
 import { registerBrowserPanes } from "../../src/renderer/src/console/browser/index.js";
 import { BrowserCaptureCard } from "../../src/renderer/src/console/browser/CaptureCard.js";
 import { TERMINAL_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/terminal.js";
+import { fixtureSessionSnapshot } from "../../src/renderer/src/console/bridge/fixture-session-snapshot.js";
 import { BROWSER_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/browser.js";
 import {
   createFixtureBridge,
@@ -118,7 +119,12 @@ function paneBinding(
  */
 function terminalSessionStore(): SessionStore {
   const store = new SessionStore({ sessionId: TERMINAL_SCENARIO.sessionId });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  // The scenario's own roster, which is what the composition root initialises a store
+  // from. An empty base state is not a cheaper version of it: the console registers no
+  // `membership.*` projector, so the roster arrives only here — and a lease surface
+  // that gates its claim control on the caller's role then reads no role at all and
+  // renders the absence for it, over a pane pinned for a different reason entirely.
+  store.initialise(fixtureSessionSnapshot(TERMINAL_SCENARIO, TERMINAL_SCENARIO.sessionId));
   store.applyBatch(TERMINAL_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent));
   return store;
 }

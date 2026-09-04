@@ -22,16 +22,31 @@
 //     the page is the safe direction here, because the page is the surface the
 //     operator is looking at.
 //
-// ONE CHORD GRAMMAR, RESOLVED FOR THE RIGHT PLATFORM. The equality runs through
-// `palette/keybinding-chord.ts` — the console's single chord parser and its single
-// comparison key — with the keystroke authored back into a chord string and put
-// through the same two functions the mirror side goes through, so a mirror and the
-// keybinding table cannot disagree about whether `$mod+k`, `$mod+KeyK`, and a meta-K
-// keystroke are one thing. `$mod` is resolved HERE, before parsing, because the parser
-// resolves it against whichever host the bundle loaded under and the platform is an
-// INPUT to this decision. An authored chord naming an OPTIONAL modifier —
-// `$mod+[Shift]+KeyK` — therefore compares equal to no keystroke and is never claimed;
-// the console installs none, and the fourth rule's direction is toward the page anyway.
+// ONE CHORD GRAMMAR, RESOLVED FOR THE RIGHT PLATFORM. The mirror is parsed by
+// `palette/keybinding-chord.ts` — the console's single chord parser — and the
+// keystroke is MATCHED against the result through that module's `chordMatchesEvent`,
+// which is the console's one wrapper over tinykeys' own `matchKeybindingPress`. So a
+// mirror and the keybinding table cannot disagree about whether `$mod+k`,
+// `$mod+KeyK`, and a meta-K keystroke are one thing: they are put through the same
+// matcher. `$mod` is resolved HERE, before parsing, because the parser resolves it
+// against whichever host the bundle loaded under and the platform is an INPUT to this
+// decision.
+//
+// WHY A MATCH AND NOT AN EQUALITY OF NORMALIZED SETS. tinykeys' grammar has two
+// modifier sets, required and OPTIONAL — `$mod+[Shift]+KeyK` means "meta-K, and I do
+// not mind whether shift is down". A keystroke has neither set: it has modifiers that
+// are held. Re-authoring the keystroke as a chord put every held modifier in the
+// required set and left the optional one empty, so a bracketed binding compared equal
+// to no keystroke at all and could not be handed back with shift held OR without it —
+// a chord the console had CLAIMED from the page and could then never replay. The
+// matcher answers the question the sets are for: every required modifier is held, and
+// no modifier outside the two sets is.
+//
+// THE MATCH TARGET IS A REAL `KeyboardEvent`, re-authored from the descriptor by the
+// same helper `replay` dispatches through. tinykeys reads `key`, `code`, and
+// `getModifierState`, and building the event is how those come from one place rather
+// than from a hand-written stand-in that could answer differently from the one that
+// is dispatched a line later.
 //
 // WHAT IS NOT INVENTED HERE. 12.4 names `browser.onAccelerator`, an arm of
 // `browser.subscribe`, as the handback carrier, and it is on `Plan-023 §Console growth
@@ -50,7 +65,7 @@
 // comparison written next to the strip is how the two answers start to disagree.
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
-import { normalizePressForComparison, parseChord } from "../palette/index.js";
+import { chordMatchesEvent, parseChord } from "../palette/index.js";
 import { decodeChordKeyToken, type ChordPlatform } from "../primitives/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -187,18 +202,6 @@ function resolvePlatformModifier(chord: string, platform: ChordPlatform): string
 }
 
 /**
- * The comparison key for one authored chord, or `undefined` where it does not parse.
- *
- * A chord the parser refuses — a multi-press sequence, or modifiers with no key —
- * matches nothing rather than throwing. An unparseable mirror entry therefore leaves
- * the keystroke with the page, which is this module's fourth rule.
- */
-function chordComparisonKey(chord: string, platform: ChordPlatform): string | undefined {
-  const parsed = parseChord(resolvePlatformModifier(chord, platform));
-  return parsed.ok ? normalizePressForComparison(parsed.press) : undefined;
-}
-
-/**
  * The chord's key token. `code` first, because it is layout-independent and a
  * `key`-only test binds the chord to whichever letter the operator's layout puts there.
  */
@@ -207,26 +210,26 @@ function descriptorKeyToken(descriptor: ChordDescriptor): string {
 }
 
 /**
- * The keystroke, written back out as the chord somebody would have had to author to
- * bind it. Modifier order is irrelevant — the comparison key sorts them — and this is
- * the one place a held modifier is written in the parser's own vocabulary, so the
- * authored form and the form the mirror is parsed into cannot drift apart.
+ * The keystroke as a `KeyboardEvent` again — the shape both the matcher and the
+ * replay need.
+ *
+ * One author for both, because they have to agree: a stand-in built for the match
+ * that answered `getModifierState` differently from the event actually dispatched
+ * would claim one chord from the page and replay another. `bubbles`, `cancelable`,
+ * and `composed` are the replay's, and cost the match nothing.
  */
-function authorChordForDescriptor(descriptor: ChordDescriptor): string {
-  const modifiers: string[] = [];
-  if (descriptor.ctrlKey) {
-    modifiers.push("Control");
-  }
-  if (descriptor.metaKey) {
-    modifiers.push("Meta");
-  }
-  if (descriptor.altKey) {
-    modifiers.push("Alt");
-  }
-  if (descriptor.shiftKey) {
-    modifiers.push("Shift");
-  }
-  return [...modifiers, descriptorKeyToken(descriptor)].join("+");
+function authorKeyboardEvent(descriptor: ChordDescriptor): KeyboardEvent {
+  return new KeyboardEvent("keydown", {
+    key: descriptor.key,
+    code: descriptor.code,
+    ctrlKey: descriptor.ctrlKey,
+    metaKey: descriptor.metaKey,
+    altKey: descriptor.altKey,
+    shiftKey: descriptor.shiftKey,
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+  });
 }
 
 export interface KeyboardHandbackOptions {
@@ -297,19 +300,24 @@ export class KeyboardHandback {
   }
 
   /**
-   * Whether the mirror holds THIS chord. An equality, never a presence test.
+   * Whether the mirror holds a chord THIS keystroke satisfies. A match, never a
+   * presence test.
    *
    * It is handed the mirror `decide` just read, so a supplier that changes answer
    * mid-decision cannot make the claim disagree with the reason given for it. Nothing
    * is cached across keystrokes, for `mirrorChords`' reason: an operator rebinding a
    * key changes the set, and a cached comparison would claim what they gave away.
+   *
+   * A chord the parser refuses — a multi-press sequence, or modifiers with no key —
+   * matches nothing rather than throwing, so an unparseable mirror entry leaves the
+   * keystroke with the page, which is this module's fourth rule.
    */
   #isMirrored(descriptor: ChordDescriptor, mirror: readonly string[]): boolean {
-    const pressed = chordComparisonKey(authorChordForDescriptor(descriptor), this.#platform);
-    if (pressed === undefined) {
-      return false;
-    }
-    return mirror.some((chord) => chordComparisonKey(chord, this.#platform) === pressed);
+    const pressed = authorKeyboardEvent(descriptor);
+    return mirror.some((chord) => {
+      const parsed = parseChord(resolvePlatformModifier(chord, this.#platform));
+      return parsed.ok && chordMatchesEvent(parsed.press, pressed);
+    });
   }
 
   /**
@@ -345,19 +353,7 @@ export class KeyboardHandback {
       );
     }
     paneRoot.focus();
-    paneRoot.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: descriptor.key,
-        code: descriptor.code,
-        ctrlKey: descriptor.ctrlKey,
-        metaKey: descriptor.metaKey,
-        altKey: descriptor.altKey,
-        shiftKey: descriptor.shiftKey,
-        bubbles: true,
-        cancelable: true,
-        composed: true,
-      }),
-    );
+    paneRoot.dispatchEvent(authorKeyboardEvent(descriptor));
     this.#replayCount += 1;
     return { status: "replayed" };
   }

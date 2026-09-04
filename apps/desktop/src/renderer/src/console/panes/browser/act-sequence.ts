@@ -22,9 +22,19 @@
 // DISMISSAL DELIBERATELY TAKES NO TOKEN. It says "I have read this", not "I have
 // started something newer": an act that was already in flight when the banner was
 // dismissed is still the newest thing the pane is doing, and its failure is news.
+//
+// AND EVERY ONE OF THOSE ACTS BELONGS TO A SUBJECT. A token orders acts against each
+// other and says nothing about which pane they were dispatched for, so a deck that
+// rebinds this component to another `paneId` or another bridge kept both halves: a
+// navigation dispatched under the previous subject settled afterwards and published
+// its refusal beside the NEW pane, naming a page nobody was looking at, and a local
+// refusal already on screen stayed there across the swap. So the refusal carries the
+// `(bridge, paneId)` it was raised under and the render compares it, and the tokens
+// outstanding under a retired subject are superseded rather than left to write.
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
+import type { ConsoleBridge } from "../../bridge/index.js";
 import { refusalFromRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
@@ -59,6 +69,26 @@ class BrowserActSequence {
   public isNewest(token: number): boolean {
     return token === this.#newestToken;
   }
+
+  /**
+   * Retire every token taken so far, so nothing still in flight may write.
+   *
+   * The counter ADVANCES rather than resets, which is the whole difference between
+   * this and minting a fresh sequence: a reset would start the replacement subject's
+   * first act at the same number an outstanding act from the previous one already
+   * holds, and `isNewest` would then let that stale act write against the new pane —
+   * the defect, reintroduced by the fix for it.
+   */
+  public supersedeOutstanding(): void {
+    this.#newestToken += 1;
+  }
+}
+
+/** A refusal and the `(bridge, paneId)` the act that raised it was dispatched for. */
+interface StampedActRefusal {
+  readonly bridge: ConsoleBridge;
+  readonly paneId: string;
+  readonly refusal: ConsoleRefusal | undefined;
 }
 
 /** The pane's acts, and the one refusal they report between them. */
@@ -78,17 +108,44 @@ export interface BrowserPaneActs {
 }
 
 /**
- * Hold the pane's act ordering and the one refusal it renders.
+ * Hold one pane's act ordering and the one refusal it renders.
  *
  * The sequence is minted in a `useState` initializer rather than a `useRef` so it is
  * constructed once per mount and never on a re-render, which is the same shape the
- * pane's geometry publisher already takes. The three operations are stable across
- * renders — only `refusal` changes — so a caller's `useCallback` over them does not
- * churn on every settled act.
+ * pane's geometry publisher already takes. The three operations are stable for as
+ * long as the subject is — only `refusal` changes — so a caller's `useCallback` over
+ * them does not churn on every settled act.
+ *
+ * TWO MECHANISMS, BECAUSE THEY CLOSE TWO DIFFERENT GAPS. The stamp is compared
+ * during RENDER, so the pass that first sees the replacement subject already shows
+ * no refusal — an effect would clear it one pass late, and that pass is on screen.
+ * Superseding runs in the effect's CLEANUP, so an act dispatched under the retired
+ * subject writes nothing at all rather than writing a refusal the stamp then has to
+ * hide; the same cleanup covers unmount, where there is no later render to compare.
  */
-export function useBrowserPaneActs(): BrowserPaneActs {
+export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): BrowserPaneActs {
   const [sequence] = useState(() => new BrowserActSequence());
-  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
+  const [stamped, setStamped] = useState<StampedActRefusal>({
+    bridge,
+    paneId,
+    refusal: undefined,
+  });
+
+  useEffect(
+    () => () => {
+      // The subject is changing, or the pane is going. Whatever is in flight was
+      // dispatched for a pane this hook no longer serves.
+      sequence.supersedeOutstanding();
+    },
+    [sequence, bridge, paneId],
+  );
+
+  const publish = useCallback(
+    (refusal: ConsoleRefusal | undefined): void => {
+      setStamped({ bridge, paneId, refusal });
+    },
+    [bridge, paneId],
+  );
 
   const run = useCallback(
     (act: () => Promise<ConsoleRefusal | undefined>, fallback: ActRejectionFallback): void => {
@@ -96,30 +153,33 @@ export function useBrowserPaneActs(): BrowserPaneActs {
       void act().then(
         (outcome) => {
           if (sequence.isNewest(token)) {
-            setRefusal(outcome);
+            publish(outcome);
           }
         },
         (failure: unknown) => {
           if (sequence.isNewest(token)) {
-            setRefusal(refusalFromRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, fallback));
+            publish(refusalFromRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, fallback));
           }
         },
       );
     },
-    [sequence],
+    [publish, sequence],
   );
 
   const refuseLocally = useCallback(
     (code: string, detail: string): void => {
       sequence.begin();
-      setRefusal(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
+      publish(refuse(BROWSER_PANE_REFUSAL_ORIGIN, code, detail));
     },
-    [sequence],
+    [publish, sequence],
   );
 
   const dismiss = useCallback((): void => {
-    setRefusal(undefined);
-  }, []);
+    publish(undefined);
+  }, [publish]);
+
+  const refusal =
+    stamped.bridge === bridge && stamped.paneId === paneId ? stamped.refusal : undefined;
 
   return { refusal, run, refuseLocally, dismiss };
 }

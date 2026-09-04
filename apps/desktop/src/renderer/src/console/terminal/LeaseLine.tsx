@@ -16,13 +16,14 @@
 //   • **Never queues a claim.** A refusal renders beside the control and stays
 //     there until the person acts. No retry, no timer, no wait list — 8.8 makes a
 //     refused claim something a person retries by hand or not at all.
-//   • **Never offers a claim it cannot attribute.** The control acts on the caller's
-//     behalf and the fold names the holder by participant id, so until the viewer's
-//     identity has been READ there is no control here at all — a designed absence
-//     while the read is in flight, the wire's own refusal when it was refused. With
-//     a placeholder viewer the daemon would grant the lease and this surface would
-//     read the grant back as somebody else's hold: still Claim, no way to release,
-//     and the emulator read-only over a shell the person owns.
+//   • **Never offers a claim it cannot attribute, and never one it cannot make.**
+//     The control acts on the caller's behalf and the fold names the holder by
+//     participant id, so until the viewer's identity has been READ there is no
+//     control here at all. And taking the shell is owner/collaborator-only, so the
+//     caller's ROLE gates it too: a viewer or a runtime contributor is shown a
+//     designed read-only statement rather than a button whose only possible answer
+//     is `pty.permission_denied`. `lease-acquisition.ts` owns that fold and states
+//     why release is deliberately not gated with it.
 //
 // EVERY TRANSITION NAMES ITS REASON. The disclosure renders one ledger line per
 // transition through the console's own row primitive, attributed in the actor's
@@ -52,13 +53,16 @@ import {
   tokenReference,
   type ParticipantRingTreatment,
 } from "../tokens/index.js";
+import { resolveTerminalClaimAffordance } from "./lease-acquisition.js";
 import { useTerminalLeaseClaim } from "./lease-claim.js";
+import { WithheldClaimControl } from "./WithheldClaimControl.js";
 import {
   type TerminalLeaseHolding,
   type TerminalLeaseState,
   type TerminalOfflineNodeReading,
 } from "./lease-model.js";
 import { terminalLeaseTransitionSentence } from "./lease-transition.js";
+import type { CallerMembershipRoleResult } from "../store/index.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
 
 /** How a participant is drawn: the wheel step and the treatment that disambiguates it. */
@@ -104,6 +108,15 @@ export interface LeaseLineProps {
    * renders refusals, and a control that cannot act is neither.
    */
   readonly viewerIdentity: TerminalViewerIdentity;
+  /**
+   * What this window's own participant may do, which is what ACQUISITION is gated on.
+   *
+   * A second read beside the identity rather than a fold over it, because they answer
+   * two different questions: the identity is what the lease fold compares the holder
+   * against, and the role is what the daemon checks before it moves the shell. The
+   * pane reads both and hands both in; this surface mixes neither into the other.
+   */
+  readonly callerRole: CallerMembershipRoleResult;
 }
 
 /**
@@ -124,14 +137,18 @@ const HOLDING_CHIPS: Readonly<Record<TerminalLeaseHolding, { label: string; tone
 };
 
 export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
-  const { bridge, sessionId, state, markFor, viewerIdentity } = props;
+  const { bridge, sessionId, state, markFor, viewerIdentity, callerRole } = props;
   const claim = useTerminalLeaseClaim(bridge, sessionId);
   const [isLedgerOpen, setIsLedgerOpen] = useState(false);
 
   const holderMark =
     state.holderParticipantId === null ? undefined : markFor(state.holderParticipantId);
   const chip = HOLDING_CHIPS[state.holding];
-  const isHeldByViewer = state.holding === "held-by-you";
+  const affordance = resolveTerminalClaimAffordance({
+    holding: state.holding,
+    viewerIdentity,
+    callerRole,
+  });
 
   // The health line is about the node a HOLDER sits on, so it is rendered only when
   // there is a holder. A `released` transition nulls the holder and the chip beside
@@ -166,16 +183,16 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
           />
         </span>
         <div className="meridian-lease-line__controls">
-          {viewerIdentity.status === "read" ? (
+          {affordance.control === "none" ? null : (
             <button
               type="button"
               className="meridian-lease-line__claim"
-              onClick={isHeldByViewer ? claim.release : claim.acquire}
+              onClick={affordance.control === "release" ? claim.release : claim.acquire}
               disabled={claim.isInFlight}
             >
-              {isHeldByViewer ? "Release the shell" : "Claim the shell"}
+              {affordance.control === "release" ? "Release the shell" : "Claim the shell"}
             </button>
-          ) : null}
+          )}
           <button
             type="button"
             className="meridian-lease-line__disclosure"
@@ -187,7 +204,9 @@ export function LeaseLine(props: LeaseLineProps): React.JSX.Element {
         </div>
       </div>
 
-      <WithheldClaimControl viewerIdentity={viewerIdentity} />
+      {affordance.control === "none" ? (
+        <WithheldClaimControl withheld={affordance.withheld} />
+      ) : null}
 
       {isHolderHealthUnread ? (
         <Nothing
@@ -256,45 +275,6 @@ function OfflineNodeLine(props: {
         </p>
       );
   }
-}
-
-/**
- * What stands where the claim control would be, while the viewer is not known.
- *
- * Two states and two renderings, because they are two different facts under rule 9.
- * A read still in flight is an ABSENCE — nothing has been established yet, which is
- * the `not-loaded` kind of nothing and says so in words. A refused read is a
- * REFUSAL: the wire's own code and sentence, verbatim, with the console's own next
- * move in the primitive's `action` slot rather than folded into the daemon's text.
- *
- * Neither arm guesses a participant and neither leaves a disabled button behind. A
- * control the surface cannot act through is not offered at all — a `disabled` claim
- * would read as "not right now" when the truth is that the console does not know who
- * would be claiming.
- */
-function WithheldClaimControl(props: {
-  readonly viewerIdentity: TerminalViewerIdentity;
-}): React.JSX.Element | null {
-  if (props.viewerIdentity.status === "read") {
-    return null;
-  }
-  if (props.viewerIdentity.status === "refused") {
-    return (
-      <InlineRefusal
-        code={props.viewerIdentity.refusal.code}
-        detail={props.viewerIdentity.refusal.detail}
-        action="Claiming the shell is offered again once the console can say which participant this window is."
-      />
-    );
-  }
-  return (
-    <Nothing
-      kind="not-loaded"
-      placement="inline"
-      title="Reading who you are"
-      detail="Claiming the shell needs to know which participant this window is, because the lease names its holder and the surface would have no way to tell your hold from somebody else's."
-    />
-  );
 }
 
 /** The transition history, one ledger line per transition, newest last. */

@@ -39,7 +39,6 @@ import {
   addressFieldValue,
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
-  type AddressFieldState,
 } from "../../browser/address-field-model.js";
 import { describeChordEvent, isCloseTabChord } from "../../browser/keyboard-handback.js";
 import {
@@ -54,6 +53,7 @@ import { RealClock } from "../../core/index.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { tokenReference } from "../../tokens/index.js";
 import { useBrowserPaneActs } from "./act-sequence.js";
+import { usePaneAddressField } from "./pane-address-field.js";
 import { ChromeControl } from "./ChromeControl.js";
 import type { ConsolePaneContext } from "../../seats/index.js";
 
@@ -145,13 +145,13 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   const { bridge, paneId, focusHue } = context;
   const navigation = useReportedNavigation(bridge, paneId);
   const geometry = useGeometryPublisher();
-  const [addressField, setAddressField] = useState<AddressFieldState>(FOLLOWING_ADDRESS_FIELD);
+  const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
   const {
     refusal: actRefusal,
     run: runAct,
     refuseLocally,
     dismiss: dismissActRefusal,
-  } = useBrowserPaneActs();
+  } = useBrowserPaneActs(bridge, paneId);
   const addressFieldId = useId();
   // Only the REPORTING arm is a reading. An ended subscription's last frame is not
   // one, so it reaches nothing here: every history control falls back to disabled and

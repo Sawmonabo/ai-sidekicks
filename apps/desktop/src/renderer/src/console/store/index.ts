@@ -80,3 +80,12 @@ export {
   useSessionInitialised,
   useSessionPartition,
 } from "./hooks.js";
+
+// The caller's own membership role, forwarded with the two types a caller has to name
+// to use it. Its first surface consumer is the terminal lease line: taking the shell
+// is owner/collaborator-only, so a control offered on identity alone offered viewers
+// and runtime contributors a mutation that can only be refused. The reader is a
+// PARAMETER because this family sits below `bridge/` and may not reach a port, so the
+// view family that can passes one in.
+export { useCallerMembershipRole } from "./hooks.js";
+export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";

@@ -36,6 +36,7 @@
 
 import type { ConsoleClock, Unsubscribe } from "../core/index.js";
 import { observeElementResize } from "../primitives/index.js";
+import { couldAnimationMove } from "./animation-motion.js";
 import { MotionFrameSampler } from "./motion-sampling.js";
 
 /**
@@ -108,7 +109,7 @@ export function hasRunningMotion(element: Element): boolean {
 }
 
 /**
- * Whether ANYTHING in this document is animating right now.
+ * Whether ANYTHING in this document that could move this element is animating.
  *
  * The wide reading, for the subject whose position no containment test can bound: a
  * fixed-size sibling animating its width — a rail collapsing, a sidebar dragging —
@@ -117,16 +118,27 @@ export function hasRunningMotion(element: Element): boolean {
  * element" answers no for exactly that case, so a subject that cares about its
  * POSITION asks the document instead and measures the answer.
  *
+ * WIDE IS NOT UNCONDITIONAL, and it used to be. `animation-motion.ts` states the two
+ * bounds and why each is needed; what they buy here is that a loading skeleton's
+ * infinite opacity pulse no longer holds this predicate true forever, which armed the
+ * frame sampler on every frame for as long as anything on screen was loading.
+ *
  * `document.getAnimations()` rather than a walk, because the document is where the
  * platform already holds the set; absent on a DOM shim, where the caller's
  * element-scoped reading still runs and the degrade is a coarser answer rather than
  * a wrong one.
  */
-export function hasRunningDocumentMotion(): boolean {
+export function hasRunningDocumentMotion(element: Element): boolean {
   if (typeof document === "undefined" || typeof document.getAnimations !== "function") {
     return false;
   }
-  return isAnyRunning(document.getAnimations());
+  const carriesSubject = (target: Element): boolean => sharesMotionWith(element, target);
+  return document
+    .getAnimations()
+    .some(
+      (animation) =>
+        animation.playState === "running" && couldAnimationMove(animation, carriesSubject),
+    );
 }
 
 export interface ElementPositionObserverOptions {
@@ -215,7 +227,8 @@ export function observeElementPosition(options: ElementPositionObserverOptions):
   // The document reading covers the element's own subtree and ancestors wherever the
   // platform implements it; the element-scoped one is what a DOM shim that omits
   // `document.getAnimations` still answers, so neither is redundant.
-  const isMotionRunning = (): boolean => hasRunningDocumentMotion() || hasRunningMotion(element);
+  const isMotionRunning = (): boolean =>
+    hasRunningDocumentMotion(element) || hasRunningMotion(element);
   const sampler = new MotionFrameSampler({ isMotionRunning, clock, onFrame: onMove });
   /**
    * Source 5, folded into the other four rather than armed beside them.

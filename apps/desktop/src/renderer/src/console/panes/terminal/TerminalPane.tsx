@@ -48,12 +48,18 @@
 // `node-presence-model.ts` states the rule and why the payload's `actor` is not a
 // substitute for the link the wire withholds.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { refusalFromRejection, type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
-import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
+import {
+  useCallerMembershipRole,
+  useSessionStore,
+  type CallerParticipantReader,
+  type SessionStore,
+  type SessionStoreState,
+} from "../../store/index.js";
 import type { ConsolePaneContext } from "../../seats/index.js";
 import { LeaseLine, type TerminalParticipantMark } from "../../terminal/LeaseLine.js";
 import { XtermHost } from "../../terminal/XtermHost.js";
@@ -114,6 +120,19 @@ function BoundTerminalPane(props: {
   const timeline = useSessionStore(sessionStore, selectTimeline);
   const outputReading = useTerminalOutputStream(bridge, terminalId);
   const viewerIdentity = useTerminalViewerIdentity(bridge, sessionStore.sessionId);
+  // The entitlement beside the identity, because the claim control needs both: the
+  // fold compares the holder against WHO this window is, and the daemon checks what
+  // that participant MAY DO before it moves the shell. The reader is adapted here
+  // because `store/` sits below `bridge/` on the console's DAG and may not reach a
+  // port; the served arm hands over the participant id and the refusing arm travels
+  // as the `ConsoleRefusal` it already is.
+  const readCallerParticipant: CallerParticipantReader = useCallback(async () => {
+    const outcome = await bridge.growth.callerParticipantRead({
+      sessionId: sessionStore.sessionId,
+    });
+    return outcome.status === "served" ? outcome.value.participantId : outcome;
+  }, [bridge, sessionStore]);
+  const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore);
 
   // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
@@ -170,6 +189,7 @@ function BoundTerminalPane(props: {
         state={lease}
         markFor={markFor}
         viewerIdentity={viewerIdentity}
+        callerRole={callerRole}
       />
       {outputReading.status === "refused" ? (
         // A REJECTED subscribe is the bridge itself failing, and a bridge that
@@ -208,10 +228,13 @@ function BoundTerminalPane(props: {
  * "computing" absence rather than an empty stream.
  */
 function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): TerminalOutputReading {
-  const [reading, setReading] = useState<TerminalOutputReading>(ASKING_FOR_OUTPUT);
+  const [stamped, setStamped] = useState<StampedTerminalOutputReading | undefined>(undefined);
 
   useEffect(() => {
     let isMounted = true;
+    const publish = (reading: TerminalOutputReading): void => {
+      setStamped({ bridge, terminalId, reading });
+    };
     void bridge.growth
       .terminalSubscribeOutput({ terminalId })
       .then((outcome) => {
@@ -224,7 +247,7 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
         if (!isMounted) {
           return;
         }
-        setReading(
+        publish(
           outcome.status === "unavailable"
             ? absent({ kind: "not-checked", title: "No output stream", detail: outcome.detail })
             : absent({
@@ -237,7 +260,7 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
       })
       .catch((failure: unknown) => {
         if (isMounted) {
-          setReading({
+          publish({
             status: "refused",
             refusal: refusalFromRejection(
               OUTPUT_STREAM_REFUSAL_ORIGIN,
@@ -252,7 +275,34 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
     };
   }, [bridge, terminalId]);
 
-  return reading;
+  // The comparison the stamp exists for, on the render that mounts the emulator
+  // rather than one after it.
+  return stamped !== undefined && stamped.bridge === bridge && stamped.terminalId === terminalId
+    ? stamped.reading
+    : ASKING_FOR_OUTPUT;
+}
+
+/**
+ * A settled output reading together with the inputs it was read against.
+ *
+ * The reading is a fact about ONE shell on ONE bridge, and `BoundTerminalPane`
+ * outlives both: a deck that hands the same instance a different bridge or a
+ * different session store replaces the effect while the state still holds the
+ * previous terminal's answer, and the mount flag cannot help — it is the flag of the
+ * effect that is being torn down, and its cleanup runs a pass AFTER the render that
+ * has already put the previous shell's absence or refusal on screen for the
+ * replacement. A promise from the retired subject can also settle in that same
+ * window, before the cleanup that would have flipped the flag.
+ *
+ * So the reading travels with its subject and the render compares, which is the
+ * shape `terminal/viewer-identity.ts` and `browser/navigation-state.ts` already
+ * take. A mismatch reads `ASKING_FOR_OUTPUT` — the honest state for a question that
+ * has just been put and not yet answered — rather than the previous shell's.
+ */
+interface StampedTerminalOutputReading {
+  readonly bridge: ConsoleBridge;
+  readonly terminalId: string;
+  readonly reading: TerminalOutputReading;
 }
 
 /**

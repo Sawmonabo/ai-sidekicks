@@ -7,7 +7,7 @@
 // time. It holds nothing a single suite uses — the close-tab modifier, the rejecting
 // overrides, and the view hosts each concern builds stay beside their reader.
 
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
@@ -40,7 +40,10 @@ export async function findRefusalBanner(): Promise<HTMLElement> {
   });
 }
 
-function paneContext(bridge: ConsoleBridge = createFixtureBridge({ scenario: BROWSER_SCENARIO })): {
+function paneContext(
+  bridge: ConsoleBridge = createFixtureBridge({ scenario: BROWSER_SCENARIO }),
+  paneId = DEFAULT_TEST_PANE_ID,
+): {
   readonly context: ConsolePaneContext;
   readonly bridge: ConsoleBridge;
 } {
@@ -51,7 +54,7 @@ function paneContext(bridge: ConsoleBridge = createFixtureBridge({ scenario: BRO
       // kind's arm of the union carries none and an `undefined` one would be a
       // reference this pane is documented never to be a view of.
       kind: "browser",
-      paneId: "pane-browser-1",
+      paneId,
       bridge,
       frameStore: new FrameStore(),
       sessionStore: undefined,
@@ -59,6 +62,40 @@ function paneContext(bridge: ConsoleBridge = createFixtureBridge({ scenario: BRO
       draftStore: new DraftStore(),
       linkedSourcePaneId: undefined,
       focusHue: undefined,
+    },
+  };
+}
+
+/** The pane a suite mounts when it is not about which pane this is. */
+export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
+
+/**
+ * Mount the pane and hand back the re-render that swaps which pane it is FOR.
+ *
+ * The swap is what a deck performs when a slot changes subject: React keeps the
+ * component instance and hands it a different `paneId`, so every piece of state the
+ * pane carries between renders has to say whose it is. A suite that could only mount
+ * a fresh tree could not reach that case at all.
+ */
+export async function mountBrowserPaneForSubject(
+  bridge: ConsoleBridge,
+  paneId: string,
+): Promise<{ readonly rebindTo: (nextPaneId: string) => Promise<void> }> {
+  const built = paneContext(bridge, paneId);
+  let mounted: RenderResult | undefined;
+  await act(async () => {
+    mounted = render(<BrowserPane {...built.context} />);
+  });
+  const rendered = mounted;
+  if (rendered === undefined) {
+    throw new Error("the browser pane did not mount");
+  }
+  return {
+    rebindTo: async (nextPaneId: string): Promise<void> => {
+      const rebound = paneContext(bridge, nextPaneId);
+      await act(async () => {
+        rendered.rerender(<BrowserPane {...rebound.context} />);
+      });
     },
   };
 }
