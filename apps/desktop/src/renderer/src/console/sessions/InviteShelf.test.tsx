@@ -237,3 +237,102 @@ describe("what a refusal must not do to a person's hides", () => {
     expect(record?.value).toStrictEqual([]);
   });
 });
+
+/** A reader that answers when a case decides to, so a replacement can stall. */
+function heldReader(): {
+  readonly read: InviteShelfReader;
+  readonly answer: (outcomes: readonly ShelfOutcome[]) => void;
+} {
+  let settle: (outcomes: readonly ShelfOutcome[]) => void = () => undefined;
+  const held = new Promise<readonly ShelfOutcome[]>((resolve) => {
+    settle = resolve;
+  });
+  return { read: () => held, answer: (outcomes) => settle(outcomes) };
+}
+
+describe("an answer that belongs to the session set it was asked of", () => {
+  it("shows the reading arm rather than the previous set's invitations", async () => {
+    // The defect: the outcomes went on describing the previous session set until the
+    // replacement fan-out settled, and if it stalls that is forever — so the shelf
+    // offered **Not now** on an invitation read for a set this console has replaced.
+    const uiStateStore = openUiStateStore();
+    const view = render(
+      <InviteShelf
+        read={() => Promise.resolve([served([invite()])])}
+        uiStateStore={uiStateStore}
+      />,
+    );
+    await settle();
+    expect(view.container.textContent ?? "").toContain("invite-1");
+
+    const replacement = heldReader();
+    view.rerender(<InviteShelf read={replacement.read} uiStateStore={uiStateStore} />);
+    await settle();
+
+    const text = view.container.textContent ?? "";
+    expect(text).not.toContain("invite-1");
+    expect(text).toContain("Reading your invitations.");
+  });
+
+  it("shows the reading arm rather than a definitive empty inbox", async () => {
+    // The other half of the same fact, and the one a person cannot tell from the
+    // truth: an empty shelf under a stalled replacement read says "nothing is
+    // waiting for you", which is a claim about a set nobody has answered for.
+    const uiStateStore = openUiStateStore();
+    const view = render(
+      <InviteShelf read={() => Promise.resolve([served([])])} uiStateStore={uiStateStore} />,
+    );
+    await settle();
+    expect(view.container.textContent ?? "").toContain("Nothing is waiting for you to join.");
+
+    const replacement = heldReader();
+    view.rerender(<InviteShelf read={replacement.read} uiStateStore={uiStateStore} />);
+    await settle();
+
+    const text = view.container.textContent ?? "";
+    expect(text).not.toContain("Nothing is waiting for you to join.");
+    expect(text).toContain("Reading your invitations.");
+  });
+
+  it("drops the previous set's answer when it lands after the reader changed", async () => {
+    // The read this console has left is not cancellable, so it settles whenever it
+    // settles. What it may not do is install itself over the set now being read for.
+    const uiStateStore = openUiStateStore();
+    const abandoned = heldReader();
+    const view = render(<InviteShelf read={abandoned.read} uiStateStore={uiStateStore} />);
+    await settle();
+
+    const replacement = heldReader();
+    view.rerender(<InviteShelf read={replacement.read} uiStateStore={uiStateStore} />);
+    await settle();
+
+    abandoned.answer([served([invite({ inviteId: "invite-from-the-set-we-left" })])]);
+    await settle();
+
+    const text = view.container.textContent ?? "";
+    expect(text).not.toContain("invite-from-the-set-we-left");
+    expect(text).toContain("Reading your invitations.");
+  });
+
+  it("negative control: the replacement's own answer IS rendered", async () => {
+    // Without this, the cases above would pass over a shelf that had stopped
+    // rendering answers altogether — which would leave every session set reading
+    // forever.
+    const uiStateStore = openUiStateStore();
+    const view = render(
+      <InviteShelf read={() => Promise.resolve([served([])])} uiStateStore={uiStateStore} />,
+    );
+    await settle();
+
+    const replacement = heldReader();
+    view.rerender(<InviteShelf read={replacement.read} uiStateStore={uiStateStore} />);
+    await settle();
+
+    replacement.answer([served([invite({ inviteId: "invite-from-the-set-we-arrived-at" })])]);
+    await settle();
+
+    const text = view.container.textContent ?? "";
+    expect(text).toContain("invite-from-the-set-we-arrived-at");
+    expect(text).not.toContain("Reading your invitations.");
+  });
+});

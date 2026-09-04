@@ -44,6 +44,7 @@ import {
   type Unsubscribe,
 } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 
 /** What one carrier read answers. Derived off the port rather than restated. */
 type ShellConfigReadOutcome = Awaited<ReturnType<ConsoleBridge["growth"]["shellConfigRead"]>>;
@@ -370,7 +371,18 @@ function appliedReading(
  *
  * A refusal the port already built is passed through verbatim, because rule 9 renders
  * the author's words rather than paraphrasing them; anything else becomes a refusal
- * naming this module with the thrown message as its detail.
+ * naming this module with the rejection's own message as its detail.
+ *
+ * THE SENTENCE IS COMPOSED THROUGH THE REPOSITORY'S TOTAL NORMALIZER, and it has to
+ * be a total one. This was an `instanceof Error` ladder ending in bare `String(...)`,
+ * which is not total: `String` runs ToPrimitive, and a null-prototype object — or a
+ * hostile `toString` — throws there. That throw happened INSIDE the catch that exists
+ * to publish the failure, so `choose` rejected without clearing its pending key and
+ * the toggle stayed busy for the life of the window, on the one path whose whole job
+ * is to say that something went wrong. `normalizeWireRejection` also puts a wire code
+ * on `Error.name`, so an envelope rejection renders its own message instead of
+ * `[object Object]`; the refusal's `code` stays this module's, because what the wire
+ * calls the failure is the carrier's word and not this store's.
  */
 function asRefusal(rejection: unknown): ConsoleRefusal {
   if (rejection instanceof ConsoleRefusalError) {
@@ -379,8 +391,11 @@ function asRefusal(rejection: unknown): ConsoleRefusal {
   if (isConsoleRefusal(rejection)) {
     return rejection;
   }
-  const detail = rejection instanceof Error ? rejection.message : String(rejection);
-  return refuse(SHELL_PREFERENCE_REFUSAL_ORIGIN, "preference-write-failed", detail);
+  return refuse(
+    SHELL_PREFERENCE_REFUSAL_ORIGIN,
+    "preference-write-failed",
+    normalizeWireRejection(rejection, { total: true }).message,
+  );
 }
 
 function withoutKey<TValue>(

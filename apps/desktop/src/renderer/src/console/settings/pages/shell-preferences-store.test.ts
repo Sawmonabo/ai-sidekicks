@@ -145,6 +145,59 @@ describe("shell preferences — a carrier that answers", () => {
 });
 
 /**
+ * A rejection no bare `String(...)` can render.
+ *
+ * `Object.create(null)` has no prototype, so it carries no `toString`, no `valueOf`,
+ * and no `Symbol.toPrimitive` — and ToPrimitive throws rather than answering. It is
+ * built here rather than mocked because the value is the whole subject: what the
+ * catch path has to survive is a rejection whose own rendering fails.
+ */
+function unrenderableRejection(): unknown {
+  return Object.create(null) as unknown;
+}
+
+describe("shell preferences — a rejection the catch path cannot stringify", () => {
+  it("clears the pending key and publishes the refusal anyway", async () => {
+    // The defect: composing the sentence threw INSIDE the catch that exists to
+    // publish the failure, so `choose` rejected with the key still pending — the
+    // toggle spun for the life of the window with nothing on screen saying why. On
+    // the partial normalizer this case does not merely assert wrongly, it throws.
+    const store = new ShellPreferenceStore(
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({}),
+        shellConfigWrite: () => Promise.reject(unrenderableRejection()),
+      }),
+    );
+
+    await store.choose("updates.automatic", false);
+
+    const snapshot = store.snapshot();
+    expect(snapshot.pendingKeys.size).toBe(0);
+    expect(snapshot.refusalByKey["updates.automatic"]?.code).toBe("preference-write-failed");
+    expect(typeof snapshot.refusalByKey["updates.automatic"]?.detail).toBe("string");
+  });
+
+  it("negative control: an ordinary rejection still renders its own words", async () => {
+    // Without this, the case above would pass over a normalizer that answered the
+    // same placeholder for every rejection — which would hide every reason a
+    // carrier ever gives behind the one sentence written for the value that has
+    // none.
+    const store = new ShellPreferenceStore(
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({}),
+        shellConfigWrite: () => Promise.reject(new Error("the carrier is read-only")),
+      }),
+    );
+
+    await store.choose("updates.automatic", false);
+
+    expect(store.snapshot().refusalByKey["updates.automatic"]?.detail).toBe(
+      "the carrier is read-only",
+    );
+  });
+});
+
+/**
  * A carrier read this test settles by hand.
  *
  * The whole subject below is the ORDER two settlements land in, and the shipped

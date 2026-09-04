@@ -34,6 +34,7 @@
 import type { SessionState } from "@ai-sidekicks/contracts";
 
 import type { AttentionSeverity } from "../bridge/index.js";
+import { wireInstantRank } from "../primitives/index.js";
 
 /**
  * The two tiers the list folds into. Closed, declared once, union derived.
@@ -119,21 +120,6 @@ function attentionRank(severity: AttentionSeverity | undefined): number {
   return severity === "informational" ? 1 : 2;
 }
 
-/**
- * Recency, as a comparable number. Newest first, unknown last.
- *
- * A missing or unparseable timestamp answers `-Infinity` rather than `0`, so it
- * sorts after every real instant instead of landing in 1970 among sessions that
- * genuinely have not been touched since.
- */
-function touchedAtRank(touchedAtIso: string | undefined): number {
-  if (touchedAtIso === undefined) {
-    return Number.NEGATIVE_INFINITY;
-  }
-  const milliseconds = Date.parse(touchedAtIso);
-  return Number.isNaN(milliseconds) ? Number.NEGATIVE_INFINITY : milliseconds;
-}
-
 /** The ordinary status-and-activity comparator. Applies inside each tier. */
 export function compareSessionRows(left: SessionListRow, right: SessionListRow): number {
   const byAttention =
@@ -145,7 +131,10 @@ export function compareSessionRows(left: SessionListRow, right: SessionListRow):
   if (byLifecycle !== 0) {
     return byLifecycle;
   }
-  const byRecency = touchedAtRank(right.touchedAtIso) - touchedAtRank(left.touchedAtIso);
+  // Newest first, unknown last, through the primitives family's one reading of a
+  // wire timestamp — a missing or unreadable stamp ranks below every real instant
+  // instead of landing in 1970 among sessions genuinely untouched since.
+  const byRecency = wireInstantRank(right.touchedAtIso) - wireInstantRank(left.touchedAtIso);
   if (byRecency !== 0) {
     return byRecency;
   }

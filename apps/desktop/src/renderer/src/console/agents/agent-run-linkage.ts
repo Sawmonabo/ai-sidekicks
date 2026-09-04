@@ -34,6 +34,7 @@
 
 import { useMemo } from "react";
 
+import { wireInstantRank } from "../primitives/index.js";
 import { useSessionPartition, type SessionStore } from "../store/index.js";
 
 /**
@@ -41,9 +42,19 @@ import { useSessionPartition, type SessionStore } from "../store/index.js";
  *
  * `undefined` where no run has been attributed to this agent yet, which a linkage
  * surface renders as the absence it is rather than as an empty result. Newest is
- * decided by the projection's own `touchedAt` and by nothing this console invents:
- * a run row with no `touchedAt` sorts below every row that has one rather than
- * being dropped, so an unstamped row is still reachable when it is the only one.
+ * decided by the projection's own `touchedAt` and by nothing this console invents,
+ * through the primitives family's one reading of a wire timestamp: `touchedAt` is an
+ * ISO-8601 instant and the event contract accepts a numeric offset as readily as
+ * `Z`, so comparing two of them as TEXT can name the older run — `10:00+02:00` is an
+ * hour earlier than `09:00Z` and sorts after it — and the panel then read and
+ * displayed the wrong parent run for as long as both rows stayed in the projection.
+ *
+ * A run row with no `touchedAt`, or with one the platform cannot read, sorts below
+ * every row that has a readable stamp rather than being dropped, so such a row is
+ * still reachable when it is the only one.
+ *
+ * Ties keep the row already held, so the answer for two rows at the same instant is
+ * decided by the projection's own order rather than by a re-reading of it.
  */
 export function newestRunIdForAgent(
   sessionStore: SessionStore,
@@ -59,7 +70,7 @@ export function newestRunIdForAgent(
     return undefined;
   }
   return runs.reduce((newest, candidate) =>
-    (candidate.touchedAt ?? "") > (newest.touchedAt ?? "") ? candidate : newest,
+    wireInstantRank(candidate.touchedAt) > wireInstantRank(newest.touchedAt) ? candidate : newest,
   ).id;
 }
 
