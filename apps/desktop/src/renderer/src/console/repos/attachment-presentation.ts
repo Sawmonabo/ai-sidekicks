@@ -1,5 +1,10 @@
-// What a surface is TOLD about an attachment: the progress figure, the two instants,
-// and the sentence an unresolved marker carries.
+// What a surface is TOLD about an attachment: the two instants, and the sentence an
+// unresolved marker carries.
+//
+// THE PROGRESS FIGURE IS NOT HERE, AND THAT IS THE SEAM MOVING RATHER THAN WIDENING.
+// The running total is the DAEMON's — the chunk reply carries it — so reading one is a
+// protocol question rather than a presentation one and lives in
+// `attachment-ingest-acknowledgement.ts` beside the leg that asks it.
 //
 // THE SEAM, IN ONE SENTENCE: this module changes when what a person sees changes. Every
 // function here takes an entry — and, where the answer moves on its own, the instant it
@@ -16,11 +21,7 @@
 //     reading node's own manifest row and mapped to copy here, never to a fresher
 //     answer.
 
-import {
-  INGEST_STALL_DISCLOSURE_MS,
-  INGEST_STREAM_LIFETIME_CEILING_MS,
-  reportTripwire,
-} from "../core/index.js";
+import { INGEST_STALL_DISCLOSURE_MS, INGEST_STREAM_LIFETIME_CEILING_MS } from "../core/index.js";
 import type { UnresolvedAttachmentCause } from "./attachment-policy.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
@@ -77,44 +78,6 @@ export const UNRESOLVED_ATTACHMENT_PRESENTATION: Readonly<
     remedy: "The publisher re-publishes it while online.",
   },
 };
-
-// --- The one arithmetic step ---------------------------------------------
-
-/** Where the progress tripwire reports from, so a firing names a module and not a call. */
-export const ATTACHMENT_PROGRESS_SITE = "repos/attachment-presentation.ts";
-
-/**
- * Advance one entry's decoded-byte total by one acknowledged chunk.
- *
- * THE WHOLE POINT OF THIS FUNCTION IS THAT IT IS THE ONLY ONE. This module's rule —
- * never chart base64 length as progress — is unenforceable as a rule about intent, but it is
- * perfectly checkable as arithmetic: an encoded length is about four thirds of the
- * decoded one, so charting it drives the running total past a total the caller itself
- * declared. That is impossible for a decoded count and is the observable signature of
- * having charted the wrong number — so it fires the `wire-figure-formatting` tripwire,
- * which is exactly "a figure reached a surface through something other than the byte
- * chokepoint", and the figure is clamped so the bar cannot render past full while the
- * defect is reported.
- *
- * Pure, exported, and taking the two numbers rather than the client's private state, so
- * the tripwire is provable by driving THIS function rather than by reaching into a
- * class or standing in for one.
- */
-export function advanceReceivedBytes(
-  entry: AttachmentIngestEntry,
-  chunkByteLength: number,
-): number {
-  const advanced = entry.receivedBytes + chunkByteLength;
-  if (advanced > entry.declared.byteLength) {
-    reportTripwire(
-      "wire-figure-formatting",
-      ATTACHMENT_PROGRESS_SITE,
-      `ingest progress for ${entry.declared.localId} advanced to ${String(advanced)} decoded bytes past a declared total of ${String(entry.declared.byteLength)}; a progress figure counts decoded bytes and never an encoded length`,
-    );
-    return entry.declared.byteLength;
-  }
-  return advanced;
-}
 
 /** Milliseconds left on this stream's six-hour ceiling, or `undefined` before it opened. */
 export function ingestCeilingRemainingMs(

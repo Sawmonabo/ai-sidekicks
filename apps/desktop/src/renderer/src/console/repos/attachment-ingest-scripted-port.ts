@@ -18,6 +18,7 @@
 // than passing under a recorder that had been updated to match it.
 
 import type { ConsoleBridge, GrowthPort } from "../bridge/index.js";
+import type { ChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { attachmentSourceFrom, type AttachmentSource } from "./attachment-shapes.js";
 
@@ -81,6 +82,24 @@ export class ScriptedGrowthPort {
   #abortRejection: unknown;
   #beginGate: Promise<void> | undefined;
   #chunkGate: Promise<void> | undefined;
+  /**
+   * The decoded bytes this port has appended, per stream and per sequence number.
+   *
+   * A REAL RUNNING TOTAL, because that is what the registered
+   * `AttachmentIngestChunkResponse` carries and the client now advances its ledger from:
+   * a port that answered a constant would let a client that ignored the reply pass every
+   * case here. The decoded length comes from the platform's own base64 decoder rather
+   * than from arithmetic over the encoded string, so nothing in this file is a second
+   * implementation of the encoding the client uses.
+   *
+   * KEYED BY SEQUENCE NUMBER, so the total is idempotent under the replay the contract
+   * makes safe: a chunk resent after a lost response is acknowledged without being
+   * appended twice, which a running sum over calls would report as double the bytes. A
+   * REFUSED chunk appends nothing at all, which is why the accounting happens after
+   * both failure arms rather than on the way in.
+   */
+  readonly #spooledBytesByIngestId = new Map<string, Map<number, number>>();
+  #chunkAcknowledgementOverride: ChunkAcknowledgement | undefined;
 
   /**
    * Answer the next `begin` — and every later one — with a refusal.
@@ -143,6 +162,18 @@ export class ScriptedGrowthPort {
     this.#abortRejection = rejection;
   }
 
+  /**
+   * Answer every later chunk with this acknowledgement instead of the true one.
+   *
+   * The two answers a client must not accept are both shapes rather than statuses — a
+   * reply naming another stream, and a total that did not advance — so neither is
+   * reachable through the refusal setters above, and a case that could not script one
+   * would be asserting the check by reading it.
+   */
+  public acknowledgeChunksWith(acknowledgement: ChunkAcknowledgement): void {
+    this.#chunkAcknowledgementOverride = acknowledgement;
+  }
+
   /** Hold the next `begin` until the returned gate is opened; later calls run free. */
   public holdBegin(): { readonly open: () => void } {
     const gate = manualGate();
@@ -155,6 +186,19 @@ export class ScriptedGrowthPort {
     const gate = manualGate();
     this.#chunkGate = gate.promise;
     return gate;
+  }
+
+  /** Append one chunk's decoded bytes and answer the stream's running total. */
+  #append(request: RecordedChunk): number {
+    const appendedBySequenceNumber =
+      this.#spooledBytesByIngestId.get(request.ingestId) ?? new Map<number, number>();
+    appendedBySequenceNumber.set(request.sequenceNumber, globalThis.atob(request.chunk).length);
+    this.#spooledBytesByIngestId.set(request.ingestId, appendedBySequenceNumber);
+    let spooledBytes = 0;
+    for (const appended of appendedBySequenceNumber.values()) {
+      spooledBytes += appended;
+    }
+    return spooledBytes;
   }
 
   public asBridge(): ConsoleBridge {
@@ -177,9 +221,20 @@ export class ScriptedGrowthPort {
         if (this.#chunkRejection !== undefined) {
           throw this.#chunkRejection;
         }
-        return this.#chunkRefusalCode === undefined
-          ? { status: "served", value: undefined }
-          : { status: "unavailable", code: this.#chunkRefusalCode, detail: "scripted refusal" };
+        if (this.#chunkRefusalCode !== undefined) {
+          return {
+            status: "unavailable",
+            code: this.#chunkRefusalCode,
+            detail: "scripted refusal",
+          };
+        }
+        return {
+          status: "served",
+          value: this.#chunkAcknowledgementOverride ?? {
+            ingestId: request.ingestId,
+            receivedBytes: this.#append(request),
+          },
+        };
       },
       artifactIngestComplete: async () => {
         if (this.#completeRejection !== undefined) {
