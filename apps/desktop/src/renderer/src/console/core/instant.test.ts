@@ -138,6 +138,46 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
   });
 });
 
+describe("parseInstant — the offset policy the caller's plane declares", () => {
+  // The pairing is the point of every case here: the same text, read two ways, with
+  // the `"any-offset"` reading as the negative control for the `"utc-only"` refusal.
+  // A refusal nobody can show the cost of is a refusal nobody keeps.
+  it.each([
+    ["a positive numeric offset", "2026-09-01T10:00:00+02:00"],
+    ["a negative numeric offset", "2026-09-01T07:00:00-05:00"],
+    ["a lowercase Z", "2026-09-01T12:00:00z"],
+    ["a lowercase T", "2026-09-01t12:00:00Z"],
+    ["both separators lowercase", "2026-09-01t12:00:00z"],
+  ])("refuses %s under utc-only and reads it under any-offset", (_label, text) => {
+    expect(parseInstant(text, "utc-only").kind).toBe("malformed");
+    expect(parseInstant(text, "any-offset").kind).toBe("instant");
+  });
+
+  it("reads a Z-terminated instant identically under either policy", () => {
+    const strict = parseInstant("2026-09-01T12:00:00.250Z", "utc-only");
+    expect(strict).toStrictEqual(parseInstant("2026-09-01T12:00:00.250Z", "any-offset"));
+    expect(strict.epochMilliseconds).toBe(Date.UTC(2026, 8, 1, 12, 0, 0, 250));
+  });
+
+  it("defaults to any-offset, so a caller that named no plane keeps its reading", () => {
+    expect(parseInstant("2026-09-01T10:00:00+02:00").kind).toBe("instant");
+    expect(parseInstant("2026-09-01T12:00:00z").kind).toBe("instant");
+  });
+
+  it("carries the wire's own spelling on a policy refusal, so it can be quoted", () => {
+    expect(parseInstant("2026-09-01T10:00:00+02:00", "utc-only").text).toBe(
+      "2026-09-01T10:00:00+02:00",
+    );
+  });
+
+  it("keeps every other refusal a refusal under utc-only too", () => {
+    // The policy narrows; it never widens. A day that does not exist is still
+    // malformed with `Z` and a `T` in place.
+    expect(parseInstant("2026-02-30T10:00:00Z", "utc-only").kind).toBe("malformed");
+    expect(parseInstant("2026-01-01", "utc-only").kind).toBe("malformed");
+  });
+});
+
 describe("parseInstant — total against a value that is not a string at all", () => {
   // The reachable case, not a hypothetical: this reader is handed wire values the
   // console did not validate — a `resetAt` read off a rejection, a stamp off a reply —
