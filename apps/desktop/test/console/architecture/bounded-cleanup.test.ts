@@ -12,9 +12,10 @@
 // it was the case nothing checked. So `BoundedCleanup` takes both collaborators
 // as constructor arguments — the application and the terminator — and a close
 // that never settles is one object literal, while a terminator that RECORDS
-// rather than signals is another. That second seam is not a convenience: a
-// terminator that really killed something would take this test runner's own
-// process tree with it on the negative-pid arm.
+// rather than signals is another. That second seam is not a convenience: these
+// cases run inside the runner, and a terminator that really killed something
+// would deliver to a whole process group — the launched tree only because
+// playwright-core spawns detached, and somebody else's for any other pid.
 //
 // The clock these cases draw from is `launch-deadline.test.ts`; the verdict the
 // witness renders just before them is `frame-witness.test.ts`.

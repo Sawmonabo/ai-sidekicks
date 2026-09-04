@@ -48,9 +48,10 @@ export interface ClosableApplication {
  * Force-termination, as a seam.
  *
  * A constructor argument so a test can assert the SIGKILL happened without
- * signalling anything: a spy is an object literal, and a terminator that really
- * killed something would take the test runner's own process tree with it on the
- * negative-pid arm below.
+ * signalling anything: a spy is an object literal, and these cases run INSIDE
+ * the runner, where a terminator that really killed something would deliver to
+ * a whole process group — the launched tree only because playwright-core spawns
+ * detached, and somebody else's group for any other pid it is handed.
  */
 export interface ProcessTerminator {
   /** Kill the tree led by `processId`. Returns whether a signal was delivered. */
@@ -122,8 +123,8 @@ export interface CleanupOutcome {
  * `test/helpers/process-tree.ts`, shared with the Tier-1 smoke probe, because
  * two copies of them had already disagreed about whether `taskkill`'s exit
  * status counts. `BoundedCleanup` still takes the seam as a constructor
- * argument — a terminator that really killed something would take this test
- * runner's own process tree with it on the negative-pid arm.
+ * argument — a terminator that really killed something would signal a whole
+ * process group from inside the runner, and a test must signal nothing.
  */
 export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
   isRunning: (processId: number): boolean => processExists(processId),

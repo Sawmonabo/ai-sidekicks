@@ -9,12 +9,14 @@
 // to a copy.
 //
 // What CANNOT be exercised here is the real thing. `terminateProcessTree` signals
-// a real process, and on the POSIX arm the negative-pid form reaches the whole
-// group — which, run from a test, is this runner's own. So the platform arms stay
-// unexecuted by construction and the decision they all funnel through is tested
-// directly, with the liveness probe injected. That split is the reason the
-// decision is a named function rather than a boolean expression at three call
-// sites.
+// a real process, and on the POSIX arm the negative-pid form reaches a whole
+// process GROUP — the launched tree only because playwright-core spawns detached,
+// and somebody else's group for any other pid it is handed. These cases run
+// inside the runner, so a terminator under test must signal nothing at all. The
+// platform arms therefore stay unexecuted by construction and the decision they
+// all funnel through is tested directly, with the liveness probe injected. That
+// split is the reason the decision is a named function rather than a boolean
+// expression at three call sites.
 
 import { spawnSync } from "node:child_process";
 import process from "node:process";
