@@ -51,6 +51,7 @@ import {
   FrameWitness,
   type RendererFrameSource,
 } from "./frame-witness.js";
+import { LaunchDeadline, READINESS_BUDGET_MS } from "./launch-deadline.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");
@@ -117,17 +118,6 @@ export {
 const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
 
 /**
- * How long a window may take to appear before the launch is called failed.
- *
- * Generous, and deliberately so: this bounds a COLD Electron start on a shared
- * CI runner, which is a different quantity from anything the budgets measure. A
- * tight bound here would turn runner contention into a red tier, and the budget
- * tier — which measures what this one merely waits for — is where a slow start
- * is supposed to be caught.
- */
-export const WINDOW_APPEAR_TIMEOUT_MS = 30_000;
-
-/**
  * The prefix every launch breadcrumb carries.
  *
  * One tag, so a CI log is greppable for the whole set: a tier that failed on a
@@ -173,15 +163,49 @@ export interface LaunchConsoleOptions {
 }
 
 /**
+ * Re-word a readiness failure as one about the budget the ladder actually shares.
+ *
+ * Playwright reports what IT was given, which under a shared deadline is
+ * whatever was left — "Timeout 1ms exceeded" for a phase that was never the slow
+ * one. The underlying error is kept as `cause`, because which phase ran out is
+ * still the first thing a reader wants.
+ *
+ * Applied only while the deadline is spent. A phase that failed for its own
+ * reasons — a missing selector, a crashed process — reports that reason
+ * untouched rather than being blamed on a clock with time left on it.
+ */
+function readinessFailure(deadline: LaunchDeadline, error: unknown): unknown {
+  if (!deadline.expired()) {
+    return error;
+  }
+  return new Error(
+    `the console did not become ready within the ${String(READINESS_BUDGET_MS)} ms readiness budget, ` +
+      "which every phase before the frame witness SHARES — process launch, first window, the " +
+      "document's `load`, the console's frame element, the visibility read — rather than each " +
+      "receiving its own; the witness's interval is reserved beyond this budget, so a launch that " +
+      "overruns reports here rather than as the enclosing tier's timeout (test/console/launch-deadline.ts)",
+    { cause: error },
+  );
+}
+
+/**
  * Launch the built console and wait for its first window.
  *
  * Throws rather than returning a partial handle: a caller that received an
  * application with no window would have to re-check the same condition, and the
  * failure it is re-checking for is exactly the one worth reporting loudly.
+ *
+ * Every wait below draws its timeout from ONE deadline minted here, so the whole
+ * call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run — see
+ * `launch-deadline.ts` for why a timeout per phase could not be.
  */
 export async function launchConsole(
   options: LaunchConsoleOptions = {},
 ): Promise<ConsoleApplication> {
+  // Minted before the first phase, including the profile directory: everything
+  // this function waits on is inside the budget, or the budget is not the
+  // launch's.
+  const deadline = new LaunchDeadline(READINESS_BUDGET_MS);
   const userDataDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-console-"));
   // The scenario is applied LAST so a named option cannot be shadowed by an `env`
   // entry that happens to spell the same variable — one place decides, and it is
@@ -203,11 +227,11 @@ export async function launchConsole(
         // (see `src/main/window-reveal.ts`).
         [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       } as Record<string, string>,
-      timeout: WINDOW_APPEAR_TIMEOUT_MS,
+      timeout: deadline.remainingMs(),
     });
   } catch (error: unknown) {
     rmSync(userDataDirectory, { recursive: true, force: true });
-    throw error;
+    throw readinessFailure(deadline, error);
   }
 
   let closed = false;
@@ -227,20 +251,38 @@ export async function launchConsole(
   };
 
   try {
-    const window = await application.firstWindow({ timeout: WINDOW_APPEAR_TIMEOUT_MS });
-    // READINESS FIRST, THEN THE FRAME QUESTION. Both waits below are bounded by
-    // the COLD-START budget, not by the frame budget, and that split is the fix
-    // for the flake this harness used to produce: a slow boot is charged to the
-    // thing that is slow, and the frame witness is armed only once the renderer
-    // has said it is ready. The signals, in the order the renderer reaches them:
-    //
-    //   • `load` — the document and its subresources are in. Cheap, and it can
-    //     land AFTER React has mounted, so it is not implied by the selector.
-    //   • the frame element, not `domcontentloaded`: the document exists before
-    //     React has mounted anything, so waiting on the document alone would let
-    //     a test assert against an empty body and call it a pass.
-    await window.waitForLoadState("load", { timeout: WINDOW_APPEAR_TIMEOUT_MS });
-    await window.waitForSelector(".meridian-frame", { timeout: WINDOW_APPEAR_TIMEOUT_MS });
+    let window: Page;
+    let visibilityState: string;
+    try {
+      // READINESS FIRST, THEN THE FRAME QUESTION. Every wait here draws from the
+      // COLD-START budget rather than the frame budget, and that split is the fix
+      // for the flake this harness used to produce: a slow boot is charged to the
+      // thing that is slow, and the frame witness is armed only once the renderer
+      // has said it is ready. The signals, in the order the renderer reaches them:
+      //
+      //   • the first window — the Electron process got as far as opening one.
+      //   • `load` — the document and its subresources are in. Cheap, and it can
+      //     land AFTER React has mounted, so it is not implied by the selector.
+      //   • the frame element, not `domcontentloaded`: the document exists before
+      //     React has mounted anything, so waiting on the document alone would let
+      //     a test assert against an empty body and call it a pass.
+      //
+      // Each takes what the deadline has LEFT, so the four of them cost the
+      // budget once between them instead of once each.
+      window = await application.firstWindow({ timeout: deadline.remainingMs() });
+      await window.waitForLoadState("load", { timeout: deadline.remainingMs() });
+      await window.waitForSelector(".meridian-frame", { timeout: deadline.remainingMs() });
+      // Read through the deadline because `evaluate` carries no timeout of its
+      // own and ignores Playwright's default one: a renderer whose main thread is
+      // wedged would leave this round trip pending until the tier gave up, which
+      // is the undiagnosable failure the witness below exists to replace.
+      visibilityState = await deadline.settleWithin(
+        window.evaluate(() => document.visibilityState),
+        "the renderer visibility read",
+      );
+    } catch (error: unknown) {
+      throw readinessFailure(deadline, error);
+    }
     // A measurement from a throttled renderer is a false one. The window is
     // never revealed on macOS and revealed inactive elsewhere, so Chromium would
     // by default throttle its timers and frames and report the document hidden
@@ -248,7 +290,6 @@ export async function launchConsole(
     // The tiers assert the state they measure in rather than trust it, twice:
     // what the document REPORTS, and whether frames actually ARRIVE, since the
     // first is a flag and the second is the thing the endurance tier times.
-    const visibilityState = await window.evaluate(() => document.visibilityState);
     if (visibilityState !== "visible") {
       throw new Error(
         `the console document is "${visibilityState}" to Chromium, so its renderer is throttled and ` +

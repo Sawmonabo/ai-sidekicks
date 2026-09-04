@@ -21,8 +21,24 @@
 // `FRAME_WITNESS_TIMEOUT_MS`, and that is deliberate on two counts: the shipped
 // value is a property of CI runners rather than of the race, and a suite that
 // spent it would take 15 seconds to prove a timeout fires.
+//
+// THE OTHER HALF: THE BUDGET THE WITNESS SITS INSIDE
+//
+// A witness that renders a verdict its tier never waits to hear is no better
+// than no witness. The readiness ladder ahead of it used to hand each of its
+// four phases an independent 30 000 ms, so a launch was entitled to 135 000 ms
+// inside a 60 000 ms tier: vitest would kill the test mid-phase and the reader
+// would get "test timed out" instead of any of the sentences this file checks.
+// `launch-deadline.ts` makes that one shared clock, and the last two blocks here
+// hold its arithmetic against the REAL tier timeouts — resolved out of
+// `vitest.config.ts` through `createVitest`, never copied into a literal that
+// could drift away from the config while still agreeing with itself.
 
-import { describe, expect, it } from "vitest";
+import { globSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   FRAME_WITNESS_TIMEOUT_MS,
@@ -30,9 +46,29 @@ import {
   MEASURED_WORST_LOCAL_MS,
   type RendererFrameSource,
 } from "../frame-witness.js";
+import {
+  LAUNCH_BUDGET_MS,
+  LaunchDeadline,
+  MINIMUM_CLEANUP_MARGIN_MS,
+  READINESS_BUDGET_MS,
+} from "../launch-deadline.js";
+import { resolveVitestProjects, type ResolvedVitestProjects } from "../vitest-projects.js";
 
 /** A budget short enough that exhausting it costs the suite nothing. */
 const TEST_BUDGET_MS = 200;
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
+
+/**
+ * Every test file that drives a real Electron window through `launchConsole`.
+ *
+ * A glob over the two directories rather than a list of project NAMES, so a tier
+ * added later — or a file moved between them — is covered without anybody
+ * remembering to widen this. The names those files resolve to are read off the
+ * real config below.
+ */
+const ELECTRON_TIER_FILE_GLOB = "test/console/{e2e,endurance}/**/*.test.ts";
 
 /** A renderer that delivers its frames after `afterMs`, reporting `intervalMs`. */
 function frameSourceDeliveringAfter(afterMs: number, intervalMs: number): RendererFrameSource {
@@ -136,12 +172,160 @@ describe("frame witness — the shipped budget", () => {
     expect(FRAME_WITNESS_TIMEOUT_MS).toBeGreaterThan(MEASURED_WORST_LOCAL_MS * 100);
   });
 
-  it("stays under the cold-start budget it must not swallow", () => {
-    // `WINDOW_APPEAR_TIMEOUT_MS` is 30 s and bounds the window appearing; this
-    // one bounds only what happens after the renderer is ready. Restated as an
-    // inequality rather than by importing that constant, because importing it
-    // would pull `@playwright/test` and the console's module graph into this
-    // node-environment tier for a single number.
-    expect(FRAME_WITNESS_TIMEOUT_MS).toBeLessThanOrEqual(15_000);
+  it("stays inside half the cold-start budget it must not swallow", () => {
+    // The ordering property the witness's derivation claims: readiness is the
+    // longer wait, so a launch whose problem is the WINDOW runs out of readiness
+    // first and fails naming the window rather than being reported as a renderer
+    // that would not paint. Both constants are importable now that they live in
+    // a module free of `@playwright/test`, so this is the real inequality rather
+    // than the literal it used to restate against itself.
+    expect(FRAME_WITNESS_TIMEOUT_MS).toBeLessThanOrEqual(READINESS_BUDGET_MS / 2);
+  });
+});
+
+describe("launch budget — one launch always settles inside its tier", () => {
+  let resolvedProjects: ResolvedVitestProjects;
+  let electronTierFiles: readonly string[];
+  let launchingTierNames: readonly string[];
+  let launchingTiers: readonly { name: string; patienceMs: number }[];
+
+  beforeAll(async () => {
+    resolvedProjects = await resolveVitestProjects();
+    electronTierFiles = globSync(ELECTRON_TIER_FILE_GLOB, { cwd: PACKAGE_ROOT }).sort();
+    const owners = resolvedProjects.projects.filter((project) =>
+      electronTierFiles.some((relativePath) =>
+        project.matchesTestGlob(join(PACKAGE_ROOT, relativePath)),
+      ),
+    );
+    launchingTierNames = owners.map((project) => project.name);
+    launchingTiers = owners.map((project) => ({
+      name: project.name,
+      // The SMALLER of the two, because a launch happens inside whichever the
+      // caller used — a test body in one tier, a `beforeAll` in another — and a
+      // guarantee that holds for only one of them is not a guarantee.
+      patienceMs: Math.min(project.config.testTimeout, project.config.hookTimeout),
+    }));
+  }, 60_000);
+
+  afterAll(async () => {
+    await resolvedProjects.close();
+  });
+
+  it("finds tiers to check, and does not find every tier", () => {
+    // Both halves are load-bearing. Without the first, the per-tier assertion
+    // below is vacuously true over an empty list — the shape a config that failed
+    // to resolve, or a glob that matched nothing, would take. Without the second,
+    // it would also pass over a `matchesTestGlob` that claimed everything, which
+    // would quietly stop being a statement about the Electron tiers at all: this
+    // very file belongs to `console-architecture`, which launches no window.
+    expect(electronTierFiles.length).toBeGreaterThan(1);
+    expect(launchingTierNames.length).toBeGreaterThan(1);
+    expect(launchingTierNames).not.toContain("console-architecture");
+  });
+
+  it("fits a whole launch plus cleanup inside every launching tier's real timeout", () => {
+    // THE GUARANTEE, held against the config the runner actually resolves rather
+    // than a number copied out of it. A launch spends at most `LAUNCH_BUDGET_MS`
+    // before it has thrown its own diagnostic; `close()` and the throw need the
+    // margin after that. Lower a tier's patience below the sum and this fails
+    // here, at the arithmetic, instead of on a runner as an undiagnosable kill.
+    const tooTight = launchingTiers.filter(
+      (tier) => LAUNCH_BUDGET_MS + MINIMUM_CLEANUP_MARGIN_MS > tier.patienceMs,
+    );
+    expect(tooTight).toStrictEqual([]);
+  });
+});
+
+describe("launch deadline — one clock, drawn from", () => {
+  /** A clock the test moves by hand, so the arithmetic is checked without waiting. */
+  function stoppedClock(startMs: number): { advance: (byMs: number) => void; now: () => number } {
+    let current = startMs;
+    return {
+      advance: (byMs: number) => {
+        current += byMs;
+      },
+      now: () => current,
+    };
+  }
+
+  it("hands each phase what is left, not what the last one got", () => {
+    // The whole defect in one assertion: four phases used to receive the budget
+    // each, and now they share it.
+    const clock = stoppedClock(1_000);
+    const deadline = new LaunchDeadline(30_000, clock.now);
+    expect(deadline.remainingMs()).toBe(30_000);
+    clock.advance(20_000);
+    expect(deadline.remainingMs()).toBe(10_000);
+    clock.advance(9_000);
+    expect(deadline.remainingMs()).toBe(1_000);
+  });
+
+  it("never reports zero, which Playwright would read as no timeout at all", () => {
+    // An exhausted deadline is the one moment the honest answer is unsafe:
+    // `timeout: 0` turns an overrun into an unbounded wait — the exact failure
+    // the deadline exists to remove. `expired()` is where the truth lives.
+    const clock = stoppedClock(1_000);
+    const deadline = new LaunchDeadline(5_000, clock.now);
+    expect(deadline.expired()).toBe(false);
+    clock.advance(500_000);
+    expect(deadline.expired()).toBe(true);
+    expect(deadline.remainingMs()).toBe(1);
+  });
+
+  it("lets an operation that settles in time through untouched", () => {
+    return expect(
+      new LaunchDeadline(TEST_BUDGET_MS).settleWithin(Promise.resolve("visible"), "a phase"),
+    ).resolves.toBe("visible");
+  });
+
+  it("rejects an operation that carries no timeout of its own, naming the phase", async () => {
+    // `page.evaluate` is this case: no `timeout` option, unaffected by
+    // Playwright's default, and pending forever against a wedged renderer.
+    await expect(
+      new LaunchDeadline(TEST_BUDGET_MS / 4).settleWithin(
+        new Promise<string>(() => undefined),
+        "the renderer visibility read",
+      ),
+    ).rejects.toThrow(/the renderer visibility read did not settle/u);
+  });
+
+  it("negative control: the same deadline that timed one out passes a faster one", async () => {
+    // Without this the case above is ambiguous between "the deadline expired" and
+    // "settleWithin rejects everything".
+    const settled = await new LaunchDeadline(TEST_BUDGET_MS).settleWithin(
+      new Promise<string>((resolveLate) => {
+        setTimeout(() => {
+          resolveLate("visible");
+        }, TEST_BUDGET_MS / 4);
+      }),
+      "the renderer visibility read",
+    );
+    expect(settled).toBe("visible");
+  });
+
+  it("lets a genuine failure through rather than reporting it as an overrun", async () => {
+    await expect(
+      new LaunchDeadline(TEST_BUDGET_MS).settleWithin(
+        Promise.reject(new Error("Target page, context or browser has been closed")),
+        "the renderer visibility read",
+      ),
+    ).rejects.toThrow(/has been closed/u);
+  });
+
+  it("survives an abandoned operation rejecting after the deadline expired", async () => {
+    // Same hazard the witness carries: the launch path closes the application
+    // right after a failed phase, which rejects the round trip still outstanding.
+    // Unhandled, that fails the tier on something other than the phase's verdict.
+    let rejectAbandoned: (reason: Error) => void = () => undefined;
+    const abandoned = new Promise<string>((_resolveNever, reject) => {
+      rejectAbandoned = reject;
+    });
+    await expect(
+      new LaunchDeadline(TEST_BUDGET_MS / 4).settleWithin(abandoned, "a phase"),
+    ).rejects.toThrow(/did not settle/u);
+    rejectAbandoned(new Error("Target page, context or browser has been closed"));
+    await new Promise((resolveTick) => {
+      setTimeout(resolveTick, 10);
+    });
   });
 });

@@ -100,11 +100,17 @@ export type FrameWitnessOutcome = FramesWitnessed | FramesMissing;
  * nobody can then read — the defect this replaces. Over-loose costs only how
  * long a genuinely throttled launch takes to report, and a throttled window
  * delivers no frame at ALL, so it spends the whole budget whatever the budget
- * is; the tiers' own 60 s and 600 s `testTimeout`s are what stop a wedged run.
- * So the bound is set at the largest value that still keeps its two ordering
- * properties: half of `WINDOW_APPEAR_TIMEOUT_MS`, so a launch whose problem is
- * the WINDOW still fails naming the window, and a quarter of the e2e tier's
- * `testTimeout`, so a reader sees this witness's sentence rather than vitest's.
+ * is. So the bound is the largest value that still keeps its two ordering
+ * properties, both of which are now checked rather than asserted: it is at most
+ * half of `READINESS_BUDGET_MS`, so a launch whose problem is the WINDOW still
+ * fails naming the window, and it is RESERVED inside `LAUNCH_BUDGET_MS`, which
+ * `launch-deadline.ts` holds against every launching tier's own resolved
+ * `testTimeout` — so a reader sees this witness's sentence rather than vitest's.
+ *
+ * That last property used to be a ratio in this comment and nothing more, and it
+ * was false: the readiness ladder handed each of its four phases an independent
+ * 30 000 ms, so a launch could spend 135 000 ms inside a 60 000 ms tier and be
+ * killed before this witness ever spoke.
  */
 export const FRAME_WITNESS_TIMEOUT_MS = 15_000;
 
