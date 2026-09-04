@@ -31,7 +31,7 @@ import {
 } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { ComposerAccessoryRail } from "./ComposerAccessoryRail.js";
-import { CONTEXT_WINDOW_EVENT_KIND } from "./usage-readings.js";
+import { CONTEXT_COMPACTED_EVENT_KIND, CONTEXT_WINDOW_EVENT_KIND } from "./usage-readings.js";
 
 const SESSION_ID = "session-rail";
 // A registered `SessionId` (a UUID): the queue feed parses its subscribe request
@@ -405,6 +405,53 @@ describe("ComposerAccessoryRail — the meter reads the conversation it is addre
     expect(
       container.querySelector(".meridian-composer__meters .meridian-nothing--not-checked"),
     ).not.toBeNull();
+  });
+});
+
+describe("ComposerAccessoryRail — a compaction moves the meter off its stale figure", () => {
+  function compactionRow(
+    sequence: number,
+    payload: Readonly<Record<string, unknown>>,
+  ): ConsoleSessionEvent {
+    return {
+      id: `event-${String(sequence)}`,
+      sessionId: SESSION_ID,
+      sequence,
+      kind: CONTEXT_COMPACTED_EVENT_KIND,
+      occurredAt: "2026-01-01T00:00:20.000Z",
+      payload: { runId: RUN_ID, ...payload },
+    };
+  }
+
+  it("draws the post-compaction figure the boundary carried", () => {
+    // The finding: the meter sat at the pre-compaction 84% after the provider had
+    // compacted, and went on advising a compaction that had already happened.
+    const container = mountRail(
+      [contextWindowEvent(1), compactionRow(2, { postCompactionTokens: 40_000 })],
+      ADDRESSED,
+    );
+
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "20",
+    );
+    expect(container.querySelector(".meridian-context-meter__hint")).toBeNull();
+  });
+
+  it("returns to the absence where the boundary carried no count", () => {
+    const container = mountRail([contextWindowEvent(1), compactionRow(2, {})], ADDRESSED);
+
+    expect(container.querySelector(".meridian-context-meter")).toBeNull();
+    expect(
+      container.querySelector(".meridian-composer__meters .meridian-nothing--not-checked"),
+    ).not.toBeNull();
+  });
+
+  it("negative control: without the boundary the same timeline draws the stale figure", () => {
+    const container = mountRail([contextWindowEvent(1)], ADDRESSED);
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "84",
+    );
+    expect(container.querySelector(".meridian-context-meter__hint")).not.toBeNull();
   });
 });
 
