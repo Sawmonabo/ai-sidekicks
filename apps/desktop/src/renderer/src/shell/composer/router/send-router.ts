@@ -24,6 +24,15 @@
 //      projection yet, so the comparand is routinely absent — and the answer to an
 //      absent stale-replay guard is to refuse, never to send a zero, which would be
 //      a guard the caller invented rather than one the daemon verified.
+//   4. **A fulfilled intervention is not a successful send.** `run.intervene`
+//      answers with a lifecycle STATE, and two of the six mean the run did not take
+//      the message: this module used to treat any reply that did not throw as
+//      "sent", so a normally rejected steer cleared the participant's draft as if it
+//      had landed. The response is parsed against its registered shape and the state
+//      decides, and the answer's `runVersion` is kept — an applied native steer
+//      advances the run version with no state event to broadcast it, so the response
+//      is the only place the fresh comparand exists and a second steer was
+//      guaranteed to be refused as stale without it.
 //
 // TRIMMING IS A TEST AND NEVER A TRANSFORM. This module used to resolve against
 // `text.trim()` and hand that trimmed value to both request builders, so the daemon
@@ -43,12 +52,14 @@ import {
   ChannelIdSchema,
   InterruptRunParamsSchema,
   InterventionRequestPayloadSchema,
+  InterventionRequestResponseSchema,
   QueueItemCreateRequestSchema,
   RunIdSchema,
   SessionIdSchema,
   WorkspaceIdSchema,
   type InterruptRunParams,
   type InterventionRequestPayload,
+  type InterventionState,
   type QueueItemCreateRequest,
 } from "@ai-sidekicks/contracts";
 
@@ -70,9 +81,12 @@ import type {
 import {
   carriedDaemonRefusal,
   composerRefusal,
+  interventionNotApplied,
   unparseableIdentifier,
+  unreadableInterventionReply,
   type ComposerRefusalCode,
 } from "./send-refusals.js";
+import { RunVersionLedger } from "./run-version-ledger.js";
 
 export interface ComposerSendRouterOptions {
   readonly bridge: ConsoleBridge;
@@ -88,6 +102,16 @@ export interface ComposerSendRouterOptions {
    * `UNIQUE(target_run_id, client_idempotency_key)` replay guard it exists for.
    */
   readonly mintIdempotencyKey?: () => string;
+  /**
+   * Where the comparands the daemon has answered are kept.
+   *
+   * Supplied rather than owned because this class is rebuilt whenever the command
+   * zone's predicates change identity — which the addressed target does on every
+   * store notification — and a ledger inside it would be emptied between two steers,
+   * which is exactly the interval it exists to bridge. A router built without one
+   * gets its own, so a caller that has no second steer to make needs no wiring.
+   */
+  readonly runVersions?: RunVersionLedger;
 }
 
 /** The wire method a new turn is queued through. */
@@ -104,12 +128,14 @@ export class ComposerSendRouter {
   readonly #recognizeClientCommand: ClientCommandPredicate;
   readonly #recognizeProviderCommand: ProviderCommandPredicate;
   readonly #mintIdempotencyKey: () => string;
+  readonly #runVersions: RunVersionLedger;
 
   public constructor(options: ComposerSendRouterOptions) {
     this.#bridge = options.bridge;
     this.#recognizeClientCommand = options.recognizeClientCommand ?? (() => false);
     this.#recognizeProviderCommand = options.recognizeProviderCommand ?? (() => undefined);
     this.#mintIdempotencyKey = options.mintIdempotencyKey ?? (() => crypto.randomUUID());
+    this.#runVersions = options.runVersions ?? new RunVersionLedger();
   }
 
   /**
@@ -157,7 +183,7 @@ export class ComposerSendRouter {
       case "new-turn":
         return await this.#dispatch(QUEUE_CREATE_METHOD, resolution.request, "channel-message");
       case "steer":
-        return await this.#dispatch(INTERVENE_METHOD, resolution.request, "provider-bound");
+        return await this.#dispatchIntervention(resolution.request);
     }
   }
 
@@ -303,7 +329,14 @@ export class ComposerSendRouter {
     if (target.path !== "provider-bound") {
       return refused("identifier-unparseable", "This message is not addressed to a running turn.");
     }
-    if (target.expectedRunVersion === undefined) {
+    // The store's projection and the daemon's last answer, reconciled: neither is
+    // the fresher on its own, and after an applied native steer only the answer has
+    // moved.
+    const expectedRunVersion = this.#runVersions.comparandFor(
+      target.targetRunId,
+      target.expectedRunVersion,
+    );
+    if (expectedRunVersion === undefined) {
       return refused(
         "run-version-unread",
         "The console has not read this run's current version, so a steer cannot be guarded against a turn that has already moved on. Reopen the run and try again.",
@@ -316,7 +349,7 @@ export class ComposerSendRouter {
     const request = InterventionRequestPayloadSchema.safeParse({
       type: "steer",
       targetRunId: runId.data,
-      expectedRunVersion: target.expectedRunVersion,
+      expectedRunVersion,
       clientIdempotencyKey: this.#mintIdempotencyKey(),
       content: body,
     } satisfies InterventionRequestPayload);
@@ -326,8 +359,57 @@ export class ComposerSendRouter {
     return { outcome: "steer", request: request.data };
   }
 
+  /** Dispatch one call whose fulfilment IS the settlement, and say what it sent. */
+  async #dispatch(
+    method: string,
+    params: QueueItemCreateRequest | InterventionRequestPayload | InterruptRunParams,
+    path: ComposerSendPath,
+  ): Promise<ComposerSendOutcome> {
+    try {
+      await this.#call(method, params);
+      return { status: "sent", path };
+    } catch (cause) {
+      return { status: "refused", refusal: carriedDaemonRefusal(cause) };
+    }
+  }
+
   /**
-   * Hand one already-validated request to the daemon.
+   * Dispatch one steer, and READ what came back.
+   *
+   * Its own path rather than an argument to the one above, because the two settle
+   * differently: `run.queueCreate` and `driver.interruptRun` are answered or refused,
+   * and `run.intervene` is answered with a LIFECYCLE STATE that may say the run
+   * declined the message. Folding that into the shared path would have made the
+   * decision a flag, and the arm nobody sets is the arm a person meets.
+   *
+   * The reply is parsed against its registered shape before anything is read off it,
+   * and the version is kept from EVERY parsed response — a refusal answers with the
+   * run's current version too, which is what lets the next attempt guard itself
+   * without a re-read the console has no projection to perform.
+   */
+  async #dispatchIntervention(request: InterventionRequestPayload): Promise<ComposerSendOutcome> {
+    let reply: unknown;
+    try {
+      reply = await this.#call(INTERVENE_METHOD, request);
+    } catch (cause) {
+      return { status: "refused", refusal: carriedDaemonRefusal(cause) };
+    }
+    const parsed = InterventionRequestResponseSchema.safeParse(reply);
+    if (!parsed.success) {
+      return { status: "refused", refusal: unreadableInterventionReply() };
+    }
+    this.#runVersions.record(request.targetRunId, parsed.data.runVersion);
+    if (!isInterventionAdmitted(parsed.data.state)) {
+      return {
+        status: "refused",
+        refusal: interventionNotApplied(parsed.data.state, parsed.data.rejectionReason),
+      };
+    }
+    return { status: "sent", path: "provider-bound" };
+  }
+
+  /**
+   * Hand one already-validated request to the daemon, brand cast and all.
    *
    * THE BRAND CAST IS HERE AND NOWHERE ELSE. `daemon.call<M extends DaemonMethod>`
    * takes a `never`-shaped brand until Plan-007 narrows it to the real method-name
@@ -337,21 +419,41 @@ export class ComposerSendRouter {
    * `session-members/participant-roster.tsx` precedent settled on. One documented
    * bypass for the whole composer rather than one per call site.
    */
-  async #dispatch(
+  async #call(
     method: string,
     params: QueueItemCreateRequest | InterventionRequestPayload | InterruptRunParams,
-    path: ComposerSendPath,
-  ): Promise<ComposerSendOutcome> {
+  ): Promise<unknown> {
     const call = this.#bridge.sidekicks.daemon.call as (
       method: string,
       params: QueueItemCreateRequest | InterventionRequestPayload | InterruptRunParams,
     ) => Promise<unknown>;
-    try {
-      await call(method, params);
-      return { status: "sent", path };
-    } catch (cause) {
-      return { status: "refused", refusal: carriedDaemonRefusal(cause) };
-    }
+    return await call(method, params);
+  }
+}
+
+/**
+ * Whether an intervention state means the composed text reached the run.
+ *
+ * A total switch over the registered union rather than a list, so a seventh state
+ * has to be classified rather than falling into whichever arm was written last.
+ * `Queue And Intervention Model §Intervention State Transition Table` is what
+ * decides each one: `requested` and `accepted` are admissions the daemon will act
+ * on, `applied` is the provider confirming the effect, and `degraded` is the
+ * orchestration layer having fallen back — the message travelled on all four. Only
+ * `rejected` (refused before dispatch) and `expired` (the version guard, or the run
+ * moving between accept and apply) leave the participant's words unsent, and those
+ * are the two that keep the draft.
+ */
+function isInterventionAdmitted(state: InterventionState): boolean {
+  switch (state) {
+    case "requested":
+    case "accepted":
+    case "applied":
+    case "degraded":
+      return true;
+    case "rejected":
+    case "expired":
+      return false;
   }
 }
 

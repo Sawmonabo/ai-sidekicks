@@ -17,6 +17,31 @@ const SESSION_ID = "8f1c2c3e-5c6a-4a19-9f5f-1d2b3c4d5e6f";
 const CHANNEL_ID = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d";
 const RUN_ID = "2b3c4d5e-6f7a-4b1c-9d2e-4f5a6b7c8d9e";
 const PINNED_REQUEST_UUID = "3c4d5e6f-7a8b-4c1d-8e2f-5a6b7c8d9e0f";
+const INTERVENTION_ID = "4d5e6f7a-8b9c-4d1e-8f2a-6b7c8d9e0f1a";
+
+/**
+ * One registered `run.intervene` response, in the shape the wire actually admits.
+ *
+ * The steer arm and not a bare `{}`: the router parses this reply, so a stand-in
+ * that did not parse would put every case below on the unreadable arm and prove
+ * nothing about the state the daemon reported.
+ */
+function interventionResponse(
+  state: string,
+  runVersion: number,
+  extra: Readonly<Record<string, unknown>> = {},
+): Readonly<Record<string, unknown>> {
+  return {
+    interventionId: INTERVENTION_ID,
+    interventionType: "steer",
+    state,
+    runVersion,
+    ...extra,
+  };
+}
+
+/** The ordinary answer: the run took the steer and its version moved on. */
+const STEER_APPLIED = interventionResponse("applied", 8);
 
 const CHANNEL_TARGET: ComposerChannelTarget = {
   path: "channel-message",
@@ -64,6 +89,137 @@ function routerWith(
   });
 }
 
+describe("ComposerSendRouter — a fulfilled intervention is not a successful send", () => {
+  it("keeps the message for a steer the run rejected, and renders the daemon's cause", async () => {
+    // The finding: fulfilment was treated as success, so a normally rejected steer
+    // cleared the participant's draft as if it had landed. The draft is the send
+    // bar's to clear and it clears on `sent` alone, so a refusal here is what keeps
+    // the words in the line.
+    const call = vi
+      .fn()
+      .mockResolvedValue(
+        interventionResponse("rejected", 7, { rejectionReason: "run.invalid_transition" }),
+      );
+    const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
+
+    expect(outcome.status).toBe("refused");
+    expect(outcome.status === "refused" && outcome.refusal.origin).toBe("daemon");
+    // The response's own machine-readable cause, in the slot the console renders in
+    // mono — never a category this module invented for it.
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("run.invalid_transition");
+  });
+
+  it("names the lifecycle state where the response carried no cause", async () => {
+    // `rejectionReason` is optional on the steer arm, and an absent one still leaves
+    // the daemon's own word for what happened.
+    const call = vi.fn().mockResolvedValue(interventionResponse("expired", 11));
+    const outcome = await routerWith(call).send("steer me", RUN_TARGET);
+
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("expired");
+  });
+
+  it("negative control: the same call answering `applied` is a send", async () => {
+    // Without this the cases above would hold over a router that had started
+    // refusing every steer.
+    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
+    const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
+
+    expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
+  });
+
+  it("treats the two fallback states as sends, because the message travelled", async () => {
+    // `accepted` is the daemon's admission and `degraded` is the orchestration layer
+    // having fallen back — the transition table puts both on the path where the run
+    // takes the message, so keeping the draft would invite a duplicate steer.
+    for (const state of ["requested", "accepted", "degraded"]) {
+      const call = vi.fn().mockResolvedValue(interventionResponse(state, 8));
+      const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
+      expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
+    }
+  });
+
+  it("keeps the message where the answer did not parse as the registered response", async () => {
+    // The call was answered and the answer is unreadable, so the console cannot
+    // confirm the steer reached the run. Losing the participant's words to that
+    // ambiguity is worse than letting them decide to send again.
+    const call = vi.fn().mockResolvedValue({ state: "applied" });
+    const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
+
+    expect(outcome.status).toBe("refused");
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("intervention-unreadable");
+  });
+});
+
+describe("ComposerSendRouter — the next steer is guarded with the answer's own version", () => {
+  it("sends the version the last intervention answered with", async () => {
+    // An applied native steer advances the run version with no state event to
+    // broadcast it, so the store's projection stays at 7 and every later steer under
+    // it would be refused as stale. The response is the only place the fresh
+    // comparand exists, and this is what keeps it.
+    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
+    const router = routerWith(call);
+
+    await router.send("first", RUN_TARGET);
+    await router.send("second", RUN_TARGET);
+
+    expect(call.mock.calls[0]?.[1]).toMatchObject({ expectedRunVersion: 7 });
+    expect(call.mock.calls[1]?.[1]).toMatchObject({ expectedRunVersion: 8 });
+  });
+
+  it("keeps the version a refusal answered with, so the retry is guarded", async () => {
+    // The reject-re-read-retry loop, closed without a re-read: a refused
+    // intervention still answers with the run's current version.
+    const call = vi
+      .fn()
+      .mockResolvedValueOnce(interventionResponse("expired", 12))
+      .mockResolvedValue(STEER_APPLIED);
+    const router = routerWith(call);
+
+    await router.send("first", RUN_TARGET);
+    await router.send("second", RUN_TARGET);
+
+    expect(call.mock.calls[1]?.[1]).toMatchObject({ expectedRunVersion: 12 });
+  });
+
+  it("negative control: a projection ahead of the answer is the one that is sent", async () => {
+    // The run advances through its own state stream with no control pressed, so
+    // preferring the kept answer unconditionally would pin every later steer to the
+    // version the last settlement saw — and a refusal carries no way back.
+    const call = vi.fn().mockResolvedValue(interventionResponse("applied", 8));
+    const router = routerWith(call);
+
+    await router.send("first", RUN_TARGET);
+    await router.send("second", { ...RUN_TARGET, expectedRunVersion: 40 });
+
+    expect(call.mock.calls[1]?.[1]).toMatchObject({ expectedRunVersion: 40 });
+  });
+
+  it("guards a steer the store has never projected a version for", async () => {
+    // Without a projection the router refuses; with an answer kept from an earlier
+    // intervention there is a comparand, and it is a wire figure rather than a zero
+    // this module invented.
+    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
+    const router = routerWith(call);
+
+    await router.send("first", RUN_TARGET);
+    const outcome = await router.send("second", { ...RUN_TARGET, expectedRunVersion: undefined });
+
+    expect(outcome.status).toBe("sent");
+    expect(call.mock.calls[1]?.[1]).toMatchObject({ expectedRunVersion: 8 });
+  });
+
+  it("negative control: with no answer kept, an unprojected run still refuses", async () => {
+    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
+    const outcome = await routerWith(call).send("steer me", {
+      ...RUN_TARGET,
+      expectedRunVersion: undefined,
+    });
+
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("run-version-unread");
+    expect(call).not.toHaveBeenCalled();
+  });
+});
+
 describe("ComposerSendRouter — Send is a router, not a verb", () => {
   it("routes a channel-addressed message to the queue-create call", async () => {
     const call = vi.fn().mockResolvedValue({});
@@ -78,7 +234,7 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
   });
 
   it("routes a run-addressed message to the steer intervention, with the read comparand", async () => {
-    const call = vi.fn().mockResolvedValue({});
+    const call = vi.fn().mockResolvedValue(STEER_APPLIED);
     const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
 
     expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });

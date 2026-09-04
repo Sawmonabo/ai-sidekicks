@@ -63,6 +63,13 @@
 // identity is still current. A completion whose address has moved on is discarded
 // where it lands rather than parked for a later render to find.
 //
+// THE COMPARAND LEDGER OUTLIVES THE ROUTER, and it has to. The router is memoized on
+// the command zone's predicates, and those change identity whenever the addressed
+// target does — which is on every store notification, a landed steer's own run rows
+// included. A ledger inside the router would therefore be emptied between exactly
+// the two steers it exists to bridge, so this hook holds it and hands it in, the way
+// it holds the per-address histories.
+//
 // THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
 // workspace hands the composer seat a window-lifetime store, keyed per address; a
 // `useState` string here would be a second home for the same text, and the two
@@ -99,6 +106,7 @@ import {
   type ComposerSettlementIdentity,
 } from "./send-settlement.js";
 import { ComposerSendRouter } from "./send-router.js";
+import { RunVersionLedger } from "./run-version-ledger.js";
 import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
@@ -208,14 +216,19 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     recognizeClientCommand,
     recognizeProviderCommand,
   } = dependencies;
+  // Allocated on first use rather than on every render, which a bare initialiser
+  // would do and then discard.
+  const runVersionsRef = useRef<RunVersionLedger | null>(null);
+  const runVersions = (runVersionsRef.current ??= new RunVersionLedger());
   const router = useMemo(
     () =>
       new ComposerSendRouter({
         bridge,
+        runVersions,
         ...(recognizeClientCommand === undefined ? {} : { recognizeClientCommand }),
         ...(recognizeProviderCommand === undefined ? {} : { recognizeProviderCommand }),
       }),
-    [bridge, recognizeClientCommand, recognizeProviderCommand],
+    [bridge, runVersions, recognizeClientCommand, recognizeProviderCommand],
   );
   // A ref rather than state: the walk's own cursor is not rendered, and putting it
   // in state would re-render the whole bar on a keystroke that changed nothing a

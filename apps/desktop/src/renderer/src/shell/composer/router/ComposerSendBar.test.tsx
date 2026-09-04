@@ -69,6 +69,26 @@ function mountBar(options: {
 
 const FIRST_AGENT_ID = "agent-ada";
 const SECOND_AGENT_ID = "agent-grace";
+/**
+ * The registered `run.intervene` answer a steer gets when the run takes it.
+ *
+ * The router parses this reply and reads the lifecycle state off it, so a stub that
+ * answered `undefined` would put every steer below on the unreadable arm — which
+ * keeps the draft and offers no resend, and would make these cases assert the
+ * opposite of what they are about.
+ */
+const STEER_APPLIED = {
+  interventionId: "5e6f7081-9203-4415-8627-ab8c9d0e1f23",
+  interventionType: "steer",
+  state: "applied",
+  runVersion: 9,
+};
+
+/** A stub call that answers a steer and nothing else. */
+async function answerSteer(method: string): Promise<unknown> {
+  return method === "run.intervene" ? STEER_APPLIED : undefined;
+}
+
 const FIRST_RUN_ID = "2c3d4e5f-6071-4182-8293-a4b5c6d7e8f0";
 const SECOND_RUN_ID = "3d4e5f60-7182-4293-83a4-b5c6d7e8f001";
 // The fixed form `neutralization-tripwire.ts` reads, which is what puts the card
@@ -283,6 +303,52 @@ describe("ComposerSendBar — the store's restart disclosure, once", () => {
   });
 });
 
+describe("ComposerSendBar — a rejected steer keeps the message in the line", () => {
+  it("leaves the text and renders the daemon's cause", async () => {
+    // The finding at the surface: fulfilment was treated as success, so the line
+    // emptied and the participant's words were gone for an intervention the run had
+    // declined. Nothing about the reply says the message travelled, so nothing about
+    // the composer may say so either.
+    const bar = mountAddressable(
+      stubBridge(async (method) =>
+        method === "run.intervene"
+          ? {
+              interventionId: "6f708192-0314-4526-8738-bc9d0e1f2a34",
+              interventionType: "steer",
+              state: "rejected",
+              runVersion: 4,
+              rejectionReason: "run.invalid_transition",
+            }
+          : undefined,
+      ),
+    );
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+
+    expect(bar.line().value).toBe("keep going on the parser");
+    const refusal = bar.result.container.querySelector(".meridian-refusal--inline");
+    expect(refusal?.textContent).toContain("run.invalid_transition");
+    expect(refusal?.textContent).toContain("still in the line");
+  });
+
+  it("negative control: the same send against an applied answer clears the line", async () => {
+    // Without this the case above would hold over a bar that had stopped clearing
+    // the draft at all, which loses the send state rather than preserving the text.
+    const bar = mountAddressable(stubBridge(answerSteer));
+
+    fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
+    await act(async () => {
+      fireEvent.keyDown(bar.line(), { key: "Enter" });
+    });
+
+    expect(bar.line().value).toBe("");
+    expect(bar.result.container.querySelector(".meridian-refusal--inline")).toBeNull();
+  });
+});
+
 describe("ComposerSendBar — a resend offer belongs to the target it was written for", () => {
   it("withholds the offer under a target the body was not written for", async () => {
     // The defect: the last sent body outlived the address it was sent under, so the
@@ -291,9 +357,9 @@ describe("ComposerSendBar — a resend offer belongs to the target it was writte
     // gone, which is what `ResendOffer` already does with no body.
     const calls: string[] = [];
     const bar = mountAddressable(
-      stubBridge(async (_method, params) => {
+      stubBridge(async (method, params) => {
         calls.push(JSON.stringify(params));
-        return undefined;
+        return await answerSteer(method);
       }),
     );
 
@@ -311,7 +377,7 @@ describe("ComposerSendBar — a resend offer belongs to the target it was writte
   it("restores the offer on returning to the address that holds it", async () => {
     // The negative control for the case above: the guard withholds by ADDRESS rather
     // than by "any re-address clears it", so a body is not lost by looking away.
-    const bar = mountAddressable(stubBridge(async () => undefined));
+    const bar = mountAddressable(stubBridge(answerSteer));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {
@@ -327,9 +393,9 @@ describe("ComposerSendBar — a resend offer belongs to the target it was writte
   it("resends that body to its own target, once", async () => {
     const sent: unknown[] = [];
     const bar = mountAddressable(
-      stubBridge(async (_method, params) => {
+      stubBridge(async (method, params) => {
         sent.push(params);
-        return undefined;
+        return await answerSteer(method);
       }),
     );
 
@@ -359,7 +425,7 @@ describe("ComposerSendBar — directive history does not cross an addressing bou
   it("recalls nothing under an address the message was not sent from", async () => {
     // The defect: one history for the life of the mounted bar meant ArrowUp under the
     // second agent copied participant-authored text sent to the first into its line.
-    const bar = mountAddressable(stubBridge(async () => undefined));
+    const bar = mountAddressable(stubBridge(answerSteer));
     fireEvent.change(bar.line(), { target: { value: "written for Ada" } });
     await act(async () => {
       fireEvent.keyDown(bar.line(), { key: "Enter" });
@@ -378,7 +444,7 @@ describe("ComposerSendBar — directive history does not cross an addressing bou
     // The negative control for the case above: history is KEYED rather than reset, so
     // coming back finds what was sent from here — a reset would pass the first case
     // and lose the history a person expects to still be there.
-    const bar = mountAddressable(stubBridge(async () => undefined));
+    const bar = mountAddressable(stubBridge(answerSteer));
     fireEvent.change(bar.line(), { target: { value: "written for Ada" } });
     await act(async () => {
       fireEvent.keyDown(bar.line(), { key: "Enter" });
