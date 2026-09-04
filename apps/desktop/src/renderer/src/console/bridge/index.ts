@@ -51,6 +51,19 @@ export {
 
 export { createFixtureBridge } from "./fixture-bridge.js";
 
+// The one door a daemon reply enters the console through. Exported as the CALL
+// plus the answer it gives and the method set it admits — and deliberately not the
+// registry, the bindings, or the schemas behind them: a surface names a method and
+// renders a served value or a refusal, and a surface that could reach a schema
+// would be a surface that could parse a second time, differently.
+export { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN } from "./daemon-reply.js";
+export type { DaemonReply, DaemonReplyRefusalCode } from "./daemon-reply.js";
+export type {
+  ConsoleDaemonMethod,
+  DaemonRequestOf,
+  DaemonResponseOf,
+} from "./daemon-reply-registry.js";
+
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
 // port type, the one summary shape those surfaces render, the refusal they render

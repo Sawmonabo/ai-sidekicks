@@ -247,9 +247,13 @@ describe("renderer import boundary", () => {
     // the `__tests__/**` block restates the CP-003-3 entries rather than relying
     // on the block above, and the config's header comment now says so.
     //
-    // No file in the shipped config is matched by two `no-restricted-imports`
-    // objects, so the semantics are unobservable from it alone. This case makes
-    // them observable by appending one STRICTLY NARROWER block through
+    // One file class in the shipped config IS matched by two
+    // `no-restricted-imports` objects — console and shell source, which the
+    // console block re-states the renderer ban for by SPREADING the two hoisted
+    // arrays, and whose spread `daemon-reply-chokepoint.test.ts` asserts is still
+    // there. No file is matched by two blocks that DISAGREE, though, so the
+    // semantics stay unobservable from the config alone. This case makes them
+    // observable by appending one STRICTLY NARROWER block through
     // `overrideConfig` (ESLint appends it to the end of the config array) and
     // watching the shipped ban disappear. Under merge semantics both bans would
     // fire; under replace semantics only the appended one does.
