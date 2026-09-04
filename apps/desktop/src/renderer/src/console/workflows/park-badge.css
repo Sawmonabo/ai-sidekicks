@@ -84,3 +84,37 @@
   gap: var(--meridian-space-1);
   align-items: baseline;
 }
+
+/*
+ * The route to this phase's own form, where the surface drawing the card can offer
+ * one. A control and not an adjudication: pressing it opens the form beside these
+ * cards and asks the daemon nothing, which is why it carries the accent rule 3
+ * reserves for something a person can act on.
+ */
+.meridian-park__form-action {
+  align-self: flex-start;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  background: var(--meridian-accent);
+  border: none;
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-accent-ink);
+  font-family: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-park__form-action:active {
+  background: var(--meridian-accent-pressed);
+}
+
+/*
+ * The same position, for a card with nothing to press — the form is already open, or
+ * the run reported no handle to open it with. Faint prose rather than a disabled
+ * control, because a control nobody can use says a thing is possible and unavailable
+ * when the truth is that there is nothing to do here.
+ */
+.meridian-park__form-state {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
