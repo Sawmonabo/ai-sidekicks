@@ -4,11 +4,13 @@
 //
 // WHERE THE FIGURES COME FROM. The rail selects the session's timeline once and
 // folds it two ways under `useMemo` — the newest context reading, and the newest
-// compaction boundary of the ADDRESSED RUN. Two components reading the store
-// separately would be two subscriptions to one selector, and the fold is pure, so one
-// derivation serves both. The compaction fold takes the address as an input rather
-// than reading every compaction row in the session: a session with two runs would
-// otherwise show one run's boundary under the other's control.
+// compaction boundary — and BOTH folds are scoped to the ADDRESSED RUN. Two
+// components reading the store separately would be two subscriptions to one
+// selector, and the folds are pure, so one derivation serves both. The address is
+// an input to each rather than a session-wide sweep: a session running two agents
+// at once was showing one run's fullness and the other run's boundary under a
+// control pointed at neither, and offering to compact on the strength of it. A
+// composer addressed to a channel asks both folds for nothing.
 //
 // THE QUOTA CHIPS COME OFF THE ACCOUNT PLANE AND NOT OFF THIS TIMELINE. They used to
 // be a third fold here, over `usage.rate_limit_update` — a row `Spec-006 §Daemon-Scope
@@ -101,7 +103,6 @@ const HOST_CLOCK = new RealClock();
 
 export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
-  const contextReading = useMemo(() => newestContextWindowReading(timeline), [timeline]);
   // Node-scoped and therefore keyed to the BRIDGE rather than to this session: the
   // registry these readings come from is the machine's, and two sessions open in one
   // window are served by one read and one tail.
@@ -115,10 +116,14 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
   const driverCapabilities = useDriverCapabilities(props.bridge);
   const addressedRun = address.target.path === "provider-bound" ? address.target : undefined;
-  // Folded AFTER the address, because the address is one of its inputs: the boundary
-  // this composer reports is the addressed run's own, and a composer addressed to a
-  // channel asks for none.
+  // Folded AFTER the address, because the address is an input to both: the reading
+  // and the boundary this composer reports are the addressed run's own, and a
+  // composer addressed to a channel asks for neither.
   const addressedRunId = addressedRun?.targetRunId;
+  const contextReading = useMemo(
+    () => newestContextWindowReading(timeline, addressedRunId),
+    [timeline, addressedRunId],
+  );
   const compactionBoundary = useMemo(
     () => newestCompactionBoundarySequence(timeline, addressedRunId),
     [timeline, addressedRunId],

@@ -36,6 +36,33 @@
 // percentage and a surface that read one would be reading a member that does not
 // exist.
 //
+// AND EVERY READING IS ONE RUN'S. A session holds as many provider conversations as
+// it has runs, and a context window belongs to one of them: the newest row anywhere
+// in the session was answering "how full is that conversation" about whichever run
+// spoke last. So the context reading takes the ADDRESSED run as an input exactly as
+// the compaction fold does, and a row whose `runId` is absent, empty, or not a
+// string is read for no run at all — attributing an unattributed row to whichever
+// run the composer happens to point at is the same fabrication in the other
+// direction. `Spec-006 §Usage Telemetry (usage_telemetry)` types that member
+// `runId?`, so the absence is a shape the wire admits and this module answers with
+// no reading rather than with a guess. A composer addressed to a channel asks for
+// no reading at all.
+//
+// AND A COMPACTION BOUNDARY IS PART OF THE READING, not a separate fact beside it.
+// `Spec-006 §Usage Telemetry (usage_telemetry)` states the consumer obligation in
+// terms: a compaction invalidates the run's last used-tokens reading — "replaced by
+// `postCompactionTokens` when present, else unknown until the next
+// `usage.context_window_update`". A fold that read only the update rows honoured
+// neither arm: the meter stayed at the pre-compaction figure, indefinitely where no
+// update followed, and went on advising a compaction that had already happened. So
+// the newest boundary ABOVE the newest update is what decides, and its two arms are
+// the wire's own. What the compacted arm carries forward from the superseded update
+// is the DENOMINATOR and its grade — a compaction shrinks the conversation, not the
+// window, and dropping the grade would silently promote an estimated window to the
+// ungraded render a provider-reported one gets — while `exceeded` is dropped,
+// because a compaction is the wire's own evidence that the state that flag reported
+// has ended.
+//
 // THE COUNTS TRAVEL AS A PAIR, and this reading requires both. A payload naming one
 // of them is an emitter bug by that spec's own words, and the reading it would
 // otherwise produce is worse than none: a numerator with no denominator renders as
@@ -108,19 +135,32 @@ export interface ContextWindowReading {
 }
 
 /**
- * The newest context-window reading in a timeline, or `undefined`.
+ * The newest context-window reading recorded for ONE run, or `undefined`.
  *
  * Newest by SEQUENCE and not by `occurredAt`: sequence is the session's own total
  * order and the store already dedupes and gap-checks on it, while two rows can
  * share a millisecond. The meter never redraws from a prediction, so it renders the
  * last thing it was told rather than the last thing that happened.
+ *
+ * The run filter is what makes the answer a reading of the conversation the
+ * composer is addressed to. Without it a session running two agents at once showed
+ * the composer addressed to one of them the other's fullness, and offered to
+ * compact on the strength of it.
  */
 export function newestContextWindowReading(
   timeline: readonly ConsoleSessionEvent[],
+  targetRunId: string | undefined,
 ): ContextWindowReading | undefined {
+  const addressedRunId = nonEmptyString(targetRunId);
+  if (addressedRunId === undefined) {
+    return undefined;
+  }
   let newest: ContextWindowReading | undefined;
   for (const event of timeline) {
     if (event.kind !== CONTEXT_WINDOW_EVENT_KIND) {
+      continue;
+    }
+    if (nonEmptyString(event.payload?.["runId"]) !== addressedRunId) {
       continue;
     }
     const reading = readContextWindow(event);
@@ -128,7 +168,42 @@ export function newestContextWindowReading(
       newest = reading;
     }
   }
-  return newest;
+  const boundary = newestCompactionBoundary(timeline, addressedRunId);
+  if (boundary === undefined || (newest !== undefined && newest.sequence > boundary.sequence)) {
+    // No boundary at all, or an update after the newest one: the update is then the
+    // freshest thing the daemon has said about this conversation, and it stands.
+    return newest;
+  }
+  return readingAfterCompaction(newest, boundary);
+}
+
+/**
+ * What the meter reads once a compaction has superseded the last update.
+ *
+ * Both arms are the wire's, and neither invents a count. A boundary carrying
+ * `postCompactionTokens` restates the numerator against the window the superseded
+ * update measured; one carrying none leaves the ratio UNKNOWN, and unknown is no
+ * reading — the surfaces above then render the absence, which is the honest answer
+ * to "how full is it now" while the only figure available describes a conversation
+ * that no longer exists.
+ */
+function readingAfterCompaction(
+  superseded: ContextWindowReading | undefined,
+  boundary: CompactionBoundary,
+): ContextWindowReading | undefined {
+  if (superseded === undefined || boundary.postCompactionTokens === undefined) {
+    return undefined;
+  }
+  return {
+    usagePercent: percentOf(boundary.postCompactionTokens, superseded.windowMaxTokens),
+    windowUsedTokens: boundary.postCompactionTokens,
+    windowMaxTokens: superseded.windowMaxTokens,
+    windowSource: superseded.windowSource,
+    // Never carried across a boundary: the compaction is the evidence that the
+    // window the provider called full is no longer the window in front of anyone.
+    exceeded: undefined,
+    sequence: boundary.sequence,
+  };
 }
 
 /**
@@ -152,11 +227,32 @@ export function newestCompactionBoundarySequence(
   timeline: readonly ConsoleSessionEvent[],
   targetRunId: string | undefined,
 ): number | undefined {
-  const addressedRunId = nonEmptyString(targetRunId);
+  return newestCompactionBoundary(timeline, nonEmptyString(targetRunId))?.sequence;
+}
+
+/** One recorded compaction: where it sits in the log, and what it left behind. */
+interface CompactionBoundary {
+  readonly sequence: number;
+  /** The post-compaction count, when the row carried a readable one. */
+  readonly postCompactionTokens: number | undefined;
+}
+
+/**
+ * The newest compaction boundary recorded for one run.
+ *
+ * One selection serving two questions — where the control's completed line points,
+ * and whether the meter's last update has been superseded — because two loops over
+ * the same rows would be two answers to "which row is this run's newest boundary"
+ * and they would disagree the first time either was edited.
+ */
+function newestCompactionBoundary(
+  timeline: readonly ConsoleSessionEvent[],
+  addressedRunId: string | undefined,
+): CompactionBoundary | undefined {
   if (addressedRunId === undefined) {
     return undefined;
   }
-  let newest: number | undefined;
+  let newest: CompactionBoundary | undefined;
   for (const event of timeline) {
     if (event.kind !== CONTEXT_COMPACTED_EVENT_KIND) {
       continue;
@@ -164,8 +260,11 @@ export function newestCompactionBoundarySequence(
     if (nonEmptyString(event.payload?.["runId"]) !== addressedRunId) {
       continue;
     }
-    if (newest === undefined || event.sequence > newest) {
-      newest = event.sequence;
+    if (newest === undefined || event.sequence > newest.sequence) {
+      newest = {
+        sequence: event.sequence,
+        postCompactionTokens: wholeCount(event.payload?.["postCompactionTokens"]),
+      };
     }
   }
   return newest;

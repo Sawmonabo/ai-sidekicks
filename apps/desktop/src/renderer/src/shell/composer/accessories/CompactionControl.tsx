@@ -6,7 +6,10 @@
 // "we have not read whether it can", and those want opposite renders: the first is
 // an absence with nothing to say, the second is rule 8's `not-checked` — the
 // question was never put. So the caller names which of the three it holds, and the
-// control renders accordingly. There is deliberately no disabled arm.
+// control renders accordingly. No capability state is ever rendered as a disabled
+// button: the only thing that disables this control is its own call being in
+// flight, which is a statement about this press and not about what the driver can
+// do.
 //
 // WHAT SETTLES THE CONTROL, AND WHAT COMPLETES THE COMPACTION. Two different
 // things, and conflating them is the failure this surface is most likely to make.
@@ -81,10 +84,17 @@ export function CompactionControl(props: CompactionControlProps): React.JSX.Elem
   const isDispatching = dispatch.state.phase === "dispatching";
   return (
     <div className="meridian-compaction">
+      {/* Marked busy AND disabled, the pair the send bar's own controls take.
+          `aria-busy` announces; it stops no pointer, so a control that carried it
+          alone invited the second press the single-flight latch then had to swallow
+          silently. Disabling is about THIS call being in flight and says nothing
+          about eligibility — a driver that cannot compact renders no button at
+          all. */}
       <button
         type="button"
         className="meridian-compaction__action"
         aria-busy={isDispatching}
+        disabled={isDispatching}
         onClick={dispatch.requestCompaction}
       >
         {isDispatching ? "Compacting…" : "Compact"}

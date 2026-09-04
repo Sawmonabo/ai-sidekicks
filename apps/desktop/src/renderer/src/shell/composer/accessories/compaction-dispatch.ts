@@ -32,6 +32,17 @@
 // because the durable record of a compaction is the ledger's own boundary row and a
 // second unbounded copy of it beside a button would be a worse one.
 //
+// AND THE LATCH BELONGS TO A GENERATION, not to the hook. The set of in-flight runs
+// used to be one object cleared in place when the bridge or the session changed —
+// and clearing it in place is not the same as replacing it, because the call already
+// travelling still holds a reference to it. Its settlement then ran an unconditional
+// `delete(runId)` against the object the NEW subject was latching on, releasing a
+// call that was still in flight and letting a second press dispatch a duplicate
+// compaction. So each subject owns its own set: a settlement releases the generation
+// it was issued under, and releasing an abandoned one changes nothing. The rotation
+// happens where the latch is taken rather than in an effect, so a press that arrives
+// before an effect could run is still measured against its own subject.
+//
 // WHAT IS NEVER TREATED AS A COMPACTION. The reply is evidence the REQUEST settled,
 // never evidence the context was compacted — both provider mechanisms answer before
 // the work is done, and the completed state is the `usage.context_compacted` row
@@ -124,6 +135,74 @@ interface HeldCompactionReading {
 const IDLE: CompactionDispatchState = { phase: "idle" };
 const DISPATCHING: CompactionDispatchState = { phase: "dispatching" };
 
+/** One taken latch, released by the call that took it and by nothing else. */
+interface CompactionLatchHold {
+  /** Free this run within the generation the latch was taken in. */
+  release(): void;
+}
+
+/**
+ * The single-flight latch: which runs have a call in flight, under which subject.
+ *
+ * A class with private fields rather than a bare `Set` behind a ref, because the
+ * rule it enforces is not "membership" but "membership WITHIN the generation the
+ * caller took its hold in" — and that rule is exactly what a bare set cannot state.
+ * Every hold captures the set it joined, so a settlement arriving after the bridge
+ * or the session moved releases the generation it belongs to and leaves the live one
+ * untouched.
+ */
+class CompactionLatchRegister {
+  #bridge: ConsoleBridge | undefined;
+  #sessionId: string | undefined;
+  #inFlightRunIds = new Set<string>();
+
+  /**
+   * Take the latch for one run, or `undefined` where this run already holds it.
+   *
+   * The rotation lives here because this is the one place the subject is known at
+   * the moment it matters. A subject the register has not seen starts a fresh
+   * generation, which is what makes the abandoned generation unreachable rather
+   * than merely emptied.
+   */
+  public acquire(
+    bridge: ConsoleBridge,
+    sessionId: string,
+    targetRunId: string,
+  ): CompactionLatchHold | undefined {
+    if (!this.#isCurrentSubject(bridge, sessionId)) {
+      this.#bridge = bridge;
+      this.#sessionId = sessionId;
+      this.#inFlightRunIds = new Set<string>();
+    }
+    if (this.#inFlightRunIds.has(targetRunId)) {
+      return undefined;
+    }
+    const generation = this.#inFlightRunIds;
+    generation.add(targetRunId);
+    return {
+      release: () => {
+        generation.delete(targetRunId);
+      },
+    };
+  }
+
+  /**
+   * Abandon every generation.
+   *
+   * The unmount path: a settle that lands after the composer is gone has nowhere to
+   * go, and a remount starts idle rather than wedged.
+   */
+  public abandon(): void {
+    this.#bridge = undefined;
+    this.#sessionId = undefined;
+    this.#inFlightRunIds = new Set<string>();
+  }
+
+  #isCurrentSubject(bridge: ConsoleBridge, sessionId: string): boolean {
+    return this.#bridge === bridge && this.#sessionId === sessionId;
+  }
+}
+
 /**
  * The reading to render at this address, or idle.
  *
@@ -156,44 +235,38 @@ export function useCompactionDispatch(
   targetRunId: string | undefined,
 ): CompactionDispatch {
   const [held, setHeld] = useState<HeldCompactionReading | undefined>(undefined);
-  // The run ids with a call in flight, so the latch is per RUN: a second press on
-  // the run already compacting is the no-op the single-flight rule asks for, while a
-  // press on a run this composer has since moved to is a first press and dispatches.
-  // Allocated on first use rather than on every render, which a bare initialiser
-  // would do and then discard.
-  const inFlightRunIdsRef = useRef<Set<string> | null>(null);
+  // The latch is a ref rather than state so the click handler reads it in its own
+  // tick; the register behind it is what keeps a settlement from releasing a
+  // generation it does not belong to. Allocated once and never rebuilt: the
+  // generations live inside it.
+  const latchRef = useRef<CompactionLatchRegister | null>(null);
   const isMountedRef = useRef(true);
 
   useEffect(() => {
     isMountedRef.current = true;
-    const inFlightRunIds = inFlightRunIdsRef;
+    const latch = latchRef;
     return () => {
-      // A settle that lands after the composer unmounted has nowhere to go. The
-      // latch is cleared with it so a remount starts idle rather than wedged.
       isMountedRef.current = false;
-      inFlightRunIds.current?.clear();
+      latch.current?.abandon();
     };
   }, []);
-
-  useEffect(() => {
-    // A different transport or session is a different set of calls entirely, and no
-    // run id from the previous one names a call this hook could still be waiting on.
-    inFlightRunIdsRef.current?.clear();
-  }, [bridge, sessionId]);
 
   const requestCompaction = useCallback(() => {
     if (targetRunId === undefined) {
       return;
     }
-    const inFlightRunIds = (inFlightRunIdsRef.current ??= new Set<string>());
-    if (inFlightRunIds.has(targetRunId)) {
+    const latch = (latchRef.current ??= new CompactionLatchRegister());
+    const hold = latch.acquire(bridge, sessionId, targetRunId);
+    if (hold === undefined) {
+      // A second press on the run already compacting: the no-op the single-flight
+      // rule asks for. A press on a run this composer has since moved to, or under a
+      // subject the register has not seen, is a first press and dispatches.
       return;
     }
     const target: CompactionTarget = { bridge, sessionId, targetRunId };
-    inFlightRunIds.add(targetRunId);
     setHeld({ target, state: DISPATCHING });
     void settleCompaction(bridge, sessionId, targetRunId).then((settled) => {
-      inFlightRunIds.delete(targetRunId);
+      hold.release();
       if (!isMountedRef.current) {
         return;
       }

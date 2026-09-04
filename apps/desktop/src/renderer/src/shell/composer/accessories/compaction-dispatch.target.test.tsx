@@ -21,17 +21,26 @@ import {
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 const RUN_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 const RUN_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
+const OTHER_SESSION_ID = "5e6f7081-9203-4415-8627-ab8c9d0e1f23";
 const APPLIED_REPLY = { status: "applied", boundaryPosition: 7 };
 
-/** Reports the dispatch out of the tree at whichever run the case addresses. */
+/** Reports the dispatch out of the tree at whichever subject the case addresses. */
 function AddressableProbe(props: {
   readonly bridge: ConsoleBridge;
+  readonly sessionId: string;
   readonly targetRunId: string;
   readonly onDispatch: (dispatch: CompactionDispatch) => void;
 }): null {
-  const dispatch = useCompactionDispatch(props.bridge, SESSION_ID, props.targetRunId);
+  const dispatch = useCompactionDispatch(props.bridge, props.sessionId, props.targetRunId);
   props.onDispatch(dispatch);
   return null;
+}
+
+/** The three parts a compaction is about, as a case moves the composer between them. */
+interface ProbeSubject {
+  readonly bridge: ConsoleBridge;
+  readonly sessionId: string;
+  readonly targetRunId: string;
 }
 
 interface DrivenCompaction {
@@ -39,26 +48,40 @@ interface DrivenCompaction {
   latest(): CompactionDispatch;
   press(): void;
   reAddressTo(targetRunId: string): void;
+  /** Move the composer onto another transport or session, run unchanged. */
+  moveSubjectTo(subject: Partial<Omit<ProbeSubject, "targetRunId">>): void;
 }
 
 function driveAddressableCompaction(): DrivenCompaction {
   const calls = new ParkedDaemonCalls();
   let latest: CompactionDispatch | undefined;
-  const renderAt = (targetRunId: string): React.JSX.Element => (
+  let subject: ProbeSubject = {
+    bridge: calls.bridge,
+    sessionId: SESSION_ID,
+    targetRunId: RUN_A,
+  };
+  const renderSubject = (): React.JSX.Element => (
     <AddressableProbe
-      bridge={calls.bridge}
-      targetRunId={targetRunId}
+      bridge={subject.bridge}
+      sessionId={subject.sessionId}
+      targetRunId={subject.targetRunId}
       onDispatch={(dispatch) => {
         latest = dispatch;
       }}
     />
   );
-  const view = render(renderAt(RUN_A));
+  const view = render(renderSubject());
   const latestDispatch = (): CompactionDispatch => {
     if (latest === undefined) {
       throw new Error("the probe reported no dispatch");
     }
     return latest;
+  };
+  const moveTo = (next: Partial<ProbeSubject>): void => {
+    subject = { ...subject, ...next };
+    act(() => {
+      view.rerender(renderSubject());
+    });
   };
   return {
     calls,
@@ -69,9 +92,10 @@ function driveAddressableCompaction(): DrivenCompaction {
       });
     },
     reAddressTo: (targetRunId: string) => {
-      act(() => {
-        view.rerender(renderAt(targetRunId));
-      });
+      moveTo({ targetRunId });
+    },
+    moveSubjectTo: (next) => {
+      moveTo(next);
     },
   };
 }
@@ -104,6 +128,63 @@ describe("useCompactionDispatch — the latch belongs to the run, not to the com
     driven.press();
 
     expect(driven.calls.parkedCount).toBe(1);
+  });
+});
+
+describe("useCompactionDispatch — each subject generation owns its own latch", () => {
+  it("does not let an abandoned call's settlement release the live latch", async () => {
+    // The finding: the reset cleared the in-flight set IN PLACE, so the call already
+    // travelling still held that same object. Its settlement ran an unconditional
+    // delete against the set the new session was latching on, freeing a call that
+    // was still in flight — and the next press dispatched a duplicate compaction of
+    // the same run.
+    const driven = driveAddressableCompaction();
+    driven.press();
+    expect(driven.calls.parkedCount).toBe(1);
+
+    driven.moveSubjectTo({ sessionId: OTHER_SESSION_ID });
+    driven.press();
+    expect(driven.calls.parkedCount).toBe(2);
+
+    // The abandoned generation's call answers, which takes it off the queue and
+    // leaves the live one on it. It releases what it took and nothing else, so the
+    // live call is still latched and the press below dispatches nothing: one call
+    // stays parked. On the shared set this press issued a second compaction of the
+    // same run and the count went back to two.
+    await act(async () => {
+      driven.calls.resolveOldest(APPLIED_REPLY);
+      await Promise.resolve();
+    });
+    driven.press();
+
+    expect(driven.calls.parkedCount).toBe(1);
+  });
+
+  it("negative control: the live call's own settlement does free its run", async () => {
+    // Without this the case above would hold over a latch that had simply stopped
+    // releasing, which wedges the button for the rest of the window.
+    const driven = driveAddressableCompaction();
+    driven.press();
+    await act(async () => {
+      driven.calls.resolveOldest(APPLIED_REPLY);
+      await Promise.resolve();
+    });
+
+    driven.press();
+
+    expect(driven.calls.parkedCount).toBe(1);
+  });
+
+  it("lets a run latched under an abandoned subject issue again under the new one", () => {
+    // The other half of per-generation keying: a set cleared in place would have
+    // given the same answer here, and a set never cleared at all would refuse the
+    // press. The generation is fresh, so this is a first press.
+    const driven = driveAddressableCompaction();
+    driven.press();
+    driven.moveSubjectTo({ sessionId: OTHER_SESSION_ID });
+    driven.press();
+
+    expect(driven.calls.parkedCount).toBe(2);
   });
 });
 

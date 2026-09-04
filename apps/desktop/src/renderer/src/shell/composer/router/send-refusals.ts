@@ -10,6 +10,8 @@
 // `core/refusal.ts`'s one `ConsoleRefusal`, so `primitives/Refusal` renders either
 // without knowing which it got.
 
+import type { InterventionState } from "@ai-sidekicks/contracts";
+
 import { isWireErrorEnvelope, lossyStringify } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
 
@@ -51,6 +53,7 @@ export const COMPOSER_REFUSAL_CODES = [
   "identifier-unparseable",
   "command-unexecutable",
   "provider-command-discovery-only",
+  "intervention-unreadable",
 ] as const;
 
 /** One composer refusal code. Derived, so the vocabulary is declared exactly once. */
@@ -92,4 +95,43 @@ export function carriedDaemonRefusal(cause: unknown): ConsoleRefusal {
     return refuse(DAEMON_REFUSAL_ORIGIN, carried.code, carried.message);
   }
   return refuse(DAEMON_REFUSAL_ORIGIN, DAEMON_UNTYPED_REJECTION_CODE, lossyStringify(cause));
+}
+
+/**
+ * The refusal for an intervention reply the registered response shape does not admit.
+ *
+ * A composer-side code and not a carried one, because nothing was carried: the call
+ * was answered and the answer is unreadable, so what refuses is this console's own
+ * parse. The DRAFT IS KEPT on this arm, which is the whole reason it is a refusal
+ * rather than a success — the daemon may or may not have taken the steer, and losing
+ * the participant's words to an ambiguity is worse than letting them decide to send
+ * again.
+ */
+export function unreadableInterventionReply(): ConsoleRefusal {
+  return composerRefusal(
+    "intervention-unreadable",
+    "The daemon answered this steer with a shape the console could not read, so it cannot confirm the message reached the run. Your message is still in the line.",
+  );
+}
+
+/**
+ * The refusal for an intervention the daemon answered and did not admit.
+ *
+ * DAEMON-ORIGIN, because the daemon is who declined it. The code slot carries the
+ * response's own machine-readable `rejectionReason` where it sent one — that member
+ * is the cause, and `Spec-023 §Console Design (Meridian)` rule 9 puts the code in
+ * mono — and the lifecycle state where it did not, which is the daemon's own word
+ * for what happened and never a category this console invented. The sentence beside
+ * it is about the participant's TEXT rather than about the daemon's rule: what the
+ * console knows and the daemon does not is that the line still holds the message.
+ */
+export function interventionNotApplied(
+  state: InterventionState,
+  rejectionReason: string | undefined,
+): ConsoleRefusal {
+  return refuse(
+    DAEMON_REFUSAL_ORIGIN,
+    rejectionReason ?? state,
+    "The run did not take this steer, so nothing was sent. Your message is still in the line — the console has read the run's current version, so sending again guards it against where the turn is now.",
+  );
 }
