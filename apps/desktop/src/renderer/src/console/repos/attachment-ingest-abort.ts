@@ -16,6 +16,17 @@
 // and is its own slate row (`artifact-allowlist-and-abort`), so this asks for it
 // best-effort and the caller states the honest outcome either way.
 //
+// AND A REJECTED ABORT IS NOT AN UNREAD ONE EITHER. The call can fail without
+// answering — an IPC disconnect takes the bridge namespace with it — and that is
+// exactly the path on which the spool matters most: the daemon may never have heard
+// the request, so the bytes and their reservation stand until the reaper with nothing
+// anywhere saying so. Fired and not awaited, a rejection here reached no `catch` at
+// all, so it became an unhandled rejection in the page and skipped the one diagnostic
+// this module exists to write. It is caught and normalized through the repos family's
+// own `refusalFromRejection` — the same normalizer the protocol's legs use, so a
+// rejection carrying a daemon code keeps it — and then reported down the same path as
+// a refused answer, because to the spool the two mean one thing: nobody released it.
+//
 // BEST-EFFORT IS NOT UNREAD. Every caller is terminal for its entry — abandonment has
 // already moved it, disposal is taking the whole ledger — so there is no entry to
 // write a refusal onto and no surface left to render one. That is exactly why the
@@ -28,9 +39,13 @@
 import type { ConsoleBridge } from "../bridge/index.js";
 import { reportTripwire } from "../core/index.js";
 import type { PortAnswer } from "./attachment-ingest-answer.js";
+import { refusalFromRejection } from "./repo-reads.js";
 
 /** Where the unreclaimed-spool tripwire reports from, so a firing names a module. */
 export const INGEST_ABORT_SITE = "repos/attachment-ingest-abort.ts";
+
+/** What this leg is called in the sentence a rejection is rendered into. */
+const INGEST_ABORT_LEG = "The spool reclaim";
 
 /**
  * The one refusal code that means the abort was never put to a daemon.
@@ -67,9 +82,23 @@ export class AttachmentSpoolReclaimer {
     void this.#requestAbort(ingestId);
   }
 
-  /** Send the abort and dispose of its answer, which is a fact whichever way it goes. */
+  /**
+   * Send the abort and dispose of its answer, which is a fact whichever way it goes.
+   *
+   * The `catch` is what makes "whichever way" true: `request` discards this promise, so
+   * a rejection escaping here is an unhandled rejection AND a spool nobody recorded.
+   * Normalized into the same unavailable answer a refusal arrives as, it reaches the
+   * one report below by the one path — and a rejection that carried a daemon code is
+   * still reported under that code rather than under a console-side stand-in.
+   */
   async #requestAbort(ingestId: string): Promise<void> {
-    const answer: PortAnswer<void> = await this.#bridge.growth.artifactIngestAbort({ ingestId });
+    let answer: PortAnswer<void>;
+    try {
+      answer = await this.#bridge.growth.artifactIngestAbort({ ingestId });
+    } catch (rejection) {
+      const refusal = refusalFromRejection(INGEST_ABORT_LEG, rejection);
+      answer = { status: "unavailable", code: refusal.code, detail: refusal.detail };
+    }
     if (answer.status === "served") {
       return;
     }

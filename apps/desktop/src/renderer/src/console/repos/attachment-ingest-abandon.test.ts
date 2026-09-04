@@ -137,6 +137,26 @@ describe("ingest client — a refused abort is recorded rather than swallowed", 
     expect(report?.detail).toContain("artifact.ingest_not_found");
   });
 
+  it("records the spool when the abort rejects instead of answering", async () => {
+    // The path that matters most and used to be the one path with nothing on it: an
+    // IPC disconnect takes the bridge namespace with it, so the daemon may never have
+    // heard the request at all. Fired and not awaited, that rejection reached no
+    // `catch`, so it became an unhandled rejection in the page and skipped the only
+    // record a spool nobody is rendering can appear in.
+    const port = new ScriptedGrowthPort();
+    port.rejectAbortsWith(new Error("the bridge namespace is gone"));
+    await abandonOneStream(port);
+
+    expect(port.abortedIngestIds).toStrictEqual(["ingest-1"]);
+    expect(consoleTripwires.firingCount("cleanup-refused")).toBe(1);
+    const [report] = consoleTripwires.reports();
+    expect(report?.site).toBe(INGEST_ABORT_SITE);
+    expect(report?.detail).toContain("ingest-1");
+    // Normalized through the repos family's own normalizer, so a rejection carrying
+    // nothing machine-readable lands under the one code the console owns for it.
+    expect(report?.detail).toContain("call-rejected");
+  });
+
   it("negative control: a served abort records nothing", async () => {
     // Without this the case above would pass against a client that fired on every
     // abort, which would report a clean reclaim as an unreclaimed spool.

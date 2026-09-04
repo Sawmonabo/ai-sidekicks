@@ -19,7 +19,7 @@ import {
   refuse,
   type ConsoleRefusal,
 } from "../../core/index.js";
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-model.js";
+import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachment-policy.js";
 import type {
   ArtifactDeleteReceipt,
   ArtifactManifestRow,

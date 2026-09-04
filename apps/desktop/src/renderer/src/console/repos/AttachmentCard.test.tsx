@@ -9,19 +9,26 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AttachmentCard } from "./AttachmentCard.js";
+import { ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL } from "./attachment-media-type.js";
+import { INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
+import { UNRESOLVED_ATTACHMENT_PRESENTATION } from "./attachment-presentation.js";
 import {
-  ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
-  INGEST_STREAM_INVALID_CODE,
-  UNRESOLVED_ATTACHMENT_PRESENTATION,
   attachmentSourceFrom,
   type AttachmentIngestEntry,
-} from "./attachment-model.js";
+  type SendingAttachmentIngestEntry,
+} from "./attachment-shapes.js";
 
 const NOW_MILLISECONDS = 1_000;
 
-function entry(overrides: Partial<AttachmentIngestEntry> = {}): AttachmentIngestEntry {
+/**
+ * One in-flight entry. The SENDING arm, because every case here renders a card with a
+ * control on it, and the two controls exist only while an upload can still move.
+ */
+function entry(
+  overrides: Partial<SendingAttachmentIngestEntry> = {},
+): SendingAttachmentIngestEntry {
   return {
-    declared: attachmentSourceFrom({
+    ...attachmentSourceFrom({
       localId: "attachment-1",
       declaredName: "../../etc/passwd",
       payload: new Blob([new Uint8Array(300)]),
@@ -234,7 +241,7 @@ describe("attachment card — the media type is shown from either reading", () =
           localId: "attachment-1",
           declaredName: "screenshot.png",
           payload: new Blob([new Uint8Array(300)]),
-        }),
+        }).declared,
         derived: derivedTruth,
       }),
     );
@@ -265,7 +272,7 @@ describe("attachment card — the media type is shown from either reading", () =
               localId: "attachment-1",
               declaredName: "notes",
               payload: new Blob([new Uint8Array(300)]),
-            }),
+            }).declared,
           }),
         }}
         nowMilliseconds={NOW_MILLISECONDS}

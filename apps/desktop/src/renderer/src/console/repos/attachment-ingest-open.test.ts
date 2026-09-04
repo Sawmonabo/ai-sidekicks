@@ -15,7 +15,7 @@ import {
   patternedBytes,
   sourceOver,
 } from "./attachment-ingest-scripted-port.js";
-import { INGEST_STREAM_INVALID_CODE } from "./attachment-model.js";
+import { INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
 
 beforeEach(() => {
   consoleTripwires.setThrowOnReport(false);
