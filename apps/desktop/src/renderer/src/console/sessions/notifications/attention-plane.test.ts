@@ -11,11 +11,18 @@ import { describe, expect, it } from "vitest";
 import {
   ATTENTION_SEVERITIES,
   ATTENTION_TRIGGERS,
+  growthUnavailable,
   type AttentionItem,
+  type GrowthPort,
 } from "../../bridge/index.js";
+import {
+  fixtureBridgeWithGrowth,
+  unscriptedScenario,
+} from "../../bridge/fixture-bridge-overrides.test-support.js";
 import {
   AttentionPlane,
   READS_NO_ATTENTION_PROJECTION,
+  attentionProjectionReaderFor,
   narrowAttentionItem,
   narrowAttentionProjection,
 } from "./attention-plane.js";
@@ -174,5 +181,89 @@ describe("the reader that ships today", () => {
     // The distinction the whole surface rests on: `undefined` is "no question was
     // put", and `[]` would be "the daemon has nothing for you".
     await expect(READS_NO_ATTENTION_PROJECTION()).resolves.toBeUndefined();
+  });
+});
+
+/**
+ * A growth port that answers the attention read per session, over the real fixture.
+ *
+ * The shipped bridge with one operation replaced rather than a cast literal, for
+ * the reason `bridge/fixture-bridge-overrides.test-support.ts` states: a cast port
+ * is shape-identical to nothing, so a reader that started asking a second operation
+ * would find `undefined` at runtime instead of failing to compile. The refusal is
+ * the shipped `growthUnavailable`, so these cases assert against the sentence a
+ * release build actually produces.
+ */
+function growthAnsweringAttention(
+  itemsBySessionId: Readonly<Record<string, readonly AttentionItem[]>>,
+): GrowthPort {
+  return fixtureBridgeWithGrowth(unscriptedScenario("attention-fan-out-test"), {
+    attentionProjectionRead: async ({ sessionId }) =>
+      await Promise.resolve(
+        itemsBySessionId[sessionId] === undefined
+          ? growthUnavailable("attentionProjectionRead")
+          : { status: "served", value: { items: itemsBySessionId[sessionId] ?? [] } },
+      ),
+  }).growth;
+}
+
+describe("the fan-out over a session-scoped read", () => {
+  it("carries a refusal beside a session that served nothing", async () => {
+    // The defect: a served empty projection made the served count nonzero, the
+    // refusals were dropped, and the center rendered the definitive all-clear for a
+    // session nobody had an answer for.
+    const read = attentionProjectionReaderFor(growthAnsweringAttention({ "session-a": [] }), [
+      "session-a",
+      "session-b",
+    ]);
+    const answered = await read();
+    expect(answered?.members).toStrictEqual([]);
+    expect(answered?.refusedSessions.map((refused) => refused.sessionId)).toStrictEqual([
+      "session-b",
+    ]);
+  });
+
+  it("carries a refusal beside a session that served items", async () => {
+    const read = attentionProjectionReaderFor(growthAnsweringAttention({ "session-a": [item()] }), [
+      "session-a",
+      "session-b",
+    ]);
+    const answered = await read();
+    expect(answered?.members).toHaveLength(1);
+    expect(answered?.refusedSessions).toHaveLength(1);
+    expect(answered?.refusedSessions[0]?.refusal.code).toBe(
+      growthUnavailable("attentionProjectionRead").code,
+    );
+  });
+
+  it("reports every ask refusing as an answer with no coverage, never as a question nobody put", async () => {
+    // `undefined` is reserved for "there was nothing to ask about". A fan-out whose
+    // every ask was declined DID reach the wire, and reporting it as unasked would
+    // be the same conflation from the other side.
+    const read = attentionProjectionReaderFor(growthAnsweringAttention({}), [
+      "session-a",
+      "session-b",
+    ]);
+    const answered = await read();
+    expect(answered?.members).toStrictEqual([]);
+    expect(answered?.refusedSessions).toHaveLength(2);
+  });
+
+  it("negative control: every session answering carries no refusal at all", async () => {
+    // Without this, the cases above would pass over a reader that reported every
+    // session refused whatever the port answered — which would put the coverage
+    // warning on screen for a read that covered everything.
+    const read = attentionProjectionReaderFor(
+      growthAnsweringAttention({ "session-a": [item()], "session-b": [] }),
+      ["session-a", "session-b"],
+    );
+    const answered = await read();
+    expect(answered?.members).toHaveLength(1);
+    expect(answered?.refusedSessions).toStrictEqual([]);
+  });
+
+  it("answers 'nothing was asked' only when there is nothing to ask about", async () => {
+    const read = attentionProjectionReaderFor(growthAnsweringAttention({}), []);
+    await expect(read()).resolves.toBeUndefined();
   });
 });

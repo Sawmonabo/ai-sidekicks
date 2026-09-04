@@ -18,7 +18,7 @@ import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../.
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStoreRegistry } from "../../store/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
-import type { AttentionProjectionReader } from "./attention-plane.js";
+import type { AttentionProjectionRead, AttentionProjectionReader } from "./attention-plane.js";
 import { useAttentionProjection } from "./attention-read.js";
 
 const FIRST_SESSION_ID = "session-attention-one";
@@ -35,6 +35,17 @@ function attentionItem(overrides: Readonly<Record<string, unknown>> = {}): unkno
     createdAt: "2026-01-01T10:00:00.000Z",
     ...overrides,
   };
+}
+
+/**
+ * A read that covered every session it asked about and carried these members.
+ *
+ * Written once because six cases below need it: the reader answers coverage beside
+ * content, and a case spelling out an empty `refusedSessions` each time would be six
+ * places to forget which half of the answer it was asserting about.
+ */
+function coveredRead(members: readonly unknown[]): AttentionProjectionRead {
+  return { members, refusedSessions: [] };
 }
 
 /** A fixture bridge whose frozen clock the registry and the read both run on. */
@@ -117,7 +128,7 @@ describe("the attention read — a session change is what re-reads it", () => {
     const { bridge, clock } = bridgeOnFrozenTime();
     const registry = registryHolding(clock);
     let servedItems: readonly unknown[] = [];
-    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(servedItems));
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead(servedItems)));
 
     const { container } = render(
       <AttentionProbe read={read} bridge={bridge} registry={registry} />,
@@ -139,7 +150,7 @@ describe("the attention read — a session change is what re-reads it", () => {
   it("costs one read when two changes land inside one window", async () => {
     const { bridge, clock } = bridgeOnFrozenTime();
     const registry = registryHolding(clock);
-    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve([]));
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
 
     render(<AttentionProbe read={read} bridge={bridge} registry={registry} />);
     await releaseCoalescedRead(clock);
@@ -159,7 +170,7 @@ describe("the attention read — a session change is what re-reads it", () => {
     // answering the signal altogether.
     const { bridge, clock } = bridgeOnFrozenTime();
     const registry = registryHolding(clock);
-    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve([]));
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
 
     render(<AttentionProbe read={read} bridge={bridge} registry={registry} />);
     await releaseCoalescedRead(clock);
@@ -179,7 +190,7 @@ describe("the attention read — a session change is what re-reads it", () => {
   it("reads nothing more once the surface has gone", async () => {
     const { bridge, clock } = bridgeOnFrozenTime();
     const registry = registryHolding(clock);
-    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve([]));
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
 
     const view = render(<AttentionProbe read={read} bridge={bridge} registry={registry} />);
     await releaseCoalescedRead(clock);
@@ -238,7 +249,7 @@ describe("the attention read — an event settling is a session change", () => {
     const { bridge, clock } = bridgeOnFrozenTime();
     const registry = registryHolding(clock);
     let servedItems: readonly unknown[] = [];
-    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(servedItems));
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead(servedItems)));
 
     const { container } = render(
       <AttentionProbe read={read} bridge={bridge} registry={registry} />,
@@ -259,7 +270,7 @@ describe("the attention read — an event settling is a session change", () => {
   it("costs one read for a burst of events in one window", async () => {
     const { bridge, clock } = bridgeOnFrozenTime();
     const registry = registryHolding(clock);
-    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve([]));
+    const read = vi.fn<AttentionProjectionReader>(() => Promise.resolve(coveredRead([])));
 
     render(<AttentionProbe read={read} bridge={bridge} registry={registry} />);
     await releaseCoalescedRead(clock);

@@ -39,13 +39,18 @@
 import type { AttentionItem, AttentionTrigger } from "../../bridge/index.js";
 import {
   Chip,
+  InlineRefusal,
   Nothing,
   RefusalCard,
   WireFigure,
   formatClockTime,
   formatCount,
 } from "../../primitives/index.js";
-import type { AttentionReading, AttentionSessionGroup } from "./attention-plane.js";
+import type {
+  AttentionReading,
+  AttentionSessionGroup,
+  RefusedAttentionSession,
+} from "./attention-plane.js";
 
 /**
  * How one trigger reads. Total over the closed six by construction, so a seventh
@@ -114,14 +119,30 @@ function ProjectionBody(props: {
     // nobody asked. The refusal renders with its own code, verbatim.
     return <RefusalCard code={props.reading.refusal.code} detail={props.reading.refusal.detail} />;
   }
-  const { plane, droppedCount } = props.reading;
+  const { plane, droppedCount, refusedSessions } = props.reading;
   if (plane.groups.length === 0) {
     // Nothing survived the boundary. WHY nothing survived decides which absence
-    // this is: a read that answered with an empty projection is an all-clear, and
-    // a read every member of which the boundary rejected is the console failing to
-    // recognise an answer it did receive. Reporting the second as the first is the
-    // conflation the five kinds of nothing exist to prevent — it tells a person
-    // they are free on the strength of a read nobody could parse.
+    // this is, and there are now three reasons rather than two: a read that
+    // answered for every session with an empty projection is an all-clear; a read
+    // some session never answered is coverage this console does not have; and a
+    // read every member of which the boundary rejected is the console failing to
+    // recognise an answer it did receive. Reporting either of the last two as the
+    // first is the conflation the five kinds of nothing exist to prevent — it tells
+    // a person they are free on the strength of a question that went unanswered.
+    if (refusedSessions.length > 0) {
+      return (
+        <>
+          <Nothing
+            kind="not-checked"
+            placement="surface"
+            title="Some sessions could not be checked."
+            detail={`${uncheckedSessionsSentence(refusedSessions.length)} Nothing was found in the ones that answered, which is not an all-clear.`}
+          />
+          {droppedCount === 0 ? null : <DroppedMembersLine droppedCount={droppedCount} />}
+          <RefusedSessions sessions={refusedSessions} />
+        </>
+      );
+    }
     return droppedCount === 0 ? (
       <Nothing
         kind="empty"
@@ -151,12 +172,57 @@ function ProjectionBody(props: {
           </li>
         ))}
       </ul>
-      {droppedCount === 0 ? null : (
-        <p className="meridian-attention__dropped" role="status">
-          {unrecognisedItemsSentence(droppedCount)}
-        </p>
-      )}
+      {droppedCount === 0 ? null : <DroppedMembersLine droppedCount={droppedCount} />}
+      {refusedSessions.length === 0 ? null : <RefusedSessions sessions={refusedSessions} />}
     </>
+  );
+}
+
+/**
+ * The sessions this read never covered, each with the words the port refused in.
+ *
+ * A row per session rather than one refusal standing for all of them: the codes are
+ * identical today because one operation raises them all, and a fan-out that later
+ * refuses two sessions for two reasons would otherwise show one and hide the other.
+ * The identifiers are wire figures, so a person can see WHICH sessions are missing
+ * from the answer above rather than only how many.
+ */
+function RefusedSessions(props: {
+  readonly sessions: readonly RefusedAttentionSession[];
+}): React.JSX.Element {
+  return (
+    <section
+      className="meridian-attention__refused"
+      aria-label="Sessions that could not be checked"
+    >
+      <p className="meridian-attention__refused-count">
+        {uncheckedSessionsSentence(props.sessions.length)}
+      </p>
+      <ul className="meridian-attention__refused-list">
+        {props.sessions.map((session) => (
+          <li key={session.sessionId} className="meridian-attention__refused-row">
+            <WireFigure value={session.sessionId} />
+            <InlineRefusal code={session.refusal.code} detail={session.refusal.detail} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** What the console says about sessions the fan-out never got an answer for. */
+function uncheckedSessionsSentence(refusedCount: number): string {
+  return refusedCount === 1
+    ? "One session could not be checked."
+    : `${formatCount(refusedCount)} sessions could not be checked.`;
+}
+
+/** The dropped-members line, in both of the places a read can produce one. */
+function DroppedMembersLine(props: { readonly droppedCount: number }): React.JSX.Element {
+  return (
+    <p className="meridian-attention__dropped" role="status">
+      {unrecognisedItemsSentence(props.droppedCount)}
+    </p>
   );
 }
 

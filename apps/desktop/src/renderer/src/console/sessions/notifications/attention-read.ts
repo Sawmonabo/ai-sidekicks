@@ -39,6 +39,7 @@ import type { SessionStoreRegistry } from "../../store/index.js";
 import {
   AttentionPlane,
   narrowAttentionProjection,
+  type AttentionProjectionRead,
   type AttentionProjectionReader,
   type AttentionReading,
 } from "./attention-plane.js";
@@ -130,7 +131,7 @@ function subscribeToSessionProjections(
 
 /** The read's three states as the plane's four phases. Written once, here. */
 function attentionReadingFrom(
-  state: PushDrivenReadState<readonly unknown[] | undefined>,
+  state: PushDrivenReadState<AttentionProjectionRead | undefined>,
 ): AttentionReading {
   if (state.kind === "not-loaded") {
     return { phase: "reading" };
@@ -141,11 +142,14 @@ function attentionReadingFrom(
   if (state.value === undefined) {
     return { phase: "not-asked" };
   }
-  const narrowed = narrowAttentionProjection(state.value);
+  const narrowed = narrowAttentionProjection(state.value.members);
   return {
     phase: "read",
     plane: new AttentionPlane(narrowed.items),
     droppedCount: narrowed.droppedCount,
+    // Carried through untouched: which sessions went unanswered is the reader's
+    // fact, and re-deriving it here would be a second authority on coverage.
+    refusedSessions: state.value.refusedSessions,
   };
 }
 
@@ -170,7 +174,7 @@ export function useAttentionProjection(
 ): AttentionReading {
   const projectionRead = useMemo(
     () =>
-      new PushDrivenRead<readonly unknown[] | undefined>({
+      new PushDrivenRead<AttentionProjectionRead | undefined>({
         // The scenario's frozen clock under the fixture and the real one otherwise,
         // resolved inside the construction the bridge already keys — the shape
         // `settings/pages/WorkspaceMountsPage.tsx` takes for the same reason: this
