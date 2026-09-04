@@ -12,6 +12,11 @@
 // that is the seam the surface settles on: the canned outcomes below stand in for a
 // dispatcher answer, and the two arms that matter — a settlement and a rejection —
 // are both driven through it.
+//
+// EVERY BRIDGE HERE IS MINTED ONCE AND HELD. The surface keys its records, its busy
+// set and its latch on the bridge, so a stub rebuilt inside the hook callback would
+// be a different transport on every render — which is a fact about the double, not
+// about the surface. The last describe is the one that changes it deliberately.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -19,7 +24,11 @@ import { RunControlAckSchema } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { RunControlDispatcher, type RunControlOutcome } from "./run-control-dispatch.js";
-import { inFlightKeyFor, useRunControlSurface } from "./run-control-surface.js";
+import {
+  inFlightKeyFor,
+  useRunControlSurface,
+  type RunControlAdmission,
+} from "./run-control-surface.js";
 
 /** A canonical UUID: `RunIdSchema` is a branded UUID and refuses anything else. */
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
@@ -66,9 +75,8 @@ describe("one control per run is in flight at a time", () => {
     // keys, so the daemon saw two distinct mutations rather than one replayed.
     const calls: RecordedCall[] = [];
     const mintIdempotencyKey = vi.fn(() => "6f1a0d3e-2c4b-4a7e-9f10-5b8c7d2e3a41");
-    const { result } = renderHook(() =>
-      useRunControlSurface(recordingBridge(calls), mintIdempotencyKey),
-    );
+    const bridge = recordingBridge(calls);
+    const { result } = renderHook(() => useRunControlSurface(bridge, mintIdempotencyKey));
 
     await act(async () => {
       const interrupt = (dispatcher: RunControlDispatcher): Promise<RunControlOutcome> =>
@@ -86,7 +94,8 @@ describe("one control per run is in flight at a time", () => {
     // suppresses a dispatch, and a run's other controls are not held behind the
     // one that is going.
     const perform = vi.fn(async () => ACKNOWLEDGED);
-    const { result } = renderHook(() => useRunControlSurface(recordingBridge([])));
+    const bridge = recordingBridge([]);
+    const { result } = renderHook(() => useRunControlSurface(bridge));
 
     await act(async () => {
       result.current.dispatch(RUN_ID, "interrupt", perform);
@@ -99,7 +108,8 @@ describe("one control per run is in flight at a time", () => {
 
   it("marks the pressed control busy and clears it on settlement", async () => {
     const settleWith = pendingOutcome();
-    const { result } = renderHook(() => useRunControlSurface(recordingBridge([])));
+    const bridge = recordingBridge([]);
+    const { result } = renderHook(() => useRunControlSurface(bridge));
 
     act(() => {
       result.current.dispatch(RUN_ID, "interrupt", settleWith.perform);
@@ -124,7 +134,8 @@ describe("one control per run is in flight at a time", () => {
         },
       }),
     );
-    const { result } = renderHook(() => useRunControlSurface(recordingBridge([])));
+    const bridge = recordingBridge([]);
+    const { result } = renderHook(() => useRunControlSurface(bridge));
 
     await act(async () => {
       result.current.dispatch(RUN_ID, "interrupt", perform);
@@ -144,7 +155,8 @@ describe("one control per run is in flight at a time", () => {
       async (): Promise<RunControlOutcome> =>
         Promise.reject({ code: "run.not_found", message: "no such run" }),
     );
-    const { result } = renderHook(() => useRunControlSurface(recordingBridge([])));
+    const bridge = recordingBridge([]);
+    const { result } = renderHook(() => useRunControlSurface(bridge));
 
     await act(async () => {
       result.current.dispatch(RUN_ID, "interrupt", perform);
@@ -166,7 +178,8 @@ describe("one control per run is in flight at a time", () => {
     const perform = vi.fn((): Promise<RunControlOutcome> => {
       throw { code: "run.not_found", message: "no such run" };
     });
-    const { result } = renderHook(() => useRunControlSurface(recordingBridge([])));
+    const bridge = recordingBridge([]);
+    const { result } = renderHook(() => useRunControlSurface(bridge));
 
     await act(async () => {
       result.current.dispatch(RUN_ID, "interrupt", perform);
@@ -177,6 +190,107 @@ describe("one control per run is in flight at a time", () => {
 
     expect(perform).toHaveBeenCalledTimes(2);
     expect(result.current.records).toHaveLength(2);
+  });
+});
+
+describe("the surface belongs to the bridge it dispatched through", () => {
+  it("admits the same run and control at once through a replaced bridge", async () => {
+    // The finding: only the dispatcher rotated on a swap. The held keys stayed with
+    // the transport that was gone, so a retry through the new one was refused as
+    // already in flight — until the old call settled, and forever where it never did.
+    const pendingOnFirstBridge = pendingOutcome();
+    const performOnSecondBridge = vi.fn(async () => ACKNOWLEDGED);
+    const { result, rerender } = renderHook(({ bridge }) => useRunControlSurface(bridge), {
+      initialProps: { bridge: recordingBridge([]) },
+    });
+
+    act(() => {
+      result.current.dispatch(RUN_ID, "interrupt", pendingOnFirstBridge.perform);
+    });
+    rerender({ bridge: recordingBridge([]) });
+
+    let admission: RunControlAdmission | undefined;
+    await act(async () => {
+      admission = result.current.dispatch(RUN_ID, "interrupt", performOnSecondBridge);
+    });
+    expect(admission?.admitted).toBe(true);
+    expect(performOnSecondBridge).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the replaced bridge an empty surface rather than the previous one's", () => {
+    // The busy set and the records are the other two holders. A row rendered under
+    // the new transport would otherwise be marked busy by a call that transport
+    // never made.
+    const pendingOnFirstBridge = pendingOutcome();
+    const { result, rerender } = renderHook(({ bridge }) => useRunControlSurface(bridge), {
+      initialProps: { bridge: recordingBridge([]) },
+    });
+
+    act(() => {
+      result.current.dispatch(RUN_ID, "interrupt", pendingOnFirstBridge.perform);
+    });
+    expect(result.current.inFlightKeys.has(inFlightKeyFor(RUN_ID, "interrupt"))).toBe(true);
+
+    rerender({ bridge: recordingBridge([]) });
+
+    expect(result.current.inFlightKeys.size).toBe(0);
+    expect(result.current.records).toHaveLength(0);
+  });
+
+  it("appends nothing when a call made on the previous bridge settles late", async () => {
+    const pendingOnFirstBridge = pendingOutcome();
+    const { result, rerender } = renderHook(({ bridge }) => useRunControlSurface(bridge), {
+      initialProps: { bridge: recordingBridge([]) },
+    });
+
+    act(() => {
+      result.current.dispatch(RUN_ID, "interrupt", pendingOnFirstBridge.perform);
+    });
+    rerender({ bridge: recordingBridge([]) });
+    await act(async () => {
+      pendingOnFirstBridge.resolve(ACKNOWLEDGED);
+    });
+
+    expect(result.current.records).toHaveLength(0);
+  });
+
+  it("negative control: a settlement on the bridge that is still current is recorded", async () => {
+    // Without this, a surface that had simply stopped recording anything would pass
+    // every case above.
+    const pending = pendingOutcome();
+    const { result } = renderHook(({ bridge }) => useRunControlSurface(bridge), {
+      initialProps: { bridge: recordingBridge([]) },
+    });
+
+    act(() => {
+      result.current.dispatch(RUN_ID, "interrupt", pending.perform);
+    });
+    await act(async () => {
+      pending.resolve(ACKNOWLEDGED);
+    });
+
+    expect(result.current.records).toHaveLength(1);
+    expect(result.current.inFlightKeys.size).toBe(0);
+  });
+
+  it("negative control: one bridge still refuses the same run and control twice", async () => {
+    // The rule the rotation must not be read as relaxing: a second press on the
+    // transport that is still current is the same act, and is refused.
+    const pending = pendingOutcome();
+    const { result } = renderHook(({ bridge }) => useRunControlSurface(bridge), {
+      initialProps: { bridge: recordingBridge([]) },
+    });
+
+    let second: RunControlAdmission | undefined;
+    await act(async () => {
+      result.current.dispatch(RUN_ID, "interrupt", pending.perform);
+      second = result.current.dispatch(RUN_ID, "interrupt", pending.perform);
+    });
+
+    expect(second).toStrictEqual({ admitted: false, reason: "in-flight" });
+    await act(async () => {
+      pending.resolve(ACKNOWLEDGED);
+    });
   });
 });
 

@@ -14,6 +14,7 @@
 // not. Both are driven by scripting what the stub answers with, so the arm under
 // test is the daemon's own answer rather than a state the component was handed.
 
+import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { RunState } from "@ai-sidekicks/contracts";
@@ -81,7 +82,10 @@ function ComposerHarness(props: {
   readonly answer: ScriptedAnswer;
   readonly onDismiss: () => void;
 }): React.JSX.Element {
-  const surface = useRunControlSurface(stubBridge(props.calls, props.answer));
+  // Pinned for the harness's whole life: the surface keys its holders on the
+  // bridge, so a stub rebuilt on every render would be a new transport each pass.
+  const [bridge] = useState(() => stubBridge(props.calls, props.answer));
+  const surface = useRunControlSurface(bridge);
   return (
     <RunInterventionComposer
       run={runAt("paused")}
@@ -395,7 +399,8 @@ describe("the form is keyed by what it is composing against", () => {
     readonly keyed: boolean;
     readonly answer: ScriptedAnswer;
   }): React.JSX.Element {
-    const surface = useRunControlSurface(stubBridge([], props.answer));
+    const [bridge] = useState(() => stubBridge([], props.answer));
+    const surface = useRunControlSurface(bridge);
     const identity = `${props.runId}:${props.control}`;
     return (
       <RunInterventionComposer
@@ -503,7 +508,8 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
     readonly answer: ScriptedAnswer;
     readonly onDismiss: () => void;
   }): React.JSX.Element {
-    const surface = useRunControlSurface(stubBridge([], props.answer));
+    const [bridge] = useState(() => stubBridge([], props.answer));
+    const surface = useRunControlSurface(bridge);
     return (
       <RunInterventionComposer
         key={props.formKey}

@@ -22,16 +22,28 @@
 // beside it: one admitted dispatch appends exactly one record, so minting a second
 // value to relate them would be two names for one thing.
 //
-// THE SINGLE-FLIGHT LATCH IS A REF AND NOT THE STATE. `inFlightKeys` is what the
-// row RENDERS, and a handler reading it sees the value from the render that produced
-// the handler — so a double click, or repeated Enter on an intervention form before
-// React commits the busy state, reaches `dispatch` twice in one tick and both calls
-// read an empty set. Two dispatches mint two idempotency keys against one run
-// version, which makes them two distinct mutations rather than replays of one: they
-// race to apply and the loser's stale refusal can become the visible settlement. The
-// ref is read and written before `perform` is called, so the second press is a no-op
-// in the same tick — the person pressed the control for the act that is already
-// going, and there is nothing to refuse them.
+// THE SINGLE-FLIGHT LATCH IS NOT THE STATE. `inFlightKeys` is what the row RENDERS,
+// and a handler reading it sees the value from the render that produced the handler
+// — so a double click, or repeated Enter on an intervention form before React
+// commits the busy state, reaches `dispatch` twice in one tick and both calls read
+// an empty set. Two dispatches mint two idempotency keys against one run version,
+// which makes them two distinct mutations rather than replays of one: they race to
+// apply and the loser's stale refusal can become the visible settlement. The latch
+// is claimed before `perform` is called, so the second press is a no-op in the same
+// tick — the person pressed the control for the act that is already going, and there
+// is nothing to refuse them.
+//
+// AND ALL THREE HOLDERS BELONG TO THE BRIDGE. Only the dispatcher used to rotate
+// when the window's transport was replaced: the held keys, the busy set and the
+// records still belonged to the transport that was gone, so a retry of the same run
+// and control through the NEW bridge was refused as already in flight — until the
+// old call settled, and forever where it never did — and that old settlement was
+// appended to a surface it was not about. All three now rotate together, and by
+// whose they are rather than by a timer: `BridgeScopedLatch` holds each key under
+// the bridge it was claimed on, so a settlement releases the generation it belongs
+// to and leaves the live one untouched, and `useSubjectScopedState` holds the two
+// readings under the bridge, resetting them during the render that first sees a new
+// one and dropping a publish whose captured bridge has been replaced.
 //
 // THE RECORD IS THIS WINDOW'S OWN. `Spec-023 §Signature Feature Composition
 // Sketches`' Runs View renders "intervention history per Spec-004" — the durable
@@ -44,7 +56,11 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { type ConsoleBridge } from "../../bridge/index.js";
+import {
+  BridgeScopedLatch,
+  useSubjectScopedState,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
 import { INTERVENTION_OUTCOME_CAP } from "./runs-bounds.js";
 import {
   RunControlDispatcher,
@@ -104,6 +120,15 @@ export function inFlightKeyFor(runId: string, control: RunControl): string {
 }
 
 /**
+ * The subject this surface's state belongs to.
+ *
+ * The whole surface belongs to the BRIDGE, so its key within one is fixed: a run id
+ * would be the wrong key here, since one surface holds every run's controls at once
+ * and the axis that actually moves under it is the transport.
+ */
+const RUN_CONTROL_SURFACE_SUBJECT = "run-controls";
+
+/**
  * Hold the dispatcher and record what it settles.
  *
  * The record is this window's own — the pane dispatched it and read the answer. It
@@ -116,11 +141,21 @@ export function useRunControlSurface(
   bridge: ConsoleBridge,
   mintIdempotencyKey?: () => string,
 ): RunControlSurface {
-  const [records, setRecords] = useState<readonly RunControlRecord[]>(EMPTY_RECORDS);
-  const [inFlightKeys, setInFlightKeys] = useState<ReadonlySet<string>>(EMPTY_KEYS);
+  const [records, publishRecords] = useSubjectScopedState<readonly RunControlRecord[]>(
+    bridge,
+    RUN_CONTROL_SURFACE_SUBJECT,
+    EMPTY_RECORDS,
+  );
+  const [inFlightKeys, publishInFlightKeys] = useSubjectScopedState<ReadonlySet<string>>(
+    bridge,
+    RUN_CONTROL_SURFACE_SUBJECT,
+    EMPTY_KEYS,
+  );
   const nextDispatchOrdinal = useRef(0);
   const isMounted = useRef(true);
-  const heldControlKeys = useRef<Set<string>>(new Set());
+  // A `useState` initializer rather than a `useMemo`, on `approvals-hooks.ts`'s
+  // reasoning: a latch React was free to rebuild would forget a call still in flight.
+  const [controlLatch] = useState(() => new BridgeScopedLatch());
 
   const dispatcher = useMemo(
     () =>
@@ -144,16 +179,15 @@ export function useRunControlSurface(
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
     ): RunControlAdmission => {
       const key = inFlightKeyFor(runId, control);
-      if (heldControlKeys.current.has(key)) {
+      if (!controlLatch.claim(bridge, key)) {
         return { admitted: false, reason: "in-flight" };
       }
-      heldControlKeys.current.add(key);
       // Minted here rather than at settlement, because the caller needs it NOW: a
       // form that waits on its own settlement has to know which record will be its
       // own before the answer exists.
       nextDispatchOrdinal.current += 1;
       const dispatchToken = `${runId}:${control}:${String(nextDispatchOrdinal.current)}`;
-      setInFlightKeys((held) => {
+      publishInFlightKeys((held) => {
         const next = new Set(held);
         next.add(key);
         return next;
@@ -162,18 +196,23 @@ export function useRunControlSurface(
         // The latch is released before the mount check and never inside it: an
         // unmounted surface writes no state, but a key left held would survive the
         // mount/unmount/mount that development-mode React performs on one hook
-        // instance and leave that control latched for the rest of the window.
-        heldControlKeys.current.delete(key);
+        // instance and leave that control latched for the rest of the window. The
+        // bridge released is the one the call was CLAIMED on, so a settlement landing
+        // after a swap frees the generation it belongs to and not the live one.
+        controlLatch.release(bridge, key);
         if (!isMounted.current) {
           return;
         }
         const record: RunControlRecord = { recordId: dispatchToken, runId, control, outcome };
-        setInFlightKeys((held) => {
+        // Published through this bridge's own publishers, so an answer to a call made
+        // on a transport that has since been replaced is dropped rather than appended
+        // to a surface that never made it.
+        publishInFlightKeys((held) => {
           const next = new Set(held);
           next.delete(key);
           return next;
         });
-        setRecords((held) => {
+        publishRecords((held) => {
           const appended = [...held, record];
           return appended.length <= INTERVENTION_OUTCOME_CAP
             ? appended
@@ -195,7 +234,7 @@ export function useRunControlSurface(
       }
       return { admitted: true, dispatchToken };
     },
-    [dispatcher],
+    [bridge, controlLatch, dispatcher, publishInFlightKeys, publishRecords],
   );
 
   return useMemo(

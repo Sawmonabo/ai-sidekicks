@@ -6,6 +6,7 @@
 // instead of passing them. The bridge is a stub for the WIRE, which is the boundary
 // the pane exists to cross.
 
+import { useState } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import {
@@ -251,7 +252,10 @@ describe("controls are a fail-closed projection, never a local decision", () => 
     readonly state: RunState;
     readonly driverCapabilities: DriverCapabilityReadout | undefined;
   }): React.JSX.Element {
-    const bridge = scriptedBridge([]);
+    // Pinned for the harness's whole life: the surface holds its records, its busy
+    // set and its latch under the bridge, so a stub rebuilt on every render would be
+    // a new transport on every render.
+    const [bridge] = useState(() => scriptedBridge([]));
     const surface = useRunControlSurface(bridge);
     const fold = new RunStateProjection();
     fold.accept(transition("queued", props.state, 2));

@@ -38,8 +38,20 @@ interface SubjectScopedValue<Value> {
   readonly value: Value;
 }
 
+/**
+ * How a caller publishes: a value, or a function over the subject's current one.
+ *
+ * The function form is not a convenience. A caller that appends to a list, or adds a
+ * key to a set, cannot read the current value out of its own closure — two acts
+ * settling in one tick would both read the value from the render that produced them
+ * and the second would erase the first — so the update runs where the held value is,
+ * beside the stamp check. `Value` being itself a function is the one shape this
+ * cannot express, which is exactly the ambiguity `useState` carries.
+ */
+export type SubjectScopedPublish<Value> = (next: Value | ((previous: Value) => Value)) => void;
+
 /** What a caller reads and how it publishes: the current value, and a stamped setter. */
-export type SubjectScopedState<Value> = readonly [Value, (value: Value) => void];
+export type SubjectScopedState<Value> = readonly [Value, SubjectScopedPublish<Value>];
 
 /**
  * Hold one value per `(bridge, subjectKey)` subject.
@@ -73,11 +85,11 @@ export function useSubjectScopedState<Value>(
   // it was created under. A settlement holding an older one finds the stamp moved
   // and returns the previous state untouched — dropping the late answer rather than
   // publishing it, and leaving whatever the current subject has already said.
-  const publish = useCallback(
-    (value: Value) => {
+  const publish = useCallback<SubjectScopedPublish<Value>>(
+    (next) => {
       setHeld((previous) =>
         previous.bridge === bridge && previous.subjectKey === subjectKey
-          ? { bridge, subjectKey, value }
+          ? { bridge, subjectKey, value: resolvePublished(next, previous.value) }
           : previous,
       );
     },
@@ -101,4 +113,12 @@ export function useSessionScopedState<Value>(
   initialValue: Value,
 ): SubjectScopedState<Value> {
   return useSubjectScopedState(bridge, sessionId, initialValue);
+}
+
+/** Apply a publish, whichever of its two forms the caller used. */
+function resolvePublished<Value>(
+  next: Value | ((previous: Value) => Value),
+  previous: Value,
+): Value {
+  return typeof next === "function" ? (next as (previous: Value) => Value)(previous) : next;
 }
