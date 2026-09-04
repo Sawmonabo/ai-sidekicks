@@ -151,7 +151,7 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
     run: runAct,
     refuseLocally,
     dismiss: dismissActRefusal,
-  } = useBrowserPaneActs();
+  } = useBrowserPaneActs(bridge, paneId);
   const addressFieldId = useId();
   // Only the REPORTING arm is a reading. An ended subscription's last frame is not
   // one, so it reaches nothing here: every history control falls back to disabled and
