@@ -207,17 +207,30 @@ export class ConsoleBudgetRegistry {
   readonly budgetsFilePath: string;
   readonly schemaVersion: number;
   readonly source: string;
+  /**
+   * Why the `harness` rows carry the figures they do, stated once for the set.
+   *
+   * A document-level field rather than a sentence per row, because those bounds
+   * are slices of one deadline: the derivation is a property of the set, and a
+   * rule restated per row is a rule with as many places to drift as there are
+   * rows — which is what it did, three copies deep and already imprecise about
+   * which tier the sum is held against. `null` exactly when the document
+   * declares no `harness` row at all.
+   */
+  readonly harnessBudgetDerivation: string | null;
   readonly budgets: readonly ConsoleBudget[];
 
   private constructor(
     budgetsFilePath: string,
     schemaVersion: number,
     source: string,
+    harnessBudgetDerivation: string | null,
     budgets: readonly ConsoleBudget[],
   ) {
     this.budgetsFilePath = budgetsFilePath;
     this.schemaVersion = schemaVersion;
     this.source = source;
+    this.harnessBudgetDerivation = harnessBudgetDerivation;
     this.budgets = budgets;
   }
 
@@ -265,10 +278,24 @@ export class ConsoleBudgetRegistry {
       seenIds.add(budget.id);
     }
 
+    // A `product` row's figure is the spec's and needs no derivation here; a
+    // `harness` row's figure is ours, so a document that declares one and says
+    // nowhere why is a bound with no reviewable source — the shape this file
+    // exists to refuse. Required for the SET rather than per row, which is what
+    // keeps it stated once.
+    const harnessBudgetDerivation = optionalString(document, "harnessBudgetDerivation");
+    if (budgets.some((budget) => budget.scope === "harness") && harnessBudgetDerivation === null) {
+      refuse(
+        `${budgetsFilePath}: a \`harness\` row needs \`harnessBudgetDerivation\` — ` +
+          "the derivation is stated once for the set, never copied into each row.",
+      );
+    }
+
     return new ConsoleBudgetRegistry(
       budgetsFilePath,
       schemaVersion,
       requireString(document, "source", budgetsFilePath),
+      harnessBudgetDerivation,
       Object.freeze(budgets),
     );
   }
