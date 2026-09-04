@@ -215,11 +215,19 @@ export class PaneGeometryPublisher {
     const outcome = this.#host.setRect(sample);
     if (outcome.status === "rejected") {
       // 12.3's degraded arm. Retrying would publish a rectangle for a pane that no
-      // longer exists, once per frame, forever. The outcome is recorded BEFORE the
-      // disposal, so the surface that has to render this sentence is told about it
-      // while it is still subscribed.
-      this.#recordOutcome({ status: "suppressed", refusal: outcome.refusal });
+      // longer exists, once per frame, forever.
+      //
+      // THE TERMINAL STATE IS RESTORED FIRST, AND THE ORDER IS THE FIX. Recording
+      // announces, `Emitter` re-raises what a sink threw, and a single throwing
+      // observer therefore carried the exception out of this method before the
+      // disposal ran — leaving the publisher armed, subscribed, and still writing
+      // rectangles to a pane the host had just declared gone. Disposal costs the
+      // surface nothing here: `dispose` deliberately does NOT clear the sinks, so
+      // the notification below still reaches everyone who was subscribed, and it
+      // now reaches them over a publisher whose `isDisposed` already agrees with
+      // the sentence they are about to render.
       this.dispose();
+      this.#recordOutcome({ status: "suppressed", refusal: outcome.refusal });
       return;
     }
     this.#lastPublishedKey = sample.key;
@@ -231,7 +239,9 @@ export class PaneGeometryPublisher {
    * The one writer of the outcome field, so no arm can record a result without
    * announcing it. `dispose` deliberately does NOT clear the sinks: the subscription
    * belongs to whoever opened it, and severing it here would silently drop the
-   * notification carrying the very refusal that caused the disposal.
+   * notification carrying the very refusal that caused the disposal. That is also
+   * what lets the rejection arm above dispose BEFORE it records — a sink that throws
+   * must not be able to keep this publisher alive.
    */
   #recordOutcome(outcome: PaneGeometryOutcome): void {
     this.#lastOutcome = outcome;
