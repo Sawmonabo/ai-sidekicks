@@ -20,12 +20,12 @@
 // That is the property, stated structurally: there is no `hiddenCount`, and adding
 // one would be the leak the filter exists to prevent.
 
+import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import type { ChannelListResponse, ChannelListResponseChannel } from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { SessionStore } from "../store/index.js";
-import { MAIN_CHANNEL_NAME } from "./constants.js";
 import { PushDrivenRead, callDaemonMethod } from "../seats/index.js";
 
 /** The daemon method the directory reads. Named once; the family's only speller. */
@@ -61,8 +61,13 @@ export interface ChannelRow {
   /**
    * True for the session's bootstrap channel.
    *
-   * Recognised by name, which is what the channel-list projection synthesizes it
-   * with. It carries no configuration of its own and always sits at the top.
+   * The main channel has no row of its own — the channel-list projection composes
+   * it from the session's own membership count — so the console recognises it by
+   * the one thing the wire carries: `MAIN_CHANNEL_NAME`, imported from the
+   * contracts package that the projection itself emits under, so both sides of the
+   * seam move together. Recognising it by position would make the ordering rule
+   * depend on the order it is trying to impose. It carries no configuration of its
+   * own and always sits at the top.
    */
   readonly isMain: boolean;
 }

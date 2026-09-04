@@ -21,14 +21,11 @@
 //
 // Test files are excluded: a case that plants a would-be offender has to write one.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "src", "console");
+import { consoleSourceModules, readConsoleSource } from "../console-source-modules.js";
 
 /**
  * The one module allowed to declare a bound.
@@ -59,24 +56,14 @@ function declaredBoundNames(source: string): readonly string[] {
   return [...source.matchAll(BOUND_DECLARATION)].map((match) => match[1] ?? "");
 }
 
-function consoleSourceModules(): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx") &&
-        !entry.endsWith(".test-support.ts") &&
-        !entry.endsWith(".d.ts"),
-    )
-    .sort();
-}
-
 describe("console bounds — every cap is declared in one module", () => {
-  const modules = consoleSourceModules();
+  // `*.test-support.ts` is dropped here rather than in the shared walk: those
+  // modules are test scaffolding, and this rule already exempts a test that has to
+  // write a would-be offender in order to prove the checker bites.
+  const modules = consoleSourceModules().filter((module) => !module.endsWith(".test-support.ts"));
 
   it("finds a console tree to scan at all", () => {
-    // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and the assertion
+    // Without this, a wrong console directory would scan nothing and the assertion
     // below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
     expect(modules).toContain(BOUNDS_MODULE);
@@ -87,7 +74,7 @@ describe("console bounds — every cap is declared in one module", () => {
       .filter((module) => module !== BOUNDS_MODULE)
       .map((module) => ({
         module,
-        names: declaredBoundNames(readFileSync(join(CONSOLE_DIRECTORY, module), "utf8")),
+        names: declaredBoundNames(readConsoleSource(module)),
       }))
       .filter((entry) => entry.names.length > 0)
       .map((entry) => `${entry.module}: ${entry.names.join(", ")}`);
@@ -98,9 +85,7 @@ describe("console bounds — every cap is declared in one module", () => {
     // The checker reads real files and the pattern matches real declarations.
     // Without this, a typo in the pattern would make the clean result above mean
     // nothing at all.
-    const declared = declaredBoundNames(
-      readFileSync(join(CONSOLE_DIRECTORY, BOUNDS_MODULE), "utf8"),
-    );
+    const declared = declaredBoundNames(readConsoleSource(BOUNDS_MODULE));
     expect(declared.length).toBeGreaterThan(10);
     expect(declared).toContain("PALETTE_RESULT_CAP");
   });
