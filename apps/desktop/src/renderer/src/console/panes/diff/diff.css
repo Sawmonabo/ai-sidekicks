@@ -120,9 +120,20 @@
   border-inline-end: 1px solid var(--meridian-edge);
 }
 
-/* Past the file-count threshold the list scrolls on its own rather than pushing
-   the rows off the pane; below it, it is as tall as its content. */
-.meridian-diff-files--scrolling .meridian-diff-files__list {
+/*
+ * The box the window is computed against: the file list's viewport.
+ *
+ * Past the file-count threshold it scrolls on its own rather than pushing the rows
+ * off the pane; below it, the list inside is as tall as its content and there is
+ * nothing to scroll. The list itself holds the whole height, so the scrollbar reports
+ * every entry rather than the handful the window mounted.
+ */
+.meridian-diff-files__scroller {
+  flex: 1 1 auto;
+  min-block-size: 0;
+}
+
+.meridian-diff-files--scrolling .meridian-diff-files__scroller {
   overflow-y: auto;
 }
 
@@ -146,9 +157,29 @@
 }
 
 .meridian-diff-files__list {
+  position: relative;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+/*
+ * One windowed entry, placed at the offset the window computed for it.
+ *
+ * PLACED RATHER THAN SPACED, which the rows renderer does the other way round: its
+ * rows are generic boxes carrying table roles, so a leading spacer keeps them in the
+ * document's own flow, and these are `<li>` elements of a real `<ul>`, whose list
+ * semantics an intervening `<div>` would break and a placement does not.
+ *
+ * The height is fixed rather than intrinsic because the window ESTIMATES with it: one
+ * value under one owner (`diff-bounds.ts`) means the offsets and the painted rows
+ * cannot drift, and nothing has to be measured.
+ */
+.meridian-diff-files__row {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: var(--meridian-diff-file-row-height);
 }
 
 /*
@@ -162,6 +193,7 @@
   align-items: center;
   gap: var(--meridian-space-2);
   inline-size: 100%;
+  block-size: 100%;
   min-block-size: 1.5rem;
   padding: var(--meridian-space-1) var(--meridian-space-3);
   border: 0;
