@@ -36,18 +36,36 @@
 //     in flight — and `RouteSurface` renders exactly that. Opening the session from
 //     inside render to skip the frame is the defect, not the fix.
 //
-// WHY THE REGISTRY IS BUILT BY A `useState` INITIALIZER AND NOT IN AN EFFECT.
+// WHY THE PLUMBING IS BUILT DURING RENDER AND NOT IN AN EFFECT.
 // `useOpenSessionStore` takes a registry, and a hook cannot be called conditionally,
 // so a registry that arrived one commit late would mean a first render with nothing
-// to read through at all. The initializer runs once per mounted component and its
-// result is never recomputed — unlike `useMemo`, which may be — and a registry that
-// is built and discarded owns nothing: no timer, no subscription, no store until
-// something opens one. The construction that had to leave the render phase is the
-// STORE's, and it has. The binder is built beside it and ATTACHED in the effect,
-// which is the same distinction one level up: constructing it costs nothing, and
-// subscribing is the side effect that must not happen during render.
+// to read through at all. A registry that is built and discarded owns nothing: no
+// timer, no subscription, no store until something opens one. The construction that
+// had to leave the render phase is the STORE's, and it has. The binder is built
+// beside it and ATTACHED in the effect, which is the same distinction one level up:
+// constructing it costs nothing, and subscribing is the side effect that must not
+// happen during render.
+//
+// AND WHY IT IS HELD BY `useSubjectScopedState` RATHER THAN BY `useState`.
+// The plumbing belongs to the BRIDGE it was built from: the registry's session read
+// and the binder's subscription both travel through that transport, and the provider
+// replaces it — a reconnect, the fixture's scenario switch — while this window stays
+// mounted. A `useState` initializer runs once and never again, so the replacement was
+// answered by nothing here: the window went on reading a session through a retired
+// transport. The holder re-addresses DURING the render that first sees the new
+// bridge, so no committed frame plumbs through the old resolution, and it mints
+// exactly once per bridge even under the double-invoked render strict mode performs —
+// which a `useState` initializer does not.
+//
+// A HOLDER DROPS A VALUE; A RESOURCE HAS TO BE DISPOSED. That is the half the holder
+// deliberately does not do, so the disposal stays where it already was: an effect
+// keyed on the plumbing itself, whose cleanup runs with the retired one in its own
+// closure. Keying that effect on anything else is what made the previous shape
+// accidental — its dependency list named `bridge`, which the body did not use, so a
+// bridge change tore the LIVE plumbing down and then rebuilt it only because
+// `disposeAll` happens to set `isDisposed` before the body reads it.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { ConsoleRefusalError } from "../core/index.js";
 import {
@@ -59,6 +77,7 @@ import {
 import {
   SessionStoreRegistry,
   useOpenSessionStore,
+  useSubjectScopedState,
   type ConsoleEntityProjectorRegistry,
   type SessionSnapshot,
   type SessionSnapshotRead,
@@ -73,14 +92,24 @@ interface WindowSessionPlumbing {
 }
 
 /**
- * This window's session-store registry, disposed when the console unmounts.
+ * This window's session-store registry, rebuilt on a new bridge and disposed with
+ * the window.
  *
- * The re-mint arm is for a remount of the same component instance — React's
- * StrictMode double-mount is the one that does it today, and the Tier-8 opt-in is
- * named in `main.tsx`. The cleanup has already disposed the registry by then, and a
- * disposed registry refuses every open, so the second mount takes a fresh one
- * rather than a corpse. The binder is re-minted with it for the same reason: it is
- * disposed in the same cleanup, and a disposed binder subscribes to nothing.
+ * TWO THINGS RETIRE A PLUMBING, and they are answered in two different places
+ * because they happen at two different moments.
+ *
+ *   • **The bridge it was built from was replaced.** The holder compares the subject
+ *     during the render that first sees the new one, so the registry a frame reads
+ *     through is never the retired transport's. That is the arm this hook had none
+ *     of: a replaced bridge left the window opening sessions on a registry whose
+ *     read and whose binder both pointed at a transport nothing was serving.
+ *   • **The plumbing disposed itself.** The remount arm, for the same component
+ *     instance — React's StrictMode double-mount is the one that does it today, and
+ *     the Tier-8 opt-in is named in `main.tsx`. The cleanup has already disposed the
+ *     registry by then and a disposed registry refuses every open, so the second
+ *     mount publishes a fresh plumbing rather than keeping a corpse. It cannot be a
+ *     render-phase comparison, because the disposal happens in an effect's cleanup
+ *     and is invisible to the render that preceded it.
  *
  * The binder is not returned. Nothing above this hook reads it — its whole surface
  * is the subscription it owns — and handing it out would invite a second caller to
@@ -94,12 +123,17 @@ export function useSessionStoreRegistry(
   // has to thread one through. `Spec-023`'s "the bridge is provided, never reached
   // for" is the same rule one layer down.
   const bridge = useConsoleBridge();
-  const [plumbing, setPlumbing] = useState<WindowSessionPlumbing>(() =>
-    createWindowSessionPlumbing(bridge, projectorRegistry),
-  );
+  // The bridge alone is the subject, and the projector registry deliberately is not:
+  // the plumbing takes a SNAPSHOT of that table at construction, exactly so a later
+  // registration cannot make one open store fold two events of one kind two ways. A
+  // value the resource does not read live is not part of what the resource is about.
+  const { value: plumbing, publish: publishPlumbing } =
+    useSubjectScopedState<WindowSessionPlumbing>(bridge, undefined, () =>
+      createWindowSessionPlumbing(bridge, projectorRegistry),
+    );
   useEffect(() => {
     if (plumbing.registry.isDisposed) {
-      setPlumbing(createWindowSessionPlumbing(bridge, projectorRegistry));
+      publishPlumbing(createWindowSessionPlumbing(bridge, projectorRegistry));
       return;
     }
     plumbing.binder.attach();
@@ -109,10 +143,15 @@ export function useSessionStoreRegistry(
       // registry disposed first would call back into a binder that is about to be
       // torn down, unbinding subscriptions during a teardown that is already
       // unbinding them.
+      //
+      // This cleanup carries the RETIRED plumbing in its own closure, which is what
+      // makes the bridge swap total: the render mints the successor and this disposes
+      // the one it replaced, in that order, with no frame between them holding either
+      // a disposed registry or a live one nobody will ever dispose.
       plumbing.binder.dispose();
       plumbing.registry.disposeAll();
     };
-  }, [plumbing, bridge, projectorRegistry]);
+  }, [plumbing, publishPlumbing, bridge, projectorRegistry]);
   return plumbing.registry;
 }
 

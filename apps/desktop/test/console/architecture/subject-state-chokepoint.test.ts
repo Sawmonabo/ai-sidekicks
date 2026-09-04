@@ -83,11 +83,9 @@ const SUBJECT_IDENTIFIERS: readonly string[] = ["bridge", "sessionId"];
 /**
  * Modules whose subject-named cell is not this class, each with its reason.
  *
- * The three entries are COMPOSITION ROOTS: each builds a window-lifetime resource
- * from the bridge it is handed at the top of the tree and replaces it from its own
- * disposal effect. They are not surfaces addressed by a prop that can move, which is
- * the class this file is about, and a holder keyed by subject would give a window's
- * database connection the lifetime of a route.
+ * Both entries are COMPOSITION ROOTS: each builds a window-lifetime resource from
+ * the bridge it is handed at the top of the tree. They are not surfaces addressed by
+ * a prop that can move, which is the class this file is about.
  *
  * An entry that stops tripping the checker fails the gate below rather than rotting
  * here, on the dead-code gate's own `@consumedBy` discipline: an exemption that
@@ -97,9 +95,6 @@ const ADMITTED_SUBJECT_CELLS: Readonly<Record<string, string>> = {
   [join("console", "bridge", "BridgeProvider.tsx")]:
     "the console's single bridge chokepoint — it RESOLVES the bridge for the window " +
     "and re-resolves it when the prop changes, rather than being addressed by one",
-  [join("console", "frame", "session-lifecycle.ts")]:
-    "the window's session-store registry and event binder, built once and replaced " +
-    "only when disposed; its lifetime is the window's, not a route's",
   [join("console", "frame", "ui-state-lifecycle.ts")]:
     "the window's one open UI-state database connection, on the same terms",
 };
