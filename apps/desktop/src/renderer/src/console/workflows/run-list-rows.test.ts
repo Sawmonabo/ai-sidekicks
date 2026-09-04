@@ -13,16 +13,8 @@
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowPhaseState } from "../bridge/index.js";
-import {
-  instantMilliseconds,
-  parkSchedule,
-  phasePark,
-  type WorkflowPhaseStateRow,
-} from "./run-list-rows.js";
-
-function phase(overrides: Partial<WorkflowPhaseStateRow> = {}): WorkflowPhaseStateRow {
-  return { phaseId: "phase-1", phaseName: "Draft", state: "running", ...overrides };
-}
+import { instantMilliseconds, parkSchedule, phasePark } from "./run-list-rows.js";
+import { phase } from "./run-list-projection.test-support.js";
 
 describe("the park discriminator", () => {
   it("reads a park off `parkReason` even on a phase whose state says running", () => {
