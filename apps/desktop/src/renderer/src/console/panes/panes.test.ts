@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry } from "../seats/index.js";
+import { ConsolePaneRegistry, type PaneKind } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {
@@ -39,15 +39,30 @@ const seatBoardSources = import.meta.glob("./index.ts", {
 /** The seat board's own text. One entry, keyed by the glob's resolved path. */
 const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
-/** The reserved lines, in the order the branches cut against. */
+/** The reserved lines still waiting for their family, in cut order. */
 const RESERVED_LINES: readonly string[] = [
   "// T-023p-1C-2 timeline",
   "// T-023p-1C-3 runs approvals inspector",
   "// T-023p-1C-4 agent-console",
   "// T-023p-1C-5 diff artifact",
   "// T-023p-1C-6 workflow-run workflow-builder",
-  "// T-023p-1C-7 browser terminal",
 ];
+
+/**
+ * The calls that have replaced their reserved line, in the same cut order.
+ *
+ * A landing family moves its own entry from the list above to this one, and the
+ * body assertion below is their concatenation — so the two lists together are
+ * still the whole seat board, and a family that added a call without retiring its
+ * reserved line (or the reverse) fails here rather than merging quietly.
+ */
+const LANDED_REGISTRATIONS: readonly string[] = [
+  "registerBrowserPanes(registry);",
+  "registerTerminalPanes(registry);",
+];
+
+/** The pane kinds those calls claim, in `PANE_KINDS` declaration order. */
+const LANDED_PANE_KINDS: readonly PaneKind[] = ["browser", "terminal"];
 
 /** The body of `registerConsolePanes`, from its brace to the matching close. */
 function seatBoardFunctionBody(source: string): string {
@@ -68,9 +83,12 @@ describe("pane seat board — reserved lines only", () => {
     expect(seatBoardSource).toContain("export function registerConsolePanes");
   });
 
-  it("carries the six reserved lines in task order", () => {
+  it("carries every seat in task order, reserved or landed", () => {
     const body = seatBoardFunctionBody(seatBoardSource);
-    expect(body.split("\n").map((line) => line.trim())).toStrictEqual([...RESERVED_LINES]);
+    expect(body.split("\n").map((line) => line.trim())).toStrictEqual([
+      ...RESERVED_LINES,
+      ...LANDED_REGISTRATIONS,
+    ]);
   });
 
   it("negative control: a body with a real registration is rejected", () => {
@@ -86,15 +104,15 @@ describe("pane seat board — reserved lines only", () => {
       seatBoardFunctionBody(withRegistration)
         .split("\n")
         .map((line) => line.trim()),
-    ).not.toStrictEqual([...RESERVED_LINES]);
+    ).not.toStrictEqual([...RESERVED_LINES, ...LANDED_REGISTRATIONS]);
   });
 });
 
 describe("pane seat board — composing it today", () => {
-  it("registers nothing while every seat is reserved", () => {
+  it("registers exactly the kinds the landed families claim", () => {
     const registry = new ConsolePaneRegistry();
     registerConsolePanes(registry);
-    expect(registry.registeredPaneKinds()).toStrictEqual([]);
+    expect(registry.registeredPaneKinds()).toStrictEqual([...LANDED_PANE_KINDS]);
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
@@ -106,11 +124,12 @@ describe("pane seat board — composing it today", () => {
   });
 
   it("negative control: the registry itself does report a claimed kind", () => {
-    // The empty result above would also be produced by a `registeredPaneKinds`
-    // that always answered `[]`, which would make the first case vacuous.
+    // The result above would also be produced by a `registeredPaneKinds` that
+    // answered the landed kinds and nothing else whatever else was claimed, which
+    // would make the first case vacuous.
     const registry = new ConsolePaneRegistry();
     registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
     registerConsolePanes(registry);
-    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline"]);
+    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline", ...LANDED_PANE_KINDS]);
   });
 });

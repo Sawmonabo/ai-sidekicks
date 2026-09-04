@@ -31,6 +31,17 @@ export { useBridgeCommands } from "./bridge-commands.js";
 
 export { KeyBindingTable } from "./keybindings.js";
 
+// The chord grammar itself, forwarded because it is this family's own and because a
+// second consumer arrived for it: `browser/keyboard-handback.ts` has to decide whether
+// a keystroke inside an embedded page is one the console bound, which is the same
+// question `keybindings.ts` asks and has to be answered by the same parser and the
+// same matcher. A chord grammar written a second time beside that decision is how a
+// mirror and a table start disagreeing about what `$mod+KeyK` means — and the MATCHER
+// rather than the comparison key is what that consumer needs, because the grammar's
+// optional-modifier set (`$mod+[Shift]+KeyK`) is a claim about which keystrokes
+// satisfy a chord and not about which chords are the same chord.
+export { chordMatchesEvent, parseChord } from "./keybinding-chord.js";
+
 export type { WhenClauseContext } from "./when-clause.js";
 
 export { COMMAND_PALETTE_OPEN_CHORD, PaletteOverlay } from "./PaletteOverlay.js";

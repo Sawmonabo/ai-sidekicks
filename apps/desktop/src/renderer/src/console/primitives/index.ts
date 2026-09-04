@@ -23,6 +23,18 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
+// Rule 4's mono provenance signature. Through the door because the frame renders
+// session ids with it, and a surface that reached for its own mono span would be
+// the second rendering of the one claim this primitive exists to make.
+export { WireFigure } from "./Figure.js";
+
+// The console's ONE `ResizeObserver` construction site, through the door for the
+// reason the announcer is: two view families arm a size source — the browser
+// family's overlay registry and pane geometry publisher, and the terminal family's
+// emulator — and they sit beside each other in the DAG, so a second construction
+// site is the only other way either could have one.
+export { observeElementResize } from "./element-resize.js";
+
 export type { ChordPlatform } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,
@@ -39,7 +51,6 @@ export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 export { Nothing } from "./Nothing.js";
 
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   InlineRefusal,
   RefusalBanner,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -55,13 +66,11 @@ export {
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipTone,
 } from "./Chip.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   CHIP_TONES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   Chip,
 } from "./Chip.js";
 
@@ -69,10 +78,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   LedgerRowProps,
 } from "./LedgerRow.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
-  LedgerRow,
-} from "./LedgerRow.js";
+export { LedgerRow } from "./LedgerRow.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -80,18 +86,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
 } from "./Figure.js";
-// Rule 4's mono provenance signature. Through the door because the frame renders
-// session ids with it, and a surface that reached for its own mono span would be
-// the second rendering of the one claim this primitive exists to make.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  DerivedFigure,
-  // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and
-  // `frame/WireChoiceList.tsx` both render identifiers through it — so the tag that
-  // stood here was the half of the marker its importing change owed and did not
-  // pay. `--treat-tag-hints-as-errors` is what reported the debt.
-  WireFigure,
-} from "./Figure.js";
+export { DerivedFigure } from "./Figure.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -100,7 +95,6 @@ export type {
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatByteQuantity,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatClockTime,

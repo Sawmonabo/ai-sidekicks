@@ -51,6 +51,20 @@ export {
 
 export { createFixtureBridge } from "./fixture-bridge.js";
 
+// The live bridge, for the surfaces and suites that build one over an installed
+// preload contract rather than reading `window.sidekicks` themselves.
+export { createLiveBridge } from "./live-bridge.js";
+
+// 12.11's scripted view host. It leaves through this door because the browser
+// family wraps one into the host a pane publishes through, and the type has to be
+// nameable there: the wiring table sits in a view family and the seam it selects on
+// is declared down here, which is the only place a bridge can hold it.
+export {
+  createScriptedPaneViewHost,
+  SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
+} from "./pane-view-host-script.js";
+export type { ScriptedPaneHolding, ScriptedPaneViewHost } from "./pane-view-host-script.js";
+
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the
 // port type, the one summary shape those surfaces render, the refusal they render

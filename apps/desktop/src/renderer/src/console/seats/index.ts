@@ -65,16 +65,13 @@ export {
   isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type PaneKind,
 } from "./pane-kinds.js";
 
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   paneEntityScopeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   parseConsolePaneAddress,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
@@ -87,9 +84,7 @@ export {
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneContext,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,

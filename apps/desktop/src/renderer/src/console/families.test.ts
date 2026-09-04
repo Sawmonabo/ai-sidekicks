@@ -164,13 +164,19 @@ describe("console families — the pane board a composition writes into", () => 
     // caller's registry really does record a body, and the singleton really is
     // asked about that same kind, so the instrument is shown to work on the one
     // registry a composition is allowed to write into.
+    //
+    // The probe claims a kind still RESERVED on the seat board, for the reason the
+    // registry refuses a second owner: a kind a shipped family claims would be
+    // claimed twice by the composition below and throw before the assertion. It is
+    // the sibling board's own probe kind (`panes/panes.test.ts`), so the two move
+    // together the day the family that owns it lands.
     const { surfaces, panes, projectors } = ownedRegistries();
-    panes.register({ kind: "terminal", owner: "families.test", render: () => null });
+    panes.register({ kind: "timeline", owner: "families.test", render: () => null });
 
     registerConsoleFamilies(surfaces, panes, projectors);
 
-    expect(panes.registeredPaneKinds()).toContain("terminal");
-    expect(consolePaneRegistry.registeredPaneKinds()).not.toContain("terminal");
+    expect(panes.registeredPaneKinds()).toContain("timeline");
+    expect(consolePaneRegistry.registeredPaneKinds()).not.toContain("timeline");
     // Same claim for the projector board, and it needs no probe: the frame's own
     // registration is the body, so a composition writing into the singleton would
     // show up here as a production board that has been claimed by this test's run.

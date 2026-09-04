@@ -36,6 +36,7 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
+import { registerPaneHarnessSurface } from "./frame/PaneHarnessSurface.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
@@ -92,6 +93,14 @@ export function registerConsoleFamilies(
   // the projector board this function was HANDED, so a composition writes its fold
   // where it writes its surfaces and its panes.
   registerRunLifecycleProjectors(projectorRegistry);
+  // The fixture-only pane harness, which is the one surface that mounts a
+  // REGISTERED pane body in a running window. It takes both boards because it
+  // resolves its body out of the pane board this composition owns, and it decides
+  // for itself — behind `__SIDEKICKS_CONSOLE_FIXTURES__`, inside its own module —
+  // whether it registers at all, so no condition lands here. It is composed after
+  // `registerConsolePanes` because that is the family order; resolution happens at
+  // render, so the order is legibility rather than a dependency.
+  registerPaneHarnessSurface(registry, paneRegistry);
   // Each seat below receives all three boards. A family claims a surface slot, a
   // pane kind, and the event kinds whose fold it owns — through its own
   // `register<Family>` entry point, never by editing a shared spine.

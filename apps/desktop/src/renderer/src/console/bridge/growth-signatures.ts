@@ -99,11 +99,30 @@ export interface GrowthOperationSignatures {
     request: { readonly terminalId: string; readonly columns: number; readonly rows: number };
     value: void;
   };
+  /**
+   * Take the shared-terminal write lease.
+   *
+   * The registered pair, not a console invention: `api-payload-contracts.md
+   * §Session Terminal-Control Method Registry` declares `SessionTakeControlRequest
+   * { sessionId }` answering `SessionTakeControlResponse { controlHolder }`, and a
+   * session has exactly one shared terminal, so the session IS the lease's subject
+   * on the wire. A pane-keyed request would be refused by the strict schema before
+   * either lease operation could run.
+   *
+   * `controlHolder` is carried because the reply carries it, and is deliberately
+   * NOT what moves the holder line: `Spec-023 §Console Design (Meridian)` 8.8
+   * forbids deriving the holder from the last observed claim, so the surface folds
+   * the `pty.control_changed` transition and reads this only as the reply it was.
+   */
   terminalAcquireWriteLease: {
-    request: { readonly terminalId: string };
-    value: { readonly granted: boolean };
+    request: { readonly sessionId: string };
+    value: { readonly controlHolder: string };
   };
-  terminalReleaseWriteLease: { request: { readonly terminalId: string }; value: void };
+  /** Give the lease back. The registered response frees it, so the holder is null. */
+  terminalReleaseWriteLease: {
+    request: { readonly sessionId: string };
+    value: { readonly controlHolder: null };
+  };
   devServerProbe: { request: { readonly port: number }; value: { readonly listening: boolean } };
   sessionRename: { request: { readonly sessionId: string; readonly title: string }; value: void };
   sessionArchive: { request: { readonly sessionId: string }; value: void };
