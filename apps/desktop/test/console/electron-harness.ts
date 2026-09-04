@@ -54,7 +54,6 @@ import {
   withCleanupOutcome,
 } from "./bounded-cleanup.js";
 import { FrameWitness, type RendererFrameSource } from "./frame-witness.js";
-import { composeLaunchArgs } from "./launch-args.js";
 import { FRAME_WITNESS_TIMEOUT_MS } from "./launch-budgets.js";
 import {
   LAUNCH_BUDGET_MS,
@@ -132,20 +131,6 @@ export interface LaunchConsoleOptions {
    * is playing the RIGHT one worth making.
    */
   readonly scenarioId?: string;
-  /**
-   * Extra command-line switches for the launched Electron.
-   *
-   * For switches that are a property of the RUNNER rather than of the console —
-   * forcing ANGLE onto SwiftShader on a headless GPU-less runner, so a tier can
-   * tell a real WebGL renderer tier from a silent canvas fallback.
-   *
-   * Appended to the two the harness owns, and naming either of THOSE is refused
-   * with a `HarnessOwnedSwitchError` rather than quietly accepted. Why refusal
-   * rather than ordering is the whole subject of `launch-args.ts`, which is where
-   * that reasoning lives rather than in two places that would have to stay true
-   * together.
-   */
-  readonly launchArgs?: readonly string[];
 }
 
 /**
@@ -177,7 +162,7 @@ export async function launchConsole(
   let application: ElectronApplication;
   try {
     application = await electron.launch({
-      args: composeLaunchArgs(userDataDirectory, MAIN_ENTRY_PATH, options.launchArgs),
+      args: [`--user-data-dir=${userDataDirectory}`, MAIN_ENTRY_PATH],
       env: {
         ...process.env,
         ...options.env,

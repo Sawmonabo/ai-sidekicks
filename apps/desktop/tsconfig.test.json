@@ -79,8 +79,8 @@
     // constants (and so read the console's build-time signals) for the same reason
     // those tiers do, and are typechecked with them by
     // `tsconfig.console-electron-test.json`. The launcher's other siblings here —
-    // `bounded-cleanup.ts`, `launch-deadline.ts`, `frame-witness.ts`,
-    // `launch-args.ts` — import no renderer module and stay in this config.
+    // `bounded-cleanup.ts`, `launch-deadline.ts`, `frame-witness.ts` — import no
+    // renderer module and stay in this config.
     "test/console/electron-harness.ts",
     "test/console/fixture-handles.ts"
   ]
