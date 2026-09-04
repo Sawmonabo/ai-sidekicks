@@ -96,9 +96,14 @@ export const FRAME_WITNESS_TIMEOUT_MS: number = BUDGETS.requireCanonicalValue(
  * An APPLIED bound rather than an arithmetic one: `bounded-cleanup.ts` races the
  * close against it. The quantity it guards against is an Electron that is wedged
  * rather than slow — a close that never settles at all — so what matters is that
- * some finite number is enforced, not that this one is tight. A healthy close
- * costs well under a second locally, which is why two orders of magnitude above
- * it is generous without being reckless: nothing waits this long unless the
- * process has genuinely stopped answering.
+ * some finite number is enforced, not that this one is tight.
+ *
+ * Because `terminated` records and passes, this figure decides when the process
+ * tree is SIGKILLed rather than whether the tier goes red; `unterminable` and
+ * `closed-after-rejection` fail, and those are the two settlements that harm the
+ * launches after them. That is what makes a figure derived from no CI reading
+ * safe to apply here: crossing it costs a kill and a breadcrumb, never a red
+ * check on a run whose assertions all passed — which is the promise a bound
+ * justified by a local measurement could not have made for a two-core runner.
  */
 export const CLEANUP_BUDGET_MS: number = BUDGETS.requireCanonicalValue("console-launch-cleanup");
