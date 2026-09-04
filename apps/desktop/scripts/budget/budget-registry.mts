@@ -30,12 +30,36 @@ export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
   "budgets.json",
 );
 
+/**
+ * The only registry revision this reader accepts.
+ *
+ * 2 added the required `scope` field. Version 1 documents parse into a registry
+ * that would answer "which rows are the spec's?" wrongly rather than loudly, so
+ * they are refused instead of defaulted.
+ */
+const SUPPORTED_SCHEMA_VERSION = 2;
+
 /** Every budget is a ceiling. A floor would need a different verdict shape. */
 type ConsoleBudgetComparison = "<=";
 
 type ConsoleBudgetStatus = "enforced" | "n/a";
 
 const BUDGET_STATUS_VALUES: readonly ConsoleBudgetStatus[] = Object.freeze(["enforced", "n/a"]);
+
+/**
+ * Where a budget's figure comes from, and what it is therefore a claim about.
+ *
+ * `product` rows are `Spec-023 §Console Design (Meridian)` §Budgets' own, and
+ * their set is closed: the spec table names them all and nothing else may join.
+ * `harness` rows are bounds the test scaffolding applies to itself, with no spec
+ * figure behind them. They share this file rather than getting one of their own
+ * because a budget with a second home is a budget that will disagree with
+ * itself — and they are discriminated rather than merged so the completeness
+ * claim over the spec table stays checkable by counting.
+ */
+type ConsoleBudgetScope = "product" | "harness";
+
+const BUDGET_SCOPE_VALUES: readonly ConsoleBudgetScope[] = Object.freeze(["product", "harness"]);
 
 interface ConsoleBudgetLimit {
   readonly comparison: ConsoleBudgetComparison;
@@ -51,8 +75,10 @@ export interface ConsoleBudget {
   readonly id: string;
   readonly label: string;
   readonly subject: string;
+  /** The figure as its own source writes it: the spec's text for a `product` row, the derivation for a `harness` one. */
   readonly specTarget: string;
   readonly limit: ConsoleBudgetLimit;
+  readonly scope: ConsoleBudgetScope;
   readonly status: ConsoleBudgetStatus;
   /** The Plan-023 task that produces (or produced) the measurement. */
   readonly producedBy: string;
@@ -124,6 +150,11 @@ function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
     refuse(`${where}: \`status\` must be one of ${BUDGET_STATUS_VALUES.join(", ")}.`);
   }
 
+  const scope = requireString(entry, "scope", where);
+  if (!BUDGET_SCOPE_VALUES.includes(scope as ConsoleBudgetScope)) {
+    refuse(`${where}: \`scope\` must be one of ${BUDGET_SCOPE_VALUES.join(", ")}.`);
+  }
+
   const rawLimit = requireObject(entry["limit"], `${where}.limit`);
   const comparison = requireString(rawLimit, "comparison", `${where}.limit`);
   if (comparison !== "<=") {
@@ -155,6 +186,7 @@ function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
       canonicalValue: requireNumber(rawLimit, "canonicalValue", `${where}.limit`),
       canonicalUnit: requireString(rawLimit, "canonicalUnit", `${where}.limit`),
     }),
+    scope: scope as ConsoleBudgetScope,
     status: status as ConsoleBudgetStatus,
     producedBy: requireString(entry, "producedBy", where),
     measuredBy,
@@ -213,8 +245,11 @@ export class ConsoleBudgetRegistry {
 
     const document = requireObject(parsed, budgetsFilePath);
     const schemaVersion = requireNumber(document, "schemaVersion", budgetsFilePath);
-    if (schemaVersion !== 1) {
-      refuse(`${budgetsFilePath}: unsupported \`schemaVersion\` ${schemaVersion} (expected 1).`);
+    if (schemaVersion !== SUPPORTED_SCHEMA_VERSION) {
+      refuse(
+        `${budgetsFilePath}: unsupported \`schemaVersion\` ${schemaVersion} ` +
+          `(expected ${SUPPORTED_SCHEMA_VERSION}).`,
+      );
     }
     const rawBudgets = document["budgets"];
     if (!Array.isArray(rawBudgets) || rawBudgets.length === 0) {
@@ -248,6 +283,29 @@ export class ConsoleBudgetRegistry {
       );
     }
     return budget;
+  }
+
+  /** The rows `Spec-023 §Budgets` names — the set that table closes. */
+  productBudgets(): readonly ConsoleBudget[] {
+    return this.budgets.filter((budget) => budget.scope === "product");
+  }
+
+  /** The bounds the test scaffolding applies to itself. */
+  harnessBudgets(): readonly ConsoleBudget[] {
+    return this.budgets.filter((budget) => budget.scope === "harness");
+  }
+
+  /**
+   * The canonical figure for `budgetId`, in its canonical unit.
+   *
+   * The read path for a harness that needs the NUMBER rather than a verdict, so
+   * a timeout constant is one line derived from the registry instead of a
+   * literal typed a second time beside it.
+   *
+   * @throws {ConsoleBudgetRegistryError} on an unknown id, never a default.
+   */
+  requireCanonicalValue(budgetId: string): number {
+    return this.requireBudget(budgetId).limit.canonicalValue;
   }
 
   enforcedBudgets(): readonly ConsoleBudget[] {

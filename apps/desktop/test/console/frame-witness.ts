@@ -34,6 +34,8 @@
 // stub that never resolves are both one object literal
 // (`architecture/frame-witness.test.ts`).
 
+import { FRAME_WITNESS_TIMEOUT_MS } from "./launch-budgets.js";
+
 /**
  * The renderer, reduced to the one question the witness asks it.
  *
@@ -68,57 +70,6 @@ export interface FramesMissing {
 }
 
 export type FrameWitnessOutcome = FramesWitnessed | FramesMissing;
-
-/**
- * How long a READY renderer has to deliver two consecutive animation frames.
- *
- * Derived from measurement, and the derivation matters more than the number
- * because the number this replaces was derived from a display refresh interval —
- * "clearly above a refresh interval and clearly below a tier's patience" — which
- * describes an idle desktop and describes no CI runner.
- *
- * What was measured, and what it showed. The harness prints the figure on every
- * launch (`[sidekicks-console-launch]`), so this rests on real launches rather
- * than an estimate. Twenty of them on an eight-core Apple-silicon host: ten
- * deliberate — five idle, five with the GPU disabled and Chromium rendering
- * through SwiftShader, the shape of the CI runner — and ten more harvested from
- * ordinary tier runs while the host was incidentally at a one-minute load
- * average near 280, roughly 35x oversubscribed. Across all twenty the
- * post-readiness interval was 1-18 ms in the renderer and 2-47 ms driver-side.
- *
- * It does not degrade the way an intuition about load would predict. The single
- * 47 ms outlier is driver-side only — its renderer reported 4 ms — so it is a
- * CDP round trip queued behind a busy main thread rather than a frame schedule
- * that slowed down, and the in-renderer figure barely moves at 35x contention
- * because software rendering is not clamped to a display's refresh.
- *
- * Which settles what the failures were, and it is not the frame schedule. Once a
- * renderer is ready its two frames are a matter of milliseconds. What the old
- * 2 000 ms race actually bounded was the driver side: a `Page.evaluate` round
- * trip lands behind whatever the renderer's main thread is already doing, and on
- * a 2-vCPU runner mounting the console — its store, its scenario engine, its
- * persistence — that queue is the quantity that crossed 2 000 ms, on a window
- * that then painted normally. No local host reproduces it, so the bound cannot
- * be derived from the local worst case plus a margin.
- *
- * It is derived from the asymmetry instead, which is decidable without that
- * figure. Over-tight costs a red check on a window that was working, on a job
- * nobody can then read — the defect this replaces. Over-loose costs only how
- * long a genuinely throttled launch takes to report, and a throttled window
- * delivers no frame at ALL, so it spends the whole budget whatever the budget
- * is. So the bound is the largest value that still keeps its two ordering
- * properties, both of which are now checked rather than asserted: it is at most
- * half of `READINESS_BUDGET_MS`, so a launch whose problem is the WINDOW still
- * fails naming the window, and it is RESERVED inside `LAUNCH_BUDGET_MS`, which
- * `launch-deadline.ts` holds against every launching tier's own resolved
- * `testTimeout` — so a reader sees this witness's sentence rather than vitest's.
- *
- * That last property used to be a ratio in this comment and nothing more, and it
- * was false: the readiness ladder handed each of its four phases an independent
- * 30 000 ms, so a launch could spend 135 000 ms inside a 60 000 ms tier and be
- * killed before this witness ever spoke.
- */
-export const FRAME_WITNESS_TIMEOUT_MS = 15_000;
 
 /**
  * The worst driver-side post-readiness figure measured locally, in

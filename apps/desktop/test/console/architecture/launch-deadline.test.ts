@@ -26,11 +26,19 @@ import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  ConsoleBudgetRegistry,
+  ConsoleBudgetRegistryError,
+} from "../../../scripts/budget/budget-registry.mjs";
+import {
+  CLEANUP_BUDGET_MS,
+  FRAME_WITNESS_TIMEOUT_MS,
+  READINESS_BUDGET_MS,
+} from "../launch-budgets.js";
+import {
   LAUNCH_BUDGET_MS,
   LaunchDeadline,
   MINIMUM_SETTLEMENT_RESIDUAL_MS,
   POST_READINESS_RESERVE_MS,
-  READINESS_BUDGET_MS,
   readinessFailure,
 } from "../launch-deadline.js";
 import { resolveVitestProjects, type ResolvedVitestProjects } from "../vitest-projects.js";
@@ -238,5 +246,47 @@ describe("launch deadline — one clock, drawn from", () => {
     await new Promise((resolveTick) => {
       setTimeout(resolveTick, 10);
     });
+  });
+});
+
+describe("launch budgets — the figures come from the registry, not from here", () => {
+  // `budgets.json` is this package's one home for a budget and its unit factor,
+  // and until now the launcher's three timing bounds were the exception: literals
+  // in TypeScript, one directory away, gated by nothing. They are rows now, and
+  // these cases are what makes that a fact rather than a convention — a literal
+  // re-typed into `launch-budgets.ts` fails here rather than quietly winning.
+  const registry = ConsoleBudgetRegistry.load();
+
+  it.each([
+    ["console-launch-readiness", READINESS_BUDGET_MS],
+    ["console-launch-frame-witness", FRAME_WITNESS_TIMEOUT_MS],
+    ["console-launch-cleanup", CLEANUP_BUDGET_MS],
+  ])("takes %s from the registry row of that id", (budgetId, constant) => {
+    const budget = registry.requireBudget(budgetId);
+    expect(budget.limit.canonicalValue).toBe(constant);
+    // In milliseconds, not a unit that merely reduces to one: a row that arrived
+    // as `20 MiB` would still satisfy the equality above after conversion.
+    expect(budget.limit.canonicalUnit).toBe("ms");
+    expect(budget.scope).toBe("harness");
+  });
+
+  it("reads the same three rows the registry calls the harness's own", () => {
+    // Non-vacuous in the other direction: a fourth harness row nobody reads would
+    // be a budget declared and unenforced, which is the shape this file exists to
+    // refuse.
+    expect(
+      registry
+        .harnessBudgets()
+        .map((budget) => budget.id)
+        .sort(),
+    ).toStrictEqual(
+      ["console-launch-cleanup", "console-launch-frame-witness", "console-launch-readiness"].sort(),
+    );
+  });
+
+  it("refuses a missing row rather than falling back to a literal", () => {
+    expect(() => registry.requireBudget("console-launch-nothing")).toThrow(
+      ConsoleBudgetRegistryError,
+    );
   });
 });

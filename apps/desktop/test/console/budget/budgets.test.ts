@@ -33,7 +33,7 @@ import {
 } from "../../../scripts/budget/budget-registry.mjs";
 
 /** Every row of `Spec-023 §Console Design (Meridian)` §Budgets, by registry id. */
-const EXPECTED_BUDGET_IDS: readonly string[] = [
+const EXPECTED_PRODUCT_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "frame-time-p95-four-lanes",
   "renderer-heap-at-rest",
@@ -42,6 +42,21 @@ const EXPECTED_BUDGET_IDS: readonly string[] = [
   "streaming-cpu-one-lane",
   "terminal-instance-memory",
   "time-to-first-ledger-row",
+];
+
+/**
+ * Bounds the test scaffolding applies to ITSELF, which no spec figure backs.
+ *
+ * They share `budgets.json` because one value gets one home, and they are
+ * `scope: "harness"` rather than merged into the list above because the claim
+ * that list makes — the spec's table names these and nothing else — has to stay
+ * countable. Before this they were TypeScript literals one directory away, the
+ * only numbers in the tree gated by nothing.
+ */
+const EXPECTED_HARNESS_BUDGET_IDS: readonly string[] = [
+  "console-launch-readiness",
+  "console-launch-frame-witness",
+  "console-launch-cleanup",
 ];
 
 /**
@@ -61,6 +76,7 @@ const EXPECTED_BUDGET_IDS: readonly string[] = [
 const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
   "renderer-heap-at-rest",
+  ...EXPECTED_HARNESS_BUDGET_IDS,
 ];
 
 /** How each declared unit reduces to its canonical unit. */
@@ -79,13 +95,34 @@ const registry = ConsoleBudgetRegistry.load();
 describe("console budget registry", () => {
   it("loads the one budgets file the harnesses read", () => {
     expect(registry.budgetsFilePath).toBe(DEFAULT_BUDGETS_FILE_PATH);
-    expect(registry.schemaVersion).toBe(1);
+    expect(registry.schemaVersion).toBe(2);
     expect(registry.source).toContain("023-desktop-shell-and-renderer.md");
   });
 
   it("carries every budget the spec's §Budgets table names, and no others", () => {
-    expect(registry.budgets.map((budget) => budget.id).sort()).toStrictEqual(
-      [...EXPECTED_BUDGET_IDS].sort(),
+    // Scoped to the product rows, which is what makes this claim survive the
+    // harness rows joining the file: the spec's table is a closed set and the
+    // scaffolding's own bounds are not part of it.
+    expect(
+      registry
+        .productBudgets()
+        .map((budget) => budget.id)
+        .sort(),
+    ).toStrictEqual([...EXPECTED_PRODUCT_BUDGET_IDS].sort());
+  });
+
+  it("carries the harness's own bounds, and no others", () => {
+    expect(
+      registry
+        .harnessBudgets()
+        .map((budget) => budget.id)
+        .sort(),
+    ).toStrictEqual([...EXPECTED_HARNESS_BUDGET_IDS].sort());
+  });
+
+  it("splits every row into exactly one scope", () => {
+    expect(registry.productBudgets().length + registry.harnessBudgets().length).toBe(
+      registry.budgets.length,
     );
   });
 
@@ -134,7 +171,9 @@ describe("console budget registry", () => {
   it("makes every un-measurable budget name its producing task and its reason", () => {
     const unavailable = registry.unavailableBudgets();
     expect(unavailable.length).toBe(
-      EXPECTED_BUDGET_IDS.length - EXPECTED_ENFORCED_BUDGET_IDS.length,
+      EXPECTED_PRODUCT_BUDGET_IDS.length +
+        EXPECTED_HARNESS_BUDGET_IDS.length -
+        EXPECTED_ENFORCED_BUDGET_IDS.length,
     );
     for (const budget of unavailable) {
       expect(budget.measuredBy, `${budget.id}: measuredBy`).toBeNull();
@@ -200,12 +239,13 @@ describe("registry validation (negative controls)", () => {
     subject: "An example budget.",
     specTarget: "≤ 1 kB",
     limit: { comparison: "<=", value: 1, unit: "kB", canonicalValue: 1000, canonicalUnit: "bytes" },
+    scope: "product",
     status: "enforced",
     producedBy: "T-023p-1C-1",
     measuredBy: "apps/desktop/scripts/budget/measure-bundle.mjs",
     notes: "Example notes.",
   };
-  const validDocument = { schemaVersion: 1, source: "spec", budgets: [validEntry] };
+  const validDocument = { schemaVersion: 2, source: "spec", budgets: [validEntry] };
 
   it("accepts a well-formed registry (the positive control the rest are measured against)", () => {
     expect(loadFixture("valid", validDocument)().budgets).toHaveLength(1);
@@ -218,7 +258,7 @@ describe("registry validation (negative controls)", () => {
   });
 
   it("rejects an unsupported schema version", () => {
-    expect(loadFixture("bad-schema", { ...validDocument, schemaVersion: 2 })).toThrow(
+    expect(loadFixture("bad-schema", { ...validDocument, schemaVersion: 1 })).toThrow(
       /schemaVersion/,
     );
   });
@@ -268,5 +308,18 @@ describe("registry validation (negative controls)", () => {
   it("rejects an unknown status", () => {
     const entry = { ...validEntry, status: "deferred" };
     expect(loadFixture("bad-status", { ...validDocument, budgets: [entry] })).toThrow(/status/);
+  });
+
+  it("rejects an unknown scope", () => {
+    // A row that declares neither kind would be counted by neither completeness
+    // claim above, which is the one way a budget can rejoin the set of numbers
+    // nothing checks.
+    const entry = { ...validEntry, scope: "internal" };
+    expect(loadFixture("bad-scope", { ...validDocument, budgets: [entry] })).toThrow(/scope/);
+  });
+
+  it("rejects a row with no scope at all", () => {
+    const { scope: _omitted, ...withoutScope } = validEntry;
+    expect(loadFixture("no-scope", { ...validDocument, budgets: [withoutScope] })).toThrow(/scope/);
   });
 });

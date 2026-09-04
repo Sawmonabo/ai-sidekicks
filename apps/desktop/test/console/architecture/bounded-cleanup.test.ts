@@ -34,7 +34,8 @@ import {
   cleanupFailure,
   withCleanupOutcome,
 } from "../bounded-cleanup.js";
-import { CLEANUP_BUDGET_MS, LaunchDeadline } from "../launch-deadline.js";
+import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
+import { LaunchDeadline } from "../launch-deadline.js";
 
 describe("bounded cleanup — a close that never settles", () => {
   /** A close bound short enough that exhausting it costs the suite nothing. */

@@ -29,12 +29,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  FRAME_WITNESS_TIMEOUT_MS,
   FrameWitness,
   MEASURED_WORST_LOCAL_MS,
   type RendererFrameSource,
 } from "../frame-witness.js";
-import { READINESS_BUDGET_MS } from "../launch-deadline.js";
+import { FRAME_WITNESS_TIMEOUT_MS, READINESS_BUDGET_MS } from "../launch-budgets.js";
 
 /** A budget short enough that exhausting it costs the suite nothing. */
 const TEST_BUDGET_MS = 200;

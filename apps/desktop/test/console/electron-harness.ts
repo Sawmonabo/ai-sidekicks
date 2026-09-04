@@ -53,12 +53,9 @@ import {
   ELECTRON_PROCESS_TERMINATOR,
   withCleanupOutcome,
 } from "./bounded-cleanup.js";
-import {
-  FRAME_WITNESS_TIMEOUT_MS,
-  FrameWitness,
-  type RendererFrameSource,
-} from "./frame-witness.js";
+import { FrameWitness, type RendererFrameSource } from "./frame-witness.js";
 import { composeLaunchArgs } from "./launch-args.js";
+import { FRAME_WITNESS_TIMEOUT_MS } from "./launch-budgets.js";
 import {
   LAUNCH_BUDGET_MS,
   LaunchDeadline,

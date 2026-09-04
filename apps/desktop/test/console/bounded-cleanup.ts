@@ -27,7 +27,8 @@
 // already carrying, in the shape `FrameWitness` uses for the same reason.
 
 import { processExists, terminateProcessTree } from "../helpers/process-tree.js";
-import { CLEANUP_BUDGET_MS, type LaunchDeadline } from "./launch-deadline.js";
+import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
+import { type LaunchDeadline } from "./launch-deadline.js";
 
 /**
  * The launched application, reduced to what cleanup needs of it.

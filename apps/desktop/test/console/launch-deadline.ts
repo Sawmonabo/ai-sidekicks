@@ -55,32 +55,11 @@
 // resolved timeout, so lowering a tier's patience fails a test that says why
 // rather than re-creating this defect quietly.
 
-import { FRAME_WITNESS_TIMEOUT_MS } from "./frame-witness.js";
-
-/**
- * How long the whole readiness ladder gets, in aggregate.
- *
- * This bounds a COLD Electron start on a shared CI runner, which is a different
- * quantity from anything the console's budgets measure — a tight bound here
- * would turn runner contention into a red tier, and the budget tier is where a
- * slow start is supposed to be caught. The value is the per-phase allowance the
- * harness carried before this became a deadline; what changed is that four
- * phases now SHARE it instead of each receiving it.
- */
-export const READINESS_BUDGET_MS = 30_000;
-
-/**
- * How long `application.close()` gets before the process tree is SIGKILLed.
- *
- * An APPLIED bound rather than an arithmetic one: `bounded-cleanup.ts` races the
- * close against it. The quantity it guards against is an Electron that is wedged
- * rather than slow — a close that never settles at all — so what matters is that
- * some finite number is enforced, not that this one is tight. A healthy close
- * costs well under a second locally, which is why two orders of magnitude above
- * it is generous without being reckless: nothing waits this long unless the
- * process has genuinely stopped answering.
- */
-export const CLEANUP_BUDGET_MS = 10_000;
+import {
+  CLEANUP_BUDGET_MS,
+  FRAME_WITNESS_TIMEOUT_MS,
+  READINESS_BUDGET_MS,
+} from "./launch-budgets.js";
 
 /**
  * The most a single `launchConsole()` can cost before it has thrown.
