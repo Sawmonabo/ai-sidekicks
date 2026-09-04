@@ -205,6 +205,13 @@ function readerWithHeldPayloadFetch(clock: ManualClock): {
         artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
         artifactAllowlistRead: async () => REFUSAL,
         artifactRead,
+        // Served for whichever row was asked about, so a case can delete the
+        // artifact whose bytes are on the wire AND a case can delete a different
+        // one. The receipt is the daemon's, so its `artifactId` follows the request.
+        artifactDelete: async ({ artifactId }: { artifactId: string }) => ({
+          status: "served",
+          value: { ...DELETE_RECEIPT, artifactId },
+        }),
       },
     } as unknown as ConsoleBridge,
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
@@ -479,5 +486,78 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
       "wire-unregistered",
     );
     expect(refused.status === "refused" ? refused.refusal.origin : undefined).toBe("growth-port");
+  });
+});
+
+describe("artifact pane actions — a delete supersedes the fetch for the row it destroyed", () => {
+  it("drops a payload settlement the delete overtook", async () => {
+    // The bug, exercised: press Fetch, confirm Delete before the bytes arrive, and
+    // let the read the daemon completed BEFORE the delete be delivered after it. The
+    // publish cleared the visible payload and left the register alone, so the
+    // continuation passed the identity check and put the destroyed manifest's bytes
+    // back — and the reconciling list read carries a payload arm forward rather than
+    // clearing it, so the stale preview stayed until somebody refreshed by hand.
+    const clock = new ManualClock();
+    const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
+    reader.start();
+    await readThrough(clock);
+
+    const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
+    await settle();
+    expect(reader.snapshot.payload.status).toBe("fetching");
+
+    const deletion = await reader.deleteArtifact(SERVED_SUMMARY.artifactId);
+    expect(deletion.status).toBe("settled");
+    expect(reader.snapshot.payload).toStrictEqual({ status: "not-checked" });
+
+    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "bytes of a manifest that is gone"));
+
+    expect(await press).toStrictEqual({ status: "superseded" });
+    expect(reader.snapshot.payload).toStrictEqual({ status: "not-checked" });
+    // And the row stays off the list: the late answer also carries a manifest, which
+    // a republished payload would have brought back with it.
+    expect(listedRowIds(reader)).toStrictEqual([]);
+  });
+
+  it("gives the control back, so the next artifact can be fetched at once", async () => {
+    // The second symptom of the same untouched register. The reading said nothing
+    // was being fetched while the register said one was, so the next press was
+    // refused in words by a pane that was offering the control.
+    const clock = new ManualClock();
+    const { reader, artifactRead, releaseRead } = readerWithHeldPayloadFetch(clock);
+    reader.start();
+    await readThrough(clock);
+
+    void reader.fetchPayload(SERVED_SUMMARY.artifactId);
+    await settle();
+    await reader.deleteArtifact(SERVED_SUMMARY.artifactId);
+
+    const nextPress = reader.fetchPayload(OTHER_ARTIFACT_ID);
+    await settle();
+    expect(artifactRead).toHaveBeenCalledTimes(2);
+    releaseRead(servedPayload(OTHER_ARTIFACT_ID, "the next artifact's bytes"));
+    expect((await nextPress).status).toBe("settled");
+  });
+
+  it("negative control: a delete of another row leaves the fetch standing", async () => {
+    // Without this, clearing the register on every served delete would throw away
+    // the answer to a fetch the delete says nothing about — a participant deleting
+    // one artifact would silently lose the preview they had just asked for of
+    // another, and the pane would report `superseded` for work it did do.
+    const clock = new ManualClock();
+    const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
+    reader.start();
+    await readThrough(clock);
+
+    const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
+    await settle();
+    await reader.deleteArtifact(OTHER_ARTIFACT_ID);
+
+    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "the bytes the press asked for"));
+
+    expect((await press).status).toBe("settled");
+    expect(reader.snapshot.payload.status === "text" ? reader.snapshot.payload.text : "").toBe(
+      "the bytes the press asked for",
+    );
   });
 });

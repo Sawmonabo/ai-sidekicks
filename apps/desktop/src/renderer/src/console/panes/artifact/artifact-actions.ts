@@ -24,7 +24,8 @@
 //     either way and there is nothing to reconcile.
 //   • `deleteArtifact` establishes that a row is GONE, which no in-flight list read
 //     can discover, so it reconciles rather than returning — and only disposal
-//     silences it.
+//     silences it. It is also the one act that SUPERSEDES another: bytes belonging
+//     to a manifest the daemon has destroyed are not a reading anybody may publish.
 //   • `fetchPayload` is SINGLE-FLIGHT, by its own request identity rather than by the
 //     reader's refresh stamp. The reading holds ONE payload, so two fetches racing put
 //     one artifact's bytes under another's name.
@@ -263,6 +264,16 @@ export class ArtifactPaneActions {
    * removal and still schedules the re-read, because the fact the answer established
    * is true regardless of which refresh was in flight, and that re-read is the thing
    * that takes the row back off the screen the racing list put it on.
+   *
+   * AND IT SUPERSEDES THE FETCH FOR THE SAME ARTIFACT, WHICH THE PUBLISH ALONE DOES
+   * NOT. Clearing the payload arm takes the preview off the screen; it does not stop
+   * the answer that is still on the wire. A read the daemon completed BEFORE the
+   * delete can be delivered after it, and that continuation passed
+   * `#stillStandingFor` — the register was untouched — so it republished the
+   * destroyed manifest's bytes, and the reconciling list read carries a payload arm
+   * forward rather than clearing it. Dropping the register is what makes the late
+   * settlement `superseded`; it also gives the control back at the same moment the
+   * screen says nothing is being fetched, which the untouched register contradicted.
    */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     const generation = this.#host.scheduledReadGeneration();
@@ -283,6 +294,9 @@ export class ArtifactPaneActions {
       return { status: "superseded" };
     }
     const receipt = answer.value;
+    // Before the publish, because the publish is what clears the visible payload and
+    // the register is what would put it back.
+    this.#supersedePayloadFetchFor(artifactId);
     const reading = this.#host.currentReading();
     this.#host.publish({
       ...reading,
@@ -386,6 +400,24 @@ export class ArtifactPaneActions {
    */
   #release(request: InFlightPayloadFetch): void {
     if (this.#inFlightFetch?.requestId === request.requestId) {
+      this.#inFlightFetch = undefined;
+    }
+  }
+
+  /**
+   * Give up the register where the fetch it holds is for an artifact that is gone.
+   *
+   * KEYED ON THE REGISTER AND NOT ON THE READING, because the register is what a
+   * continuation is checked against: the reading names the pending artifact too, but
+   * a settlement asks `#stillStandingFor`, so clearing the arm without clearing the
+   * register leaves the answer admissible. Scoped to the matching artifact — a fetch
+   * for a DIFFERENT one is unaffected by this delete and its answer is still wanted.
+   *
+   * The awaiting call still runs its `finally`; `#release` is identity-checked, so it
+   * finds the register already given up and leaves any successor alone.
+   */
+  #supersedePayloadFetchFor(artifactId: string): void {
+    if (this.#inFlightFetch?.artifactId === artifactId) {
       this.#inFlightFetch = undefined;
     }
   }
