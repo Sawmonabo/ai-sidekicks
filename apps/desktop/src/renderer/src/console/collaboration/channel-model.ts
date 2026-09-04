@@ -20,12 +20,16 @@
 // That is the property, stated structurally: there is no `hiddenCount`, and adding
 // one would be the leak the filter exists to prevent.
 
-import type { ChannelListResponse, ChannelListResponseChannel } from "@ai-sidekicks/contracts";
+import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
+import type {
+  ChannelListResponse,
+  ChannelListResponseChannel,
+  SessionEventType,
+} from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
-import type { SessionStore } from "../store/index.js";
-import { MAIN_CHANNEL_NAME } from "./constants.js";
+import { subscribeToSessionEventKinds, type SessionStore } from "../store/index.js";
 import { PushDrivenRead, callDaemonMethod } from "../seats/index.js";
 
 /** The daemon method the directory reads. Named once; the family's only speller. */
@@ -45,12 +49,12 @@ const CHANNEL_LIST_METHOD = "channel.list";
  * different order, and `Spec-023 §Console Design (Meridian)` puts exactly one thing
  * on the bridge for exactly this reason.
  */
-const CHANNEL_LIFECYCLE_EVENT_KINDS: ReadonlySet<string> = new Set([
+const CHANNEL_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = [
   "channel.created",
   "channel.muted",
   "channel.unmuted",
   "channel.archived",
-]);
+];
 
 /** The refusal origin every channel-directory failure carries. */
 export const CHANNEL_DIRECTORY_ORIGIN = "channel-directory";
@@ -61,8 +65,13 @@ export interface ChannelRow {
   /**
    * True for the session's bootstrap channel.
    *
-   * Recognised by name, which is what the channel-list projection synthesizes it
-   * with. It carries no configuration of its own and always sits at the top.
+   * The main channel has no row of its own — the channel-list projection composes
+   * it from the session's own membership count — so the console recognises it by
+   * the one thing the wire carries: `MAIN_CHANNEL_NAME`, imported from the
+   * contracts package that the projection itself emits under, so both sides of the
+   * seam move together. Recognising it by position would make the ordering rule
+   * depend on the order it is trying to impose. It carries no configuration of its
+   * own and always sits at the top.
    */
   readonly isMain: boolean;
 }
@@ -129,33 +138,7 @@ export function createChannelDirectory(options: {
       );
       return response.channels;
     },
-    subscribe: (onChangeSignal) => subscribeToChannelLifecycle(sessionStore, onChangeSignal),
-  });
-}
-
-/**
- * Signal on every store transition that admitted a channel-lifecycle event.
- *
- * Keyed on the store's own `cursor` so the same event is never counted twice, and
- * scoped to the four kinds so a busy run does not re-read the channel list on every
- * token. A transition that admitted nothing this list cares about produces no
- * signal at all — which is what keeps the coalescing window honest rather than
- * permanently full.
- */
-function subscribeToChannelLifecycle(
-  sessionStore: SessionStore,
-  onChangeSignal: () => void,
-): () => void {
-  let lastSeenCursor = sessionStore.snapshot().cursor;
-  return sessionStore.readable.subscribe((state) => {
-    const previousCursor = lastSeenCursor;
-    if (state.cursor <= previousCursor) {
-      return;
-    }
-    lastSeenCursor = state.cursor;
-    const admitted = state.timeline.filter((event) => event.sequence > previousCursor);
-    if (admitted.some((event) => CHANNEL_LIFECYCLE_EVENT_KINDS.has(event.kind))) {
-      onChangeSignal();
-    }
+    subscribe: (onChangeSignal) =>
+      subscribeToSessionEventKinds(sessionStore, CHANNEL_LIFECYCLE_EVENT_KINDS, onChangeSignal),
   });
 }

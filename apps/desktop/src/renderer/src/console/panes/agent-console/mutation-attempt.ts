@@ -22,6 +22,17 @@
 // And it holds no copy of any read — an attached agent reaches the surface through
 // the roster read's own push signal, exactly as it did before.
 //
+// THE LATCH IS NOT THE WHOLE ANSWER, WHICH IS WHY THERE IS A GENERATION UNDER IT.
+// A holder whose subject can move out from under it — the session a grant is about,
+// the projection a reply was read against — has to be able to say that the round in
+// flight is no longer the one it wants an answer to. That is `supersede()`, and it
+// is what makes releasing the latch SAFE: without it, a holder that returned to
+// idle so a person could act again would let the abandoned reply install over
+// whatever came after. `core/attempt-generation.ts` is the console's one mechanism
+// for that and is used here rather than re-counted, because the place a second copy
+// would drift is the predicate, and a drifted predicate is a stale value on screen
+// that every test still passes.
+//
 // The refusal translation is `seats/push-driven-read.ts`'s
 // `consoleRefusalFrom`, which is the family's one converter: a daemon refusal
 // travels through verbatim and anything else becomes a refusal naming the caller.
@@ -32,7 +43,13 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { consoleRefusalFrom } from "../../seats/index.js";
-import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import {
+  AttemptGeneration,
+  Emitter,
+  type Attempt,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../../core/index.js";
 
 /**
  * What one mutation control has to show. Total; every arm renders something.
@@ -64,6 +81,7 @@ export interface MutationAttemptOptions {
 export class MutationAttempt<TSettlement> {
   readonly #origin: string;
   readonly #changes = new Emitter<void>("mutation attempt");
+  readonly #rounds = new AttemptGeneration();
   #state: MutationAttemptState<TSettlement> = IDLE_MUTATION_ATTEMPT;
 
   public constructor(options: MutationAttemptOptions) {
@@ -97,16 +115,46 @@ export class MutationAttempt<TSettlement> {
     if (this.#state.status === "in-flight") {
       return false;
     }
+    const round = this.#rounds.current();
     this.#settle({ status: "in-flight" });
     perform().then(
       (settlement) => {
-        this.#settle({ status: "settled", settlement });
+        this.#install(round, { status: "settled", settlement });
       },
       (error: unknown) => {
-        this.#settle({ status: "refused", refusal: consoleRefusalFrom(error, this.#origin) });
+        this.#install(round, {
+          status: "refused",
+          refusal: consoleRefusalFrom(error, this.#origin),
+        });
       },
     );
     return true;
+  }
+
+  /**
+   * Abandon whatever is in flight and return to idle, admitting presses again.
+   *
+   * For the holder whose SUBJECT moved: the projection this reply was read against
+   * has been replaced, or the session it was asked of has. The call is not stopped —
+   * nothing here can stop one — but its reply will not install, so releasing the
+   * latch cannot let an older answer overwrite a newer settlement.
+   *
+   * Idempotent and never terminal: superseding twice supersedes once, and a holder
+   * that supersedes in a teardown is usable again on the next mount.
+   */
+  public supersede(): void {
+    this.#rounds.supersedeAll();
+    if (this.#state.status !== "idle") {
+      this.#settle(IDLE_MUTATION_ATTEMPT);
+    }
+  }
+
+  /** Install a settlement, or discard it because its round was superseded. */
+  #install(round: Attempt, next: MutationAttemptState<TSettlement>): void {
+    if (!this.#rounds.isCurrent(round)) {
+      return;
+    }
+    this.#settle(next);
   }
 
   #settle(next: MutationAttemptState<TSettlement>): void {

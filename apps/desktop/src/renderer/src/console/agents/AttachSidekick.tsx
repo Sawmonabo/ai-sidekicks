@@ -23,6 +23,7 @@
 // is why this file passes the vocabulary straight through rather than defaulting it.
 
 import { Dialog } from "@base-ui/react/dialog";
+import { useId } from "react";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import { Chip, Nothing, RefusalCard, WireFigure } from "../primitives/index.js";
@@ -57,9 +58,10 @@ export interface AttachSidekickProps {
    * latch that admits one attempt at a time belongs to whoever performs the call,
    * and a second flag here would be a second answer to the same question. What
    * this form owes is that the control SAYS so — disabled, so a second press is
-   * refused where a person can see it rather than only inside the latch, and
+   * refused where a person can see it rather than only inside the latch,
    * `aria-busy`, so a screen reader is told the act is under way rather than
-   * being handed a dead control with no reason.
+   * being handed a dead control, and a described REASON, so the disabled state
+   * reads as busy rather than as broken.
    */
   readonly isSubmitting?: boolean | undefined;
   /** The daemon's own reply, rendered as applied. Never the definition row. */
@@ -71,6 +73,7 @@ export interface AttachSidekickProps {
 
 export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
   const { form, catalog, definitions } = props;
+  const submittingReasonId = useId();
   const readiness = form.readiness(props.sessionId);
   const catalogValue = catalog.kind === "loaded" ? catalog.value : undefined;
   const driverName = form.effectiveValue("driverName");
@@ -199,12 +202,20 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
             </p>
           ) : null}
 
+          {props.isSubmitting === true ? (
+            <p className="meridian-attach__incomplete" id={submittingReasonId}>
+              An attach is already outstanding for this session. Nothing here cancels a request, so
+              this control takes no second attach until the daemon answers the first.
+            </p>
+          ) : null}
+
           <div className="meridian-attach__actions">
             <button
               type="button"
               className="meridian-attach__submit"
               disabled={readiness.status !== "ready" || props.isSubmitting === true}
               aria-busy={props.isSubmitting === true}
+              aria-describedby={props.isSubmitting === true ? submittingReasonId : undefined}
               onClick={props.onSubmit}
             >
               Attach

@@ -39,7 +39,7 @@ const DEFINITION = { definitionId: "definition-1", name: "Reviewer" };
 class HeldAttachDaemon {
   #attachCallCount = 0;
   #attachRequest: unknown;
-  #release: ((reading: unknown) => void) | undefined;
+  readonly #heldReplies: ((reading: unknown) => void)[] = [];
 
   public get attachCallCount(): number {
     return this.#attachCallCount;
@@ -58,14 +58,27 @@ class HeldAttachDaemon {
       this.#attachCallCount += 1;
       this.#attachRequest = params;
       return await new Promise<unknown>((resolve) => {
-        this.#release = resolve;
+        this.#heldReplies.push(resolve);
       });
     }
     throw new Error(`the test daemon scripts no reply for ${method}`);
   };
 
+  /** Settle the OLDEST held reply — the one a reversed order lands last. */
   public async settle(agentId: string): Promise<void> {
-    this.#release?.({ agentId });
+    await this.#release(this.#heldReplies.shift(), agentId);
+  }
+
+  /** Settle the NEWEST held reply, leaving anything older still outstanding. */
+  public async settleNewest(agentId: string): Promise<void> {
+    await this.#release(this.#heldReplies.pop(), agentId);
+  }
+
+  async #release(
+    resolve: ((reading: unknown) => void) | undefined,
+    agentId: string,
+  ): Promise<void> {
+    resolve?.({ agentId });
     await Promise.resolve();
     await Promise.resolve();
   }
@@ -103,8 +116,8 @@ afterEach(() => {
 });
 
 /** The real models over that bridge, disposed after the test that opened them. */
-function modelsOver(bridge: ConsoleBridge): AgentConsoleModels {
-  const models = new AgentConsoleModels(bridge, new SessionStore({ sessionId: "session-9" }));
+function modelsOver(bridge: ConsoleBridge, sessionId = "session-9"): AgentConsoleModels {
+  const models = new AgentConsoleModels(bridge, new SessionStore({ sessionId }));
   openedModels.push(models);
   return models;
 }
@@ -461,5 +474,151 @@ describe("agent binding column — attaching a sidekick", () => {
     });
     expect(currentSubmitControl().disabled).toBe(false);
     expect(currentSubmitControl().getAttribute("aria-busy")).toBe("false");
+  });
+});
+
+describe("agent binding column — a reply whose subject the column has left", () => {
+  it("installs nothing when a switch reply lands after the console moved agents", async () => {
+    // The render-time comparison hides such a settlement; it does not stop it
+    // arriving. Without the round being abandoned, the reply installed into state
+    // that was merely not being shown — and the moment the console came back to the
+    // agent it was about, an answer read against a subject nobody was looking at was
+    // there waiting under it.
+    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(daemon);
+    const models = modelsOver(bridge);
+    const { container, rerender } = render(
+      <AgentBindingColumn models={models} agentId="agent-a" />,
+    );
+    await settleReads(bridge);
+
+    editProviderAccount(container, "account-2");
+    await act(async () => {
+      fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
+    });
+
+    rerender(<AgentBindingColumn models={models} agentId="agent-b" />);
+    await act(async () => {
+      await daemon.settle({
+        agentId: "agent-a",
+        switch: { status: "pending", switchId: "switch-11", appliesAt: "run_boundary" },
+      });
+    });
+
+    rerender(<AgentBindingColumn models={models} agentId="agent-a" />);
+
+    expect(container.textContent ?? "").toContain("Scout");
+    expect(container.textContent ?? "").not.toContain("switches at the next run boundary");
+  });
+
+  it("negative control: the same reply installs where the console did not move", async () => {
+    // Without this the case above would hold for a column that discarded every
+    // reply — which would leave a person's accepted switch invisible forever.
+    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(daemon);
+    const models = modelsOver(bridge);
+    const { container } = render(<AgentBindingColumn models={models} agentId="agent-a" />);
+    await settleReads(bridge);
+
+    editProviderAccount(container, "account-2");
+    await act(async () => {
+      fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
+    });
+    await act(async () => {
+      await daemon.settle({
+        agentId: "agent-a",
+        switch: { status: "pending", switchId: "switch-11", appliesAt: "run_boundary" },
+      });
+    });
+
+    expect(container.textContent ?? "").toContain("switches at the next run boundary");
+  });
+
+  it("lets the newer attach settlement stand when an abandoned round answers last", async () => {
+    // The generation rather than the latch. Moving sessions abandons the round in
+    // flight and hands the control back, so a second attach is admitted while the
+    // first call is still outstanding and the two replies may land in either order.
+    const daemon = new HeldAttachDaemon();
+    const bridge = bridgeCalling(daemon);
+    const firstSession = modelsOver(bridge, "session-first");
+    const secondSession = modelsOver(bridge, "session-second");
+    const { container, rerender } = render(
+      <AgentBindingColumn models={firstSession} agentId={undefined} />,
+    );
+    await settleReads(bridge);
+
+    const submit = await openReadyAttachForm(container);
+    await act(async () => {
+      fireEvent.click(submit);
+    });
+    expect(currentSubmitControl().disabled).toBe(true);
+
+    // Away and back. The round for the session left is abandoned, and the control
+    // is handed back for the session the console is on.
+    rerender(<AgentBindingColumn models={secondSession} agentId={undefined} />);
+    await settleReads(bridge);
+    rerender(<AgentBindingColumn models={firstSession} agentId={undefined} />);
+    await settleReads(bridge);
+    expect(currentSubmitControl().disabled).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(currentSubmitControl());
+    });
+    expect(daemon.attachCallCount).toBe(2);
+
+    await act(async () => {
+      await daemon.settleNewest("agent-second");
+    });
+    expect(document.body.textContent ?? "").toContain("agent-second");
+
+    // The abandoned round answers last and says something else. It must change
+    // nothing: it is the answer to a question that was replaced.
+    await act(async () => {
+      await daemon.settle("agent-first");
+    });
+
+    expect(document.body.textContent ?? "").toContain("agent-second");
+    expect(document.body.textContent ?? "").not.toContain("agent-first");
+  });
+});
+
+describe("agent binding column — what a disabled control says", () => {
+  it("names why the switch actions are not taking a press", async () => {
+    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
+    );
+    await settleReads(bridge);
+
+    editProviderAccount(container, "account-2");
+    await act(async () => {
+      fireEvent.click(currentSwitchActions()[0] as HTMLButtonElement);
+    });
+
+    // Disabled is half the answer: a control that stops responding and says nothing
+    // is indistinguishable from one that is broken.
+    const applyAction = currentSwitchActions()[0] as HTMLButtonElement;
+    expect(applyAction.disabled).toBe(true);
+    const describedBy = applyAction.getAttribute("aria-describedby") ?? "";
+    expect(document.getElementById(describedBy)?.textContent ?? "").toContain(
+      "no second change until the daemon answers the first",
+    );
+  });
+
+  it("negative control: with nothing outstanding the actions are live and describe nothing", async () => {
+    // Without this, the case above would hold for a form that is disabled and
+    // explaining itself in every state, which is a control nobody can ever use.
+    const daemon = new HeldConfigUpdateDaemon([AGENT_ON_CLAUDE]);
+    const bridge = bridgeCalling(daemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId="agent-a" />,
+    );
+    await settleReads(bridge);
+    editProviderAccount(container, "account-2");
+
+    const applyAction = currentSwitchActions()[0] as HTMLButtonElement;
+    expect(applyAction.disabled).toBe(false);
+    expect(applyAction.getAttribute("aria-describedby")).toBeNull();
   });
 });

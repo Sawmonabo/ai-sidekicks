@@ -28,8 +28,9 @@
 // per-agent turn policy for a general channel, and a single other-participant
 // picker for a direct one whose pair is canonicalized before it is sent.
 
+import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
+
 import { Nothing } from "../primitives/index.js";
-import { MAIN_CHANNEL_NAME } from "./constants.js";
 
 /** What a channel's creation fixes, in the order a person meets it. */
 interface CreateTimeDecision {

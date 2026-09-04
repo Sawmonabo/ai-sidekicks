@@ -58,6 +58,7 @@
 // `GrowthInviteSummary` shape the console itself declares — and no event payload is
 // invented for a read nothing performs.
 
+import { MAIN_CHANNEL_NAME } from "@ai-sidekicks/contracts";
 import type { ParticipantId } from "@ai-sidekicks/contracts";
 
 import {
@@ -167,14 +168,18 @@ type CollaborationParticipant = (typeof COLLABORATION_PARTICIPANTS)[number];
  * (`packages/contracts/src/channels.ts`), so this table carries those four members
  * and nothing about audience or kind — the wire has neither, and
  * `collaboration/channel-model.ts` classifies rows from `state` and the bootstrap
- * name alone. The archived row is here because the directory renders live and
- * archived as two regions and a list with no archived row leaves one of them dead.
+ * name alone. That name is taken from `MAIN_CHANNEL_NAME` rather than spelled here:
+ * the value belongs to the producer, and a fixture that wrote the word down would
+ * go on serving the old one after the wire vocabulary moved — teaching the
+ * directory a bootstrap row it would then refuse to lift. The archived row is here
+ * because the directory renders live and archived as two regions and a list with no
+ * archived row leaves one of them dead.
  */
 const COLLABORATION_CHANNELS = [
   {
     channelId: CHANNEL_MAIN,
     eventId: "019b7904-8ce0-7ea1-8150-cca0117a0405",
-    name: "main",
+    name: MAIN_CHANNEL_NAME,
     state: "active",
     participantCount: 4,
   },

@@ -38,7 +38,7 @@
 // intervention on the target run. It is not a sixth run control and the closed run
 // control set does not move.
 
-import { useReducer } from "react";
+import { useId, useReducer } from "react";
 
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
@@ -148,8 +148,10 @@ export interface ProviderSwitchProps {
    *
    * This form owns no latch — the caller performs the call and holds it — but it
    * owes the participant that the controls SAY so: disabled, because a press that
-   * the latch will refuse is not offered silently, and `aria-busy`, because a
-   * screen reader is told the act is under way rather than handed a dead control.
+   * the latch will refuse is not offered silently, `aria-busy`, because a screen
+   * reader is told the act is under way rather than handed a dead control, and a
+   * described REASON, because "busy" says the act is running and not why a second
+   * one is not being taken.
    */
   readonly isSubmitting?: boolean | undefined;
   /** The reply's `switch` member. Its presence is the wire's switch discriminator. */
@@ -160,6 +162,8 @@ export interface ProviderSwitchProps {
 
 export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
   const { agent, catalog } = props;
+  const submittingReasonId = useId();
+  const isSubmitting = props.isSubmitting === true;
   const [draft, editDraft] = useReducer(applyAxisDraftEdit, EMPTY_DRAFT);
   const catalogValue = catalog.kind === "loaded" ? catalog.value : undefined;
 
@@ -270,12 +274,19 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
               one provider — so a move to another has to name an account registered there.
             </p>
           ) : null}
+          {isSubmitting ? (
+            <p className="meridian-switch__driver-move" id={submittingReasonId}>
+              A change to this agent&apos;s binding is already outstanding. Nothing here cancels a
+              request, so these controls take no second change until the daemon answers the first.
+            </p>
+          ) : null}
           <div className="meridian-switch__actions">
             <button
               type="button"
               className="meridian-switch__apply"
-              disabled={heldBack || props.isSubmitting === true}
-              aria-busy={props.isSubmitting === true}
+              disabled={heldBack || isSubmitting}
+              aria-busy={isSubmitting}
+              aria-describedby={isSubmitting ? submittingReasonId : undefined}
               onClick={() => props.onApply(submitted, false)}
             >
               Switch at the next boundary
@@ -283,8 +294,9 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
             <button
               type="button"
               className="meridian-switch__apply"
-              disabled={heldBack || props.isSubmitting === true}
-              aria-busy={props.isSubmitting === true}
+              disabled={heldBack || isSubmitting}
+              aria-busy={isSubmitting}
+              aria-describedby={isSubmitting ? submittingReasonId : undefined}
               onClick={() => props.onApply(submitted, true)}
             >
               Switch now, interrupting the run

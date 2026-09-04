@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import type { AgentAttachReading } from "../../agents/index.js";
-import { MutationAttempt } from "./mutation-attempt.js";
+import { IDLE_MUTATION_ATTEMPT, MutationAttempt } from "./mutation-attempt.js";
 
 const ORIGIN = "mutation-attempt-test";
 
@@ -171,5 +171,78 @@ describe("mutation attempt — the notification", () => {
     unsubscribe();
     attempt.submit(call.perform);
     expect(notificationCount).toBe(2);
+  });
+});
+
+describe("mutation attempt — a superseded round", () => {
+  it("returns to idle and installs nothing when the round is abandoned", async () => {
+    // The holder's subject moved: the projection this reply was read against has
+    // been replaced. The call cannot be stopped, so what has to be true is that
+    // its answer never lands.
+    const call = new HeldAttachCall();
+    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+
+    attempt.submit(call.perform);
+    attempt.supersede();
+    expect(attempt.state).toEqual(IDLE_MUTATION_ATTEMPT);
+
+    await call.settle(attached("agent-scout"));
+
+    expect(attempt.state).toEqual(IDLE_MUTATION_ATTEMPT);
+  });
+
+  it("discards a superseded round's refusal for the same reason", async () => {
+    const call = new HeldAttachCall();
+    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+
+    attempt.submit(call.perform);
+    attempt.supersede();
+    await call.refuseWith(new Error("the transport closed"));
+
+    expect(attempt.state).toEqual(IDLE_MUTATION_ATTEMPT);
+  });
+
+  it("lets the newer settlement stand when the older reply lands last", async () => {
+    // The whole point of releasing the latch safely. Two rounds exist because the
+    // first was abandoned, and their replies arrive in the order the daemon
+    // happened to answer rather than the order they were asked.
+    const first = new HeldAttachCall();
+    const second = new HeldAttachCall();
+    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+
+    attempt.submit(first.perform);
+    attempt.supersede();
+    attempt.submit(second.perform);
+    await second.settle(attached("agent-second"));
+    await first.settle(attached("agent-first"));
+
+    expect(attempt.state).toEqual({ status: "settled", settlement: attached("agent-second") });
+  });
+
+  it("supersedes twice as it supersedes once, and stays usable after", async () => {
+    // A holder supersedes from a teardown, and React invokes an effect twice under
+    // strict mode. Terminal here would leave the second invocation with a dead
+    // latch, so the counter is bumped and nothing else is.
+    const call = new HeldAttachCall();
+    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+
+    attempt.supersede();
+    attempt.supersede();
+
+    expect(attempt.submit(call.perform)).toBe(true);
+    await call.settle(attached("agent-scout"));
+    expect(attempt.state).toEqual({ status: "settled", settlement: attached("agent-scout") });
+  });
+
+  it("negative control: the current round's reply still installs", async () => {
+    // Without this, every case above would hold for an install that discarded
+    // every reply — a control that shows a person's accepted change never.
+    const call = new HeldAttachCall();
+    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+
+    attempt.submit(call.perform);
+    await call.settle(attached("agent-scout"));
+
+    expect(attempt.state).toEqual({ status: "settled", settlement: attached("agent-scout") });
   });
 });

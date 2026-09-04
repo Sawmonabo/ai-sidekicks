@@ -21,6 +21,8 @@
 // interrupt-dispatch progress marker. Both live in the durable slot as recovery
 // inputs and reach no caller at all.
 
+import { useId } from "react";
+
 import { Chip, Nothing, WireFigure } from "../primitives/index.js";
 import { RESOLVED_PROSE_INLINE_CAP, TOOL_ALLOWLIST_NAMED_CAP } from "../core/index.js";
 import { boundaryPhrase } from "./switch-settlement.js";
@@ -45,8 +47,10 @@ export interface AgentCardProps {
    *
    * Detach is durable and shares its caller's latch with the binding switch, so the
    * control is disabled and `aria-busy` while one is in flight: a press the latch
-   * will refuse is not offered silently. Follow and change-binding are navigation
-   * and are unaffected.
+   * will refuse is not offered silently. It also says WHY through
+   * `aria-describedby`, because a disabled control with no reason reads as broken
+   * rather than as busy. Follow and change-binding are navigation and are
+   * unaffected.
    */
   readonly isMutating?: boolean | undefined;
 }
@@ -54,6 +58,8 @@ export interface AgentCardProps {
 export function AgentCard(props: AgentCardProps): React.JSX.Element {
   const { agent } = props;
   const label = agent.name ?? agent.agentId;
+  const mutatingReasonId = useId();
+  const isMutating = props.isMutating === true;
 
   return (
     <article className="meridian-agent-card" aria-label={`Agent ${label}`}>
@@ -123,13 +129,24 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
           <button
             type="button"
             className="meridian-agent-card__action"
-            disabled={props.isMutating === true}
-            aria-busy={props.isMutating === true}
+            disabled={isMutating}
+            aria-busy={isMutating}
+            aria-describedby={isMutating ? mutatingReasonId : undefined}
             onClick={() => props.onDetach?.(agent.agentId)}
           >
             Detach
           </button>
         )}
+        {isMutating ? (
+          // Reached by the control rather than laid out beside it: the actions row
+          // is a row of buttons and this family's stylesheet has no line to put a
+          // sentence on there. The reason is what a person needs, and it is the
+          // control itself that carries them to it.
+          <span className="meridian-visually-hidden" id={mutatingReasonId}>
+            A change to this agent&apos;s binding is already outstanding. Nothing here cancels a
+            request, so this control takes no second change until the daemon answers the first.
+          </span>
+        ) : null}
       </div>
     </article>
   );
