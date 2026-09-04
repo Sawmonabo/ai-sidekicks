@@ -23,6 +23,7 @@
 import {
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
+  type ChannelId,
   type EventCategory,
   type RunId,
   type SessionId,
@@ -149,6 +150,16 @@ export function rollbackBoundaryRow(
      * boundary sits later in the log than the turn it rewound to.
      */
     readonly targetPosition?: number;
+    /**
+     * The channel the boundary's own payload names, which `RunRolledBackEvent`
+     * carries optionally.
+     *
+     * Buildable because it is the one member of this arm that a reader could be
+     * tempted to treat as a channel attribution: the arm is typed rather than open,
+     * so a case has to be able to put a channel on it to prove the row reader does
+     * not see one.
+     */
+    readonly channelId?: string;
   },
 ): TimelineRow {
   return {
@@ -163,6 +174,7 @@ export function rollbackBoundaryRow(
       sessionId: FIXTURE_SESSION_ID,
       runId: input.runId as RunId,
       runVersion: input.runVersion ?? 1,
+      ...(input.channelId === undefined ? {} : { channelId: input.channelId as ChannelId }),
       targetPosition: input.targetPosition ?? input.position,
     },
   };

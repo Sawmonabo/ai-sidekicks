@@ -30,6 +30,7 @@ import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import {
   jumpToEventId,
+  type LedgerJumpAbsence,
   type LedgerJumpOutcome,
   type LedgerJumpStages,
 } from "../../ledger/structure/index.js";
@@ -82,6 +83,19 @@ export function useEventIdJumpOutcome(inputs: {
 }
 
 /**
+ * The row this ledger's current question names, or `undefined` where it names none.
+ *
+ * One expression of it, read by the feed and by the deferred jump alike: the held
+ * request is abandoned when this changes, so a second reading of "which row is
+ * being asked about" would be a second answer to the question that cancels it.
+ */
+export function jumpOutcomeRowId(outcome: LedgerJumpOutcome | undefined): string | undefined {
+  return outcome === undefined || outcome.status === "not-in-loaded-log"
+    ? undefined
+    : outcome.row.id;
+}
+
+/**
  * Hold a jump until the row it names is one the viewport holds, then spend it.
  *
  * ONE REQUEST AT A TIME, last one wins: a second ask is a person having changed
@@ -90,12 +104,29 @@ export function useEventIdJumpOutcome(inputs: {
  * it costs one comparison per reconcile and nothing else, and there is deliberately
  * no timeout, because a deadline here would abandon a jump exactly when a slow
  * widening finally delivered the row.
+ *
+ * AND IT DIES WITH THE QUESTION THAT ASKED IT. A held request used to clear only on
+ * a successful jump or on a replacement, while closing the find field resets the
+ * query and nothing else — so a request whose act never widened the window
+ * outlived the field, and playback reaching that row minutes later scrolled the
+ * ledger away from what somebody was reading with nothing on screen explaining
+ * why. `questionRowId` is the row the ledger is currently being asked about, and a
+ * held request that is no longer about that row is abandoned during render rather
+ * than spent later.
  */
-export function useDeferredRowJump(
-  visibleRows: readonly TimelineRow[],
-  jumpToRow: (rowId: string) => void,
-): (rowId: string) => void {
+export function useDeferredRowJump(inputs: {
+  readonly visibleRows: readonly TimelineRow[];
+  readonly jumpToRow: (rowId: string) => void;
+  /** The row the ledger's current question names — `jumpOutcomeRowId`'s answer. */
+  readonly questionRowId: string | undefined;
+}): (rowId: string) => void {
+  const { visibleRows, jumpToRow, questionRowId } = inputs;
   const [requestedRowId, setRequestedRowId] = useState<string | undefined>(undefined);
+  // Adjusted during render rather than in an effect, so the request is gone before
+  // the effect below could spend it against a window that widened in the same pass.
+  if (requestedRowId !== undefined && requestedRowId !== questionRowId) {
+    setRequestedRowId(undefined);
+  }
   useEffect(() => {
     if (requestedRowId === undefined) {
       return;
@@ -114,11 +145,42 @@ export function useDeferredRowJump(
 }
 
 /**
+ * What one absence has to be told before it can decide on an act.
+ *
+ * The four acts AND the two readings the folded arm consults, in one value: the
+ * table below is keyed by absence and therefore cannot take an argument list per
+ * arm, and passing the six separately would have made every entry declare five
+ * parameters it does not read.
+ */
+interface LedgerJumpActContext {
+  readonly foldedWindow: LedgerWindowModel;
+  readonly openedTerminalRunIds: ReadonlySet<string>;
+  readonly clearFilter: () => void;
+  readonly openChapterOfRow: (row: TimelineRow) => void;
+  readonly endReplay: () => void;
+  readonly requestJump: (rowId: string) => void;
+}
+
+/** How one absence resolves its act, or answers that this ledger offers none. */
+type LedgerJumpAct = (
+  row: TimelineRow,
+  context: LedgerJumpActContext,
+) => LedgerJumpReach | undefined;
+
+/**
  * The act each absence deserves over THIS ledger, or `undefined` where none exists.
  *
- * Resolved per outcome rather than per absence because two of the arms are only
- * conditionally reachable, and offering an act that cannot work is the defect this
- * whole module exists to remove:
+ * A TABLE KEYED BY ABSENCE, `LedgerFeedNotices.tsx`' `JUMP_ABSENCE_WORDS` shape and
+ * for its reason: the two are the same set said twice — what the absence IS, and
+ * what reaches it — and both are total over `LEDGER_JUMP_ABSENCES` by `satisfies`.
+ * This used to be an `if`-chain whose last arm was the chapter fold, so a fifth
+ * narrowing added to the pipeline compiled and fell through to "Open that chapter
+ * and go to it", offering an act that could not reach the row — which is the exact
+ * defect this module exists to remove, reintroduced by the shape of its own
+ * resolution.
+ *
+ * An act is resolved per OUTCOME rather than per absence because two of the arms
+ * are only conditionally reachable:
  *
  *   • A row the fold dropped is reachable by opening its chapter — unless the
  *     chapter is already OPEN and the row sits past the chapter's own row cap, in
@@ -127,6 +189,44 @@ export function useDeferredRowJump(
  *   • A row the cap took is reachable by nothing. This console subscribes to the
  *     log and holds no read that fetches a range of it, so the honest surface is
  *     the sentence alone.
+ */
+const LEDGER_JUMP_ACTS = {
+  "hidden-by-filter": (row, context) => ({
+    label: "Clear the filter and go to it",
+    perform: () => {
+      context.clearFilter();
+      context.requestJump(row.id);
+    },
+  }),
+  "folded-into-chapter": (row, context) => {
+    const chapterRunId = chapterRunIdOf(row, context.foldedWindow);
+    if (chapterRunId === undefined || context.openedTerminalRunIds.has(chapterRunId)) {
+      return undefined;
+    }
+    return {
+      label: "Open that chapter and go to it",
+      perform: () => {
+        context.openChapterOfRow(row);
+        context.requestJump(row.id);
+      },
+    };
+  },
+  "withheld-by-replay": (row, context) => ({
+    label: "Leave the replay and go to it",
+    perform: () => {
+      context.endReplay();
+      context.requestJump(row.id);
+    },
+  }),
+  "outside-window": () => undefined,
+} satisfies Readonly<Record<LedgerJumpAbsence, LedgerJumpAct>>;
+
+/**
+ * The act this ledger offers for one outcome, or `undefined` where it offers none.
+ *
+ * The two non-absence arms answer before the table is consulted, and each for its
+ * own reason rather than for one shared one: a row the viewport is showing needs no
+ * act to reach it, and a row this window never held has none to offer.
  */
 export function useLedgerJumpReach(inputs: {
   readonly outcome: LedgerJumpOutcome | undefined;
@@ -147,42 +247,21 @@ export function useLedgerJumpReach(inputs: {
     requestJump,
   } = inputs;
   return useMemo(() => {
-    if (outcome === undefined || outcome.status === "found") {
+    if (
+      outcome === undefined ||
+      outcome.status === "found" ||
+      outcome.status === "not-in-loaded-log"
+    ) {
       return undefined;
     }
-    if (outcome.status === "not-in-loaded-log" || outcome.status === "outside-window") {
-      return undefined;
-    }
-    const { row } = outcome;
-    if (outcome.status === "hidden-by-filter") {
-      return {
-        label: "Clear the filter and go to it",
-        perform: () => {
-          clearFilter();
-          requestJump(row.id);
-        },
-      };
-    }
-    if (outcome.status === "withheld-by-replay") {
-      return {
-        label: "Leave the replay and go to it",
-        perform: () => {
-          endReplay();
-          requestJump(row.id);
-        },
-      };
-    }
-    const chapterRunId = chapterRunIdOf(row, foldedWindow);
-    if (chapterRunId === undefined || openedTerminalRunIds.has(chapterRunId)) {
-      return undefined;
-    }
-    return {
-      label: "Open that chapter and go to it",
-      perform: () => {
-        openChapterOfRow(row);
-        requestJump(row.id);
-      },
-    };
+    return LEDGER_JUMP_ACTS[outcome.status](outcome.row, {
+      foldedWindow,
+      openedTerminalRunIds,
+      clearFilter,
+      openChapterOfRow,
+      endReplay,
+      requestJump,
+    });
   }, [
     outcome,
     foldedWindow,

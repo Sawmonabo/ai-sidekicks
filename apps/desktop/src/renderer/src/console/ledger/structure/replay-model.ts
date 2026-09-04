@@ -208,14 +208,23 @@ export class ReplayEngine {
    * first: the
    * clamp is the enforcement, and a caller that wants more window asks the ledger
    * to load earlier rows first.
+   *
+   * AND `at-tail` IS A PROPERTY OF THE POSITION RATHER THAN OF HOW IT WAS REACHED.
+   * It used to be reachable only by ADVANCING into it, so a scrub to the very end —
+   * the dock's slider dragged all the way right, a "replay from here" landing on the
+   * window's last row, or a walk re-minted at the end after a chapter disclosure —
+   * settled `paused`, and the dock then offered to resume a replay with nothing left
+   * to play. The two states offer different next moves, which is the whole reason
+   * they are separate, so deciding between them from the position is the only way
+   * the offer can be right.
+   *
+   * A PLAYING REPLAY IS LEFT PLAYING. Its own next frame settles it at the tail, and
+   * flipping the state here would strand the armed frame this engine has out.
    */
   public scrubTo(elapsedMs: number): void {
     this.#elapsedMs = Math.min(Math.max(0, elapsedMs), this.#spanMs);
-    if (this.#state === "idle") {
-      this.#state = "paused";
-    }
-    if (this.#state === "at-tail" && this.#elapsedMs < this.#spanMs) {
-      this.#state = "paused";
+    if (this.#state !== "playing") {
+      this.#state = this.#elapsedMs >= this.#spanMs ? "at-tail" : "paused";
     }
     this.#notify();
   }

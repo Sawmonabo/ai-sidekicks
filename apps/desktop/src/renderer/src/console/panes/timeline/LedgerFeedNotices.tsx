@@ -12,6 +12,7 @@
 // ONE row rather than a count, can say which of the four is hiding it.
 
 import { Nothing } from "../../primitives/index.js";
+import { type LedgerScope } from "../../ledger/frame/index.js";
 import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "../../ledger/structure/index.js";
 import { type LedgerJumpReach } from "./ledger-jump.js";
 
@@ -30,8 +31,14 @@ const JUMP_ABSENCE_WORDS = {
     detail: "is in this window, but the current narrowing does not admit it.",
   },
   "folded-into-chapter": {
-    title: "That entry is inside a chapter this window is not showing.",
-    detail: "belongs to a run whose rows are folded away behind their chapter.",
+    // TRUE OF BOTH WAYS A CHAPTER WITHHOLDS A ROW, which is what the previous
+    // wording was not: it said the run's rows were "folded away behind their
+    // chapter", and this arm also fires for a chapter that is OPEN — the arm with
+    // no act — where the row sits past the ceiling the chapter draws at once.
+    // Naming only the fold told somebody to open a chapter that was already open.
+    title: "That entry is inside a chapter that is not showing it.",
+    detail:
+      "belongs to a run whose chapter is folded shut, or is open and holds more entries than it draws at once.",
   },
   "withheld-by-replay": {
     title: "That entry is behind the replay position.",
@@ -187,6 +194,47 @@ export function LedgerMatchesNotYetReplayedNotice(props: {
   );
 }
 
+/**
+ * The two absences that are facts about the SESSION however the pane is scoped.
+ *
+ * WHY THEY ARE NOT COUNTED PER CHANNEL. Both are measured before a channel scope
+ * can apply, and neither could be scoped afterwards without inventing an answer:
+ * an event whose type this build does not recognise is projected into no row, so
+ * there is nothing carrying a channel to count it under, and a numbered entry the
+ * store never received names nothing at all. A channel pane therefore says whose
+ * fact it is instead of implying the channel's — which is what it did, by printing
+ * the session's counts under a header naming one channel.
+ *
+ * The other two absences below are already the channel's: the cap and the replay
+ * position both act on the scoped window, so their figures need no scoping and no
+ * second wording.
+ */
+interface LedgerSessionWideAbsenceWords {
+  readonly unrecognisedTitle: string;
+  readonly unrecognisedDetail: (count: number) => string;
+  readonly unreceivedTitle: string;
+  readonly unreceivedDetail: string;
+}
+
+const SESSION_WIDE_ABSENCE_WORDS = {
+  session: {
+    unrecognisedTitle: "Some entries could not be placed.",
+    unrecognisedDetail: (count: number) =>
+      `${String(count)} event${count === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown.`,
+    unreceivedTitle: "Some entries never arrived.",
+    unreceivedDetail:
+      "The session numbered entries this window did not receive. They come back only when the whole session is read again, which the store asks for on its own; no read here fetches a range.",
+  },
+  channel: {
+    unrecognisedTitle: "Some of the session's entries could not be placed.",
+    unrecognisedDetail: (count: number) =>
+      `${String(count)} event${count === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown. An entry it cannot place names no channel either, so the count is the session's rather than this channel's.`,
+    unreceivedTitle: "Some of the session's entries never arrived.",
+    unreceivedDetail:
+      "The session numbered entries this window did not receive, and a numbered entry that never arrived names no channel — so this is the session's gap rather than this channel's. They come back only when the whole session is read again, which the store asks for on its own; no read here fetches a range.",
+  },
+} satisfies Readonly<Record<LedgerScope, LedgerSessionWideAbsenceWords>>;
+
 interface LedgerWindowAbsencesProps {
   /** Events the contract package registers no category for. */
   readonly unprojectableEventCount: number;
@@ -196,6 +244,8 @@ interface LedgerWindowAbsencesProps {
   readonly withheldByReplayRowCount: number;
   /** The store recorded sequences it never received. */
   readonly hasUnreceivedEntries: boolean;
+  /** What this ledger is a log of — whose absence the first and last are. */
+  readonly scope: LedgerScope;
 }
 
 /**
@@ -223,14 +273,15 @@ export function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JS
   ) {
     return null;
   }
+  const words = SESSION_WIDE_ABSENCE_WORDS[props.scope];
   return (
     <>
       {props.unprojectableEventCount === 0 ? null : (
         <Nothing
           kind="not-checked"
           placement="surface"
-          title="Some entries could not be placed."
-          detail={`${String(props.unprojectableEventCount)} event${props.unprojectableEventCount === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown.`}
+          title={words.unrecognisedTitle}
+          detail={words.unrecognisedDetail(props.unprojectableEventCount)}
         />
       )}
       {props.droppedRowCount === 0 ? null : (
@@ -253,8 +304,8 @@ export function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JS
         <Nothing
           kind="not-loaded"
           placement="surface"
-          title="Some entries never arrived."
-          detail="The session numbered entries this window did not receive. They come back only when the whole session is read again, which the store asks for on its own; no read here fetches a range."
+          title={words.unreceivedTitle}
+          detail={words.unreceivedDetail}
         />
       ) : null}
     </>

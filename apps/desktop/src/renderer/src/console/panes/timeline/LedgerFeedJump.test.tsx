@@ -93,12 +93,12 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     const feed = renderFeed(openSessionStoreWithFoldedMessageChapter());
 
     typeIntoFind(feed, projectedRowId(SESSION_ID, 1));
-    expect(feed.textContent).toContain("inside a chapter this window is not showing");
+    expect(feed.textContent).toContain("inside a chapter that is not showing it");
     expect(feed.textContent).not.toContain("hidden by the filter");
 
     pressJumpAction(feed);
 
-    expect(feed.textContent).not.toContain("inside a chapter this window is not showing");
+    expect(feed.textContent).not.toContain("inside a chapter that is not showing it");
     expect(jumpActionLabel(feed)).toBe(REACHED);
   });
 
@@ -133,6 +133,29 @@ describe("the ledger's jump by event id — which narrowing is hiding the row", 
     expect(feed.textContent).toContain("no longer in this window");
     expect(feed.textContent).not.toContain("hidden by the filter");
     expect(feed.querySelector(JUMP_ACTION)).toBeNull();
+  });
+
+  it("scrolls to the row once the act it offered has widened the window", () => {
+    // The act cannot jump — every one of them widens the window on the NEXT render,
+    // and `jumpToRow` reads the snapshot of the render it was built in — so the
+    // request is held and spent when the row is one the viewport holds. Nothing
+    // asserted that the held request is ever spent through the real binding: the
+    // three cases above pass with the deferred jump a no-op.
+    withLaidOutViewport();
+    const feed = renderFeed(openSessionStoreWithLog(REPLAY_LOG_EVENT_COUNT));
+    const scrub = feed.querySelector<HTMLInputElement>(".meridian-replay__scrub");
+    fireEvent.change(scrub as HTMLInputElement, {
+      target: { value: String(SCRUB_TO_FIFTH_ROW_MS) },
+    });
+    const surface = feed.querySelector<HTMLElement>(".meridian-ledger-viewport__surface");
+    typeIntoFind(feed, projectedRowId(SESSION_ID, REPLAY_LOG_EVENT_COUNT - 1));
+    // The widening alone moves nothing, which is what makes the reading below the
+    // held request being spent rather than a side effect of the act.
+    expect(surface?.scrollTop).toBe(0);
+
+    pressJumpAction(feed);
+
+    expect(surface?.scrollTop).toBeGreaterThan(0);
   });
 
   it("negative control: an ordinary text query says nothing at all", () => {

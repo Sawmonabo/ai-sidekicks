@@ -24,9 +24,12 @@ import type {
   AssistantOutputPayload,
   ChannelCreatedEvent,
   EventCategory,
+  RunRolledBackEvent,
   TimelineRow,
   ToolActivityPayload,
 } from "@ai-sidekicks/contracts";
+
+import { projectedPayload, readWireString } from "../cards/wire-payload.js";
 
 /**
  * What a person has narrowed the ledger to.
@@ -155,30 +158,35 @@ export function narrowLedgerRows(
 /**
  * The payload member that names a row's channel.
  *
- * Wire truth, checked against the shapes that carry it rather than asserted: the
- * three registered payloads with a channel — the assistant pair, the tool trio, and
- * `channel.created` — all spell it this way, and `satisfies` makes a rename in the
- * contracts a compile error here instead of a pane that silently shows nothing.
+ * Wire truth, checked against the shapes that carry it rather than asserted, and
+ * counted rather than remembered: FOUR payload shapes in the contracts package
+ * spell a channel — the assistant pair, the tool trio, `channel.created`, and
+ * `run.rolled_back` — and the intersection holds all four, so a rename in the
+ * contracts is a compile error here instead of a pane that silently shows nothing.
+ * The queue family names one on the wire too and this package registers no payload
+ * type for it, so `satisfies` cannot pin that spelling; it is read like every other
+ * open member below, and a rename there would be caught by nothing here.
  */
 const CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER = "channelId" satisfies keyof AssistantOutputPayload &
   keyof ToolActivityPayload &
-  keyof ChannelCreatedEvent["payload"];
+  keyof ChannelCreatedEvent["payload"] &
+  keyof RunRolledBackEvent;
 
 /**
  * The channel a row belongs to, or `undefined` where its payload names none.
  *
- * The payload is an open record by contract, so the member is read and narrowed
- * rather than trusted — the same treatment the projection gives the run key.
+ * READ THROUGH THE PAYLOAD READER THAT OWNS THE ARMS, never off `row.payload`
+ * directly. Three of the four `TimelineRow` arms carry an open record and the
+ * fourth, `rollback_boundary`, carries the TYPED `run.rolled_back` event — which
+ * has a `channelId?` of its own. A hand-rolled cast to a bag therefore read it, and
+ * a boundary of run X carrying channel B claimed run X into channel B: B's pane
+ * rendered X's chapter, X's receipt and X's boundary with none of X's prose.
+ * `projectedPayload` answers the empty record for that arm, which is the whole
+ * reason it exists, so a boundary names no channel here and rides in only with the
+ * run its own second pass admits.
  */
 export function channelIdOfRow(row: TimelineRow): string | undefined {
-  const payload: unknown = row.payload;
-  if (typeof payload !== "object" || payload === null) {
-    return undefined;
-  }
-  const candidate: unknown = (payload as Record<string, unknown>)[
-    CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER
-  ];
-  return typeof candidate === "string" && candidate.length > 0 ? candidate : undefined;
+  return readWireString(projectedPayload(row), CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER);
 }
 
 /**
@@ -190,13 +198,15 @@ export function channelIdOfRow(row: TimelineRow): string | undefined {
  * screen whose release turns a channel pane into a session pane while the header
  * still names the channel.
  *
- * TWO PASSES, AND THE SECOND IS WHY THIS IS NOT ONE PREDICATE. Only the assistant
- * pair, the tool trio and `channel.created` carry a channel at all; a run's own
- * lifecycle rows — including the rollback boundaries — name none. Admitting on the
- * member alone would therefore take a channel's prose and leave behind the run
- * that produced it: no chapter to fold it into, no receipt saying how the run
- * ended, no boundary marking the rows a rewind superseded, and a rail drawn over a
- * window with no runs in it.
+ * TWO PASSES, AND THE SECOND IS WHY THIS IS NOT ONE PREDICATE. Of the shapes a
+ * projected row can carry, only the assistant pair, the tool trio and
+ * `channel.created` name a channel THIS READER CAN SEE: a run's own lifecycle rows
+ * name none, and the rollback boundary's typed payload names one the row reader
+ * deliberately cannot reach — see `channelIdOfRow`. Admitting on the member alone
+ * would therefore take a channel's prose and leave behind the run that produced it:
+ * no chapter to fold it into, no receipt saying how the run ended, no boundary
+ * marking the rows a rewind superseded, and a rail drawn over a window with no runs
+ * in it.
  *
  * So a run is CLAIMED by the channels its rows name, and a claimed run's
  * channel-less rows ride in with it. A row naming a DIFFERENT channel never does,

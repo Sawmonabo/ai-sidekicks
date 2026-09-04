@@ -96,6 +96,9 @@ function BoundLedgerViewport(props: BoundLedgerViewportProps): React.JSX.Element
   });
   return (
     <LedgerViewport
+      // Every case here drives a session log; the channel arm's own sentence is
+      // asserted where a channel pane is composed, in `TimelinePane.test.tsx`.
+      scope="session"
       binding={binding}
       renderRow={props.renderRow}
       feedLabel={props.feedLabel}

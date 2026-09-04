@@ -48,6 +48,36 @@ import type { LedgerViewportRow, LedgerViewportSnapshot } from "./viewport-snaps
 /** How a row body is drawn. Supplied by whoever owns the row vocabulary. */
 export type LedgerRowRenderer = (row: LedgerViewportRow) => React.ReactNode;
 
+/**
+ * What a ledger is a log OF — the one thing an empty window's sentence turns on.
+ *
+ * DECLARED HERE BECAUSE THIS IS THE LOWEST CONSUMER, and every surface above
+ * derives from this union rather than re-spelling the two words: the feed's
+ * absences say the same thing about the same two subjects, and two unions would
+ * drift the day a third scope exists.
+ */
+export type LedgerScope = "session" | "channel";
+
+/**
+ * What an empty window says, per scope.
+ *
+ * "Nothing has happened in this session yet" over a CHANNEL pane is false about the
+ * session and says so with the session's own name: the pane is a log of one channel
+ * and the session it belongs to may be busy. Total over the scope by `satisfies`,
+ * the `LedgerFeedNotices.tsx` shape, so a third scope is a compile error here rather
+ * than a pane that borrows one of these two sentences.
+ */
+const EMPTY_LEDGER_WORDS = {
+  session: {
+    title: "Nothing has happened in this session yet.",
+    detail: "Entries appear here as people and agents work.",
+  },
+  channel: {
+    title: "Nothing has happened in this channel yet.",
+    detail: "Entries appear here as people and agents work in it.",
+  },
+} as const satisfies Readonly<Record<LedgerScope, { title: string; detail: string }>>;
+
 export interface LedgerViewportProps {
   /**
    * The caller's binding — the one this ledger has.
@@ -65,6 +95,12 @@ export interface LedgerViewportProps {
   readonly renderRow: LedgerRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
+  /**
+   * What this ledger is a log of. REQUIRED, so a caller decides rather than
+   * inherits: the empty sentence below is a claim about a subject, and defaulting
+   * it to the session is how a channel pane came to say the session was empty.
+   */
+  readonly scope: LedgerScope;
   /** A turn is mid-flight — the same value the caller reconciled the binding with. */
   readonly hasActiveTurn?: boolean;
   readonly errorEntries?: readonly LedgerErrorEntry[];
@@ -123,8 +159,8 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
           <Nothing
             kind="empty"
             placement="surface"
-            title="Nothing has happened in this session yet."
-            detail="Entries appear here as people and agents work."
+            title={EMPTY_LEDGER_WORDS[props.scope].title}
+            detail={EMPTY_LEDGER_WORDS[props.scope].detail}
           />
         ) : null}
         <LedgerWindowNotices binding={binding} />
