@@ -294,6 +294,10 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     frameStore,
     sessionStore,
     sessionStoreRegistry,
+    // The same board the composition above registered every family's bodies into, so
+    // a surface that opens a pane resolves it from the board this window was composed
+    // with rather than from whichever one a module happened to reach for.
+    paneRegistry: consolePaneRegistry,
     uiStateStore,
     draftStore,
   };

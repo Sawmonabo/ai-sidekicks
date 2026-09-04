@@ -30,8 +30,17 @@
 // clock's loading window, and the two non-arrival refusals a real read has. The
 // engine matches a reply on the call name alone, so there is one reply per call and a
 // second for the same call is a wire-truth defect precisely because it could never be
-// served — which is why `workflow.runRead` answers with the parked run, the one run a
-// run pane opens, while `workflow.runList` answers with all four.
+// served.
+//
+// THE TWO SNAPSHOT READS ARE ANSWERED PER REQUEST, and that is what makes the four
+// runs openable. One reply per call and a FIXED value in it meant `workflow.runRead`
+// answered with the parked run whatever it was asked — held to that run by the port's
+// own scope check, so the destination listed four runs as openable and three of them
+// refused `workflow.not_found` against a list this same fixture had just served. The
+// reply is a `resultFor` instead, which is the seam's own request-keyed shape: it
+// picks the snapshot out of the very table the enumeration is built from, so a listed
+// run and a read run are one object and cannot come apart. A run this fixture holds no
+// snapshot for still refuses, through the one constructor the scope module owns.
 //
 // The two differ in what the corpus registers, and that difference is on the slate
 // rather than in this file: the run READ is one of the thirteen registered workflow
@@ -81,8 +90,14 @@ import {
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
 } from "./workflow-fixture-phase-outputs.js";
 import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
+import { workflowSubjectNotFound } from "../fixture-workflow-scope.js";
 import type { ConsoleScenario } from "../scenario.js";
-import type { WorkflowDefinitionSummary, WorkflowRunListEntry } from "../workflow-projection.js";
+import { readUnknownStringMember } from "../unknown-member.js";
+import type {
+  WorkflowDefinitionSummary,
+  WorkflowRunListEntry,
+  WorkflowRunSnapshot,
+} from "../workflow-projection.js";
 
 export const WORKFLOWS_SCENARIO_ID = "workflows";
 
@@ -151,6 +166,64 @@ function runListEntries(): readonly WorkflowRunListEntry[] {
       definitionLatestWorkflowVersionId: definition.latestWorkflowVersionId,
     };
   });
+}
+
+/**
+ * The snapshot this scenario answers `workflow.runRead` with, for the run asked about.
+ *
+ * Read out of `WORKFLOWS_SCENARIO_RUNS`, which is the same table `runListEntries`
+ * widens into the enumeration — so every run the destination lists is a run the pane
+ * can open, and the snapshot it opens on IS the row that was listed rather than a
+ * second copy that agrees today.
+ *
+ * The two absences are two facts. A call carrying no run at all is the growth port's
+ * request-less probe, and `undefined` settles it exactly as an unscripted call settles
+ * — the seam's own rule for a computed reply asked about nothing. A call naming a run
+ * this fixture holds no snapshot for is a read the daemon would refuse, so it refuses,
+ * with the code and sentence `fixture-workflow-scope.ts` owns for every workflow
+ * subject a scenario cannot answer for.
+ */
+function runSnapshotFor(request: unknown): WorkflowRunSnapshot | undefined {
+  const requestedRunId = readUnknownStringMember(request, "workflowRunId");
+  if (requestedRunId === undefined) {
+    return undefined;
+  }
+  const run = WORKFLOWS_SCENARIO_RUNS.find(
+    (candidate) => candidate.workflowRunId === requestedRunId,
+  );
+  if (run === undefined) {
+    throw workflowSubjectNotFound("run", requestedRunId);
+  }
+  return run;
+}
+
+/**
+ * The outputs this scenario answers `workflow.phaseOutputRead` with, for both of the
+ * identifiers that read is addressed by.
+ *
+ * Computed for the run read's reason and pinned rather than tabled: these outputs
+ * belong to ONE finished phase of ONE run, so a read naming another run would report
+ * that run as having produced them. It was the run read's fixed value that used to pin
+ * this — the port held both reads to the one run that reply named — and a run read
+ * answering four runs can no longer stand in for a pin only this reply knows.
+ */
+function phaseOutputsFor(request: unknown): unknown {
+  const requestedRunId = readUnknownStringMember(request, "workflowRunId");
+  const requestedPhaseId = readUnknownStringMember(request, "phaseId");
+  if (requestedRunId === undefined || requestedPhaseId === undefined) {
+    return undefined;
+  }
+  if (requestedRunId !== WORKFLOWS_PARKED_RUN.workflowRunId) {
+    throw workflowSubjectNotFound("run", requestedRunId);
+  }
+  if (requestedPhaseId !== WORKFLOWS_COMPLETED_PHASE_ID) {
+    throw workflowSubjectNotFound("phase", requestedPhaseId);
+  }
+  return {
+    phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+    state: "completed",
+    outputs: WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
+  };
 }
 
 /** The sequence the first `agent.attached` beat takes. One beat precedes it. */
@@ -336,19 +409,20 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
       result: { runs: runListEntries() },
     },
     {
+      // Answered per requested run, out of the same table the enumeration above is
+      // built from — so opening any of the four runs the destination lists reads that
+      // run's own phases, parks and start, and a run this fixture does not hold
+      // refuses rather than being answered with somebody else's snapshot.
       call: "workflow.runRead",
-      result: WORKFLOWS_PARKED_RUN,
+      resultFor: runSnapshotFor,
     },
     {
-      // The finished phase of that same run. A phase output is addressable once the
+      // The finished phase of the parked run. A phase output is addressable once the
       // phase completes and stays addressable on a failed or cancelled run, which is
-      // why this answers for the completed phase rather than a parked one.
+      // why this answers for the completed phase rather than a parked one — and why
+      // it is pinned to the one run whose work these outputs are.
       call: "workflow.phaseOutputRead",
-      result: {
-        phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
-        state: "completed",
-        outputs: WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
-      },
+      resultFor: phaseOutputsFor,
     },
   ],
 };

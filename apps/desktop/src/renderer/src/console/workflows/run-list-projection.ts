@@ -32,11 +32,20 @@
 // TWO COMPARISONS, TWO DIRECTIONS, AND NO SHARED SENTINEL. Both orderings below read
 // an RFC 3339 string a daemon sent, and each has to say what an UNPARSEABLE one means
 // — but they mean opposite things, so one sentinel cannot serve both. The run sort is
-// DESCENDING, and an unreadable `startedAt` floors to negative infinity, which puts
-// that run last inside its band. The earliest-resume pick is ASCENDING, and the same
-// floor would have made an unreadable `autoResumeAt` beat every real one, so the row
-// would report a resume nobody can read in place of the one that is actually next. An
-// unreadable resume instant is therefore not compared at all.
+// DESCENDING, and an unreadable `startedAt` takes a fixed position last inside its
+// band. A POSITION rather than a numeric floor: two floors subtract to `NaN`, and a
+// comparator answering `NaN` leaves the pair in whatever order the enumeration
+// supplied. The earliest-resume pick is ASCENDING, and a floor would have made an
+// unreadable `autoResumeAt` beat every real one, so the row would report a resume
+// nobody can read in place of the one that is actually next. An unreadable resume
+// instant is therefore not compared at all.
+//
+// AND THE SORT ENDS ON THE RUN'S OWN IDENTITY. Band, then start, then `workflowRunId`
+// — because the first two both admit ties (two runs started in the same millisecond,
+// two unreadable starts) and a comparator that answers zero hands the pair back in
+// enumeration order. A list is read twice, from two responses that need not enumerate
+// alike, so a tie-break on nothing is a list whose rows move under a person between
+// one read and the next.
 //
 // THE CLASSIFICATION RIDES THE PARKED PHASE, NOT THE ROW. Whether a park resumes
 // itself is `run-list-rows.ts`'s three-arm `WorkflowParkSchedule`, attached to each
@@ -134,15 +143,56 @@ export interface WorkflowRunListRow {
   readonly attentionBand: WorkflowRunAttentionBand;
 }
 
+/** One row beside the reading of its own start, so the sort parses each run once. */
+interface SortableRunRow {
+  readonly row: WorkflowRunListRow;
+  /** The run's start in milliseconds, or nothing where the wire's value is not one. */
+  readonly startedAtMilliseconds: number | undefined;
+}
+
 /**
- * The key the run sort orders by, newest first, with an unreadable start LAST.
+ * Newest first, with an unreadable start LAST — and never a subtraction of two floors.
  *
- * The sort is descending, so the floor is what sends an unreadable start to the
- * bottom of its band — where a run nothing can be said about belongs, under every run
- * that carries a legible start.
+ * An unreadable start takes a FIXED POSITION rather than a numeric floor, which is the
+ * whole of this function. Floored to negative infinity and subtracted, two unreadable
+ * starts give `-Infinity - -Infinity`, which is `NaN` — and a comparator that answers
+ * `NaN` is one `Array.prototype.sort` may read as "equal" or as anything else it
+ * likes. Two runs neither of whose starts parse would then hold whatever order the
+ * enumeration happened to supply, which is the opposite of the claim the sort makes.
+ *
+ * Below every legible start, because a run nothing can be said about belongs under
+ * every run that carries a start a person can read.
  */
-function startedAtDescendingKey(run: WorkflowRunSnapshot): number {
-  return instantMilliseconds(run.startedAt) ?? Number.NEGATIVE_INFINITY;
+function startedAtDescending(left: SortableRunRow, right: SortableRunRow): number {
+  const leftMilliseconds = left.startedAtMilliseconds;
+  const rightMilliseconds = right.startedAtMilliseconds;
+  if (leftMilliseconds === undefined || rightMilliseconds === undefined) {
+    if (leftMilliseconds === rightMilliseconds) {
+      return 0;
+    }
+    return leftMilliseconds === undefined ? 1 : -1;
+  }
+  return rightMilliseconds - leftMilliseconds;
+}
+
+/**
+ * The tie-break, and the reason the ordering is a property rather than a hope.
+ *
+ * `workflowRunId` is the run's own identity, so two rows compare equal here only when
+ * they are the same run — and a list that held one run twice would be a fixture or a
+ * daemon defect rather than an ordering question. Compared by code unit rather than
+ * through `localeCompare`, because the order has to be the same on every host: a
+ * locale-sensitive collation of opaque identifiers would put two operators' lists in
+ * different orders and make a screenshot reference a fact about the machine that took
+ * it.
+ */
+function workflowRunIdAscending(left: SortableRunRow, right: SortableRunRow): number {
+  const leftRunId = left.row.run.workflowRunId;
+  const rightRunId = right.row.run.workflowRunId;
+  if (leftRunId === rightRunId) {
+    return 0;
+  }
+  return leftRunId < rightRunId ? -1 : 1;
 }
 
 /** The band a run belongs to, decided by its parks first and its status second. */
@@ -221,18 +271,33 @@ export class RunListProjection {
 
   public constructor(runs: readonly WorkflowRunSnapshot[]) {
     this.#rows = runs
-      .map((run) => projectRun(run))
+      // The start is read ONCE per run rather than once per comparison. A key function
+      // called from inside the comparator parses the same string on the order of `n
+      // log n` occasions and — the reason that matters here — gives the sort a place
+      // to disagree with itself if the reading ever stopped being a pure function of
+      // the string.
+      .map((run) => ({
+        row: projectRun(run),
+        startedAtMilliseconds: instantMilliseconds(run.startedAt),
+      }))
       .sort((left, right) => {
         const bandDelta =
-          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(left.attentionBand) -
-          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(right.attentionBand);
+          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(left.row.attentionBand) -
+          WORKFLOW_RUN_ATTENTION_BANDS.indexOf(right.row.attentionBand);
+        if (bandDelta !== 0) {
+          return bandDelta;
+        }
         // Newest first inside a band: a run started a minute ago is the one an
-        // operator scanning a band is looking for, and a stable secondary key keeps
-        // two runs from swapping places between renders.
-        return bandDelta !== 0
-          ? bandDelta
-          : startedAtDescendingKey(right.run) - startedAtDescendingKey(left.run);
-      });
+        // operator scanning a band is looking for.
+        const startDelta = startedAtDescending(left, right);
+        // And then the run's own id, which is what makes the claim above TRUE rather
+        // than usually true. Two runs started in the same millisecond, and two whose
+        // starts are both unreadable, compare equal on every key before this one — so
+        // without it the list held whatever order the enumeration supplied, and a
+        // later read that supplied them the other way round swapped them on screen.
+        return startDelta !== 0 ? startDelta : workflowRunIdAscending(left, right);
+      })
+      .map(({ row }) => row);
   }
 
   /** Every row, attention first and newest first inside a band. */

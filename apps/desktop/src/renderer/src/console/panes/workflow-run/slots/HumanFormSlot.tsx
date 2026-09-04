@@ -6,9 +6,15 @@
 // not author one. THE SHELL DIES IN THE PLAN-017 TASK THAT MOUNTS THE BODY, in the
 // same PR as the mount.
 //
-// WHAT THE MOUNT OWES, AS A TYPE. Two things the mounting pane knows and the body
-// must not re-derive:
+// WHAT THE MOUNT OWES, AS A TYPE. Three things the mounting pane knows and the body
+// must not re-derive, and together they are exactly what the registered submit is
+// addressed by — a mount the body cannot compose `workflowHumanFormSubmit` out of is
+// a seat that hands over a form nobody can send:
 //
+//   • **The run**, verbatim as the pane was addressed by it. The registered request
+//     takes `workflowRunId` beside the phase, and `phaseRunId` is opaque and
+//     non-reversible, so a body handed only the phase run would have to go looking
+//     for the run through a read the console does not have.
 //   • **The phase reference**, so the body reads its own prompt and schema rather
 //     than being handed a rendered form.
 //   • **The optimistic-concurrency token**, passed through verbatim. It is `0`
@@ -40,6 +46,15 @@ import { WORKFLOW_HUMAN_FORM_SLOT } from "../../../workflows/owner-slots.js";
 
 /** The phase whose form is open, as the mounting pane resolved it. */
 export interface HumanFormMount {
+  /**
+   * The run this phase belongs to, wire-verbatim, as the submit is addressed by it.
+   *
+   * Read off the SNAPSHOT the phases came from rather than off the pane's address, so
+   * the run and the phases in one mount are always the same answer: a pane retargeted
+   * mid-read would otherwise pair the new run's id with the old run's phases, and the
+   * submit composed from it would carry a phase that run never had.
+   */
+  readonly workflowRunId: string;
   /** The phase run whose form this is. Opaque and wire-verbatim. */
   readonly phaseRunId: string;
   /** The phase the form belongs to, for the deep link a park banner offers. */

@@ -66,7 +66,6 @@
 // resolution and the phase-output read are not: no scenario settles a workflow
 // mutation, so those still render a refusal and call nothing.
 
-import type { WorkflowPhaseState } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
 import { ChatStartSlot } from "../../workflows/ChatStartSlot.js";
 import { WorkflowChrome } from "../../workflows/WorkflowChrome.js";
@@ -84,15 +83,6 @@ import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 /** The surface's name and its one-line purpose, written once for both arms. */
 const HEADING = "Workflow run";
 const SUMMARY = "One run's state, its phases, and why anything is parked.";
-
-/**
- * The phase list an unserved read has, which is none.
- *
- * A module constant rather than a literal at the call site, so the selection hook is
- * handed one array identity across every render that has no snapshot instead of a
- * fresh empty one each pass.
- */
-const EMPTY_PHASES: readonly WorkflowPhaseState[] = [];
 
 export interface WorkflowRunPaneProps {
   readonly context: ConsolePaneContext;
@@ -120,8 +110,14 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
   // Called before the absent arms return, for the same reason the read is: a hook may
   // not sit behind a branch. With no snapshot served there is no wait to select and the
   // selection resolves to nothing, which is what the arms below already render.
+  //
+  // The whole SNAPSHOT rather than its phases, because a form mount carries the run
+  // the submit is addressed by beside the phase it was composed against, and the two
+  // have to be the same answer. Handed `entity.id` separately, a pane retargeted
+  // mid-read would pair the newly addressed run with the phases still on screen from
+  // the run before it.
   const humanForms = useHumanFormSelection(
-    snapshot.status === "served" ? snapshot.snapshot.phaseStates : EMPTY_PHASES,
+    snapshot.status === "served" ? snapshot.snapshot : undefined,
   );
 
   if (entity === undefined) {

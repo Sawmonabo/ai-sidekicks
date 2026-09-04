@@ -12,16 +12,28 @@
 // The scope is read OUT OF THE REPLIES rather than restated beside them, so a
 // scenario that re-points either read cannot leave a stale id behind for a request to
 // be validated against.
+//
+// AND IT IS ONLY A FIXED REPLY THAT NEEDS HOLDING. A `ScenarioComputedReply` is handed
+// the request and picks its own answer, so it already answers per subject and there is
+// nothing here to hold it to — the derivation below finds no declared id on such a
+// reply and the port's check passes through. That is not a gap: a computed reply that
+// holds no snapshot for a requested subject refuses with the constructor this module
+// exports, so the refusal a caller meets is the same one either way. Which of the two
+// mechanisms is in play is a property of the REPLY SHAPE and never of the call.
 
 import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 import type { ConsoleScenario } from "./scenario.js";
+import { readUnknownStringMember } from "./unknown-member.js";
 
 /**
- * The workflow identifiers one scenario's script can answer for.
+ * The workflow identifiers one scenario's FIXED replies can answer for.
  *
- * `undefined` on a member means the scenario scripts that read not at all. There is
- * then nothing to hold a request to, and the port's unscripted arm answers — which is
- * the refusal both snapshot reads already take.
+ * `undefined` on a member means there is nothing here to hold a request to, and it
+ * covers the two ways that happens: the scenario scripts that read not at all, or it
+ * scripts it as a computed reply that scopes itself. In the first case the port's
+ * unscripted arm answers — the refusal both snapshot reads already take — and in the
+ * second the computed reply answers, refusing an unheld subject with
+ * `workflowSubjectNotFound` below.
  */
 export interface DeclaredWorkflowScope {
   readonly snapshotRunId: string | undefined;
@@ -34,8 +46,8 @@ export function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkfl
     (reply) => reply.call === "workflow.phaseOutputRead",
   );
   return {
-    snapshotRunId: readStringMember(runRead?.result, "workflowRunId"),
-    phaseOutputPhaseId: readStringMember(phaseOutputRead?.result, "phaseId"),
+    snapshotRunId: readUnknownStringMember(runRead?.result, "workflowRunId"),
+    phaseOutputPhaseId: readUnknownStringMember(phaseOutputRead?.result, "phaseId"),
   };
 }
 
@@ -43,21 +55,40 @@ export function declaredWorkflowScope(scenario: ConsoleScenario): DeclaredWorkfl
 export type WorkflowSubjectKind = "run" | "phase";
 
 /**
- * Refuse a run or a phase this scenario projects nothing for.
+ * The refusal for a workflow subject a scenario holds nothing for.
+ *
+ * ONE CONSTRUCTOR FOR THE ONE FACT, reached from both sides of the scripted-reply
+ * seam: the port's pre-check below holds a FIXED reply to the subject its own value
+ * names, and a COMPUTED reply throws this itself for a subject its table does not
+ * carry. Two spellings of one refusal would be a fixture whose message and code
+ * depended on which reply shape a scenario happened to use.
+ *
+ * `workflow.not_found` is the workflow namespace's only registered not-found row;
+ * minting a run-scoped one here would be a fixture teaching a surface a code the
+ * corpus does not register, which is the one thing a fixture must never do.
+ */
+export function workflowSubjectNotFound(
+  kind: WorkflowSubjectKind,
+  requested: string,
+): WireErrorEnvelope {
+  return {
+    code: "workflow.not_found",
+    message: `No workflow ${kind} \`${requested}\` exists on this node.`,
+  };
+}
+
+/**
+ * Refuse a run or a phase this scenario's FIXED reply projects nothing for.
  *
  * Thrown rather than returned: the growth outcome union has no arm for a daemon
  * refusal on purpose — one would paraphrase the wire's own envelope — so a refusal
  * travels as a rejection here exactly as a scripted one does and as the live seam's
  * will once these become ordinary bridge calls.
  *
- * `workflow.not_found` is the workflow namespace's only registered not-found row;
- * minting a run-scoped one here would be a fixture teaching a surface a code the
- * corpus does not register, which is the one thing a fixture must never do.
- *
- * `declared` absent means the scenario scripts the read not at all, so there is
- * nothing to check and the unscripted arm — a refusal in both cases — answers
- * instead. A scenario that DOES script one is held to exactly the identifier its own
- * reply carries.
+ * `declared` absent means there is nothing to hold the request to — the scenario
+ * scripts the read not at all, or scripts it as a computed reply that scopes itself —
+ * so this passes and the reply itself answers. A scenario that scripts a FIXED value
+ * is held to exactly the identifier that value carries.
  */
 export function requireScenarioWorkflowSubject(
   declared: string | undefined,
@@ -67,24 +98,5 @@ export function requireScenarioWorkflowSubject(
   if (declared === undefined || declared === requested) {
     return;
   }
-  const refusal: WireErrorEnvelope = {
-    code: "workflow.not_found",
-    message: `No workflow ${kind} \`${requested}\` exists on this node.`,
-  };
-  throw refusal;
-}
-
-/**
- * One STRING member of a value that may not be an object at all.
- *
- * A scenario's `result` is deliberately untyped so it can carry any registered reply,
- * so an id lifted out of one is checked rather than asserted — the narrowing the
- * sibling derivations each do for what they read.
- */
-function readStringMember(value: unknown, member: string): string | undefined {
-  const read =
-    typeof value === "object" && value !== null
-      ? (value as Readonly<Record<string, unknown>>)[member]
-      : undefined;
-  return typeof read === "string" ? read : undefined;
+  throw workflowSubjectNotFound(kind, requested);
 }

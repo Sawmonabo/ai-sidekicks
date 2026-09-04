@@ -17,7 +17,10 @@ import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixtur
 import { WORKFLOWS_SCENARIO } from "./workflows.js";
 import { ScenarioEngine } from "../scenario-engine.js";
 import { settleScriptedReply } from "../scripted-reply.js";
-import type { WorkflowRunListEntry } from "../workflow-projection.js";
+import type { WorkflowRunListEntry, WorkflowRunSnapshot } from "../workflow-projection.js";
+
+/** A run id this scenario's table does not carry, standing in for "some other run". */
+const UNLISTED_RUN_ID = "019b7a10-0280-7b33-8100-000000000000";
 
 /**
  * The definition facts the enumeration pairs with each run, one constant per
@@ -57,8 +60,16 @@ describe("the workflows scenario — what a caller is answered with", () => {
 
     const definitionList = await settleScriptedReply(engine, "workflow.definitionList");
     const runList = await settleScriptedReply(engine, "workflow.runList");
-    const runRead = await settleScriptedReply(engine, "workflow.runRead");
-    const phaseOutputRead = await settleScriptedReply(engine, "workflow.phaseOutputRead");
+    // Addressed, because both snapshot reads answer per request: a run read is one of
+    // the registered workflow methods and addresses one run by an id the caller holds,
+    // and this fixture now answers it that way rather than with one fixed run.
+    const runRead = await settleScriptedReply(engine, "workflow.runRead", {
+      workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+    });
+    const phaseOutputRead = await settleScriptedReply(engine, "workflow.phaseOutputRead", {
+      workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+      phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+    });
 
     expect(definitionList).toStrictEqual({
       status: "resolved",
@@ -116,10 +127,101 @@ describe("the workflows scenario — what a caller is answered with", () => {
     // for two copies that a later edit could take apart.
     const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
 
-    const runRead = await settleScriptedReply(engine, "workflow.runRead");
+    const runRead = await settleScriptedReply(engine, "workflow.runRead", {
+      workflowRunId: WORKFLOWS_PARKED_RUN.workflowRunId,
+    });
 
-    expect(runRead.status).toBe("resolved");
+    expect(runRead).toStrictEqual({ status: "resolved", value: WORKFLOWS_PARKED_RUN });
+    expect(runRead.status === "resolved" ? runRead.value : undefined).toBe(WORKFLOWS_PARKED_RUN);
     expect(WORKFLOWS_SCENARIO_RUNS).toContain(WORKFLOWS_PARKED_RUN);
+    engine.dispose();
+  });
+
+  it("reads every run the enumeration lists, and agrees with the entry it listed", async () => {
+    // The defect this closes: the destination renders all four entries as openable and
+    // the run read answered only the parked one, so three of the four refused
+    // `workflow.not_found` against a list this same fixture had just served.
+    //
+    // A property over the enumeration rather than four hand-written cases: a fifth run
+    // added next door is covered the moment it is listed, and no case can pass by
+    // naming a run the list does not carry.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+    const enumerated = await enumerationEntries(engine);
+
+    expect(enumerated).toHaveLength(4);
+    for (const entry of enumerated) {
+      const runRead = await settleScriptedReply(engine, "workflow.runRead", {
+        workflowRunId: entry.workflowRunId,
+      });
+      const snapshot =
+        runRead.status === "resolved" ? (runRead.value as WorkflowRunSnapshot) : undefined;
+
+      expect(runRead.status).toBe("resolved");
+      // Every member the two shapes share, and the phase collection by IDENTITY: the
+      // entry is the snapshot spread, so the same array reaches both. A second table
+      // of runs behind the read would agree member by member and fail exactly here.
+      expect(snapshot?.workflowRunId).toBe(entry.workflowRunId);
+      expect(snapshot?.state).toBe(entry.state);
+      expect(snapshot?.startedAt).toBe(entry.startedAt);
+      expect(snapshot?.workflowVersionId).toBe(entry.workflowVersionId);
+      expect(snapshot?.phaseStates).toBe(entry.phaseStates);
+    }
+    engine.dispose();
+  });
+
+  it("negative control: a run the enumeration does not list is refused", async () => {
+    // Without this the property above would pass over a reply that answered any run id
+    // at all with whatever it had — which is the shape being replaced, and the reason
+    // the list and the read could disagree in the first place.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+    const enumerated = await enumerationEntries(engine);
+
+    expect(enumerated.some((entry) => entry.workflowRunId === UNLISTED_RUN_ID)).toBe(false);
+    await expect(
+      settleScriptedReply(engine, "workflow.runRead", { workflowRunId: UNLISTED_RUN_ID }),
+    ).rejects.toStrictEqual({
+      code: "workflow.not_found",
+      message: `No workflow run \`${UNLISTED_RUN_ID}\` exists on this node.`,
+    });
+    engine.dispose();
+  });
+
+  it("pins the phase outputs to the one run whose work they are", async () => {
+    // The run read used to be this reply's pin — the port held both reads to the one
+    // run the run read's fixed value named — and a run read that answers four runs
+    // cannot stand in for it. Served under another run, a completed phase's outputs
+    // would read as that run's work, and three of the four runs carry a completed
+    // phase with this very id.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+    const otherRun = WORKFLOWS_SCENARIO_RUNS.find(
+      (run) => run.workflowRunId !== WORKFLOWS_PARKED_RUN.workflowRunId,
+    );
+
+    expect(
+      otherRun?.phaseStates.some((phase) => phase.phaseId === WORKFLOWS_COMPLETED_PHASE_ID),
+    ).toBe(true);
+    await expect(
+      settleScriptedReply(engine, "workflow.phaseOutputRead", {
+        workflowRunId: otherRun?.workflowRunId,
+        phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
+      }),
+    ).rejects.toMatchObject({ code: "workflow.not_found" });
+    engine.dispose();
+  });
+
+  it("settles a request-less probe of either snapshot read as unscripted", async () => {
+    // The growth port's own outcome for an operation asked about nothing, which the
+    // scripted-reply seam states as its rule for a computed reply: an authoring gap
+    // rather than a refusal, so the port answers with whatever that operation's honest
+    // unscripted answer is instead of a daemon code nobody sent.
+    const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
+
+    expect(await settleScriptedReply(engine, "workflow.runRead")).toStrictEqual({
+      status: "unscripted",
+    });
+    expect(await settleScriptedReply(engine, "workflow.phaseOutputRead")).toStrictEqual({
+      status: "unscripted",
+    });
     engine.dispose();
   });
 

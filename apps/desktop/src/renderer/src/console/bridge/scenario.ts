@@ -92,6 +92,13 @@ export interface ScenarioRejectingReply extends ScenarioReplyBase {
  * The request is typed `unknown` and is READ rather than destructured: this seam
  * reports settlements and throws none, so an exception raised in here leaves past
  * every refusal arm as itself.
+ *
+ * Which is also how a computed reply REFUSES. Returning `undefined` says the scenario
+ * scripts no answer for that request, and settles as an unscripted call does; throwing
+ * a `WireErrorEnvelope` says the daemon this scenario stands for would have refused,
+ * and reaches the caller in exactly the shape the `refusal` arm reaches it in. The two
+ * are different facts — an authoring gap and a scripted refusal — and a computed reply
+ * that holds an entity table has both to report.
  */
 export interface ScenarioComputedReply extends ScenarioReplyBase {
   readonly resultFor: (request: unknown) => unknown;

@@ -24,6 +24,7 @@ import { render } from "@testing-library/react";
 import { useEffect, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import type { GrowthPort } from "../../../bridge/index.js";
 import {
   WORKFLOW_HUMAN_FORM_SLOT,
   WORKFLOW_RUN_DETAIL_SLOT,
@@ -32,7 +33,18 @@ import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture
 import { HumanFormSlot, type HumanFormMount } from "./HumanFormSlot.js";
 import { RunDetailSlot, type RunDetailMount } from "./RunDetailSlot.js";
 
+/**
+ * The registered submit's request, read off the port rather than restated.
+ *
+ * `GrowthPort` is generated from `GrowthOperationSignatures`, so this alias is the
+ * shape the wire declares and not a second copy of it — which is the whole point of
+ * the case below: a mount is a promise that the body can compose THIS, and a promise
+ * checked against a hand-written twin would go on holding after the wire moved.
+ */
+type WorkflowHumanFormSubmitRequest = Parameters<GrowthPort["workflowHumanFormSubmit"]>[0];
+
 const OPEN_PHASE: HumanFormMount = {
+  workflowRunId: "019b7a10-0280-7b33-8100-4011115a0002",
   phaseRunId: "phase-run-01",
   phaseId: "review",
   // `0` on purpose: it is the value a falsy discriminator would drop, and the one a
@@ -135,6 +147,7 @@ describe("a filled slot receives exactly what the mount promised", () => {
 
 describe("a body that uses hooks keeps its own hook boundary", () => {
   const SECOND_PHASE: HumanFormMount = {
+    workflowRunId: OPEN_PHASE.workflowRunId,
     phaseRunId: "phase-run-02",
     phaseId: "sign-off",
     formRevision: 1,
@@ -212,5 +225,74 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
     } finally {
       reportedErrors.mockRestore();
     }
+  });
+});
+
+describe("the human-form mount composes the registered submit on its own", () => {
+  // The defect this closes: the mount carried `phaseRunId`, `phaseId` and
+  // `formRevision`, while `workflowHumanFormSubmit` is addressed by `workflowRunId`
+  // and `phaseId`. `phaseRunId` is opaque and non-reversible, so a body handed that
+  // mount could not build the request at all without a lookup the console has no read
+  // for — a seat that hands over a form nobody can send.
+
+  /**
+   * The request a body composes, out of the mount and the person's answers.
+   *
+   * `satisfies` rather than an annotation, so the composition is checked against the
+   * registered request while the literal keeps its own type — and so this function is
+   * the compile-time half of the claim: it does not build if the mount stops carrying
+   * what the submit is addressed by.
+   */
+  function submitRequestFor(
+    mount: HumanFormMount,
+    fields: Readonly<Record<string, unknown>>,
+  ): WorkflowHumanFormSubmitRequest {
+    return {
+      workflowRunId: mount.workflowRunId,
+      phaseId: mount.phaseId,
+      fields,
+      expectedRevision: mount.formRevision,
+    } satisfies WorkflowHumanFormSubmitRequest;
+  }
+
+  it("hands the body a mount every member of the submit is read from", () => {
+    const composed: WorkflowHumanFormSubmitRequest[] = [];
+    const body = (mount: HumanFormMount): React.JSX.Element => {
+      composed.push(submitRequestFor(mount, { approved: true }));
+      return <p>form body</p>;
+    };
+    render(<HumanFormSlot phase={OPEN_PHASE} body={body} />);
+
+    expect(composed).toStrictEqual([
+      {
+        workflowRunId: OPEN_PHASE.workflowRunId,
+        phaseId: OPEN_PHASE.phaseId,
+        fields: { approved: true },
+        // Carried through verbatim, including the `0` a fresh attempt reads: the
+        // daemon decides whether it is still current and the body never re-reads it.
+        expectedRevision: 0,
+      },
+    ]);
+  });
+
+  it("negative control: the mount without the run id cannot compose that request", () => {
+    // Without this the case above would pass over any mount at all — it reads the
+    // members it was given and asserts them back. This is the shape the mount HAD:
+    // reading the run off it is a type error, so the directive below is what fails
+    // the build the day the member is dropped again.
+    const mountWithoutTheRun: Omit<HumanFormMount, "workflowRunId"> = {
+      phaseRunId: OPEN_PHASE.phaseRunId,
+      phaseId: OPEN_PHASE.phaseId,
+      formRevision: OPEN_PHASE.formRevision,
+    };
+    const composed = {
+      phaseId: mountWithoutTheRun.phaseId,
+      fields: {},
+      expectedRevision: mountWithoutTheRun.formRevision,
+      // @ts-expect-error - the submit is addressed by a run this mount does not carry
+      workflowRunId: mountWithoutTheRun.workflowRunId,
+    } satisfies WorkflowHumanFormSubmitRequest;
+
+    expect(composed.workflowRunId).toBeUndefined();
   });
 });

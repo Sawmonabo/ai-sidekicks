@@ -21,6 +21,8 @@
 // `workflow-event-registration` slate row lands, and a caller wiring these rows to a
 // live bridge before then is a review rejection.
 
+import { z } from "zod";
+
 import type {
   WorkflowPhaseState,
   WorkflowRunSnapshot as WorkflowWireRunSnapshot,
@@ -224,17 +226,29 @@ export interface WorkflowParkedPhase {
  * The workflow plane states it on the member that carries the consequence —
  * `WorkflowPhasePark.autoResumeAt` above, and the same sentence on the payload
  * contract this file's header names — and `packages/contracts` cites it back as "the
- * encoding `PhaseState.autoResumeAt` already consumes". So the shape is the wire's
- * own rule rather than a convention chosen here, and the pattern is a transcription
- * of it: a full date, a `T`, a full time, an optional fraction, and the UTC
- * designator that makes the reading absolute.
+ * encoding `PhaseState.autoResumeAt` already consumes". So the encoding is the wire's
+ * own rule rather than a convention chosen here.
+ *
+ * THE LIBRARY'S CHECK RATHER THAN A PATTERN OF OUR OWN, and that is the substance of
+ * this declaration rather than a dependency preference. `packages/contracts` validates
+ * every one of its own wire instants with this same `z.iso` family, so the console is
+ * reading the plane's encoding through the validator the plane's own schemas are
+ * written in — and the check it performs is the one a transcribed pattern cannot: it
+ * validates the CALENDAR and the CLOCK, not just the digit groups. Month `13`, day
+ * `31` in a 30-day month, `2027-02-29` in a year that has no such day, hour `24`, and
+ * minute or second `60` are each refused, where a digit-shaped pattern admits them all
+ * and hands them to `Date.parse`, which silently normalizes `2026-02-30T10:00:00Z`
+ * into March and `2026-01-01T24:00:00Z` into the next day. Both used to reach the
+ * armed arm below, so a park advertised a resume on a date the wire never sent.
  *
  * A NUMERIC OFFSET IS REFUSED TOO, and deliberately. `+01:00` parses unambiguously,
  * so admitting it would cost nothing today — but the plane declares one encoding, and
  * a console that quietly read a second is the place a producer's encoding change
- * enters unremarked instead of arriving as the unreadable value it is.
+ * enters unremarked instead of arriving as the unreadable value it is. The default
+ * `z.iso.datetime()` is Z-only for exactly that reason; the contracts package opts
+ * into offsets explicitly, and this plane does not.
  */
-const RFC_3339_UTC_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/u;
+const RFC_3339_UTC_INSTANT = z.iso.datetime();
 
 /**
  * An instant in milliseconds, or nothing when the string is not one.
@@ -243,10 +257,12 @@ const RFC_3339_UTC_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\
  * timezone-less `2026-01-01T10:00:00` by reading it in the HOST's zone and a date-only
  * `2026-01-01` by reading it in UTC, and it answers a number for both — so a malformed
  * boundary reached the armed arm below, and the badge drew a scheduled-resume promise
- * whose time was whatever zone the operator's machine happened to be in. The shape
- * check is what refuses those two, and the parse is still needed after it: a value
- * shaped like an instant is not necessarily one, which `2026-09-01T99:99:99.000Z`
- * shows exactly.
+ * whose time was whatever zone the operator's machine happened to be in. The
+ * validation above is what refuses those, and the parse is still needed after it: the
+ * validator answers whether the string is an instant and this function answers which
+ * one. It runs SECOND, over a value already known to name a real calendar day and a
+ * real time of day, so the two can no longer disagree — a shape-only check left
+ * `Date.parse` free to answer a number for a date that does not exist.
  *
  * Deliberately NOT a numeric sentinel. The list's two orderings read an instant in
  * opposite directions — runs sort descending and armed resumes pick ascending — so a
@@ -255,11 +271,11 @@ const RFC_3339_UTC_INSTANT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\
  *
  * Exported because the park classification below and the run sort next door are the
  * only two readers of a wire instant in this family, and two parsers would be two
- * answers to "is this readable" — which is why the shape check lives HERE and not at
- * one of the two call sites.
+ * answers to "is this readable" — which is why the check lives HERE and not at one of
+ * the two call sites.
  */
 export function instantMilliseconds(iso: string): number | undefined {
-  if (!RFC_3339_UTC_INSTANT_PATTERN.test(iso)) {
+  if (!RFC_3339_UTC_INSTANT.safeParse(iso).success) {
     return undefined;
   }
   const milliseconds = Date.parse(iso);

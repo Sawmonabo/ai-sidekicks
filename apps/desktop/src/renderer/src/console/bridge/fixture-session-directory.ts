@@ -19,6 +19,7 @@ import type { SessionState } from "@ai-sidekicks/contracts";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import type { GrowthSessionSummary } from "./growth-values/index.js";
 import type { ConsoleScenario } from "./scenario.js";
+import { readUnknownMember, readUnknownStringMember } from "./unknown-member.js";
 
 /** The subsystem a directory-derivation refusal names as its author. */
 const DIRECTORY_ORIGIN = "fixture-session-directory";
@@ -132,16 +133,5 @@ function declaredSessionState(scenario: ConsoleScenario): string | undefined {
   // beat's payload: a scenario's `result` is deliberately untyped so a scenario can
   // carry any registered reply, and a cast here would assert a shape the type system
   // was never given.
-  return readSessionState(readMember(readMember(sessionRead?.result, "session"), "state"));
-}
-
-/** One member of a value that may not be an object at all. */
-function readMember(value: unknown, member: string): unknown {
-  return typeof value === "object" && value !== null
-    ? (value as Readonly<Record<string, unknown>>)[member]
-    : undefined;
-}
-
-function readSessionState(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
+  return readUnknownStringMember(readUnknownMember(sessionRead?.result, "session"), "state");
 }

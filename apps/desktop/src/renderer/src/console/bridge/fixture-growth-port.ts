@@ -82,16 +82,22 @@
 //     `callerParticipantRead` takes for a scenario that names no viewer: the question
 //     reached nothing that could answer it.
 //
-// EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. The request
-// does travel with the call — `ScenarioReply`'s `resultFor` arm is what reads it —
-// but the workflows scenario scripts FIXED values, and a fixed value is one answer
-// for the call however it was addressed. So a handler that only forwarded the request
-// answered `workflow.runRead` for ANY run id with the one run its scenario states,
+// EVERY WORKFLOW READ CHECKS WHAT IT WAS ADDRESSED BY BEFORE IT ANSWERS. A scripted
+// reply is matched by CALL NAME, so a handler that only forwarded the request answered
+// `workflow.runRead` for ANY run id with the one run a scenario's FIXED value states,
 // and both enumerations for any session with that session's rows. That is one
 // session's workflow data displayed under another session's name, and a parked run
 // returned for a run that is not it — a fixture teaching a surface that the daemon
 // does not scope its answers. The scope check lives beside the port in
 // `fixture-workflow-scope.ts`, which reads it out of the replies themselves.
+//
+// A scenario answering a snapshot read PER REQUEST needs no such holding, and gets
+// none: `ScenarioReply`'s `resultFor` arm is handed the request, so it picks its own
+// answer and refuses a subject it holds nothing for through the same constructor the
+// scope module owns. The derivation finds no declared id on a computed reply and the
+// check below passes through, which is why the refusal a caller meets is the same one
+// under both reply shapes. The shipped workflows scenario answers both snapshot reads
+// that way, so the four runs its enumeration lists are all openable.
 //
 // The two kinds of read part company over the same thing they part company over
 // above: whether the value has an empty form.
@@ -303,11 +309,12 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       );
     },
     workflowRunRead: async (request) => {
-      // The run this scenario can project is the one its own reply carries, and the
-      // reply is where the id is read from rather than a second copy kept beside it.
+      // The runs this scenario can project are the ones its own reply answers for, and
+      // the reply is where that is read from rather than a second copy kept beside it.
       // Any other run id is one this fixture holds no snapshot for, and answering it
       // from the scripted reply would put one run's phases, parks and controls on
-      // screen under another run's name.
+      // screen under another run's name. A reply that answers per request scopes
+      // itself, so this holds a FIXED one and passes a computed one through.
       requireScenarioWorkflowSubject(
         declaredWorkflowScope(engine.scenario).snapshotRunId,
         request.workflowRunId,
@@ -322,10 +329,12 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       );
     },
     workflowPhaseOutputRead: async (request) => {
-      // Both identifiers, because the read is addressed by both: the outputs this
-      // scenario states belong to one phase of the one run it projects, and either id
-      // arriving different is a read this fixture cannot answer. Served under the
-      // wrong run, a completed phase's outputs would read as that run's work.
+      // Both identifiers, because the read is addressed by both: the outputs a
+      // scenario states belong to one phase of one run, and either id arriving
+      // different is a read this fixture cannot answer. Served under the wrong run, a
+      // completed phase's outputs would read as that run's work. A scenario whose
+      // outputs reply is computed pins both identifiers itself, for the same reason
+      // the run read above does.
       const scope = declaredWorkflowScope(engine.scenario);
       requireScenarioWorkflowSubject(scope.snapshotRunId, request.workflowRunId, "run");
       requireScenarioWorkflowSubject(scope.phaseOutputPhaseId, request.phaseId, "phase");
