@@ -11,6 +11,8 @@
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 export {
   APPLY_COALESCE_MS,
+  BROWSER_BOUNDS,
+  BROWSER_BOUND_NAMES,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
@@ -24,7 +26,12 @@ export {
   REFRESH_MAX_WAIT_MS,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
+  TERMINAL_DEFAULT_SCROLLBACK_LINES,
+  TERMINAL_LEASE_LEDGER_CAP,
+  TERMINAL_WEBGL_POOL_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
+  type BrowserBoundMeasure,
+  type BrowserBoundName,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so

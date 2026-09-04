@@ -9,6 +9,8 @@
 // A number that appears inline anywhere under `console/` and is not a layout
 // literal is a review rejection: the rationale is the point, not the constant.
 
+import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "@ai-sidekicks/contracts";
+
 /**
  * Trailing debounce on the refresh scheduler. Long enough that a burst of
  * events costs one read, short enough that a person does not perceive the lag.
@@ -173,3 +175,212 @@ export const LIVE_ANNOUNCEMENT_QUEUE_CAP = 8;
  * `LIVE_ANNOUNCEMENT_QUEUE_CAP` × this — seconds, not minutes.
  */
 export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
+
+// ── The terminal family's bounds ──────────────────────────────────────────────
+//
+// Spent by three different modules under `console/terminal/`, and two of them are
+// also read by a test tier that must not construct an emulator to learn a number.
+
+/**
+ * Lines of scrollback one terminal keeps.
+ *
+ * `Spec-023 §Console Libraries` records that a buffer line eagerly allocates twelve
+ * bytes per cell regardless of content, and §Budgets bounds one pane's retained
+ * memory. Ten thousand lines at a working width is the figure that budget was
+ * measured at, so moving this moves what the budget means.
+ */
+export const TERMINAL_DEFAULT_SCROLLBACK_LINES = 10_000;
+
+/**
+ * How many terminals may hold a WebGL renderer at once.
+ *
+ * Chromium keeps sixteen contexts per page and drops the oldest past that, and a
+ * disposed addon does not give its context back — so the ceiling is not "how many
+ * terminals are open" but "how many contexts this page has ever created". Twelve
+ * leaves four for the rest of the page and still covers every layout V1 ships,
+ * since 8.8 gives a session exactly one shared shell.
+ */
+export const TERMINAL_WEBGL_POOL_CAP = 12;
+
+/**
+ * How many lease transitions the ledger keeps.
+ *
+ * The lease changes hands a handful of times in a working session, and the
+ * disclosure that renders them is read to answer "who had it, and why did it
+ * move" — a question the recent past answers. Bounded rather than unbounded
+ * because this list is rebuilt on every fold, and an unbounded one would grow
+ * with the session's whole log for a panel that shows the last few lines.
+ */
+export const TERMINAL_LEASE_LEDGER_CAP = 32;
+
+// ── The embedded browser's resource ceiling ───────────────────────────────────
+//
+// `Spec-023 §Console Design (Meridian)` 12.10: "Make the resource ceiling a named,
+// auditable block rather than a set of numbers discovered under load … Every bound
+// is a named constant in one module, and every refusal names the constant it hit."
+// The block is here; `browser/BudgetMeter.tsx` is the surface that renders it, and
+// 12.10's "one place to audit" is this file rather than that component.
+//
+// Three things the table is careful about:
+//
+//   • **A bound the console does not own has no number here.** Capture and download
+//     bytes are the attachment ingest pipeline's, from
+//     `Spec-014 §Bounds (normative defaults; operator-tunable)`; minting a second
+//     ceiling would let the two drift, and a row saying so is more useful than a row
+//     that is quietly missing.
+//   • **A bound that must equal something else IMPORTS it.** `SNAPSHOT_TEXT_MAX` is
+//     the event log's content ceiling, so it is that constant rather than a copy of
+//     its digits — which is what makes "a snapshot result seals into the content
+//     column without truncation" a fact rather than a hope.
+//   • **Nothing is scaled.** The surface puts every figure through `formatCount`,
+//     the console's one quantity formatter, and carries its unit as a word. Scaling
+//     a byte ceiling to a binary unit would be the second byte formatter
+//     `apps/desktop/AGENTS.md` names a chokepoint breach.
+
+/**
+ * Every bound, by the constant name 12.10 gives it. Closed, and the tuple is the
+ * declaration: a refusal has to be able to name the constant it hit, and a name that
+ * is not in this set is a number discovered under load.
+ */
+export const BROWSER_BOUND_NAMES = [
+  "PAGES_PER_RUN_MAX",
+  "PAGES_PER_SESSION_MAX",
+  "PAGES_PER_NODE_MAX",
+  "VIEWS_MAX",
+  "SESSION_PARTITIONS_MAX",
+  "SNAPSHOT_TEXT_MAX",
+  "SNAPSHOT_ELEMENTS_MAX",
+  "EVALUATE_RESULT_MAX",
+  "LOCATOR_RESULT_MAX",
+  "CONSOLE_RING_ENTRIES",
+  "CONSOLE_ENTRY_MAX",
+  "CLIPBOARD_MAX",
+  "FULL_PAGE_CAPTURE_MAX",
+  "CAPTURE_AND_DOWNLOAD_BYTES",
+  "VIEWPORT_DEFAULT",
+  "VIEWPORT_MIN",
+  "VIEWPORT_MAX",
+  "PAGE_OPERATION_TIMEOUT_MS",
+  "VIEW_IDLE_TEARDOWN_MS",
+  "VIEW_RESIDENT_BUDGET_MB",
+] as const;
+
+export type BrowserBoundName = (typeof BROWSER_BOUND_NAMES)[number];
+
+/**
+ * How a bound is measured. Three kinds, because three genuinely different things are
+ * being said: one number, a pixel box, or "this ceiling belongs to somebody else".
+ */
+export type BrowserBoundMeasure =
+  | { readonly kind: "scalar"; readonly value: number; readonly unit: string }
+  | { readonly kind: "extent"; readonly widthPx: number; readonly heightPx: number }
+  | { readonly kind: "deferred"; readonly owner: string };
+
+export interface BrowserBound {
+  readonly measure: BrowserBoundMeasure;
+  /** Why this number and not another. 12.10's derivation column, in its own words. */
+  readonly derivation: string;
+}
+
+function scalarBound(value: number, unit: string, derivation: string): BrowserBound {
+  return { measure: { kind: "scalar", value, unit }, derivation };
+}
+
+function extentBound(widthPx: number, heightPx: number, derivation: string): BrowserBound {
+  return { measure: { kind: "extent", widthPx, heightPx }, derivation };
+}
+
+/**
+ * The block. Total over `BrowserBoundName` by construction, so a bound added to the
+ * tuple above fails to compile until it has a number and a derivation.
+ */
+export const BROWSER_BOUNDS: Readonly<Record<BrowserBoundName, BrowserBound>> = {
+  PAGES_PER_RUN_MAX: scalarBound(
+    8,
+    "pages",
+    "Eight labelled tabs are what the strip renders legibly at the pane's minimum width; past that the strip stops being an index of what the agent opened.",
+  ),
+  PAGES_PER_SESSION_MAX: scalarBound(
+    24,
+    "pages",
+    "Three concurrently attached agents at the per-run ceiling.",
+  ),
+  PAGES_PER_NODE_MAX: scalarBound(
+    64,
+    "pages",
+    "The node ceiling, sized so no single session can starve another.",
+  ),
+  VIEWS_MAX: scalarBound(
+    8,
+    "views",
+    "One live view per open browser pane; the deck holds no more.",
+  ),
+  SESSION_PARTITIONS_MAX: scalarBound(
+    12,
+    "partitions",
+    "Resident partitions; the least recently used is evicted, and eviction closes its pages first.",
+  ),
+  SNAPSHOT_TEXT_MAX: scalarBound(
+    CONTENT_PAYLOAD_PLAINTEXT_MAX,
+    "bytes",
+    "The event log's own content ceiling, imported rather than copied, so a snapshot result seals into the content column without truncation and the timeline never has to declare a loss for a browser tool result.",
+  ),
+  SNAPSHOT_ELEMENTS_MAX: scalarBound(
+    500,
+    "elements",
+    "The interactive-element census past which a snapshot stops being readable by anything.",
+  ),
+  EVALUATE_RESULT_MAX: scalarBound(
+    CONTENT_PAYLOAD_PLAINTEXT_MAX,
+    "bytes",
+    "Same derivation as the snapshot ceiling, and the same constant.",
+  ),
+  LOCATOR_RESULT_MAX: scalarBound(
+    CONTENT_PAYLOAD_PLAINTEXT_MAX,
+    "bytes",
+    "Same derivation as the snapshot ceiling, and the same constant.",
+  ),
+  CONSOLE_RING_ENTRIES: scalarBound(
+    500,
+    "entries",
+    "One page load's worth of noise plus headroom.",
+  ),
+  CONSOLE_ENTRY_MAX: scalarBound(
+    16_384,
+    "bytes per entry",
+    "So one stack trace cannot evict the ring.",
+  ),
+  CLIPBOARD_MAX: scalarBound(8_388_608, "bytes", "Across at most 100 items."),
+  FULL_PAGE_CAPTURE_MAX: extentBound(
+    4000,
+    12_000,
+    "Past this a full-page capture is a memory event, not a screenshot.",
+  ),
+  CAPTURE_AND_DOWNLOAD_BYTES: {
+    measure: { kind: "deferred", owner: "the attachment ingest pipeline" },
+    derivation:
+      "Not a browser bound at all. The attachment ingest pipeline sets this ceiling, and minting a second one here would let the two drift.",
+  },
+  VIEWPORT_DEFAULT: extentBound(
+    1280,
+    720,
+    "The deterministic box every pointer coordinate must fall inside.",
+  ),
+  VIEWPORT_MIN: extentBound(320, 240, "The bottom of the viewport override range."),
+  VIEWPORT_MAX: extentBound(1920, 1200, "The top of the viewport override range."),
+  PAGE_OPERATION_TIMEOUT_MS: scalarBound(
+    30_000,
+    "ms",
+    "The ceiling any tool's own timeout argument may request.",
+  ),
+  VIEW_IDLE_TEARDOWN_MS: scalarBound(
+    120_000,
+    "ms",
+    "A view whose pane has been closed this long is torn down and its partition released.",
+  ),
+  VIEW_RESIDENT_BUDGET_MB: scalarBound(
+    400,
+    "MB per view",
+    "Exceeding it for two consecutive samples logs a diagnostic and, on a background view, tears the view down.",
+  ),
+};

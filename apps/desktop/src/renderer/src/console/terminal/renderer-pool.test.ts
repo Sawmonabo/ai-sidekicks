@@ -23,7 +23,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { TERMINAL_WEBGL_POOL_CAP } from "./constants.js";
+import { TERMINAL_WEBGL_POOL_CAP } from "../core/index.js";
 import {
   TerminalRendererPool,
   terminalRendererPool,

@@ -54,7 +54,7 @@
 // page degrades to the DOM renderer past the cap — a reflow of about a device
 // pixel per cell (xterm.js issue #6015) — rather than growing.
 
-import { TERMINAL_WEBGL_POOL_CAP } from "./constants.js";
+import { TERMINAL_WEBGL_POOL_CAP } from "../core/index.js";
 
 /**
  * One created context's standing in the ledger.

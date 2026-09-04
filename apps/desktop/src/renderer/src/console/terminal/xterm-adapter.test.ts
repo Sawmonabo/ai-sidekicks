@@ -17,7 +17,7 @@ import { Terminal, type ILink, type ILinkProvider } from "@xterm/xterm";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { installFakeResizeObserver } from "../primitives/element-resize.test-support.js";
-import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
+import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../core/index.js";
 import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool.js";
 import { XtermTerminalAdapter } from "./xterm-adapter.js";
 

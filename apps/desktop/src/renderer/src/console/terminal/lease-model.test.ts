@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { TERMINAL_SCENARIO_CAST } from "../bridge/scenarios/terminal.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
-import { TERMINAL_LEASE_LEDGER_CAP } from "./constants.js";
+import { TERMINAL_LEASE_LEDGER_CAP } from "../core/index.js";
 import { UNREAD_TERMINAL_LEASE, projectTerminalLease } from "./lease-model.js";
 import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
 

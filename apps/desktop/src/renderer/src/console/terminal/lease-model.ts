@@ -29,7 +29,7 @@
 // source of truth for a fact the log already orders.
 
 import type { ConsoleSessionEvent } from "../store/index.js";
-import { TERMINAL_LEASE_LEDGER_CAP } from "./constants.js";
+import { TERMINAL_LEASE_LEDGER_CAP } from "../core/index.js";
 import {
   TERMINAL_LEASE_EVENT_KIND,
   readTerminalLeaseTransition,
