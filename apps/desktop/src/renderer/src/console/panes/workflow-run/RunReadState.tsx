@@ -15,7 +15,7 @@
 // present for exactly the phases parked when the response was built. Both surfaces
 // below obey that through the projection's own `phasePark`, and neither re-derives it.
 
-import type { WorkflowPhaseState } from "../../bridge/index.js";
+import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../../bridge/index.js";
 import { Nothing, RefusalBanner } from "../../primitives/index.js";
 import { ParkBadge, type WorkflowParkFormRoute } from "../../workflows/ParkBadge.js";
 import { parkAwaitsPerson, phasePark, parkSchedule } from "../../workflows/run-list-projection.js";
@@ -73,7 +73,7 @@ export function RunReadState(props: {
       return (
         <>
           <RunPhaseGraph phases={snapshot.snapshot.phaseStates} />
-          <RunParks phases={snapshot.snapshot.phaseStates} humanForms={props.humanForms} />
+          <RunParks run={snapshot.snapshot} humanForms={props.humanForms} />
         </>
       );
   }
@@ -160,13 +160,14 @@ function phaseParkAttention(phase: WorkflowPhaseState): PhaseParkAttention | und
  * instead of passing `undefined` through it — the mount's own presence rule.
  */
 function formRoutePropsFor(
+  workflowRunId: string,
   phase: WorkflowPhaseState,
   humanForms: HumanFormSelection,
 ): { readonly formRoute?: WorkflowParkFormRoute } {
   if (phase.parkReason !== "waiting-human") {
     return {};
   }
-  if (humanFormMountFor(phase) === undefined) {
+  if (humanFormMountFor(workflowRunId, phase) === undefined) {
     return { formRoute: { kind: "unaddressable", detail: UNADDRESSABLE_HUMAN_WAIT_DETAIL } };
   }
   const { phaseId } = phase;
@@ -202,10 +203,14 @@ function formRoutePropsFor(
  * than matching a card to a node by position.
  */
 function RunParks(props: {
-  readonly phases: readonly WorkflowPhaseState[];
+  /**
+   * The served run, not its phases: a card's route to its own form is the same mount
+   * the slot below is handed, and that mount names the run as well as the phase.
+   */
+  readonly run: WorkflowRunSnapshot;
   readonly humanForms: HumanFormSelection;
 }): React.JSX.Element {
-  const parked = props.phases.flatMap<{
+  const parked = props.run.phaseStates.flatMap<{
     readonly entry: WorkflowParkedPhase;
     readonly phase: WorkflowPhaseState;
   }>((phase) => {
@@ -255,7 +260,7 @@ function RunParks(props: {
           // passed as an explicit `undefined`: the prop's PRESENCE is what says this
           // surface can reach the phase's form, and a park waiting on provider
           // capacity has no form to reach at all.
-          {...formRoutePropsFor(phase, props.humanForms)}
+          {...formRoutePropsFor(props.run.workflowRunId, phase, props.humanForms)}
         />
       ))}
     </div>

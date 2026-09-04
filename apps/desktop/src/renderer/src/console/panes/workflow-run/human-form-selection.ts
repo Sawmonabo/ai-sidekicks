@@ -23,7 +23,7 @@
 
 import { useState } from "react";
 
-import type { WorkflowPhaseState } from "../../bridge/index.js";
+import type { WorkflowPhaseState, WorkflowRunSnapshot } from "../../bridge/index.js";
 import type { HumanFormMount } from "./slots/HumanFormSlot.js";
 
 /**
@@ -46,25 +46,33 @@ export const UNADDRESSABLE_HUMAN_WAIT_DETAIL =
  * separates them by the park it already read, and a second discriminator here would be
  * the same question asked twice.
  */
-export function humanFormMountFor(phase: WorkflowPhaseState): HumanFormMount | undefined {
+export function humanFormMountFor(
+  workflowRunId: string,
+  phase: WorkflowPhaseState,
+): HumanFormMount | undefined {
   if (phase.parkReason !== "waiting-human") {
     return undefined;
   }
   const { phaseRunId, formRevision } = phase;
   return phaseRunId === undefined || formRevision === undefined
     ? undefined
-    : { phaseRunId, phaseId: phase.phaseId, formRevision };
+    : { workflowRunId, phaseRunId, phaseId: phase.phaseId, formRevision };
 }
 
 /**
  * Every phase this snapshot parks on a person and carries the handle for, in order.
  *
+ * Takes the whole snapshot rather than its phases, because a mount carries the run as
+ * well as the phase and the two must come from ONE answer: handed the run separately,
+ * a caller could pair a retargeted pane's new run with the phases still on screen from
+ * the old one, and every mount in the list would name a phase that run never had.
+ *
  * Not exported: the ordering IS the default, so a caller that resolved this list for
  * itself would be a second answer to "which wait is open" beside the hook below.
  */
-function humanFormMountsOf(phases: readonly WorkflowPhaseState[]): readonly HumanFormMount[] {
-  return phases.flatMap((phase) => {
-    const mount = humanFormMountFor(phase);
+function humanFormMountsOf(run: WorkflowRunSnapshot): readonly HumanFormMount[] {
+  return run.phaseStates.flatMap((phase) => {
+    const mount = humanFormMountFor(run.workflowRunId, phase);
     return mount === undefined ? [] : [mount];
   });
 }
@@ -85,10 +93,15 @@ export interface HumanFormSelection {
  * The state is the phase ID a person asked for and nothing else. Everything a caller
  * reads is derived from the snapshot it passes in, so the hook cannot hold an answer
  * about a run it is no longer looking at.
+ *
+ * `undefined` is every unserved read at once — nobody asked, a read is in flight, the
+ * port refused — because all three carry the same fact for this hook: there is no run
+ * to resolve a wait against. A caller that passed phases without a run could reach
+ * that state with a list in hand, which is exactly the pairing the mount forbids.
  */
-export function useHumanFormSelection(phases: readonly WorkflowPhaseState[]): HumanFormSelection {
+export function useHumanFormSelection(run: WorkflowRunSnapshot | undefined): HumanFormSelection {
   const [requestedPhaseId, setRequestedPhaseId] = useState<string | undefined>(undefined);
-  const mounts = humanFormMountsOf(phases);
+  const mounts = run === undefined ? [] : humanFormMountsOf(run);
   const openForm = mounts.find((mount) => mount.phaseId === requestedPhaseId) ?? mounts[0];
   return {
     openForm,
