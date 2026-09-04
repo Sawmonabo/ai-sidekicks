@@ -30,6 +30,21 @@
 // is no pointer: the fisheye is a paint-time transform over the pointer offset the
 // component already tracks, and the preview card is one nullable node, opened
 // after a grace measured on the injected clock and never on a wall-clock timer.
+//
+// THE SELECTION IS A MARK, NEVER A SEQUENCE — one rule, and every read obeys it.
+// A press records which sequence was chosen, but the SELECTION is the tick that
+// sequence resolves to in the model on screen now, and a sequence the model no
+// longer holds selects nothing. The slider's value, its announced text, and the
+// origin of every walk all read that one resolution, so the rail cannot announce
+// one thing and walk from another.
+//
+// The rail deliberately does NOT slide the selection onto a neighbouring mark when
+// the one a person chose is withheld by replay, dropped by a filter, or taken by
+// the cap. It says the mark is gone, which is information, and the next press then
+// walks from the rail's head exactly as a first press does. The recorded sequence
+// is kept rather than cleared, so a model that admits that mark again — a replay
+// scrubbed back forward — re-selects the person's OWN mark rather than a
+// substitute.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -178,7 +193,10 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
       const ticks = railModel.ticks;
-      const from = focusedSequence ?? -1;
+      // The RESOLVED tick, never the recorded sequence. A sequence whose mark the
+      // model has dropped is not a place on this rail, and walking from one skips
+      // every mark that is on it, or finds nothing and moves nowhere.
+      const from = focusedTick?.sequence ?? BEFORE_EVERY_TICK;
       const walkKind = kindWalkedBy(event.code);
       if (walkKind !== undefined) {
         // Shift plus a digit walks one KIND — the previous tick of it, the digit
@@ -196,7 +214,11 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
           return;
         case "ArrowUp": {
           event.preventDefault();
-          walkTo([...ticks].reverse().find((tick) => tick.sequence < from || from < 0));
+          // From no selection, Up reaches the rail's last mark — the mirror of
+          // Down reaching its first — which is what the unconditional arm is.
+          walkTo(
+            [...ticks].reverse().find((tick) => from === BEFORE_EVERY_TICK || tick.sequence < from),
+          );
           return;
         }
         case "Home":
@@ -211,7 +233,7 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
           return;
       }
     },
-    [railModel, focusedSequence, model, walkTo],
+    [railModel, focusedTick, model, walkTo],
   );
 
   return (
@@ -224,6 +246,9 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
         aria-orientation="vertical"
         aria-valuemin={0}
         aria-valuemax={Math.max(0, railModel.ticks.length - 1)}
+        // The RESOLVED tick's place, and the range's floor when nothing is selected —
+        // `aria-valuenow` is required of a slider and cannot be absent, so the
+        // `aria-valuetext` beside it is what actually says whether a mark is selected.
         aria-valuenow={focusedTick === undefined ? 0 : railModel.ticks.indexOf(focusedTick)}
         aria-valuetext={valueTextFor(focusedTick, railModel.ticks.length)}
         onPointerMove={handlePointerMove}
@@ -262,6 +287,15 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
 }
 
 const RAIL_PREVIEW_GLYPH_SIZE = 12;
+
+/**
+ * The walk origin when nothing is selected.
+ *
+ * A sentinel rather than `undefined` so the two arrow walks read one comparison
+ * each: wire sequences start at zero, so a value below zero is before every mark
+ * the rail can hold and after none of them.
+ */
+const BEFORE_EVERY_TICK = -1;
 
 /**
  * The physical digit-row keys the kind walk binds.
