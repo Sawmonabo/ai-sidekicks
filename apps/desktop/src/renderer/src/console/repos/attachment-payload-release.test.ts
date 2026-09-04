@@ -29,7 +29,7 @@ import {
   isSendingAttachmentIngestState,
   type AttachmentIngestEntry,
   type AttachmentIngestRecord,
-} from "./attachment-model.js";
+} from "./attachment-shapes.js";
 
 /** Long enough for every continuation these cases start to come back. */
 async function settle(): Promise<void> {

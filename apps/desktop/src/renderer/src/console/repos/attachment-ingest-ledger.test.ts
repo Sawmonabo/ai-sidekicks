@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
-import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-model.js";
+import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /** One source over an empty payload: these cases are about the record, not the bytes. */
 function sourceNamed(localId: string): ReturnType<typeof attachmentSourceFrom> {

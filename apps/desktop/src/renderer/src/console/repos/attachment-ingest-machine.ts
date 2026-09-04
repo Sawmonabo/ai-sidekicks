@@ -34,7 +34,7 @@
 // chunk — same sequence number, same bytes — is acknowledged without being re-appended,
 // and a replayed completion replays its original response verbatim. So a lost response
 // resumes at the current offset. The two codes whose disposition differs are named and
-// classified in `attachment-model.ts`; this file acts on that and invents no policy.
+// classified in `attachment-policy.ts`; this file acts on that and invents no policy.
 //
 // A REJECTION IS A REFUSAL, AT EVERY LEG. A growth call can REJECT rather than answer
 // — the bridge's namespace is gone on an IPC disconnect, and the participant's own
@@ -79,13 +79,13 @@ import {
 import { AttachmentSpoolReclaimer } from "./attachment-ingest-abort.js";
 import type { PortAnswer } from "./attachment-ingest-answer.js";
 import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
+import { ingestRefusalDisposition } from "./attachment-policy.js";
+import { advanceReceivedBytes } from "./attachment-presentation.js";
 import {
-  advanceReceivedBytes,
-  ingestRefusalDisposition,
   isSendingAttachmentIngestEntry,
   type AttachmentIngestEntry,
   type AttachmentSource,
-} from "./attachment-model.js";
+} from "./attachment-shapes.js";
 import { refusalFromRejection } from "./repo-reads.js";
 
 /** Where the protocol's own diagnostic reports from, so a firing names a module. */

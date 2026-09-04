@@ -9,14 +9,14 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AttachmentCard } from "./AttachmentCard.js";
+import { ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL } from "./attachment-media-type.js";
+import { INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
+import { UNRESOLVED_ATTACHMENT_PRESENTATION } from "./attachment-presentation.js";
 import {
-  ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
-  INGEST_STREAM_INVALID_CODE,
-  UNRESOLVED_ATTACHMENT_PRESENTATION,
   attachmentSourceFrom,
   type AttachmentIngestEntry,
   type SendingAttachmentIngestEntry,
-} from "./attachment-model.js";
+} from "./attachment-shapes.js";
 
 const NOW_MILLISECONDS = 1_000;
 

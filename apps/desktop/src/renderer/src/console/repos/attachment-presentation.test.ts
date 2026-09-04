@@ -1,32 +1,32 @@
-// The attachment vocabulary, and the one rule that can be proved rather than intended.
+// What a surface is told, and the one rule that can be proved rather than intended.
 //
-// `attachment-model.ts` says never chart base64 length as progress. `advanceReceivedBytes` is the
-// only place a progress figure is produced, and the cases below drive THAT function —
-// not a copy of its arithmetic — with an encoded length and assert the
-// `wire-figure-formatting` tripwire fires. The negative control is the same call with a
-// decoded length, which must fire nothing: without it the assertion would pass over a
-// tripwire that fired on every advance.
+// `attachment-presentation.ts` says never chart base64 length as progress.
+// `advanceReceivedBytes` is the only place a progress figure is produced, and the cases
+// below drive THAT function — not a copy of its arithmetic — with an encoded length and
+// assert the `wire-figure-formatting` tripwire fires. The negative control is the same
+// call with a decoded length, which must fire nothing: without it the assertion would
+// pass over a tripwire that fired on every advance.
+//
+// The two instants are here for the same reason the figure is: a ceiling and a stall are
+// both answers that MOVE, and the module that answers them takes the instant rather than
+// reading a clock, which is exactly what makes them assertable at all.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { INGEST_STREAM_LIFETIME_CEILING_MS, consoleTripwires } from "../core/index.js";
+import { UNRESOLVED_ATTACHMENT_CAUSES } from "./attachment-policy.js";
 import {
-  ATTACHMENT_ALLOWLIST_DEFAULT,
-  INGEST_CAPACITY_EXHAUSTED_CODE,
-  INGEST_DISPOSITION_COPY,
-  INGEST_REFUSAL_DISPOSITIONS,
-  INGEST_STREAM_INVALID_CODE,
-  UNRESOLVED_ATTACHMENT_CAUSES,
+  ATTACHMENT_PROGRESS_SITE,
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   advanceReceivedBytes,
-  attachmentMediaTypeReadings,
-  attachmentSourceFrom,
   ingestCeilingRemainingMs,
-  ingestRefusalDisposition,
   isIngestStalled,
+} from "./attachment-presentation.js";
+import {
+  attachmentSourceFrom,
   type AttachmentIngestEntry,
   type SettledAttachmentIngestState,
-} from "./attachment-model.js";
+} from "./attachment-shapes.js";
 
 /** One entry that has sent nothing, declaring a decoded total of 300 bytes. */
 function entryDeclaring(byteLength: number, receivedBytes = 0): AttachmentIngestEntry {
@@ -95,12 +95,12 @@ describe("attachment progress — the decoded-byte tripwire", () => {
 
   it("fires the wire-figure tripwire when a base64 length is charted as progress", () => {
     // 300 decoded bytes encode to 400 base64 characters. Charting the encoded length is
-    // the exact defect `attachment-model.ts` forbids, and it is observable because it
+    // the exact defect this module forbids, and it is observable because it
     // drives the total
     // past a figure the caller itself declared.
     expect(advanceReceivedBytes(entryDeclaring(300), 400)).toBe(300);
     expect(consoleTripwires.firingCount("wire-figure-formatting")).toBe(1);
-    expect(consoleTripwires.reports()[0]?.site).toBe("repos/attachment-model.ts");
+    expect(consoleTripwires.reports()[0]?.site).toBe(ATTACHMENT_PROGRESS_SITE);
   });
 
   it("negative control: a partial decoded advance still reports nothing", () => {
@@ -118,7 +118,7 @@ describe("attachment progress — the decoded-byte tripwire", () => {
   });
 });
 
-describe("attachment vocabulary — totality and the two named codes", () => {
+describe("unresolved attachment presentation — totality, and the one cause with no way back", () => {
   it("gives every unresolved cause its own sentence", () => {
     for (const cause of UNRESOLVED_ATTACHMENT_CAUSES) {
       expect(UNRESOLVED_ATTACHMENT_PRESENTATION[cause].meaning.length).toBeGreaterThan(0);
@@ -139,25 +139,6 @@ describe("attachment vocabulary — totality and the two named codes", () => {
       "quota_exceeded",
       "expired",
     ]);
-  });
-
-  it("keeps the terminal and the transient refusal apart", () => {
-    expect(ingestRefusalDisposition(INGEST_STREAM_INVALID_CODE)).toBe("restart");
-    expect(ingestRefusalDisposition(INGEST_CAPACITY_EXHAUSTED_CODE)).toBe("wait-and-retry");
-  });
-
-  it("negative control: an unrecognised code takes the retry-safe default, not a restart", () => {
-    // Collapsing these would tell a participant to re-upload a hundred megabytes
-    // because a response was lost, which is the mistake the distinction exists to stop.
-    expect(ingestRefusalDisposition("wire-unregistered")).toBe("retry-in-place");
-    for (const disposition of INGEST_REFUSAL_DISPOSITIONS) {
-      expect(INGEST_DISPOSITION_COPY[disposition].length).toBeGreaterThan(0);
-    }
-  });
-
-  it("ships the default allow-list without the one image type that is a document", () => {
-    expect(ATTACHMENT_ALLOWLIST_DEFAULT).toContain("image/png");
-    expect(ATTACHMENT_ALLOWLIST_DEFAULT).not.toContain("image/svg+xml");
   });
 });
 
@@ -183,68 +164,5 @@ describe("attachment ceiling and stall", () => {
 
   it("negative control: a complete upload is never stalled", () => {
     expect(isIngestStalled(settledEntry("complete"), 9_000_000)).toBe(false);
-  });
-});
-
-describe("attachment media type — which readings the card is given", () => {
-  function ingestEntry(
-    declaredMediaType: string | undefined,
-    derivedMediaType: string | undefined,
-  ): AttachmentIngestEntry {
-    return {
-      ...attachmentSourceFrom({
-        localId: "attachment-1",
-        declaredName: "screenshot.png",
-        payload: new Blob([new Uint8Array(4)]),
-        ...(declaredMediaType === undefined ? {} : { declaredMediaType }),
-      }),
-      state: "ingesting",
-      receivedBytes: 0,
-      ingestId: "ingest-1",
-      derived:
-        derivedMediaType === undefined
-          ? undefined
-          : {
-              artifactId: "artifact-1",
-              normalizedName: "screenshot.png",
-              derivedMediaType,
-              derivedSizeBytes: 4,
-            },
-      refusal: undefined,
-      disposition: undefined,
-      openedAtMilliseconds: 0,
-      lastProgressAtMilliseconds: 0,
-    };
-  }
-
-  it("reports the derived reading where the client declared nothing", () => {
-    expect(attachmentMediaTypeReadings(ingestEntry(undefined, "image/png"))).toEqual([
-      { mediaType: "image/png", provenance: "derived" },
-    ]);
-  });
-
-  it("reports the declaration where nothing has been derived yet", () => {
-    expect(attachmentMediaTypeReadings(ingestEntry("image/png", undefined))).toEqual([
-      { mediaType: "image/png", provenance: "declared" },
-    ]);
-  });
-
-  it("collapses an agreeing pair to the derived reading alone", () => {
-    expect(attachmentMediaTypeReadings(ingestEntry("image/png", "image/png"))).toEqual([
-      { mediaType: "image/png", provenance: "derived" },
-    ]);
-  });
-
-  it("leads with the derived reading and keeps the declaration where they disagree", () => {
-    expect(attachmentMediaTypeReadings(ingestEntry("text/plain", "image/png"))).toEqual([
-      { mediaType: "image/png", provenance: "derived" },
-      { mediaType: "text/plain", provenance: "declared" },
-    ]);
-  });
-
-  it("negative control: neither reading present yields no reading at all", () => {
-    // Without this, a function that always answered with something would satisfy every
-    // case above and would put an empty chip on an attachment nobody has typed.
-    expect(attachmentMediaTypeReadings(ingestEntry(undefined, undefined))).toEqual([]);
   });
 });

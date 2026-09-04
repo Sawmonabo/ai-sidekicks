@@ -2,7 +2,7 @@
 //
 // THE ATTACHMENT SURFACE'S COMPOSITION IS THIS FAMILY'S, because `Spec-023 §Console
 // Design (Meridian)` puts a surface's composition in the console's code. Four arms, and
-// the reason there are four rather than a card with flags is `attachment-model.ts`'s
+// the reason there are four rather than a card with flags is `attachment-shapes.ts`'s
 // own Never list, which separates them:
 //
 //   • IN FLIGHT — progress from `receivedBytes`, the spooled running total of DECODED
@@ -42,16 +42,19 @@ import {
 } from "../primitives/index.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
+  attachmentMediaTypeReadings,
+} from "./attachment-media-type.js";
+import {
   INGEST_ABANDON_COPY,
   INGEST_DISPOSITION_COPY,
+  type UnresolvedAttachmentCause,
+} from "./attachment-policy.js";
+import {
   UNRESOLVED_ATTACHMENT_PRESENTATION,
-  attachmentMediaTypeReadings,
   ingestCeilingRemainingMs,
   isIngestStalled,
-  type AttachmentIngestEntry,
-  type AttachmentReading,
-  type UnresolvedAttachmentCause,
-} from "./attachment-model.js";
+} from "./attachment-presentation.js";
+import type { AttachmentIngestEntry, AttachmentReading } from "./attachment-shapes.js";
 
 /** Glyph edge length in the card's chrome, matching the primitives' inline size. */
 const ATTACHMENT_GLYPH_SIZE = 12;
@@ -133,7 +136,7 @@ function renderIngesting(
           <WireFigure value={entry.derived.normalizedName} />
         )}
         {/* EITHER READING EARNS THE CHIP, and where the two disagree both are shown
-            with the derived one leading. `attachment-model.ts` owns the rule; this
+            with the derived one leading. `attachment-media-type.ts` owns the rule; this
             renders it. Labelled by provenance rather than by tone alone, because a
             colour cannot say whose claim a media type is. */}
         {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (

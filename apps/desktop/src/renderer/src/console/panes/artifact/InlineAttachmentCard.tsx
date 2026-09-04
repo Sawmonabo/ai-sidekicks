@@ -25,7 +25,7 @@
 import { useMemo } from "react";
 
 import { AttachmentCard } from "../../repos/AttachmentCard.js";
-import type { AttachmentReading } from "../../repos/attachment-model.js";
+import type { AttachmentReading } from "../../repos/attachment-shapes.js";
 import { registerInlineCardBody, type AttachmentInlineCardProps } from "../../seats/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */

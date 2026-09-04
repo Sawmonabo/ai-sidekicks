@@ -35,7 +35,7 @@ import {
   type AttachmentIngestRecord,
   type AttachmentIngestState,
   type AttachmentSource,
-} from "./attachment-model.js";
+} from "./attachment-shapes.js";
 
 /**
  * What one entry stood at, taken before an await and checked after it.

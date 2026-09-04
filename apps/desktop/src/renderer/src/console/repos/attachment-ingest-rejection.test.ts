@@ -22,7 +22,7 @@ import {
   unreadableSourceOver,
 } from "./attachment-ingest-scripted-port.js";
 import { INGEST_MACHINE_SITE } from "./attachment-ingest-machine.js";
-import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-model.js";
+import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
 
 /** The console-side code a rejection carrying nothing machine-readable becomes. */
 const CALL_REJECTED_CODE = "call-rejected";

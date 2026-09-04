@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "../core/index.js";
 import { SMALL_SOURCE, ScriptedGrowthPort, clientOver } from "./attachment-ingest-scripted-port.js";
-import { INGEST_CAPACITY_EXHAUSTED_CODE, INGEST_STREAM_INVALID_CODE } from "./attachment-model.js";
+import { INGEST_CAPACITY_EXHAUSTED_CODE, INGEST_STREAM_INVALID_CODE } from "./attachment-policy.js";
 
 beforeEach(() => {
   consoleTripwires.setThrowOnReport(false);

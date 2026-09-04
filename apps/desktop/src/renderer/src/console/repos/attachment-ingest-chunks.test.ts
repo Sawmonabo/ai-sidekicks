@@ -15,7 +15,7 @@ import {
   patternedBytes,
   sourceOver,
 } from "./attachment-ingest-scripted-port.js";
-import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-model.js";
+import { INGEST_CAPACITY_EXHAUSTED_CODE } from "./attachment-policy.js";
 
 /** Whether one recorded request actually carried bytes, rather than describing them. */
 function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {

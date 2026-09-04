@@ -35,7 +35,7 @@ import { Nothing, formatCount } from "../primitives/index.js";
 import { type SidebarSectionContext } from "../seats/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";
 import { useAttachmentCarrier } from "./attachment-carrier.js";
-import type { AttachmentIngestEntry } from "./attachment-model.js";
+import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 export interface AttachmentCarrierSectionProps {
   readonly context: SidebarSectionContext;

@@ -19,7 +19,7 @@
 
 import type { ConsoleBridge, GrowthPort } from "../bridge/index.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
-import { attachmentSourceFrom, type AttachmentSource } from "./attachment-model.js";
+import { attachmentSourceFrom, type AttachmentSource } from "./attachment-shapes.js";
 
 /** One recorded `AttachmentIngestInit`, exactly as the registry declares it. */
 export type RecordedInit = Parameters<GrowthPort["artifactIngestBegin"]>[0];

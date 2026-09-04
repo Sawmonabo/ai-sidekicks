@@ -42,11 +42,8 @@ import {
   type Unsubscribe,
 } from "../core/index.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
-import {
-  attachmentSourceFrom,
-  ingestStallDisclosureAtMs,
-  type AttachmentIngestEntry,
-} from "./attachment-model.js";
+import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
+import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /** What the carrier holds, and the instant it last said so. */
 export interface AttachmentCarrierSnapshot {
