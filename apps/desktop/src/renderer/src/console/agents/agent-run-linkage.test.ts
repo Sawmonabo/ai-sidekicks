@@ -76,3 +76,70 @@ describe("newest run for an agent", () => {
     expect(newestRunIdForAgent(store, "agent-scout")).toBe("run-unstamped");
   });
 });
+
+describe("newest run for an agent — stamps written in different offsets", () => {
+  it("compares the instants and not the strings", () => {
+    // The defect: `10:00+02:00` is an hour EARLIER than `09:00Z` and sorts after it
+    // in every lexical comparison, so the panel read and displayed the older run as
+    // this agent's newest. The event contract accepts a numeric offset as readily
+    // as `Z`, so both rows below are shapes the wire can genuinely send.
+    const store = storeHolding(
+      runEntity("run-earlier", "agent-scout", "2026-09-01T10:00:00.000+02:00"),
+      runEntity("run-later", "agent-scout", "2026-09-01T09:00:00.000Z"),
+    );
+    expect(newestRunIdForAgent(store, "agent-scout")).toBe("run-later");
+  });
+
+  it("negative control: the same two instants in one offset still order the same way", () => {
+    // Without this, the case above would pass over a selector that had merely
+    // reversed its comparison — the answer has to follow the instants, not the
+    // spelling.
+    const store = storeHolding(
+      runEntity("run-earlier", "agent-scout", "2026-09-01T08:00:00.000Z"),
+      runEntity("run-later", "agent-scout", "2026-09-01T09:00:00.000Z"),
+    );
+    expect(newestRunIdForAgent(store, "agent-scout")).toBe("run-later");
+  });
+
+  it("keeps the row it is already holding when two stamps name one instant", () => {
+    // Two spellings of the same moment are not a reason to move: the fold keeps
+    // what it holds, so the answer is the projection's own order rather than a
+    // re-reading of it. Asserted in both arrival orders, because a tie broken by
+    // anything else would answer differently in one of them.
+    const inOneOrder = storeHolding(
+      runEntity("run-first", "agent-scout", "2026-09-01T09:00:00.000Z"),
+      runEntity("run-second", "agent-scout", "2026-09-01T11:00:00.000+02:00"),
+    );
+    expect(newestRunIdForAgent(inOneOrder, "agent-scout")).toBe("run-first");
+
+    const inTheOther = storeHolding(
+      runEntity("run-second", "agent-scout", "2026-09-01T11:00:00.000+02:00"),
+      runEntity("run-first", "agent-scout", "2026-09-01T09:00:00.000Z"),
+    );
+    expect(newestRunIdForAgent(inTheOther, "agent-scout")).toBe("run-second");
+  });
+
+  it("ranks a stamp the platform cannot parse with the unstamped rows", () => {
+    // Not `NaN` ordering: a comparison against `NaN` is false in both directions, so
+    // a malformed row would win or lose by whichever end of the fold it landed on.
+    // It sorts below every readable stamp and stays reachable when it is alone.
+    const beside = storeHolding(
+      runEntity("run-malformed", "agent-scout", "the day before yesterday"),
+      runEntity("run-stamped", "agent-scout", "2026-09-01T09:00:00.000Z"),
+    );
+    expect(newestRunIdForAgent(beside, "agent-scout")).toBe("run-stamped");
+
+    const alone = storeHolding(runEntity("run-malformed", "agent-scout", "not an instant"));
+    expect(newestRunIdForAgent(alone, "agent-scout")).toBe("run-malformed");
+  });
+
+  it("negative control: a malformed stamp loses from either end of the fold", () => {
+    // Without this, the case above would pass over a selector that ordered on `NaN`
+    // and happened to be handed the malformed row second.
+    const store = storeHolding(
+      runEntity("run-stamped", "agent-scout", "2026-09-01T09:00:00.000Z"),
+      runEntity("run-malformed", "agent-scout", "the day before yesterday"),
+    );
+    expect(newestRunIdForAgent(store, "agent-scout")).toBe("run-stamped");
+  });
+});
