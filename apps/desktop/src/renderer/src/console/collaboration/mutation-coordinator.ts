@@ -31,6 +31,18 @@
 // right row's control. The key is whatever the caller uses to name the subject —
 // a membership id or an invite id.
 //
+// AND WHY THE SUBJECT MOVING IS A DIFFERENT QUESTION FROM A SECOND PRESS
+//
+// A key names one ROW. The surface that holds those rows has a subject of its own —
+// the session the ledger belongs to — and that subject can move out from under a
+// call already in flight, which no keyed refusal can express: the row the reply
+// names does not exist in the session now on screen, and the latch it releases
+// would be releasing a control nobody in this session ever pressed. So a holder
+// whose subject moves calls `supersede`, and the round in flight stops being able
+// to publish anything at all. Nothing is cancelled — nothing behind the bridge is
+// cancellable — the reply simply installs nowhere. `core/attempt-generation.ts` is
+// the console's one mechanism for that and is used here rather than re-counted.
+//
 // WHERE THE BRAND CAST IS NOT
 //
 // `daemon.call<M extends DaemonMethod>` takes a Plan-007 brand no string literal
@@ -43,7 +55,14 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import {
+  AttemptGeneration,
+  Emitter,
+  refuse,
+  type Attempt,
+  type ConsoleRefusal,
+  type Unsubscribe,
+} from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { callDaemonMethod } from "../seats/index.js";
 
@@ -94,6 +113,15 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   readonly #perform: WireMutation<TRequest, TResponse>;
   readonly #describeWhat: string;
   readonly #changes = new Emitter<WireMutationSnapshot>("wire mutation change");
+  /**
+   * Which round of mutations the holder's SUBJECT is on.
+   *
+   * Advanced only by {@link supersede}, never by an attempt: two presses against
+   * one subject are ordered by the latch below, and a generation that also moved
+   * on every press would make the first call's own refusal stale — which is the
+   * defect `mutation-coordinator.test.ts` pins.
+   */
+  readonly #rounds = new AttemptGeneration();
   #snapshot: WireMutationSnapshot = NOTHING_IN_FLIGHT;
 
   public constructor(options: {
@@ -124,10 +152,12 @@ export class WireMutationCoordinator<TRequest, TResponse> {
    *
    * A call arriving while another is unsettled makes NO wire call. It takes the
    * refused arm, keyed to the subject it was attempted against, so the press is
-   * answered on the row it came from. There is no attempt generation here for that
-   * reason: nothing can supersede a settlement when nothing can start beside one,
-   * and a counter that decides nothing is a mechanism a later reader has to
-   * disprove.
+   * answered on the row it came from.
+   *
+   * A call whose round was superseded while it was in flight resolves `undefined`
+   * and publishes NOTHING — not its response, not its refusal. That is the same
+   * arm a refused call takes, and it is the right one: the caller has no subject
+   * left to install into, and a response is not a refusal to render either.
    */
   public async run(key: string, request: TRequest): Promise<TResponse | undefined> {
     const unsettledKey = this.#snapshot.pendingKey;
@@ -142,6 +172,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
       });
       return undefined;
     }
+    const round = this.#rounds.current();
     this.#publish({
       pendingKey: key,
       // The prior refusal for THIS subject is dropped on the attempt rather than
@@ -152,6 +183,9 @@ export class WireMutationCoordinator<TRequest, TResponse> {
     });
     try {
       const response = await this.#perform(request);
+      if (!this.#isStillWanted(round)) {
+        return undefined;
+      }
       this.#publish({
         pendingKey: undefined,
         refusalByKey: this.#snapshot.refusalByKey,
@@ -159,6 +193,9 @@ export class WireMutationCoordinator<TRequest, TResponse> {
       });
       return response;
     } catch (rejection: unknown) {
+      if (!this.#isStillWanted(round)) {
+        return undefined;
+      }
       this.#publish({
         pendingKey: undefined,
         refusalByKey: {
@@ -169,6 +206,26 @@ export class WireMutationCoordinator<TRequest, TResponse> {
       });
       return undefined;
     }
+  }
+
+  /**
+   * Abandon whatever is in flight, for the holder whose SUBJECT moved.
+   *
+   * What was running can no longer publish a settlement, a refusal, or a released
+   * latch, and every keyed refusal already on the snapshot is dropped with it —
+   * those refusals name rows of the subject being left, and rendering one against
+   * the subject arriving would attribute a refusal to a row nobody there pressed.
+   *
+   * Idempotent and never terminal: superseding twice supersedes once, and a holder
+   * that supersedes in a teardown is usable again on the next mount.
+   */
+  public supersede(): void {
+    this.#rounds.supersedeAll();
+    const held = this.#snapshot;
+    if (held.pendingKey === undefined && Object.keys(held.refusalByKey).length === 0) {
+      return;
+    }
+    this.#publish({ pendingKey: undefined, refusalByKey: {}, revision: held.revision + 1 });
   }
 
   /** Drop one subject's refusal — the dismiss a person presses on the notice. */
@@ -186,6 +243,11 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   #publish(next: WireMutationSnapshot): void {
     this.#snapshot = next;
     this.#changes.emit(next);
+  }
+
+  /** Whether the round this reply belongs to is still the one the holder wants. */
+  #isStillWanted(round: Attempt): boolean {
+    return this.#rounds.isCurrent(round);
   }
 
   /**
