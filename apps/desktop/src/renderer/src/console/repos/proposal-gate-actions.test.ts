@@ -678,3 +678,113 @@ describe("ProposalGateActions — the context an act was admitted against", () =
     expect(reader.snapshot.actionRefusals.has("commit")).toBe(false);
   });
 });
+
+describe("ProposalGateActions — the identity an act attributes to", () => {
+  /** A port whose identity answer a case moves, counting the times it was asked. */
+  interface IdentityPort {
+    readonly bridge: ConsoleBridge;
+    readonly answerIdentityWith: (answer: () => Promise<unknown>) => void;
+    readonly identityReadCount: () => number;
+    readonly gitActionRequests: () => readonly unknown[];
+  }
+
+  function bridgeWithMovingIdentity(): IdentityPort {
+    let answerIdentity: () => Promise<unknown> = async () => WIRE_UNREGISTERED;
+    let identityReads = 0;
+    const gitActionRequests: unknown[] = [];
+    return {
+      bridge: {
+        growth: {
+          gitflowBranchContextRead: async () => SERVED_CONTEXT,
+          gitflowPrPrepare: async () => SERVED_PREPARATION,
+          gitActionExecute: async (request: unknown) => {
+            gitActionRequests.push(request);
+            return ACCEPTED_ACTION;
+          },
+          callerParticipantRead: async () => {
+            identityReads += 1;
+            return await answerIdentity();
+          },
+        },
+      } as unknown as ConsoleBridge,
+      answerIdentityWith: (answer: () => Promise<unknown>) => {
+        answerIdentity = answer;
+      },
+      identityReadCount: () => identityReads,
+      gitActionRequests: () => gitActionRequests,
+    };
+  }
+
+  /** The causation one recorded request carried, or `undefined` where it carried none. */
+  function causationOf(request: unknown): unknown {
+    return (request as { readonly causationParticipantId?: unknown }).causationParticipantId;
+  }
+
+  /** A gate on the served context, over a port whose identity answer moves. */
+  async function openOnMovingIdentity(): Promise<{
+    reader: ProposalGateReader;
+    clock: ManualClock;
+    port: IdentityPort;
+  }> {
+    const clock = new ManualClock();
+    const port = bridgeWithMovingIdentity();
+    const reader = readers.open(port.bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+    return { reader, clock, port };
+  }
+
+  it("asks again after a refused identity read, so a later act carries the id", async () => {
+    // The whole defect: a refusal during a transient disconnect was cached for the
+    // gate's whole life, so every later act omitted its causation long after the read
+    // would have been answered.
+    const { reader, clock, port } = await openOnMovingIdentity();
+    await reader.requestAction("commit");
+    await settleAct(clock, reader);
+
+    port.answerIdentityWith(async () => SERVED_CALLER_PARTICIPANT);
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+
+    const [firstRequest, secondRequest] = port.gitActionRequests();
+    expect(causationOf(firstRequest)).toBeUndefined();
+    expect(causationOf(secondRequest)).toBe(PARTICIPANT_YOU);
+    expect(port.identityReadCount()).toBe(2);
+  });
+
+  it("asks again after an identity read that rejected rather than answering", async () => {
+    // The other way the wire fails to answer: a live bridge whose IPC never reaches
+    // the daemon throws, which is not an identity either.
+    const { reader, clock, port } = await openOnMovingIdentity();
+    port.answerIdentityWith(async () => {
+      throw new Error("the bridge went away mid-call");
+    });
+    await reader.requestAction("commit");
+    await settleAct(clock, reader);
+
+    port.answerIdentityWith(async () => SERVED_CALLER_PARTICIPANT);
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+
+    const [, secondRequest] = port.gitActionRequests();
+    expect(causationOf(secondRequest)).toBe(PARTICIPANT_YOU);
+  });
+
+  it("negative control: a served identity is read once however many acts follow", async () => {
+    // Without this the two cases above would pass against a reader that asked on every
+    // press, which is the same question on the wire once per act for an answer that
+    // cannot change while the gate is mounted.
+    const { reader, clock, port } = await openOnMovingIdentity();
+    port.answerIdentityWith(async () => SERVED_CALLER_PARTICIPANT);
+
+    await reader.requestAction("commit");
+    await settleAct(clock, reader);
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+
+    expect(port.identityReadCount()).toBe(1);
+    for (const request of port.gitActionRequests()) {
+      expect(causationOf(request)).toBe(PARTICIPANT_YOU);
+    }
+  });
+});
