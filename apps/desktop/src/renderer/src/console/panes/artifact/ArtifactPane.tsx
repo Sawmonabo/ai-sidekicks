@@ -269,6 +269,7 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
           state={reading.artifacts}
           nowMilliseconds={nowMilliseconds}
           rowRefusals={reading.refusalByArtifactId}
+          manifestReadInFlightArtifactIds={reading.manifestReadInFlightArtifactIds}
           lastDeleteReceipt={reading.lastDeleteReceipt}
           onReadManifest={readRowManifest}
           onDelete={deleteRow}

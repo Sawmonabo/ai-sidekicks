@@ -19,9 +19,10 @@
 // THE THREE ACTS DO NOT SHARE A CONCURRENCY RULE, AND THAT IS THE POINT OF SPLITTING
 // THEM OUT.
 //
-//   • `readManifest` is idempotent per row and superseded by a refresh: the refresh is
-//     already re-reading the same row from the list, so the fresher answer lands
-//     either way and there is nothing to reconcile.
+//   • `readManifest` is SINGLE-FLIGHT PER ROW and superseded by a refresh: the refresh
+//     is already re-reading the same row from the list, so the fresher answer lands
+//     either way and there is nothing to reconcile. The per-row register is what makes
+//     "idempotent" true rather than hoped for — see below.
 //   • `deleteArtifact` establishes that a row is GONE, which no in-flight list read
 //     can discover, so it reconciles rather than returning — and only disposal
 //     silences it. It is also the one act that SUPERSEDES another: bytes belonging
@@ -40,6 +41,19 @@
 // untouched, because a list read re-establishes which artifacts exist and answers
 // nothing about anyone's bytes. So the fetch is settled by ITS OWN id, and disposal is
 // asked separately.
+//
+// AND THE RE-READ HAS AN IDENTITY OF ITS OWN, BECAUSE THE REFRESH STAMP IS NOT ONE.
+// Two presses on one row before the first settles capture the SAME
+// `scheduledReadGeneration` — starting an act does not advance it, and it is the
+// reader's to move — so both continuations passed the supersession check and whichever
+// reply the bridge delivered LAST decided what the row says. Two reads of one manifest
+// can settle in either order, so that is the older answer overwriting the newer one,
+// silently, on a row the participant pressed twice precisely because they wanted the
+// fresher reading. The request's identity is therefore minted AT ISSUE — the keyed
+// register `execution-mode-selection.ts` already uses one directory over, keyed by
+// artifact id because two rows re-reading are two independent calls that cannot collide
+// — and the reading names the rows whose reads are outstanding, which is what holds
+// each one's control. A press that reached here anyway is refused in words.
 //
 // SETTLED BY REQUEST IDENTITY, NOT MERELY BY LIVENESS. `#inFlightFetch` alone answers
 // "is one pending"; a continuation coming back from its await also has to answer "is
@@ -65,9 +79,12 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { artifactManifestRowFromSummary } from "../../repos/artifact-model.js";
 import { readGrowthAnswer } from "./growth-call.js";
 import {
+  manifestReadInFlightRefusal,
   payloadFetchInFlightRefusal,
+  withManifestReadInFlight,
   withReplacedRow,
   withRowRefusal,
+  withoutManifestReadInFlight,
   withoutRow,
   withoutRowRefusal,
   type ArtifactDeleteOutcome,
@@ -115,6 +132,19 @@ interface InFlightPayloadFetch {
   readonly requestId: number;
 }
 
+/**
+ * One manifest re-read awaiting the bridge, and the identity that tells it from its
+ * successor.
+ *
+ * The artifact is carried because the register is keyed by it and a released entry has
+ * to name which row's control comes back; the id is what makes a settlement
+ * attributable to the request that issued it rather than to whichever one is standing.
+ */
+interface InFlightManifestRead {
+  readonly artifactId: string;
+  readonly requestId: number;
+}
+
 export interface ArtifactPaneActionsOptions {
   readonly bridge: ConsoleBridge;
   readonly host: ArtifactActionHost;
@@ -126,7 +156,17 @@ export class ArtifactPaneActions {
   readonly #host: ArtifactActionHost;
   /** The payload fetch awaiting the bridge. One at a time, and the reading says which. */
   #inFlightFetch: InFlightPayloadFetch | undefined;
-  /** Monotonic, so a superseded continuation can never match the standing request. */
+  /**
+   * The manifest re-read awaiting the bridge on each row. One per row, and the reading
+   * says which rows those are.
+   *
+   * KEYED AND NEVER PER PANE, on `execution-mode-selection.ts`'s reason for its own
+   * keyed register: two rows re-reading are two calls about two manifests that cannot
+   * collide, and a pane holding one row's control because another row is waiting would
+   * hold it for a reason that is not about it.
+   */
+  readonly #inFlightManifestReadByArtifactId = new Map<string, InFlightManifestRead>();
+  /** Monotonic across both registers, so a superseded continuation matches no standing request. */
   #nextRequestId = 1;
 
   public constructor(options: ArtifactPaneActionsOptions) {
@@ -156,31 +196,54 @@ export class ArtifactPaneActions {
    * so the answer that lands is the fresher one either way and there is nothing to
    * reconcile. A delete establishes that the row is GONE, which no in-flight list
    * read can discover, which is why that one reconciles instead of returning.
+   *
+   * ONE PER ROW, AND THE SECOND PRESS IS REFUSED RATHER THAN SENT. Two reads of one
+   * manifest settle in either order, and the refresh stamp cannot tell them apart
+   * because neither of them moved it — see the header. So the request takes this row's
+   * register at issue, the reading names the row while it is held, and a settlement
+   * whose request the register has moved past writes nothing.
    */
   public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
+    if (this.#inFlightManifestReadByArtifactId.has(artifactId)) {
+      return this.#recordRowRefusal(artifactId, manifestReadInFlightRefusal(artifactId));
+    }
+    const request: InFlightManifestRead = { artifactId, requestId: this.#nextRequestId };
+    this.#nextRequestId += 1;
     const generation = this.#host.scheduledReadGeneration();
-    const answer = await readGrowthAnswer("The manifest re-read", () =>
-      this.#bridge.growth.artifactRead({ artifactId }),
-    );
-    if (generation !== this.#host.scheduledReadGeneration()) {
-      return { status: "superseded" };
+    this.#holdManifestRead(request);
+    try {
+      const answer = await readGrowthAnswer("The manifest re-read", () =>
+        this.#bridge.growth.artifactRead({ artifactId }),
+      );
+      // BOTH QUESTIONS, AND THEY ARE DIFFERENT ONES. The register answers "is this
+      // reply still the one this row is waiting for" — the disposal case, and the case
+      // a successor would create — and the stamp answers "has a refresh since re-read
+      // the row this was about". Either alone leaves the other's late answer writable.
+      if (!this.#stillStandingForManifestRead(request)) {
+        return { status: "superseded" };
+      }
+      if (generation !== this.#host.scheduledReadGeneration()) {
+        return { status: "superseded" };
+      }
+      if (answer.status === "refused") {
+        return this.#recordRowRefusal(artifactId, answer.refusal);
+      }
+      const reading = this.#host.currentReading();
+      this.#host.publish({
+        ...reading,
+        // The reply NESTS the envelope beside the payload members, so the row is built
+        // from `manifest` and not from the reply: a read is a manifest plus a way to
+        // reach the bytes, and this surface renders the first of those two.
+        artifacts: withReplacedRow(
+          reading.artifacts,
+          artifactManifestRowFromSummary(answer.value.manifest),
+        ),
+        refusalByArtifactId: withoutRowRefusal(reading.refusalByArtifactId, artifactId),
+      });
+      return { status: "settled" };
+    } finally {
+      this.#releaseManifestRead(request);
     }
-    if (answer.status === "refused") {
-      return this.#recordRowRefusal(artifactId, answer.refusal);
-    }
-    const reading = this.#host.currentReading();
-    this.#host.publish({
-      ...reading,
-      // The reply NESTS the envelope beside the payload members, so the row is built
-      // from `manifest` and not from the reply: a read is a manifest plus a way to
-      // reach the bytes, and this surface renders the first of those two.
-      artifacts: withReplacedRow(
-        reading.artifacts,
-        artifactManifestRowFromSummary(answer.value.manifest),
-      ),
-      refusalByArtifactId: withoutRowRefusal(reading.refusalByArtifactId, artifactId),
-    });
-    return { status: "settled" };
   }
 
   /**
@@ -316,9 +379,60 @@ export class ArtifactPaneActions {
       : { status: "reconciling", receipt };
   }
 
-  /** Terminal. A fetch still on the wire settles into nothing rather than onto a pane that unmounted. */
+  /** Terminal. A call still on the wire settles into nothing rather than onto a pane that unmounted. */
   public dispose(): void {
     this.#inFlightFetch = undefined;
+    this.#inFlightManifestReadByArtifactId.clear();
+  }
+
+  /** Take this row's register, and redraw so its re-read control holds. */
+  #holdManifestRead(request: InFlightManifestRead): void {
+    this.#inFlightManifestReadByArtifactId.set(request.artifactId, request);
+    const reading = this.#host.currentReading();
+    this.#host.publish({
+      ...reading,
+      manifestReadInFlightArtifactIds: withManifestReadInFlight(
+        reading.manifestReadInFlightArtifactIds,
+        request.artifactId,
+      ),
+    });
+  }
+
+  /**
+   * Give this row's register back, but only where it is still this request's to give.
+   *
+   * A disposal clears the register out from under a continuation, and a request that no
+   * longer holds it must not clear a successor's — the same identity check
+   * `#stillStandingForManifestRead` makes before a settlement writes. The publish is
+   * skipped on that arm too, because releasing a control this request no longer holds
+   * would offer it while its successor's call is still on the wire.
+   */
+  #releaseManifestRead(request: InFlightManifestRead): void {
+    const held = this.#inFlightManifestReadByArtifactId.get(request.artifactId);
+    if (held?.requestId !== request.requestId) {
+      return;
+    }
+    this.#inFlightManifestReadByArtifactId.delete(request.artifactId);
+    if (this.#host.isDisposed()) {
+      return;
+    }
+    const reading = this.#host.currentReading();
+    this.#host.publish({
+      ...reading,
+      manifestReadInFlightArtifactIds: withoutManifestReadInFlight(
+        reading.manifestReadInFlightArtifactIds,
+        request.artifactId,
+      ),
+    });
+  }
+
+  /** Whether a settled re-read still speaks for the request this row's register holds. */
+  #stillStandingForManifestRead(request: InFlightManifestRead): boolean {
+    return (
+      !this.#host.isDisposed() &&
+      this.#inFlightManifestReadByArtifactId.get(request.artifactId)?.requestId ===
+        request.requestId
+    );
   }
 
   /** The call, and what its answer writes if this request still holds the register. */

@@ -59,6 +59,16 @@ export interface ArtifactPaneReading {
   /** The payload fetch a participant asked for, at most one at a time. */
   readonly payload: ArtifactPayloadReading;
   /**
+   * Which rows have a manifest re-read on the wire, so their control holds.
+   *
+   * On the reading rather than in the panel's own `useState`, on `refusalByArtifactId`'s
+   * rule: the acts are what know a call is outstanding, and a second copy of that fact
+   * beside them would be a control held against a register nothing is checking. A SET
+   * rather than one id, because the panel draws a list and two rows re-reading at once
+   * are two independent calls on two independent rows.
+   */
+  readonly manifestReadInFlightArtifactIds: ReadonlySet<string>;
+  /**
    * What the last act on a row answered, keyed by artifact id. Refusals only.
    *
    * Held on the reading rather than in the pane's own `useState`, because a served act
@@ -93,6 +103,9 @@ export type ArtifactRowActOutcome =
 
 const NO_ROW_REFUSALS: ReadonlyMap<string, ConsoleRefusal> = new Map();
 
+/** One shared empty set, so a reading nobody has acted on keeps a stable identity. */
+const NO_MANIFEST_READS_IN_FLIGHT: ReadonlySet<string> = new Set();
+
 /** The bounds the console ships with, when the deployment's own could not be read. */
 export const SHIPPED_DEFAULT_ALLOWLIST: ArtifactAllowlistReading = {
   source: "shipped-default",
@@ -107,6 +120,7 @@ export const NOTHING_READ_YET: ArtifactPaneReading = {
   allowlist: SHIPPED_DEFAULT_ALLOWLIST,
   lastDeleteReceipt: undefined,
   payload: { status: "not-checked" },
+  manifestReadInFlightArtifactIds: NO_MANIFEST_READS_IN_FLIGHT,
   refusalByArtifactId: NO_ROW_REFUSALS,
 };
 
@@ -124,6 +138,8 @@ export const ARTIFACT_READER_REFUSAL_ORIGIN = "artifact-pane-reader";
 export const ARTIFACT_READ_THREW_CODE = "read-threw";
 
 export const ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE = "payload-fetch-in-flight";
+
+export const ARTIFACT_MANIFEST_READ_IN_FLIGHT_CODE = "manifest-read-in-flight";
 
 export const ARTIFACT_REPLY_UNREADABLE_CODE = "reply-unreadable";
 
@@ -159,6 +175,24 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleR
     ARTIFACT_READER_REFUSAL_ORIGIN,
     ARTIFACT_PAYLOAD_FETCH_IN_FLIGHT_CODE,
     `The payload of ${pendingArtifactId} has been asked for and the daemon has not answered yet. Nothing else is fetched until it settles.`,
+  );
+}
+
+/**
+ * The refusal a second manifest re-read becomes while this row's first is on the wire.
+ *
+ * NAMED RATHER THAN SILENT, on `payloadFetchInFlightRefusal`'s reason, and it names the
+ * ROW: two presses on one row are two reads of one manifest whose answers can settle in
+ * either order, so the older reply would put the staler row back. The control that
+ * produced it is held while that row's read is pending, so this is structurally
+ * unreachable from the panel — and recorded anyway, because a press that produced
+ * nothing at all is the silent no-op rule 8 forbids.
+ */
+export function manifestReadInFlightRefusal(artifactId: string): ConsoleRefusal {
+  return refuse(
+    ARTIFACT_READER_REFUSAL_ORIGIN,
+    ARTIFACT_MANIFEST_READ_IN_FLIGHT_CODE,
+    `The manifest of ${artifactId} has been asked for again and the daemon has not answered yet. That row is read once until it settles.`,
   );
 }
 
@@ -298,6 +332,29 @@ export type ArtifactDeleteOutcome =
   | { readonly status: "reconciling"; readonly receipt: ArtifactDeleteReceipt }
   | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
   | { readonly status: "superseded" };
+
+/** The in-flight set with one row's manifest re-read recorded as outstanding. */
+export function withManifestReadInFlight(
+  manifestReadInFlightArtifactIds: ReadonlySet<string>,
+  artifactId: string,
+): ReadonlySet<string> {
+  const outstanding = new Set(manifestReadInFlightArtifactIds);
+  outstanding.add(artifactId);
+  return outstanding;
+}
+
+/** The in-flight set without the row whose manifest re-read has settled. */
+export function withoutManifestReadInFlight(
+  manifestReadInFlightArtifactIds: ReadonlySet<string>,
+  artifactId: string,
+): ReadonlySet<string> {
+  if (!manifestReadInFlightArtifactIds.has(artifactId)) {
+    return manifestReadInFlightArtifactIds;
+  }
+  const remaining = new Set(manifestReadInFlightArtifactIds);
+  remaining.delete(artifactId);
+  return remaining;
+}
 
 /** The row refusals with one act's refusal recorded against its row. */
 export function withRowRefusal(

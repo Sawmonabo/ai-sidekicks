@@ -561,3 +561,153 @@ describe("artifact pane actions — a delete supersedes the fetch for the row it
     );
   });
 });
+
+/**
+ * A reader whose manifest re-reads are all parked, one resolver per call.
+ *
+ * A QUEUE rather than one overwritten resolver, because the whole claim is about two
+ * reads of one manifest settling in either order: a harness that could release only
+ * the newest call could not deliver the older answer last, which is the delivery the
+ * defect turned on.
+ */
+function readerWithHeldManifestReads(clock: ManualClock): {
+  readonly reader: ArtifactPaneReader;
+  readonly artifactRead: ReturnType<typeof vi.fn>;
+  readonly releaseNthRead: (index: number, answer: unknown) => void;
+} {
+  const parked: ((answer: unknown) => void)[] = [];
+  const artifactRead = vi.fn(
+    () =>
+      new Promise((resolve) => {
+        parked.push(resolve);
+      }),
+  );
+  const reader = new ArtifactPaneReader({
+    bridge: {
+      growth: {
+        artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
+        artifactAllowlistRead: async () => REFUSAL,
+        artifactRead,
+      },
+    } as unknown as ConsoleBridge,
+    sessionStore: new SessionStore({ sessionId: SESSION_ID }),
+    clock,
+  });
+  return {
+    reader,
+    artifactRead,
+    releaseNthRead: (index, answer) => {
+      parked[index]?.(answer);
+    },
+  };
+}
+
+/** One served manifest re-read, carrying a digest a case can tell from its sibling. */
+function servedManifest(digest: string): unknown {
+  return {
+    status: "served",
+    value: { manifest: { ...SERVED_SUMMARY, digest }, payloadHandle: "sha256:2b4c" },
+  };
+}
+
+/** What the row on the reading currently says its digest is. */
+function listedDigest(reader: ArtifactPaneReader): string | undefined {
+  const state = reader.snapshot.artifacts;
+  return state.kind === "listed" ? state.rows[0]?.digest : undefined;
+}
+
+describe("artifact pane actions — one manifest re-read per row, each with its own identity", () => {
+  it("sends one read when the row is pressed twice, and refuses the second in words", async () => {
+    // The bug, exercised: both presses captured the same refresh stamp — starting an
+    // act does not advance it — so both reached the port and both replies passed the
+    // supersession check. Two reads of one manifest settle in either order, so the
+    // older answer could overwrite the newer row.
+    const clock = new ManualClock();
+    const { reader, artifactRead } = readerWithHeldManifestReads(clock);
+    reader.start();
+    await readThrough(clock);
+
+    const firstPress = reader.readManifest(SERVED_SUMMARY.artifactId);
+    await settle();
+    const secondPress = await reader.readManifest(SERVED_SUMMARY.artifactId);
+
+    expect(artifactRead).toHaveBeenCalledTimes(1);
+    expect(secondPress.status).toBe("refused");
+    expect(secondPress.status === "refused" ? secondPress.refusal.code : undefined).toBe(
+      "manifest-read-in-flight",
+    );
+    // The row is named on the reading while its read is outstanding, which is what
+    // holds the control that sent it.
+    expect(reader.snapshot.manifestReadInFlightArtifactIds.has(SERVED_SUMMARY.artifactId)).toBe(
+      true,
+    );
+    expect(reader.snapshot.refusalByArtifactId.get(SERVED_SUMMARY.artifactId)?.code).toBe(
+      "manifest-read-in-flight",
+    );
+
+    void firstPress;
+  });
+
+  it("drops a reply for a request this row's register has given up", async () => {
+    // The identity check, exercised: the register is what a continuation is measured
+    // against, so an answer for a request it has moved past — a disposal here, a
+    // successor once one is reachable — writes nothing rather than putting an older
+    // manifest back on a row that has since been answered for.
+    const clock = new ManualClock();
+    const { reader, releaseNthRead } = readerWithHeldManifestReads(clock);
+    reader.start();
+    await readThrough(clock);
+
+    const press = reader.readManifest(SERVED_SUMMARY.artifactId);
+    await settle();
+    reader.dispose();
+    releaseNthRead(0, servedManifest("sha256:stale"));
+
+    expect(await press).toStrictEqual({ status: "superseded" });
+    expect(listedDigest(reader)).toBe(SERVED_SUMMARY.digest);
+  });
+
+  it("negative control: the register is given back, so the next press is sent rather than refused", async () => {
+    // Without this, a register taken and never released would pass both cases above
+    // and refuse every later re-read of that row for the life of the pane — and the
+    // control would stay held with it, which is worse than the defect it replaced.
+    const clock = new ManualClock();
+    const { reader, artifactRead, releaseNthRead } = readerWithHeldManifestReads(clock);
+    reader.start();
+    await readThrough(clock);
+
+    const firstPress = reader.readManifest(SERVED_SUMMARY.artifactId);
+    await settle();
+    releaseNthRead(0, servedManifest("sha256:first"));
+    expect((await firstPress).status).toBe("settled");
+    expect(reader.snapshot.manifestReadInFlightArtifactIds.size).toBe(0);
+
+    const secondPress = reader.readManifest(SERVED_SUMMARY.artifactId);
+    await settle();
+    releaseNthRead(1, servedManifest("sha256:second"));
+
+    expect((await secondPress).status).toBe("settled");
+    expect(artifactRead).toHaveBeenCalledTimes(2);
+    expect(listedDigest(reader)).toBe("sha256:second");
+  });
+
+  it("negative control: a second row is read while the first is still on the wire", async () => {
+    // The register is keyed per row for the reason the mode picker's is: two rows
+    // re-reading are two calls about two manifests that cannot collide, and a pane
+    // that held one row's control because another was waiting would refuse a press
+    // for a reason that is not about it.
+    const clock = new ManualClock();
+    const { reader, artifactRead } = readerWithHeldManifestReads(clock);
+    reader.start();
+    await readThrough(clock);
+
+    void reader.readManifest(SERVED_SUMMARY.artifactId);
+    await settle();
+    void reader.readManifest(OTHER_ARTIFACT_ID);
+    await settle();
+
+    expect(artifactRead).toHaveBeenCalledTimes(2);
+    expect(reader.snapshot.manifestReadInFlightArtifactIds.has(OTHER_ARTIFACT_ID)).toBe(true);
+    expect(reader.snapshot.refusalByArtifactId.get(OTHER_ARTIFACT_ID)).toBeUndefined();
+  });
+});
