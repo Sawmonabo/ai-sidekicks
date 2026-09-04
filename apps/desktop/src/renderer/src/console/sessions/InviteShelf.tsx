@@ -12,6 +12,21 @@
 // no sessions held there is nothing to ask about and the shelf says so — again as
 // the "not checked" absence, since the console did not put the question.
 //
+// AN ANSWER BELONGS TO THE READER THAT PRODUCED IT. The reader IS the session set:
+// a session opening or closing hands this component a new one, which starts a fresh
+// fan-out over the sessions the console holds now. The outcomes from the previous
+// set keep describing the previous set until that fan-out settles — and if the
+// replacement read stalls, indefinitely — so an unstamped shelf shows a definitive
+// empty inbox, or another session set's invitations, for a question this console has
+// already replaced. So the outcomes are held WITH the reader they were asked of and
+// rendered only while it is still the reader: the first render under a new one is
+// the `not-loaded` absence, which is the honest reading of a set nothing has been
+// read for yet. `collaboration/SentInvites.tsx` stamps its own answer with the
+// subject it was asked of for the same reason, and reads the stamp at RENDER time
+// rather than trusting the effect that installed it — an effect's state lands one
+// committed frame after the render that renamed its inputs, and that frame is the
+// one this has to get right.
+//
 // WHAT IT OFFERS, AND WHAT IT CANNOT. **Not now** is a local hide: `InviteState`
 // on the wire is exactly `pending | accepted | revoked | expired` and its contract
 // states that declining is implicit in V1, so there is no decline verb to call and
@@ -61,6 +76,19 @@ type InvitesListRefusal = Extract<InvitesListOutcome, { readonly status: "unavai
  * sessions.
  */
 export type InviteShelfReader = () => Promise<readonly InvitesListOutcome[]>;
+
+/**
+ * One fan-out's answer, and the reader it was asked of.
+ *
+ * The reader is the identity because it IS the session set: the surface above builds
+ * it from the sessions this console holds, so a set that gained or lost one is a
+ * different function asking a different question. Compared by reference and not
+ * reduced to a count — two sets of the same size are not the same set.
+ */
+interface StampedShelfOutcomes {
+  readonly reader: InviteShelfReader;
+  readonly outcomes: readonly InvitesListOutcome[];
+}
 
 export interface InviteShelfProps {
   readonly read: InviteShelfReader;
@@ -155,24 +183,26 @@ function isCompleteRead(reading: ShelfReading): boolean {
 
 export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
   const { read } = props;
-  const [outcomes, setOutcomes] = useState<readonly InvitesListOutcome[] | undefined>(undefined);
+  const [stamped, setStamped] = useState<StampedShelfOutcomes | undefined>(undefined);
   const hidden = useHiddenInvites(props.uiStateStore);
   const { pruneAgainst } = hidden;
 
   useEffect(() => {
-    // One read, on mount. No interval and no scheduler: the wire behind this seam
+    // One read per reader. No interval and no scheduler: the wire behind this seam
     // refuses today, so a repeat would re-ask a question with no answer, and the
     // console's one refresh chokepoint is where a real re-read will go.
     let isAttached = true;
     void read().then((result) => {
       if (isAttached) {
-        setOutcomes(result);
+        setStamped({ reader: read, outcomes: result });
       }
     });
     return () => {
       isAttached = false;
     };
   }, [read]);
+
+  const outcomes = stamped !== undefined && stamped.reader === read ? stamped.outcomes : undefined;
 
   const reading = useMemo(
     () => (outcomes === undefined ? undefined : readShelf(outcomes)),
