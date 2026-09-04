@@ -47,6 +47,10 @@ import "../../../src/renderer/src/console/collaboration/index.js";
 // a component, and a page rendered without its family sheet would pin a layout
 // nobody ships. Same reason as the collaboration door above it.
 import "../../../src/renderer/src/console/settings/index.js";
+// The notifications sub-module's door, for its stylesheet: the notification center
+// below is captured as a component, and one rendered without its sheet would pin a
+// layout nobody ships. Same reason as the two doors above it.
+import "../../../src/renderer/src/console/sessions/notifications/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import {
   ConsoleRoot,
@@ -56,7 +60,10 @@ import {
   COLLABORATION_SCENARIO,
   COLLABORATION_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/collaboration.js";
-import { createFixtureBridge } from "../../../src/renderer/src/console/bridge/index.js";
+import {
+  createFixtureBridge,
+  growthUnavailable,
+} from "../../../src/renderer/src/console/bridge/index.js";
 import {
   ActivityIndicatorRegistry,
   type ChannelActivityLabels,
@@ -65,6 +72,8 @@ import { ChannelList } from "../../../src/renderer/src/console/collaboration/Cha
 import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/presence-model.js";
 import { Roster } from "../../../src/renderer/src/console/collaboration/Roster.js";
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/SentInvites.js";
+import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
+import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
@@ -244,6 +253,36 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
 
     await expect(requireCapturedElement(container, ".meridian-invites")).toMatchScreenshot(
       "collaboration-invites-light",
+    );
+  });
+
+  it("renders the notification center over a read that missed a session", async (context) => {
+    // The arm the sessions destination above cannot show: the fixture serves the
+    // attention projection for every session it is asked about, so a read whose
+    // coverage is incomplete only exists when a session refuses. It is the one
+    // composition where an absence, a count, and a per-session refusal stack in one
+    // panel, and the whole point of the arm is that it does NOT read as an all-clear
+    // — which is a picture rather than an assertion.
+    skipOffPinnedPlatform(context);
+    await emulateSystemScheme("light");
+    const { container } = await renderSettled(
+      <NotificationCenter
+        reading={{
+          phase: "read",
+          plane: new AttentionPlane([]),
+          droppedCount: 0,
+          refusedSessions: [
+            {
+              sessionId: COLLABORATION_SCENARIO.sessionId,
+              refusal: growthUnavailable("attentionProjectionRead"),
+            },
+          ],
+        }}
+      />,
+    );
+
+    await expect(requireCapturedElement(container, ".meridian-attention")).toMatchScreenshot(
+      "collaboration-attention-partial-light",
     );
   });
 

@@ -76,6 +76,7 @@ export class DurableViewState<TValue extends PersistedValue> {
   readonly #changes = new Emitter<void>("durable view state");
   #value: TValue;
   #hydrated = false;
+  #disposed = false;
   #lastRefusal: ConsoleRefusal | undefined;
   /**
    * The rounds local acts have opened, so a hydration that started before one of
@@ -101,6 +102,36 @@ export class DurableViewState<TValue extends PersistedValue> {
   /** True once the durable read has settled, however it settled. */
   public get isHydrated(): boolean {
     return this.#hydrated;
+  }
+
+  /**
+   * True once the store behind this state has been replaced. Terminal.
+   *
+   * Read by the binding holder's own test, and by nothing on a render path: a
+   * disposed state is one no surface is subscribed to any more, so the fact is
+   * about the holder's bookkeeping rather than about what a person sees.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
+  /**
+   * Release this state: its store has been replaced and nothing may reach it again.
+   *
+   * Three acts, and the middle one is the point. Dropping the sinks stops a late
+   * reply notifying a surface that has moved on; superseding the local acts makes a
+   * hydration still in flight discard the record it comes back with, so the closed
+   * store's contents can never be installed over the successor's; and the flag
+   * records the fact for the holder that owns the replacement.
+   *
+   * A write ALREADY IN FLIGHT still completes against the store it was sent to, and
+   * that is correct — it was issued while that store was live. What cannot happen is
+   * a NEW write, because every act reaches the binding the holder currently holds.
+   */
+  public dispose(): void {
+    this.#disposed = true;
+    this.#localActs.supersedeAll();
+    this.#changes.clear();
   }
 
   /** The last refusal this state saw, or `undefined`. Rendered, never swallowed. */
@@ -143,14 +174,31 @@ export class DurableViewState<TValue extends PersistedValue> {
     this.#changes.emit();
   }
 
-  /** Replace the value and write it. The refusal is recorded and returned. */
+  /**
+   * Replace the value and write it. The refusal is recorded and returned.
+   *
+   * THE SETTLEMENT EMITS WHEN THE REFUSAL CHANGES, IN EITHER DIRECTION. It emitted
+   * only on the refused arm, so a write that RECOVERED cleared `#lastRefusal` and
+   * told nobody: the pre-write emission happened while the old refusal was still
+   * present, and the pin list and the invitation shelf read this getter on a render
+   * they had no reason to perform — so a failure a person had already fixed stayed
+   * on screen until something unrelated re-rendered the surface.
+   *
+   * Identity is the comparison because a refusal is a value the store hands back
+   * whole: two refusals for the same cause are two objects, and re-rendering for the
+   * second one is right — it is this write's own reason and not the last one's. What
+   * it does not do is emit twice for the settlement that changed nothing, which is
+   * every successful write after the first.
+   */
   public async commit(next: TValue): Promise<PersistenceWriteOutcome> {
     this.#localActs.supersedeAll();
     this.#value = next;
     this.#changes.emit();
     const outcome = await this.#store.writeGlobal(this.#key, this.#valueClass, next);
-    this.#lastRefusal = outcome.outcome === "refused" ? outcome.refusal : undefined;
-    if (outcome.outcome === "refused") {
+    const settledRefusal = outcome.outcome === "refused" ? outcome.refusal : undefined;
+    const refusalChanged = settledRefusal !== this.#lastRefusal;
+    this.#lastRefusal = settledRefusal;
+    if (refusalChanged) {
       this.#changes.emit();
     }
     return outcome;

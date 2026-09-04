@@ -44,15 +44,41 @@ import {
   type GrowthPort,
 } from "../../bridge/index.js";
 
+/** One session the projection read could not answer for, with its own refusal. */
+export interface RefusedAttentionSession {
+  readonly sessionId: string;
+  readonly refusal: ConsoleRefusal;
+}
+
+/**
+ * What one fan-out over the session-scoped read produced.
+ *
+ * TWO HALVES, BECAUSE COVERAGE IS A SEPARATE FACT FROM CONTENT. The members are
+ * what the sessions that answered carried; the refusals are the sessions that did
+ * not. A reading that carried only the first would let a served empty projection
+ * beside a refused one render as an all-clear — a person told nothing needs them
+ * on the strength of a question half the sessions never answered.
+ *
+ * It is the vocabulary `sessions/InviteShelf.tsx` already folds its own fan-out
+ * into, one level down: outcomes are tracked rather than survivors, so "one session
+ * has nothing for you" and "another would not say" stay two facts.
+ */
+export interface AttentionProjectionRead {
+  /** Members served, concatenated across the sessions that answered. */
+  readonly members: readonly unknown[];
+  /** The sessions that refused. Empty when every session that was asked answered. */
+  readonly refusedSessions: readonly RefusedAttentionSession[];
+}
+
 /**
  * The read the notification center performs.
  *
  * `undefined` is "nothing was read" — the honest answer while the projection's
- * wire is unregistered, and deliberately not an empty array, which would tell the
+ * wire is unregistered, and deliberately not an empty read, which would tell the
  * center the projection is genuinely empty and let it render the all-clear line
  * for a question nobody put.
  */
-export type AttentionProjectionReader = () => Promise<readonly unknown[] | undefined>;
+export type AttentionProjectionReader = () => Promise<AttentionProjectionRead | undefined>;
 
 /**
  * The reader that ships today: no wire, so no question, so no answer.
@@ -73,15 +99,19 @@ export const READS_NO_ATTENTION_PROJECTION: AttentionProjectionReader = () =>
  * which is a fan-out over a read, not a second projection, and the plane above still
  * folds one flat set exactly as it did when the set came from one session.
  *
- * `undefined` — "nothing was read" — on two inputs and deliberately not an empty
- * array, which would tell the center the projection is genuinely empty and let it
- * render the all-clear for a question nobody put: no ids to ask about, and every
- * ask refused. A PARTIAL answer is an answer and is returned, because a session
- * whose attention the console did read is one it can report on.
+ * EVERY REFUSAL TRAVELS WITH THE MEMBERS. It answered by dropping them, so a
+ * session that served nothing beside one that refused produced an empty projection
+ * and the center rendered the definitive all-clear — the worst sentence this
+ * surface has, said on the strength of a read one session never answered. A served
+ * session with items hid the refused ones the same way, quietly rather than loudly.
+ * The refusals are carried per session, with the port's own words, because the
+ * center names WHICH sessions went unchecked and renders each refusal's own code.
  *
- * The port's refusal detail is not threaded through: the reading has one non-answer
- * phase and the center renders one sentence for it, and a second sentence lifted
- * out of a refusal would be a second place that copy is written.
+ * `undefined` — "nothing was read" — on exactly one input: no ids to ask about,
+ * which is a question nobody put rather than an answer. Every ask refusing is an
+ * ANSWER — the wire was reached and it declined — so it returns a read carrying no
+ * members and every refusal, and the center says the coverage is empty rather than
+ * that the question was never asked.
  */
 export function attentionProjectionReaderFor(
   growth: GrowthPort,
@@ -92,10 +122,21 @@ export function attentionProjectionReaderFor(
       return undefined;
     }
     const outcomes = await Promise.all(
-      sessionIds.map(async (sessionId) => await growth.attentionProjectionRead({ sessionId })),
+      sessionIds.map(async (sessionId) => ({
+        sessionId,
+        outcome: await growth.attentionProjectionRead({ sessionId }),
+      })),
     );
-    const served = outcomes.filter((outcome) => outcome.status === "served");
-    return served.length === 0 ? undefined : served.flatMap((outcome) => outcome.value.items);
+    const members: unknown[] = [];
+    const refusedSessions: RefusedAttentionSession[] = [];
+    for (const { sessionId, outcome } of outcomes) {
+      if (outcome.status === "served") {
+        members.push(...outcome.value.items);
+      } else {
+        refusedSessions.push({ sessionId, refusal: outcome });
+      }
+    }
+    return { members, refusedSessions };
   };
 }
 
@@ -331,6 +372,10 @@ function groupBySession(items: readonly AttentionItem[]): readonly AttentionSess
  * conflation the five kinds of nothing exist to prevent — and collapsing the fourth
  * into the second would report a reader that broke as a reader that was never asked,
  * which is the same conflation from the other side.
+ *
+ * The `read` arm carries its own COVERAGE, because a read that answered is not the
+ * same as a read that answered for everything it asked about, and one phase for
+ * both would make the difference unrenderable.
  */
 export type AttentionReading =
   | { readonly phase: "reading" }
@@ -341,4 +386,6 @@ export type AttentionReading =
       readonly plane: AttentionPlane;
       /** Members the boundary refused. A fact about the reader, not about attention. */
       readonly droppedCount: number;
+      /** Sessions that never answered. Non-empty means the coverage is incomplete. */
+      readonly refusedSessions: readonly RefusedAttentionSession[];
     };

@@ -8,9 +8,13 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { AttentionItem } from "../../bridge/index.js";
+import { growthUnavailable, type AttentionItem } from "../../bridge/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
-import { AttentionPlane, type AttentionReading } from "./attention-plane.js";
+import {
+  AttentionPlane,
+  type AttentionReading,
+  type RefusedAttentionSession,
+} from "./attention-plane.js";
 
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {
@@ -25,8 +29,16 @@ function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   };
 }
 
-function readingOf(items: readonly AttentionItem[]): AttentionReading {
-  return { phase: "read", plane: new AttentionPlane(items), droppedCount: 0 };
+function readingOf(
+  items: readonly AttentionItem[],
+  refusedSessions: readonly RefusedAttentionSession[] = [],
+): AttentionReading {
+  return { phase: "read", plane: new AttentionPlane(items), droppedCount: 0, refusedSessions };
+}
+
+/** One session the fan-out never got an answer for, refused the way the port refuses. */
+function refusedSession(sessionId: string): RefusedAttentionSession {
+  return { sessionId, refusal: growthUnavailable("attentionProjectionRead") };
 }
 
 describe("the three phases of a projection read", () => {
@@ -129,7 +141,12 @@ describe("members the boundary refused", () => {
   it("says how many were dropped rather than shrinking the list silently", () => {
     const { container } = render(
       <NotificationCenter
-        reading={{ phase: "read", plane: new AttentionPlane([item()]), droppedCount: 2 }}
+        reading={{
+          phase: "read",
+          plane: new AttentionPlane([item()]),
+          droppedCount: 2,
+          refusedSessions: [],
+        }}
       />,
     );
     const text = container.textContent ?? "";
@@ -148,7 +165,12 @@ describe("members the boundary refused", () => {
     // nothing needs them on the strength of a read whose every member was refused.
     const { container } = render(
       <NotificationCenter
-        reading={{ phase: "read", plane: new AttentionPlane([]), droppedCount: 2 }}
+        reading={{
+          phase: "read",
+          plane: new AttentionPlane([]),
+          droppedCount: 2,
+          refusedSessions: [],
+        }}
       />,
     );
     const text = container.textContent ?? "";
@@ -164,5 +186,73 @@ describe("members the boundary refused", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Nothing needs you.");
     expect(text).not.toContain("in that read");
+  });
+});
+
+describe("a read that did not cover every session", () => {
+  // The worst sentence this surface has is the all-clear, and before this arm it was
+  // reachable on a read one session never answered: the fan-out dropped the refusals,
+  // an empty projection from the sessions that did answer read as "nothing", and a
+  // person was told they were free on a question half the console never got back.
+
+  it("never says a person is free while a session went unchecked", () => {
+    const { container } = render(
+      <NotificationCenter reading={readingOf([], [refusedSession("session-b")])} />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).not.toContain("Nothing needs you.");
+    expect(text).toContain("One session could not be checked.");
+    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
+  });
+
+  it("negative control: the same empty read with every session answered IS the all-clear", () => {
+    // Without this, the case above would pass over a center that had simply lost its
+    // empty state, which is a different defect wearing the same warning.
+    const { container } = render(<NotificationCenter reading={readingOf([])} />);
+    const text = container.textContent ?? "";
+    expect(text).toContain("Nothing needs you.");
+    expect(text).not.toContain("could not be checked");
+  });
+
+  it("shows the items it did read beside the sessions it could not", () => {
+    const { container } = render(
+      <NotificationCenter
+        reading={readingOf([item()], [refusedSession("session-b"), refusedSession("session-c")])}
+      />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("An approval is waiting.");
+    expect(text).toContain("2 sessions could not be checked.");
+    expect(container.querySelectorAll(".meridian-attention__group")).toHaveLength(1);
+    expect(container.querySelectorAll(".meridian-attention__refused-row")).toHaveLength(2);
+  });
+
+  it("names each refused session and renders the port's own refusal code", () => {
+    const refusal = growthUnavailable("attentionProjectionRead");
+    const { container } = render(
+      <NotificationCenter reading={readingOf([], [refusedSession("session-b")])} />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("session-b");
+    expect(text).toContain(refusal.code);
+    expect(text).toContain(refusal.detail);
+  });
+
+  it("keeps the dropped-member line beside the coverage warning", () => {
+    // Two different facts about one read — members this console could not recognise,
+    // and sessions that never answered — and neither may stand in for the other.
+    const { container } = render(
+      <NotificationCenter
+        reading={{
+          phase: "read",
+          plane: new AttentionPlane([]),
+          droppedCount: 1,
+          refusedSessions: [refusedSession("session-b")],
+        }}
+      />,
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("One session could not be checked.");
+    expect(text).toContain("One item in that read");
   });
 });

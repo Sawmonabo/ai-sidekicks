@@ -236,3 +236,111 @@ describe("shell preferences — the opening read never lands on a newer choice",
     expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(false);
   });
 });
+
+/**
+ * A carrier write this test settles by hand, so several can be in flight at once.
+ *
+ * Settlers are held per key AS A LIST, because the case that matters most has two
+ * calls outstanding for ONE key: serving that key releases both continuations, which
+ * is what lets the supersession rule be observed rather than assumed.
+ */
+function heldWrite(): {
+  readonly answer: GrowthPort["shellConfigWrite"];
+  readonly serve: (key: string) => void;
+} {
+  const settlersByKey = new Map<string, (() => void)[]>();
+  return {
+    answer: async ({ key }) =>
+      await new Promise((resolve) => {
+        settlersByKey.set(key, [
+          ...(settlersByKey.get(key) ?? []),
+          () => {
+            resolve({ status: "served", value: undefined });
+          },
+        ]);
+      }),
+    serve: (key) => {
+      const settlers = settlersByKey.get(key) ?? [];
+      expect(settlers.length).toBeGreaterThan(0);
+      settlersByKey.delete(key);
+      for (const settle of settlers) {
+        settle();
+      }
+    },
+  };
+}
+
+describe("shell preferences — one key's write never discards another's", () => {
+  it("settles both keys when two writes are in flight together", async () => {
+    // The defect: the generation was shared across keys, so choosing B superseded
+    // A's round and A's accepted settlement was discarded. `shellConfigWrite` takes
+    // one key and leaves the others alone, so the two acts are independent — and
+    // this store reads once and never refreshes, so the window showed A's old value
+    // for the rest of its life.
+    const write = heldWrite();
+    const store = new ShellPreferenceStore(
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({}),
+        shellConfigWrite: write.answer,
+      }),
+    );
+    const chosenA = store.choose("updates.automatic", false);
+    const chosenB = store.choose("diagnostics.crashReports", false);
+    expect(store.snapshot().pendingKeys).toStrictEqual(
+      new Set(["updates.automatic", "diagnostics.crashReports"]),
+    );
+
+    write.serve("updates.automatic");
+    write.serve("diagnostics.crashReports");
+    await Promise.all([chosenA, chosenB]);
+
+    const snapshot = store.snapshot();
+    expect(effectivePreference(snapshot, "updates.automatic")).toBe(false);
+    expect(effectivePreference(snapshot, "diagnostics.crashReports")).toBe(false);
+    expect(snapshot.pendingKeys).toStrictEqual(new Set());
+  });
+
+  it("clears only the settled key's spinner, not every key writing", async () => {
+    const write = heldWrite();
+    const store = new ShellPreferenceStore(
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({}),
+        shellConfigWrite: write.answer,
+      }),
+    );
+    const chosenA = store.choose("updates.automatic", false);
+    const chosenB = store.choose("diagnostics.crashReports", false);
+
+    write.serve("updates.automatic");
+    await chosenA;
+
+    // B's write is still outstanding, and a row that stopped saying so would offer
+    // a control whose previous press has not landed.
+    expect(store.snapshot().pendingKeys).toStrictEqual(new Set(["diagnostics.crashReports"]));
+    write.serve("diagnostics.crashReports");
+    await chosenB;
+  });
+
+  it("negative control: a newer choice for the SAME key still discards the older one", async () => {
+    // Without this, the cases above would pass over a store that had stopped
+    // superseding at all — which would let a stale reply for one key land over the
+    // value a person chose for it a moment later.
+    const write = heldWrite();
+    const store = new ShellPreferenceStore(
+      fixtureBridgeWithGrowth(SCENARIO, {
+        shellConfigRead: growthServing({}),
+        shellConfigWrite: write.answer,
+      }),
+    );
+    const first = store.choose("updates.automatic", false);
+    const second = store.choose("updates.automatic", true);
+
+    // Both calls are released together, so the older continuation genuinely runs and
+    // is genuinely discarded rather than merely never reaching its settlement.
+    write.serve("updates.automatic");
+    await Promise.all([first, second]);
+
+    expect(effectivePreference(store.snapshot(), "updates.automatic")).toBe(true);
+    expect(store.snapshot().pendingKeys).toStrictEqual(new Set());
+  });
+});

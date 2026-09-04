@@ -35,12 +35,19 @@ import "../../../src/renderer/src/console/collaboration/index.js";
 // a component, and contrast is measured on the rendered composition rather than on
 // the token table, so a page audited unstyled would report a palette nobody ships.
 import "../../../src/renderer/src/console/settings/index.js";
+// The notifications sub-module's door, for its stylesheet: the notification center
+// below is audited as a component, and its coverage warning is a block of muted text
+// over a list of inline refusals — pairs the token table alone cannot measure.
+import "../../../src/renderer/src/console/sessions/notifications/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import {
   ConsoleRoot,
   installMeridianTokens,
 } from "../../../src/renderer/src/console/frame/index.js";
-import { createFixtureBridge } from "../../../src/renderer/src/console/bridge/index.js";
+import {
+  createFixtureBridge,
+  growthUnavailable,
+} from "../../../src/renderer/src/console/bridge/index.js";
 import {
   COLLABORATION_SCENARIO,
   COLLABORATION_SCENARIO_ID,
@@ -53,6 +60,8 @@ import { ChannelList } from "../../../src/renderer/src/console/collaboration/Cha
 import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/presence-model.js";
 import { Roster } from "../../../src/renderer/src/console/collaboration/Roster.js";
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/SentInvites.js";
+import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
+import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
 import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import {
@@ -204,6 +213,31 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
     // An audit of the loading arm would be an audit of a spinner: assert the roster
     // is the thing on screen before measuring it.
     expect(container.querySelector('[aria-label="node-roster-loaded"]')).not.toBeNull();
+
+    expect(await axeViolationsIn(container)).toStrictEqual([]);
+  });
+
+  it("has no axe violation in the notification center's partial reading", async () => {
+    // The arm the destination capture cannot reach: the fixture serves the attention
+    // projection for every session it is asked about, so the coverage warning — a
+    // `not-checked` absence over a list of per-session refusals — only appears when a
+    // session refuses. It is a composition of its own, with its own live region and
+    // its own contrast pairs, so it is audited rather than assumed.
+    const { container } = await renderSettled(
+      <NotificationCenter
+        reading={{
+          phase: "read",
+          plane: new AttentionPlane([]),
+          droppedCount: 0,
+          refusedSessions: [
+            {
+              sessionId: COLLABORATION_SCENARIO.sessionId,
+              refusal: growthUnavailable("attentionProjectionRead"),
+            },
+          ],
+        }}
+      />,
+    );
 
     expect(await axeViolationsIn(container)).toStrictEqual([]);
   });

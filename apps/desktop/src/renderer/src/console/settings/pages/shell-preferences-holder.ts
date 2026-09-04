@@ -166,7 +166,7 @@ export function useShellPreferences(bridge: ConsoleBridge): ShellPreferenceBindi
     snapshot,
     isEnabled: (key) => effectivePreference(snapshot, key),
     isHeldLocally: (key) => Object.hasOwn(snapshot.heldLocally, key),
-    isPending: (key) => snapshot.pendingKey === key,
+    isPending: (key) => snapshot.pendingKeys.has(key),
     refusalFor: (key) => snapshot.refusalByKey[key],
     choose: (key, enabled) => {
       // Reached from an event handler and never from a render, so this acquires

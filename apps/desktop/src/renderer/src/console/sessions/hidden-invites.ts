@@ -23,11 +23,12 @@
 // whichever reason it left. A refused read prunes nothing, because a refusal is
 // not evidence that an invitation is gone.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import type { UiStateStore } from "../persistence/index.js";
 import { HIDDEN_INVITE_CAP } from "../core/index.js";
+import { noDurableViewSubscription, useDurableViewBinding } from "./durable-view-binding.js";
 import { DurableViewState } from "./durable-view-state.js";
 
 /** The record key inside the global partition. Identifier-shaped, as the store requires. */
@@ -89,6 +90,16 @@ export class HiddenInviteStore {
     await this.#state.hydrate();
   }
 
+  /** Released when the window's durable store is replaced. Terminal. */
+  public dispose(): void {
+    this.#state.dispose();
+  }
+
+  /** Whether this store has been superseded. Read by the binding's own test. */
+  public get isDisposed(): boolean {
+    return this.#state.isDisposed;
+  }
+
   /**
    * Set one invitation aside.
    *
@@ -138,44 +149,48 @@ export interface HiddenInviteBinding {
   readonly pruneAgainst: (servedInviteIds: readonly string[]) => void;
 }
 
+/** How a hide-set store is minted. Module-level, because the holder reads it once. */
+function mintHiddenInviteStore(store: UiStateStore): HiddenInviteStore {
+  return new HiddenInviteStore(store);
+}
+
 /**
  * Bind the hide set into a component.
  *
- * Same shape as `useSessionPins`, and for the same reasons: a `useState`
- * initializer builds the store once, the hydrate is the side effect and rides an
- * effect, and every act declares its failure as a recorded refusal so nothing
- * here has a rejection to catch.
+ * Same shape as `useSessionPins`, and for the same reasons: the binding is keyed on
+ * the durable store's identity through the holder both share, so a store the window
+ * replaced takes its hide set with it rather than leaving this shelf writing into a
+ * closed database; the hydrate rides the holder's effect; and every act declares its
+ * failure as a recorded refusal, so nothing here has a rejection to catch.
  */
 export function useHiddenInvites(store: UiStateStore): HiddenInviteBinding {
-  const [hiddenStore] = useState(() => new HiddenInviteStore(store));
-  useEffect(() => {
-    void hiddenStore.hydrate();
-  }, [hiddenStore]);
+  const { binding, acquire } = useDurableViewBinding(store, mintHiddenInviteStore);
   const subscribe = useCallback(
-    (onStoreChange: () => void) => hiddenStore.subscribe(onStoreChange),
-    [hiddenStore],
+    (onStoreChange: () => void) => binding?.subscribe(onStoreChange) ?? noDurableViewSubscription,
+    [binding],
   );
-  const readHidden = useCallback(() => hiddenStore.hiddenInviteIds, [hiddenStore]);
+  const readHidden = useCallback(() => binding?.hiddenInviteIds ?? NOTHING_HIDDEN, [binding]);
   const hiddenInviteIds = useSyncExternalStore(subscribe, readHidden, readHidden);
   const hide = useCallback(
     (inviteId: string) => {
-      void hiddenStore.hide(inviteId);
+      void acquire().hide(inviteId);
     },
-    [hiddenStore],
+    [acquire],
   );
   const reveal = useCallback(
     (inviteId: string) => {
-      void hiddenStore.reveal(inviteId);
+      void acquire().reveal(inviteId);
     },
-    [hiddenStore],
+    [acquire],
   );
   const pruneAgainst = useCallback(
     (servedInviteIds: readonly string[]) => {
-      void hiddenStore.pruneAgainst(servedInviteIds);
+      void acquire().pruneAgainst(servedInviteIds);
     },
-    [hiddenStore],
+    [acquire],
   );
-  // Read after the subscription, for `useSessionPins`' reason: a refused write
-  // emits its own change, so the re-render is what makes this getter current.
-  return { hiddenInviteIds, lastRefusal: hiddenStore.lastRefusal, hide, reveal, pruneAgainst };
+  // Read after the subscription, for `useSessionPins`' reason: a write whose
+  // refusal changed — raised or cleared — emits on its own, so the re-render is
+  // what makes this getter current.
+  return { hiddenInviteIds, lastRefusal: binding?.lastRefusal, hide, reveal, pruneAgainst };
 }

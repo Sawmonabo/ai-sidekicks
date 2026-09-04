@@ -29,4 +29,4 @@ export { NotificationCenter } from "./NotificationCenter.js";
 export { attentionProjectionReaderFor, type AttentionReading } from "./attention-plane.js";
 // The read's own lifetime lives next door: the plane is a vocabulary and a fold, and
 // the hook that performs the read and keeps it current is what a destination mounts.
-export { useAttentionProjection } from "./attention-read.js";
+export { useAttentionProjection, useAttentionSettlementAnnouncement } from "./attention-read.js";

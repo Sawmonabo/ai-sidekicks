@@ -40,9 +40,25 @@ function narrowIdList(raw: unknown): readonly string[] | undefined {
     : undefined;
 }
 
-function openStore(): UiStateStore {
-  return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
+function openStore(options: { readonly capacityBytes?: number } = {}): UiStateStore {
+  return new UiStateStore({
+    adapter: new MemoryPersistenceAdapter(
+      options.capacityBytes === undefined ? {} : { capacityBytes: options.capacityBytes },
+    ),
+  });
 }
+
+/**
+ * A ceiling that admits a short list and refuses a long one.
+ *
+ * The recovery cases below need ONE store that refuses and then accepts, which a
+ * fixed-capacity adapter gives only if the values differ in size. The adapter's
+ * estimate is `partition + key + valueClass + JSON.stringify(value)`, so the base
+ * cost here is 38 bytes: `[]` costs 40, `COMMITTED_IDS` costs 56, and `STORED_IDS`
+ * costs 68. The number is asserted rather than trusted — a change to the estimate
+ * that silently made every write fit would make every recovery case vacuous.
+ */
+const CEILING_ADMITTING_A_SHORT_LIST = 60;
 
 function stateOver(store: UiStateStore): DurableViewState<readonly string[]> {
   return new DurableViewState<readonly string[]>({
@@ -119,5 +135,99 @@ describe("hydrating a durable view state", () => {
     expect(state.value).toStrictEqual(STORED_IDS);
     await state.commit([...COMMITTED_IDS]);
     expect(state.value).toStrictEqual(COMMITTED_IDS);
+  });
+});
+
+describe("a durable view state whose store was replaced", () => {
+  it("drops its subscribers, so a late write notifies nobody", async () => {
+    const state = stateOver(openStore());
+    let notifications = 0;
+    state.subscribe(() => {
+      notifications += 1;
+    });
+    state.dispose();
+    await state.commit([...COMMITTED_IDS]);
+    expect(state.isDisposed).toBe(true);
+    expect(notifications).toBe(0);
+  });
+
+  it("discards a hydration that was already in flight", async () => {
+    // The record comes back from a store the window has closed, and installing it
+    // would put the previous scenario's value on screen under the new one.
+    const state = stateOver(await storeHoldingRecord());
+    const hydration = state.hydrate();
+    state.dispose();
+    await hydration;
+    expect(state.value).toStrictEqual([]);
+  });
+
+  it("negative control: the same hydration installs when nothing disposed it", async () => {
+    // Without this, the case above would pass over a state that discarded every
+    // record, which would make the stored value unreachable rather than superseded.
+    const state = stateOver(await storeHoldingRecord());
+    await state.hydrate();
+    expect(state.value).toStrictEqual(STORED_IDS);
+    expect(state.isDisposed).toBe(false);
+  });
+});
+
+describe("a refusal this state has recovered from", () => {
+  /** Every value `lastRefusal` held at a moment a subscriber was told to look. */
+  function recordRefusalsSeenBy(state: DurableViewState<readonly string[]>): {
+    readonly seen: readonly (string | undefined)[];
+  } {
+    const seen: (string | undefined)[] = [];
+    state.subscribe(() => {
+      seen.push(state.lastRefusal?.code);
+    });
+    return { seen };
+  }
+
+  it("proves the ceiling separates the two writes, so the cases below are not vacuous", async () => {
+    const state = stateOver(openStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST }));
+    const refused = await state.commit([...STORED_IDS]);
+    expect(refused.outcome).toBe("refused");
+    const written = await state.commit([...COMMITTED_IDS]);
+    expect(written.outcome).toBe("written");
+  });
+
+  it("tells its subscribers the failure has cleared", async () => {
+    // The defect: the recovery cleared `lastRefusal` and emitted nothing, so the
+    // pin list and the invitation shelf kept rendering a failure a person had
+    // already fixed — until something unrelated re-rendered the surface.
+    const state = stateOver(openStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST }));
+    await state.commit([...STORED_IDS]);
+    const observed = recordRefusalsSeenBy(state);
+    await state.commit([...COMMITTED_IDS]);
+
+    expect(state.lastRefusal).toBeUndefined();
+    // The LAST thing a subscriber was told to look at is the cleared value. Under
+    // the unguarded class the only emission is the pre-write one, taken while the
+    // stale refusal was still in place.
+    expect(observed.seen.at(-1)).toBeUndefined();
+  });
+
+  it("negative control: a refusal is still published when the write fails", async () => {
+    // Without this, the case above would pass over a class that had stopped
+    // emitting on settlement altogether — which would hide the failure instead of
+    // hiding the recovery.
+    const state = stateOver(openStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST }));
+    const observed = recordRefusalsSeenBy(state);
+    await state.commit([...STORED_IDS]);
+
+    expect(state.lastRefusal?.code).toBe("quota-exceeded");
+    expect(observed.seen.at(-1)).toBe("quota-exceeded");
+  });
+
+  it("does not publish twice for a settlement that changed nothing", async () => {
+    // Two successful writes in a row leave the refusal `undefined` throughout, and
+    // a second emission for that would re-render every memoised row for a fact that
+    // did not move.
+    const state = stateOver(openStore());
+    await state.commit([...COMMITTED_IDS]);
+    const observed = recordRefusalsSeenBy(state);
+    await state.commit([...STORED_IDS]);
+
+    expect(observed.seen).toStrictEqual([undefined]);
   });
 });

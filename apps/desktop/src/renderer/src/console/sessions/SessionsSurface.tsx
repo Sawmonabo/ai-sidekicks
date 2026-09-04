@@ -60,6 +60,7 @@ import {
   NotificationCenter,
   attentionProjectionReaderFor,
   useAttentionProjection,
+  useAttentionSettlementAnnouncement,
   type AttentionReading,
 } from "./notifications/index.js";
 import { DerivedFigure, InlineRefusal, Nothing, formatCount } from "../primitives/index.js";
@@ -104,6 +105,11 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     context.bridge,
     context.sessionStoreRegistry,
   );
+  // Said once per settlement, here rather than inside the center: this destination is
+  // where the read lives, and the center is handed a reading and mounted in two other
+  // harnesses that render it with no announcer above them. The panel draws the same
+  // read for everyone who can see it — this is the half for everyone who cannot.
+  useAttentionSettlementAnnouncement(attention);
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);
@@ -188,11 +194,9 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
  * The invitations read, fanned out over the sessions this destination can name.
  *
  * The mirror of `attentionProjectionReaderFor`, and deliberately its shape: both
- * wires are session-scoped, this destination is not, and both are asked about the
- * same merged set. It differs in what it does with a partial answer — the attention
- * reader drops refusals because a projection is one reading of many sessions, while
- * every outcome is carried here so the shelf can tell a refused read from an empty
- * inbox for itself.
+ * wires are session-scoped, this destination is not, both are asked about the same
+ * merged set, and both carry every session's outcome rather than only the served
+ * ones — so each surface can tell a refused read from an empty answer for itself.
  *
  * An empty set answers an empty array rather than a refusal: nothing was asked, and
  * the shelf has its own sentence for that.

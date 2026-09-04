@@ -39,13 +39,23 @@
 import type { AttentionItem, AttentionTrigger } from "../../bridge/index.js";
 import {
   Chip,
+  InlineRefusal,
   Nothing,
   RefusalCard,
   WireFigure,
   formatClockTime,
   formatCount,
 } from "../../primitives/index.js";
-import type { AttentionReading, AttentionSessionGroup } from "./attention-plane.js";
+import type {
+  AttentionReading,
+  AttentionSessionGroup,
+  RefusedAttentionSession,
+} from "./attention-plane.js";
+import {
+  NOTHING_NEEDS_YOU,
+  uncheckedSessionsSentence,
+  unrecognisedItemsSentence,
+} from "./attention-sentences.js";
 
 /**
  * How one trigger reads. Total over the closed six by construction, so a seventh
@@ -114,19 +124,35 @@ function ProjectionBody(props: {
     // nobody asked. The refusal renders with its own code, verbatim.
     return <RefusalCard code={props.reading.refusal.code} detail={props.reading.refusal.detail} />;
   }
-  const { plane, droppedCount } = props.reading;
+  const { plane, droppedCount, refusedSessions } = props.reading;
   if (plane.groups.length === 0) {
     // Nothing survived the boundary. WHY nothing survived decides which absence
-    // this is: a read that answered with an empty projection is an all-clear, and
-    // a read every member of which the boundary rejected is the console failing to
-    // recognise an answer it did receive. Reporting the second as the first is the
-    // conflation the five kinds of nothing exist to prevent — it tells a person
-    // they are free on the strength of a read nobody could parse.
+    // this is, and there are now three reasons rather than two: a read that
+    // answered for every session with an empty projection is an all-clear; a read
+    // some session never answered is coverage this console does not have; and a
+    // read every member of which the boundary rejected is the console failing to
+    // recognise an answer it did receive. Reporting either of the last two as the
+    // first is the conflation the five kinds of nothing exist to prevent — it tells
+    // a person they are free on the strength of a question that went unanswered.
+    if (refusedSessions.length > 0) {
+      return (
+        <>
+          <Nothing
+            kind="not-checked"
+            placement="surface"
+            title="Some sessions could not be checked."
+            detail={`${uncheckedSessionsSentence(refusedSessions.length)} Nothing was found in the ones that answered, which is not an all-clear.`}
+          />
+          {droppedCount === 0 ? null : <DroppedMembersLine droppedCount={droppedCount} />}
+          <RefusedSessions sessions={refusedSessions} />
+        </>
+      );
+    }
     return droppedCount === 0 ? (
       <Nothing
         kind="empty"
         placement="surface"
-        title="Nothing needs you."
+        title={NOTHING_NEEDS_YOU}
         detail="Approvals, questions, finished runs, invitations, and mentions all appear here while they are unresolved."
       />
     ) : (
@@ -151,29 +177,60 @@ function ProjectionBody(props: {
           </li>
         ))}
       </ul>
-      {droppedCount === 0 ? null : (
-        <p className="meridian-attention__dropped" role="status">
-          {unrecognisedItemsSentence(droppedCount)}
-        </p>
-      )}
+      {droppedCount === 0 ? null : <DroppedMembersLine droppedCount={droppedCount} />}
+      {refusedSessions.length === 0 ? null : <RefusedSessions sessions={refusedSessions} />}
     </>
   );
 }
 
 /**
- * What the console says about members its boundary refused.
+ * The sessions this read never covered, each with the words the port refused in.
  *
- * One sentence with two homes — beside the groups a partial read produced, and as
- * the whole body of a read that produced none — so the two can never drift into
- * saying different things about one number. It names the SHAPE rather than one
- * cause, because the boundary drops on several: a trigger or severity outside its
- * closed set, a missing required member, and an optional member the producer sent
- * that could not be read.
+ * A row per session rather than one refusal standing for all of them: the codes are
+ * identical today because one operation raises them all, and a fan-out that later
+ * refuses two sessions for two reasons would otherwise show one and hide the other.
+ * The identifiers are wire figures, so a person can see WHICH sessions are missing
+ * from the answer above rather than only how many.
  */
-function unrecognisedItemsSentence(droppedCount: number): string {
-  return droppedCount === 1
-    ? "One item in that read did not match the shape this console recognises, and was not shown."
-    : `${formatCount(droppedCount)} items in that read did not match the shape this console recognises, and were not shown.`;
+function RefusedSessions(props: {
+  readonly sessions: readonly RefusedAttentionSession[];
+}): React.JSX.Element {
+  return (
+    <section
+      className="meridian-attention__refused"
+      aria-label="Sessions that could not be checked"
+    >
+      <p className="meridian-attention__refused-count">
+        {uncheckedSessionsSentence(props.sessions.length)}
+      </p>
+      <ul className="meridian-attention__refused-list">
+        {props.sessions.map((session) => (
+          <li key={session.sessionId} className="meridian-attention__refused-row">
+            <WireFigure value={session.sessionId} />
+            <InlineRefusal code={session.refusal.code} detail={session.refusal.detail} />
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * The dropped-members line, in both of the places a read can produce one.
+ *
+ * A plain paragraph and NOT `role="status"`, which it carried until this line got a
+ * spoken half. Two reasons, and either is enough. `primitives/LiveAnnouncerProvider`
+ * states the rule — "no other component in the console ever creates an `aria-live`
+ * node" — and `role="status"` is one implicitly. And the region would have been the
+ * unreliable kind anyway: it mounts carrying its own text, which is exactly the shape
+ * `primitives/live-announcer.ts` decision 1 exists to avoid, so it was a live region
+ * a reader may or may not speak. The fact now travels in the settlement sentence,
+ * which is said through the one region that was in the tree before the text arrived.
+ */
+function DroppedMembersLine(props: { readonly droppedCount: number }): React.JSX.Element {
+  return (
+    <p className="meridian-attention__dropped">{unrecognisedItemsSentence(props.droppedCount)}</p>
+  );
 }
 
 /**
