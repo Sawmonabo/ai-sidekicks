@@ -50,7 +50,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
 
 /**
- * Every test file that drives a real Electron window through `launchConsole`.
+ * Every test file that drives a real Electron window through `withLaunchedConsole`.
  *
  * A glob over the two directories rather than a list of project NAMES, so a tier
  * added later — or a file moved between them — is covered without anybody

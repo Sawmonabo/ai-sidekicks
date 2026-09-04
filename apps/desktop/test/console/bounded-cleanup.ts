@@ -233,6 +233,11 @@ export class BoundedCleanup {
  * could not otherwise know: that a process may still be running. Silent on a
  * clean close, because a sentence about cleanup on every failure would train a
  * reader to skip the one that matters.
+ *
+ * The sentence names no phase, deliberately. It is reached from the launch's own
+ * failure path AND from `closeAfterBody`, where the failure being kept is a
+ * test body's assertion; claiming "a launch failed" there would misdescribe the
+ * very run it is reporting on.
  */
 export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | undefined): unknown {
   if (outcome === undefined || outcome.settlement === "closed") {
@@ -244,8 +249,8 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
       : "";
   if (outcome.settlement === "closed-after-rejection") {
     return new Error(
-      `a launch failed, and closing the Electron process then failed too${rejectionNote} — though the ` +
-        `process did exit, so nothing was left running; the failure that started this is the cause below`,
+      `closing the launched Electron failed${rejectionNote} — though the process did exit, so nothing ` +
+        `was left running; the failure that started this is the cause below`,
       { cause: error },
     );
   }
@@ -255,9 +260,9 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
       : "and could not be terminated either, so it may still be running and holding its profile — " +
         "a later launch in the same job losing `requestSingleInstanceLock()` starts here";
   return new Error(
-    `a launch failed, and the Electron process then did not close within the ${String(outcome.budgetMs)} ms ` +
-      "it was given " +
-      `(waited ${String(outcome.waitedMs)} ms)${rejectionNote} ${consequence}; the failure that started this is the cause below`,
+    `the launched Electron did not close within the ${String(outcome.budgetMs)} ms it was given ` +
+      `(waited ${String(outcome.waitedMs)} ms)${rejectionNote} ${consequence}; the failure that started ` +
+      "this is the cause below",
     { cause: error },
   );
 }
@@ -275,8 +280,16 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
  * was refused has nothing to look for.
  */
 export class CleanupFailedError extends Error {
-  readonly settlement: CleanupSettlement;
-  readonly processId: number | undefined;
+  /**
+   * The verdict this error was built from, carried whole.
+   *
+   * A caller that has to fold this cleanup into a failure of its own needs the
+   * outcome, not a re-derivation of it from the message — and the two fields
+   * below used to be the only way through, which is a second copy of data the
+   * constructor already had. `closeAfterBody` reads it and hands it straight to
+   * `withCleanupOutcome`.
+   */
+  readonly outcome: CleanupOutcome;
 
   constructor(outcome: CleanupOutcome) {
     const target =
@@ -293,8 +306,15 @@ export class CleanupFailedError extends Error {
       outcome.closeRejection === undefined ? undefined : { cause: outcome.closeRejection },
     );
     this.name = "CleanupFailedError";
-    this.settlement = outcome.settlement;
-    this.processId = outcome.processId;
+    this.outcome = outcome;
+  }
+
+  get settlement(): CleanupSettlement {
+    return this.outcome.settlement;
+  }
+
+  get processId(): number | undefined {
+    return this.outcome.processId;
   }
 }
 
@@ -321,4 +341,58 @@ export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | un
   return outcome.settlement === "unterminable" || outcome.settlement === "closed-after-rejection"
     ? new CleanupFailedError(outcome)
     : undefined;
+}
+
+/**
+ * Run `body`, then close — and when both fail, keep the body's failure.
+ *
+ * `close()` is not total: it rejects when cleanup may have left something
+ * behind. A caller that awaited it in a bare `finally` therefore DESTROYED
+ * whatever the body had thrown, because JavaScript discards the in-flight
+ * completion when a `finally` block throws — and the two co-occur by
+ * construction rather than by coincidence, since a wedged renderer is exactly
+ * the state in which an assertion fails AND the close then loses its race.
+ *
+ * The disposition is `withCleanupOutcome`'s, applied rather than restated: the
+ * failure that explains the run stays as the cause, and cleanup adds only what
+ * the reader could not otherwise know. A cleanup failure surfaces on its own
+ * exactly when the body SUCCEEDED, which is where it IS that failure.
+ *
+ * Takes the close alone rather than a whole launched application, which is what
+ * makes the interesting case reachable: a body that fails while the close also
+ * fails is one object literal here, and unproducible with a real Electron.
+ */
+export async function closeAfterBody<TResult>(
+  application: Pick<ClosableApplication, "close">,
+  body: () => Promise<TResult>,
+): Promise<TResult> {
+  let bodyOutcome:
+    | { readonly succeeded: true; readonly value: TResult }
+    | { readonly succeeded: false; readonly failure: unknown };
+  try {
+    bodyOutcome = { succeeded: true, value: await body() };
+  } catch (failure: unknown) {
+    bodyOutcome = { succeeded: false, failure };
+  }
+  try {
+    await application.close();
+  } catch (cleanupError: unknown) {
+    if (bodyOutcome.succeeded) {
+      throw cleanupError;
+    }
+    // A close that rejected with something other than the verdict has no
+    // settlement to fold, and `withCleanupOutcome` hands the body's failure back
+    // untouched there rather than inventing a sentence about a cleanup it cannot
+    // describe. The launcher's own close does not produce that arm — it raises
+    // the verdict and breadcrumbs everything else — so this is the guard for a
+    // caller that closes some other way, not a path in the tiers.
+    throw withCleanupOutcome(
+      bodyOutcome.failure,
+      cleanupError instanceof CleanupFailedError ? cleanupError.outcome : undefined,
+    );
+  }
+  if (!bodyOutcome.succeeded) {
+    throw bodyOutcome.failure;
+  }
+  return bodyOutcome.value;
 }

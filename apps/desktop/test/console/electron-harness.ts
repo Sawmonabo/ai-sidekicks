@@ -36,11 +36,10 @@
 // inherit through `process.env`. They run in the aggregate `test` script's last
 // group and in that job's desktop step, both on the fixture build.
 
-import { mkdtempSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join } from "node:path";
 import process from "node:process";
-import { fileURLToPath } from "node:url";
 
 import { _electron as electron } from "@playwright/test";
 import type { ElectronApplication, Page } from "@playwright/test";
@@ -50,9 +49,11 @@ import {
   BoundedCleanup,
   cleanupFailure,
   type CleanupOutcome,
+  closeAfterBody,
   ELECTRON_PROCESS_TERMINATOR,
   withCleanupOutcome,
 } from "./bounded-cleanup.js";
+import { MAIN_ENTRY_PATH } from "./fixture-bundle.js";
 import { FrameWitness, type RendererFrameSource } from "./frame-witness.js";
 import { composeLaunchArgs } from "./launch-args.js";
 import {
@@ -61,12 +62,6 @@ import {
   POST_READINESS_RESERVE_MS,
   readinessFailure,
 } from "./launch-deadline.js";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_ROOT = resolve(HERE, "..", "..");
-
-/** The built main entry both tiers launch. Produced by `pnpm build:fixtures`. */
-export const MAIN_ENTRY_PATH: string = join(PACKAGE_ROOT, "out", "main", "index.js");
 
 /**
  * The environment variable the built main process reads a scenario id from.
@@ -159,9 +154,7 @@ export interface LaunchConsoleOptions {
  * call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run — see
  * `launch-deadline.ts` for why a timeout per phase could not be.
  */
-export async function launchConsole(
-  options: LaunchConsoleOptions = {},
-): Promise<ConsoleApplication> {
+async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleApplication> {
   // Minted before the first phase, including the profile directory: everything
   // this function waits on is inside the budget, or the budget is not the
   // launch's. It carries the WHOLE allowance — readiness, the witness, and
@@ -220,15 +213,22 @@ export async function launchConsole(
       return;
     }
     closed = true;
-    // The profile is removed whether or not the close succeeds: a temporary
-    // directory left behind by a crashed run is the thing that makes the NEXT
-    // run's disk-space failure look like a console defect. The close itself is
-    // bounded and force-terminating, so "whether or not it succeeds" is now a
-    // statement about a call that always returns rather than one that might not.
+    // The close itself is bounded and force-terminating, so this always returns
+    // a verdict rather than possibly not returning at all.
+    cleanupOutcome = await cleanup.close();
+    // Removed whether or not the close succeeded: a temporary directory left
+    // behind by a crashed run is the thing that makes the NEXT run's disk-space
+    // failure look like a console defect. Breadcrumbed rather than raised, and
+    // not in a `finally` around the line above, because either shape lets a
+    // removal that failed displace the cleanup verdict — the same inversion this
+    // module's own `closeAfterBody` exists to stop at a caller.
     try {
-      cleanupOutcome = await cleanup.close();
-    } finally {
       rmSync(userDataDirectory, { recursive: true, force: true });
+    } catch (removalError: unknown) {
+      console.error(
+        `${LAUNCH_TRACE_TAG} the launch profile at ${userDataDirectory} could not be removed: ` +
+          String(removalError),
+      );
     }
     // Breadcrumbed on every settlement but a clean close, and that is wider than
     // the set that throws: a SIGKILLed tree is worth a line in the log and is not
@@ -336,22 +336,21 @@ export async function launchConsole(
 }
 
 /**
- * Whether the built bundle these tiers need is on disk.
+ * Launch the console, run `body` against it, and close it afterwards.
  *
- * Used to SKIP with a message rather than fail with a stack trace. A missing
- * bundle is a "you have not run the build" condition, not a defect in the
- * console, and reporting it as a failure trains a reader to ignore the tier.
- *
- * `statSync` rather than `existsSync` so an entry that exists but is a directory
- * or is unreadable is also treated as absent — those fail later and much less
- * legibly, inside Electron's own startup.
+ * The one way in, so `launchConsole` is not exported: a tier that held the
+ * handle itself would have to spell the disposition out, and nine of them did —
+ * as a bare `finally`, which destroys the body's failure whenever the close
+ * fails too. `closeAfterBody` states that rule once and is tested without an
+ * Electron; this adds the launch, so no tier can reach the launched application
+ * without also getting the rule.
  */
-export function fixtureBundleExists(): boolean {
-  try {
-    return statSync(MAIN_ENTRY_PATH).isFile();
-  } catch {
-    return false;
-  }
+export async function withLaunchedConsole<TResult>(
+  options: LaunchConsoleOptions,
+  body: (consoleApplication: ConsoleApplication) => Promise<TResult>,
+): Promise<TResult> {
+  const consoleApplication = await launchConsole(options);
+  return await closeAfterBody(consoleApplication, async () => await body(consoleApplication));
 }
 
 /**
