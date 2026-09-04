@@ -43,18 +43,37 @@ export async function settle(): Promise<void> {
   });
 }
 
-/** A store holding the sessions a test names, established the way a read would. */
-export function storeHolding(sessionIds: readonly string[]): SessionStore {
-  const store = new SessionStore({ sessionId: sessionIds[0] ?? "session-none" });
+/**
+ * One open session's store, established the way a read would.
+ *
+ * One store per session, which is what the registry holds: `SessionStore` refuses a
+ * foreign session's events, so a single store standing in for several open sessions
+ * would be a shape the console never produces.
+ */
+export function storeHolding(options: {
+  readonly sessionId: string;
+  /** Wire-verbatim, so a case can order two sessions by what the projection says. */
+  readonly touchedAtIso?: string;
+  /** Participants the store has seen, in the order it saw them. */
+  readonly participantIds?: readonly string[];
+}): SessionStore {
+  const participantIds = options.participantIds ?? [];
+  const store = new SessionStore({ sessionId: options.sessionId });
   store.initialise({
     cursor: 0,
-    entities: sessionIds.map((sessionId) => ({
-      kind: "session" as const,
-      id: sessionId,
-      state: "active",
-      touchedAt: "2026-01-01T10:00:00.000Z",
-    })),
-    participantJoinLog: [],
+    entities: [
+      {
+        kind: "session" as const,
+        id: options.sessionId,
+        state: "active",
+        touchedAt: options.touchedAtIso ?? "2026-01-01T10:00:00.000Z",
+      },
+      ...participantIds.map((participantId) => ({
+        kind: "participant" as const,
+        id: participantId,
+      })),
+    ],
+    participantJoinLog: [...participantIds],
   });
   return store;
 }
@@ -97,11 +116,20 @@ export function refusedRead(operationId: string, slateRow: string): unknown {
  * are the two whose behaviour is under test.
  */
 export function contextWith(options: {
+  /**
+   * The ROUTE-scoped store, which this destination deliberately does not read.
+   *
+   * Kept because the field is part of the context every surface is handed, and
+   * because a case that supplies one and finds none of its rows on screen is the
+   * negative control for the switch to the registry.
+   */
   readonly sessionStore?: SessionStore;
   readonly bridgeSource?: "live" | "fixture";
   /** What the node's directory read answers. Refused unless a test names rows. */
   readonly directorySessionIds?: readonly string[];
-  /** What this window holds a store for, as the registry would report it. */
+  /** The stores this window has open, as the registry holds them. */
+  readonly openStores?: readonly SessionStore[];
+  /** Sessions the registry reports open but holds no store for. */
   readonly windowSessionIds?: readonly string[];
   /** Attention items the projection serves, per session. Refused unless named. */
   readonly attentionBySessionId?: Readonly<Record<string, readonly unknown[]>>;
@@ -150,7 +178,12 @@ export function contextWith(options: {
     frameStore: { navigate: () => undefined },
     sessionStore: options.sessionStore,
     sessionStoreRegistry: {
-      openSessionIds: options.windowSessionIds ?? [],
+      openSessionIds: [
+        ...(options.openStores ?? []).map((store) => store.sessionId),
+        ...(options.windowSessionIds ?? []),
+      ],
+      peek: (sessionId: string) =>
+        (options.openStores ?? []).find((store) => store.sessionId === sessionId),
       subscribe: () => () => undefined,
     },
     uiStateStore: new UiStateStore({ adapter: new MemoryPersistenceAdapter() }),
