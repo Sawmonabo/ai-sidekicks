@@ -183,11 +183,14 @@ describe("agent card — the attach echo", () => {
         }}
       />,
     );
-    const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
-    expect(resolved).toContain("definition-scout");
-    expect(resolved).toContain("worktree");
-    expect(resolved).toContain("Survey the repository");
-    expect(resolved).toContain("snapshot taken when the agent was attached");
+    // The DISCLOSURE rather than the list: the note is prose about the echo and sits
+    // beside the `<dl>`, whose content model admits only term/description groups.
+    const disclosure =
+      container.querySelector(".meridian-agent-card__disclosure")?.textContent ?? "";
+    expect(disclosure).toContain("definition-scout");
+    expect(disclosure).toContain("worktree");
+    expect(disclosure).toContain("Survey the repository");
+    expect(disclosure).toContain("snapshot taken when the agent was attached");
   });
 
   it("negative control: an agent attached inline shows no echo", () => {
@@ -251,6 +254,58 @@ describe("agent card — the attach echo", () => {
     const resolved = container.querySelector(".meridian-agent-card__resolved")?.textContent ?? "";
     expect(resolved).toContain("not reported");
     expect(resolved).not.toContain("empty allowlist");
+  });
+
+  it("keeps the snapshot note out of the definition list's content model", () => {
+    // A `<dl>` admits term/description pairs and the `<div>` groups that wrap them.
+    // A `<p>` among them is content axe's `definition-list` rule flags and that a
+    // screen reader may fold into the description above it — so the note would be
+    // heard as part of the goal rather than as prose about the whole list.
+    const { container } = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          resolvedFromDefinitionId: "definition-scout",
+          resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: ["read"] },
+        }}
+      />,
+    );
+    expect(container.querySelectorAll(".meridian-agent-card__resolved > p")).toHaveLength(0);
+    expect(container.querySelectorAll(".meridian-agent-card__resolved > :not(div)")).toHaveLength(
+      0,
+    );
+  });
+
+  it("still renders the note, beside the list rather than inside it", () => {
+    // Without this the assertion above would pass over a card that had dropped the
+    // note entirely, which is the other way to satisfy an emptiness claim.
+    const { container } = render(
+      <AgentCard
+        agent={{
+          ...RUNNING,
+          resolvedFromDefinitionId: "definition-scout",
+          resolvedConfiguration: { ...FULLY_REPORTED, toolAllowlist: ["read"] },
+        }}
+      />,
+    );
+    const note = container.querySelector(".meridian-agent-card__snapshot-note");
+    expect(note?.textContent ?? "").toContain("Editing or deleting the definition");
+    expect(note?.parentElement?.className).not.toContain("meridian-agent-card__resolved");
+  });
+
+  it("negative control: the sweep bites on a paragraph planted in a definition list", () => {
+    // The selectors above return nothing on a card that failed to render its echo at
+    // all, so the checker is driven once against a tree whose verdict is known.
+    const { container } = render(
+      <dl className="meridian-agent-card__resolved">
+        <div className="meridian-agent-card__resolved-row">
+          <dt>Goal</dt>
+          <dd>Survey the repository</dd>
+        </div>
+        <p>A note that does not belong here.</p>
+      </dl>,
+    );
+    expect(container.querySelectorAll(".meridian-agent-card__resolved > p")).toHaveLength(1);
   });
 
   it("counts the unnamed tail through the console's own figure formatter", () => {
