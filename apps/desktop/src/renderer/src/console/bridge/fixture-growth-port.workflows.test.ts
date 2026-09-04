@@ -211,22 +211,37 @@ describe("the fixture's workflow reads — answered from the script, never inven
     expect(runs.status === "served" ? runs.value : undefined).toStrictEqual({ runs: [] });
   });
 
+  it("reads every run the scenario lists, each with its own snapshot", async () => {
+    // The defect this closes: the scenario answered `workflow.runRead` with one fixed
+    // run, so the destination listed four runs as openable and three of them refused
+    // against a list the same fixture had just served. Driven through the PORT rather
+    // than through the scenario, because the scope check in front of the reply is the
+    // half that used to refuse.
+    const port = workflowsPort();
+
+    for (const listed of WORKFLOWS_SCENARIO_RUNS) {
+      const outcome = await port.workflowRunRead({ workflowRunId: listed.workflowRunId });
+      expect(outcome.status).toBe("served");
+      // The listed object itself, not a copy: the enumeration and the read are one
+      // table, so a run opened from the list reads exactly the row that was listed.
+      expect(outcome.status === "served" ? outcome.value : undefined).toBe(listed);
+    }
+  });
+
   it("refuses the run read for a run it projects no snapshot for", async () => {
-    // The defect this closes: the scripted reply is matched by CALL NAME, so the
-    // handler answered any run id at all with the parked run — a run pane opened on
-    // the working run would have shown the parked run's phases, parks and controls
-    // under the working run's name.
-    const working = WORKFLOWS_SCENARIO_RUNS.find(
-      (run) => run.workflowRunId !== WORKFLOWS_PARKED_RUN.workflowRunId,
-    );
-    expect(working).toBeDefined();
+    // The other half, and the one the scoping was added for: a run id this scenario
+    // holds nothing for must not be answered with somebody else's snapshot. The
+    // refusal is the daemon's own registered code, thrown verbatim, whichever of the
+    // two mechanisms — the port's scope check or the computed reply — produces it.
+    const unlistedRunId = "019b7a10-0280-7b33-8100-000000000000";
+    expect(WORKFLOWS_SCENARIO_RUNS.some((run) => run.workflowRunId === unlistedRunId)).toBe(false);
 
     const refusal = await refusalFrom(
-      workflowsPort().workflowRunRead({ workflowRunId: working?.workflowRunId ?? "" }),
+      workflowsPort().workflowRunRead({ workflowRunId: unlistedRunId }),
     );
 
     expect(refusal.code).toBe("workflow.not_found");
-    expect(refusal.message).toContain(working?.workflowRunId ?? "");
+    expect(refusal.message).toContain(unlistedRunId);
   });
 
   it("refuses the phase-output read on either identifier it is addressed by", async () => {
@@ -237,7 +252,10 @@ describe("the fixture's workflow reads — answered from the script, never inven
 
     for (const read of [
       port.workflowPhaseOutputRead({
-        workflowRunId: "019b7a10-0280-7b33-8100-000000000000",
+        // Another run this scenario DOES list, and one that carries a completed phase
+        // with this very id — so the outputs are pinned to their own run rather than
+        // to whichever run happens to be readable.
+        workflowRunId: WORKFLOWS_SCENARIO_RUNS[0]?.workflowRunId ?? "",
         phaseId: WORKFLOWS_COMPLETED_PHASE_ID,
       }),
       port.workflowPhaseOutputRead({
