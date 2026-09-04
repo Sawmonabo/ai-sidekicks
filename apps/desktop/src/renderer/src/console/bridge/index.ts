@@ -66,6 +66,19 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+// The manifest envelope a served `artifactList` answers with. Through this door
+// because the repos family's artifact model reads one into a row, and a family
+// reaching past a barrel into the bridge's own modules would be the deep import
+// the structure rules exist to prevent. It leaves through `artifacts.js` — the
+// module that DECLARES it — on the rule the paragraph above states.
+export type { GrowthArtifactSummary } from "./growth-values/artifacts.js";
+// The read's own reply union and the encoding a reader switches on, for the same
+// reason and through the same module: the artifact pane consumes both arms of a
+// served payload read, and the arm it lands on is what it draws.
+export type {
+  GrowthArtifactPayloadEncoding,
+  GrowthArtifactRead,
+} from "./growth-values/artifacts.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

@@ -8,9 +8,16 @@
 // above it. No store, no bridge, no React, no DOM beyond what the clock needs. If
 // a symbol here ever needs a type from `store/` or `bridge/`, it is not core.
 
+export { encodeBase64 } from "./base64.js";
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 export {
   APPLY_COALESCE_MS,
+  ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
+  ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
+  ATTACHMENT_BYTE_CAP_DEFAULT,
+  ATTACHMENT_CHUNK_BYTE_CAP,
+  INGEST_STALL_DISCLOSURE_MS,
+  INGEST_STREAM_LIFETIME_CEILING_MS,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
@@ -22,6 +29,9 @@ export {
   PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
+  RESTORE_PATH_ROW_HEIGHT_PX,
+  RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
+  RESTORE_PATH_VISIBLE_ROW_CAP,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
   WHEN_CLAUSE_MAX_DEPTH,

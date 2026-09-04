@@ -57,6 +57,20 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // than a type anything outside names.
 export type { SessionSnapshotRead } from "./open-session-entry.js";
 
+// The read side of the refresh policy, opened for the surfaces that perform their
+// own reads. `SessionStoreRegistry` owns one scheduler per open session for the
+// session snapshot; a family reading a wire the snapshot does not carry — the repos
+// section's `repo.mountRead`, for one — still owes rule "no interval polling", and
+// this is the only implementation of it. Exported so that obligation is reachable
+// through the door rather than deep-imported around.
+export { RefreshScheduler } from "./scheduling.js";
+
+// The three reasons a self-reading surface re-reads, beside the scheduler they are
+// requested against. Here rather than in a view family because the observations —
+// window focus, the store's repair edge, and a named frame — are the same three
+// whichever surface reads; only the kinds differ, and those are the one parameter.
+export { SessionRefreshTriggers } from "./refresh-triggers.js";
+
 // The partition and initialisation reads leave the family with their first
 // surface caller: the auxiliary window's agent step reads a session's agents,
 // which is one entity kind's map plus the fact that the store has a base state to

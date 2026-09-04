@@ -1,0 +1,426 @@
+// Diff models the surfaces are built and measured against, until a wire makes
+// one.
+//
+// THE FIXTURE SHELL FOR AN ABSENT OWNER. `gitflow.diffArtifactCreate` is a
+// `Plan-023 §Console growth slate` row (`gitflow-actions`, owned by Spec-011);
+// `packages/contracts` exports no `gitflow` module and the growth port registers
+// no operation for it, so nothing in the running console can produce a
+// `ConsoleDiffModel`. This module is the shell that stands in the producer's
+// place — DELETED, not filled, the day a wire hands the console patch bytes,
+// along with every import of it. What survives that deletion is `patch-parse.ts`,
+// which is the producer itself.
+//
+// IT IS NOT IMPORTED BY ANY RENDERING PATH. The pane and the card take their
+// model as a prop and render an honest absence without one; only tests reach for
+// this file. That is deliberate: a fixture the application could reach is a
+// fixture that can ship, and the console's one legitimate fixture seam is the
+// bridge's, gated by `__SIDEKICKS_CONSOLE_FIXTURES__`.
+//
+// IT GENERATES A PATCH AND PARSES IT, rather than assembling the model directly.
+// `Spec-023 §Console Libraries` adopts `diff` 9.0.0 for parse and intraline
+// compute, and a fixture that hand-built hunk headers, line numbers, and word-level
+// segments would be a second implementation of exactly that — one the tiers would
+// then be measuring INSTEAD of the parser a wire will call. Two things this buys
+// beyond the deletion: the line numbers are the ones the format produces (a base
+// number and a head number advance on different sides, which a hand-built lockstep
+// gets wrong), and the intraline segments are jsdiff's, so a renderer case that
+// passes here passes against real word-diff output.
+//
+// THE SHAPES ARE GENERATED RATHER THAN TRANSCRIBED, because the endurance tier's
+// subject is a forty-file, five-thousand-line change set and a transcription of
+// one would be a hundred kilobytes of source nobody reads. Generation also makes
+// the SIZE a parameter, so the same builder serves a two-line unit case and the
+// endurance case with no second implementation.
+
+import type { ConsoleDiffModel, DiffAttribution, DiffLine, DiffLineKind } from "./diff-model.js";
+import { parseUnifiedPatch, wholeLineSegments } from "./patch-parse.js";
+
+/** What a generated change set looks like. Every field is a measured dimension. */
+export interface DiffFixtureShape {
+  readonly fileCount: number;
+  readonly hunksPerFile: number;
+  readonly linesPerHunk: number;
+  /** Hidden context above each hunk, which is what a gap row offers to reveal. */
+  readonly precedingContextPerHunk: number;
+  /** Every nth line carries trailer-supplied agent attribution. Zero means none. */
+  readonly agentAttributionEveryNthLine: number;
+  /**
+   * Whether the change set carries one file of each extended-header kind — renamed,
+   * copied, mode-changed, and binary — each of them with no hunks at all.
+   *
+   * A DIMENSION OF ITS OWN RATHER THAN A WIDER `fileCount`, because these files
+   * change no lines: folding them into that count would make every changed-line
+   * figure derived from it wrong, and would move every existing shape's totals.
+   * They are additional to `fileCount`, so a shape carrying `false` is exactly the
+   * change set it was before this dimension existed.
+   */
+  readonly extendedHeaderFiles: boolean;
+  /**
+   * Whether the change set carries one file whose only change is its terminator.
+   *
+   * A DIMENSION OF ITS OWN for `extendedHeaderFiles`' reason and one more: this file
+   * DOES change lines — one deleted and one inserted, with identical text — so folding
+   * it into `fileCount` would move every existing shape's per-file arithmetic, and
+   * folding it into the header dimension would put a hunk inside a set documented as
+   * having none. It is the only subject in this module on which the two rendered rows
+   * are indistinguishable without the patch's own `\ No newline at end of file`
+   * marker, which is exactly why the surfaces need it.
+   */
+  readonly terminalNewlineFile: boolean;
+}
+
+/** The endurance tier's subject: forty files, five thousand changed lines. */
+export const ENDURANCE_DIFF_SHAPE: DiffFixtureShape = {
+  fileCount: 40,
+  hunksPerFile: 5,
+  linesPerHunk: 25,
+  precedingContextPerHunk: 30,
+  agentAttributionEveryNthLine: 7,
+  extendedHeaderFiles: false,
+  terminalNewlineFile: false,
+};
+
+/**
+ * The other endurance shape: one file, one hunk, five thousand lines.
+ *
+ * The same five thousand changed lines as `ENDURANCE_DIFF_SHAPE` in the shape that
+ * shape cannot express. Forty files of five twenty-five-line hunks bounds every
+ * per-hunk cost at twenty-five, so a per-lookup flattening of a whole hunk stayed
+ * invisible there; the cost a diff pane actually meets is a generated file, a
+ * vendored lockfile, or a rewritten module, where one hunk holds the whole change.
+ * Both shapes are kept because they measure different claims — that one is about
+ * addressing across many spans, this one about the cost of addressing inside one.
+ */
+export const SINGLE_LARGE_HUNK_DIFF_SHAPE: DiffFixtureShape = {
+  fileCount: 1,
+  hunksPerFile: 1,
+  linesPerHunk: 5_000,
+  precedingContextPerHunk: 30,
+  agentAttributionEveryNthLine: 7,
+  extendedHeaderFiles: false,
+  terminalNewlineFile: false,
+};
+
+/** A change set small enough to assert against row by row. */
+export const SMALL_DIFF_SHAPE: DiffFixtureShape = {
+  fileCount: 2,
+  hunksPerFile: 2,
+  linesPerHunk: 3,
+  precedingContextPerHunk: 4,
+  agentAttributionEveryNthLine: 3,
+  extendedHeaderFiles: false,
+  terminalNewlineFile: false,
+};
+
+/**
+ * The small change set plus one file of every extended-header kind.
+ *
+ * A SHAPE OF ITS OWN RATHER THAN A WIDENED `SMALL_DIFF_SHAPE`, so the cases written
+ * against that shape keep counting the files they were written to count. This one is
+ * the subject both the render cases and the surface tiers take: a file with no hunks
+ * reaches the file list and the row renderer as `+0 −0` under a bare path unless what
+ * the patch declared is carried and drawn, which is exactly what an image holds and a
+ * count assertion does not.
+ */
+export const EXTENDED_HEADER_DIFF_SHAPE: DiffFixtureShape = {
+  ...SMALL_DIFF_SHAPE,
+  extendedHeaderFiles: true,
+  // And the file whose whole change is its terminating newline, for the same reason
+  // the four header files are here: two rows with identical text are what the two
+  // surfaces drew before the marker was carried, and what they draw now is a claim an
+  // image holds and a count assertion does not.
+  terminalNewlineFile: true,
+};
+
+/**
+ * The four extended-header files, named once for the patch text and the cases both.
+ *
+ * The patch below is composed from these, so a case that addresses one of these files
+ * addresses the file the fixture actually wrote — never a path restated beside it.
+ */
+export const EXTENDED_HEADER_FIXTURE_FILES = {
+  renamed: { from: "docs/decisions/before.md", to: "docs/decisions/after.md" },
+  copied: { from: "config/base.yml", to: "config/staging.yml" },
+  modeChanged: { path: "scripts/release.sh", from: "100644", to: "100755" },
+  binary: { path: "assets/logo.png" },
+} as const;
+
+/**
+ * The file whose only change is whether its last line ends with a newline.
+ *
+ * Named once so a case addresses the file the fixture actually wrote, exactly as the
+ * four header files are. `lastLine` is the text BOTH the deleted and the inserted row
+ * carry — they are the same characters, which is the whole point of the subject.
+ */
+export const TERMINAL_NEWLINE_FIXTURE_FILE = {
+  path: "packages/contracts/src/tail.ts",
+  lastLine: "export const tail = terminate(entries);",
+} as const;
+
+/** The run-attributed arm, for the case the badge renders as accountable to a run. */
+export const RUN_ATTRIBUTION: DiffAttribution = {
+  mode: "run_attributed",
+  runId: "run-rate-limit-wiring",
+};
+
+/** The workspace-fallback arm, which carries no run and must never be shown one. */
+export const WORKSPACE_FALLBACK_ATTRIBUTION: DiffAttribution = {
+  mode: "workspace_fallback",
+  workspaceId: "workspace-sidekicks",
+};
+
+/** The compared states every generated change set names. */
+const FIXTURE_COMPARED_STATES = { baseRef: "main", headRef: "feat/rate-limit-wiring" } as const;
+
+/**
+ * The kinds a generated hunk cycles through, so every row branch is reached.
+ *
+ * Deletion BEFORE insertion, which is not cosmetic: a unified patch expresses a
+ * modified line as a delete run immediately followed by an insert run, and that
+ * adjacency is what `patch-parse.ts` pairs to compute the intraline segments. A
+ * cycle that emitted the insertion first would generate a patch no producer writes
+ * and would silently drop every word-level highlight from the fixture.
+ */
+const LINE_KIND_CYCLE = ["context", "delete", "insert"] as const;
+
+/**
+ * Build a diff of a named shape.
+ *
+ * The patch is generated, parsed, and then given the two things a patch cannot
+ * carry: the hidden context above each hunk (`patch-parse.ts` explains why a parsed
+ * hunk has none) and the trailer-supplied agent attribution, which lives on the
+ * commit rather than in the patch body.
+ */
+export function buildDiffFixture(
+  shape: DiffFixtureShape,
+  attribution: DiffAttribution = RUN_ATTRIBUTION,
+): ConsoleDiffModel {
+  const parsed = parseUnifiedPatch(buildPatchText(shape), attribution, FIXTURE_COMPARED_STATES);
+  return {
+    ...parsed,
+    files: parsed.files.map((file) => ({
+      // SPREAD, so what the parser read off the extended headers survives. Rebuilding
+      // the file from `path` and `hunks` alone is exactly the drop this fixture would
+      // otherwise reintroduce below the parser that stopped making it.
+      ...file,
+      hunks: file.hunks.map((hunk, hunkOrdinal) => ({
+        header: hunk.header,
+        precedingContext: buildPrecedingContext(shape, file.path, hunkOrdinal),
+        lines: hunk.lines.map((line, lineOrdinal) =>
+          withAgentAttribution(shape, line, lineOrdinal),
+        ),
+      })),
+    })),
+  };
+}
+
+/**
+ * How many lines a shape's hunks hold. The endurance tier's headline figure.
+ *
+ * The terminator file's pair is counted because it IS a pair of changed lines; the
+ * four header files add none, which is why they need no term here.
+ */
+export function fixtureChangedLineCount(shape: DiffFixtureShape): number {
+  return (
+    shape.fileCount * shape.hunksPerFile * shape.linesPerHunk +
+    (shape.terminalNewlineFile ? TERMINAL_NEWLINE_CHANGED_LINE_COUNT : 0)
+  );
+}
+
+/** The deletion and the insertion the terminator file's one hunk carries. */
+const TERMINAL_NEWLINE_CHANGED_LINE_COUNT = 2;
+
+/** The whole change set as unified patch text, which is what a producer would send. */
+function buildPatchText(shape: DiffFixtureShape): string {
+  const patches: string[] = [];
+  for (let fileOrdinal = 0; fileOrdinal < shape.fileCount; fileOrdinal += 1) {
+    const path = fixtureFilePath(fileOrdinal);
+    // No `a/` and `b/` prefixes and no `diff --git` line: this is a plain unified
+    // patch, so the path the parser reports is the path written here, with nothing
+    // to strip and no chance of a re-rooted file reaching a surface.
+    const lines: string[] = [`--- ${path}`, `+++ ${path}`];
+    for (let hunkOrdinal = 0; hunkOrdinal < shape.hunksPerFile; hunkOrdinal += 1) {
+      const start = hunkOrdinal * 40 + 1;
+      const body = hunkBodyLines(shape, fileOrdinal, start);
+      lines.push(
+        `@@ -${String(start)},${String(countSide(body, "-"))} +${String(start)},${String(
+          countSide(body, "+"),
+        )} @@`,
+        ...body,
+      );
+    }
+    patches.push(lines.join("\n"));
+  }
+  // BEFORE the header files, which is not arrangement: the binary file's patch is the
+  // one whose body a parser reads by looking at what follows it, and a plain unified
+  // patch appended after it is read as part of that file rather than as its own.
+  if (shape.terminalNewlineFile) {
+    patches.push(terminalNewlinePatch());
+  }
+  if (shape.extendedHeaderFiles) {
+    patches.push(...extendedHeaderPatches());
+  }
+  return `${patches.join("\n")}\n`;
+}
+
+/**
+ * One file that lost its terminating newline and changed nothing else.
+ *
+ * WRITTEN OUT RATHER THAN GENERATED, because the whole subject is one exact pair of
+ * lines: the deletion and the insertion carry the SAME text, and the only thing that
+ * tells them apart is the marker on the second. A generator parameterised over this
+ * would have one call site and would hide the one property the case is about.
+ *
+ * The marker is on the inserted side alone, which is what removing a newline looks
+ * like — a reader has to be able to see which side the file ends without one on.
+ */
+function terminalNewlinePatch(): string {
+  const { path, lastLine } = TERMINAL_NEWLINE_FIXTURE_FILE;
+  return [
+    `--- ${path}`,
+    `+++ ${path}`,
+    "@@ -1,3 +1,3 @@",
+    ' import { terminate } from "./terminate.js";',
+    " ",
+    `-${lastLine}`,
+    `+${lastLine}`,
+    "\\ No newline at end of file",
+  ].join("\n");
+}
+
+/**
+ * One file per extended-header kind, each changing nothing else, as git writes them.
+ *
+ * GIT-STYLE, WHICH THE REST OF THIS PATCH DELIBERATELY IS NOT. None of these changes
+ * has any representation in a plain unified patch at all — `rename from`, `copy from`,
+ * `old mode`, and the binary marker are git extended headers, read only under a
+ * `diff --git` header — so each file carries one, with the `a/` and `b/` prefixes that
+ * header requires. `parsePatch` reads `isGit` per file, so the plain files above keep
+ * their paths verbatim and these are stripped, which is the mixture a real change set
+ * produces too when only some of its files moved.
+ *
+ * No hunks anywhere below: the whole change is in the headers, which is the case the
+ * surfaces used to draw as `+0 −0` under a bare path.
+ */
+function extendedHeaderPatches(): readonly string[] {
+  const { renamed, copied, modeChanged, binary } = EXTENDED_HEADER_FIXTURE_FILES;
+  return [
+    [
+      `diff --git a/${renamed.from} b/${renamed.to}`,
+      "similarity index 100%",
+      `rename from ${renamed.from}`,
+      `rename to ${renamed.to}`,
+    ].join("\n"),
+    [
+      `diff --git a/${copied.from} b/${copied.to}`,
+      "similarity index 100%",
+      `copy from ${copied.from}`,
+      `copy to ${copied.to}`,
+    ].join("\n"),
+    [
+      `diff --git a/${modeChanged.path} b/${modeChanged.path}`,
+      `old mode ${modeChanged.from}`,
+      `new mode ${modeChanged.to}`,
+    ].join("\n"),
+    [
+      `diff --git a/${binary.path} b/${binary.path}`,
+      "index 1a2b3c4..5d6e7f8 100644",
+      `Binary files a/${binary.path} and b/${binary.path} differ`,
+    ].join("\n"),
+  ];
+}
+
+/** One hunk's prefixed body lines, cycling the three kinds. */
+function hunkBodyLines(
+  shape: DiffFixtureShape,
+  fileOrdinal: number,
+  start: number,
+): readonly string[] {
+  const body: string[] = [];
+  for (let lineOrdinal = 0; lineOrdinal < shape.linesPerHunk; lineOrdinal += 1) {
+    const kind = LINE_KIND_CYCLE[lineOrdinal % LINE_KIND_CYCLE.length] ?? "context";
+    body.push(
+      `${PATCH_PREFIX_BY_KIND[kind]}${fixtureLineText(kind, fileOrdinal, start + lineOrdinal)}`,
+    );
+  }
+  return body;
+}
+
+/** How many of a hunk's lines exist on one side. A context line exists on both. */
+function countSide(body: readonly string[], changedPrefix: "-" | "+"): number {
+  return body.filter((line) => line.startsWith(" ") || line.startsWith(changedPrefix)).length;
+}
+
+/** The prefix character the unified format gives each kind. */
+const PATCH_PREFIX_BY_KIND: Readonly<Record<DiffLineKind, string>> = {
+  context: " ",
+  insert: "+",
+  delete: "-",
+};
+
+/**
+ * One generated line's text.
+ *
+ * The two changed kinds differ in exactly one identifier, which is what makes the
+ * word diff over the pair produce the three-segment shape a renderer's intraline
+ * case is written against — an unchanged head, one changed run, an unchanged tail.
+ */
+function fixtureLineText(kind: DiffLineKind, fileOrdinal: number, lineNumber: number): string {
+  if (kind === "context") {
+    return `  const module${padded(fileOrdinal)} = read(${String(lineNumber)});`;
+  }
+  const identifier = kind === "insert" ? "nextBudget" : "previousBudget";
+  return `  const value = compute(${identifier}, ${String(lineNumber)});`;
+}
+
+/**
+ * The hidden context above one hunk.
+ *
+ * Context by construction — every line is a context line, because that is what a
+ * gap between two hunks holds — and built rather than parsed, for `patch-parse.ts`'s
+ * reason: a unified patch has no representation for it at all.
+ */
+function buildPrecedingContext(
+  shape: DiffFixtureShape,
+  path: string,
+  hunkOrdinal: number,
+): readonly DiffLine[] {
+  const lines: DiffLine[] = [];
+  for (let lineOrdinal = 0; lineOrdinal < shape.precedingContextPerHunk; lineOrdinal += 1) {
+    const lineNumber = hunkOrdinal * 40 + lineOrdinal + 1;
+    lines.push({
+      kind: "context",
+      baseLineNumber: lineNumber,
+      headLineNumber: lineNumber,
+      segments: wholeLineSegments(`  // ${path}:${String(lineNumber)}`),
+    });
+  }
+  return lines;
+}
+
+/** Every nth line carries the trailers' attribution; the rest carry none. */
+function withAgentAttribution(
+  shape: DiffFixtureShape,
+  line: DiffLine,
+  lineOrdinal: number,
+): DiffLine {
+  if (
+    shape.agentAttributionEveryNthLine <= 0 ||
+    lineOrdinal % shape.agentAttributionEveryNthLine !== 0
+  ) {
+    return line;
+  }
+  return {
+    ...line,
+    agentAttribution: { agentRunId: "run-rate-limit-wiring", agentName: "Implementer" },
+  };
+}
+
+/** The path a generated file is written under, in both the patch and the model. */
+function fixtureFilePath(fileOrdinal: number): string {
+  return `packages/runtime-daemon/src/module-${padded(fileOrdinal)}.ts`;
+}
+
+function padded(ordinal: number): string {
+  return String(ordinal).padStart(2, "0");
+}

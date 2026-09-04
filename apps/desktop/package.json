@@ -39,6 +39,8 @@
   "dependencies": {
     "@ai-sidekicks/contracts": "workspace:*",
     "@base-ui/react": "1.7.0",
+    "@tanstack/react-virtual": "3.14.10",
+    "diff": "9.0.0",
     "idb": "8.0.3",
     "react": "^19",
     "react-dom": "^19",

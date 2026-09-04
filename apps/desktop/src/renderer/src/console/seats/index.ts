@@ -61,11 +61,9 @@ export {
   DETACHABLE_PANE_KINDS,
   /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
-  /** @consumedBy T-023p-1C-2 */
   isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type PaneKind,
 } from "./pane-kinds.js";
 
@@ -87,7 +85,6 @@ export {
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneContext,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
@@ -115,13 +112,10 @@ export {
   SIDEBAR_SECTION_IDS,
   /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   registerSidebarSection,
-  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionContext,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
@@ -151,17 +145,11 @@ export {
   INLINE_CARD_KINDS,
   /** @consumedBy T-023p-1C-2 */
   InlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-5 */
   registerInlineCardBody,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type ArtifactInlineCardProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type AttachmentInlineCardProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type DiffInlineCardProps,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardAttachmentRef,
