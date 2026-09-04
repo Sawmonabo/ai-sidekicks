@@ -64,17 +64,55 @@ export interface LedgerReplayState {
 }
 
 /**
- * The row set one walk is over.
+ * The row set one walk is over, and the log it began over.
  *
- * A WRAPPER rather than the array itself, because the object's identity is what
+ * A WRAPPER rather than the arrays themselves, because the object's identity is what
  * decides when the engine is re-minted, and ending a walk over an unchanged window
- * has to re-mint one. The array alone could not say "same rows, new walk".
+ * has to re-mint one. The arrays alone could not say "same rows, new walk".
+ *
+ * TWO ROW SETS, AND THE SECOND IS WHY THE FIRST CAN MOVE. `rows` is what the engine
+ * plays — the folded, narrowed window — and it follows a fold or a filter change,
+ * because a chapter opened mid-walk otherwise puts rows in the window the engine has
+ * never heard of and the viewport drops every one of them. `loadedRows` is the LOG
+ * this walk began over, and it is frozen from engagement to the end of the walk: it
+ * is what "the session moved on" is measured against, so clearing a filter or
+ * opening a chapter cannot be counted as an arrival.
  */
 interface LedgerReplayWalk {
   readonly rows: readonly TimelineRow[];
+  readonly loadedRows: readonly TimelineRow[];
+  /**
+   * Where a re-minted engine resumes, for a walk that replaced one mid-flight.
+   *
+   * `undefined` for a walk that begins at the head, which is every walk the engine
+   * is not already running: a fresh engine is idle at elapsed zero and restoring a
+   * position onto it would start a replay nobody pressed play on.
+   */
+  readonly resumeFrom: LedgerReplayResumePoint | undefined;
 }
 
-export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplayState {
+/** The two facts a replaced walk carries across the re-mint. */
+interface LedgerReplayResumePoint {
+  readonly elapsedMs: number;
+  readonly isPlaying: boolean;
+}
+
+export interface LedgerReplayInputs {
+  /** The window the walk plays over — narrowed and folded, what the viewport draws. */
+  readonly ledgerWindow: LedgerWindowModel;
+  /**
+   * The loaded log that window was derived from, before any narrowing or fold.
+   *
+   * The arrival count's subject, and the reason it is a second input rather than a
+   * derivation of the first: a filter change and a chapter disclosure both replace
+   * the folded window's rows without the session having emitted anything, and
+   * counted against that window they read as entries arriving mid-replay.
+   */
+  readonly loadedWindow: LedgerWindowModel;
+}
+
+export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
+  const { ledgerWindow, loadedWindow } = inputs;
   const clock = useConsoleClock();
   const [isRevealed, setIsRevealed] = useState(false);
 
@@ -89,29 +127,62 @@ export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplaySt
   //
   // So the walk's rows are STATE, adjusted during render rather than derived: while
   // nothing is being replayed the walk is whatever the log now holds, and from the
-  // moment playback begins it is frozen until the walk ends. An event admitted
-  // mid-walk joins the tail AFTER the walk rather than the walk itself — it is
-  // counted below and named on screen, because a row a walk can never reach is an
-  // absence and not a rendering detail.
+  // moment playback begins the LOG side of it is frozen until the walk ends. An
+  // event admitted mid-walk joins the tail AFTER the walk rather than the walk
+  // itself — it is counted below and named on screen, because a row a walk can never
+  // reach is an absence and not a rendering detail.
+  //
+  // A FOLD OR A FILTER CHANGE IS NOT AN ARRIVAL AND IS NOT FROZEN OUT. Neither
+  // changes the log, so the walk follows the new folded window and the engine is
+  // re-minted over it at the position the replaced one held. Freezing there was two
+  // defects in one: the notice announced arrivals the session never sent, and a
+  // chapter disclosed at the tail opened onto nothing, because its members were in
+  // the window and in no engine.
   const [position, setPosition] = useState<ReplayPosition | undefined>(undefined);
-  const [walk, setWalk] = useState<LedgerReplayWalk>(() => ({ rows: ledgerWindow.rows }));
+  const [walk, setWalk] = useState<LedgerReplayWalk>(() => ({
+    rows: ledgerWindow.rows,
+    loadedRows: loadedWindow.rows,
+    resumeFrom: undefined,
+  }));
   const isEngaged = position !== undefined && isReplayEngaged(position.state);
-  if (!isEngaged && walk.rows !== ledgerWindow.rows) {
-    setWalk({ rows: ledgerWindow.rows });
+  const hasLogMoved = walk.loadedRows !== loadedWindow.rows;
+  if (!isEngaged) {
+    if (walk.rows !== ledgerWindow.rows || hasLogMoved) {
+      setWalk({ rows: ledgerWindow.rows, loadedRows: loadedWindow.rows, resumeFrom: undefined });
+    }
+  } else if (!hasLogMoved && walk.rows !== ledgerWindow.rows) {
+    setWalk({
+      rows: ledgerWindow.rows,
+      loadedRows: loadedWindow.rows,
+      // A walk re-minted at the very end resumes PAUSED at the very end: the engine
+      // reaches `at-tail` only by advancing into it, and the rows a paused position
+      // at the span's end reveals are the rows `at-tail` reveals. The dock therefore
+      // offers "resume" where it had offered "follow", which is the whole of the
+      // difference and is stated rather than hidden.
+      resumeFrom: { elapsedMs: position.elapsedMs, isPlaying: position.state === "playing" },
+    });
   }
 
-  const engine = useMemo(
-    () =>
-      new ReplayEngine({
-        clock,
-        rows: walk.rows.map((row) => ({ rowId: row.id, occurredAt: row.timestamp })),
-        // The engine publishes rather than being polled: playback advances on its own
-        // armed handle, so a surface reading `position()` per render would show the
-        // frame before last on every tick the render did not coincide with.
-        onPositionChange: setPosition,
-      }),
-    [clock, walk],
-  );
+  const engine = useMemo(() => {
+    const mintedEngine = new ReplayEngine({
+      clock,
+      rows: walk.rows.map((row) => ({ rowId: row.id, occurredAt: row.timestamp })),
+      // The engine publishes rather than being polled: playback advances on its own
+      // armed handle, so a surface reading `position()` per render would show the
+      // frame before last on every tick the render did not coincide with.
+      onPositionChange: setPosition,
+    });
+    if (walk.resumeFrom !== undefined) {
+      // Restored here rather than in an effect, so the first render of the re-minted
+      // walk already reveals the rows the replaced one had reached — an effect would
+      // paint the whole window at elapsed zero first.
+      mintedEngine.scrubTo(walk.resumeFrom.elapsedMs);
+      if (walk.resumeFrom.isPlaying) {
+        mintedEngine.play();
+      }
+    }
+    return mintedEngine;
+  }, [clock, walk]);
 
   useEffect(() => {
     setPosition(engine.position());
@@ -120,23 +191,27 @@ export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplaySt
     };
   }, [engine]);
 
-  // Counted by id rather than by length, because the window loses rows at the head
-  // as well as gaining them at the tail: a subtraction would report a pruned walk as
-  // having admitted nothing. The identity short-circuit is what keeps an unreplayed
-  // ledger free — while nobody is walking, the walk IS the window.
+  // COUNTED AGAINST THE FROZEN LOG AND NOT AGAINST THE WALKED ROWS, which is what
+  // makes it an arrival rather than a re-derivation: a row of the current folded
+  // window whose id the log did not hold when this walk began is a row the session
+  // admitted mid-walk, and nothing else is. Counted by id rather than by length,
+  // because the window loses rows at the head as well as gaining them at the tail: a
+  // subtraction would report a pruned walk as having admitted nothing. The identity
+  // short-circuit is what keeps an unreplayed ledger free — while nobody is walking,
+  // the frozen log IS the log.
   const rowsAdmittedSinceReplayBegan = useMemo(() => {
-    if (walk.rows === ledgerWindow.rows) {
+    if (walk.loadedRows === loadedWindow.rows) {
       return 0;
     }
-    const walkedRowIds = new Set(walk.rows.map((row) => row.id));
+    const rowIdsTheWalkBeganOver = new Set(walk.loadedRows.map((row) => row.id));
     let admittedCount = 0;
     for (const row of ledgerWindow.rows) {
-      if (!walkedRowIds.has(row.id)) {
+      if (!rowIdsTheWalkBeganOver.has(row.id)) {
         admittedCount += 1;
       }
     }
     return admittedCount;
-  }, [walk, ledgerWindow]);
+  }, [walk, ledgerWindow, loadedWindow]);
 
   return {
     // Before the first publication the engine's own current position is the truth,
@@ -174,8 +249,10 @@ export function useLedgerReplay(ledgerWindow: LedgerWindowModel): LedgerReplaySt
     end: useCallback(() => {
       // A fresh wrapper every time, so a walk ends over an unchanged window too —
       // the memo above re-mints, and its own cleanup disposes the walk being left.
-      setWalk({ rows: ledgerWindow.rows });
-    }, [ledgerWindow]),
+      // At the head, because ending a walk is a return to the live log rather than a
+      // re-mint of the one being left.
+      setWalk({ rows: ledgerWindow.rows, loadedRows: loadedWindow.rows, resumeFrom: undefined });
+    }, [ledgerWindow, loadedWindow]),
     replayFromRow: useCallback((rowId: string) => engine.replayFrom(rowId), [engine]),
   };
 }

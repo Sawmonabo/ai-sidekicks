@@ -143,7 +143,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const ledgerFilter = useLedgerFilter(unfurledWindow);
   const narrowedWindow = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
   const ledgerWindow = useFoldedChapters(narrowedWindow, chapterDisclosure.openedTerminalRunIds);
-  const replay = useLedgerReplay(ledgerWindow);
+  const replay = useLedgerReplay({ ledgerWindow, loadedWindow: unfurledWindow });
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
   const revealedViewportRows = useReplayRevealedRows(ledgerWindow, replay.position);
