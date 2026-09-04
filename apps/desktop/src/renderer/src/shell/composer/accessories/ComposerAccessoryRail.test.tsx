@@ -14,6 +14,8 @@ import { describe, expect, it } from "vitest";
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
+import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../../console/core/index.js";
+
 import {
   PROVIDER_ACCOUNT_LIST_METHOD,
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
@@ -348,8 +350,15 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
     };
   }
 
-  /** A bridge answering the capability read and nothing else. */
-  function bridgeDeclaring(reports: readonly unknown[]): ConsoleBridge {
+  /**
+   * A bridge answering the capability read and nothing else, on a frozen clock.
+   *
+   * The node's capability read goes through the console's one refresh scheduler, so
+   * it is armed at mount and PERFORMED when the scheduler's window elapses. The
+   * clock is handed in rather than minted here so each case advances its own and no
+   * case depends on how fast the runner happens to be.
+   */
+  function bridgeDeclaring(reports: readonly unknown[], clock: ManualClock): ConsoleBridge {
     return {
       sidekicks: {
         daemon: {
@@ -361,22 +370,33 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       growth: {},
       growthServedOperations: new Set(),
       source: "fixture",
-      scenarioEngine: undefined,
+      scenarioEngine: { clock },
     } as unknown as ConsoleBridge;
+  }
+
+  /** Let the scheduler's window elapse and the capability read that follows settle. */
+  async function settleCapabilityRead(clock: ManualClock): Promise<void> {
+    await act(async () => {
+      clock.advance(REFRESH_MAX_WAIT_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
   }
 
   it("offers Compact for a running run whose bound driver declares the capability", async () => {
     // The negative control for the shipped constants: with `capability="unknown"`
     // and `targetRunId={undefined}` hard-coded, no composition could ever reach this
     // button, so this case fails on the code that shipped before the fix.
+    const clock = new ManualClock();
     let container: HTMLElement = document.createElement("div");
     await act(async () => {
       container = mountRail([], {
-        bridge: bridgeDeclaring([reportFor("claude", ["context_compaction"])]),
+        bridge: bridgeDeclaring([reportFor("claude", ["context_compaction"])], clock),
         entities: [AGENT, RUNNING_RUN],
         focusedPane: ON_THE_AGENT,
       });
     });
+    await settleCapabilityRead(clock);
 
     const compact = container.querySelector(".meridian-compaction__action");
     expect(compact).not.toBeNull();
@@ -385,6 +405,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
 
   it("dispatches the compaction for the addressed run and no other", async () => {
     const compactionCalls: unknown[] = [];
+    const clock = new ManualClock();
     const bridge = {
       sidekicks: {
         daemon: {
@@ -407,7 +428,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       growth: {},
       growthServedOperations: new Set(),
       source: "fixture",
-      scenarioEngine: undefined,
+      scenarioEngine: { clock },
     } as unknown as ConsoleBridge;
 
     let container: HTMLElement = document.createElement("div");
@@ -418,6 +439,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
         focusedPane: ON_THE_AGENT,
       });
     });
+    await settleCapabilityRead(clock);
     const compact = container.querySelector(".meridian-compaction__action");
     if (!(compact instanceof HTMLButtonElement)) {
       throw new Error("the rail offered no compaction control");
@@ -437,14 +459,16 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
     // renders NO absence for compaction either — a driver that cannot compact has
     // nothing to say about compaction, and a line explaining its absence would be
     // noise on every composer bound to such a driver.
+    const clock = new ManualClock();
     let container: HTMLElement = document.createElement("div");
     await act(async () => {
       container = mountRail([contextWindowEvent(1)], {
-        bridge: bridgeDeclaring([reportFor("claude", [])]),
+        bridge: bridgeDeclaring([reportFor("claude", [])], clock),
         entities: [AGENT, RUNNING_RUN],
         focusedPane: ON_THE_AGENT,
       });
     });
+    await settleCapabilityRead(clock);
     expect(container.querySelector(".meridian-compaction")).toBeNull();
     expect(container.querySelector(METERS_NOT_CHECKED)).toBeNull();
   });
@@ -452,27 +476,31 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
   it("keeps another driver's missing flag off this agent's control", async () => {
     // The intersection reading would hide Compact here, because one reported driver
     // lacks the flag. The bound driver is what decides.
+    const clock = new ManualClock();
     let container: HTMLElement = document.createElement("div");
     await act(async () => {
       container = mountRail([], {
-        bridge: bridgeDeclaring([
-          reportFor("claude", ["context_compaction"]),
-          reportFor("codex", []),
-        ]),
+        bridge: bridgeDeclaring(
+          [reportFor("claude", ["context_compaction"]), reportFor("codex", [])],
+          clock,
+        ),
         entities: [AGENT, RUNNING_RUN],
         focusedPane: ON_THE_AGENT,
       });
     });
+    await settleCapabilityRead(clock);
     expect(container.querySelector(".meridian-compaction__action")).not.toBeNull();
   });
 
   it("offers nothing at all when no run is addressed", async () => {
+    const clock = new ManualClock();
     let container: HTMLElement = document.createElement("div");
     await act(async () => {
       container = mountRail([], {
-        bridge: bridgeDeclaring([reportFor("claude", ["context_compaction"])]),
+        bridge: bridgeDeclaring([reportFor("claude", ["context_compaction"])], clock),
       });
     });
+    await settleCapabilityRead(clock);
     // A channel-addressed composer has no run to compact, so the seat is empty
     // rather than carrying a "nobody asked" block on every session composer.
     expect(container.querySelector(".meridian-compaction")).toBeNull();
@@ -484,6 +512,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
     // wire for one answer. Two rails on one bridge is that arithmetic without
     // reaching across families: on the two-hook tree this counted two.
     const methodCalls: string[] = [];
+    const clock = new ManualClock();
     const bridge = {
       sidekicks: {
         daemon: {
@@ -499,15 +528,14 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       growth: {},
       growthServedOperations: new Set(),
       source: "fixture",
-      scenarioEngine: undefined,
+      scenarioEngine: { clock },
     } as unknown as ConsoleBridge;
 
     await act(async () => {
       mountRail([], { bridge, entities: [AGENT, RUNNING_RUN], focusedPane: ON_THE_AGENT });
-    });
-    await act(async () => {
       mountRail([], { bridge, entities: [AGENT, RUNNING_RUN], focusedPane: ON_THE_AGENT });
     });
+    await settleCapabilityRead(clock);
 
     expect(methodCalls.filter((method) => method === "driver.listCapabilities")).toHaveLength(1);
   });

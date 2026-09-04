@@ -194,6 +194,55 @@ describe("the standing-permission read", () => {
   });
 });
 
+// `runId` is present exactly when the scope kind is `run`. Enforced in BOTH
+// directions, because a row that breaks it either way is a row this build renders as
+// something the wire cannot mean — an active permission whose run boundary nobody
+// can name, or a session-wide grant wearing a run association it does not have.
+describe("a rule's run and its scope kind agree", () => {
+  const RUN_SCOPED_RULE = {
+    ...WELL_FORMED_RULE,
+    scope: { kind: "run" },
+    runId: "019b7a33-3300-740e-8110-d1a4c1150511",
+  };
+
+  it("drops a run-scoped rule that names no run, and counts it", () => {
+    const { runId: _unused, ...withoutTheRun } = RUN_SCOPED_RULE;
+    const parsed = readRememberedRuleList({ rules: [withoutTheRun] });
+    expect(parsed.rows).toHaveLength(0);
+    expect(parsed.unreadableCount).toBe(1);
+  });
+
+  it("drops a rule that is not run-scoped but names a run, and counts it", () => {
+    const parsed = readRememberedRuleList({
+      rules: [{ ...WELL_FORMED_RULE, runId: "019b7a33-3300-740e-8110-d1a4c1150511" }],
+    });
+    expect(parsed.rows).toHaveLength(0);
+    expect(parsed.unreadableCount).toBe(1);
+  });
+
+  it("keeps both well-formed shapes", () => {
+    const parsed = readRememberedRuleList({
+      rules: [WELL_FORMED_RULE, { ...RUN_SCOPED_RULE, ruleId: "rule-02" }],
+    });
+    expect(parsed.unreadableCount).toBe(0);
+    expect(parsed.rows.map((rule) => rule.runId)).toStrictEqual([
+      undefined,
+      "019b7a33-3300-740e-8110-d1a4c1150511",
+    ]);
+  });
+
+  it("negative control: a kind this build does not know still reads, carrying no run", () => {
+    // The refinement asks only whether this is the run kind. A fourth kind the
+    // daemon grows is rendered as itself under this surface's wire-string rule, and
+    // a refinement that had refused every unknown kind would have dropped it.
+    const parsed = readRememberedRuleList({
+      rules: [{ ...WELL_FORMED_RULE, scope: { kind: "workspace" } }],
+    });
+    expect(parsed.unreadableCount).toBe(0);
+    expect(parsed.rows[0]?.scope.kind).toBe("workspace");
+  });
+});
+
 describe("the resolved quad", () => {
   it("is required on exactly the two resolved states", () => {
     expect(isResolvedState("approved")).toBe(true);

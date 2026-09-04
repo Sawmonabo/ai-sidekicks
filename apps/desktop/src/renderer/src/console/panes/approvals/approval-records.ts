@@ -49,6 +49,8 @@
 
 import { z } from "zod";
 
+import { REMEMBERED_SCOPE_KINDS } from "./approval-vocabulary.js";
+
 /**
  * One approval record, as this surface holds it.
  *
@@ -194,6 +196,36 @@ export interface RememberedRule {
   readonly invalidationTrigger?: string | undefined;
 }
 
+/**
+ * The one scope kind a rule's `runId` belongs to, taken from the vocabulary.
+ *
+ * Destructured from the closed set rather than spelled again, so the kind this
+ * schema keys on and the kind the surface renders cannot come apart — a third kind
+ * added there is a compile-time change here rather than a string that quietly stops
+ * matching.
+ */
+const [RUN_REMEMBERED_SCOPE_KIND] = REMEMBERED_SCOPE_KINDS;
+
+/**
+ * The registered rule row, with its one cross-field invariant enforced BOTH ways.
+ *
+ * `runId` is present exactly when the scope kind is `run`. The two members used to
+ * be accepted independently, and both halves of that were wrong in the same
+ * direction — towards a row rendered as readable while saying something the wire
+ * cannot mean. A run-scoped rule carrying no id was presented as an active standing
+ * permission whose boundary nobody can name, and a session-scoped rule carrying one
+ * was rendered with a run association the grant does not have. Neither is a row this
+ * build can read, so both take the unreadable arm and are counted there — the count
+ * beside the list is what says the read answered and some of it could not be
+ * rendered.
+ *
+ * A `superRefine` rather than a discriminated union because `kind` is a WIRE STRING:
+ * this surface's rule is that an unrecognized token renders as itself and never
+ * drops the row, and a union keyed on the two known kinds would refuse a third kind
+ * outright the day the daemon grows one. The refinement asks only the question the
+ * invariant is about — is this the run kind — and leaves every other kind's rows
+ * readable, carrying no `runId`, which is exactly what the invariant says of them.
+ */
 const rememberedRuleSchema: z.ZodType<RememberedRule> = z
   .object({
     ruleId: z.string().min(1),
@@ -207,7 +239,22 @@ const rememberedRuleSchema: z.ZodType<RememberedRule> = z
     revokedAt: z.string().optional(),
     invalidationTrigger: z.string().optional(),
   })
-  .loose();
+  .loose()
+  .superRefine((rule, context) => {
+    const isRunScoped = rule.scope.kind === RUN_REMEMBERED_SCOPE_KIND;
+    if (isRunScoped === (rule.runId !== undefined)) {
+      return;
+    }
+    context.addIssue({
+      code: "custom",
+      // Pathed at the run, in both directions: the scope kind is the fact the
+      // daemon decided and the run is the member that failed to agree with it.
+      path: ["runId"],
+      message: isRunScoped
+        ? "a `run`-scoped rule carries the run it is scoped to"
+        : "a rule that is not `run`-scoped carries no run",
+    });
+  });
 
 /**
  * A read that answered, with what it could not read counted rather than hidden.

@@ -42,7 +42,13 @@
 
 import { useCallback, useMemo, useState } from "react";
 
-import { useDriverCapabilities, useQueueFeed } from "../../bridge/index.js";
+import {
+  useDriverCapabilities,
+  useDriverCapabilityRepairRead,
+  useQueueFeed,
+  useRunDriverBindings,
+  withRunDriverBindings,
+} from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import {
   DerivedFigure,
@@ -107,7 +113,18 @@ function RunsPaneBody(props: {
   // walks the partition and the projections, and a render body that rebuilt it
   // would do that on every keystroke in the composer below.
   const seating = useMemo(() => seatRuns(knownRuns, stateFeed.runs), [knownRuns, stateFeed.runs]);
-  const driverCapabilities = useDriverCapabilities(context.bridge);
+  // Two reads, joined here. The declarations are the NODE's and are shared by every
+  // session in this window; which driver each run is bound to is this session's own
+  // projection, and `driver.listCapabilities` names no run at all — so on a node with
+  // two drivers installed, a readout without this join can name no binding for any
+  // run and takes Rewind and Steer off every row.
+  const declarations = useDriverCapabilities(context.bridge);
+  useDriverCapabilityRepairRead(context.bridge, sessionStore);
+  const runDriverBindings = useRunDriverBindings(sessionStore);
+  const driverCapabilities = useMemo(
+    () => withRunDriverBindings(declarations, runDriverBindings),
+    [declarations, runDriverBindings],
+  );
   const surface = useRunControlSurface(context.bridge);
   const [composerTarget, setComposerTarget] = useState<ComposerTarget | undefined>(undefined);
 

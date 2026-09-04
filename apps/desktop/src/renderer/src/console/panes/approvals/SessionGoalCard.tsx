@@ -76,9 +76,17 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
   // The editor closes when the LOG moves, which is the only thing that commits a
   // goal. Closing on the reply instead would leave the card showing the new text
   // while the event was still being acknowledged across the session's bindings.
+  //
+  // KEYED ON THE PROJECTION'S REVISION AND NOT ON THE PROJECTION. The fold runs over
+  // the whole timeline and answers with a fresh object every time the timeline
+  // grows, so keying on the object closed this editor — discarding a half-typed goal
+  // — on any `usage.*` beat or run transition that happened to land while somebody
+  // was typing. The revision moves when a different goal event wins the fold and at
+  // no other time, which is exactly the condition this effect is about.
+  const goalRevision = goal.revision;
   useEffect(() => {
     setIsEditing(false);
-  }, [goal]);
+  }, [goalRevision]);
 
   const submit = useCallback(() => {
     const parsed = sessionGoalTextSchema.safeParse(draftText);

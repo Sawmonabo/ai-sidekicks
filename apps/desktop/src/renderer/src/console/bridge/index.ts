@@ -70,7 +70,18 @@ export type { DaemonStreamOpen } from "./daemon-calls.js";
 // Here rather than beside either consumer because two view families gate controls on
 // it and neither may import the other — one read per bridge serves both, and a hook
 // living in one of them would make the other's copy a second call on one wire.
-export { declaredFlagsForDriver, useDriverCapabilities } from "./driver-capability-read.js";
+export {
+  declaredFlagsForDriver,
+  useDriverCapabilities,
+  useDriverCapabilityRepairRead,
+  withRunDriverBindings,
+} from "./driver-capability-read.js";
+export {
+  foldRunDriverBindings,
+  selectSessionTimeline,
+  useRunDriverBindings,
+} from "./run-driver-binding.js";
+export { SessionRepairWatcher } from "./session-repair-watcher.js";
 export type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-read.js";
 
 // The session's one queue reading. Here for the same reason the capability read is:

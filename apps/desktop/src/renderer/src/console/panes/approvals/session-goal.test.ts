@@ -140,7 +140,11 @@ describe("the fold answers what the log says", () => {
       event(2, "run.queued"),
       goalUpdate(3, "second goal"),
     ]);
-    expect(goal).toStrictEqual({ status: "set", text: "second goal" });
+    expect(goal).toStrictEqual({
+      status: "set",
+      text: "second goal",
+      revision: expect.any(String),
+    });
   });
 
   it("treats a later clear as a clear rather than as an absent update", () => {
@@ -148,26 +152,29 @@ describe("the fold answers what the log says", () => {
       goalUpdate(1, "first goal", "2026-01-01T00:00:00.000Z"),
       goalClear(2, "2026-01-01T00:00:01.000Z"),
     ]);
-    expect(goal).toStrictEqual({ status: "none" });
+    expect(goal).toStrictEqual({ status: "none", revision: expect.any(String) });
   });
 
   it("reports an unreadable goal event rather than reading it as no goal", () => {
     // "The goal was cleared" and "this build cannot read the latest goal event" are
     // different facts, and the second one must never render as the first.
     const goal = foldSessionGoal([goalUpdate(1, "first goal"), event(2, "session.goal_updated")]);
-    expect(goal).toStrictEqual({ status: "unreadable" });
+    expect(goal).toStrictEqual({ status: "unreadable", revision: expect.any(String) });
   });
 
   it("answers none for a log that carries no goal event at all", () => {
-    expect(foldSessionGoal([event(1, "run.queued")])).toStrictEqual({ status: "none" });
-    expect(foldSessionGoal([])).toStrictEqual({ status: "none" });
+    expect(foldSessionGoal([event(1, "run.queued")])).toStrictEqual({
+      status: "none",
+      revision: expect.any(String),
+    });
+    expect(foldSessionGoal([])).toStrictEqual({ status: "none", revision: expect.any(String) });
   });
 
   it("negative control: a non-goal event after an update does not change the answer", () => {
     // Without this, a fold that stopped at the last entry of any kind would pass
     // every case above and still be wrong on the ordinary session.
     const goal = foldSessionGoal([goalUpdate(1, "the goal"), event(2, "assistant.message")]);
-    expect(goal).toStrictEqual({ status: "set", text: "the goal" });
+    expect(goal).toStrictEqual({ status: "set", text: "the goal", revision: expect.any(String) });
   });
 });
 
@@ -185,7 +192,11 @@ describe("the fold ranks readings rather than arrivals", () => {
       goalUpdate(1, "authored later", "2026-01-01T00:00:09.000Z"),
       goalUpdate(2, "authored earlier", "2026-01-01T00:00:01.000Z"),
     ]);
-    expect(goal).toStrictEqual({ status: "set", text: "authored later" });
+    expect(goal).toStrictEqual({
+      status: "set",
+      text: "authored later",
+      revision: expect.any(String),
+    });
   });
 
   it("lets a clear beat an earlier update and an update beat an earlier clear", () => {
@@ -193,13 +204,17 @@ describe("the fold ranks readings rather than arrivals", () => {
       goalClear(1, "2026-01-01T00:00:09.000Z"),
       goalUpdate(2, "authored earlier", "2026-01-01T00:00:01.000Z"),
     ]);
-    expect(clearWins).toStrictEqual({ status: "none" });
+    expect(clearWins).toStrictEqual({ status: "none", revision: expect.any(String) });
 
     const updateWins = foldSessionGoal([
       goalUpdate(1, "authored later", "2026-01-01T00:00:09.000Z"),
       goalClear(2, "2026-01-01T00:00:01.000Z"),
     ]);
-    expect(updateWins).toStrictEqual({ status: "set", text: "authored later" });
+    expect(updateWins).toStrictEqual({
+      status: "set",
+      text: "authored later",
+      revision: expect.any(String),
+    });
   });
 
   it("breaks an exact-instant tie on the envelope id, in either arrival order", () => {
@@ -216,10 +231,12 @@ describe("the fold ranks readings rather than arrivals", () => {
     expect(foldSessionGoal([earlierId, laterId])).toStrictEqual({
       status: "set",
       text: "higher id",
+      revision: expect.any(String),
     });
     expect(foldSessionGoal([laterId, earlierId])).toStrictEqual({
       status: "set",
       text: "higher id",
+      revision: expect.any(String),
     });
   });
 
@@ -228,7 +245,7 @@ describe("the fold ranks readings rather than arrivals", () => {
       goalUpdate(1, "readable but older", "2026-01-01T00:00:01.000Z"),
       event(2, "session.goal_updated", undefined, "2026-01-01T00:00:09.000Z"),
     ]);
-    expect(goal).toStrictEqual({ status: "unreadable" });
+    expect(goal).toStrictEqual({ status: "unreadable", revision: expect.any(String) });
   });
 
   it("never lets an unreadable stamp beat a readable one, in either arrival order", () => {
@@ -236,13 +253,21 @@ describe("the fold ranks readings rather than arrivals", () => {
       goalUpdate(1, "readable stamp", "2026-01-01T00:00:01.000Z"),
       goalUpdate(2, "unreadable stamp", "whenever"),
     ]);
-    expect(unreadableArrivesLast).toStrictEqual({ status: "set", text: "readable stamp" });
+    expect(unreadableArrivesLast).toStrictEqual({
+      status: "set",
+      text: "readable stamp",
+      revision: expect.any(String),
+    });
 
     const unreadableArrivesFirst = foldSessionGoal([
       goalUpdate(1, "unreadable stamp", "whenever"),
       goalUpdate(2, "readable stamp", "2026-01-01T00:00:01.000Z"),
     ]);
-    expect(unreadableArrivesFirst).toStrictEqual({ status: "set", text: "readable stamp" });
+    expect(unreadableArrivesFirst).toStrictEqual({
+      status: "set",
+      text: "readable stamp",
+      revision: expect.any(String),
+    });
   });
 });
 
@@ -262,7 +287,11 @@ describe("the fold is ordered by origin and not by arrival", () => {
       originGoalUpdate(1, "origin append nine", { nodeId: NODE_ONE, originSeq: 9 }, TIED_INSTANT),
       originGoalUpdate(2, "origin append eight", { nodeId: NODE_ONE, originSeq: 8 }, TIED_INSTANT),
     ]);
-    expect(goal).toStrictEqual({ status: "set", text: "origin append nine" });
+    expect(goal).toStrictEqual({
+      status: "set",
+      text: "origin append nine",
+      revision: expect.any(String),
+    });
   });
 
   it("keeps the origin's newest append when that origin's clock stepped backward", () => {
@@ -283,7 +312,11 @@ describe("the fold is ordered by origin and not by arrival", () => {
         "2026-01-01T00:00:01.000Z",
       ),
     ]);
-    expect(goal).toStrictEqual({ status: "set", text: "appended second" });
+    expect(goal).toStrictEqual({
+      status: "set",
+      text: "appended second",
+      revision: expect.any(String),
+    });
   });
 
   it("compares two origins' winners on the instant, and a clear competes there too", () => {
@@ -301,7 +334,11 @@ describe("the fold is ordered by origin and not by arrival", () => {
         "2026-01-01T00:00:09.000Z",
       ),
     ]);
-    expect(goal).toStrictEqual({ status: "set", text: "alpha is newer" });
+    expect(goal).toStrictEqual({
+      status: "set",
+      text: "alpha is newer",
+      revision: expect.any(String),
+    });
 
     const clearWins = foldSessionGoal([
       originGoalUpdate(
@@ -312,7 +349,7 @@ describe("the fold is ordered by origin and not by arrival", () => {
       ),
       originGoalClear(2, { nodeId: NODE_TWO, originSeq: 30 }, "2026-01-01T00:00:09.000Z"),
     ]);
-    expect(clearWins).toStrictEqual({ status: "none" });
+    expect(clearWins).toStrictEqual({ status: "none", revision: expect.any(String) });
   });
 
   it("settles an identical instant across origins on the envelope id", () => {
@@ -330,8 +367,16 @@ describe("the fold is ordered by origin and not by arrival", () => {
     };
     expect(alpha.id < beta.id).toBe(true);
     expect(alpha.sequence > beta.sequence).toBe(true);
-    expect(foldSessionGoal([alpha, beta])).toStrictEqual({ status: "set", text: "beta wrote it" });
-    expect(foldSessionGoal([beta, alpha])).toStrictEqual({ status: "set", text: "beta wrote it" });
+    expect(foldSessionGoal([alpha, beta])).toStrictEqual({
+      status: "set",
+      text: "beta wrote it",
+      revision: expect.any(String),
+    });
+    expect(foldSessionGoal([beta, alpha])).toStrictEqual({
+      status: "set",
+      text: "beta wrote it",
+      revision: expect.any(String),
+    });
   });
 
   it("folds a payload carrying no origin keys through the envelope-ordered slot", () => {
@@ -347,7 +392,11 @@ describe("the fold is ordered by origin and not by arrival", () => {
       ),
       goalUpdate(2, "unkeyed and newer", "2026-01-01T00:00:09.000Z"),
     ]);
-    expect(goal).toStrictEqual({ status: "set", text: "unkeyed and newer" });
+    expect(goal).toStrictEqual({
+      status: "set",
+      text: "unkeyed and newer",
+      revision: expect.any(String),
+    });
   });
 
   it("refuses to read a malformed origin key as an order", () => {
@@ -368,7 +417,11 @@ describe("the fold is ordered by origin and not by arrival", () => {
         "2026-01-01T00:00:01.000Z",
       ),
     ]);
-    expect(goal).toStrictEqual({ status: "set", text: "string sequence" });
+    expect(goal).toStrictEqual({
+      status: "set",
+      text: "string sequence",
+      revision: expect.any(String),
+    });
   });
 
   it("agrees with a second node that received the same events in another order", () => {
@@ -398,7 +451,81 @@ describe("the fold is ordered by origin and not by arrival", () => {
     const there = foldSessionGoal(timelineFor(arrivalOnThatNode));
     // Alpha's register settles on its own second append; beta's on its only one;
     // the tied instant between those two winners settles on the envelope id.
-    expect(here).toStrictEqual({ status: "set", text: "beta only" });
+    expect(here).toStrictEqual({ status: "set", text: "beta only", revision: expect.any(String) });
     expect(there).toStrictEqual(here);
+  });
+});
+
+// The projection's REVISION: which log entry it was read from. The fold runs over
+// the whole timeline, so it answers with a fresh object on every beat of any kind —
+// and a consumer that keys on the object rather than on this member acts on a goal
+// change once per event the session ever carries.
+describe("the projection names the entry it was read from", () => {
+  it("holds the revision across events that are not goal events", () => {
+    const beforeTheBeats = foldSessionGoal([goalUpdate(1, "ship it")]);
+    const afterTheBeats = foldSessionGoal([
+      goalUpdate(1, "ship it"),
+      event(2, "usage.token_count"),
+      event(3, "run.turn_started"),
+    ]);
+    expect(afterTheBeats).toStrictEqual(beforeTheBeats);
+  });
+
+  it("moves the revision when a further goal update wins", () => {
+    const first = foldSessionGoal([goalUpdate(1, "ship it")]);
+    const second = foldSessionGoal([goalUpdate(1, "ship it"), goalUpdate(2, "ship it twice")]);
+    expect(second.revision).not.toBe(first.revision);
+  });
+
+  it("moves the revision when the goal is re-set to the text it already had", () => {
+    // A participant setting the same words again is still an act, and a consumer
+    // told nothing changed would go on showing whatever it had open. This is the
+    // case a text comparison gets wrong and an identity does not.
+    const first = foldSessionGoal([goalUpdate(1, "ship it")]);
+    const again = foldSessionGoal([goalUpdate(1, "ship it"), goalUpdate(2, "ship it")]);
+    expect(again).toStrictEqual({ status: "set", text: "ship it", revision: expect.any(String) });
+    expect(again.revision).not.toBe(first.revision);
+  });
+
+  it("moves the revision when a clear wins", () => {
+    const set = foldSessionGoal([goalUpdate(1, "ship it", "2026-01-01T00:00:00.000Z")]);
+    const cleared = foldSessionGoal([
+      goalUpdate(1, "ship it", "2026-01-01T00:00:00.000Z"),
+      goalClear(2, "2026-01-01T00:00:01.000Z"),
+    ]);
+    expect(cleared.status).toBe("none");
+    expect(cleared.revision).not.toBe(set.revision);
+  });
+
+  it("keys an origin-stamped winner on its origin pair, so two nodes agree", () => {
+    const origin = { nodeId: "node-alpha", originSeq: 9 };
+    const here = foldSessionGoal([originGoalUpdate(1, "stamped", origin)]);
+    // The same authored event, landed at a different local position and carrying a
+    // different envelope id, is the same reading — which is what a revision derived
+    // from arrival could not say.
+    const there = foldSessionGoal([
+      { ...originGoalUpdate(7, "stamped", origin), id: "event-elsewhere" },
+    ]);
+    expect(there.revision).toBe(here.revision);
+  });
+
+  it("names a session with no goal event at all, distinctly from every event's", () => {
+    const never = foldSessionGoal([event(1, "run.queued")]);
+    const cleared = foldSessionGoal([goalClear(1)]);
+    expect(never.status).toBe("none");
+    expect(cleared.status).toBe("none");
+    // Both read "no goal", and they are not the same reading: one session has never
+    // had one and the other has had one taken away.
+    expect(never.revision).not.toBe(cleared.revision);
+  });
+
+  it("negative control: an unrelated beat does move the projection OBJECT", () => {
+    // The defect this member exists for. Without it there is nothing stable to key
+    // on, and this is the assertion that fails the moment the fold starts returning
+    // the same object for a timeline that grew.
+    const first = foldSessionGoal([goalUpdate(1, "ship it")]);
+    const second = foldSessionGoal([goalUpdate(1, "ship it"), event(2, "usage.token_count")]);
+    expect(second).not.toBe(first);
+    expect(second.revision).toBe(first.revision);
   });
 });

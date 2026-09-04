@@ -33,7 +33,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  SessionRepairWatcher,
+  consoleClockFor,
+  useSessionScopedState,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
 import {
   useSessionDegradedCause,
   useSessionStore,
@@ -98,31 +103,6 @@ class ApprovalSignalCursor {
     }
     this.#requestedThroughSequence = this.#latestSignalSequence;
     return true;
-  }
-}
-
-/**
- * Whether the session store just came back from a degraded stream.
- *
- * A class with a private field rather than a bare ref because the reading is a
- * TRANSITION and not a value: only the move from a standing cause to none is a
- * reconnect, and a component holding the current cause alone would either re-read on
- * every render while degraded or never read at all.
- *
- * Presence is the whole reading. The cause vocabulary is the store's, and nothing
- * here branches on a member of it — a stream that diverged and a subscription that
- * closed are repaired by the same completed re-pull, and this surface's answer to
- * both is the same read.
- */
-class SessionRepairWatcher {
-  #wasDegraded = false;
-
-  /** True exactly on the pass where a standing cause became none. */
-  public observe(degradedCause: string | undefined): boolean {
-    const isDegraded = degradedCause !== undefined;
-    const isRepaired = this.#wasDegraded && !isDegraded;
-    this.#wasDegraded = isDegraded;
-    return isRepaired;
   }
 }
 
@@ -237,13 +217,66 @@ export function useApprovalsReader(
 }
 
 /**
+ * Which subjects have a goal mutation in flight.
+ *
+ * A class with a private field rather than a boolean ref, because the rule it keeps
+ * is about a SUBJECT and not about a component: `session.goalUpdate` names the
+ * session it mutates, so "one mutation in flight" is one per `(bridge, sessionId)`
+ * and never one per mounted card. A single boolean said otherwise, and a pane
+ * rebound from session A to session B while A's call was outstanding then refused
+ * B's first change as though B already had one settling — and an A call that never
+ * answered left B refusing for as long as the pane stayed mounted.
+ *
+ * A `WeakMap` on the bridge for `driver-capability-read.ts`'s reason: the key is a
+ * live object, so a bridge that goes away takes its held sessions with it.
+ */
+class GoalMutationLatch {
+  readonly #inFlightSessionIdsByBridge = new WeakMap<ConsoleBridge, Set<string>>();
+
+  /** Take one subject's slot, or answer `false` where that subject already holds it. */
+  public claim(bridge: ConsoleBridge, sessionId: string): boolean {
+    const inFlightSessionIds = this.#inFlightSessionIdsFor(bridge);
+    if (inFlightSessionIds.has(sessionId)) {
+      return false;
+    }
+    inFlightSessionIds.add(sessionId);
+    return true;
+  }
+
+  /** Release one subject's slot. Every other subject's is untouched. */
+  public release(bridge: ConsoleBridge, sessionId: string): void {
+    this.#inFlightSessionIdsByBridge.get(bridge)?.delete(sessionId);
+  }
+
+  #inFlightSessionIdsFor(bridge: ConsoleBridge): Set<string> {
+    const held = this.#inFlightSessionIdsByBridge.get(bridge);
+    if (held !== undefined) {
+      return held;
+    }
+    const created = new Set<string>();
+    this.#inFlightSessionIdsByBridge.set(bridge, created);
+    return created;
+  }
+}
+
+/**
  * The one goal mutation a session may have in flight.
  *
  * THIS HOOK'S OWN RULE, because no committed document states it: a second mutation
- * is never queued behind the first. The guard is the
- * ref below rather than the disabled attribute, because a disabled button is a
- * rendering and this is a rule about the wire — a keyboard-driven double submit
- * lands between renders and would otherwise send two.
+ * is never queued behind the first. The guard is the latch above rather than the
+ * disabled attribute, because a disabled button is a rendering and this is a rule
+ * about the wire — a keyboard-driven double submit lands between renders and would
+ * otherwise send two.
+ *
+ * EVERYTHING THIS HOOK HOLDS BELONGS TO A SUBJECT. The state, the refusal, and the
+ * latch are all about the `(bridge, sessionId)` the mutation was issued under, and
+ * the component outlives a change of that pair — so a rebind used to leave the new
+ * session's controls blocked by the old session's request and its rejection rendered
+ * beside the new session's goal. The two readings ride
+ * `useSessionScopedState`, which resets them during the render that first sees a new
+ * subject and drops a settlement whose captured subject is no longer current; the
+ * latch is keyed by the same pair. Nothing here is a timer or a counter: a late
+ * answer is discarded because of WHOSE it is, not because of when it arrived.
  */
 export function useSessionGoalMutation(
   bridge: ConsoleBridge,
@@ -254,9 +287,16 @@ export function useSessionGoalMutation(
   readonly update: (text: string) => void;
   readonly clear: () => void;
 } {
-  const [isMutating, setIsMutating] = useState(false);
-  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const inFlightRef = useRef(false);
+  const [isMutating, publishIsMutating] = useSessionScopedState(bridge, sessionId, false);
+  const [refusal, publishRefusal] = useSessionScopedState<ConsoleRefusal | undefined>(
+    bridge,
+    sessionId,
+    undefined,
+  );
+  // A `useState` initializer rather than a `useMemo`, on `frame/session-lifecycle.ts`'s
+  // reasoning: this runs once per mounted component and is never recomputed, and a
+  // latch React was free to rebuild would forget a call that was still outstanding.
+  const [latch] = useState(() => new GoalMutationLatch());
   const isMountedRef = useRef(true);
 
   useEffect(() => {
@@ -266,35 +306,40 @@ export function useSessionGoalMutation(
     };
   }, []);
 
-  const perform = useCallback((mutate: () => Promise<void>) => {
-    if (inFlightRef.current) {
-      setRefusal(
-        refuse(
-          SESSION_GOAL_REFUSAL_ORIGIN,
-          "goal_mutation_in_flight",
-          "A goal change is still settling. Wait for it to land, then try again — a second change is not queued behind the first.",
-        ),
-      );
-      return;
-    }
-    inFlightRef.current = true;
-    setIsMutating(true);
-    setRefusal(undefined);
-    void mutate()
-      .catch((rejection: unknown) => {
-        if (!isMountedRef.current) {
-          return;
-        }
-        const wireError = normalizeWireRejection(rejection, { total: true });
-        setRefusal(refuse(SESSION_GOAL_REFUSAL_ORIGIN, wireError.name, wireError.message));
-      })
-      .finally(() => {
-        inFlightRef.current = false;
-        if (isMountedRef.current) {
-          setIsMutating(false);
-        }
-      });
-  }, []);
+  const perform = useCallback(
+    (mutate: () => Promise<void>) => {
+      if (!latch.claim(bridge, sessionId)) {
+        publishRefusal(
+          refuse(
+            SESSION_GOAL_REFUSAL_ORIGIN,
+            "goal_mutation_in_flight",
+            "A goal change is still settling. Wait for it to land, then try again — a second change is not queued behind the first.",
+          ),
+        );
+        return;
+      }
+      publishIsMutating(true);
+      publishRefusal(undefined);
+      void mutate()
+        .catch((rejection: unknown) => {
+          if (!isMountedRef.current) {
+            return;
+          }
+          const wireError = normalizeWireRejection(rejection, { total: true });
+          publishRefusal(refuse(SESSION_GOAL_REFUSAL_ORIGIN, wireError.name, wireError.message));
+        })
+        .finally(() => {
+          // Released against the subject the call was ISSUED under, so a settlement
+          // that arrives after a rebind frees its own session's slot and never the
+          // one the pane is now addressed to.
+          latch.release(bridge, sessionId);
+          if (isMountedRef.current) {
+            publishIsMutating(false);
+          }
+        });
+    },
+    [bridge, latch, publishIsMutating, publishRefusal, sessionId],
+  );
 
   const update = useCallback(
     (text: string) => {
