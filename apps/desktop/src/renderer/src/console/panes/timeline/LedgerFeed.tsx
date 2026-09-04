@@ -37,6 +37,12 @@
 //   • A row body is the SEAT's, handed down whole. This file supplies only the three
 //     decisions the seat says the list makes.
 //
+// ONE OF THOSE SEAMS IS A SMALL SYSTEM AND LIVES NEXT DOOR. The find field, the
+// classification of an id against four narrowings, the act that answer deserves and
+// the jump that has to outlive the render it was asked in are `ledger-feed-find-jump.ts`\'
+// — read inside this arrangement they were forty lines of callbacks between two
+// elements. What stays here is the composition that hands them their windows.
+//
 // AND ONE ENGINE THIS MOUNT OWNS. The reveal engine is per feed, minted here and
 // disposed with the feed, because a lane is a row of THIS window and a second engine
 // would publish a second answer for one row's text. It is not a fifth seam: nothing
@@ -59,8 +65,6 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 
-import { type TimelineRow } from "@ai-sidekicks/contracts";
-
 import { useConsoleClock } from "../../bridge/index.js";
 import {
   LedgerRowLeaseProvider,
@@ -75,7 +79,6 @@ import {
   LedgerFilterBar,
   ProvenanceRail,
   ReplayControls,
-  UNFILTERED_LEDGER,
 } from "../../ledger/structure/index.js";
 import {
   LedgerEventIdJump,
@@ -89,14 +92,10 @@ import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../seats/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
 import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
-import { useLedgerFind } from "./ledger-find.js";
 import {
-  chapterRunIdOf,
-  jumpOutcomeRowId,
-  useDeferredRowJump,
-  useEventIdJumpOutcome,
-  useLedgerJumpReach,
-} from "./ledger-jump.js";
+  useLedgerFindAndJump,
+  useReplayDockConcealOnFocusLeaving,
+} from "./ledger-feed-find-jump.js";
 import { useFilteredLedgerWindow, useLedgerFilter } from "./ledger-narrowing.js";
 import {
   useLedgerReplay,
@@ -188,17 +187,22 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     revealedViewportRows,
     viewport.snapshot.rows,
   );
-  const find = useLedgerFind(visible);
-  // Classified against every stage between the log and the screen rather than
-  // against the rows on it, so an id the fold, the replay or the cap took is not
-  // reported as one the filter is hiding.
-  const eventIdJump = useEventIdJumpOutcome({
+  // THE FIELD, THE CLASSIFICATION, AND THE ACT — one seam, wired next door.
+  // Every window between the loaded log and the screen goes in, because the answer
+  // is not whether a row is on screen but which narrowing is the reason it is not.
+  const findAndJump = useLedgerFindAndJump({
     unfurledWindow,
     narrowedWindow,
     foldedWindow: ledgerWindow,
     visible,
-    query: find.query.trim(),
+    openedTerminalRunIds: chapterDisclosure.openedTerminalRunIds,
+    toggleChapter: chapterDisclosure.toggle,
+    setFilter: ledgerFilter.setFilter,
+    endReplay: replay.end,
+    jumpToRow: viewport.jumpToRow,
+    focusLedgerSurface: viewport.focusSurface,
   });
+  const find = findAndJump.find;
 
   // The STORE's wheel, which is the one the cast bar reads, handed to both surfaces
   // that colour by actor — the rows and the rail's marks — so one person wears one
@@ -239,85 +243,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // the box, off the same range the rail's thumb is sized from.
   const replayAnchorRowId = useReplayAnchorRowId(viewport.visibleRange, viewport.snapshot.rows);
   const jumpToRow = viewport.jumpToRow;
-  // The act each absence deserves cannot itself jump — every one of them widens the
-  // window on the next render — so the jump is requested and spent when the row is
-  // one the viewport holds.
-  const requestJump = useDeferredRowJump({
-    visibleRows: visible.rows,
-    jumpToRow,
-    // The request dies with the question that asked it: a held jump whose row the
-    // field no longer names would scroll the ledger away long after the person who
-    // asked closed the field.
-    questionRowId: jumpOutcomeRowId(eventIdJump),
-  });
-  const setLedgerFilter = ledgerFilter.setFilter;
-  const clearLedgerFilter = useCallback(() => {
-    setLedgerFilter(UNFILTERED_LEDGER);
-  }, [setLedgerFilter]);
-  const openChapterOfRow = useCallback(
-    (row: TimelineRow) => {
-      const chapterRunId = chapterRunIdOf(row, ledgerWindow);
-      const chapter =
-        chapterRunId === undefined ? undefined : ledgerWindow.chapterByHeaderKey.get(chapterRunId);
-      if (chapter !== undefined) {
-        // A toggle, and the arm that offers this act is only reachable while the
-        // chapter is shut — `useLedgerJumpReach` withholds the offer otherwise, so
-        // this never closes one.
-        toggleChapter(chapter);
-      }
-    },
-    [ledgerWindow, toggleChapter],
-  );
-  const eventIdJumpReach = useLedgerJumpReach({
-    outcome: eventIdJump,
-    foldedWindow: ledgerWindow,
-    openedTerminalRunIds,
-    clearFilter: clearLedgerFilter,
-    openChapterOfRow,
-    endReplay: replay.end,
-    requestJump,
-  });
-  const onStepFind = useCallback(
-    (direction: "next" | "previous") => {
-      const step = find.step(direction);
-      if (step !== undefined) {
-        jumpToRow(step.match.rowId);
-      }
-    },
-    [find, jumpToRow],
-  );
-
-  const closeFind = find.close;
-  const focusLedgerSurface = viewport.focusSurface;
-  const onCloseFind = useCallback(() => {
-    closeFind();
-    // The field took focus when it opened, and it is unmounted by the close — so
-    // without this focus falls to `body` and the next Tab restarts from the top of
-    // the document, well away from the log somebody was reading.
-    focusLedgerSurface();
-  }, [closeFind, focusLedgerSurface]);
-
-  const concealReplayDock = replay.conceal;
-  const concealReplayDockOnFocusLeaving = useCallback(
-    (event: React.FocusEvent<HTMLDivElement>) => {
-      // React backs `onBlur` with `focusout`, which BUBBLES, so tabbing from the
-      // rail's slider to a dock button reaches this wrapper although focus never
-      // left it — and concealing there makes the dock's controls vanish or be
-      // skipped mid-tab. A related target this wrapper contains is that move.
-      //
-      // A NULL related target is focus leaving the document, and that IS a conceal
-      // rather than an exemption: reading it as one would leave the dock open under
-      // a window nobody is in. Do not "fix" this into a leak.
-      if (
-        event.relatedTarget instanceof Node &&
-        event.currentTarget.contains(event.relatedTarget)
-      ) {
-        return;
-      }
-      concealReplayDock();
-    },
-    [concealReplayDock],
-  );
+  const concealReplayDockOnFocusLeaving = useReplayDockConcealOnFocusLeaving(replay.conceal);
 
   // The palette's chords and the cast bar's chips both act on whichever ledger is
   // mounted when they fire, and neither can import this component. Both seats are
@@ -346,8 +272,8 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           currentMatchIndex={find.currentMatchIndex}
           openRequestCount={find.openRequestCount}
           onQueryChange={find.setQuery}
-          onStep={onStepFind}
-          onClose={onCloseFind}
+          onStep={findAndJump.onStep}
+          onClose={findAndJump.onClose}
         />
       ) : null}
       <LedgerFilterBar
@@ -355,7 +281,11 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         filter={ledgerFilter.filter}
         onFilterChange={ledgerFilter.setFilter}
       />
-      <LedgerEventIdJump outcome={eventIdJump} reach={eventIdJumpReach} onJumpToRow={jumpToRow} />
+      <LedgerEventIdJump
+        outcome={findAndJump.outcome}
+        reach={findAndJump.reach}
+        onJumpToRow={jumpToRow}
+      />
       <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
       <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
       <LedgerRowsAdmittedDuringReplayNotice
