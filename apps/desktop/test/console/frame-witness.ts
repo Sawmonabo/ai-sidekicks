@@ -77,14 +77,20 @@ export type FrameWitnessOutcome = FramesWitnessed | FramesMissing;
  * "clearly above a refresh interval and clearly below a tier's patience" — which
  * describes an idle desktop and describes no CI runner.
  *
- * What was measured, and what it showed. The harness now prints the figure on
- * every launch (`[sidekicks-console-launch]`), so this rests on real launches
- * rather than an estimate. Across ten e2e launches on an Apple-silicon host —
- * five idle, five at 2x CPU oversubscription with the GPU disabled and Chromium
- * rendering through SwiftShader, the shape of the CI runner — the post-readiness
- * interval was 1-16 ms in the renderer and 2-18 ms driver-side. It did not
- * degrade under load; the loaded set was FASTER, because software rendering is
- * not clamped to a display's refresh.
+ * What was measured, and what it showed. The harness prints the figure on every
+ * launch (`[sidekicks-console-launch]`), so this rests on real launches rather
+ * than an estimate. Twenty of them on an eight-core Apple-silicon host: ten
+ * deliberate — five idle, five with the GPU disabled and Chromium rendering
+ * through SwiftShader, the shape of the CI runner — and ten more harvested from
+ * ordinary tier runs while the host was incidentally at a one-minute load
+ * average near 280, roughly 35x oversubscribed. Across all twenty the
+ * post-readiness interval was 1-18 ms in the renderer and 2-47 ms driver-side.
+ *
+ * It does not degrade the way an intuition about load would predict. The single
+ * 47 ms outlier is driver-side only — its renderer reported 4 ms — so it is a
+ * CDP round trip queued behind a busy main thread rather than a frame schedule
+ * that slowed down, and the in-renderer figure barely moves at 35x contention
+ * because software rendering is not clamped to a display's refresh.
  *
  * Which settles what the failures were, and it is not the frame schedule. Once a
  * renderer is ready its two frames are a matter of milliseconds. What the old
@@ -116,14 +122,23 @@ export const FRAME_WITNESS_TIMEOUT_MS = 15_000;
 
 /**
  * The worst driver-side post-readiness figure measured locally, in
- * milliseconds — the slowest of the ten launches described above.
+ * milliseconds — the slowest of the twenty launches described above.
  *
  * Exported rather than left in prose because a number in a comment is not a
  * gate: `architecture/frame-witness.test.ts` holds the budget against it, so
  * shrinking the bound back toward the measured cost fails a test that says why
  * rather than passing quietly and flaking a month later.
+ *
+ * It was 18 when only the first ten launches had been seen, and it is raised
+ * here rather than left standing because the later ten produced a worse figure
+ * and a comment claiming to state a worst case has to be re-derived when the set
+ * it quantifies over grows. The bound above does not move with it: that bound is
+ * derived from the asymmetry between failing early and failing late, never from
+ * this figure plus a margin — which is exactly why a 2.6x revision to the worst
+ * case leaves it correct, and why the guard is an order-of-magnitude
+ * relationship rather than an equality.
  */
-export const MEASURED_WORST_LOCAL_MS = 18;
+export const MEASURED_WORST_LOCAL_MS = 47;
 
 /**
  * Bounds the interval between a renderer signalling readiness and its second
