@@ -76,6 +76,7 @@ export class DurableViewState<TValue extends PersistedValue> {
   readonly #changes = new Emitter<void>("durable view state");
   #value: TValue;
   #hydrated = false;
+  #disposed = false;
   #lastRefusal: ConsoleRefusal | undefined;
   /**
    * The rounds local acts have opened, so a hydration that started before one of
@@ -101,6 +102,36 @@ export class DurableViewState<TValue extends PersistedValue> {
   /** True once the durable read has settled, however it settled. */
   public get isHydrated(): boolean {
     return this.#hydrated;
+  }
+
+  /**
+   * True once the store behind this state has been replaced. Terminal.
+   *
+   * Read by the binding holder's own test, and by nothing on a render path: a
+   * disposed state is one no surface is subscribed to any more, so the fact is
+   * about the holder's bookkeeping rather than about what a person sees.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
+  /**
+   * Release this state: its store has been replaced and nothing may reach it again.
+   *
+   * Three acts, and the middle one is the point. Dropping the sinks stops a late
+   * reply notifying a surface that has moved on; superseding the local acts makes a
+   * hydration still in flight discard the record it comes back with, so the closed
+   * store's contents can never be installed over the successor's; and the flag
+   * records the fact for the holder that owns the replacement.
+   *
+   * A write ALREADY IN FLIGHT still completes against the store it was sent to, and
+   * that is correct — it was issued while that store was live. What cannot happen is
+   * a NEW write, because every act reaches the binding the holder currently holds.
+   */
+  public dispose(): void {
+    this.#disposed = true;
+    this.#localActs.supersedeAll();
+    this.#changes.clear();
   }
 
   /** The last refusal this state saw, or `undefined`. Rendered, never swallowed. */

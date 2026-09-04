@@ -17,10 +17,11 @@
 // ever opened — and it is why the list offers "move to the back tier" and no
 // separate "unpin": with two tiers and a default, those are one act.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../core/index.js";
 import type { UiStateStore } from "../persistence/index.js";
+import { noDurableViewSubscription, useDurableViewBinding } from "./durable-view-binding.js";
 import { DurableViewState } from "./durable-view-state.js";
 import {
   DEFAULT_SESSION_PIN_TIER,
@@ -94,6 +95,16 @@ export class SessionPinStore {
     await this.#state.hydrate();
   }
 
+  /** Released when the window's durable store is replaced. Terminal. */
+  public dispose(): void {
+    this.#state.dispose();
+  }
+
+  /** Whether this store has been superseded. Read by the binding's own test. */
+  public get isDisposed(): boolean {
+    return this.#state.isDisposed;
+  }
+
   /**
    * Put one session in a tier.
    *
@@ -119,25 +130,32 @@ export interface SessionPinBinding {
   readonly setTier: (sessionId: string, tier: SessionPinTier) => void;
 }
 
+/** How a pin store is minted. Module-level, because the holder reads it once. */
+function mintSessionPinStore(store: UiStateStore): SessionPinStore {
+  return new SessionPinStore(store);
+}
+
 /**
  * Bind the pin map into a component.
  *
- * The store is built by a `useState` initializer — which runs once per mounted
- * component and whose result is never recomputed — rather than by `useMemo`, which
- * may be, and rather than in an effect, which would leave the first render with
- * nothing to read. The hydrate is the side effect and it rides the effect, so a
- * render pass React discards performs no durable read.
+ * KEYED ON THE STORE'S IDENTITY, through the one holder both durable bindings on
+ * this destination share. It was built by a `useState` initializer instead — which
+ * runs once per mounted component and is never recomputed — so when
+ * `frame/ui-state-lifecycle.ts` replaced this window's store after a bridge or
+ * scenario change, the pins stayed attached to the closed one: the previous
+ * scenario's map stayed on screen, every later write went to a database nothing
+ * reads, and the replacement was never hydrated.
+ *
+ * The hydrate rides the holder's own effect, so a render pass React discards still
+ * performs no durable read.
  */
 export function useSessionPins(store: UiStateStore): SessionPinBinding {
-  const [pinStore] = useState(() => new SessionPinStore(store));
-  useEffect(() => {
-    void pinStore.hydrate();
-  }, [pinStore]);
+  const { binding, acquire } = useDurableViewBinding(store, mintSessionPinStore);
   const subscribe = useCallback(
-    (onStoreChange: () => void) => pinStore.subscribe(onStoreChange),
-    [pinStore],
+    (onStoreChange: () => void) => binding?.subscribe(onStoreChange) ?? noDurableViewSubscription,
+    [binding],
   );
-  const readTiers = useCallback(() => pinStore.tiers, [pinStore]);
+  const readTiers = useCallback(() => binding?.tiers ?? NO_PINS, [binding]);
   const tiers = useSyncExternalStore(subscribe, readTiers, readTiers);
   // Read AFTER the subscription, deliberately. A refused write emits a change of
   // its own, so the component re-renders and this getter is re-read; folding the
@@ -148,9 +166,9 @@ export function useSessionPins(store: UiStateStore): SessionPinBinding {
       // Not awaited, and the rejection cannot escape: `setTier` declares its
       // failure as a recorded refusal rather than as a rejection, so there is
       // nothing here for a caller to catch.
-      void pinStore.setTier(sessionId, tier);
+      void acquire().setTier(sessionId, tier);
     },
-    [pinStore],
+    [acquire],
   );
-  return { tiers, lastRefusal: pinStore.lastRefusal, setTier };
+  return { tiers, lastRefusal: binding?.lastRefusal, setTier };
 }

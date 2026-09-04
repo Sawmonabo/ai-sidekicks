@@ -121,3 +121,36 @@ describe("hydrating a durable view state", () => {
     expect(state.value).toStrictEqual(COMMITTED_IDS);
   });
 });
+
+describe("a durable view state whose store was replaced", () => {
+  it("drops its subscribers, so a late write notifies nobody", async () => {
+    const state = stateOver(openStore());
+    let notifications = 0;
+    state.subscribe(() => {
+      notifications += 1;
+    });
+    state.dispose();
+    await state.commit([...COMMITTED_IDS]);
+    expect(state.isDisposed).toBe(true);
+    expect(notifications).toBe(0);
+  });
+
+  it("discards a hydration that was already in flight", async () => {
+    // The record comes back from a store the window has closed, and installing it
+    // would put the previous scenario's value on screen under the new one.
+    const state = stateOver(await storeHoldingRecord());
+    const hydration = state.hydrate();
+    state.dispose();
+    await hydration;
+    expect(state.value).toStrictEqual([]);
+  });
+
+  it("negative control: the same hydration installs when nothing disposed it", async () => {
+    // Without this, the case above would pass over a state that discarded every
+    // record, which would make the stored value unreachable rather than superseded.
+    const state = stateOver(await storeHoldingRecord());
+    await state.hydrate();
+    expect(state.value).toStrictEqual(STORED_IDS);
+    expect(state.isDisposed).toBe(false);
+  });
+});
