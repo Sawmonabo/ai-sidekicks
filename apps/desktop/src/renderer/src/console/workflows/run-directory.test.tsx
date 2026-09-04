@@ -15,6 +15,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { type GrowthPort, type WorkflowRunListEntry } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { WORKFLOWS_SCENARIO_RUNS } from "../bridge/scenarios/workflow-fixture-runs.js";
+import {
+  latestCommitted,
+  observeStampedRead,
+} from "../store/subject-stamped-state.test-support.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
 
 const FIRST_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
@@ -150,5 +154,72 @@ describe("useWorkflowRunDirectory — one read, always about one session", () =>
 
     await settle();
     expect(servedSessionIds(lastState(probe.observed))).toEqual([SECOND_SESSION_ID]);
+  });
+});
+
+/**
+ * The real port answering with runs a case can trace back to the bridge that served
+ * them, so a swap is observable in the rows and not only in the status.
+ */
+function labelledGrowthPort(scenarioLabel: string): GrowthPort {
+  return {
+    ...createRefusingGrowthPort(),
+    workflowRunList: async ({ sessionId }) => ({
+      status: "served",
+      value: {
+        runs: entriesFor(sessionId).map((run) => ({ ...run, definitionName: scenarioLabel })),
+      },
+    }),
+  };
+}
+
+function servedDefinitionNames(state: WorkflowRunDirectoryState): readonly string[] {
+  return state.status === "served" ? state.runs.map((run) => run.definitionName) : [];
+}
+
+describe("useWorkflowRunDirectory — the port is half of what the read is about", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("commits no run from the previous bridge once the port is replaced", async () => {
+    // The fixture's scenario switch mints a new bridge and hands back the same session
+    // id. With the stamp keyed on the session alone the state agreed with itself, so
+    // this render committed the previous scenario's runs under the new one and only the
+    // passive effect afterwards took them down. The cases here read what each COMMIT
+    // carried, which is the only vantage that can tell the two hooks apart.
+    const probe = observeStampedRead(useWorkflowRunDirectory, {
+      source: labelledGrowthPort("first scenario"),
+      subject: FIRST_SESSION_ID,
+    });
+    await settle();
+    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["first scenario"]);
+    const commitsBeforeSwap = probe.committed.length;
+
+    probe.readdress({ source: labelledGrowthPort("second scenario"), subject: FIRST_SESSION_ID });
+
+    expect(probe.committed.slice(commitsBeforeSwap).flatMap(servedDefinitionNames)).toStrictEqual(
+      [],
+    );
+
+    await settle();
+    // The reset is only half the claim: a hook that reset and never re-read would leave
+    // the surface reading forever under a bridge that can answer.
+    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["second scenario"]);
+  });
+
+  it("negative control: a re-render at the SAME port keeps the runs it settled on", async () => {
+    // Without this, the case above passes for a hook that reset on every render, which
+    // would re-read the enumeration forever and never show an answer at all.
+    const growth = labelledGrowthPort("first scenario");
+    const probe = observeStampedRead(useWorkflowRunDirectory, {
+      source: growth,
+      subject: FIRST_SESSION_ID,
+    });
+    await settle();
+
+    probe.readdress({ source: growth, subject: FIRST_SESSION_ID });
+
+    expect(servedDefinitionNames(latestCommitted(probe.committed))).toEqual(["first scenario"]);
   });
 });

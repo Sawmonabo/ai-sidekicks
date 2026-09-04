@@ -53,11 +53,7 @@
 import { useCallback, useEffect, useRef } from "react";
 
 import type { GrowthPort } from "../bridge/index.js";
-import {
-  subjectReadStart,
-  useSubjectStampedRead,
-  type SubjectStampedRead,
-} from "../store/index.js";
+import { useSubjectStampedRead, type SubjectStampedRead } from "../store/index.js";
 import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
 import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
@@ -100,7 +96,8 @@ type SettledDefinitionDirectory =
  * Four states and no others, and the two unsettled ones come from the shared shape in
  * `store/subject-stamped-state.ts` — the rule this hook established and the runs
  * directory and the run snapshot now hold to as well, written once so the three
- * cannot drift about which frame is allowed to claim nobody asked.
+ * cannot drift about which frame is allowed to claim nobody asked, or about which
+ * frame is allowed to hold the previous bridge's answer.
  */
 export type WorkflowDefinitionDirectoryState = SubjectStampedRead<SettledDefinitionDirectory>;
 
@@ -129,14 +126,17 @@ export function useWorkflowDefinitionDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory {
-  // The state is stamped with the session it is about, and the disagreement is
-  // settled DURING the render that brings a new one rather than in the effect below —
-  // which runs after the commit, so a hook that only reset there had one committed
-  // render per subject in which `unasked` was true of a session the caller had already
-  // asked about. The browser paints `unasked` as three served-looking empty groups, so
-  // every scoped load flashed "No session definitions" and exposed that claim to
-  // assistive technology before the request had answered.
-  const [state, setState] = useSubjectStampedRead<SettledDefinitionDirectory>(sessionId);
+  // The state is stamped with the PORT AND THE SESSION it is about, and the
+  // disagreement is settled DURING the render that brings a new pair rather than in the
+  // effect below — which runs after the commit, so a hook that only reset there had one
+  // committed render per subject in which `unasked` was true of a session the caller had
+  // already asked about. The browser paints `unasked` as three served-looking empty
+  // groups, so every scoped load flashed "No session definitions" and exposed that claim
+  // to assistive technology before the request had answered. The port is half of the
+  // stamp for the mirror-image reason: the fixture's scenario switch replaces the bridge
+  // and keeps the session id, so a subject-only stamp committed the previous scenario's
+  // definitions under the new one before the effect could reset them.
+  const [state, setState] = useSubjectStampedRead<SettledDefinitionDirectory>(growth, sessionId);
   // Which read the state on screen belongs to. A page that comes back after the
   // subject changed — or after the surface went away — belongs to a list nobody is
   // looking at, and splicing it into the current one would show a session's
@@ -153,10 +153,10 @@ export function useWorkflowDefinitionDirectory(
       // over an address that names no session promises an answer never coming.
       return;
     }
-    // The PORT can change under an unchanged session — the fixture's scenario switch
-    // swaps the bridge — and the subject stamp does not see that, so the reset is
-    // stated here for exactly that case, through the same rule rather than beside it.
-    setState(subjectReadStart(sessionId));
+    // No reset here. The stamp above covers a port swapped under an unchanged session
+    // as well as a session change, and it covers it during the render rather than one
+    // commit later — a reset stated again in this effect would be the same rule in two
+    // places, agreeing until one of them moved.
     void settleGrowthRead(growth.workflowDefinitionList({ sessionId })).then((outcome) => {
       if (readGeneration.current !== generation) {
         // The unmount or the subject change already happened. Dropping the answer is
