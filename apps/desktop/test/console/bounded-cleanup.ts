@@ -26,9 +26,7 @@
 // get here — so it returns a verdict the caller attaches to the error it was
 // already carrying, in the shape `FrameWitness` uses for the same reason.
 
-import { spawnSync } from "node:child_process";
-import process from "node:process";
-
+import { processExists, terminateProcessTree } from "../helpers/process-tree.js";
 import { CLEANUP_BUDGET_MS, type LaunchDeadline } from "./launch-deadline.js";
 
 /**
@@ -117,98 +115,18 @@ export interface CleanupOutcome {
 }
 
 /**
- * SIGKILL an Electron process tree, on the shape both neighbours already use.
+ * The terminator every real launch uses, over the one shared implementation.
  *
- * The negative-pid form is only safe under one condition and is catastrophic
- * without it; the arm below states the measurement that establishes it.
- *
- * The Windows arm is `taskkill /pid N /T /F`, which is what playwright-core
- * itself runs for this process and what `test/helpers/electron-probe.ts` runs for
- * the smoke test's tree. Windows has no process group to signal and its
- * "signals" are `TerminateProcess` calls that are never forwarded, so killing the
- * leader alone would orphan the browser.
- *
- * Both arms decide success through `terminationSucceeded`, so neither reports a
- * kill it did not perform.
+ * A thin binding rather than a body: the platform facts live in
+ * `test/helpers/process-tree.ts`, shared with the Tier-1 smoke probe, because
+ * two copies of them had already disagreed about whether `taskkill`'s exit
+ * status counts. `BoundedCleanup` still takes the seam as a constructor
+ * argument — a terminator that really killed something would take this test
+ * runner's own process tree with it on the negative-pid arm.
  */
-/**
- * Whether a termination attempt left the process actually gone.
- *
- * Two ways to succeed, and the second is why this is a function rather than a
- * boolean at each call site. A signal that was delivered is a success. A signal
- * that was NOT is still a success if there is nothing left to kill — which is
- * the ordinary outcome when a process exited between the close timing out and
- * the kill being issued.
- *
- * Splitting the probe out as an argument is what makes both arms testable at
- * all: the real one signals a real process, so a test exercising it would kill
- * something, and on the POSIX arm that something is this test runner's own
- * process group.
- */
-export function terminationSucceeded(
-  signalDelivered: boolean,
-  processStillExists: () => boolean,
-): boolean {
-  return signalDelivered || !processStillExists();
-}
-
-/**
- * Whether a pid names a live process, without signalling it.
- *
- * Signal 0 performs the permission and existence checks and delivers nothing —
- * on Windows too, where Node maps it onto a handle open. `EPERM` means the
- * process is there and out of reach, which for this question is "still running":
- * reporting it gone would be the same false success this probe exists to catch.
- */
-function processExists(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error: unknown) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
 export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
-  isRunning: (pid: number): boolean => processExists(pid),
-  terminate: (pid: number): boolean => {
-    const stillExists = (): boolean => processExists(pid);
-    if (process.platform === "win32") {
-      const result = spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      // `error` alone is not enough, and treating it as enough was a false
-      // success: a taskkill that SPAWNS and then exits non-zero — termination
-      // denied, most of all — leaves `error` undefined while Electron keeps
-      // running, and the launch would report a tree it had killed. The exit code
-      // is a separate field of the `spawnSync` result precisely because it is a
-      // separate question.
-      const delivered = result.error === undefined && result.status === 0;
-      // A non-zero exit is not automatically a failure either: a tree already
-      // gone is one of the things taskkill refuses. Which one it was is asked of
-      // the OS rather than read out of taskkill's message, because that message
-      // is localised and this must not depend on the runner's display language.
-      return terminationSucceeded(delivered, stillExists);
-    }
-    // MEASURED, NOT ASSUMED: `playwright-core` spawns with
-    // `detached: process.platform !== "win32"` (`lib/coreBundle.js`), so on POSIX
-    // the launched Electron LEADS its own process group and `-pid` reaches the
-    // browser, its zygote, and every renderer at once. An attached child would
-    // instead share this runner's group, and the same call would SIGKILL vitest
-    // itself — so the fallback below is to the group leader alone, never a
-    // widening.
-    for (const target of [-pid, pid]) {
-      try {
-        process.kill(target, "SIGKILL");
-        return true;
-      } catch {
-        // Group already reaped, or this pid does not lead one after all.
-      }
-    }
-    // Both throws land here, and ESRCH is the commonest reason: the process was
-    // already gone. Reporting that as a failed termination would tell a reader an
-    // Electron may still be holding a profile when nothing is — the same
-    // misdescription as the Windows arm, in the opposite direction.
-    return terminationSucceeded(false, stillExists);
-  },
+  isRunning: (processId: number): boolean => processExists(processId),
+  terminate: (processId: number): boolean => terminateProcessTree(processId),
 };
 
 /**

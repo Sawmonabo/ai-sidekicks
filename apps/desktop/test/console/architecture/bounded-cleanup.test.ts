@@ -32,7 +32,6 @@ import {
   type ClosableApplication,
   type ProcessTerminator,
   cleanupFailure,
-  terminationSucceeded,
   withCleanupOutcome,
 } from "../bounded-cleanup.js";
 import { CLEANUP_BUDGET_MS, LaunchDeadline } from "../launch-deadline.js";
@@ -263,45 +262,6 @@ describe("bounded cleanup — a close that never settles", () => {
     await new Promise((resolveTick) => {
       setTimeout(resolveTick, 10);
     });
-  });
-});
-
-describe("process termination — a kill that was refused is not a kill", () => {
-  /** A probe that records whether it was consulted, so "not consulted" is checkable. */
-  function existenceProbe(stillRunning: boolean): (() => boolean) & { readonly asked: boolean[] } {
-    const asked: boolean[] = [];
-    const probe = (): boolean => {
-      asked.push(stillRunning);
-      return stillRunning;
-    };
-    return Object.assign(probe, { asked });
-  }
-
-  it("counts a delivered signal as success without asking anything further", () => {
-    const probe = existenceProbe(true);
-    expect(terminationSucceeded(true, probe)).toBe(true);
-    // The probe costs a syscall and, more importantly, a delivered signal is
-    // already the answer. Asking anyway would make a live process — which a
-    // SIGKILL has not been reaped from yet — look like a failure.
-    expect(probe.asked).toStrictEqual([]);
-  });
-
-  it("counts an undelivered signal as success when nothing is left to kill", () => {
-    // The ordinary case on both arms: the process exited between the close
-    // timing out and the kill being issued. POSIX reports ESRCH, Windows reports
-    // a non-zero taskkill, and neither is a failure — there is nothing running.
-    expect(terminationSucceeded(false, existenceProbe(false))).toBe(true);
-  });
-
-  it("counts an undelivered signal as failure while the process is still there", () => {
-    // THE FINDING. On Windows a taskkill that spawns and exits non-zero —
-    // termination denied — leaves `error` undefined, and reporting that as a kill
-    // told a reader later launches were unaffected while Electron kept its
-    // profile lock. Delivery and survival are two questions.
-    const probe = existenceProbe(true);
-    expect(terminationSucceeded(false, probe)).toBe(false);
-    // Non-vacuous: the verdict came from consulting the OS, not from the flag.
-    expect(probe.asked).toStrictEqual([true]);
   });
 });
 
