@@ -156,6 +156,25 @@ export function composeCatalog(input: {
 }
 
 /**
+ * Whether the provider declared this entry unavailable.
+ *
+ * `enabled` is THREE-VALUED on the wire and each value means a different thing:
+ * `false` is the provider declaring the entry disabled, `true` is it declaring the
+ * entry available, and ABSENT is the provider drawing no such distinction at all.
+ * So the test is against `false` and never against falsiness — an absent flag read
+ * as disabled would report a state the provider never published, which is the same
+ * fabrication as the synthesized `enabled: true` the contract forbids at the other
+ * end.
+ *
+ * Here rather than at either reader: the row renders the state and the popover's key
+ * handler answers a press on one, and two spellings of one three-valued test is the
+ * pair that drifts.
+ */
+export function isDeclaredUnavailable(entry: CommandCatalogEntry): boolean {
+  return entry.source === "provider" && entry.enabled === false;
+}
+
+/**
  * The entries whose name begins with what has been typed.
  *
  * Case-insensitive and a PREFIX rather than the palette's subsequence matcher, and

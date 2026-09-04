@@ -24,15 +24,22 @@
 //      projection yet, so the comparand is routinely absent — and the answer to an
 //      absent stale-replay guard is to refuse, never to send a zero, which would be
 //      a guard the caller invented rather than one the daemon verified.
-//   4. **A fulfilled intervention is not a successful send.** `run.intervene`
-//      answers with a lifecycle STATE, and two of the six mean the run did not take
-//      the message: this module used to treat any reply that did not throw as
-//      "sent", so a normally rejected steer cleared the participant's draft as if it
-//      had landed. The response is parsed against its registered shape and the state
-//      decides, and the answer's `runVersion` is kept — an applied native steer
-//      advances the run version with no state event to broadcast it, so the response
-//      is the only place the fresh comparand exists and a second steer was
-//      guaranteed to be refused as stale without it.
+//   4. **A fulfilled call is not a successful send.** Both send paths answer with a
+//      registered response, and this module used to treat any reply that did not
+//      throw as "sent". `run.intervene` answers with a lifecycle STATE, and two of
+//      the six mean the run did not take the message, so a normally rejected steer
+//      cleared the participant's draft as if it had landed; the response is parsed
+//      against its registered shape and the state decides, and the answer's
+//      `runVersion` is kept — an applied native steer advances the run version with
+//      no state event to broadcast it, so the response is the only place the fresh
+//      comparand exists and a second steer was guaranteed to be refused as stale
+//      without it. `run.queueCreate` answers with the queued item, and a reply that
+//      is not the registered shape confirms no queued message at all — a
+//      protocol-version mismatch used to clear the draft on one. Only the stop is
+//      settled by fulfilment alone, and that is a property of its contract rather
+//      than a shortcut: `driver.interruptRun` answers with `DriverAckResult`, which
+//      is the empty object, so there is no member a reply could carry for a parse
+//      to read.
 //
 // TRIMMING IS A TEST AND NEVER A TRANSFORM. This module used to resolve against
 // `text.trim()` and hand that trimmed value to both request builders, so the daemon
@@ -54,6 +61,7 @@ import {
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,
   QueueItemCreateRequestSchema,
+  QueueItemCreateResponseSchema,
   RunIdSchema,
   SessionIdSchema,
   WorkspaceIdSchema,
@@ -64,7 +72,7 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import type { ComposerSendPath, ComposerTarget } from "../chips/chip-models.js";
+import type { ComposerTarget } from "../chips/chip-models.js";
 import {
   LITERAL_SLASH_ESCAPE,
   opensDirectiveLine,
@@ -84,6 +92,7 @@ import {
   interventionNotApplied,
   unparseableIdentifier,
   unreadableInterventionReply,
+  unreadableQueueReply,
   type ComposerRefusalCode,
 } from "./send-refusals.js";
 import { RunVersionLedger } from "./run-version-ledger.js";
@@ -181,7 +190,7 @@ export class ComposerSendRouter {
       case "client-command":
         return { status: "intercepted", commandName: resolution.commandName };
       case "new-turn":
-        return await this.#dispatch(QUEUE_CREATE_METHOD, resolution.request, "channel-message");
+        return await this.#dispatchQueuedTurn(resolution.request);
       case "steer":
         return await this.#dispatchIntervention(resolution.request);
     }
@@ -218,7 +227,7 @@ export class ComposerSendRouter {
     if (!params.success) {
       return { status: "refused", refusal: unparseableIdentifier("the run") };
     }
-    return await this.#dispatch(INTERRUPT_RUN_METHOD, params.data, "provider-bound");
+    return await this.#dispatchInterrupt(params.data);
   }
 
   /**
@@ -359,18 +368,49 @@ export class ComposerSendRouter {
     return { outcome: "steer", request: request.data };
   }
 
-  /** Dispatch one call whose fulfilment IS the settlement, and say what it sent. */
-  async #dispatch(
-    method: string,
-    params: QueueItemCreateRequest | InterventionRequestPayload | InterruptRunParams,
-    path: ComposerSendPath,
-  ): Promise<ComposerSendOutcome> {
+  /**
+   * Dispatch the stop, whose fulfilment IS the settlement.
+   *
+   * The one send path with nothing to read back, and that is its CONTRACT rather
+   * than a shortcut: `driver.interruptRun` answers with `DriverAckResult`, which the
+   * registered schema declares as the empty object. A parse here would assert that
+   * `{}` is `{}` and would tell a person nothing a rejection has not already told
+   * them.
+   */
+  async #dispatchInterrupt(params: InterruptRunParams): Promise<ComposerSendOutcome> {
     try {
-      await this.#call(method, params);
-      return { status: "sent", path };
+      await this.#call(INTERRUPT_RUN_METHOD, params);
+      return { status: "sent", path: "provider-bound" };
     } catch (cause) {
       return { status: "refused", refusal: carriedDaemonRefusal(cause) };
     }
+  }
+
+  /**
+   * Dispatch one new turn, and READ what came back.
+   *
+   * The steer path's rule on the other send. `run.queueCreate` answers with the
+   * registered `QueueItemCreateResponse` — the item's id, its state, and when it was
+   * created — so a reply that is not that shape is a reply this console can read no
+   * queued message out of, which is what a protocol-version mismatch produces.
+   * Returning it as sent cleared the participant's draft on the strength of a
+   * payload nothing had understood.
+   *
+   * The parsed value is deliberately not KEPT. Nothing in the composer addresses a
+   * queue item — the shelf reads the queue from its own subscription — so what the
+   * parse buys is the confirmation itself and not a member to carry forward.
+   */
+  async #dispatchQueuedTurn(request: QueueItemCreateRequest): Promise<ComposerSendOutcome> {
+    let reply: unknown;
+    try {
+      reply = await this.#call(QUEUE_CREATE_METHOD, request);
+    } catch (cause) {
+      return { status: "refused", refusal: carriedDaemonRefusal(cause) };
+    }
+    if (!QueueItemCreateResponseSchema.safeParse(reply).success) {
+      return { status: "refused", refusal: unreadableQueueReply() };
+    }
+    return { status: "sent", path: "channel-message" };
   }
 
   /**

@@ -30,6 +30,19 @@ const AGENT_B = "agent-beta";
 const QUEUE_FULL_CODE = "queue.full";
 const QUEUE_FULL_MESSAGE = "That channel's queue is full.";
 
+/**
+ * The registered `run.queueCreate` reply, so the send below actually succeeds.
+ *
+ * The router parses the response before reporting a send, so an empty object is the
+ * unreadable-reply refusal rather than the success this case sets beside the Stop's
+ * own refusal.
+ */
+const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
+  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
+  state: "queued",
+  createdAt: "2026-09-02T09:00:00.000Z",
+};
+
 function channelTarget(channelId: string): ComposerChannelTarget {
   return {
     path: "channel-message",
@@ -221,7 +234,7 @@ describe("useSendController — one operation's settlement never erases another'
 
     const pending = driven.beginResend("ship it");
     await act(async () => {
-      driven.calls.resolveOldest({});
+      driven.calls.resolveOldest(QUEUE_CREATED);
       await pending;
     });
 

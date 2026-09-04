@@ -25,6 +25,15 @@
 // answered. A list that DOES have entries keeps that statement beside it, unchanged:
 // a partial list whose provider half is missing must still say the half is missing.
 //
+// AND A SEARCH THAT FINISHED OVER A TRUNCATED LIST IS NOT A SEARCH OVER THE PROVIDER.
+// The reply's group carries `complete`, which is `false` when the provider published
+// more entries than the registered per-group cap admits and the group's tail was
+// dropped. Those entries are not here to match against, so the definitive empty claim
+// is exactly as wrong as it is while the read is in flight — a person who typed the
+// first letters of a dropped command would have been told no such command exists. The
+// flag is carried into the rendered state, the empty claim is withheld under it, and
+// the truncation is said whether the filter matched anything or not.
+//
 // ONE BINDING'S ENTRIES, AND NEVER A MERGE. The enumeration is agent-scoped and an
 // agent can hold several live bindings at once, so the reply carries one group per
 // binding. The popover renders the group the ADDRESSED RUN is on and no other:
@@ -49,11 +58,19 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { InlineRefusal, Nothing, WireFigure } from "../../../console/primitives/index.js";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
+
+import {
+  DerivedFigure,
+  InlineRefusal,
+  Nothing,
+  formatCount,
+} from "../../../console/primitives/index.js";
 import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { useComposerAddress } from "../composer-address.js";
 import type { CommandOutcome } from "../router/command-executor.js";
 import { composerDraftKey } from "../router/draft-key.js";
+import { CatalogRow } from "./CatalogRow.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
 import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
 import { useDirectiveLineDiscovery } from "./directive-line-observer.js";
@@ -61,9 +78,9 @@ import {
   addressedProviderBinding,
   composeCatalog,
   filterCatalog,
+  isDeclaredUnavailable,
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
-  type CommandCatalogEntry,
 } from "./provider-command-catalog.js";
 import {
   useProviderCommandEnumeration,
@@ -135,6 +152,16 @@ export function ProviderCommandAutocomplete(
 const PROVIDER_ENTRY_NOT_RUNNABLE =
   "Provider commands and skills are listed for reference. This console starts no turn from one, so there is nothing here to run.";
 
+/**
+ * The same press, on a row the provider declared unavailable.
+ *
+ * Its own sentence rather than the one above, because a person who pressed this row
+ * is owed the reading the reply actually carried: the entry is disabled where it
+ * lives, which stays true wherever they try it next.
+ */
+const PROVIDER_ENTRY_DISABLED =
+  "The provider published this entry as disabled, so it is unavailable there as well as here. Nothing was run.";
+
 interface CommandDiscoveryPopoverProps {
   readonly prefix: string;
   readonly readSurface: () => ComposerCommandSurface;
@@ -178,7 +205,11 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
   const entries = filterCatalog(catalog, prefix);
-  const isServedEmpty = entries.length === 0 && haveAllSourcesAnswered(enumeration);
+  // A group whose tail the cap dropped answers no question about what is missing, so
+  // the search over it never finished and the empty claim is withheld under it.
+  const isEnumerationTruncated = addressedGroup !== undefined && !addressedGroup.complete;
+  const isServedEmpty =
+    entries.length === 0 && haveAllSourcesAnswered(enumeration) && !isEnumerationTruncated;
 
   const executor = useMemo(() => createClientCommandExecutor({ readSurface }), [readSurface]);
 
@@ -233,7 +264,11 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
           runConsoleCommand(activeEntry.commandId);
           return;
         }
-        setActivationNotice(PROVIDER_ENTRY_NOT_RUNNABLE);
+        setActivationNotice(
+          isDeclaredUnavailable(activeEntry)
+            ? PROVIDER_ENTRY_DISABLED
+            : PROVIDER_ENTRY_NOT_RUNNABLE,
+        );
         return;
       }
       if (event.key === "Escape") {
@@ -289,10 +324,7 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
           {activationNotice}
         </p>
       )}
-      <EnumerationState
-        enumeration={enumeration}
-        hasAddressedGroup={addressedGroup !== undefined}
-      />
+      <EnumerationState enumeration={enumeration} addressedGroup={addressedGroup} />
       {actionOutcome?.status === "refused" ? (
         <InlineRefusal code={actionOutcome.refusal.code} detail={actionOutcome.refusal.detail} />
       ) : null}
@@ -311,73 +343,6 @@ function rowId(listId: string, index: number): string {
   return `${listId}-row-${String(index)}`;
 }
 
-interface CatalogRowProps {
-  readonly entry: CommandCatalogEntry;
-  readonly rowElementId: string;
-  readonly isActive: boolean;
-  readonly onSelect: () => void;
-  readonly onRun: (commandId: string) => void;
-}
-
-/**
- * One row: the name, what it does, and — for a console act only — the button.
- *
- * The provider row's absence of a button is the rule made visible. It is not a
- * disabled control: a disabled button asserts the act exists here and is momentarily
- * unavailable, and this console will not send a provider command from the line at
- * all.
- */
-function CatalogRow(props: CatalogRowProps): React.JSX.Element {
-  const { entry, rowElementId, isActive, onSelect, onRun } = props;
-  return (
-    <li
-      className={
-        isActive
-          ? "meridian-command-discovery__row meridian-command-discovery__row--active"
-          : "meridian-command-discovery__row"
-      }
-      id={rowElementId}
-      role="option"
-      aria-selected={isActive}
-      onMouseDown={onSelect}
-    >
-      <span className="meridian-command-discovery__name">
-        <WireFigure value={entry.name} />
-      </span>
-      {entry.source === "provider" ? (
-        <span className="meridian-command-discovery__binding">
-          {entry.kind} · <WireFigure value={entry.driverName} />
-        </span>
-      ) : null}
-      {entry.description === undefined ? (
-        // `empty` and not `not-checked`: the enumeration WAS read, and it came back
-        // carrying this entry without a description. Saying nobody asked would be
-        // false about a read that happened, and the entry is offered exactly as it
-        // was enumerated — nothing here supplies copy the provider did not.
-        <Nothing
-          kind="empty"
-          placement="inline"
-          title="The provider published no description"
-          detail="This entry was enumerated without one."
-        />
-      ) : (
-        <span className="meridian-command-discovery__description">{entry.description}</span>
-      )}
-      {entry.source === "console" ? (
-        <button
-          type="button"
-          className="meridian-command-discovery__run"
-          onClick={() => {
-            onRun(entry.commandId);
-          }}
-        >
-          Run this
-        </button>
-      ) : null}
-    </li>
-  );
-}
-
 /**
  * Whether every source that could hold a match has answered.
  *
@@ -394,20 +359,26 @@ function haveAllSourcesAnswered(enumeration: ProviderCommandReadState): boolean 
 }
 
 /**
- * What the provider half of the list is, when it is not a list.
+ * What the provider half of the list is, when it is not the whole list.
  *
- * Five outcomes and five different next moves, which is why none of them is an empty
+ * Six outcomes and six different next moves, which is why none of them is an empty
  * list: nobody was asked (this composer addresses a channel, not an agent), the read
- * is in flight, the daemon refused, the provider answered for this run's binding, or
- * it answered for bindings none of which is this run's — the last being an absence
- * about ROUTING rather than about the provider's catalogue, and stated as one.
+ * is in flight, the daemon refused, the provider answered in full for this run's
+ * binding, it answered for bindings none of which is this run's — an absence about
+ * ROUTING rather than about the provider's catalogue, and stated as one — or it
+ * answered for this run's binding and the reply says the answer was CUT.
+ *
+ * The group itself is the input rather than a boolean beside it: the two questions
+ * this arm asks — is there a group for this run, and did it carry everything — are
+ * both answered by the group, and two derived flags would be two chances to hand
+ * this component one that disagreed with the list the popover rendered.
  */
 function EnumerationState(props: {
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
-  /** Whether the served reading carried a group this composer's run is bound to. */
-  readonly hasAddressedGroup: boolean;
+  /** The served reading's group for this composer's run, where one was attributed. */
+  readonly addressedGroup: ProviderCommandBindingGroup | undefined;
 }): React.JSX.Element | null {
-  const { enumeration } = props;
+  const { enumeration, addressedGroup } = props;
   switch (enumeration.phase) {
     case "not-checked":
       return (
@@ -432,14 +403,27 @@ function EnumerationState(props: {
         </div>
       );
     case "served":
-      return props.hasAddressedGroup ? null : (
-        <div className="meridian-command-discovery__state" role="status">
-          <Nothing
-            kind="empty"
-            title="This run's binding published nothing here"
-            detail="The agent answered for the bindings it holds and none of them could be attributed to the run this composer is addressed to, so no provider entry is offered — another binding's commands are never shown under this one."
-          />
-        </div>
+      if (addressedGroup === undefined) {
+        return (
+          <div className="meridian-command-discovery__state" role="status">
+            <Nothing
+              kind="empty"
+              title="This run's binding published nothing here"
+              detail="The agent answered for the bindings it holds and none of them could be attributed to the run this composer is addressed to, so no provider entry is offered — another binding's commands are never shown under this one."
+            />
+          </div>
+        );
+      }
+      // Said whether the filter matched anything or not: a nonempty list off a cut
+      // enumeration looks exhaustive, and an empty one reads as a finished search.
+      // The figure is what the group DID carry, which is the only count the reply
+      // supplies — how many were dropped is not on the wire and is not invented here.
+      return addressedGroup.complete ? null : (
+        <p className="meridian-command-discovery__truncated" role="status">
+          <DerivedFigure text={formatCount(addressedGroup.entries.length)} /> commands and skills
+          were read before the provider&rsquo;s list was cut, so a name that is not shown here may
+          still exist.
+        </p>
       );
   }
 }

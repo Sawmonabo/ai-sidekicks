@@ -272,8 +272,62 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
     );
   });
 
-  it("hides the queue shelf while nothing is queued", () => {
-    expect(mountRail([]).querySelector(".meridian-queue-shelf")).toBeNull();
+  /**
+   * A bridge answering both node reads the rail issues on mount.
+   *
+   * The account registry and the queue snapshot are two separate reads, and a case
+   * about one of them over a bridge that answered neither would be reading the
+   * other's refusal: an unanswered call refuses, and the rail renders both.
+   */
+  function bridgeAnsweringQueueWith(queueListReply: unknown): ConsoleBridge {
+    return {
+      sidekicks: {
+        daemon: {
+          call: async (method: string): Promise<unknown> =>
+            method === PROVIDER_ACCOUNT_LIST_METHOD ? EMPTY_REGISTRY : queueListReply,
+          subscribe: () => () => undefined,
+        },
+      },
+      growth: {},
+      growthServedOperations: new Set(),
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+  }
+
+  it("hides the queue shelf once the read says nothing is queued", async () => {
+    // The hidden arm is about a queue that WAS read: an empty list nobody could
+    // read is the case below, and the two must not render alike.
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], {
+        bridge: bridgeAnsweringQueueWith({ items: [] }),
+        sessionId: QUEUE_SESSION_ID,
+      });
+    });
+
+    expect(container.querySelector(".meridian-queue-shelf")).toBeNull();
+  });
+
+  it("shows the shelf's refusal when the queue snapshot could not be read", async () => {
+    // The finding: the rail handed the shelf rows and neither the phase nor the
+    // read's refusal, so a refused snapshot over an empty tail hid the shelf — the
+    // composer saying nothing is queued about a queue nobody managed to read.
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], {
+        bridge: bridgeAnsweringQueueWith({ queue: [] }),
+        sessionId: QUEUE_SESSION_ID,
+      });
+    });
+
+    const shelf = container.querySelector(".meridian-queue-shelf");
+    expect(shelf).not.toBeNull();
+    expect(shelf?.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
+      "The queue could not be read",
+    );
+    // The read's own refusal, carried rather than paraphrased.
+    expect(shelf?.querySelector(".meridian-refusal")?.textContent).toContain("reply-unreadable");
   });
 
   it("shows the shelf's partial-read line once a queue delivery could not be read", async () => {
@@ -827,7 +881,9 @@ describe("ComposerAccessoryRail — the quota chips come off the account plane",
     });
 
     expect(container.querySelector(".meridian-rate-chip")).toBeNull();
-    expect(container.querySelector(".meridian-refusal")).toBeNull();
+    // Scoped to the meters: the rail renders the queue read's own refusal too, and
+    // a document-wide query here would be answered by whichever read failed.
+    expect(container.querySelector(".meridian-composer__meters .meridian-refusal")).toBeNull();
   });
 
   it("says the registry could not be read rather than looking like a healthy node", async () => {
@@ -838,7 +894,7 @@ describe("ComposerAccessoryRail — the quota chips come off the account plane",
       container = mountRail([], { bridge: bridgeAnswering({ accounts: "not a list" }) });
     });
 
-    const refusal = container.querySelector(".meridian-refusal");
+    const refusal = container.querySelector(".meridian-composer__meters .meridian-refusal");
     expect(refusal).not.toBeNull();
     expect(refusal?.textContent).toContain("reply-unreadable");
   });

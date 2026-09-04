@@ -37,7 +37,10 @@
 // accessories dispatch — `run.pause` from the step-in control and
 // `driver.compactContext` from the compaction control — plus
 // `driver.listProviderCommands`, which the command zone's discovery popover issues
-// for the addressed agent. The approval
+// for the addressed agent, and `run.queueList`, the queue shelf's opening read,
+// served as an empty queue: the shelf says when a snapshot could not be read, so
+// leaving the read unscripted would pin a refusal notice into every composer
+// reference for a queue the scenario never meant to refuse. The approval
 // reads are deliberately NOT scripted: this scenario is what makes the approvals
 // pane's refusal arm reachable.
 //
@@ -291,6 +294,14 @@ export const COMPOSER_SCENARIO: ConsoleScenario = {
           createdAt: agent.attachedAtIso,
         })),
       },
+    },
+    {
+      // The queue shelf's opening read. The registered `QueueItemListResponse` is
+      // `{ items }` parsed `.strict()`; an empty list is the served, complete queue
+      // — nothing waiting behind the running turn — which is the state every
+      // composer reference pins. A queue with rows is the runs scenario's subject.
+      call: "run.queueList",
+      result: { items: [] },
     },
     {
       // The step-in control's dispatch. `RunControlAck` is `.strict()` and carries
