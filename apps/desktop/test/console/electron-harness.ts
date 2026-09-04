@@ -59,7 +59,6 @@ import {
 } from "./frame-witness.js";
 import { composeLaunchArgs } from "./launch-args.js";
 import {
-  CLEANUP_BUDGET_MS,
   LAUNCH_BUDGET_MS,
   LaunchDeadline,
   POST_READINESS_RESERVE_MS,
@@ -278,7 +277,7 @@ export async function launchConsole(
     }
     if (cleanupOutcome.settlement !== "closed") {
       console.error(
-        `${LAUNCH_TRACE_TAG} close did not settle within ${String(CLEANUP_BUDGET_MS)} ms — ` +
+        `${LAUNCH_TRACE_TAG} close did not settle within the ${String(cleanupOutcome.budgetMs)} ms it was given — ` +
           `${cleanupOutcome.settlement === "terminated" ? "SIGKILLed the process tree" : "COULD NOT terminate the process, which may still hold a profile"} ` +
           `after ${String(cleanupOutcome.waitedMs)} ms`,
       );

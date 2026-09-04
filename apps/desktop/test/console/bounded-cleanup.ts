@@ -72,6 +72,18 @@ export interface CleanupOutcome {
   readonly settlement: CleanupSettlement;
   /** Wall milliseconds spent closing, measured driver-side. */
   readonly waitedMs: number;
+  /**
+   * The bound this close was actually held to, in milliseconds.
+   *
+   * Reported rather than assumed to be `CLEANUP_BUDGET_MS`, because it usually
+   * is not. The applied bound is `max(what the deadline has left, the reserve)`,
+   * and a launch that failed EARLY leaves most of the deadline unspent — so a
+   * readiness failure two seconds in gives cleanup nearly 55 000 ms. A message
+   * that named the reserve there would claim a process failed to close within
+   * ten seconds when it had been given five times that, which is a diagnostic
+   * that misdescribes the very measurement it is reporting.
+   */
+  readonly budgetMs: number;
 }
 
 /**
@@ -167,13 +179,14 @@ export class BoundedCleanup {
       clearTimeout(timeoutHandle);
     }
     if (raced === "closed") {
-      return { settlement: "closed", waitedMs: Date.now() - startedAt };
+      return { settlement: "closed", waitedMs: Date.now() - startedAt, budgetMs };
     }
     const processId = this.#application.processId();
     const terminated = processId !== undefined && this.#terminator.terminate(processId);
     return {
       settlement: terminated ? "terminated" : "unterminable",
       waitedMs: Date.now() - startedAt,
+      budgetMs,
     };
   }
 }
@@ -197,7 +210,8 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
       : "and could not be terminated either, so it may still be running and holding its profile — " +
         "a later launch in the same job losing `requestSingleInstanceLock()` starts here";
   return new Error(
-    `a launch failed, and the Electron process then did not close within ${String(CLEANUP_BUDGET_MS)} ms ` +
+    `a launch failed, and the Electron process then did not close within the ${String(outcome.budgetMs)} ms ` +
+      "it was given " +
       `(waited ${String(outcome.waitedMs)} ms) ${consequence}; the failure that started this is the cause below`,
     { cause: error },
   );

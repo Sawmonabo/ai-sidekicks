@@ -25,8 +25,9 @@ import {
   BoundedCleanup,
   type ClosableApplication,
   type ProcessTerminator,
+  withCleanupOutcome,
 } from "../bounded-cleanup.js";
-import { LaunchDeadline } from "../launch-deadline.js";
+import { CLEANUP_BUDGET_MS, LaunchDeadline } from "../launch-deadline.js";
 
 describe("bounded cleanup — a close that never settles", () => {
   /** A close bound short enough that exhausting it costs the suite nothing. */
@@ -74,6 +75,28 @@ describe("bounded cleanup — a close that never settles", () => {
     // Settled BECAUSE of the bound, not before it and not far past it.
     expect(outcome.waitedMs).toBeGreaterThanOrEqual(TEST_RESERVE_MS * 0.9);
     expect(Date.now() - startedAt).toBeLessThan(TEST_RESERVE_MS * 10);
+  });
+
+  it("reports the bound it was actually given, not the reserve", async () => {
+    // A launch that fails EARLY leaves most of the deadline unspent, and the
+    // applied bound is `max(remaining, reserve)` — so cleanup can be given far
+    // more than `CLEANUP_BUDGET_MS`. Reporting the reserve there would claim a
+    // process failed to close in ten seconds when it had been given five times
+    // that: a diagnostic misdescribing its own measurement.
+    const generous = TEST_RESERVE_MS * 4;
+    const outcome = await new BoundedCleanup(
+      applicationThatNeverCloses(4242),
+      terminatorSpy(true),
+      new LaunchDeadline(generous),
+      TEST_RESERVE_MS,
+    ).close();
+    expect(outcome.budgetMs).toBeGreaterThanOrEqual(generous * 0.9);
+    expect(outcome.budgetMs).toBeGreaterThan(TEST_RESERVE_MS);
+    // And the sentence a reader sees carries that same figure rather than the
+    // constant, so the two cannot disagree.
+    const worded = withCleanupOutcome(new Error("the launch failed"), outcome);
+    expect((worded as Error).message).toContain(String(outcome.budgetMs));
+    expect((worded as Error).message).not.toContain(`${String(CLEANUP_BUDGET_MS)} ms it was given`);
   });
 
   it("negative control: a close that settles is neither bounded out nor killed", async () => {
