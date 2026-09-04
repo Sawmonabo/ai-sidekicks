@@ -8,10 +8,11 @@
 // id, and a family that owned bodies in both key spaces would otherwise need two
 // doors. This is the one door: everything the family registers is registered here.
 //
-// THE FAMILY'S SHEET IS IMPORTED HERE AND NOWHERE ELSE. One family, one stylesheet,
-// imported from that family's barrel — the rule every console family obeys. This
-// module is what both pane barrels are reached through, so the sheet is present
-// whenever any of the three directories renders, and it lands in the graph once.
+// THE FAMILY'S SHEETS ARE IMPORTED HERE AND NOWHERE ELSE. One family, one door for
+// its stylesheets — the rule every console family obeys, and the family occupies
+// three directories, so all three of its sheets are imported here. This module is
+// what both pane barrels are reached through, so every sheet is present whenever any
+// of the three directories renders, and each lands in the graph once.
 //
 // WHY `registerRepos` TAKES NO REGISTRY WHERE THE OTHER SEATS DO. The seat board in
 // `console/families.ts` describes a family as `register<Family>(registry:
@@ -23,13 +24,14 @@
 // suppression that parameter needs would outlive the reason for it.
 
 import "./repos.css";
-// The diff surfaces' own sheet, imported HERE and not from `panes/diff/index.ts`,
-// so this barrel stays the family's only stylesheet importer. A CSS `@import` from
+// The two pane sub-modules' own sheets, imported HERE and not from their barrels, so
+// this door stays the family's only stylesheet importer. A CSS `@import` from
 // `repos.css` would have kept the file count the same and lost the rules: the
 // browser tiers inject a sheet as a `<style>` element, and a relative `@import`
 // inside one resolves against the document rather than against the sheet, so the
 // rules silently do not arrive and the pane is screenshotted unstyled.
 import "../panes/diff/diff.css";
+import "../panes/artifact/artifact.css";
 
 import { createElement } from "react";
 
