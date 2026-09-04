@@ -92,6 +92,39 @@ export {
   Chip,
 } from "./Chip.js";
 
+// The windowed row and the keyboard that reaches it. Through the door because the
+// two ARIA members are one claim every windowed list in the console makes the same
+// way, and a family that wrote its own row is a family whose reader is told the list
+// is as long as the window.
+export type {
+  /** @consumedBy T-023p-1C-5 */
+  WindowedListRowProps,
+} from "./WindowedListRow.js";
+export {
+  /** @consumedBy T-023p-1C-5 */
+  WindowedListRow,
+} from "./WindowedListRow.js";
+export type {
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRovingIndex,
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRovingIndexOptions,
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRowMove,
+} from "./windowed-row-index.js";
+export {
+  /** @consumedBy T-023p-1C-5 */
+  WINDOWED_ROW_INDEX_ATTRIBUTE,
+  /** @consumedBy T-023p-1C-5 */
+  WINDOWED_ROW_MOVE_BY_KEY,
+  /** @consumedBy T-023p-1C-5 */
+  clampedRowIndex,
+  /** @consumedBy T-023p-1C-5 */
+  movedRowIndex,
+  /** @consumedBy T-023p-1C-5 */
+  useWindowedRovingIndex,
+} from "./windowed-row-index.js";
+
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   LedgerRowProps,
