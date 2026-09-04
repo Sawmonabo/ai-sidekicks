@@ -1,10 +1,35 @@
 import { describe, expect, it } from "vitest";
 
-import { TimelineRowSchema } from "@ai-sidekicks/contracts";
+import { TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS, TimelineRowSchema } from "@ai-sidekicks/contracts";
 
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import { deriveSupersededBands } from "../structure/index.js";
-import { projectFixtureShellRows } from "./fixture-shell-projection.js";
+import {
+  projectFixtureShellRows,
+  RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER,
+  type RunAttributionRole,
+  type RunNamingPayloadMember,
+} from "./fixture-shell-projection.js";
+
+/**
+ * The compile-time control for the run-attribution table.
+ *
+ * The table's live effect is TOTALITY over every run-naming member of the payloads
+ * the shell reads: one that grows such a member does not compile until the table
+ * says which run it names. A table missing `parentRunId` is not total, and the
+ * directive below asserts exactly that — loosen the table's type and the suppressed
+ * error stops occurring, which makes the directive itself the error. The claim
+ * cannot rot quietly in either direction.
+ */
+// @ts-expect-error — deliberately missing `parentRunId`; totality is the property.
+const TABLE_THE_COMPILER_REJECTS: Readonly<Record<RunNamingPayloadMember, RunAttributionRole>> = {
+  runId: "this-run",
+  targetRunId: "this-run",
+};
+
+/** The decisions, read by a member the contract spells as a free-form string. */
+const ROLE_BY_MEMBER: Readonly<Record<string, RunAttributionRole>> =
+  RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER;
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 const RUN_ONE = "019b793b-7b60-740e-8110-d1a4c1150111";
@@ -229,6 +254,31 @@ describe("counting through a rewind", () => {
   });
 });
 
+describe("the run-attribution table — a compile gate, and a dormant runtime arm", () => {
+  it("decides every key the contract lists, so the runtime filter removes nothing", () => {
+    // The dormancy, checked rather than claimed. `parentRunId` is decided
+    // `another-run` and the contract's list does not carry it, so the intersection
+    // in `runIdOf` drops no member at today's contract; it is the fail-closed arm
+    // for a list that grows a key nobody here has reviewed.
+    for (const attributingKey of TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS) {
+      expect(ROLE_BY_MEMBER[attributingKey], attributingKey).toBe("this-run");
+    }
+    const decidedElsewhere = Object.entries(RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER)
+      .filter(([, role]) => role === "another-run")
+      .map(([member]) => member);
+    expect(decidedElsewhere).toStrictEqual(["parentRunId"]);
+    for (const member of decidedElsewhere) {
+      expect(TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS, member).not.toContain(member);
+    }
+  });
+
+  it("negative control: the table the compiler rejects is short at runtime too", () => {
+    // The `@ts-expect-error` above is the real guard; this reads the same object
+    // back so the suppressed line is not a comment nobody executes.
+    expect(Object.keys(TABLE_THE_COMPILER_REJECTS)).not.toContain("parentRunId");
+  });
+});
+
 describe("which payload member names a row's run", () => {
   /** An intervention as the wire spells it: the run is `targetRunId`, never `runId`. */
   function interventionEvent(sequence: number, targetRunId: string): ConsoleSessionEvent {
@@ -290,7 +340,9 @@ describe("which payload member names a row's run", () => {
   it("attributes a child run to itself and never to the parent it names", () => {
     // `run.queued` carries `parentRunId` beside its own `runId`. Reading any
     // run-naming member would file the child's rows in the parent's chapter, which
-    // is the same defect in the other direction.
+    // is the same defect in the other direction. What keeps it out here is the
+    // CONTRACT's attributing list, which does not carry that spelling; the local
+    // table's own job is the compile gate the group above drives.
     const projection = projectFixtureShellRows([
       event({
         sequence: 1,

@@ -150,10 +150,13 @@ const RUN_ATTRIBUTION_PAYLOAD_MEMBERS: readonly string[] = TIMELINE_RUN_ATTRIBUT
  * yields only the members all its arms share — and the table is total over it, so
  * such a member fails to compile here until somebody says which run it names.
  *
- * Deciding every member rather than listing the attributing ones is what keeps
- * `parentRunId` out: `run.queued` carries it beside its own `runId`, and reading
- * whichever run-naming member turned up first would file a child run's rows in its
- * parent's chapter — the same defect pointing the other way.
+ * Deciding every member rather than listing the attributing ones is what states
+ * `parentRunId`'s case at all: `run.queued` carries it beside its own `runId`, and
+ * reading whichever run-naming member turned up first would file a child run's rows
+ * in its parent's chapter — the same defect pointing the other way. What KEEPS it
+ * out at runtime is the contract's own list, which does not carry it; what this
+ * table adds is that nobody can add a member to a payload and leave that question
+ * unanswered.
  *
  * HOW FAR THE COMPLETENESS CLAIM REACHES, which is a fact about what the contracts
  * package publishes. `SessionEvent` is that package's own registered discriminated
@@ -169,18 +172,41 @@ type RunNamingMemberOf<TPayload> = TPayload extends unknown
   ? Extract<keyof TPayload, "runId" | `${string}RunId`>
   : never;
 
-type RunNamingPayloadMember = RunNamingMemberOf<
+export type RunNamingPayloadMember = RunNamingMemberOf<
   SessionEvent["payload"] | RunStateChangeEvent | RunRolledBackEvent | InterventionRequestPayload
 >;
 
 /** Whether a member names the run the event is ABOUT, or some other run. */
-type RunAttributionRole = "this-run" | "another-run";
+export type RunAttributionRole = "this-run" | "another-run";
 
-const RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER = {
+/**
+ * The decision, one row per run-naming member. A COMPILE GATE, and stated as one.
+ *
+ * WHAT IT IS LOAD-BEARING FOR, exactly: the annotation is a total record over the
+ * derived member union, so a payload this shell reads that grows a run-naming member
+ * does not compile until this table says which run that member names — and a member
+ * the union does not carry is refused as an excess property, so the table cannot
+ * drift ahead of the wire either. That is the whole of its live effect, and
+ * `fixture-shell-projection.test.ts` drives it with a table the compiler rejects
+ * rather than asserting it in prose.
+ *
+ * WHAT IT IS NOT. It is not a second filter over the contract's attributing list.
+ * `TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS` names exactly the two spellings a row uses
+ * to name its own run, and `timeline/row.ts` says so where it declares them —
+ * `parentRunId` is absent there deliberately, not accidentally — so every key that
+ * list carries is decided `this-run` here and the intersection below removes nothing
+ * at today's contract. It is kept, and kept honest: it is the fail-closed arm for a
+ * contract that grows an attributing key this file has not reviewed, DECLARED AND
+ * DORMANT, and the test pins the dormancy by checking each listed key's decision
+ * rather than leaving "removes nothing" as a claim.
+ */
+export const RUN_ATTRIBUTION_BY_PAYLOAD_MEMBER: Readonly<
+  Record<RunNamingPayloadMember, RunAttributionRole>
+> = {
   runId: "this-run",
   targetRunId: "this-run",
   parentRunId: "another-run",
-} as const satisfies Readonly<Record<RunNamingPayloadMember, RunAttributionRole>>;
+};
 
 /** The decided members that attribute, as the lookup below asks them. */
 const ATTRIBUTING_PAYLOAD_MEMBERS: ReadonlySet<string> = new Set(
