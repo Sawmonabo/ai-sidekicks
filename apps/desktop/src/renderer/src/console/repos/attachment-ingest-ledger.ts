@@ -14,16 +14,28 @@
 // the order lives in an explicit array of local ids rather than in a `Map`'s insertion
 // order, and `reorder` moves a member inside it — a drag round-trips because the array
 // is the record, not a rendering of one.
+//
+// AND THE LEDGER IS WHERE A FINISHED UPLOAD'S BYTES ARE RELEASED. THE RULE, EXACTLY:
+// an entry holds the participant's `Blob` while — and only while — a send is still
+// possible from where it stands. `declared`, `ingesting`, and `refused` can still send,
+// so they hold it; `complete` has minted its artifact and `abandoned` has stopped for
+// good, so neither does. This is the only writer, so it is the only place the rule can
+// be applied — and it is applied by CONSTRUCTION rather than by a delete: a settled
+// entry is built through `attachmentIngestEntryFrom`, whose settled arm has no payload
+// member to put one in. What that is worth: a `Blob` is a handle, but it is a KEEP, so
+// a carrier that held ten finished uploads held ten files' worth of the browser's
+// memory until the surface unmounted. A write that would move a settled entry back into
+// a sending state is refused outright — those bytes are gone, and an entry claiming a
+// payload it does not have would fail at the next slice instead of here.
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
-import type {
-  AttachmentIngestEntry,
-  AttachmentIngestState,
-  AttachmentSource,
+import {
+  attachmentIngestEntryFrom,
+  type AttachmentIngestEntry,
+  type AttachmentIngestRecord,
+  type AttachmentIngestState,
+  type AttachmentSource,
 } from "./attachment-model.js";
-
-/** One entry's fields, minus the bookkeeping the ledger stamps for itself. */
-export type AttachmentLedgerWrite = Omit<AttachmentIngestEntry, "declared">;
 
 /**
  * What one entry stood at, taken before an await and checked after it.
@@ -97,10 +109,12 @@ export class AttachmentIngestLedger {
 
   /** Take one attachment into the carrier, at the end of the declared order. */
   public declare(source: AttachmentSource): void {
-    this.#declaredOrder.push(source.localId);
-    this.#generationByLocalId.set(source.localId, 0);
-    this.#entriesByLocalId.set(source.localId, {
-      declared: source,
+    const localId = source.declared.localId;
+    this.#declaredOrder.push(localId);
+    this.#generationByLocalId.set(localId, 0);
+    this.#entriesByLocalId.set(localId, {
+      declared: source.declared,
+      payload: source.payload,
       state: "declared",
       receivedBytes: 0,
       ingestId: undefined,
@@ -117,15 +131,23 @@ export class AttachmentIngestLedger {
    * Record one attachment's new standing.
    *
    * The declaration is carried over rather than accepted from the caller: it is what
-   * the participant handed over and nothing after the attach may replace it, which is
-   * also what keeps the payload handle and its declared length together.
+   * the participant handed over and nothing after the attach may replace it. The
+   * PAYLOAD is carried the same way and only as far as the new state can send it, which
+   * is the release rule at the top of this file — so a caller composing its record by
+   * spreading the whole standing entry cannot carry a finished upload's bytes forward,
+   * and a caller trying to move a settled entry back into a sending state writes
+   * nothing at all.
    */
-  public write(localId: string, fields: AttachmentLedgerWrite): void {
+  public write(localId: string, record: AttachmentIngestRecord): void {
     const existing = this.#entriesByLocalId.get(localId);
     if (existing === undefined) {
       return;
     }
-    this.#entriesByLocalId.set(localId, { ...fields, declared: existing.declared });
+    const written = attachmentIngestEntryFrom(existing, record);
+    if (written === undefined) {
+      return;
+    }
+    this.#entriesByLocalId.set(localId, written);
     this.#generationByLocalId.set(localId, (this.#generationByLocalId.get(localId) ?? 0) + 1);
     this.#publish();
   }

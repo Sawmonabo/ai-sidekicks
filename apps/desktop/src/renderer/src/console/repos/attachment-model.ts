@@ -34,6 +34,14 @@
 //     which the ingest client reads one bounded slice at a time — because a stream with
 //     no byte source can only describe a file it never sends. A handle is not a copy:
 //     nothing in this module reads it, and no field anywhere holds a whole payload.
+//   • No payload on an entry that cannot send it. A handle is not a copy, but it is a
+//     KEEP: the browser holds those bytes for as long as anything can still reach the
+//     `Blob`, so a carrier that kept every finished upload's source kept every finished
+//     upload — a hundred megabytes each, until the sidebar unmounted. The entry is
+//     therefore a union over its own state: the arms that can still send carry the
+//     payload and the terminal arms carry name, size, media type, and the minted
+//     artifact id and nothing else. Not a rule about remembering to drop it — a
+//     `complete` entry has nowhere to put one.
 //   • No client-side type gate. The allow-list below is a HINT for the picker and the
 //     default stated where the effective list cannot be read; a hard block here would
 //     make the console wrong about an operator-widened deployment it cannot see.
@@ -237,12 +245,35 @@ export const UNRESOLVED_ATTACHMENT_PRESENTATION: Readonly<
 
 // --- The shapes a card renders -------------------------------------------
 
-/** What a participant handed over, before the daemon read a byte of it. */
-export interface AttachmentSource {
+/**
+ * What a participant SAID this attachment is, before the daemon read a byte of it.
+ *
+ * METADATA ONLY, AND THAT IS THE POINT. It carries no payload member at all, which is
+ * what makes it the shape a finished entry can keep: a `Blob` here would put the bytes
+ * back on every terminal entry by construction rather than by mistake, and the whole
+ * release rule below rests on there being a declaration that cannot hold one.
+ */
+export interface AttachmentDeclaration {
   /** The console's own handle for this attachment before an artifact id exists. */
   readonly localId: string;
   /** The caller's filename. Metadata only — never a path component, never rebuilt. */
   readonly declaredName: string;
+  /**
+   * Decoded bytes. Every bound in this file counts these and never an encoded length.
+   *
+   * Always the payload's own size, because `attachmentSourceFrom` is what mints a
+   * declaration and takes it from there — a separately-supplied length could disagree
+   * with the bytes the stream actually sends, and every progress figure, every
+   * bound, and the daemon's own spool reservation are all counted against it.
+   */
+  readonly byteLength: number;
+  /** The caller's claim about the type. Advisory input, never a trusted fact. */
+  readonly declaredMediaType?: string | undefined;
+}
+
+/** What a participant handed over: the declaration, and the bytes it describes. */
+export interface AttachmentSource {
+  readonly declared: AttachmentDeclaration;
   /**
    * The bytes themselves, by reference.
    *
@@ -251,17 +282,6 @@ export interface AttachmentSource {
    * chunk-capped slice at a time. Nothing copies it, and nothing here reads it.
    */
   readonly payload: Blob;
-  /**
-   * Decoded bytes. Every bound in this file counts these and never an encoded length.
-   *
-   * Always the payload's own size, because `attachmentSourceFrom` is what mints a
-   * source and takes it from there — a separately-supplied length could disagree
-   * with the bytes the stream actually sends, and every progress figure, every
-   * bound, and the daemon's own spool reservation are all counted against it.
-   */
-  readonly byteLength: number;
-  /** The caller's claim about the type. Advisory input, never a trusted fact. */
-  readonly declaredMediaType?: string | undefined;
 }
 
 /** What a picker, a drop, or a paste hands over. The length is not among it. */
@@ -283,11 +303,13 @@ export interface AttachmentSourceInput {
  */
 export function attachmentSourceFrom(input: AttachmentSourceInput): AttachmentSource {
   return {
-    localId: input.localId,
-    declaredName: input.declaredName,
+    declared: {
+      localId: input.localId,
+      declaredName: input.declaredName,
+      byteLength: input.payload.size,
+      declaredMediaType: input.declaredMediaType,
+    },
     payload: input.payload,
-    byteLength: input.payload.size,
-    declaredMediaType: input.declaredMediaType,
   };
 }
 
@@ -299,9 +321,40 @@ export interface AttachmentDerivedTruth {
   readonly derivedSizeBytes: number;
 }
 
-/** One attachment's ingest, as the client publishes it and a card renders it. */
-export interface AttachmentIngestEntry {
-  readonly declared: AttachmentSource;
+/**
+ * The states an entry can still put bytes on a stream from. A SUBSET, not a second set.
+ *
+ * Only this half is written down; the settled half is its COMPLEMENT, computed below,
+ * so the two arms of the entry union cannot drift apart or come to overlap. And the
+ * subset relation is checked rather than asserted: `isSendingAttachmentIngestState`
+ * declares a predicate narrowing `AttachmentIngestState` to this type, which does not
+ * compile unless every member here is one — so a typo, or a state that left the parent
+ * vocabulary, fails the build rather than silently making the complement wrong.
+ *
+ * All three refusal dispositions offer a retry, so `refused` belongs here in full. A
+ * disposition that offered none would move it to the settled arm, and this line is
+ * where that decision would be made rather than somewhere a reader has to find.
+ */
+export const SENDING_ATTACHMENT_INGEST_STATES = ["declared", "ingesting", "refused"] as const;
+
+/** One state an entry can still send from. Derived. */
+export type SendingAttachmentIngestState = (typeof SENDING_ATTACHMENT_INGEST_STATES)[number];
+
+/** One state an entry is finished in. The complement, so the two arms partition the set. */
+export type SettledAttachmentIngestState = Exclude<
+  AttachmentIngestState,
+  SendingAttachmentIngestState
+>;
+
+/** Whether an entry in this state can still put bytes on a stream. */
+export function isSendingAttachmentIngestState(
+  state: AttachmentIngestState,
+): state is SendingAttachmentIngestState {
+  return (SENDING_ATTACHMENT_INGEST_STATES as readonly AttachmentIngestState[]).includes(state);
+}
+
+/** What one entry records about its own ingest, apart from what it was declared over. */
+export interface AttachmentIngestRecord {
   readonly state: AttachmentIngestState;
   /** The spooled running total of DECODED bytes the daemon has acknowledged. */
   readonly receivedBytes: number;
@@ -313,6 +366,77 @@ export interface AttachmentIngestEntry {
   readonly openedAtMilliseconds: number | undefined;
   /** When a chunk was last acknowledged, for the stall disclosure. */
   readonly lastProgressAtMilliseconds: number | undefined;
+}
+
+/** An entry that can still send, so it holds the participant's bytes. */
+export interface SendingAttachmentIngestEntry extends AttachmentIngestRecord {
+  readonly state: SendingAttachmentIngestState;
+  readonly declared: AttachmentDeclaration;
+  readonly payload: Blob;
+}
+
+/** An entry that has stopped. Metadata only, and no payload member to hold one in. */
+export interface SettledAttachmentIngestEntry extends AttachmentIngestRecord {
+  readonly state: SettledAttachmentIngestState;
+  readonly declared: AttachmentDeclaration;
+  readonly payload?: never;
+}
+
+/**
+ * One attachment's ingest, as the client publishes it and a card renders it.
+ *
+ * A UNION OVER ITS OWN STATE, and the exact rule is: an entry holds the participant's
+ * `Blob` while — and only while — a send is still possible from where it stands. A
+ * `complete` entry has minted its artifact and an `abandoned` one has stopped for good,
+ * so neither can send and neither has anywhere to put a payload. Both arms carry the
+ * same `declared` metadata, so every reader of a name, a size, or a media type is
+ * unchanged and only the byte handle is at issue.
+ */
+export type AttachmentIngestEntry = SendingAttachmentIngestEntry | SettledAttachmentIngestEntry;
+
+/** Whether this entry still holds the bytes, narrowing so a caller can read them. */
+export function isSendingAttachmentIngestEntry(
+  entry: AttachmentIngestEntry,
+): entry is SendingAttachmentIngestEntry {
+  return isSendingAttachmentIngestState(entry.state);
+}
+
+/**
+ * Build the entry one record calls for, carrying the bytes exactly as far as they can
+ * still be sent.
+ *
+ * THE ONE CONSTRUCTOR, so the release is a property of the type rather than of anyone
+ * remembering. The eight record members are copied BY NAME rather than spread: every
+ * caller composes its record by spreading a whole standing entry, and a spread here
+ * would carry that entry's `payload` straight through into a `complete` one — which is
+ * the leak this exists to close, dressed as a one-line convenience.
+ *
+ * `undefined` for the one move that cannot be honoured: a record putting a settled
+ * entry back into a sending state, whose bytes are already gone. The ledger writes
+ * nothing rather than minting an entry that claims a payload it does not have.
+ */
+export function attachmentIngestEntryFrom(
+  standing: AttachmentIngestEntry,
+  record: AttachmentIngestRecord,
+): AttachmentIngestEntry | undefined {
+  const carried = {
+    receivedBytes: record.receivedBytes,
+    ingestId: record.ingestId,
+    derived: record.derived,
+    refusal: record.refusal,
+    disposition: record.disposition,
+    openedAtMilliseconds: record.openedAtMilliseconds,
+    lastProgressAtMilliseconds: record.lastProgressAtMilliseconds,
+    declared: standing.declared,
+  };
+  if (!isSendingAttachmentIngestState(record.state)) {
+    return { ...carried, state: record.state };
+  }
+  const payload = standing.payload;
+  if (payload === undefined) {
+    return undefined;
+  }
+  return { ...carried, state: record.state, payload };
 }
 
 /**

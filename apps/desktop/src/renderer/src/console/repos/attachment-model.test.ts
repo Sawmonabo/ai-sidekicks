@@ -25,18 +25,46 @@ import {
   ingestRefusalDisposition,
   isIngestStalled,
   type AttachmentIngestEntry,
+  type SettledAttachmentIngestState,
 } from "./attachment-model.js";
 
 /** One entry that has sent nothing, declaring a decoded total of 300 bytes. */
 function entryDeclaring(byteLength: number, receivedBytes = 0): AttachmentIngestEntry {
   return {
-    declared: attachmentSourceFrom({
+    // Spread, because a source IS the two members an entry carries about what it was
+    // handed: the declaration and the bytes it describes.
+    ...attachmentSourceFrom({
       localId: "attachment-1",
       declaredName: "notes.md",
       payload: new Blob([new Uint8Array(byteLength)]),
     }),
     state: "ingesting",
     receivedBytes,
+    ingestId: "ingest-1",
+    derived: undefined,
+    refusal: undefined,
+    disposition: undefined,
+    openedAtMilliseconds: 1_000,
+    lastProgressAtMilliseconds: 1_000,
+  };
+}
+
+/**
+ * The same attachment once its ingest has stopped: metadata, and no payload member.
+ *
+ * Written out rather than spread from the fixture above, because the settled arm has
+ * nowhere to put a `Blob` — a spread of a sending entry does not compile here, which
+ * is the release rule holding a test fixture to the same shape it holds the ledger to.
+ */
+function settledEntry(state: SettledAttachmentIngestState): AttachmentIngestEntry {
+  return {
+    declared: attachmentSourceFrom({
+      localId: "attachment-1",
+      declaredName: "notes.md",
+      payload: new Blob([new Uint8Array(300)]),
+    }).declared,
+    state,
+    receivedBytes: 0,
     ingestId: "ingest-1",
     derived: undefined,
     refusal: undefined,
@@ -154,8 +182,7 @@ describe("attachment ceiling and stall", () => {
   });
 
   it("negative control: a complete upload is never stalled", () => {
-    const complete = { ...entryDeclaring(300), state: "complete" } as const;
-    expect(isIngestStalled(complete, 9_000_000)).toBe(false);
+    expect(isIngestStalled(settledEntry("complete"), 9_000_000)).toBe(false);
   });
 });
 
@@ -165,7 +192,7 @@ describe("attachment media type — which readings the card is given", () => {
     derivedMediaType: string | undefined,
   ): AttachmentIngestEntry {
     return {
-      declared: attachmentSourceFrom({
+      ...attachmentSourceFrom({
         localId: "attachment-1",
         declaredName: "screenshot.png",
         payload: new Blob([new Uint8Array(4)]),

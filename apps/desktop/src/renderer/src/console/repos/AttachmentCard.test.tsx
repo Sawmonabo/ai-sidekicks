@@ -15,13 +15,20 @@ import {
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   attachmentSourceFrom,
   type AttachmentIngestEntry,
+  type SendingAttachmentIngestEntry,
 } from "./attachment-model.js";
 
 const NOW_MILLISECONDS = 1_000;
 
-function entry(overrides: Partial<AttachmentIngestEntry> = {}): AttachmentIngestEntry {
+/**
+ * One in-flight entry. The SENDING arm, because every case here renders a card with a
+ * control on it, and the two controls exist only while an upload can still move.
+ */
+function entry(
+  overrides: Partial<SendingAttachmentIngestEntry> = {},
+): SendingAttachmentIngestEntry {
   return {
-    declared: attachmentSourceFrom({
+    ...attachmentSourceFrom({
       localId: "attachment-1",
       declaredName: "../../etc/passwd",
       payload: new Blob([new Uint8Array(300)]),
@@ -234,7 +241,7 @@ describe("attachment card — the media type is shown from either reading", () =
           localId: "attachment-1",
           declaredName: "screenshot.png",
           payload: new Blob([new Uint8Array(300)]),
-        }),
+        }).declared,
         derived: derivedTruth,
       }),
     );
@@ -265,7 +272,7 @@ describe("attachment card — the media type is shown from either reading", () =
               localId: "attachment-1",
               declaredName: "notes",
               payload: new Blob([new Uint8Array(300)]),
-            }),
+            }).declared,
           }),
         }}
         nowMilliseconds={NOW_MILLISECONDS}

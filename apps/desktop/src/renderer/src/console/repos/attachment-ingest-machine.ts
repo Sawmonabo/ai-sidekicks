@@ -82,6 +82,7 @@ import { AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 import {
   advanceReceivedBytes,
   ingestRefusalDisposition,
+  isSendingAttachmentIngestEntry,
   type AttachmentIngestEntry,
   type AttachmentSource,
 } from "./attachment-model.js";
@@ -146,11 +147,12 @@ export class AttachmentIngestClient {
    * raises the bound. The count is rendered against its cap and the daemon decides.
    */
   public attach(source: AttachmentSource): void {
-    if (this.#disposed || this.#ledger.holds(source.localId)) {
+    const localId = source.declared.localId;
+    if (this.#disposed || this.#ledger.holds(localId)) {
       return;
     }
     this.#ledger.declare(source);
-    void this.#drive(source.localId);
+    void this.#drive(localId);
   }
 
   /**
@@ -160,10 +162,16 @@ export class AttachmentIngestClient {
    * ledger and begins from the first byte, and every other disposition resumes at the
    * current offset — which is what makes a lost response cost one chunk rather than the
    * whole upload.
+   *
+   * ONLY FROM `refused`, which is exactly where the card offers the control. It is also
+   * the last state that still holds the payload: a completed or abandoned entry has
+   * released its bytes, so a retry from one would have nothing to send and the ledger
+   * would refuse the write anyway. Stated here so the refusal is the guard rather than
+   * the backstop.
    */
   public retry(localId: string): void {
     const entry = this.#ledger.current(localId);
-    if (entry === undefined || this.#runningLocalIds.has(localId)) {
+    if (entry === undefined || entry.state !== "refused" || this.#runningLocalIds.has(localId)) {
       return;
     }
     const restarting = entry.disposition === "restart";
@@ -400,17 +408,26 @@ export class AttachmentIngestClient {
     for (;;) {
       const entry = this.#ledger.current(localId);
       const stamp = this.#ledger.stamp(localId);
-      if (entry === undefined || stamp === undefined || entry.ingestId === undefined) {
+      if (
+        entry === undefined ||
+        stamp === undefined ||
+        // The bytes live on the sending arm of the entry only, so this narrowing is
+        // what reaches them at all: an entry that settled underneath this loop has
+        // released its payload and there is nothing left here to slice.
+        !isSendingAttachmentIngestEntry(entry) ||
+        entry.ingestId === undefined
+      ) {
         return false;
       }
       // Bound outside the thunks below, because a narrowing this loop established does
       // not follow a dotted name across a function boundary.
       const ingestId = entry.ingestId;
+      const payload = entry.payload;
       const offset = entry.receivedBytes;
-      if (entry.declared.payload.size - offset <= 0) {
+      if (payload.size - offset <= 0) {
         return true;
       }
-      const slice = entry.declared.payload.slice(offset, offset + ATTACHMENT_CHUNK_BYTE_CAP);
+      const slice = payload.slice(offset, offset + ATTACHMENT_CHUNK_BYTE_CAP);
       // The read goes through the same door as the three calls, because it fails the
       // same way: a `Blob` off a picker points at a file on disk, and a participant who
       // moved or deleted it between two chunks gets a rejecting `arrayBuffer()` rather
