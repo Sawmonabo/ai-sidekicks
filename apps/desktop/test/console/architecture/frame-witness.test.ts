@@ -47,9 +47,14 @@ import {
   type RendererFrameSource,
 } from "../frame-witness.js";
 import {
+  BoundedCleanup,
+  type ClosableApplication,
+  type ProcessTerminator,
+} from "../bounded-cleanup.js";
+import {
   LAUNCH_BUDGET_MS,
   LaunchDeadline,
-  MINIMUM_CLEANUP_MARGIN_MS,
+  MINIMUM_SETTLEMENT_RESIDUAL_MS,
   READINESS_BUDGET_MS,
 } from "../launch-deadline.js";
 import { resolveVitestProjects, type ResolvedVitestProjects } from "../vitest-projects.js";
@@ -226,11 +231,13 @@ describe("launch budget — one launch always settles inside its tier", () => {
   it("fits a whole launch plus cleanup inside every launching tier's real timeout", () => {
     // THE GUARANTEE, held against the config the runner actually resolves rather
     // than a number copied out of it. A launch spends at most `LAUNCH_BUDGET_MS`
-    // before it has thrown its own diagnostic; `close()` and the throw need the
-    // margin after that. Lower a tier's patience below the sum and this fails
-    // here, at the arithmetic, instead of on a runner as an undiagnosable kill.
+    // before it has thrown its own diagnostic — cleanup included, since that is a
+    // reserved slice and no longer an unbounded await — and the residual covers
+    // the synchronous profile removal and the throw. Lower a tier's patience
+    // below the sum and this fails here, at the arithmetic, instead of on a
+    // runner as an undiagnosable kill.
     const tooTight = launchingTiers.filter(
-      (tier) => LAUNCH_BUDGET_MS + MINIMUM_CLEANUP_MARGIN_MS > tier.patienceMs,
+      (tier) => LAUNCH_BUDGET_MS + MINIMUM_SETTLEMENT_RESIDUAL_MS > tier.patienceMs,
     );
     expect(tooTight).toStrictEqual([]);
   });
@@ -323,6 +330,159 @@ describe("launch deadline — one clock, drawn from", () => {
     await expect(
       new LaunchDeadline(TEST_BUDGET_MS / 4).settleWithin(abandoned, "a phase"),
     ).rejects.toThrow(/did not settle/u);
+    rejectAbandoned(new Error("Target page, context or browser has been closed"));
+    await new Promise((resolveTick) => {
+      setTimeout(resolveTick, 10);
+    });
+  });
+});
+
+describe("bounded cleanup — a close that never settles", () => {
+  /** A close bound short enough that exhausting it costs the suite nothing. */
+  const TEST_RESERVE_MS = 120;
+
+  /** An application whose close never settles, and whose process has a pid. */
+  function applicationThatNeverCloses(processId: number | undefined): ClosableApplication {
+    return { close: () => new Promise<void>(() => undefined), processId: () => processId };
+  }
+
+  /** A terminator that records rather than signals — killing for real would take this runner with it. */
+  function terminatorSpy(delivers: boolean): ProcessTerminator & { readonly killed: number[] } {
+    const killed: number[] = [];
+    return {
+      killed,
+      terminate: (pid: number) => {
+        killed.push(pid);
+        return delivers;
+      },
+    };
+  }
+
+  /** A deadline with nothing left, which is what cleanup on the failure path meets. */
+  function spentDeadline(): LaunchDeadline {
+    const deadline = new LaunchDeadline(0);
+    expect(deadline.expired()).toBe(true);
+    return deadline;
+  }
+
+  it("settles inside the bound and SIGKILLs the process tree", async () => {
+    // THE FINDING, in one case. Before this, close() was awaited with no bound at
+    // all, so this application hung the launch until vitest killed the test — the
+    // undiagnosable failure the whole change removes, one line further down than
+    // where it was first removed.
+    const terminator = terminatorSpy(true);
+    const startedAt = Date.now();
+    const outcome = await new BoundedCleanup(
+      applicationThatNeverCloses(4242),
+      terminator,
+      spentDeadline(),
+      TEST_RESERVE_MS,
+    ).close();
+    expect(outcome.settlement).toBe("terminated");
+    expect(terminator.killed).toStrictEqual([4242]);
+    // Settled BECAUSE of the bound, not before it and not far past it.
+    expect(outcome.waitedMs).toBeGreaterThanOrEqual(TEST_RESERVE_MS * 0.9);
+    expect(Date.now() - startedAt).toBeLessThan(TEST_RESERVE_MS * 10);
+  });
+
+  it("negative control: a close that settles is neither bounded out nor killed", async () => {
+    // Without this the case above is ambiguous between "the bound fired" and
+    // "cleanup kills everything". Same bound, same terminator, one application
+    // that closes.
+    const terminator = terminatorSpy(true);
+    const outcome = await new BoundedCleanup(
+      { close: () => Promise.resolve(), processId: () => 4242 },
+      terminator,
+      spentDeadline(),
+      TEST_RESERVE_MS,
+    ).close();
+    expect(outcome.settlement).toBe("closed");
+    expect(terminator.killed).toStrictEqual([]);
+  });
+
+  it("gives a healthy close its full reserve even when the launch deadline is spent", async () => {
+    // The regression this design is shaped around. `close()` is also called on
+    // the SUCCESS path, minutes later for the endurance tier, when the launch
+    // deadline has nothing left. A bound drawn from the deadline alone would be
+    // 1 ms there and would SIGKILL an application that was closing perfectly
+    // normally, so the reserve is a floor the deadline can only ever raise.
+    const terminator = terminatorSpy(true);
+    const outcome = await new BoundedCleanup(
+      {
+        close: () =>
+          new Promise<void>((resolveClose) => {
+            setTimeout(resolveClose, TEST_RESERVE_MS * 0.5);
+          }),
+        processId: () => 4242,
+      },
+      terminator,
+      spentDeadline(),
+      TEST_RESERVE_MS,
+    ).close();
+    expect(outcome.settlement).toBe("closed");
+    expect(terminator.killed).toStrictEqual([]);
+  });
+
+  it("reports a hung close it cannot terminate, rather than claiming it killed one", async () => {
+    // Two ways to get here — the process is already gone, or the signal did not
+    // land — and both mean the same thing to a reader: something may still be
+    // running and holding a profile, which is the one cleanup outcome that can
+    // break a LATER launch. Folding it into `terminated` would hide exactly that.
+    const withoutPid = await new BoundedCleanup(
+      applicationThatNeverCloses(undefined),
+      terminatorSpy(true),
+      spentDeadline(),
+      TEST_RESERVE_MS,
+    ).close();
+    const refusedSignal = await new BoundedCleanup(
+      applicationThatNeverCloses(4242),
+      terminatorSpy(false),
+      spentDeadline(),
+      TEST_RESERVE_MS,
+    ).close();
+    expect([withoutPid.settlement, refusedSignal.settlement]).toStrictEqual([
+      "unterminable",
+      "unterminable",
+    ]);
+  });
+
+  it("treats a close that rejects as finished, not as a hang to wait out", async () => {
+    // A rejected close has closed, unsuccessfully. Waiting out the bound and then
+    // SIGKILLing would spend the slice on a process whose own failure already
+    // reached it, and would name the wrong thing in the report.
+    const terminator = terminatorSpy(true);
+    const outcome = await new BoundedCleanup(
+      {
+        close: () => Promise.reject(new Error("Electron has already exited")),
+        processId: () => 4242,
+      },
+      terminator,
+      spentDeadline(),
+      TEST_RESERVE_MS,
+    ).close();
+    expect(outcome.settlement).toBe("closed");
+    expect(outcome.waitedMs).toBeLessThan(TEST_RESERVE_MS);
+    expect(terminator.killed).toStrictEqual([]);
+  });
+
+  it("survives an abandoned close rejecting after the bound expired", async () => {
+    // Killing the process is what MAKES the outstanding close reject, so this is
+    // the ordinary path rather than an edge: unhandled, it would fail the tier on
+    // something other than the failure that started the cleanup.
+    let rejectAbandoned: (reason: Error) => void = () => undefined;
+    const outcome = await new BoundedCleanup(
+      {
+        close: () =>
+          new Promise<void>((_resolveNever, reject) => {
+            rejectAbandoned = reject;
+          }),
+        processId: () => 4242,
+      },
+      terminatorSpy(true),
+      spentDeadline(),
+      TEST_RESERVE_MS,
+    ).close();
+    expect(outcome.settlement).toBe("terminated");
     rejectAbandoned(new Error("Target page, context or browser has been closed"));
     await new Promise((resolveTick) => {
       setTimeout(resolveTick, 10);

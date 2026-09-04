@@ -47,11 +47,23 @@ import type { ElectronApplication, Page } from "@playwright/test";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
 import {
+  BoundedCleanup,
+  type CleanupOutcome,
+  ELECTRON_PROCESS_TERMINATOR,
+  withCleanupOutcome,
+} from "./bounded-cleanup.js";
+import {
   FRAME_WITNESS_TIMEOUT_MS,
   FrameWitness,
   type RendererFrameSource,
 } from "./frame-witness.js";
-import { LaunchDeadline, READINESS_BUDGET_MS } from "./launch-deadline.js";
+import {
+  CLEANUP_BUDGET_MS,
+  LAUNCH_BUDGET_MS,
+  LaunchDeadline,
+  POST_READINESS_RESERVE_MS,
+  readinessFailure,
+} from "./launch-deadline.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..");
@@ -163,32 +175,6 @@ export interface LaunchConsoleOptions {
 }
 
 /**
- * Re-word a readiness failure as one about the budget the ladder actually shares.
- *
- * Playwright reports what IT was given, which under a shared deadline is
- * whatever was left — "Timeout 1ms exceeded" for a phase that was never the slow
- * one. The underlying error is kept as `cause`, because which phase ran out is
- * still the first thing a reader wants.
- *
- * Applied only while the deadline is spent. A phase that failed for its own
- * reasons — a missing selector, a crashed process — reports that reason
- * untouched rather than being blamed on a clock with time left on it.
- */
-function readinessFailure(deadline: LaunchDeadline, error: unknown): unknown {
-  if (!deadline.expired()) {
-    return error;
-  }
-  return new Error(
-    `the console did not become ready within the ${String(READINESS_BUDGET_MS)} ms readiness budget, ` +
-      "which every phase before the frame witness SHARES — process launch, first window, the " +
-      "document's `load`, the console's frame element, the visibility read — rather than each " +
-      "receiving its own; the witness's interval is reserved beyond this budget, so a launch that " +
-      "overruns reports here rather than as the enclosing tier's timeout (test/console/launch-deadline.ts)",
-    { cause: error },
-  );
-}
-
-/**
  * Launch the built console and wait for its first window.
  *
  * Throws rather than returning a partial handle: a caller that received an
@@ -204,8 +190,10 @@ export async function launchConsole(
 ): Promise<ConsoleApplication> {
   // Minted before the first phase, including the profile directory: everything
   // this function waits on is inside the budget, or the budget is not the
-  // launch's.
-  const deadline = new LaunchDeadline(READINESS_BUDGET_MS);
+  // launch's. It carries the WHOLE allowance — readiness, the witness, and
+  // cleanup — and each readiness wait below reserves the two later slices off
+  // it, so a slow ladder cannot spend the intervals that diagnose it.
+  const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);
   const userDataDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-console-"));
   // The scenario is applied LAST so a named option cannot be shadowed by an `env`
   // entry that happens to spell the same variable — one place decides, and it is
@@ -227,14 +215,32 @@ export async function launchConsole(
         // (see `src/main/window-reveal.ts`).
         [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       } as Record<string, string>,
-      timeout: deadline.remainingMs(),
+      timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
   } catch (error: unknown) {
     rmSync(userDataDirectory, { recursive: true, force: true });
     throw readinessFailure(deadline, error);
   }
 
+  const cleanup = new BoundedCleanup(
+    {
+      close: () => application.close(),
+      // Guarded because Playwright throws rather than returning `undefined` once
+      // the application handle is gone, and cleanup asking who to kill must not
+      // itself become the failure that stops the profile being removed.
+      processId: () => {
+        try {
+          return application.process().pid;
+        } catch {
+          return undefined;
+        }
+      },
+    },
+    ELECTRON_PROCESS_TERMINATOR,
+    deadline,
+  );
   let closed = false;
+  let cleanupOutcome: CleanupOutcome | undefined;
   const close = async (): Promise<void> => {
     if (closed) {
       return;
@@ -242,11 +248,20 @@ export async function launchConsole(
     closed = true;
     // The profile is removed whether or not the close succeeds: a temporary
     // directory left behind by a crashed run is the thing that makes the NEXT
-    // run's disk-space failure look like a console defect.
+    // run's disk-space failure look like a console defect. The close itself is
+    // bounded and force-terminating, so "whether or not it succeeds" is now a
+    // statement about a call that always returns rather than one that might not.
     try {
-      await application.close();
+      cleanupOutcome = await cleanup.close();
     } finally {
       rmSync(userDataDirectory, { recursive: true, force: true });
+    }
+    if (cleanupOutcome.settlement !== "closed") {
+      console.error(
+        `${LAUNCH_TRACE_TAG} close did not settle within ${String(CLEANUP_BUDGET_MS)} ms — ` +
+          `${cleanupOutcome.settlement === "terminated" ? "SIGKILLed the process tree" : "COULD NOT terminate the process, which may still hold a profile"} ` +
+          `after ${String(cleanupOutcome.waitedMs)} ms`,
+      );
     }
   };
 
@@ -269,9 +284,15 @@ export async function launchConsole(
       //
       // Each takes what the deadline has LEFT, so the four of them cost the
       // budget once between them instead of once each.
-      window = await application.firstWindow({ timeout: deadline.remainingMs() });
-      await window.waitForLoadState("load", { timeout: deadline.remainingMs() });
-      await window.waitForSelector(".meridian-frame", { timeout: deadline.remainingMs() });
+      window = await application.firstWindow({
+        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
+      });
+      await window.waitForLoadState("load", {
+        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
+      });
+      await window.waitForSelector(".meridian-frame", {
+        timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
+      });
       // Read through the deadline because `evaluate` carries no timeout of its
       // own and ignores Playwright's default one: a renderer whose main thread is
       // wedged would leave this round trip pending until the tier gave up, which
@@ -279,6 +300,7 @@ export async function launchConsole(
       visibilityState = await deadline.settleWithin(
         window.evaluate(() => document.visibilityState),
         "the renderer visibility read",
+        POST_READINESS_RESERVE_MS,
       );
     } catch (error: unknown) {
       throw readinessFailure(deadline, error);
@@ -316,7 +338,7 @@ export async function launchConsole(
     return { application, window, close };
   } catch (error: unknown) {
     await close();
-    throw error;
+    throw withCleanupOutcome(error, cleanupOutcome);
   }
 }
 
