@@ -53,11 +53,35 @@ const HEALTHY_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000001";
 const UNREACHABLE_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000002";
 const UNSCRIPTED_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000003";
 
-/** What each mount answers. Distinct values, so one cannot pass for the other. */
+/**
+ * What each mount answers. Distinct values, so one cannot pass for the other.
+ *
+ * WHOLE `RepoMountReadResponse`s and not two-member stand-ins. `repo.mountRead` is
+ * a method the corpus registers, so the fixture holds a scripted reply for it to
+ * that shape (`fixture-bridge.wire-contract.test.ts`) — and a scenario that could
+ * answer it with `{id, health}` would be teaching every mount surface a frame the
+ * daemon cannot send. Only `id` and `health.status` vary between the two, which is
+ * what these cases read.
+ */
 const MOUNT_ANSWERS: Readonly<Record<string, unknown>> = {
-  [HEALTHY_MOUNT_ID]: { id: HEALTHY_MOUNT_ID, health: { status: "healthy" } },
-  [UNREACHABLE_MOUNT_ID]: { id: UNREACHABLE_MOUNT_ID, health: { status: "unreachable" } },
+  [HEALTHY_MOUNT_ID]: mountReadResponse(HEALTHY_MOUNT_ID, "healthy"),
+  [UNREACHABLE_MOUNT_ID]: mountReadResponse(UNREACHABLE_MOUNT_ID, "unreachable"),
 };
+
+/** One registered mount-read reply, varying only in the two members these cases read. */
+function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable"): unknown {
+  return {
+    id: repoMountId,
+    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    nodeId: "9f2c4a10-1111-4000-8000-000000000100",
+    localPath: "/Users/probe/dev/ai-sidekicks",
+    canonicalRoot: "/Users/probe/dev/ai-sidekicks",
+    vcsType: "git",
+    state: "attached",
+    health: { status, checkedAt: "2026-01-01T14:20:00.500Z" },
+    attachedAt: "2026-01-01T14:00:00.000Z",
+  };
+}
 
 /** A scenario whose one reply is COMPUTED from the request rather than constant. */
 function scenarioComputingMountRead(): ConsoleScenario {
