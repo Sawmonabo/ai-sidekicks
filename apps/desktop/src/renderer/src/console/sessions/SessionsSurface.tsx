@@ -10,7 +10,9 @@
 // Two sets answer "which sessions are there" and the surface offers their union.
 // The node's directory comes from the growth port's `sessionList` read, which the
 // fixture serves and the live bridge refuses; this window's own open sessions come
-// from `SessionStoreRegistry`, the same source the auxiliary context picker reads.
+// from `SessionStoreRegistry`, the same source the auxiliary context picker reads —
+// and from EVERY one of those stores, through `open-session-rows.ts`, rather than
+// from the route's, which at this address is `undefined` and always will be.
 // `session-directory-rows.ts` owns the merge and owns the decision that matters —
 // which kind of nothing an empty list is — because that decision follows the READ
 // and never the row count: a refused directory is `not-checked` ("nobody asked"), a
@@ -64,8 +66,9 @@ import {
   type AttentionReading,
 } from "./notifications/index.js";
 import { DerivedFigure, InlineRefusal, Nothing, formatCount } from "../primitives/index.js";
-import { useOpenSessionIds, useSessionPartition, type SessionStore } from "../store/index.js";
+import { useOpenSessionIds } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./InviteShelf.js";
+import { useOpenSessionRows } from "./open-session-rows.js";
 import { SessionList } from "./SessionList.js";
 import {
   mergeSessionRows,
@@ -84,6 +87,12 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   const pins = useSessionPins(context.uiStateStore);
   const directory = useSessionDirectory(context.bridge.growth);
   const windowSessionIds = useOpenSessionIds(context.sessionStoreRegistry);
+  // Every open session's own projection, not the route's. This address names no
+  // session, so `context.sessionStore` is `undefined` here for the life of the
+  // surface — see `open-session-rows.ts` for what reading it cost. The route-scoped
+  // store is still supplied and still read, by the surfaces mounted at addresses that
+  // DO name one; this destination is simply not one of them.
+  const projectedRows = useOpenSessionRows(context.sessionStoreRegistry);
   // The attention read is scoped to a session on the wire and this destination is
   // not, so it asks about every session the surface can NAME — the same set the
   // list is built from, derived here with no projected rows because the ids are all
@@ -143,9 +152,10 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     </button>
   );
 
-  const listProps = {
+  const listProps: SessionRowsProps = {
     directory,
     windowSessionIds,
+    projectedRows,
     attention,
     pins,
     startControl,
@@ -168,11 +178,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
       <div className="meridian-sessions__body">
         <div className="meridian-sessions__list" aria-label="Sessions on this node">
           {pins.lastRefusal === undefined ? null : <InlineRefusal {...pins.lastRefusal} />}
-          {context.sessionStore === undefined ? (
-            <DirectorySessionRows {...listProps} />
-          ) : (
-            <ProjectedSessionRows {...listProps} sessionStore={context.sessionStore} />
-          )}
+          <SessionRowsView {...listProps} />
         </div>
 
         <aside className="meridian-sessions__aside" aria-label="What is waiting on you">
@@ -209,10 +215,12 @@ function inviteShelfReaderFor(
     await Promise.all(sessionIds.map(async (sessionId) => await growth.invitesList({ sessionId })));
 }
 
-/** What both row sources are handed. The store is the only thing that differs. */
+/** What the list is handed: the node's answer, this window's set, and its projection. */
 interface SessionRowsProps {
   readonly directory: SessionDirectoryState;
   readonly windowSessionIds: readonly string[];
+  /** What every open session's store can describe, from `open-session-rows.ts`. */
+  readonly projectedRows: readonly SessionListRow[];
   readonly attention: AttentionReading;
   readonly pins: SessionPinBinding;
   readonly startControl: ReactNode;
@@ -220,60 +228,13 @@ interface SessionRowsProps {
 }
 
 /**
- * The rows when this address names no session, so the frame opened no store.
+ * The list itself, once all three sources have been named.
  *
- * The directory still answers — it is a node read and not a session read — which is
- * the whole regression this arm closes: a window holding nothing is not a node
- * holding nothing, and before the directory read the surface could not tell them
- * apart and reported the first as the second.
+ * The directory still answers on an address that names no session — it is a node read
+ * and not a session read — which is what lets this surface tell a window holding
+ * nothing apart from a node holding nothing, and report the first as the first.
  */
-function DirectorySessionRows(props: SessionRowsProps): React.JSX.Element {
-  return <SessionRowsView {...props} projectedRows={[]} />;
-}
-
-/**
- * The rows when a store is open, subscribed per entity kind.
- *
- * A component of its own because the subscription needs a store and a hook cannot
- * be called conditionally — and because the partitioned subscription is the point:
- * `useSessionPartition` returns a reference whose identity changes only when that
- * kind changes, so a burst of run events re-renders nothing here.
- */
-function ProjectedSessionRows(
-  props: SessionRowsProps & { readonly sessionStore: SessionStore },
-): React.JSX.Element {
-  const sessionEntities = useSessionPartition(props.sessionStore, "session");
-  const participantEntities = useSessionPartition(props.sessionStore, "participant");
-  // Read rather than subscribed: a store's session is fixed for its whole life, so
-  // there is nothing here to notify about. It is needed because a store projects
-  // participants for ITS session, and a row for some other session that this store
-  // merely heard about must not be attributed the wrong people.
-  const projectedSessionId = props.sessionStore.sessionId;
-
-  const projectedRows = useMemo<readonly SessionListRow[]>(() => {
-    const participantIds = Object.keys(participantEntities);
-    return Object.values(sessionEntities).map((entity) => ({
-      sessionId: entity.id,
-      state: entity.state,
-      touchedAtIso: entity.touchedAt,
-      participantIds: entity.id === projectedSessionId ? participantIds : [],
-      attentionSeverity: undefined,
-    }));
-  }, [sessionEntities, participantEntities, projectedSessionId]);
-
-  return <SessionRowsView {...props} projectedRows={projectedRows} />;
-}
-
-/**
- * The list itself, once both sources have been named.
- *
- * One view for both arms, so the merge, the attention stamp, the count sentence and
- * the absence are written once. Two copies of this would be two lists that agree
- * until one of them is edited.
- */
-function SessionRowsView(
-  props: SessionRowsProps & { readonly projectedRows: readonly SessionListRow[] },
-): React.JSX.Element {
+function SessionRowsView(props: SessionRowsProps): React.JSX.Element {
   const { attention, directory, projectedRows, windowSessionIds } = props;
   const rows = useMemo<readonly SessionListRow[]>(() => {
     const severityFor = (sessionId: string): AttentionSeverity | undefined =>

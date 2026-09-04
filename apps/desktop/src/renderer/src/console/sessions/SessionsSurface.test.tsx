@@ -100,7 +100,7 @@ describe("what the destination lists", () => {
       <SessionsSurface
         context={contextWith({
           directorySessionIds: ["session-a"],
-          sessionStore: storeHolding(["session-a"]),
+          openStores: [storeHolding({ sessionId: "session-a" })],
         })}
       />,
     );
@@ -113,7 +113,7 @@ describe("what the destination lists", () => {
       <SessionsSurface
         context={contextWith({
           directorySessionIds: ["session-node"],
-          sessionStore: storeHolding(["session-local"]),
+          openStores: [storeHolding({ sessionId: "session-local" })],
         })}
       />,
     );
@@ -124,7 +124,12 @@ describe("what the destination lists", () => {
   it("counts this window's own sessions in this console's words when the node refused", async () => {
     const { container } = renderSurface(
       <SessionsSurface
-        context={contextWith({ sessionStore: storeHolding(["session-a", "session-b"]) })}
+        context={contextWith({
+          openStores: [
+            storeHolding({ sessionId: "session-a" }),
+            storeHolding({ sessionId: "session-b" }),
+          ],
+        })}
       />,
     );
     await settle();
@@ -137,10 +142,124 @@ describe("what the destination lists", () => {
 
   it("reads one session as one rather than as a quantity", async () => {
     const { container } = renderSurface(
-      <SessionsSurface context={contextWith({ sessionStore: storeHolding(["session-a"]) })} />,
+      <SessionsSurface
+        context={contextWith({ openStores: [storeHolding({ sessionId: "session-a" })] })}
+      />,
     );
     await settle();
     expect(container.textContent ?? "").toContain("One session is open in this console.");
+  });
+});
+
+describe("what an open session contributes to its row", () => {
+  // The regression these three close: this destination is mounted at an address that
+  // names no session, so the frame hands it `undefined` for the route's store and the
+  // list used to be built from that. Every locally open session was reduced to its
+  // identifier — no projected touched time to order by, no participants on the row —
+  // and the ordering sentence the design opens with had nothing to order.
+
+  /** The session identifiers the list renders, in the order it renders them. */
+  function listedSessionIds(container: HTMLElement): readonly string[] {
+    return [...container.querySelectorAll(".meridian-session-row__name")].map(
+      (name) => name.textContent ?? "",
+    );
+  }
+
+  it("orders two open sessions by the touched time their own stores project", async () => {
+    const { container } = renderSurface(
+      <SessionsSurface
+        context={contextWith({
+          openStores: [
+            storeHolding({ sessionId: "session-older", touchedAtIso: "2026-01-01T09:00:00.000Z" }),
+            storeHolding({ sessionId: "session-newer", touchedAtIso: "2026-01-01T11:00:00.000Z" }),
+          ],
+        })}
+      />,
+    );
+    await settle();
+
+    // Newest first, and the stores are handed over oldest-first so insertion order
+    // cannot be what produced this.
+    expect(listedSessionIds(container)).toStrictEqual(["session-newer", "session-older"]);
+  });
+
+  it("carries an open session's participants onto its row", async () => {
+    const { container } = renderSurface(
+      <SessionsSurface
+        context={contextWith({
+          openStores: [
+            storeHolding({
+              sessionId: "session-a",
+              participantIds: ["participant-mira", "participant-tomas"],
+            }),
+          ],
+        })}
+      />,
+    );
+    await settle();
+
+    const participants = container.querySelector(".meridian-session-row__participants");
+    expect(participants?.textContent).toContain("participant-mira");
+    expect(participants?.textContent).toContain("participant-tomas");
+  });
+
+  it("leaves a directory-only session as its directory row", async () => {
+    // The other side of the same merge: a session on the node that this window has
+    // not opened has no projection, and must not borrow the open session's people.
+    const { container } = renderSurface(
+      <SessionsSurface
+        context={contextWith({
+          directorySessionIds: ["session-elsewhere"],
+          openStores: [
+            storeHolding({ sessionId: "session-a", participantIds: ["participant-mira"] }),
+          ],
+        })}
+      />,
+    );
+    await settle();
+
+    expect(listedSessionIds(container)).toContain("session-elsewhere");
+    expect(container.querySelectorAll(".meridian-session-row__participants")).toHaveLength(1);
+  });
+
+  it("negative control: the route-scoped store contributes nothing here", async () => {
+    // This address opens no store, so a list that read `context.sessionStore` read
+    // `undefined` forever. Supplying one and finding none of it on screen is what
+    // proves the source moved to the registry rather than merely being widened.
+    const { container } = renderSurface(
+      <SessionsSurface
+        context={contextWith({
+          directorySessionIds: [],
+          sessionStore: storeHolding({
+            sessionId: "session-route",
+            participantIds: ["participant-route"],
+          }),
+        })}
+      />,
+    );
+    await settle();
+
+    expect(listedSessionIds(container)).toStrictEqual([]);
+    expect(container.textContent ?? "").not.toContain("participant-route");
+  });
+
+  it("negative control: the same store reached through the registry is listed", async () => {
+    // Without this, the case above would pass over a list that had stopped reading
+    // any store at all.
+    const { container } = renderSurface(
+      <SessionsSurface
+        context={contextWith({
+          directorySessionIds: [],
+          openStores: [
+            storeHolding({ sessionId: "session-route", participantIds: ["participant-route"] }),
+          ],
+        })}
+      />,
+    );
+    await settle();
+
+    expect(listedSessionIds(container)).toStrictEqual(["session-route"]);
+    expect(container.textContent ?? "").toContain("participant-route");
   });
 });
 
