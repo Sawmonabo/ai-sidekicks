@@ -23,6 +23,11 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
+// Rule 4's mono provenance signature. Through the door because the frame renders
+// session ids with it, and a surface that reached for its own mono span would be
+// the second rendering of the one claim this primitive exists to make.
+export { WireFigure } from "./Figure.js";
+
 export type { ChordPlatform } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,
@@ -36,15 +41,21 @@ export {
 // the second speaker this module exists to prevent.
 export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 
+// The announcer itself, because `LiveAnnouncerProvider`'s `announcer` prop is part of
+// that component's public shape: a caller that supplies one — the frame does not, a
+// surface's own tier does — has to be able to build one, and reaching past the barrel
+// for the class while taking the provider through it would be one seam entered two ways.
+export { LiveAnnouncer } from "./live-announcer.js";
+
+// The one way a surface says its read landed. Through this door beside the announcer
+// itself, because the two are one seam: a family that reached for `useAnnounce`
+// directly to say a settlement would be re-writing the once-per-sentence rule, and
+// the rule is the whole reason this hook exists rather than a bare call.
+export { useSettlementAnnouncement } from "./settlement-announcement.js";
+
 export { Nothing } from "./Nothing.js";
 
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  InlineRefusal,
-  RefusalBanner,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  RefusalCard,
-} from "./Refusal.js";
+export { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -61,7 +72,6 @@ export type {
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   CHIP_TONES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   Chip,
 } from "./Chip.js";
 
@@ -80,18 +90,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
 } from "./Figure.js";
-// Rule 4's mono provenance signature. Through the door because the frame renders
-// session ids with it, and a surface that reached for its own mono span would be
-// the second rendering of the one claim this primitive exists to make.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  DerivedFigure,
-  // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and
-  // `frame/WireChoiceList.tsx` both render identifiers through it — so the tag that
-  // stood here was the half of the marker its importing change owed and did not
-  // pay. `--treat-tag-hints-as-errors` is what reported the debt.
-  WireFigure,
-} from "./Figure.js";
+export { DerivedFigure } from "./Figure.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -102,16 +101,15 @@ export type {
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatByteQuantity,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatClockTime,
   formatCount,
+  formatDateTime,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatDuration,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatMoney,
+  formatPercent,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatRate,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatRelativeTime,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatWireString,

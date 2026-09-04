@@ -107,6 +107,14 @@
 //       trip; the chattiness is a noted Tier-8 optimization, not a Tier-3
 //       concern.)
 //
+//   BOTH READS TRAVEL THROUGH ONE OPTIONAL SEAM. The pair above is the DEFAULT
+//   (`INSTALLED_BRIDGE_READS`), not the only possibility: a host that resolves
+//   its own bridge holds a different object from the installed one and cannot
+//   otherwise stand in for it, so `NodeRosterProps.reads` lets it hand the pair
+//   in. Omitting the prop is what every existing caller does and reaches exactly
+//   the `window.sidekicks` calls described above; nothing about the wire names,
+//   the ordering, the guards, or the render moves either way.
+//
 //   Subscribe-BEFORE-initial-read ordering is deliberate (identical rationale
 //   to participant-roster): a node-state change landing AFTER the snapshot but
 //   BEFORE the subscription installs would otherwise be lost, leaving the
@@ -164,6 +172,7 @@ import { useEffect, useState } from "react";
 
 import type {
   RuntimeNodeRosterEntry,
+  RuntimeNodeRosterRequest,
   RuntimeNodeRosterResponse,
   SessionId,
   Unsubscribe,
@@ -230,6 +239,76 @@ const ROSTER_READ_PROCEDURE = "runtimenode.roster";
 const RUNTIME_NODE_ONLINE_EVENT = "runtime_node.online";
 
 /**
+ * The two reads this view performs, as one substitutable seam.
+ *
+ * ADDITIVE AND OPTIONAL. The default below is exactly the pair this view has
+ * always used — `window.sidekicks.controlPlane.call(ROSTER_READ_PROCEDURE, …)`
+ * and `window.sidekicks.daemon.subscribe(RUNTIME_NODE_ONLINE_EVENT, …)` — so a
+ * caller that supplies nothing gets the shipped behaviour unchanged, and every
+ * existing caller and test is unaffected.
+ *
+ * It exists because a HOST that resolves its own bridge cannot stand in for the
+ * installed one: it holds a different object, and this view reads the global. A
+ * host that holds the pair can now hand them in, and one that does not gets the
+ * global. Neither the wire names above nor anything this view renders moves.
+ *
+ * The seam is narrower than the bridge surfaces it defaults to, deliberately.
+ * `readRoster` takes the registered REQUEST and no procedure name, and
+ * `subscribePresence` takes the session and no event name, because which
+ * procedure answers a roster read and which registered `runtime_node.*` names a
+ * presence subscription carries are facts about the wire rather than choices a
+ * host makes — a seam that took them as arguments would invite a second, quieter
+ * answer to both.
+ *
+ * A HOST HOLDS ONE PAIR PER TRANSPORT. The effect below depends on this object's
+ * identity, because a replaced transport is the one change a session-keyed
+ * dependency cannot see, so a pair composed fresh on every render resubscribes on
+ * every render. That is a host's own doing rather than a hazard hidden here: the
+ * console's mount caches one seam per bridge, and the default arm is a module
+ * constant.
+ */
+export interface NodeRosterReads {
+  /** One session's roster snapshot, as the registered read answers it. */
+  readRoster: (request: RuntimeNodeRosterRequest) => Promise<RuntimeNodeRosterResponse>;
+  /**
+   * Node presence transitions for one session, as an opaque change signal.
+   *
+   * The handler takes NO payload, which is the same posture the effect below
+   * already holds the installed subscription to: a push says WHEN to re-read and
+   * the control-plane snapshot stays the source of the rendered set.
+   */
+  subscribePresence: (sessionId: SessionId, onPresenceChange: () => void) => Unsubscribe;
+}
+
+/**
+ * The default seam: the installed bridge, reached exactly as it always was.
+ *
+ * Each member reaches `window.sidekicks` when it is CALLED rather than when this
+ * object is built, so a host that supplies its own seam never touches the global
+ * — including in a window where no preload ran and the global is absent. The two
+ * brand casts are the ones this file has always carried; they move here with the
+ * calls they annotate and are described in the effect's own notes below.
+ */
+const INSTALLED_BRIDGE_READS: NodeRosterReads = {
+  readRoster: (request) => {
+    const callProcedure = window.sidekicks.controlPlane.call as (
+      procedure: string,
+      input: RuntimeNodeRosterRequest,
+    ) => Promise<RuntimeNodeRosterResponse>;
+    return callProcedure(ROSTER_READ_PROCEDURE, request);
+  },
+  subscribePresence: (sessionId, onPresenceChange) => {
+    const subscribeNodeHealth = window.sidekicks.daemon.subscribe as (
+      event: string,
+      handler: (payload: unknown) => void,
+    ) => Unsubscribe;
+    return subscribeNodeHealth(RUNTIME_NODE_ONLINE_EVENT, () => {
+      onPresenceChange();
+    });
+  },
+};
+
+/**
  * Props for {@link NodeRoster}.
  *
  * `sessionId` is the branded {@link SessionId} of the session whose node roster
@@ -244,6 +323,13 @@ const RUNTIME_NODE_ONLINE_EVENT = "runtime_node.online";
  */
 export interface NodeRosterProps {
   sessionId: SessionId;
+  /**
+   * Where the two reads come from. Omitted, they come from the installed bridge.
+   *
+   * Optional rather than required so that adding it changes nothing for a caller
+   * that had none — see {@link NodeRosterReads} for why a host would supply one.
+   */
+  reads?: NodeRosterReads;
 }
 
 // Discriminated-union view state — identical three-state shape to
@@ -282,7 +368,10 @@ type RosterViewState =
  * consumers structurally consistent and fits the Tier-1 sync-throw
  * normalization (which needs explicit `try/catch` around the bridge calls).
  */
-export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
+export function NodeRoster({
+  sessionId,
+  reads = INSTALLED_BRIDGE_READS,
+}: NodeRosterProps): React.JSX.Element {
   const [rosterViewState, setRosterViewState] = useState<RosterViewState>({ kind: "loading" });
 
   // Session-identity prop reset (React's "Adjusting some state when a prop
@@ -327,43 +416,22 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
     // `unsubscribe?.()` in cleanup is a safe no-op.
     let unsubscribe: Unsubscribe | undefined;
 
-    // `CpProcedure` brand cast (Plan-002/Plan-008 follow-up), tightened to the
-    // real types — the control-plane analog of the `DaemonMethod` brand cast
-    // in participant-roster. The bridge declares
-    // `controlPlane.call<P extends CpProcedure>(procedure: P, input: CpInput<P>):
-    // Promise<CpOutput<P>>` where `CpProcedure` is a `never`-shaped brand at
-    // Tier 1 (desktop-bridge.ts:99) — no string literal is structurally
-    // assignable to it until the control-plane tRPC surface narrows the brand
-    // to the real procedure union. The procedure-name string stays loosely
-    // `string` (the genuinely untypeable part), but we PIN input →
-    // `{ sessionId: SessionId }`
-    // (`packages/contracts/src/runtime-node.ts#RuntimeNodeRosterRequest`,
-    // built from the branded prop) and return →
-    // `Promise<RuntimeNodeRosterResponse>` (the SHIPPED T5.0b response DTO —
-    // no local view-model), so the request object is type-checked at the call
-    // site and the resolved value needs no downstream cast. Same
-    // single-documented-cast posture as participant-roster's `readPresence`
-    // (an improvement over `SessionBootstrap`'s loose `unknown`/`unknown`).
-    const readRoster = window.sidekicks.controlPlane.call as (
-      procedure: string,
-      input: { sessionId: SessionId },
-    ) => Promise<RuntimeNodeRosterResponse>;
-
-    // `DaemonEvent` brand cast (Plan-007 follow-up), same posture as
-    // participant-roster's `subscribePresence`. The bridge declares
-    // `daemon.subscribe<E extends DaemonEvent>(event: E, handler: (payload:
-    // DaemonEventPayload<E>) => void): Unsubscribe` where `DaemonEvent` is a
-    // `never`-shaped brand (desktop-bridge.ts:81) and `DaemonEventPayload<E>`
-    // is `unknown` (desktop-bridge.ts:87). We pin the event name to `string`
-    // (the untypeable part) and the handler payload to `unknown` — we do NOT
-    // decode it (it is an opaque change-signal; see the header), so a tighter
-    // payload type would be a fiction here. This single brand bypass lifts
-    // when Plan-007 lands the narrowed `DaemonEvent` union + event-to-payload
-    // map.
-    const subscribeNodeHealth = window.sidekicks.daemon.subscribe as (
-      event: string,
-      handler: (payload: unknown) => void,
-    ) => Unsubscribe;
+    // The seam this effect performs both of its reads through — the installed
+    // bridge by default, or whatever the host handed in.
+    //
+    // The two brand casts the default arm carries are the ones this file has
+    // always carried, and they now live beside the calls they annotate in
+    // `INSTALLED_BRIDGE_READS` above. `CpProcedure` (Plan-002/Plan-008
+    // follow-up) and `DaemonEvent` (Plan-007 follow-up) are both `never`-shaped
+    // brands at Tier 1 (desktop-bridge.ts:99 and :81), so no string literal is
+    // structurally assignable to either until those surfaces narrow; the
+    // procedure and event NAMES stay loosely `string` (the genuinely untypeable
+    // part) while the request and the response are pinned to the shipped DTOs,
+    // and the subscribe payload stays `unknown` because it is an opaque
+    // change-signal this view never decodes (see the header). Reading them from
+    // this seam rather than from the global is what makes the pair
+    // substitutable; it changes neither cast nor either wire name.
+    const { readRoster, subscribePresence } = reads;
 
     // Shared decoded-snapshot read. Used for BOTH the initial read and every
     // subscribe-triggered refresh. The async-IIFE shape funnels a SYNCHRONOUS
@@ -387,7 +455,7 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
       const requestSequence = ++latestRequestSequence;
       void (async () => {
         try {
-          const rosterResponse = await readRoster(ROSTER_READ_PROCEDURE, { sessionId });
+          const rosterResponse = await readRoster({ sessionId });
           if (cancelled || requestSequence !== latestRequestSequence) return;
           // No cast — the tightened brand cast above already types the
           // resolved value as the shipped `RuntimeNodeRosterResponse`. The
@@ -424,9 +492,12 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
     // 1. Subscribe to the change-signal stream FIRST, BEFORE the initial read
     //    (same ordering rationale as participant-roster: a change landing
     //    after the snapshot but before the subscription installs would
-    //    otherwise be lost). The synchronous `subscribeNodeHealth(...)` call
+    //    otherwise be lost). The synchronous `subscribePresence(...)` call
     //    gets its OWN `try/catch` because at Tier 1 it throws synchronously
-    //    (`() => tier1Throw("daemon.subscribe")`, desktop-bridge.ts:350); an
+    //    (`() => tier1Throw("daemon.subscribe")`, desktop-bridge.ts:350) — and
+    //    an injected seam whose host has no live channel throws here too, so
+    //    the arm covers both and neither leaves the view believing it is live;
+    //    an
     //    uncaught throw here would crash the effect callback and strand the
     //    view. On the throw we drive the error state, same envelope as the
     //    read. The initial `refreshSnapshot()` sits INSIDE this `try` (step 2)
@@ -437,7 +508,7 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
     //    instant before unmount cannot `setState` after cleanup); we do NOT
     //    consume the event payload — it is an opaque change-signal.
     try {
-      unsubscribe = subscribeNodeHealth(RUNTIME_NODE_ONLINE_EVENT, () => {
+      unsubscribe = subscribePresence(sessionId, () => {
         refreshSnapshot();
       });
 
@@ -460,11 +531,28 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
       // `?.()` no-ops when the Tier-1 subscribe threw before assigning.
       unsubscribe?.();
     };
-    // `[sessionId]` (not `[]`): the effect reads and subscribes for a specific
-    // session, so changing the prop must tear down the old subscription and
-    // re-run for the new one. `SessionId` is a string brand, so referential
-    // equality holds and the effect does not re-run on unrelated re-renders.
-  }, [sessionId]);
+    // `[sessionId, reads]` (not `[]`, and not `[sessionId]`): the effect reads
+    // and subscribes through a specific transport for a specific session, so a
+    // change to EITHER must tear down the old subscription and re-run.
+    // `SessionId` is a string brand, so referential equality holds there and the
+    // effect does not re-run on unrelated re-renders.
+    //
+    // `reads` is a dependency because "same session, different transport" is a
+    // state a host genuinely reaches: the console's bridge provider REPLACES its
+    // resolution without remounting its children — on a supplied-bridge or
+    // scenario change, and again when its own engine has been disposed and a
+    // second mount must take a fresh one. Left out, this effect would stay
+    // subscribed to the superseded bridge, keep reading a disposed engine, and
+    // show stale rows with nothing on screen saying so.
+    //
+    // What makes the dependency safe is that the seam is STABLE PER BRIDGE
+    // rather than composed per render — the console's mount caches one pair per
+    // bridge identity, and the default arm below is a module constant. So a
+    // re-run means the transport genuinely changed, which is exactly the churn
+    // the previous omission was reaching for and the correctness it gave up to
+    // get it. A host that composes a fresh pair on every render is asking for a
+    // resubscribe on every render, which is the honest reading of what it did.
+  }, [sessionId, reads]);
 
   if (rosterViewState.kind === "loading") {
     // `aria-busy` announces the in-flight initial snapshot to assistive tech.

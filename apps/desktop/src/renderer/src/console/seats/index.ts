@@ -115,17 +115,13 @@ export {
   SIDEBAR_SECTION_IDS,
   /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   registerSidebarSection,
-  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionContext,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
@@ -176,8 +172,35 @@ export {
 } from "./inline-card-seats.js";
 
 export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-6 */
   OwnerSlotContract,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   OwnerSlotProps,
 } from "./owner-slot.js";
+
+// The read discipline every live wire read in this console follows — subscribe
+// first, answer a push with a fresh read, one read per burst through the refresh
+// chokepoint, never a flicker. It sits here rather than in the family that wrote it
+// because four view families now hold one, and a second copy would be a second set
+// of answers to when a surface re-reads.
+// The failure-code vocabulary, the options shape, and the codes' derived union stay
+// inside this family: their readers are the module itself and the suite beside it,
+// and a barrel specifier no cross-family import uses is a dead export rather than a
+// convenience.
+export {
+  PushDrivenRead,
+  consoleRefusalFrom,
+  usePushDrivenRead,
+  type PushDrivenReadState,
+} from "./push-driven-read.js";
+
+// What a session-scoped holder was built for, and whether it still is. Two view
+// families hold one set of models each and both had written the same guard against
+// the session id alone; siblings may not import each other, so the shared predicate
+// lives at the lowest family above both.
+export { isCurrentSessionSubject, type SessionSubject } from "./session-subject.js";
+
+// The console's single copy of the daemon-method cast, for the same reason: the
+// brand `SidekicksBridge.daemon.call` takes is `never`-shaped until Plan-007 narrows
+// it, and every caller casts. One module casts, and the day the brand narrows one
+// file changes.
+export { callDaemonMethod, subscribeDaemonEvent } from "./wire-access.js";

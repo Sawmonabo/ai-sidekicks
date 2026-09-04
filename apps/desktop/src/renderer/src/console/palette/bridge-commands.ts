@@ -114,6 +114,17 @@ const CLIPBOARD_REFUSAL_DETAIL =
 const UPDATE_REFUSAL_DETAIL =
   "The update check could not start. The updater runs in the main process, and this window could not reach it.";
 
+/**
+ * Perform one act, and route either kind of failure to the sink.
+ *
+ * `act` is CALLED INSIDE the `try` rather than awaited from outside it, and that
+ * placement is the contract: the shipped Tier-1 bridge implements every method as a
+ * synchronous `throw`, while the fixture bridge refuses by returning a rejected
+ * promise. A boundary attached to the returned promise would catch the fixture and
+ * let the release build's throw escape into the palette's fire-and-forget dispatch,
+ * which drops it — so the person who pressed Enter would see nothing on the one
+ * build they actually run.
+ */
 async function settle(
   onRefusal: BridgeCommandRefusalSink,
   code: BridgeCommandRefusalCode,

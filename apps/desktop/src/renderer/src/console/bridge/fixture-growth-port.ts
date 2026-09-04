@@ -174,6 +174,8 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   // identity — answered from a scenario that states its own viewer, refused from one
   // that does not.
   "callerParticipantRead",
+  // invites
+  "invitesList",
 ] as const;
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -255,6 +257,25 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       }
       return { status: "served", value: { participantId: viewingParticipantId } };
     },
+    // invites
+    invitesList: async (request) =>
+      // Routed through the scripted-reply seam on the branch-context read's rule, and
+      // answered with the EMPTY LEDGER when a scenario scripts nothing. The two facts
+      // are different and the surface draws them differently: "the read is not
+      // registered" is what a release build renders, and "this session has sent
+      // nobody an invitation" is a state the sent-invite ledger and the received-
+      // invite shelf both have to draw and could reach from no scenario at all while
+      // this operation refused.
+      //
+      // The REQUEST travels with the call for the reason the seam states: a scenario
+      // answers through `resultFor`, which is handed exactly what the caller sent, and
+      // a helper called without it computes every answer about no session at all.
+      //
+      // An empty array is a legitimate daemon answer here in a way it is NOT for the
+      // callback-tool registry next door: an invite ledger with no rows is an ordinary
+      // session, whereas a withheld tool registry and an empty one are different
+      // answers to different questions.
+      answerFromScriptedReply(engine, "invite.list", "invitesList", request, () => []),
   };
   return { ...createRefusingGrowthPort(), ...served };
 }

@@ -66,6 +66,18 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+// The attention projection's own vocabulary. Published because the notification
+// plane NARROWS against it: it used to declare a second copy of these six triggers
+// and two severities, which is two closed sets that agree until one of them is
+// widened and nothing notices.
+export {
+  ATTENTION_SEVERITIES,
+  ATTENTION_TRIGGERS,
+  type AttentionItem,
+  type AttentionProjection,
+  type AttentionSeverity,
+  type AttentionTrigger,
+} from "./attention-projection.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

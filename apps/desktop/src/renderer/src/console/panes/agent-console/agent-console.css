@@ -1,0 +1,69 @@
+/* The agent console's own styles.
+ *
+ * Two equal columns at pane width and one column when the pane is narrow: this body
+ * is mounted both in the deck, where it may be half a window wide, and as a whole
+ * auxiliary window, where it is not. The breakpoint is on the CONTAINER rather than
+ * the viewport for exactly that reason — the same body, two very different widths,
+ * and a viewport query would answer about the wrong box in the deck.
+ */
+
+.meridian-agent-console {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  padding: var(--meridian-space-5);
+  min-height: 100%;
+}
+
+.meridian-agent-console__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-agent-console__title {
+  margin: 0;
+  font-size: var(--meridian-text-lg);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-agent-console__subject {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-agent-console__columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--meridian-space-5);
+  align-items: start;
+}
+
+@container (min-width: 720px) {
+  .meridian-agent-console__columns {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.meridian-agent-console__column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  min-width: 0;
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  padding: var(--meridian-space-4);
+}
+
+.meridian-agent-console__column-title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--meridian-text-faint);
+}

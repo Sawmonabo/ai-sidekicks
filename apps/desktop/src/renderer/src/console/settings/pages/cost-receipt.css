@@ -1,0 +1,96 @@
+/* The cost receipt's own styles: one figure, and the three tables that account for it.
+ *
+ * A page-local sheet rather than an addition to the settings family's, on the
+ * `panes/agent-console/agent-console.css` precedent: these rules serve one page and
+ * a family-wide sheet is the file every page lane edits at once.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale.
+ * The one dimension named outright is the amount column's minimum, which is sized to
+ * a five-figure money string in tabular digits so a column of costs shares one right
+ * edge instead of reflowing as rows arrive.
+ */
+
+.meridian-cost-receipt__figure-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-cost-receipt__figure {
+  font-size: var(--meridian-text-xl);
+  color: var(--meridian-text);
+}
+
+.meridian-cost-receipt__figure-caption {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+/* Wide content scrolls inside its own box. A table of run identifiers is the widest
+   thing this page renders, and a page that scrolled sideways as a whole would take
+   the rail with it. */
+.meridian-cost-receipt__scroll {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.meridian-cost-receipt__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-cost-receipt__table caption {
+  margin-bottom: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+  text-align: left;
+}
+
+.meridian-cost-receipt__table th {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge-strong);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.meridian-cost-receipt__table td {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+  color: var(--meridian-text);
+  vertical-align: baseline;
+}
+
+.meridian-cost-receipt__table tr:last-child td {
+  border-bottom: none;
+}
+
+/* Costs share a right edge, which is what makes two of them comparable at a glance
+   without the page ever adding them together. */
+.meridian-cost-receipt__amount {
+  min-width: 9ch;
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* What a billing mode means, carried in the cell beside the figure rather than in a
+   legend elsewhere on the page — the two cannot be read apart, which is the whole
+   point of the sentence on a subscription row. */
+.meridian-cost-receipt__cell-note {
+  display: block;
+  margin-top: var(--meridian-space-1);
+  max-width: 44ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.4;
+}

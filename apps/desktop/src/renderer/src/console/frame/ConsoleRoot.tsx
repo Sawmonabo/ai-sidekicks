@@ -283,6 +283,7 @@ function ConsoleFrame(props: ConsoleFrameProps): React.JSX.Element {
     route,
     lastOpenedSessionId,
     frameStore,
+    uiStateStore,
     chooseScheme,
   });
 

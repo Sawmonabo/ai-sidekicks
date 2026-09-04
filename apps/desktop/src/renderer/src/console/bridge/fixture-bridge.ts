@@ -70,6 +70,10 @@ import {
 } from "./fixture-growth-port.js";
 import { RUN_QUEUE_ROW_READ } from "./queue-row-source.js";
 import { projectRunStreamDelivery } from "./run-stream-projection.js";
+import {
+  readRuntimeNodeRosterFromScenario,
+  subscribeRuntimeNodePresence,
+} from "./runtime-node-roster.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import { composeScenarioEventEnvelope } from "./scenario-envelope.js";
 import type { ConsoleScenario } from "./scenario.js";
@@ -218,6 +222,17 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     // set beside it still described a different one.
     growth: createFixtureGrowthPort(scenarioEngine),
     growthServedOperations: new Set(FIXTURE_SERVED_GROWTH_OPERATION_IDS),
+    // The roster read is answered from the scenario's own frames rather than from
+    // the reply table, because a roster moves and a reply does not. The presence
+    // subscription is answered by this bridge's OWN `daemon.subscribe` above —
+    // which already routes scenario beats by the registered event name — so the
+    // fixture keeps no second reading of which names a presence subscription
+    // carries, and a beat this scenario plays reaches the roster the same way it
+    // would reach it from the daemon.
+    runtimeNodeRosterRead: async (request) =>
+      readRuntimeNodeRosterFromScenario(scenarioEngine, request),
+    runtimeNodePresenceSubscribe: (sessionId, onPresenceChange) =>
+      subscribeRuntimeNodePresence(sidekicks, sessionId, onPresenceChange),
     source: "fixture",
     scenarioEngine,
   };

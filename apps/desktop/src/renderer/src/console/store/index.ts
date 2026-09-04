@@ -19,7 +19,11 @@
 // EVERY kind — a list of the admitted ones grows a hole the day a kind is added,
 // which is how repo and invite went missing from the inspector's scope.
 export { CONSOLE_ENTITY_KINDS } from "./entities.js";
-export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
+// `ConsoleEntity` joins the reference and the event on the line below because a
+// family that reads a PARTITION of the projection — rather than one entity by
+// reference — has to name the row type to derive anything from it. The membership
+// ledger is the first such reader.
+export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names
 // and this family deliberately knows none, so the type travels out and the
@@ -56,6 +60,19 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // SAY is what the registry takes, and the reader is one arm of that union rather
 // than a type anything outside names.
 export type { SessionSnapshotRead } from "./open-session-entry.js";
+
+// The refresh chokepoint, through the same door as the stores it feeds. A view
+// family that refreshes a wire read reaches this scheduler and no other timer:
+// `apps/desktop/AGENTS.md` puts every refresh through `store/scheduling.ts`, and a
+// chokepoint reachable only by deep-importing past this barrel is one a family
+// would route around rather than through.
+export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
+
+// The signal half of a push-driven read, beside the scheduler that coalesces it.
+// It leaves the family because its callers are view families, which are siblings
+// and cannot reach each other — so the second caller's only alternative to this
+// door was the second copy of the filter that this export replaces.
+export { subscribeToSessionEventKinds } from "./session-event-signal.js";
 
 // The partition and initialisation reads leave the family with their first
 // surface caller: the auxiliary window's agent step reads a session's agents,

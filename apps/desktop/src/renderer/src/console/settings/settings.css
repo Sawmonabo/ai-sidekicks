@@ -1,0 +1,622 @@
+/* The settings surface's own styles.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale,
+ * so the rail follows the scheme attribute and the density budget without a
+ * conditional in JSX.
+ *
+ * The rail's width is the one dimension named here rather than taken from the
+ * scale: it is sized to the longest section label at the UI size plus its padding,
+ * and a rail that reflowed with content would move the pane's left edge every time
+ * a section was added.
+ */
+
+.meridian-settings {
+  display: grid;
+  grid-template-columns: 216px minmax(0, 1fr);
+  gap: var(--meridian-space-6);
+  align-items: start;
+  padding: var(--meridian-space-6);
+  min-height: 100%;
+}
+
+.meridian-settings__rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  position: sticky;
+  top: var(--meridian-space-6);
+}
+
+/* --- The search field ---------------------------------------------------- */
+
+.meridian-settings__search {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-settings__search:focus-within {
+  border-color: var(--meridian-accent);
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-settings__search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-settings__search-input:focus-visible {
+  outline: none;
+}
+
+.meridian-settings__search-input::placeholder {
+  color: var(--meridian-text-faint);
+}
+
+/* --- The section rail ---------------------------------------------------- */
+
+.meridian-settings__sections {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-settings__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings__section:hover {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+}
+
+.meridian-settings__section:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The current section carries a hairline in the accent rather than a fill: the
+   rail sits beside a pane that is already a surface, and a filled row would read
+   as a second panel rather than as a selection. */
+.meridian-settings__section[aria-current="page"] {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  box-shadow: inset 2px 0 0 0 var(--meridian-accent);
+}
+
+.meridian-settings__section--result .meridian-settings__result-label {
+  color: inherit;
+}
+
+.meridian-settings__result-section {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/* --- The pane ------------------------------------------------------------ */
+
+.meridian-settings__pane {
+  min-width: 0;
+}
+
+.meridian-settings__page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+.meridian-settings__page-heading {
+  margin: 0;
+  font-size: var(--meridian-text-xl);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-settings__page-body {
+  min-width: 0;
+}
+
+/* --- Page bodies --------------------------------------------------------- */
+/* Appended by the page lanes; the rail and pane above are the surface's. Every
+   page composes the same three shapes — a lede, a block with a title, and rows —
+   so the classes are named for those rather than for any one page. */
+
+.meridian-settings-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-5);
+  min-width: 0;
+}
+
+.meridian-settings-page__lede {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+}
+
+.meridian-settings-page__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-settings-page__block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+  min-width: 0;
+}
+
+.meridian-settings-page__block-title {
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.meridian-settings-page__aside,
+.meridian-settings-page__state {
+  margin: 0;
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}
+
+.meridian-settings-page__state--failed {
+  color: var(--meridian-red-text);
+}
+
+.meridian-settings-page__prose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}
+
+.meridian-settings-page__prose p {
+  margin: 0;
+}
+
+.meridian-settings-page__list {
+  margin: 0;
+  padding-left: var(--meridian-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-settings-page__facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--meridian-space-3);
+  margin: 0;
+}
+
+.meridian-settings-page__fact {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-settings-page__fact dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.meridian-settings-page__fact dd {
+  margin: 0;
+}
+
+.meridian-settings-page__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-settings-page__action {
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings-page__action:hover {
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-settings-page__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-settings-page__action--primary {
+  border-color: var(--meridian-accent);
+  color: var(--meridian-accent);
+}
+
+.meridian-settings-page__progress-label {
+  color: var(--meridian-text);
+}
+
+.meridian-settings-page__progress {
+  display: block;
+  width: 100%;
+  max-width: 320px;
+  height: 4px;
+  margin: var(--meridian-space-2) 0;
+}
+
+/* --- One preference row -------------------------------------------------- */
+
+.meridian-settings-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+.meridian-settings-row__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+  max-width: 56ch;
+}
+
+.meridian-settings-row__label {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.meridian-settings-row__description,
+.meridian-settings-row__note {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-settings-row__note {
+  color: var(--meridian-text-faint);
+}
+
+/* The switch is a `<span>` with a hidden `<input>` beside it, so the track and the
+   thumb are ours to draw and the semantics are the input's. */
+.meridian-settings-row__switch {
+  flex: 0 0 auto;
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 20px;
+  padding: 0;
+  border: 1px solid var(--meridian-edge);
+  border-radius: 999px;
+  background: var(--meridian-surface-raised);
+  cursor: pointer;
+  transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings-row__switch[data-checked] {
+  background: var(--meridian-accent);
+  border-color: var(--meridian-accent);
+}
+
+.meridian-settings-row__switch[data-disabled] {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.meridian-settings-row__switch:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-settings-row__thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--meridian-text);
+  transition: transform var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-settings-row__thumb[data-checked] {
+  transform: translateX(14px);
+  background: var(--meridian-surface);
+}
+
+/* --- A wire vocabulary: the closed set a page's rows will speak ----------- */
+/* Two columns rather than the `__facts` grid, because a term here is a value the
+   daemon sends and `__facts` upper-cases its terms — which would re-case a wire
+   string, and rule 4 is that a wire string renders verbatim. The term column sizes
+   to its content so the definitions share one left edge and read as a list. */
+
+.meridian-settings-page__vocabulary {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  gap: var(--meridian-space-2) var(--meridian-space-4);
+  margin: 0;
+  align-items: baseline;
+}
+
+/* The grid is two columns and each entry is a `dt`/`dd` pair, so the wrapper is
+   `display: contents`: the pair lands in the grid's own tracks rather than in a
+   box of its own, which is what keeps every definition on one left edge. */
+.meridian-settings-page__vocabulary-entry {
+  display: contents;
+}
+
+.meridian-settings-page__vocabulary dt {
+  margin: 0;
+  min-width: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-settings-page__vocabulary dd {
+  margin: 0;
+  min-width: 0;
+  max-width: 62ch;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+}
+
+/* --- The colour-scheme choice ------------------------------------------- */
+/* Three options, no disclosure. The control is Base UI's radio, so the ring and
+   the dot are ours to draw and the semantics are the hidden input's. */
+
+.meridian-scheme-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+}
+
+.meridian-scheme-choice__option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--meridian-space-3);
+  max-width: 62ch;
+  cursor: pointer;
+}
+
+.meridian-scheme-choice__control {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: 999px;
+  background: var(--meridian-surface-raised);
+  cursor: pointer;
+}
+
+.meridian-scheme-choice__control[data-checked] {
+  border-color: var(--meridian-accent);
+}
+
+.meridian-scheme-choice__control:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-scheme-choice__indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--meridian-accent);
+}
+
+.meridian-scheme-choice__text {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-scheme-choice__label {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-scheme-choice__description {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+/* --- The mount inventory ------------------------------------------------- */
+/* One line per mount, with the two health axes side by side. Detail belongs to the
+   workspace surface; this list is scannable or it is nothing. */
+
+.meridian-mount-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-mount-list__item {
+  padding-bottom: var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+.meridian-mount-list__item:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.meridian-mount-list__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-mount-list__path {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  overflow-wrap: anywhere;
+}
+
+.meridian-mount-list__root,
+.meridian-mount-list__probe {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+.meridian-mount-list__axes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  margin-top: var(--meridian-space-1);
+}
+
+/* --- The keyboard map ----------------------------------------------------- */
+/* A scannable list rather than a table: every row carries the same three things,
+   and a chord is read by shape rather than by column position. */
+
+.meridian-keymap__filter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-bottom: var(--meridian-space-4);
+}
+
+.meridian-keymap__filter-label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-keymap__filter-input {
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-keymap__filter-input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-keymap__filter-input::placeholder {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-keymap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-keymap__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding-bottom: var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+}
+
+.meridian-keymap__row:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.meridian-keymap__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-keymap__title {
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-keymap__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-keymap__scope {
+  overflow-wrap: anywhere;
+}
+
+.meridian-keymap__unavailable {
+  margin: 0;
+  color: var(--meridian-red-text);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
