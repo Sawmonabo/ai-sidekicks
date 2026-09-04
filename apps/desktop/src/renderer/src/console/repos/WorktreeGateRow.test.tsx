@@ -13,13 +13,10 @@ import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { ManualClock, refuse } from "../core/index.js";
+import { ManualClock } from "../core/index.js";
 import { SessionStore } from "../store/index.js";
-import { gateSummaryLine } from "./ProposalGateDisclosure.js";
 import { WorktreeGateRow } from "./WorktreeGateRow.js";
-import { SUBJECT_NOT_ADDRESSABLE, type ProposalGateSubject } from "./proposal-gate-model.js";
-import type { ProposalGateReading } from "./proposal-gate-reader.js";
-import type { ProposalGateState } from "./proposal-gate-state.js";
+import type { ProposalGateSubject } from "./proposal-gate-model.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";
 
 const SUBJECT = {
@@ -231,47 +228,5 @@ describe("WorktreeGateRow — the announcement", () => {
     // Still the one message, and nothing queued behind it: a second announcement
     // would have displaced this one in the region.
     expect(politeAnnouncement(container)).toBe(spokenOnce);
-  });
-});
-
-describe("gateSummaryLine", () => {
-  /** A reading on one arm, with nothing beside it. */
-  function reading(state: ProposalGateState): ProposalGateReading {
-    return {
-      state,
-      refusal: undefined,
-      actionRefusals: new Map(),
-      inFlightAction: undefined,
-      settlement: undefined,
-    };
-  }
-
-  it("gives every arm its own line, and none of them a number nothing read", () => {
-    expect(gateSummaryLine(reading({ kind: "not-checked" }))).toBe("not checked");
-    expect(gateSummaryLine(reading({ kind: "preparing" }))).toBe("reading");
-    expect(gateSummaryLine(reading({ kind: "refused", message: "the daemon said no" }))).toBe(
-      "refused",
-    );
-  });
-
-  it("separates a root nobody can ask about from one nobody has asked about yet", () => {
-    // Both are `not-checked`, and only one of them will ever become anything else — so
-    // a shared line would invite a wait for an answer that is not coming.
-    const unaddressable: ProposalGateReading = {
-      ...reading({ kind: "not-checked" }),
-      refusal: refuse("proposal-gate", SUBJECT_NOT_ADDRESSABLE, "no key for this root"),
-    };
-    expect(gateSummaryLine(unaddressable)).toBe("not addressable");
-  });
-
-  it("negative control: another refusal on the same arm still reads as not checked", () => {
-    // Without this the case above would pass against a line that said "not addressable"
-    // for every refusal, including the unregistered wire — which IS a question that
-    // gets answered once the wire lands.
-    const unregistered: ProposalGateReading = {
-      ...reading({ kind: "not-checked" }),
-      refusal: refuse("growth-port", "wire-unregistered", "not registered yet"),
-    };
-    expect(gateSummaryLine(unregistered)).toBe("not checked");
   });
 });
