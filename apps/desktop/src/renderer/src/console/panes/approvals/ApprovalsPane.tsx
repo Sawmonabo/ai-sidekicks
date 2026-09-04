@@ -120,6 +120,11 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   return (
     <div className="meridian-approvals" ref={paneRootRef}>
       <SessionGoalCard
+        // The subject the card's editor is held under, so a rebind to another
+        // session opens on that session's own closed card rather than carrying a
+        // draft written for the one before it.
+        bridge={bridge}
+        sessionId={props.sessionStore.sessionId}
         goal={goal}
         // Resolved rather than assumed: the caller-identity read chained to this
         // session's own roster answers which role this window holds, and the goal

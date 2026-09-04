@@ -11,11 +11,24 @@
 // second turn — and Sent is the wire's own row appearing in the ledger rather than
 // a row this hook draws, which is why there is no `sent` member here to render.
 //
-// THE SINGLE-FLIGHT LATCH IS A REF AND NOT THE STATUS. `status` is what the surface
-// RENDERS, and a handler reading it sees the value from the render that produced
-// the handler — so two Enter presses inside one frame both read `idle` and both
-// dispatch, queueing two turns from one intent. The ref is set before the await and
-// cleared in `finally`, which makes the second press a no-op in the same tick.
+// EVERY OPERATION STATE IS KEYED TO THE ADDRESS THE ACT WAS ISSUED AT, and the
+// latch is not the status. `status` is what the surface RENDERS, and a handler
+// reading it sees the value from the render that produced it — so two Enter presses
+// in one frame both read `idle` and both dispatch. Both were also hook-wide, so a
+// send or a Stop still travelling for one target held the composer as the person
+// re-addressed it: the new target's line stayed read-only and its own control
+// unavailable until the previous call settled, forever where it never did. Both
+// halves are keyed through the holders `console/bridge/` publishes rather than
+// through anything local. `BridgeScopedLatch` holds the in-flight slot under
+// `(bridge, addressedOperationKey(draftKey, operation))`, claimed before the await
+// and released in `finally`, which makes a second press at the SAME address a no-op
+// in the same tick and leaves another address free; `useSubjectScopedState` holds
+// `status` and `isStopping` under `(bridge, draftKey)` and resets them during the
+// render that first sees a new address, so the new target reads idle on its first
+// frame rather than one frame later. Their dispositions for a late settlement
+// differ, deliberately: it releases the exact slot it claimed even after the
+// composer has moved on, while the READING it would have published is dropped —
+// that reading describes an act at an address this composer is no longer on.
 //
 // THE DISCLOSURE IS MADE WHERE IT IS TRUE. The store arms a sentence about unsent
 // text — "not saved between restarts" — and the composer used to render it from the
@@ -27,15 +40,15 @@
 // store's flag is still consumed at that first focus, so a window tells one composer
 // and no other repeats it.
 //
-// STOP HAS ITS OWN LATCH AND NOT THE SEND ONE. `driver.interruptRun` is not
+// STOP HAS ITS OWN SLOT AND NOT THE SEND ONE. `driver.interruptRun` is not
 // idempotent: a second press issues a second interrupt, and once the first has
 // retired the active turn the duplicate refuses with no live run — a misleading
-// refusal standing beside an interrupt that worked. So Stop takes the same ref
-// pattern the send path takes, for the same reason, and deliberately NOT the same
-// ref: interrupting a turn while a send is in flight is exactly what the control
-// exists for, and sharing the latch would put Stop behind the state it escapes. A
-// second press while the first is held is silent, as `dispatch`'s own is — the
-// person pressed the control for the interrupt already going.
+// refusal standing beside an interrupt that worked. So Stop claims a slot of its
+// own, which is what carrying the OPERATION in the latch key buys: interrupting a
+// turn while a send is in flight is exactly what the control exists for, and one
+// slot per address would put Stop behind the state it escapes. A second press while
+// the first is held is silent, as `dispatch`'s own is — the person pressed the
+// control for the interrupt already going.
 //
 // THE HISTORY WALK IS PER ADDRESS FOR THE SAME REASON. One history for the life of
 // the mounted bar carried an address's sent messages, and any walk in progress, into
@@ -82,7 +95,11 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../../../console/core/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import {
+  BridgeScopedLatch,
+  useSubjectScopedState,
+  type ConsoleBridge,
+} from "../../../console/bridge/index.js";
 import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import type { CommandExecutor } from "./command-executor.js";
@@ -99,6 +116,7 @@ import {
 } from "./directive-line.js";
 import {
   NO_COMPOSER_REFUSALS,
+  addressedOperationKey,
   isSettlementCurrent,
   renderableRefusal,
   withSettledRefusal,
@@ -234,15 +252,12 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // in state would re-render the whole bar on a keystroke that changed nothing a
   // person can see.
   const historiesRef = useRef<AddressedDirectiveHistories>(new AddressedDirectiveHistories());
-  // Set before the await and cleared in `finally`, so every settlement — sent,
+  // Claimed before the await and released in `finally`, so every settlement — sent,
   // intercepted, refused, or a rejection the router turned into a refusal — releases
-  // it on exactly one path rather than on the arms an author remembered.
-  const isDispatchInFlight = useRef(false);
-  // Stop's own, on the same pattern and for the same reason. Separate because a stop
-  // is reachable while a send is in flight.
-  const isInterruptInFlight = useRef(false);
-  const [status, setStatus] = useState<SendControllerStatus>("idle");
-  const [isStopping, setStopping] = useState(false);
+  // the slot on exactly one path rather than on the arms an author remembered. A
+  // `useState` initializer rather than a `useMemo`, on `approvals-hooks.ts`'s
+  // reasoning: a latch React was free to rebuild would forget an act still going.
+  const [operationLatch] = useState(() => new BridgeScopedLatch());
   const [refusalSlots, setRefusalSlots] = useState(NO_COMPOSER_REFUSALS);
   const [resendOffer, setResendOffer] = useState<AddressedResendOffer | undefined>(undefined);
   // Armed by the first focus of this composer, and only where the store still owed
@@ -251,6 +266,16 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const [isRestartNoticeArmed, setRestartNoticeArmed] = useState(false);
 
   const draftKey = composerDraftKey(target);
+  // What the bar renders while an act is travelling, held under the address that act
+  // was issued at. Two holders rather than one object: a send and a Stop can be in
+  // flight at once, and one publisher writing a pair would let whichever settled
+  // second overwrite what the other had just said.
+  const [status, publishStatus] = useSubjectScopedState<SendControllerStatus>(
+    bridge,
+    draftKey,
+    "idle",
+  );
+  const [isStopping, publishStopping] = useSubjectScopedState(bridge, draftKey, false);
   // The address a settlement is measured against is the composer's CURRENT one, and a
   // dispatch's own closure holds the address it was ISSUED at — so the current key
   // travels through a ref that every render refreshes, and the two are compared where
@@ -317,14 +342,16 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   const dispatch = useCallback(
     async (body: string) => {
-      if (isDispatchInFlight.current) {
-        // Silent rather than refused: the person pressed Send for the message that
-        // is already going, and a refusal card would report a failure where the
-        // only thing that happened is that they were early.
+      // Claimed for THIS address, so a message already going to another target is no
+      // reason to refuse this one. A second press at this address is silent rather
+      // than refused: the person pressed Send for the message that is already going,
+      // and a refusal card would report a failure where the only thing that happened
+      // is that they were early.
+      const latchKey = addressedOperationKey(draftKey, "send");
+      if (!operationLatch.claim(bridge, latchKey)) {
         return;
       }
-      isDispatchInFlight.current = true;
-      setStatus("sending");
+      publishStatus("sending");
       // Captured BEFORE the await, so what settles is measured against the address the
       // person sent from rather than the one they are looking at when it lands.
       const identity = issueSettlementIdentity("send");
@@ -367,11 +394,16 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
             return;
         }
       } finally {
-        isDispatchInFlight.current = false;
-        setStatus("idle");
+        // The slot released is the one this act claimed, which is what lets a
+        // settlement arriving after a re-address free the address it was issued at
+        // rather than the one on screen. The reading is published through this
+        // address's own publisher, so it lands only while that address is current.
+        operationLatch.release(bridge, latchKey);
+        publishStatus("idle");
       }
     },
     [
+      bridge,
       router,
       target,
       draftStore,
@@ -379,6 +411,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       commandExecutor,
       history,
       issueSettlementIdentity,
+      operationLatch,
+      publishStatus,
       settle,
     ],
   );
@@ -395,11 +429,11 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   );
 
   const stop = useCallback(async () => {
-    if (isInterruptInFlight.current) {
+    const latchKey = addressedOperationKey(draftKey, "stop");
+    if (!operationLatch.claim(bridge, latchKey)) {
       return;
     }
-    isInterruptInFlight.current = true;
-    setStopping(true);
+    publishStopping(true);
     // Stop's settlement is Stop's own: it writes the `stop` slot and clears the `stop`
     // slot, and it neither erases nor is erased by whatever the send path settled as.
     const identity = issueSettlementIdentity("stop");
@@ -407,10 +441,19 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       const outcome = await router.stop(target);
       settle(identity, outcome.status === "refused" ? outcome.refusal : undefined);
     } finally {
-      isInterruptInFlight.current = false;
-      setStopping(false);
+      operationLatch.release(bridge, latchKey);
+      publishStopping(false);
     }
-  }, [router, target, issueSettlementIdentity, settle]);
+  }, [
+    bridge,
+    router,
+    target,
+    draftKey,
+    issueSettlementIdentity,
+    operationLatch,
+    publishStopping,
+    settle,
+  ]);
 
   const recallOlder = useCallback(
     (caret: DirectiveCaret) => {
