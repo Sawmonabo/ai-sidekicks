@@ -87,11 +87,11 @@ export type { QueueFeed, QueueReadPhase } from "./queue-reading.js";
 // have rendered a fixture. A settings surface listing accounts asks the same
 // question of the same registry, so the read lives at the bridge where both reach it.
 //
-// The reading and the fold are two modules and the door re-exports each symbol from
-// the one that DECLARES it: `provider-quota-fold.ts` owns which reading is current
-// and what a surface renders for it, `provider-account-quota.ts` owns the wire that
-// feeds it.
-export { useProviderQuotas } from "./provider-account-quota.js";
+// Three modules, and the door re-exports each symbol from the one that DECLARES it:
+// `provider-quota-fold.ts` owns which reading is current and what a surface renders
+// for it, `provider-account-quota.ts` owns the wire that feeds it, and
+// `provider-quota-feed.ts` owns how many readings there are and how long each lives.
+export { useProviderQuotas } from "./provider-quota-feed.js";
 export type { ProviderQuotaReadPhase, ProviderQuotaReadout } from "./provider-account-quota.js";
 export { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-account-quota.js";
 export { remainingPercentOf } from "./provider-quota-fold.js";

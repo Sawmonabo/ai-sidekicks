@@ -22,11 +22,26 @@
 // — the stream closes with the last watcher, and a surface that mounts later reads
 // afresh rather than being handed a list that stopped being updated.
 //
-// THE FOLD ITSELF LIVES BESIDE THIS FILE. `provider-quota-fold.ts` owns which reading
-// is current for each `(accountId, limitId)` and what a surface renders for it; this
-// module owns the wire that feeds it and what the console says when the wire could not
-// be read. The split is what lets the supersession rules be driven from a test with no
-// bridge and no React.
+// THIS MODULE IS ONE OF THREE, AND THE SPLIT FOLLOWS THE QUEUE READING'S.
+// `provider-quota-fold.ts` owns which reading is current for each
+// `(accountId, limitId)` and what a surface renders for it — pure, so the
+// supersession rules are drivable with no bridge and no React. This module owns the
+// WIRE: one read, one tail, and what the console says when either could not be read.
+// `provider-quota-feed.ts` owns how many readings exist and how long each lives.
+//
+// THE TAIL OPENS BEFORE THE READ, SO NOTIFICATIONS ARE BUFFERED ACROSS IT. The
+// registry read answers with the whole registry at ONE instant, and the tail has
+// already moved past that instant by the time the reply lands — so an
+// `account_removed` or an `account_changed` that arrives in between, applied on
+// arrival, was then overwritten by the reply's unconditional writes. That resurrected
+// a removed account and regressed a credential generation INDEFINITELY, because the
+// tail emits no second notification for a mutation it already reported. Notifications
+// arriving while that opening read is in flight are therefore held and replayed once
+// the snapshot is seated, on every settlement arm including the refused ones — where
+// they are the only truth the console has. Past
+// `PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP` the reading stops buffering, applies what
+// it holds live, and issues a FRESH read rather than dropping anything; the abandoned
+// read's reply is recognised by its ordinal and seats nothing.
 //
 // A READING HELD BY THE MONOTONICITY GUARD IS RECORDED, NOT RENDERED. A same-window
 // reading below the high-water mark is a reading the account plane should not have
@@ -39,16 +54,21 @@
 // the reading, on the same reasoning `TRIPWIRE_REPORT_CAP` records: a wire that keeps
 // sending regressive readings is one condition, not thousands.
 
-import { useCallback, useSyncExternalStore } from "react";
 import {
   ProviderAccountListResponseSchema,
   ProviderAccountNotificationSchema,
   ProviderAccountSubscribeRequestSchema,
+  type ProviderAccountNotification,
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
-import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
+import {
+  PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP,
+  isConsoleRefusal,
+  refuse,
+  type ConsoleRefusal,
+} from "../core/index.js";
 import {
   PROVIDER_ACCOUNT_LIST_METHOD,
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
@@ -85,14 +105,22 @@ export interface ProviderQuotaReadout {
  * A class with private fields rather than a hook's state, because every surface in
  * the window asks the same node-scoped question: the first watcher opens the tail
  * and takes the read once, and the second is handed the reading already in hand.
+ * How many of these exist and how long each lives is `provider-quota-feed.ts`'s,
+ * exactly as `queue-feed.ts` owns that for `queue-reading.ts`.
  */
-class NodeProviderQuotaReading {
+export class NodeProviderQuotaReading {
   readonly #bridge: ConsoleBridge;
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
   readonly #fold = new ProviderQuotaFold();
+  #pendingNotifications: ProviderAccountNotification[] = [];
   #closeStream: (() => void) | undefined = undefined;
   #isOpen = false;
+  #isSeedReadPending = false;
+  // Identifies the read attempt a reply belongs to. A reply whose ordinal has moved
+  // on was abandoned by an overflow re-read and seats nothing — without it the
+  // abandoned snapshot would land after the fresh one and undo it.
+  #seedReadOrdinal = 0;
   #hasReportedHighWaterDrop = false;
   #phase: ProviderQuotaReadPhase = "reading";
   #readRefusal: ConsoleRefusal | undefined = undefined;
@@ -157,13 +185,33 @@ class NodeProviderQuotaReading {
       return;
     }
 
+    this.#seedRead();
+  }
+
+  /**
+   * Take the registry snapshot, holding the tail's notifications across it.
+   *
+   * Called again on buffer overflow, which is why the attempt carries an ordinal:
+   * whichever read is newest is the only one whose reply may seat anything.
+   */
+  #seedRead(): void {
+    this.#seedReadOrdinal += 1;
+    const readOrdinal = this.#seedReadOrdinal;
+    this.#isSeedReadPending = true;
+    this.#pendingNotifications = [];
+
     void callDaemon(this.#bridge, PROVIDER_ACCOUNT_LIST_METHOD, {})
       .then((reply) => {
-        if (!this.#isOpen) {
+        if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
           return;
         }
         const parsed = ProviderAccountListResponseSchema.safeParse(reply);
         if (!parsed.success) {
+          // The held notifications are replayed even here. They are not waiting on
+          // this snapshot for correctness — they were waiting so the snapshot could
+          // not overwrite them — and with no snapshot they are the only reading the
+          // console has.
+          this.#replayHeldNotifications();
           this.#settleRefused(
             refuse(
               PROVIDER_QUOTA_REFUSAL_ORIGIN,
@@ -180,17 +228,35 @@ class NodeProviderQuotaReading {
           this.#mergeWindow(usageWindow);
         }
         this.#phase = "read";
+        this.#replayHeldNotifications();
         this.#publish();
       })
       .catch((rejection: unknown) => {
-        if (!this.#isOpen) {
+        if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
           return;
         }
+        this.#replayHeldNotifications();
         const wireError = normalizeWireRejection(rejection, { total: true });
         this.#settleRefused(
           refuse(PROVIDER_QUOTA_REFUSAL_ORIGIN, wireError.name, wireError.message),
         );
       });
+  }
+
+  /**
+   * Apply everything held across the read, in arrival order, and stop holding.
+   *
+   * Order is what makes this correct: a removal followed by a re-registration and the
+   * reverse pair are the same two frames, and only their sequence says which state the
+   * registry ended in. Every caller publishes after it, so the replay itself does not.
+   */
+  #replayHeldNotifications(): void {
+    this.#isSeedReadPending = false;
+    const held = this.#pendingNotifications;
+    this.#pendingNotifications = [];
+    for (const notification of held) {
+      this.#applyNotification(notification);
+    }
   }
 
   #close(): void {
@@ -202,11 +268,10 @@ class NodeProviderQuotaReading {
   /**
    * One notification off the tail.
    *
-   * Every kind is a re-entrant state update rather than a delta, so an account that
-   * changed is written whole and a removed one takes its readings with it — a quota
-   * row whose account has left the registry names an account nothing can label.
    * A payload the registered union does not admit changes nothing at all: it is a
    * frame this build cannot read, and guessing at it would be worse than ignoring it.
+   * A readable one either moves the fold now or is held until the opening read has
+   * seated — which is a question of ORDER and never of whether it is applied.
    */
   #deliver(payload: unknown): void {
     if (!this.#isOpen) {
@@ -216,24 +281,60 @@ class NodeProviderQuotaReading {
     if (!parsed.success) {
       return;
     }
-    const notification = parsed.data;
+    if (this.#isSeedReadPending) {
+      this.#holdAcrossSeedRead(parsed.data);
+      return;
+    }
+    if (this.#applyNotification(parsed.data)) {
+      this.#publish();
+    }
+  }
+
+  /**
+   * Hold one notification until the opening read has seated, or stop holding.
+   *
+   * Every kind is held rather than only the state-moving ones, so the rule a reader
+   * has to carry is one sentence and not a second list of which kinds may be
+   * reordered. Past the cap the reading applies what it holds and re-reads: dropping
+   * would be the silent loss this buffer exists to prevent, and each re-read is
+   * triggered by a full buffer's worth of traffic, so the re-read rate is the tail's
+   * rate divided by the cap and converges as the tail quiets.
+   */
+  #holdAcrossSeedRead(notification: ProviderAccountNotification): void {
+    if (this.#pendingNotifications.length < PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP) {
+      this.#pendingNotifications.push(notification);
+      return;
+    }
+    this.#replayHeldNotifications();
+    this.#applyNotification(notification);
+    this.#publish();
+    this.#seedRead();
+  }
+
+  /**
+   * Apply one notification to the fold, and say whether anything moved.
+   *
+   * Every kind is a re-entrant state update rather than a delta, so an account that
+   * changed is written whole and a removed one takes its readings with it — a quota
+   * row whose account has left the registry names an account nothing can label.
+   */
+  #applyNotification(notification: ProviderAccountNotification): boolean {
     switch (notification.kind) {
       case "account_changed":
         this.#fold.seatAccount(notification.account);
-        break;
+        return true;
       case "account_removed":
         this.#fold.forgetAccount(notification.accountId);
-        break;
+        return true;
       case "usage_window_updated":
         this.#mergeWindow(notification.window);
-        break;
+        return true;
       case "login_completed":
         // Deliberately nothing. A provider reporting its flow finished is not itself
         // a reading; the daemon observes health next and publishes `account_changed`,
         // which is the notification that moves anything here.
-        return;
+        return false;
     }
-    this.#publish();
   }
 
   /** Merge one reading, and say so once if the monotonicity guard had to hold it. */
@@ -287,44 +388,4 @@ function streamRefusalFor(rejection: unknown): ConsoleRefusal {
   }
   const wireError = normalizeWireRejection(rejection, { total: true });
   return refuse(PROVIDER_QUOTA_REFUSAL_ORIGIN, wireError.name, wireError.message);
-}
-
-/**
- * The window's readings, one per bridge.
- *
- * A `WeakMap` on the bridge so a closed window takes its reading with it, and the
- * entry is dropped once nobody is watching.
- */
-class NodeProviderQuotaReadings {
-  readonly #byBridge = new WeakMap<ConsoleBridge, NodeProviderQuotaReading>();
-
-  public reading(bridge: ConsoleBridge): NodeProviderQuotaReading {
-    const held = this.#byBridge.get(bridge);
-    if (held !== undefined) {
-      return held;
-    }
-    const created = new NodeProviderQuotaReading(bridge, () => {
-      this.#byBridge.delete(bridge);
-    });
-    this.#byBridge.set(bridge, created);
-    return created;
-  }
-}
-
-const nodeProviderQuotaReadings = new NodeProviderQuotaReadings();
-
-/**
- * Read this node's provider-account quotas.
- *
- * Every consumer on one bridge is served by one read and one subscription. No timer
- * and no poll: the tail is what makes a reading current, and a surface that polled
- * would be asking a registry that already tells it when something moved.
- */
-export function useProviderQuotas(bridge: ConsoleBridge): ProviderQuotaReadout {
-  const reading = nodeProviderQuotaReadings.reading(bridge);
-  const subscribe = useCallback(
-    (onReadoutChanged: () => void) => reading.watch(onReadoutChanged),
-    [reading],
-  );
-  return useSyncExternalStore(subscribe, reading.snapshot, reading.snapshot);
 }

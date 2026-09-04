@@ -20,12 +20,15 @@
 //
 // Driven through `useProviderQuotas` rather than the reading class, because the
 // watcher count is half of what is being claimed: one read and one subscription per
-// bridge, opened by the first watcher and closed by the last.
+// bridge, opened by the first watcher and closed by the last. This is the same shape
+// `queue-feed.test.tsx` takes over its own reading class.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { useProviderQuotas } from "./provider-account-quota.js";
+import { PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "../core/index.js";
+
+import { useProviderQuotas } from "./provider-quota-feed.js";
 import type { ProviderQuotaReading } from "./provider-quota-fold.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
@@ -74,6 +77,20 @@ function listReply(
   return { accounts, usageWindows, readiness: [] };
 }
 
+/** How a case wants the registry read to behave. */
+interface AccountPlaneOptions {
+  /**
+   * Park every read until the case settles it by hand.
+   *
+   * What the buffering cases are about is the window BETWEEN the tail opening and the
+   * read's reply landing, and that window does not exist unless the case owns when the
+   * reply lands.
+   */
+  readonly holdsReads?: boolean;
+  /** What the SECOND and later reads answer, where a case makes the reads differ. */
+  readonly laterReply?: unknown;
+}
+
 /**
  * A bridge that answers the registry read and hands the case its own tail.
  *
@@ -84,11 +101,15 @@ function listReply(
 class AccountPlaneBridge {
   readonly bridge: ConsoleBridge;
   #deliver: ((payload: unknown) => void) | undefined = undefined;
+  readonly #parkedReads: (() => void)[] = [];
   #openCount = 0;
   #closeCount = 0;
   #listCallCount = 0;
 
-  public constructor(private readonly reply: unknown) {
+  public constructor(
+    private readonly reply: unknown,
+    private readonly options: AccountPlaneOptions = {},
+  ) {
     this.bridge = {
       sidekicks: {
         daemon: {
@@ -97,7 +118,16 @@ class AccountPlaneBridge {
               throw new Error(`unexpected daemon call: ${method}`);
             }
             this.#listCallCount += 1;
-            return this.reply;
+            const replyForThisCall =
+              this.#listCallCount === 1 ? this.reply : (this.options.laterReply ?? this.reply);
+            if (this.options.holdsReads !== true) {
+              return replyForThisCall;
+            }
+            return new Promise<unknown>((resolveRead) => {
+              this.#parkedReads.push(() => {
+                resolveRead(replyForThisCall);
+              });
+            });
           },
           subscribe: (_event: string, handler: (payload: unknown) => void) => {
             this.#openCount += 1;
@@ -134,6 +164,23 @@ class AccountPlaneBridge {
       throw new Error("nothing is subscribed to the account plane");
     }
     this.#deliver(payload);
+  }
+
+  /**
+   * Let one parked read answer, oldest first by default.
+   *
+   * The ordinal is exposed so a case can settle the NEWEST read before the one it
+   * superseded, which is the order that decides whether an abandoned reply can still
+   * seat itself over a fresher one.
+   */
+  public settleRead(readOrdinal = 0): void {
+    const parked = this.#parkedReads[readOrdinal];
+    if (parked === undefined) {
+      throw new Error(
+        `no parked read at ordinal ${String(readOrdinal)}; ${String(this.#parkedReads.length)} are parked`,
+      );
+    }
+    parked();
   }
 }
 
@@ -424,6 +471,134 @@ describe("useProviderQuotas — a reading behind its account's generation is sta
     const mounted = await mountQuotas(plane.bridge);
 
     expect(mounted.readingsNow().every((reading) => !reading.isStale)).toBe(true);
+  });
+});
+
+describe("useProviderQuotas — the tail opens before the read, so it is buffered across it", () => {
+  /** Let every microtask the read's continuation chain queues actually run. */
+  async function settleMicrotasks(): Promise<void> {
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  it("keeps an account removed when the removal arrives before the snapshot lands", async () => {
+    // The snapshot is taken at an instant the tail has already moved past, so applying
+    // the removal on arrival let the reply's unconditional writes resurrect the
+    // account — and the tail emits no second notification for a mutation it already
+    // reported, so it stayed resurrected for the life of the window.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]), {
+      holdsReads: true,
+    });
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      plane.deliver({ kind: "account_removed", accountId: ACCOUNT_ID });
+    });
+    await act(async () => {
+      plane.settleRead();
+    });
+    await settleMicrotasks();
+
+    expect(mounted.readingsNow()).toStrictEqual([]);
+  });
+
+  it("keeps a credential generation that advanced before the snapshot landed", async () => {
+    // The other half of the same defect: the snapshot's older account row overwrote the
+    // newer one, and a stale quota reading then presented itself as current.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]), {
+      holdsReads: true,
+    });
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      plane.deliver({ kind: "account_changed", account: account({ credentialGeneration: 2 }) });
+    });
+    await act(async () => {
+      plane.settleRead();
+    });
+    await settleMicrotasks();
+
+    expect(readingAt(mounted.readingsNow(), "weekly-all").isStale).toBe(true);
+  });
+
+  it("re-reads rather than dropping once the hold is full, and the abandoned reply seats nothing", async () => {
+    // Past the cap the reading applies what it holds and takes a FRESH read. The
+    // abandoned read is settled LAST here on purpose: its reply is the one that could
+    // still overwrite a newer snapshot, and the ordinal is what stops it.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]), {
+      holdsReads: true,
+      laterReply: listReply(
+        [account({ accountId: OTHER_ACCOUNT_ID, displayLabel: "Personal" })],
+        [usageWindow({ accountId: OTHER_ACCOUNT_ID })],
+      ),
+    });
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      for (
+        let delivered = 0;
+        delivered <= PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP;
+        delivered += 1
+      ) {
+        plane.deliver({ kind: "account_removed", accountId: `acct-departed-${String(delivered)}` });
+      }
+    });
+    expect(plane.listCallCount).toBe(2);
+
+    // The fresh read answers first, then the one it superseded.
+    await act(async () => {
+      plane.settleRead(1);
+    });
+    await settleMicrotasks();
+    await act(async () => {
+      plane.settleRead(0);
+    });
+    await settleMicrotasks();
+
+    expect(mounted.readingsNow().map((reading) => reading.accountId)).toStrictEqual([
+      OTHER_ACCOUNT_ID,
+    ]);
+  });
+
+  it("negative control: a notification after the read has settled applies at once", async () => {
+    // Without this every case above would hold over a reading that had simply stopped
+    // applying notifications, and the buffer would be indistinguishable from a drop.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]));
+    const mounted = await mountQuotas(plane.bridge);
+    expect(mounted.readingsNow()).toHaveLength(1);
+
+    await act(async () => {
+      plane.deliver({ kind: "account_removed", accountId: ACCOUNT_ID });
+    });
+
+    expect(mounted.readingsNow()).toStrictEqual([]);
+    expect(plane.listCallCount).toBe(1);
+  });
+
+  it("negative control: nothing is held once the read has answered", async () => {
+    // The hold is scoped to the OPENING read. A reading that kept buffering forever
+    // would pass the removal case above and never move again.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]), {
+      holdsReads: true,
+    });
+    const mounted = await mountQuotas(plane.bridge);
+    await act(async () => {
+      plane.settleRead();
+    });
+    await settleMicrotasks();
+
+    await act(async () => {
+      plane.deliver({
+        kind: "usage_window_updated",
+        accountId: ACCOUNT_ID,
+        window: usageWindow({ usedPercent: 99, observedAt: "2026-01-01T13:00:00.000Z" }),
+      });
+    });
+
+    expect(readingAt(mounted.readingsNow(), "weekly-all").usedPercent).toBe(99);
   });
 });
 
