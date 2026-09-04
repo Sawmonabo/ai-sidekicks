@@ -121,6 +121,37 @@ export function servedContext(overrides: Partial<ProposalContextKey>): {
   };
 }
 
+/**
+ * A scripted answer that REJECTS rather than answering.
+ *
+ * THE SHAPE THE PORT'S OWN UNION CANNOT EXPRESS, which is why it is a marker class and
+ * not another `status` arm: the live bridge crosses a process boundary, so an IPC
+ * disconnect makes a call THROW, and a script whose every entry is a resolved value
+ * could not put a case on that path at all. Held as a class rather than a sentinel
+ * object so `instanceof` is the test and no scripted reply can be mistaken for one.
+ */
+export class ScriptedRejection {
+  public constructor(public readonly reason: unknown) {}
+}
+
+/** Script one operation to reject with `reason`, the way a disconnected bridge does. */
+export function rejectsWith(reason: unknown): ScriptedRejection {
+  return new ScriptedRejection(reason);
+}
+
+/**
+ * One scripted entry, answered or thrown.
+ *
+ * ONE DOOR FOR EVERY OPERATION on all three ports below, so a case can move any of
+ * them onto the rejection path without a second port shape to keep in step.
+ */
+async function scriptedAnswer(scripted: unknown): Promise<unknown> {
+  if (scripted instanceof ScriptedRejection) {
+    throw scripted.reason;
+  }
+  return scripted;
+}
+
 /** What each of the four growth operations answers, for one case. */
 export interface PortScript {
   readonly branchContext: unknown;
@@ -148,10 +179,11 @@ export interface PortScript {
 export function bridgeAnswering(script: PortScript): ConsoleBridge {
   return {
     growth: {
-      gitflowBranchContextRead: async () => script.branchContext,
-      gitflowPrPrepare: async () => script.prepare,
-      gitActionExecute: async () => script.gitAction,
-      callerParticipantRead: async () => script.callerParticipant ?? SERVED_CALLER_PARTICIPANT,
+      gitflowBranchContextRead: async () => scriptedAnswer(script.branchContext),
+      gitflowPrPrepare: async () => scriptedAnswer(script.prepare),
+      gitActionExecute: async () => scriptedAnswer(script.gitAction),
+      callerParticipantRead: async () =>
+        scriptedAnswer(script.callerParticipant ?? SERVED_CALLER_PARTICIPANT),
     },
   } as unknown as ConsoleBridge;
 }
