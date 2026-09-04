@@ -136,6 +136,45 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
     expect(holder.value).toBe("seed");
   });
 
+  it("drops a settlement from a visit the subject left and came back to", () => {
+    // A route round-trip: s1 -> s2 -> s1. The pair is equal on the first and third
+    // visits, so a guard that compared only the pair admitted the FIRST visit's
+    // reply into the third visit's state — the older read landing last and
+    // overwriting the answer the surface on screen had already been given.
+    const holder = new SubjectScopedHolder<string>();
+    holder.address(SUBJECT_ONE, "alpha", () => "seed");
+    const settlementFromTheFirstVisit = holder.publisherFor(SUBJECT_ONE, "alpha");
+    holder.address(SUBJECT_TWO, "alpha", () => "seed");
+    holder.address(SUBJECT_ONE, "alpha", () => "seed");
+    holder.publisherFor(SUBJECT_ONE, "alpha")("what the third visit read");
+    settlementFromTheFirstVisit("what the first visit read");
+    expect(holder.value).toBe("what the third visit read");
+  });
+
+  it("drops a capture from a visit the subject left and came back to", () => {
+    // The same round-trip through the other capture moment, because `settle` reads
+    // the live pair and would otherwise re-derive the same too-weak comparison.
+    const holder = new SubjectScopedHolder<string>();
+    holder.address(SUBJECT_ONE, "alpha", () => "seed");
+    const capturedOnTheFirstVisit = holder.settle();
+    holder.address(SUBJECT_TWO, "alpha", () => "seed");
+    holder.address(SUBJECT_ONE, "alpha", () => "seed");
+    capturedOnTheFirstVisit("what the first visit read");
+    expect(holder.value).toBe("seed");
+  });
+
+  it("negative control: a re-address to the pair already held admits its publisher", () => {
+    // The addressing advances on a MOVE and not on a re-render, so the two cases
+    // above are about a subject that actually left. A holder that minted a new
+    // addressing per call would refuse this and pass both of them.
+    const holder = new SubjectScopedHolder<string>();
+    holder.address(SUBJECT_ONE, "alpha", () => "seed");
+    const publisher = holder.publisherFor(SUBJECT_ONE, "alpha");
+    holder.address(SUBJECT_ONE, "alpha", () => "a seed nothing asked for");
+    publisher("landed");
+    expect(holder.value).toBe("landed");
+  });
+
   it("negative control: the same settlement lands while the subject stands", () => {
     // Without this, "dropped" above would also be satisfied by a publisher that
     // never writes anything at all.
@@ -296,6 +335,40 @@ describe("useSubjectScopedState — no frame carries the previous subject", () =
       settlementForBeta("beta's answer");
     });
     expect(log.frames.at(-1)).toStrictEqual({ key: "beta", value: "beta's answer" });
+  });
+
+  it("drops a settlement from a route round-trip back to the key it left", () => {
+    // The same defect through the hook, which is where it is reachable: a pane on
+    // session s1 routed to s2 and back re-seeds and dispatches a fresh read, and the
+    // FIRST visit's reply then lands last.
+    const log = new FrameLog();
+    let capture: () => (next: string) => void = () => () => {};
+    const record = (
+      _publish: (next: string) => void,
+      settle: () => (next: string) => void,
+    ): void => {
+      capture = settle;
+    };
+    const view = render(
+      <HolderProbe subject={SUBJECT_ONE} probeKey="alpha" log={log} onReady={record} />,
+    );
+    const settlementFromTheFirstVisit = capture();
+    view.rerender(<HolderProbe subject={SUBJECT_ONE} probeKey="beta" log={log} onReady={record} />);
+    view.rerender(
+      <HolderProbe subject={SUBJECT_ONE} probeKey="alpha" log={log} onReady={record} />,
+    );
+    act(() => {
+      settlementFromTheFirstVisit("the first visit's late answer");
+    });
+    expect(log.frames.at(-1)).toStrictEqual({ key: "alpha", value: "seed" });
+
+    // Negative control: the visit on screen still settles, so the claim above is
+    // about which visit answered rather than about a publisher that never writes.
+    const settlementFromTheVisitOnScreen = capture();
+    act(() => {
+      settlementFromTheVisitOnScreen("the answer this visit read");
+    });
+    expect(log.frames.at(-1)).toStrictEqual({ key: "alpha", value: "the answer this visit read" });
   });
 
   it("holds nothing across mounts: a remount is a fresh subject with a fresh seed", () => {

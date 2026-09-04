@@ -22,6 +22,16 @@
 // captured under, so a settlement that arrives after the subject moved writes nothing
 // at all rather than overwriting what the new subject has already said.
 //
+// AND A PUBLISHER CARRIES THE ADDRESSING, NOT THE PAIR. A surface routed away from a
+// session and back to it — s1 → s2 → s1 — is addressed at the same pair twice, and
+// re-seeds on both visits because nothing here survives the move. A guard that
+// compared only the pair would find the first visit's publisher still valid on the
+// third, so that visit's reply — dispatched first, answered last — would overwrite the
+// answer the surface on screen had already read. So each addressing takes a serial
+// that is never reissued, the same mechanism `generation-latch.ts` uses next door, and
+// a settlement is admitted only while the addressing it was captured under is the one
+// still held.
+//
 // THE SUBJECT IS AN OBJECT AND A KEY WITHIN IT, and the object is deliberately opaque.
 // `store/` sits below `bridge/` in the console's DAG and may not name a
 // `ConsoleBridge`, a `GrowthPort`, or a `SessionStore`; every one of them is a live
@@ -98,12 +108,29 @@ export interface SubjectScopedState<TValue> {
   readonly settle: () => SubjectScopedPublish<TValue>;
 }
 
-/** A value together with the subject it was produced under. */
+/** A value together with the subject, and the addressing, it was produced under. */
 interface HeldSubjectValue<TValue> {
   readonly subject: object;
   readonly key: SubjectKey;
+  /**
+   * Which addressing seeded this value. Never reissued, so it names one visit.
+   *
+   * The pair alone cannot: a surface routed s1 → s2 → s1 is addressed at the same
+   * pair on the first and third visits, and the value the first one produced is
+   * already gone by the second.
+   */
+  readonly epoch: number;
   readonly value: TValue;
 }
+
+/**
+ * The addressing a publisher names when it names none at all.
+ *
+ * Zero because addressings are counted from one, so a publisher taken for a pair
+ * this holder is not currently holding can never match one — it names no visit, and
+ * a visit is what a settlement is about.
+ */
+const NO_ADDRESSING = 0;
 
 /**
  * One value, held per `(subject, key)` and readable only about that pair.
@@ -120,6 +147,11 @@ interface HeldSubjectValue<TValue> {
  */
 export class SubjectScopedHolder<TValue> {
   readonly #changes = new Emitter<void>("subject-scoped value");
+  /**
+   * The serial every held value is stamped with. Monotonic and never reissued, so a
+   * pair the holder visits twice is two addressings and a settlement can name which.
+   */
+  #addressings = 0;
   #held: HeldSubjectValue<TValue> | undefined;
 
   /**
@@ -133,12 +165,31 @@ export class SubjectScopedHolder<TValue> {
    * It deliberately does NOT emit. The render that re-addresses reads the value
    * immediately afterwards and so already sees the seeded one; emitting here would
    * schedule a second pass to arrive at the value the first one already had.
+   *
+   * `onDiscarded` is handed the value the new addressing replaced, for the caller
+   * whose value owns something a drop does not release. It is called AFTER the
+   * replacement is installed, so a caller cannot see a half-addressed holder, and
+   * only where something was actually replaced — a first addressing discards
+   * nothing. Whether the replaced value may be released is the caller's question and
+   * not this class's: a render React discards leaves a value nothing committed, and
+   * only React knows which. {@link useSubjectScopedResource} is the one caller that
+   * answers it.
    */
-  public address(subject: object, key: SubjectKey, initial: () => TValue): void {
+  public address(
+    subject: object,
+    key: SubjectKey,
+    initial: () => TValue,
+    onDiscarded?: (discarded: TValue) => void,
+  ): void {
     if (this.#isHeldFor(subject, key)) {
       return;
     }
-    this.#held = { subject, key, value: initial() };
+    const discarded = this.#held;
+    this.#addressings += 1;
+    this.#held = { subject, key, epoch: this.#addressings, value: initial() };
+    if (discarded !== undefined) {
+      onDiscarded?.(discarded.value);
+    }
   }
 
   /**
@@ -162,31 +213,25 @@ export class SubjectScopedHolder<TValue> {
   }
 
   /**
-   * Return a publisher bound to the pair a caller NAMES.
+   * Return a publisher bound to the addressing that holds the pair a caller NAMES.
    *
    * The single mechanism behind both members of {@link SubjectScopedState}: the hook
-   * names this render's pair for `publish`, and {@link settle} reads the live pair for
-   * the caller that has no fresh one to name. There is one rule about what a late
+   * names this render's pair for `publish`, and {@link settle} reads the live one for
+   * the caller that has no fresh pair to name. There is one rule about what a late
    * write may do, and two moments at which a caller may capture it.
+   *
+   * A pair this holder is not currently holding publishes NOWHERE, rather than
+   * publishing later if the holder returns to it. The return is a second visit and
+   * seeds a second value; admitting the first visit's answer into it is the defect
+   * this reads an addressing to close.
    */
   public publisherFor(subject: object, key: SubjectKey): SubjectScopedPublish<TValue> {
-    return (next) => {
-      const held = this.#held;
-      if (held === undefined || held.subject !== subject || held.key !== key) {
-        // The subject moved while this call was out. Dropping the answer is the whole
-        // point: it is about a subject nothing on screen is addressed at.
-        return;
-      }
-      const resolved =
-        typeof next === "function" ? (next as (was: TValue) => TValue)(held.value) : next;
-      if (Object.is(resolved, held.value)) {
-        // A publish that changes nothing wakes nobody. Two acts settling into the
-        // same value in one tick would otherwise render the surface twice for it.
-        return;
-      }
-      this.#held = { subject, key, value: resolved };
-      this.#changes.emit();
-    };
+    const held = this.#held;
+    return this.#publisherForAddressing(
+      held !== undefined && held.subject === subject && held.key === key
+        ? held.epoch
+        : NO_ADDRESSING,
+    );
   }
 
   /**
@@ -200,7 +245,36 @@ export class SubjectScopedHolder<TValue> {
    */
   public settle(): SubjectScopedPublish<TValue> {
     const held = this.#held;
-    return held === undefined ? publishesNowhere : this.publisherFor(held.subject, held.key);
+    return held === undefined ? publishesNowhere : this.#publisherForAddressing(held.epoch);
+  }
+
+  /**
+   * The write path, admitted by one comparison: is that addressing still the one held?
+   *
+   * The pair is not compared beside it and does not need to be — an addressing names
+   * one visit to one pair, and the serial is never reissued — so there is a single
+   * predicate here rather than two that could disagree. A publish keeps the
+   * addressing it wrote under: settling is not re-addressing.
+   */
+  #publisherForAddressing(epoch: number): SubjectScopedPublish<TValue> {
+    return (next) => {
+      const held = this.#held;
+      if (held === undefined || held.epoch !== epoch) {
+        // The subject moved while this call was out — or moved away and back, which
+        // is the same fact. Dropping the answer is the whole point: it is about a
+        // visit nothing on screen is addressed at.
+        return;
+      }
+      const resolved =
+        typeof next === "function" ? (next as (was: TValue) => TValue)(held.value) : next;
+      if (Object.is(resolved, held.value)) {
+        // A publish that changes nothing wakes nobody. Two acts settling into the
+        // same value in one tick would otherwise render the surface twice for it.
+        return;
+      }
+      this.#held = { ...held, value: resolved };
+      this.#changes.emit();
+    };
   }
 
   #isHeldFor(subject: object, key: SubjectKey): boolean {
