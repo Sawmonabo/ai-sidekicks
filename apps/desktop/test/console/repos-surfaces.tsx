@@ -22,7 +22,13 @@
 //     with the parsed fixture instead, which is the composition `DiffPane.tsx` draws:
 //     the attribution badge, the compared states, the file list, and the rows. The
 //     absence arm is not unpinned by that — `DiffPane.test.tsx` owns it, where a
-//     DOM assertion can say WHICH absence it is and an image cannot.
+//     DOM assertion can say WHICH absence it is and an image cannot. The shape is
+//     `EXTENDED_HEADER_DIFF_SHAPE` rather than the small one, so the change set
+//     includes a file whose whole change is in the patch's headers: a rename with no
+//     hunks, which the two surfaces drew as `+0 −0` under a bare path until the
+//     parser carried what the headers said. What that note looks like beside a path
+//     and inside a file-header row is a claim an image holds and a DOM assertion
+//     does not.
 //   • The PROPOSAL GATE is a presentational body, and it is mounted TWICE for two
 //     different claims. Directly, on the `prepared` arm with a proposal supplied, it
 //     draws every part of the surface at once — the branch context, the proposal, its
@@ -54,7 +60,7 @@ import {
   type ConsoleBridge,
 } from "../../src/renderer/src/console/bridge/index.js";
 import {
-  SMALL_DIFF_SHAPE,
+  EXTENDED_HEADER_DIFF_SHAPE,
   buildDiffFixture,
 } from "../../src/renderer/src/console/panes/diff/diff-fixture.js";
 import { DiffPane } from "../../src/renderer/src/console/panes/diff/index.js";
@@ -298,7 +304,7 @@ export async function mountDiffPane(): Promise<MountedFamilySurface> {
         entity: { kind: "workspace", id: REPOS_GIT_WORKSPACE_ID },
         ...paneBinding({ paneId: "pane-diff-surface", bridge, sessionStore }),
       }}
-      diff={buildDiffFixture(SMALL_DIFF_SHAPE)}
+      diff={buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE)}
     />,
   );
   return { element: requireLabelledRegion(container, "Diff"), bridge };

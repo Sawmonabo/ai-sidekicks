@@ -46,6 +46,20 @@
 //     (`Spec-011 §Interfaces And Contracts`), so they are parameters here rather than
 //     anything scraped out of the patch's headers.
 //
+// AND ONE THING THE LIBRARY KEEPS, WHICH THIS FILE USED TO THROW AWAY. A git patch
+// states a rename, a copy, a mode change, and a binary change in the extended headers
+// ABOVE the hunks, so a change that is only one of those parses into a file with no
+// textual hunks at all. The mapping kept the selected path and `hunks` and nothing
+// else, so such a file reached both surfaces as `+0 −0` under a bare path — the
+// console reporting that nothing happened to a file something happened to, and, for a
+// rename, losing the name a reader is looking for. `parsePatch` retains all four
+// facts on `StructuredPatch` (`isRename`, `isCopy`, `oldMode` / `newMode`,
+// `isBinary`, with `oldFileName` / `newFileName` overwritten from the `rename from` /
+// `copy from` lines) — measured against `diff` 9.0.0, not assumed — so this needs no
+// second pass over the raw text the way the `@@` headers below do. They are carried
+// onto `DiffFile` and rendered; nothing here infers one from `hunks.length === 0`,
+// which cannot say which of the four it was.
+//
 // AND ONE THING THE LIBRARY DROPS, WHICH THIS FILE THEREFORE READS ITSELF.
 // `StructuredPatchHunk` carries four numbers and the body lines — and nothing else.
 // The `@@` line a patch actually declares carries more than those four numbers: git
@@ -106,6 +120,7 @@ export function parseUnifiedPatch(
   for (const structuredPatch of parsePatch(patchText)) {
     files.push({
       path: patchFilePath(structuredPatch),
+      ...extendedHeaderChange(structuredPatch),
       hunks: structuredPatch.hunks.map((hunk) => {
         const header = declaredHeaders[hunkOrdinal];
         hunkOrdinal += 1;
@@ -227,7 +242,17 @@ export function wholeLineSegments(text: string): readonly DiffIntralineSegment[]
 function patchFilePath(structuredPatch: StructuredPatch): string {
   const newFileName = structuredPatch.newFileName ?? ABSENT_FILE_NAME;
   const named = newFileName === ABSENT_FILE_NAME ? structuredPatch.oldFileName : newFileName;
-  const path = named ?? ABSENT_FILE_NAME;
+  return renderedPath(structuredPatch, named ?? ABSENT_FILE_NAME);
+}
+
+/**
+ * One side's path as a surface draws it.
+ *
+ * The prefix strip lives here rather than inside `patchFilePath` because the OLD side
+ * is rendered too — a rename names where the file came from — and two copies of this
+ * rule would be two chances to re-root one of the two paths a reader compares.
+ */
+function renderedPath(structuredPatch: StructuredPatch, path: string): string {
   if (structuredPatch.isGit !== true) {
     return path;
   }
@@ -237,6 +262,38 @@ function patchFilePath(structuredPatch: StructuredPatch): string {
     }
   }
   return path;
+}
+
+/** The extended-header members `DiffFile` carries, as a spreadable partial. */
+type ExtendedHeaderChange = Pick<DiffFile, "renamedFrom" | "copiedFrom" | "modeChange" | "binary">;
+
+/**
+ * What a file's extended headers declared, read off the parsed structure.
+ *
+ * SPREAD-IN RATHER THAN `: undefined`, on `hunkLines`' reason: under
+ * `exactOptionalPropertyTypes` an optional member assigned `undefined` is a different
+ * type from an absent one, and the model means the second — presence is the claim.
+ *
+ * A MODE CHANGE NEEDS BOTH SIDES AND A DIFFERENCE. `parsePatch` also fills one of the
+ * two modes for a created or deleted file (`new file mode`, `deleted file mode`), and
+ * a file that appeared did not have its mode changed — it did not have one before.
+ * Requiring both, and requiring them to differ, is what keeps this member meaning
+ * what it says.
+ */
+function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderChange {
+  const { oldFileName, oldMode, newMode } = structuredPatch;
+  return {
+    ...(structuredPatch.isRename === true && oldFileName !== undefined
+      ? { renamedFrom: renderedPath(structuredPatch, oldFileName) }
+      : {}),
+    ...(structuredPatch.isCopy === true && oldFileName !== undefined
+      ? { copiedFrom: renderedPath(structuredPatch, oldFileName) }
+      : {}),
+    ...(oldMode !== undefined && newMode !== undefined && oldMode !== newMode
+      ? { modeChange: { from: oldMode, to: newMode } }
+      : {}),
+    ...(structuredPatch.isBinary === true ? { binary: true } : {}),
+  };
 }
 
 /** What each prefix character in a hunk body means. Closed by the format itself. */

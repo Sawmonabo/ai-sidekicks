@@ -22,7 +22,13 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
-import { ENDURANCE_DIFF_SHAPE, SMALL_DIFF_SHAPE, buildDiffFixture } from "./diff-fixture.js";
+import {
+  ENDURANCE_DIFF_SHAPE,
+  EXTENDED_HEADER_DIFF_SHAPE,
+  EXTENDED_HEADER_FIXTURE_FILES,
+  SMALL_DIFF_SHAPE,
+  buildDiffFixture,
+} from "./diff-fixture.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
@@ -436,5 +442,58 @@ describe("diff renderer — expansion and emptiness", () => {
     const container = renderDiff({ model: { ...SMALL_DIFF, files: [] } });
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
+  });
+});
+
+describe("diff renderer — the file header carries what the extended headers said", () => {
+  const EXTENDED_HEADER_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
+
+  /**
+   * The file-header row for one path, narrowed to that file.
+   *
+   * Narrowed rather than scrolled to: a header-only file has no hunks, so it is the
+   * change set's last row and a window bounded by the viewport need not reach it.
+   * The narrowing is the renderer's own, so the row under assertion is the row the
+   * pane draws when a reader selects that file.
+   */
+  function fileHeaderTextFor(path: string): string {
+    const container = renderDiff({ model: EXTENDED_HEADER_DIFF, shownFilePath: path });
+    const row = container.querySelector(".meridian-diff__row--file");
+    if (row === null) {
+      throw new Error(`the renderer drew no file header for ${path}`);
+    }
+    return row.textContent ?? "";
+  }
+
+  it("names the path a rename came from, which is the only row that file has", () => {
+    const { renamed } = EXTENDED_HEADER_FIXTURE_FILES;
+    const headerText = fileHeaderTextFor(renamed.to);
+    expect(headerText).toContain(renamed.to);
+    expect(headerText).toContain(`renamed from ${renamed.from}`);
+  });
+
+  it("tells a copy from a rename, because the source still exists", () => {
+    const { copied } = EXTENDED_HEADER_FIXTURE_FILES;
+    expect(fileHeaderTextFor(copied.to)).toContain(`copied from ${copied.from}`);
+  });
+
+  it("renders a mode change as both modes, so which direction is legible", () => {
+    const { modeChanged } = EXTENDED_HEADER_FIXTURE_FILES;
+    expect(fileHeaderTextFor(modeChanged.path)).toContain(
+      `mode ${modeChanged.from} → ${modeChanged.to}`,
+    );
+  });
+
+  it("marks a binary file, whose change no unified patch can show", () => {
+    expect(fileHeaderTextFor(EXTENDED_HEADER_FIXTURE_FILES.binary.path)).toContain(
+      "binary file changed",
+    );
+  });
+
+  it("negative control: a file whose change is textual carries no note", () => {
+    // Without this, a header that stamped every file with a note would pass every
+    // case above while telling a reader that every file in the change set had moved.
+    const container = renderDiff({ model: SMALL_DIFF });
+    expect(container.querySelector(".meridian-diff__file-change")).toBeNull();
   });
 });

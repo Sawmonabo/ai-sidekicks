@@ -44,6 +44,17 @@ export interface DiffFixtureShape {
   readonly precedingContextPerHunk: number;
   /** Every nth line carries trailer-supplied agent attribution. Zero means none. */
   readonly agentAttributionEveryNthLine: number;
+  /**
+   * Whether the change set carries one file of each extended-header kind — renamed,
+   * copied, mode-changed, and binary — each of them with no hunks at all.
+   *
+   * A DIMENSION OF ITS OWN RATHER THAN A WIDER `fileCount`, because these files
+   * change no lines: folding them into that count would make every changed-line
+   * figure derived from it wrong, and would move every existing shape's totals.
+   * They are additional to `fileCount`, so a shape carrying `false` is exactly the
+   * change set it was before this dimension existed.
+   */
+  readonly extendedHeaderFiles: boolean;
 }
 
 /** The endurance tier's subject: forty files, five thousand changed lines. */
@@ -53,6 +64,7 @@ export const ENDURANCE_DIFF_SHAPE: DiffFixtureShape = {
   linesPerHunk: 25,
   precedingContextPerHunk: 30,
   agentAttributionEveryNthLine: 7,
+  extendedHeaderFiles: false,
 };
 
 /**
@@ -72,6 +84,7 @@ export const SINGLE_LARGE_HUNK_DIFF_SHAPE: DiffFixtureShape = {
   linesPerHunk: 5_000,
   precedingContextPerHunk: 30,
   agentAttributionEveryNthLine: 7,
+  extendedHeaderFiles: false,
 };
 
 /** A change set small enough to assert against row by row. */
@@ -81,7 +94,36 @@ export const SMALL_DIFF_SHAPE: DiffFixtureShape = {
   linesPerHunk: 3,
   precedingContextPerHunk: 4,
   agentAttributionEveryNthLine: 3,
+  extendedHeaderFiles: false,
 };
+
+/**
+ * The small change set plus one file of every extended-header kind.
+ *
+ * A SHAPE OF ITS OWN RATHER THAN A WIDENED `SMALL_DIFF_SHAPE`, so the cases written
+ * against that shape keep counting the files they were written to count. This one is
+ * the subject both the render cases and the surface tiers take: a file with no hunks
+ * reaches the file list and the row renderer as `+0 −0` under a bare path unless what
+ * the patch declared is carried and drawn, which is exactly what an image holds and a
+ * count assertion does not.
+ */
+export const EXTENDED_HEADER_DIFF_SHAPE: DiffFixtureShape = {
+  ...SMALL_DIFF_SHAPE,
+  extendedHeaderFiles: true,
+};
+
+/**
+ * The four extended-header files, named once for the patch text and the cases both.
+ *
+ * The patch below is composed from these, so a case that addresses one of these files
+ * addresses the file the fixture actually wrote — never a path restated beside it.
+ */
+export const EXTENDED_HEADER_FIXTURE_FILES = {
+  renamed: { from: "docs/decisions/before.md", to: "docs/decisions/after.md" },
+  copied: { from: "config/base.yml", to: "config/staging.yml" },
+  modeChanged: { path: "scripts/release.sh", from: "100644", to: "100755" },
+  binary: { path: "assets/logo.png" },
+} as const;
 
 /** The run-attributed arm, for the case the badge renders as accountable to a run. */
 export const RUN_ATTRIBUTION: DiffAttribution = {
@@ -125,7 +167,10 @@ export function buildDiffFixture(
   return {
     ...parsed,
     files: parsed.files.map((file) => ({
-      path: file.path,
+      // SPREAD, so what the parser read off the extended headers survives. Rebuilding
+      // the file from `path` and `hunks` alone is exactly the drop this fixture would
+      // otherwise reintroduce below the parser that stopped making it.
+      ...file,
       hunks: file.hunks.map((hunk, hunkOrdinal) => ({
         header: hunk.header,
         precedingContext: buildPrecedingContext(shape, file.path, hunkOrdinal),
@@ -163,7 +208,52 @@ function buildPatchText(shape: DiffFixtureShape): string {
     }
     patches.push(lines.join("\n"));
   }
+  if (shape.extendedHeaderFiles) {
+    patches.push(...extendedHeaderPatches());
+  }
   return `${patches.join("\n")}\n`;
+}
+
+/**
+ * One file per extended-header kind, each changing nothing else, as git writes them.
+ *
+ * GIT-STYLE, WHICH THE REST OF THIS PATCH DELIBERATELY IS NOT. None of these changes
+ * has any representation in a plain unified patch at all — `rename from`, `copy from`,
+ * `old mode`, and the binary marker are git extended headers, read only under a
+ * `diff --git` header — so each file carries one, with the `a/` and `b/` prefixes that
+ * header requires. `parsePatch` reads `isGit` per file, so the plain files above keep
+ * their paths verbatim and these are stripped, which is the mixture a real change set
+ * produces too when only some of its files moved.
+ *
+ * No hunks anywhere below: the whole change is in the headers, which is the case the
+ * surfaces used to draw as `+0 −0` under a bare path.
+ */
+function extendedHeaderPatches(): readonly string[] {
+  const { renamed, copied, modeChanged, binary } = EXTENDED_HEADER_FIXTURE_FILES;
+  return [
+    [
+      `diff --git a/${renamed.from} b/${renamed.to}`,
+      "similarity index 100%",
+      `rename from ${renamed.from}`,
+      `rename to ${renamed.to}`,
+    ].join("\n"),
+    [
+      `diff --git a/${copied.from} b/${copied.to}`,
+      "similarity index 100%",
+      `copy from ${copied.from}`,
+      `copy to ${copied.to}`,
+    ].join("\n"),
+    [
+      `diff --git a/${modeChanged.path} b/${modeChanged.path}`,
+      `old mode ${modeChanged.from}`,
+      `new mode ${modeChanged.to}`,
+    ].join("\n"),
+    [
+      `diff --git a/${binary.path} b/${binary.path}`,
+      "index 1a2b3c4..5d6e7f8 100644",
+      `Binary files a/${binary.path} and b/${binary.path} differ`,
+    ].join("\n"),
+  ];
 }
 
 /** One hunk's prefixed body lines, cycling the three kinds. */

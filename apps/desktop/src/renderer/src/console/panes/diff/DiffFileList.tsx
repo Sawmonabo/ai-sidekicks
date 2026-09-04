@@ -17,12 +17,20 @@
 // arithmetic over the model, so it renders through `DerivedFigure` and never
 // through `WireFigure` — the provenance signature rule (`Spec-023` rule 4) is
 // about where a number came from, and these came from here.
+//
+// AND THE COUNTS ARE NOT THE WHOLE CHANGE. A rename, a copy, a mode change, and a
+// binary change all live in a git patch's extended headers, so a file whose change is
+// only one of those has no hunks and counts `+0 −0` — which, alone, reads as nothing
+// having happened to it. The note beside the counts is what the patch actually said,
+// composed once by `diff-model.ts` so this list and the row renderer cannot disagree
+// about it. The counts stay: they are true, and suppressing them would make an
+// extended-header file the one row a reader cannot compare with its neighbours.
 
 import { useId, useMemo, useState } from "react";
 
 import { DerivedFigure, Glyph } from "../../primitives/index.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "./diff-bounds.js";
-import { diffFileChangeCounts, type ConsoleDiffModel } from "./diff-model.js";
+import { diffFileChangeCounts, diffFileChangeNotes, type ConsoleDiffModel } from "./diff-model.js";
 
 export interface DiffFileListProps {
   readonly diff: ConsoleDiffModel;
@@ -43,6 +51,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     const files = props.diff.files.map((file) => ({
       path: file.path,
       counts: diffFileChangeCounts(file),
+      changeNotes: diffFileChangeNotes(file),
     }));
     return needle === "" ? files : files.filter((file) => file.path.toLowerCase().includes(needle));
   }, [props.diff, filterText]);
@@ -94,6 +103,11 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
               <span className="meridian-diff-files__path" title={file.path}>
                 {file.path}
               </span>
+              {file.changeNotes.length === 0 ? null : (
+                <span className="meridian-diff-files__change" title={file.changeNotes.join(", ")}>
+                  {file.changeNotes.join(", ")}
+                </span>
+              )}
               <span className="meridian-diff-files__counts">
                 <DerivedFigure text={`+${String(file.counts.insertions)}`} />
                 <DerivedFigure text={`−${String(file.counts.deletions)}`} />

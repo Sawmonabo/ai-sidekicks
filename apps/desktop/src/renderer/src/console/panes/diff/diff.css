@@ -195,6 +195,21 @@
   font-family: var(--meridian-font-mono);
 }
 
+/* What the extended headers said, where a file's change is not in any hunk.
+   Sans rather than mono, so it reads as the console's sentence about the file
+   rather than as another path; it never takes the measure from the path, which is
+   what a reader scans. */
+.meridian-diff-files__change {
+  flex: 0 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .meridian-diff-files__counts {
   display: inline-flex;
   gap: var(--meridian-space-1);
@@ -263,6 +278,12 @@
   align-items: center;
   gap: var(--meridian-space-2);
   font-family: var(--meridian-font-mono);
+}
+
+.meridian-diff__file-change {
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
 }
 
 .meridian-diff__row--hunk,
