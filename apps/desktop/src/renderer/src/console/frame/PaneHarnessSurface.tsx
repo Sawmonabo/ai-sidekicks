@@ -34,6 +34,14 @@
 // stable key, which is also what makes opening a second instance leave the first
 // one standing: the measurement's per-instance slope depends on it.
 //
+// WHAT KEEPS ONE ROUTE'S PANES OFF ANOTHER ROUTE'S SUBJECT. Two `#/pane-harness/…`
+// addresses resolve to this one slot, so `RouteSurface` keys the surface it mounts
+// on the address itself and this component is rebuilt — count and all — whenever the
+// pane kind or the session changes. The pane keys below carry the session for the
+// same reason, one level down: they are the identity React reconciles an instance
+// by, and two addresses that differ only in their session produced identical keys,
+// so the instances themselves were handed to a session they had never been bound to.
+//
 // WHAT THE SUBJECT IS, AND WHAT IT IS NOT. What this surface holds is one pane
 // instance and everything that instance owns. It is NOT a deck: there is no tab
 // strip, no layout, no drag target, and no detach path, and that is the right
@@ -180,8 +188,8 @@ export function PaneHarnessSurface(props: PaneHarnessSurfaceProps): React.JSX.El
     >
       {instanceIndices(openInstanceCount).map((instanceIndex) => (
         <PaneBody
-          key={paneInstanceId(address, instanceIndex)}
-          {...paneContextFor(context, address, instanceIndex)}
+          key={paneInstanceId(address, route.sessionId, instanceIndex)}
+          {...paneContextFor(context, address, route.sessionId, instanceIndex)}
         />
       ))}
     </HarnessFrame>
@@ -245,9 +253,18 @@ function instanceIndices(count: number): readonly number[] {
  * ADDITION rather than a re-key that would unmount and rebuild the first — and the
  * per-instance slope the budget's negative control compares depends on the first
  * instance surviving the second one's mount.
+ *
+ * The SESSION is part of it because the identity has to change when the subject
+ * does. Keyed on the kind and the index alone, two addresses differing only in their
+ * session produced the same key, so React reconciled the instances rather than
+ * rebuilding them and a pane bound to one session went on running against another.
  */
-function paneInstanceId(address: ConsolePaneAddress, instanceIndex: number): string {
-  return `pane-harness-${address.kind}-${String(instanceIndex)}`;
+function paneInstanceId(
+  address: ConsolePaneAddress,
+  sessionId: string,
+  instanceIndex: number,
+): string {
+  return `pane-harness-${address.kind}-${sessionId}-${String(instanceIndex)}`;
 }
 
 /**
@@ -264,11 +281,12 @@ function paneInstanceId(address: ConsolePaneAddress, instanceIndex: number): str
 function paneContextFor(
   context: ConsoleSurfaceContext,
   address: ConsolePaneAddress,
+  sessionId: string,
   instanceIndex: number,
 ): ConsolePaneContext {
   return {
     ...address,
-    paneId: paneInstanceId(address, instanceIndex),
+    paneId: paneInstanceId(address, sessionId, instanceIndex),
     bridge: context.bridge,
     frameStore: context.frameStore,
     sessionStore: context.sessionStore,

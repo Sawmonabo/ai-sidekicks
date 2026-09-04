@@ -21,15 +21,22 @@
 // shim. The real body is mounted by the endurance tier, in a real window, which is
 // where the budget's own reading is taken.
 
+import { useEffect } from "react";
+
 import { act, cleanup, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { type ConsoleRoute } from "../routing/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext, type PaneKind } from "../seats/index.js";
 import { FrameStore } from "../store/index.js";
 import { PaneHarnessSurface } from "./PaneHarnessSurface.js";
-import { type ConsoleSurfaceContext } from "./surface-registry.js";
+import { RouteSurface } from "./RouteSurface.js";
+import {
+  consoleSurfaceRegistry,
+  registerConsoleSurface,
+  type ConsoleSurfaceContext,
+} from "./surface-registry.js";
 
 afterEach(cleanup);
 
@@ -39,30 +46,67 @@ const HARNESS_SESSION_ID = "session-under-harness";
 /** A test-attribute name, so a case can read what a mounted body was handed. */
 const MOUNTED_PANE_ID_ATTRIBUTE = "data-harness-pane-id";
 
-function harnessRoute(paneKind: string): ConsoleRoute {
-  return { kind: "pane-harness", paneKind, sessionId: HARNESS_SESSION_ID };
+function harnessRoute(paneKind: string, sessionId: string = HARNESS_SESSION_ID): ConsoleRoute {
+  return { kind: "pane-harness", paneKind, sessionId };
+}
+
+/** What the harness names one instance, spelled the way the surface spells it. */
+function paneInstanceId(instanceIndex: number, sessionId: string = HARNESS_SESSION_ID): string {
+  return `pane-harness-terminal-${sessionId}-${String(instanceIndex)}`;
 }
 
 /**
- * A board carrying one stub body for one kind.
+ * Which pane bodies mounted and unmounted, in order, by the id they were handed.
+ *
+ * The route-keying cases need to tell "a fresh instance" from "the same instance
+ * reconciled against a new session", and the mounted ids alone cannot: a reconciled
+ * body has the same id it always had. The lifecycle is what separates them.
+ */
+const mountedPaneLifecycle: string[] = [];
+
+/**
+ * A stub body for one kind, reporting what it was handed and when it came and went.
  *
  * The REAL `ConsolePaneRegistry`, because the harness's resolve is the subject: a
- * hand-rolled lookup here would prove the test's lookup works. What is a stub is
- * the BODY, which reports the paneId and the bridge identity it was handed so the
- * cases below can read them off the tree.
+ * hand-rolled lookup here would prove the test's lookup works. What is a stub is the
+ * BODY, which reports the paneId and the bridge identity it was handed so the cases
+ * below can read them off the tree.
  */
-function boardWithStubBody(kind: PaneKind): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
+function registerStubBody(registry: ConsolePaneRegistry, kind: PaneKind): void {
   registry.register({
     kind,
     owner: "pane-harness-test",
-    render: (context: ConsolePaneContext) => (
-      <div
-        {...{ [MOUNTED_PANE_ID_ATTRIBUTE]: context.paneId }}
-        data-harness-session={context.sessionStore === undefined ? "absent" : "present"}
-      />
-    ),
+    render: (context: ConsolePaneContext) => <StubPaneBody paneContext={context} />,
   });
+}
+
+function StubPaneBody(props: { readonly paneContext: ConsolePaneContext }): React.JSX.Element {
+  const { paneId, sessionStore } = props.paneContext;
+  useEffect(() => {
+    mountedPaneLifecycle.push(`mounted ${paneId}`);
+    return () => {
+      mountedPaneLifecycle.push(`unmounted ${paneId}`);
+    };
+  }, [paneId]);
+  return (
+    <div
+      {...{ [MOUNTED_PANE_ID_ATTRIBUTE]: paneId }}
+      data-harness-session={sessionStore === undefined ? "absent" : "present"}
+    />
+  );
+}
+
+function boardWithStubBody(kind: PaneKind): ConsolePaneRegistry {
+  const registry = new ConsolePaneRegistry();
+  registerStubBody(registry, kind);
+  return registry;
+}
+
+/** A board carrying a body for both kinds the route-keying cases address. */
+function boardWithBothStubBodies(): ConsolePaneRegistry {
+  const registry = new ConsolePaneRegistry();
+  registerStubBody(registry, "terminal");
+  registerStubBody(registry, "browser");
   return registry;
 }
 
@@ -128,7 +172,7 @@ describe("the fixture pane harness", () => {
     expect(screen.getByText("terminal panes open: 0")).toBeTruthy();
 
     await pressControl("Open a pane");
-    expect(mountedPaneIds()).toStrictEqual(["pane-harness-terminal-0"]);
+    expect(mountedPaneIds()).toStrictEqual([paneInstanceId(0)]);
     expect(screen.getByText("terminal panes open: 1")).toBeTruthy();
   });
 
@@ -146,13 +190,13 @@ describe("the fixture pane harness", () => {
     // replaced the first, every reading after the baseline would be the cost of
     // ONE pane and the control would compare a number against itself.
     expect(mountedPaneIds()).toStrictEqual([
-      "pane-harness-terminal-0",
-      "pane-harness-terminal-1",
-      "pane-harness-terminal-2",
+      paneInstanceId(0),
+      paneInstanceId(1),
+      paneInstanceId(2),
     ]);
 
     await pressControl("Close the newest pane");
-    expect(mountedPaneIds()).toStrictEqual(["pane-harness-terminal-0", "pane-harness-terminal-1"]);
+    expect(mountedPaneIds()).toStrictEqual([paneInstanceId(0), paneInstanceId(1)]);
   });
 
   it("hands each instance the window's own session store", async () => {
@@ -234,5 +278,114 @@ describe("the fixture pane harness", () => {
     expect(
       screen.getByText("This surface was mounted on an address it does not serve."),
     ).toBeTruthy();
+  });
+});
+
+// The harness is keyed to the route it was addressed at.
+//
+// Two `#/pane-harness/…` addresses resolve to ONE surface slot, so without a key
+// React reconciled the same component in the same position across a hash change: the
+// open-pane count survived, the replacement route mounted the previous route's number
+// of panes with no Open action, and on a same-kind session change the pane keys were
+// identical too — so the INSTANCES were handed to a session they had never been bound
+// to. These cases go through `RouteSurface`, because the key is its decision and a
+// case that rendered the harness directly could not observe it.
+describe("the harness across a route change", () => {
+  const HARNESS_OWNER = "pane-harness-route-keying-test";
+
+  // The log is cleared BEFORE a case rather than after one: the file's `cleanup`
+  // unmounts the previous tree, and every unmount it performs is a lifecycle entry
+  // that would otherwise land in the next case's log.
+  beforeEach(() => {
+    mountedPaneLifecycle.length = 0;
+  });
+
+  afterEach(() => {
+    consoleSurfaceRegistry.unregister("pane-harness");
+  });
+
+  /** Claim the slot the way the fixture registration does, out of a board here. */
+  function registerHarnessSlot(paneRegistry: ConsolePaneRegistry): void {
+    registerConsoleSurface({
+      slot: "pane-harness",
+      owner: HARNESS_OWNER,
+      render: (context) => <PaneHarnessSurface context={context} paneRegistry={paneRegistry} />,
+    });
+  }
+
+  function surfaceAt(route: ConsoleRoute): React.JSX.Element {
+    return <RouteSurface context={surfaceContextFor(route)} />;
+  }
+
+  it("mounts no pane when the addressed pane kind changes", async () => {
+    registerHarnessSlot(boardWithBothStubBodies());
+    const view = render(surfaceAt(harnessRoute("terminal")));
+    await pressControl("Open a pane", 2);
+    expect(mountedPaneIds()).toHaveLength(2);
+
+    view.rerender(surfaceAt(harnessRoute("browser")));
+
+    // A fresh harness on the new address, not the old one's count applied to it.
+    expect(mountedPaneIds()).toStrictEqual([]);
+    expect(screen.getByText("browser panes open: 0")).toBeTruthy();
+  });
+
+  it("mounts no pane, and reuses no instance, when the session changes", async () => {
+    registerHarnessSlot(boardWithBothStubBodies());
+    const view = render(surfaceAt(harnessRoute("terminal", "session-one")));
+    await pressControl("Open a pane");
+    expect(mountedPaneIds()).toStrictEqual([paneInstanceId(0, "session-one")]);
+
+    view.rerender(surfaceAt(harnessRoute("terminal", "session-two")));
+
+    expect(mountedPaneIds()).toStrictEqual([]);
+    expect(screen.getByText("terminal panes open: 0")).toBeTruthy();
+    // And the instance did not survive the move. A reconciled body would show a
+    // mount and no unmount here, which is a pane still running against the session
+    // it was bound to while the address says another.
+    expect(mountedPaneLifecycle).toStrictEqual([
+      `mounted ${paneInstanceId(0, "session-one")}`,
+      `unmounted ${paneInstanceId(0, "session-one")}`,
+    ]);
+  });
+
+  it("keeps its panes when the address has not changed", async () => {
+    // The other half of the same rule, and what stops the key from being a remount
+    // on every render: a rerender at the same address is the same subject, so the
+    // count and the instance stand. Without this the two cases above would pass
+    // against a harness that rebuilt itself on every pass and could hold nothing.
+    registerHarnessSlot(boardWithBothStubBodies());
+    const view = render(surfaceAt(harnessRoute("terminal")));
+    await pressControl("Open a pane");
+
+    view.rerender(surfaceAt(harnessRoute("terminal")));
+
+    expect(mountedPaneIds()).toStrictEqual([paneInstanceId(0)]);
+    expect(mountedPaneLifecycle).toStrictEqual([`mounted ${paneInstanceId(0)}`]);
+  });
+
+  it("negative control: the unkeyed mount carries the count across the change", async () => {
+    // The defect, as the shape it had. `RouteSurface` used to return the descriptor's
+    // output in a BARE fragment, so React saw one element in one position across the
+    // hash change and reconciled the harness rather than rebuilding it. Rendering the
+    // component directly is that same position, and it is why the cases above have to
+    // go through the route.
+    const paneRegistry = boardWithBothStubBodies();
+    const view = render(
+      <PaneHarnessSurface
+        context={surfaceContextFor(harnessRoute("terminal"))}
+        paneRegistry={paneRegistry}
+      />,
+    );
+    await pressControl("Open a pane");
+
+    view.rerender(
+      <PaneHarnessSurface
+        context={surfaceContextFor(harnessRoute("browser"))}
+        paneRegistry={paneRegistry}
+      />,
+    );
+
+    expect(screen.getByText("browser panes open: 1")).toBeTruthy();
   });
 });
