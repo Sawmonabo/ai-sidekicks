@@ -91,12 +91,50 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
     expect(reading.epochMilliseconds).not.toBeNaN();
   });
 
-  it("records the two RFC 3339 spellings this validator narrows away", () => {
-    // Both are permitted by RFC 3339 §5.6 and refused here, and both fail CLOSED —
-    // an em dash and a row sorted last, never a wrong instant. Asserted so the
-    // narrowing is a decision on the record rather than a surprise in a bug report.
+  it("records the one RFC 3339 spelling this reader narrows away", () => {
+    // A leap second is permitted by RFC 3339 §5.6 and refused here, and it fails
+    // CLOSED — an em dash and a row sorted last, never a wrong instant. Asserted so
+    // the narrowing is a decision on the record rather than a surprise in a bug report.
     expect(parseInstant("2026-12-31T23:59:60Z").kind).toBe("malformed");
-    expect(parseInstant("2026-09-01t12:00:00z").kind).toBe("malformed");
+  });
+
+  it("reads the lowercase separators RFC 3339 §5.6 permits", () => {
+    expect(epochMillisecondsOf("2026-09-01t12:00:00z")).toBe(
+      epochMillisecondsOf("2026-09-01T12:00:00Z"),
+    );
+  });
+
+  it("truncates a fraction wider than milliseconds, never rounding it later", () => {
+    expect(epochMillisecondsOf("2026-09-01T12:00:00.123456Z")).toBe(
+      epochMillisecondsOf("2026-09-01T12:00:00Z") + 123,
+    );
+    expect(epochMillisecondsOf("2026-09-01T12:00:00.9999Z")).toBe(
+      epochMillisecondsOf("2026-09-01T12:00:00Z") + 999,
+    );
+  });
+
+  it("reads February 29 of a leap year, including a century year the rule keeps", () => {
+    expect(parseInstant("2024-02-29T00:00:00Z").kind).toBe("instant");
+    expect(parseInstant("2000-02-29T00:00:00Z").kind).toBe("instant");
+    expect(parseInstant("1900-02-29T00:00:00Z").kind).toBe("malformed");
+  });
+
+  it("reads a two-digit year as itself, not as the twentieth century", () => {
+    const yearNinetyNine = new Date(0);
+    yearNinetyNine.setUTCFullYear(99, 0, 1);
+    yearNinetyNine.setUTCHours(0, 0, 0, 0);
+    expect(epochMillisecondsOf("0099-01-01T00:00:00Z")).toBe(yearNinetyNine.getTime());
+    // The negative control: `Date.UTC` alone reads the same digits as 1999.
+    expect(epochMillisecondsOf("0099-01-01T00:00:00Z")).not.toBe(Date.UTC(99, 0, 1));
+  });
+
+  it.each([
+    ["an offset hour past 23", "2026-01-01T10:00:00+24:00"],
+    ["an offset minute past 59", "2026-01-01T10:00:00+02:60"],
+    ["a space where the T belongs", "2026-01-01 10:00:00Z"],
+    ["a year of five digits", "12026-01-01T10:00:00Z"],
+  ])("refuses %s", (_label, text) => {
+    expect(parseInstant(text).kind).toBe("malformed");
   });
 });
 

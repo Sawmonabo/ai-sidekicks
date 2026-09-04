@@ -370,15 +370,15 @@ export default [
   // too late. A `files` pattern matching no file is not an ESLint error.
   //
   // Four files are exempt, and each is exempt for its own reason rather than by
-  // convenience: `core/instant.ts` and `core/wire-rejection.ts` are the readings the
-  // rules point at; `core/clock.ts` is the console's one `Date.now` seam; and the two
-  // tests are the negative controls, which have to CALL the banned API to demonstrate
-  // that `Date.parse` answers a number for a value RFC 3339 refuses. A ban nobody can
+  // convenience: `core/wire-rejection.ts` is the reading the `String(catch)` rule
+  // points at (`core/instant.ts` is NOT exempt — it composes its instant from validated
+  // fields and never calls `Date.parse`); `core/clock.ts` is the console's one `Date.now`
+  // seam; and the two tests are the negative controls, which have to CALL the banned API
+  // to demonstrate that `Date.parse` answers a number for a value RFC 3339 refuses. A ban nobody can
   // show the cost of is a ban nobody keeps.
   {
     files: ["src/renderer/src/console/**/*.{ts,tsx}", "src/renderer/src/shell/**/*.{ts,tsx}"],
     ignores: [
-      "src/renderer/src/console/core/instant.ts",
       "src/renderer/src/console/core/instant.test.ts",
       "src/renderer/src/console/core/clock.ts",
       "src/renderer/src/console/core/wire-rejection.ts",

@@ -37,38 +37,63 @@
 //     is documented to accept what this console must refuse: a date-only value and
 //     a timezone-less value both parse, and the second is read in the host's zone —
 //     the exact leniency that made `Date.parse` unusable here.
-//   • `zod` — ADOPTED, and it costs nothing: it is already a dependency of this
-//     package, already imported by `bridge/run-stream-projection.ts` and
-//     `bridge/scenarios/wire-truth/run-and-queue-semantics.ts`, so it is already in
-//     the renderer bundle and this module adds no byte to it. `packages/contracts`
-//     validates its own wire instants with this same `z.iso` family, so the console
-//     reads the wire's encoding through the validator the wire's own schemas are
-//     written in. Measured against zod 4.3.6 rather than assumed: `2026-02-30`,
-//     `2027-02-29`, `2026-04-31`, `2026-13-01`, hour `24`, and second `60` are each
-//     refused, where `Date.parse` answers a number for four of the six. It
-//     validates the CALENDAR and the CLOCK, not just the digit groups.
+//   • `zod` (`z.iso.datetime`) — declined, on placement rather than on capability.
+//     It validates the calendar and the clock correctly, but the console admits a
+//     schema library at exactly one door — `bridge/`, where a daemon reply is parsed
+//     against the method's registered shape — and `core/` is the DAG floor, which
+//     takes no library at all. A wire SHAPE needs a registry row; an ENCODING of one
+//     scalar needs twenty lines, written below, and those lines are also what let
+//     this reader follow RFC 3339 §5.6 exactly where zod narrows it (the lowercase
+//     `t` / `z` separators that section permits and zod refuses).
 //
-// TWO NARROWINGS THE ADOPTION COSTS, recorded rather than discovered later. zod's
-// `z.iso.datetime` refuses a leap second (`23:59:60Z`), which RFC 3339 §5.6 permits,
-// and refuses the lowercase `t` / `z` separators that same section permits. Both
-// read as malformed here. Neither is emitted by anything this console talks to, and
-// both fail CLOSED — an em dash and a row sorted last, never a wrong instant.
-
-import { z } from "zod";
+// ONE NARROWING THIS READER KEEPS, recorded rather than discovered later. RFC 3339
+// §5.6 permits a leap second (`23:59:60Z`); the platform's epoch cannot represent
+// one, so it reads as malformed here. Nothing this console talks to emits one, and
+// it fails CLOSED — an em dash and a row sorted last, never a wrong instant.
 
 /**
- * The wire's encoding: RFC 3339, with `Z` or a numeric offset.
+ * RFC 3339 §5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case,
+ * as that section's note permits), `partial-time` with an optional fraction of any
+ * width, then `time-offset` as `Z` (either case) or a signed `HH:MM`.
  *
- * `offset: true` is what admits `+02:00` beside `Z`. It is deliberately wider than
- * the Z-only default, because this is the CONSOLE's parser and the console reads
- * every plane: `packages/contracts` opts into offsets on its own instants, and a
- * reader that refused them would report a daemon's valid stamp as malformed.
+ * What the groups do NOT admit is the whole design: no date-only value, no
+ * timezone-less time, no compact `+0200` offset, no space separator. Each is a form
+ * `Date.parse` reads, and each names either no instant or the host's own zone.
  *
- * `local` stays at its default of `false`, which is the load-bearing half: a
- * timezone-less `2026-01-01T10:00:00` names no instant at all, and `Date.parse`
- * resolves it in whatever zone the operator's machine happens to be in.
+ * The grammar checks the digit groups; the calendar and clock checks in
+ * {@link parseInstant} check that the digits name a day and a time that exist.
  */
-const RFC_3339_INSTANT = z.iso.datetime({ offset: true });
+const RFC_3339_DATE_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/;
+
+const MILLISECONDS_PER_MINUTE = 60_000;
+
+/** Days in `month` of `year`, with the Gregorian leap rule stated in full. */
+function daysInMonth(year: number, month: number): number {
+  if (month === 2) {
+    const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    return leap ? 29 : 28;
+  }
+  return month === 4 || month === 6 || month === 9 || month === 11 ? 30 : 31;
+}
+
+/** Epoch milliseconds of a UTC calendar date and time the caller has validated. */
+function epochMillisecondsOfUtc(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+  millisecond: number,
+): number {
+  // `Date.UTC` reads a two-digit year as 1900 + year; `setUTCFullYear` does not.
+  // Composing at a fixed leap year first keeps a February 29 in year 0004 intact
+  // while the year is moved into place.
+  const composed = new Date(Date.UTC(2000, month - 1, day, hour, minute, second, millisecond));
+  composed.setUTCFullYear(year);
+  return composed.getTime();
+}
 
 /** A stamp this console could read. */
 export interface Instant {
@@ -102,31 +127,62 @@ export type InstantReading = Instant | MalformedInstant;
 /**
  * Read one wire instant.
  *
- * TWO CONJUNCTS, IN THIS ORDER, and neither alone is the reading. The validator
- * answers WHETHER the string names a real instant in the encoding the wire declares;
- * `Date.parse` then answers WHICH one. Running the parse second — over a value
- * already known to name a real calendar day and a real time of day — is what stops
- * the two disagreeing: a shape-only check leaves `Date.parse` free to answer a
- * number for a date that does not exist.
+ * TWO CONJUNCTS, IN THIS ORDER, and neither alone is the reading. The grammar
+ * answers WHETHER the text is spelled in the encoding the wire declares; the
+ * calendar and clock checks then answer whether the digits name a day and a time
+ * that exist. Only a value past both is composed into a number, so there is no
+ * `Date.parse` here to normalize a day that does not exist into the next one.
+ *
+ * A fraction wider than milliseconds is TRUNCATED, never rounded: `.9999Z` reads
+ * as `.999`, so a reading is never later than the instant the wire named.
  *
  * Total. Every input answers a reading; nothing throws. A non-string reaching here
- * past the type (a wire value the console did not itself validate) is refused by the
- * validator like any other malformed value, so no runtime `typeof` guard is needed
- * to make that claim true.
+ * past the type (a wire value the console did not itself validate) matches no
+ * grammar and is refused like any other malformed value, so no runtime `typeof`
+ * guard is needed to make that claim true.
  */
 export function parseInstant(text: string): InstantReading {
-  if (!RFC_3339_INSTANT.safeParse(text).success) {
+  const match = RFC_3339_DATE_TIME.exec(text);
+  if (match === null) {
     return { kind: "malformed", text };
   }
-  const epochMilliseconds = Date.parse(text);
-  // Unreachable at the validator's four-digit-year bound, and kept because the
-  // alternative is a function whose totality depends on a range argument rather than
-  // on a branch: an instant the platform cannot represent is malformed here, not a
-  // `NaN` escaping into arithmetic three families away.
-  if (Number.isNaN(epochMilliseconds)) {
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const fraction = match[7] ?? "";
+  const utcMarker = match[8];
+  const offsetSign = match[9];
+  const offsetHour = Number(match[10] ?? "0");
+  const offsetMinute = Number(match[11] ?? "0");
+
+  const calendarHolds = month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
+  // Second 60 — the leap second — is the one narrowing the module header records.
+  const clockHolds = hour <= 23 && minute <= 59 && second <= 59;
+  const offsetHolds = utcMarker !== undefined || (offsetHour <= 23 && offsetMinute <= 59);
+  if (!calendarHolds || !clockHolds || !offsetHolds) {
     return { kind: "malformed", text };
   }
-  return { kind: "instant", epochMilliseconds, text };
+
+  const millisecond = Number(fraction.slice(0, 3).padEnd(3, "0"));
+  const localEpochMilliseconds = epochMillisecondsOfUtc(
+    year,
+    month,
+    day,
+    hour,
+    minute,
+    second,
+    millisecond,
+  );
+  // An offset names how far AHEAD of UTC the local clock reads, so the instant is
+  // the local reading minus the offset: `10:00+02:00` is `08:00Z`.
+  const offsetMilliseconds =
+    utcMarker !== undefined
+      ? 0
+      : (offsetSign === "-" ? -1 : 1) * (offsetHour * 60 + offsetMinute) * MILLISECONDS_PER_MINUTE;
+  return { kind: "instant", epochMilliseconds: localEpochMilliseconds - offsetMilliseconds, text };
 }
 
 /** Which end of the order the newest instant belongs at. */
