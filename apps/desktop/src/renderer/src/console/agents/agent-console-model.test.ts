@@ -73,6 +73,28 @@ function useUnguardedAgentConsoleModels(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
 ): AgentConsoleModels | undefined {
+  return useHeldAgentConsoleModels(bridge, sessionStore);
+}
+
+/**
+ * The second shape this finding replaced: the guard compared the SESSION ID.
+ *
+ * A replacement bridge or a rebuilt store under one session passes it, so the first
+ * committed render after either hands back a set bound to what was just retired.
+ */
+function useSessionIdGuardedAgentConsoleModels(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore,
+): AgentConsoleModels | undefined {
+  const models = useHeldAgentConsoleModels(bridge, sessionStore);
+  return models !== undefined && models.sessionId === sessionStore.sessionId ? models : undefined;
+}
+
+/** The lifecycle both stand-ins share — a set built and disposed by an effect. */
+function useHeldAgentConsoleModels(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore,
+): AgentConsoleModels | undefined {
   const [models, setModels] = useState<AgentConsoleModels | undefined>(undefined);
   useEffect(() => {
     const built = new AgentConsoleModels(bridge, sessionStore);
@@ -190,5 +212,96 @@ describe("the agent console's models — the linkage lease", () => {
     models.dispose();
     expect(second.read.isSubscribed).toBe(false);
     expect(models.heldLinkageParentRunId).toBeUndefined();
+  });
+});
+
+// --- A model never belongs to a BRIDGE or a STORE it is not for ---------------
+
+/** The two inputs a mount is handed, replaced one at a time by the cases below. */
+interface ModelsProbeInputs {
+  readonly bridge: ConsoleBridge;
+  readonly sessionStore: SessionStore;
+}
+
+/** Every set the hook answered after its inputs were replaced, in render order. */
+function answersAfterReplacing(
+  before: ModelsProbeInputs,
+  after: ModelsProbeInputs,
+): readonly (AgentConsoleModels | undefined)[] {
+  const answered: (AgentConsoleModels | undefined)[] = [];
+  const view = renderHook(
+    (inputs: ModelsProbeInputs) => {
+      const models = useAgentConsoleModels(inputs.bridge, inputs.sessionStore);
+      answered.push(models);
+      return models;
+    },
+    { initialProps: before },
+  );
+  const beforeReplacement = answered.length;
+  view.rerender(after);
+  return answered.slice(beforeReplacement);
+}
+
+describe("the agent console's models — the exact bridge and store they answer for", () => {
+  it("answers nothing on the frame where the bridge was replaced under one session", () => {
+    const sessionStore = initialisedStore("session-reconnect");
+    const replacement = unscriptedBridge("agent-models-bridge-b");
+    const afterReplacement = answersAfterReplacing(
+      { bridge: unscriptedBridge("agent-models-bridge-a"), sessionStore },
+      { bridge: replacement, sessionStore },
+    );
+
+    // The retired bridge's reads are bound to a transport this mount no longer
+    // holds, and the binding column would dispatch every mutation through it.
+    expect(afterReplacement[0]).toBeUndefined();
+    expect(afterReplacement.at(-1)?.subject.bridge).toBe(replacement);
+  });
+
+  it("answers nothing on the frame where the store was rebuilt under one session", () => {
+    const bridge = unscriptedBridge("agent-models-store-rebuild");
+    const rebuilt = initialisedStore("session-rebuilt");
+    const afterReplacement = answersAfterReplacing(
+      { bridge, sessionStore: initialisedStore("session-rebuilt") },
+      { bridge, sessionStore: rebuilt },
+    );
+
+    // Same session id, a different projection: the held roster answers from the
+    // stream the previous store owned, which nothing is appending to any more.
+    expect(afterReplacement[0]).toBeUndefined();
+    expect(afterReplacement.at(-1)?.subject.sessionStore).toBe(rebuilt);
+  });
+
+  it("negative control: an unchanged pair keeps answering with the set it holds", () => {
+    // Without this, the two cases above would pass over a hook that answered
+    // `undefined` on every frame it ever rendered.
+    const inputs: ModelsProbeInputs = {
+      bridge: unscriptedBridge("agent-models-unchanged"),
+      sessionStore: initialisedStore("session-unchanged"),
+    };
+    const afterRerender = answersAfterReplacing(inputs, inputs);
+    expect(afterRerender.at(-1)?.subject).toStrictEqual(inputs);
+  });
+
+  it("negative control: the session-id guard hands the retired bridge's set back", () => {
+    // The shape this finding replaced. It is the instrument's proof: the recorder
+    // above reports a mismatched frame when the guard cannot see one.
+    const sessionStore = initialisedStore("session-id-only");
+    const retired = unscriptedBridge("agent-models-id-only-a");
+    const replacement = unscriptedBridge("agent-models-id-only-b");
+    const answered: (AgentConsoleModels | undefined)[] = [];
+    const view = renderHook(
+      (inputs: ModelsProbeInputs) => {
+        const models = useSessionIdGuardedAgentConsoleModels(inputs.bridge, inputs.sessionStore);
+        answered.push(models);
+        return models;
+      },
+      { initialProps: { bridge: retired, sessionStore } },
+    );
+    const beforeReplacement = answered.length;
+    view.rerender({ bridge: replacement, sessionStore });
+
+    expect(
+      answered.slice(beforeReplacement).some((models) => models?.subject.bridge === retired),
+    ).toBe(true);
   });
 });

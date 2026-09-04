@@ -125,9 +125,14 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // `submit` admits nothing in flight, so a double click costs one request and the
   // confirmation shown is the settled reply's rather than whichever landed last.
   const submitAttach = useCallback((): void => {
-    // The session is bound HERE rather than in the form: the models own it, and a
-    // second copy inside the form would be a second answer to the same question.
-    const readiness = attachForm.readiness(models.sessionId);
+    // The session and the catalog are both bound HERE rather than in the form: the
+    // models own both reads, and a copy inside the form would be a second answer to
+    // a question already asked. The catalog is what the form's readiness check tests
+    // its entered driver, model, and effort against, so an unread one is passed as
+    // the `undefined` it is and the submission fails closed rather than composing a
+    // request out of values nothing vouches for.
+    const catalog = catalogState.kind === "loaded" ? catalogState.value : undefined;
+    const readiness = attachForm.readiness(models.sessionId, catalog);
     if (readiness.status !== "ready") {
       return;
     }
@@ -135,7 +140,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     if (attachAttempt.submit(async () => await models.attach(readiness.request))) {
       setAttachSubjectSessionId(sessionId);
     }
-  }, [attachAttempt, attachForm, models]);
+  }, [attachAttempt, attachForm, catalogState, models]);
 
   // The settlement published is the SETTLED reply's, never whichever landed last:
   // one request per intended action means there is no second reply to race.

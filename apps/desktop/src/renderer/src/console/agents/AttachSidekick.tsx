@@ -74,8 +74,8 @@ export interface AttachSidekickProps {
 export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
   const { form, catalog, definitions } = props;
   const submittingReasonId = useId();
-  const readiness = form.readiness(props.sessionId);
   const catalogValue = catalog.kind === "loaded" ? catalog.value : undefined;
+  const readiness = form.readiness(props.sessionId, catalogValue);
   const driverName = form.effectiveValue("driverName");
   const modelId = form.effectiveValue("modelId");
 
@@ -143,7 +143,7 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
             label="Driver"
             options={catalogValue === undefined ? undefined : driverNamesOf(catalogValue)}
             value={driverName}
-            onValueChange={(next) => form.setField("driverName", next ?? "")}
+            onValueChange={(next) => form.setField("driverName", next ?? "", catalogValue)}
             isOverridden={form.isOverridden("driverName")}
             overlayContainer={props.overlayContainer}
           />
@@ -155,7 +155,7 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
                 : modelsFor(catalogValue, driverName).map((model) => model.id)
             }
             value={modelId}
-            onValueChange={(next) => form.setField("modelId", next ?? "")}
+            onValueChange={(next) => form.setField("modelId", next ?? "", catalogValue)}
             isOverridden={form.isOverridden("modelId")}
             overlayContainer={props.overlayContainer}
           />
@@ -167,7 +167,7 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
                 : effortLevelsFor(catalogValue, driverName, modelId)
             }
             value={form.effectiveValue("effort")}
-            onValueChange={(next) => form.setField("effort", next ?? "")}
+            onValueChange={(next) => form.setField("effort", next ?? "", catalogValue)}
             isOverridden={form.isOverridden("effort")}
             overlayContainer={props.overlayContainer}
           />
@@ -182,7 +182,9 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
             <input
               className="meridian-axis-field__text"
               value={form.effectiveValue("providerAccountId") ?? ""}
-              onChange={(event) => form.setField("providerAccountId", event.target.value)}
+              onChange={(event) =>
+                form.setField("providerAccountId", event.target.value, catalogValue)
+              }
             />
             <span className="meridian-axis-field__advisory">
               An account&rsquo;s stored readiness is advisory here and never a gate — a pinned

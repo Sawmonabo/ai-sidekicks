@@ -233,3 +233,71 @@ describe("wire mutation coordinator — how a surface hears about it", () => {
     expect(sink).not.toHaveBeenCalled();
   });
 });
+
+describe("wire mutation coordinator — the subject moving out from under a call", () => {
+  it("publishes nothing when a superseded call finally answers", async () => {
+    const pending = settleable();
+    const coordinator = coordinatorOver(async () => await pending.promise);
+    const run = coordinator.run("membership-1", "request");
+
+    coordinator.supersede();
+    expect(coordinator.snapshot().pendingKey).toBeUndefined();
+
+    pending.resolve("applied");
+
+    // The caller takes the same arm a refusal takes: there is no subject left to
+    // install into, and a response is not a reason to render either.
+    await expect(run).resolves.toBeUndefined();
+    expect(coordinator.snapshot().pendingKey).toBeUndefined();
+  });
+
+  it("publishes no refusal when a superseded call rejects", async () => {
+    const pending = settleable();
+    const coordinator = coordinatorOver(async () => await pending.promise);
+    const run = coordinator.run("membership-1", "request");
+
+    coordinator.supersede();
+    pending.reject({ code: "membership.last_owner", message: "refused" });
+    await run;
+
+    // A refusal about a row of the subject that was left, rendered against the
+    // subject that arrived, would attribute it to a control nobody there pressed.
+    expect(coordinator.snapshot().refusalByKey["membership-1"]).toBeUndefined();
+  });
+
+  it("drops the refusals already standing, because they name the subject being left", async () => {
+    const coordinator = coordinatorOver(async () => await Promise.reject(new Error("no")));
+    await coordinator.run("membership-1", "request");
+    expect(coordinator.snapshot().refusalByKey["membership-1"]).toBeDefined();
+
+    coordinator.supersede();
+
+    expect(Object.keys(coordinator.snapshot().refusalByKey)).toStrictEqual([]);
+  });
+
+  it("negative control: without superseding, that same reply DOES settle in place", async () => {
+    // Without this, the three cases above would pass over a coordinator that had
+    // stopped publishing anything at all.
+    const pending = settleable();
+    const coordinator = coordinatorOver(async () => await pending.promise);
+    const run = coordinator.run("membership-1", "request");
+    pending.resolve("applied");
+    await expect(run).resolves.toBe("applied");
+  });
+
+  it("is idempotent and leaves the coordinator usable for the subject that arrived", async () => {
+    const coordinator = coordinatorOver(async () => await Promise.resolve("applied"));
+    coordinator.supersede();
+    coordinator.supersede();
+
+    await expect(coordinator.run("membership-2", "request")).resolves.toBe("applied");
+  });
+
+  it("emits nothing for a supersede with nothing in flight and nothing refused", () => {
+    const coordinator = coordinatorOver(async () => await Promise.resolve("applied"));
+    const sink = vi.fn();
+    coordinator.subscribe(sink);
+    coordinator.supersede();
+    expect(sink).not.toHaveBeenCalled();
+  });
+});

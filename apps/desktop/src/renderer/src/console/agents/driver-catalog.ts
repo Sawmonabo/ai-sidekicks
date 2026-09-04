@@ -107,3 +107,41 @@ export function capabilityFlagFor(
   );
   return report?.capabilities.flags[flag];
 }
+
+/**
+ * Whether the catalog lists this model under this driver.
+ *
+ * An UNREAD catalog answers no, which is why this pair takes `undefined` where the
+ * selectors above require a reading: a membership question asked before the read
+ * lands has one honest answer, and it is not "yes". Callers that must distinguish
+ * "not carried" from "not yet read" test the catalog itself — the form does, so it
+ * can name the missing read rather than blaming the value.
+ */
+export function catalogCarriesModel(
+  catalog: DriverCatalogReading | undefined,
+  driverName: string | undefined,
+  modelId: string,
+): boolean {
+  return (
+    catalog !== undefined && modelsFor(catalog, driverName).some((model) => model.id === modelId)
+  );
+}
+
+/**
+ * Whether this model publishes this effort level. Unread catalog: no.
+ *
+ * An ABSENT vocabulary is not an empty one on the wire — it means the model exposes
+ * no effort selection at all — and both readings answer the same thing to this
+ * question: nothing vouches for the entered level.
+ */
+export function catalogCarriesEffortLevel(
+  catalog: DriverCatalogReading | undefined,
+  driverName: string | undefined,
+  modelId: string | undefined,
+  effort: string,
+): boolean {
+  if (catalog === undefined) {
+    return false;
+  }
+  return effortLevelsFor(catalog, driverName, modelId)?.includes(effort) === true;
+}
