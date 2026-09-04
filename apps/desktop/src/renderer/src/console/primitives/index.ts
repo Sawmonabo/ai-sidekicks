@@ -38,6 +38,33 @@ export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 
 export { Nothing } from "./Nothing.js";
 
+// The incomplete-reading vocabulary and its one notice. Through the door for the
+// reason every family lane needs them: six families each wrote their own notice for
+// this case and the sentences disagreed, so a family that reached past the barrel for
+// a local copy would be the seventh.
+export type {
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  PartialReadNotice,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  ReadingState,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  ReadingStateKind,
+} from "./partial-read.js";
+export {
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  READING_STATE_KINDS,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  partialReadNotice,
+} from "./partial-read.js";
+export type {
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  PartialReadProps,
+} from "./PartialRead.js";
+export {
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  PartialRead,
+} from "./PartialRead.js";
+
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   InlineRefusal,
@@ -64,6 +91,39 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   Chip,
 } from "./Chip.js";
+
+// The windowed row and the keyboard that reaches it. Through the door because the
+// two ARIA members are one claim every windowed list in the console makes the same
+// way, and a family that wrote its own row is a family whose reader is told the list
+// is as long as the window.
+export type {
+  /** @consumedBy T-023p-1C-5 */
+  WindowedListRowProps,
+} from "./WindowedListRow.js";
+export {
+  /** @consumedBy T-023p-1C-5 */
+  WindowedListRow,
+} from "./WindowedListRow.js";
+export type {
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRovingIndex,
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRovingIndexOptions,
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRowMove,
+} from "./windowed-row-index.js";
+export {
+  /** @consumedBy T-023p-1C-5 */
+  WINDOWED_ROW_INDEX_ATTRIBUTE,
+  /** @consumedBy T-023p-1C-5 */
+  WINDOWED_ROW_MOVE_BY_KEY,
+  /** @consumedBy T-023p-1C-5 */
+  clampedRowIndex,
+  /** @consumedBy T-023p-1C-5 */
+  movedRowIndex,
+  /** @consumedBy T-023p-1C-5 */
+  useWindowedRovingIndex,
+} from "./windowed-row-index.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
