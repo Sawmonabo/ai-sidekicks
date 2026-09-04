@@ -445,3 +445,64 @@ describe("ProposalGate — hosting unavailable is a feature, not an error page",
     expect(degraded.container.textContent).not.toContain("The daemon refused this action");
   });
 });
+
+describe("ProposalGate — a confirmation belongs to what it was opened over", () => {
+  /** Open Push's confirmation on the ready arm, and give back the gate to move. */
+  function openPushConfirmation(): ReturnType<typeof render> {
+    const gate = render(<ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />);
+    fireEvent.click(within(gate.container).getByRole("button", { name: "Push" }));
+    expect(within(gate.container).getByRole("button", { name: "Push now" })).toBeDefined();
+    return gate;
+  }
+
+  it("closes when the offered acts change and the send comes back", () => {
+    // The whole defect: a refresh moving the proposal from `ready` to `draft` took the
+    // Push row away while the pending confirmation stayed, so the next proposal to
+    // become `ready` remounted with its confirmation already open — a send confirmable
+    // against a payload whose consequence nobody had read.
+    const { container, rerender } = openPushConfirmation();
+
+    rerender(
+      <ProposalGate
+        state={{ ...PREPARED_STATE, proposal: DRAFT_PROPOSAL }}
+        onRequestAction={vi.fn()}
+      />,
+    );
+    rerender(<ProposalGate state={PREPARED_STATE} onRequestAction={vi.fn()} />);
+
+    expect(within(container).queryByRole("button", { name: "Push now" })).toBeNull();
+    expect(within(container).getByRole("button", { name: "Push" })).toBeDefined();
+  });
+
+  it("closes when a different proposal reaches the same offered acts", () => {
+    // The case the offered set cannot see: preparing again over the same context
+    // leaves every act offered and replaces the payload underneath the open confirm.
+    const { container, rerender } = openPushConfirmation();
+
+    rerender(
+      <ProposalGate
+        state={{ ...PREPARED_STATE, proposal: { ...PROPOSAL, title: "A different change" } }}
+        onRequestAction={vi.fn()}
+      />,
+    );
+
+    expect(within(container).queryByRole("button", { name: "Push now" })).toBeNull();
+  });
+
+  it("negative control: a re-read that served the same arm leaves it open", () => {
+    // Without this the two cases above would pass against a gate that closed the
+    // confirmation on every render — and this gate re-reads on focus, on a reconnect,
+    // and on every repo frame the daemon sends, so the confirm would close under a
+    // participant part way through reading it.
+    const { container, rerender } = openPushConfirmation();
+
+    rerender(
+      <ProposalGate
+        state={{ ...PREPARED_STATE, proposal: { ...PROPOSAL } }}
+        onRequestAction={vi.fn()}
+      />,
+    );
+
+    expect(within(container).getByRole("button", { name: "Push now" })).toBeDefined();
+  });
+});
