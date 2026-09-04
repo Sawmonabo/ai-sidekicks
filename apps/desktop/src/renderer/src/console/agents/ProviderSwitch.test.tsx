@@ -9,7 +9,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { refuse } from "../core/index.js";
 import { ProviderSwitch } from "./ProviderSwitch.js";
-import { DRIVER_CATALOG_FIXTURE } from "./driver-catalog-fixtures.js";
+import {
+  DRIVER_CATALOG_FIXTURE,
+  OVERLAPPING_DRIVER_CATALOG_FIXTURE,
+} from "./driver-catalog-fixtures.js";
 import type { AgentRosterEntry } from "./agent-wire.js";
 import type { DriverCatalogReading } from "./driver-catalog.js";
 import type { PushDrivenReadState } from "../seats/index.js";
@@ -417,5 +420,188 @@ describe("provider switch — the settlement rides the reply", () => {
       <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
     );
     expect(container.querySelector(".meridian-settlement")).toBeNull();
+  });
+});
+
+describe("provider switch — an inherited axis is held to the chain it lands in", () => {
+  /** The overlapping reading, where two models of one driver disagree about effort. */
+  const OVERLAPPING: PushDrivenReadState<DriverCatalogReading> = {
+    kind: "loaded",
+    value: OVERLAPPING_DRIVER_CATALOG_FIXTURE,
+  };
+
+  /** An agent whose effort is published by its current model and by only one sibling. */
+  const RUNNING_HIGH: AgentRosterEntry = {
+    ...ON_CLAUDE,
+    modelId: "shared-model",
+    config: { effort: "high" },
+  };
+
+  it("holds the actions when a model change retires the effort the agent runs under", () => {
+    // The defect: only the draft was examined, so the model edit submitted alone, the
+    // effort rode the request as an omission — which the contract defines as
+    // unchanged — and the daemon validated `high` against a model publishing only
+    // `low` and refused the switch.
+    const { container } = render(
+      <ProviderSwitch agent={RUNNING_HIGH} catalog={OVERLAPPING} onApply={() => {}} />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+
+    const held = applyActions(container);
+    expect(held.length).toBe(2);
+    expect(held.every((action) => action.disabled)).toBe(true);
+    expect(container.textContent ?? "").toContain("has to name one that is");
+  });
+
+  it("marks the effort field itself, beside the reason under the actions", () => {
+    const { container } = render(
+      <ProviderSwitch agent={RUNNING_HIGH} catalog={OVERLAPPING} onApply={() => {}} />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+
+    expect(axisField(container, "Effort")?.textContent ?? "").toContain(
+      "Not one this model publishes",
+    );
+  });
+
+  it("releases the actions once a compatible effort is named, and submits it", () => {
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch agent={RUNNING_HIGH} catalog={OVERLAPPING} onApply={onApply} />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+    chooseAxisValue(container, "Effort", "low");
+
+    const [deferred] = applyActions(container);
+    expect(deferred?.disabled).toBe(false);
+    fireEvent.click(deferred as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ modelId: "claude-only", effort: "low" }, false);
+  });
+
+  it("negative control: a model that still publishes the agent's effort holds nothing", () => {
+    // Without this, the cases above would pass over a form that held its actions for
+    // every model change, which would make an ordinary edit unusable — and the
+    // effort is deliberately NOT submitted here, because unchanged is what it is.
+    const onApply = vi.fn();
+    const { container } = render(
+      <ProviderSwitch
+        agent={{ ...RUNNING_HIGH, config: { effort: "low" } }}
+        catalog={OVERLAPPING}
+        onApply={onApply}
+      />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+
+    const [deferred] = applyActions(container);
+    expect(deferred?.disabled).toBe(false);
+    expect(container.textContent ?? "").not.toContain("has to name one that is");
+    fireEvent.click(deferred as HTMLButtonElement);
+    expect(onApply).toHaveBeenCalledWith({ modelId: "claude-only" }, false);
+  });
+
+  it("negative control: an agent running under no effort at all holds nothing", () => {
+    // The axis is only in question where there is an inherited value to carry.
+    const { container } = render(
+      <ProviderSwitch agent={ON_CLAUDE} catalog={OVERLAPPING} onApply={() => {}} />,
+    );
+    chooseAxisValue(container, "Model", "claude-only");
+    expect(applyActions(container)[0]?.disabled).toBe(false);
+  });
+
+  it("says so plainly where the target model publishes no effort surface at all", () => {
+    // No control is drawn for an absent vocabulary, so "choose a compatible level"
+    // would be an instruction this form does not offer anywhere. `claude-haiku`
+    // publishes none, and nothing on this surface clears an axis.
+    const { container } = render(
+      <ProviderSwitch
+        agent={{ ...ON_CLAUDE, config: { effort: "high" } }}
+        catalog={LOADED}
+        onApply={() => {}}
+      />,
+    );
+    chooseAxisValue(container, "Model", "claude-haiku");
+
+    expect(fieldLabels(container)).not.toContain("Effort");
+    expect(applyActions(container).every((action) => action.disabled)).toBe(true);
+    expect(container.textContent ?? "").toContain("publishes no effort at all");
+  });
+
+  it("keeps showing the effort the agent runs under, because that is what unchanged is", () => {
+    const { container } = render(
+      <ProviderSwitch agent={RUNNING_HIGH} catalog={OVERLAPPING} onApply={() => {}} />,
+    );
+    expect(axisValueOf(container, "Effort")).toBe("high");
+    chooseAxisValue(container, "Model", "claude-only");
+    expect(axisValueOf(container, "Effort")).toBe("high");
+  });
+});
+
+describe("provider switch — the draft follows the binding it is a difference from", () => {
+  /** The same mount, re-rendered with the agent as the roster now reports it. */
+  function withAgent(agent: AgentRosterEntry): React.JSX.Element {
+    return <ProviderSwitch agent={agent} catalog={LOADED} onApply={() => {}} />;
+  }
+
+  const ON_ACCOUNT_ONE: AgentRosterEntry = {
+    ...ON_CLAUDE,
+    config: { providerAccountId: "account-1" },
+  };
+
+  it("clears a draft the binding has caught up with, and takes the actions away", () => {
+    // The defect: the component stays mounted — its key is the agent — so a terminal
+    // event applying the switch left the old draft in front of the new authoritative
+    // values, with both actions live and a second, now redundant, switch to submit.
+    const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
+    editProviderAccount(container, "account-2");
+    expect(applyActions(container).length).toBe(2);
+
+    rerender(withAgent({ ...ON_ACCOUNT_ONE, config: { providerAccountId: "account-2" } }));
+
+    expect(applyActions(container).length).toBe(0);
+    expect(providerAccountValue(container)).toBe("account-2");
+  });
+
+  it("keeps an axis still being edited and rebases it onto the new values", () => {
+    const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
+    chooseAxisValue(container, "Output speed", "fast");
+    editProviderAccount(container, "account-2");
+
+    // The speed landed; the account edit is still the participant's.
+    rerender(
+      withAgent({
+        ...ON_ACCOUNT_ONE,
+        config: { providerAccountId: "account-1", outputSpeed: "fast" },
+      }),
+    );
+
+    expect(applyActions(container).length).toBe(2);
+    expect(providerAccountValue(container)).toBe("account-2");
+    expect(axisValueOf(container, "Output speed")).toBe("fast");
+  });
+
+  it("negative control: a re-read that changed nothing leaves the draft alone", () => {
+    // The roster answers with a fresh object every read, so a draft cleared by
+    // identity rather than by value would lose the participant's work on a refresh
+    // that moved nothing at all.
+    const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
+    editProviderAccount(container, "account-2");
+
+    rerender(withAgent({ ...ON_ACCOUNT_ONE, config: { providerAccountId: "account-1" } }));
+
+    expect(applyActions(container).length).toBe(2);
+    expect(providerAccountValue(container)).toBe("account-2");
+  });
+
+  it("does not bring a settled draft back when the binding moves on again", () => {
+    // The stamp advances rather than only being compared: measured against the
+    // binding the draft was born under, `account-2` would read as an edit again the
+    // moment someone else moved the account somewhere else.
+    const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
+    editProviderAccount(container, "account-2");
+    rerender(withAgent({ ...ON_ACCOUNT_ONE, config: { providerAccountId: "account-2" } }));
+    rerender(withAgent({ ...ON_ACCOUNT_ONE, config: { providerAccountId: "account-3" } }));
+
+    expect(applyActions(container).length).toBe(0);
+    expect(providerAccountValue(container)).toBe("account-3");
   });
 });
