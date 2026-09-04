@@ -30,6 +30,28 @@
 // would be a guess about which of the two facts survived. So the queue is dropped
 // and the refusal renders on every switch it was carrying — the one that was sent
 // and the ones that never were.
+//
+// AND THE RE-READ IS A WHOLE-SET READ, SO IT IS ORDERED GLOBALLY
+//
+// The queue is per record, so toggling two records runs two of these loops at once.
+// Each one re-reads the WHOLE set, which is what the page publishes — so two reads
+// taken at different moments and answered in the other order would replace the page
+// with the older snapshot and make the newer record's accepted toggle look reverted
+// for the rest of the visit.
+//
+// The reads are DISCARDED BY GENERATION rather than serialised through a queue of
+// their own. Serialising would make one record's toggle wait on an unrelated
+// record's re-read before its own write could even be sent, which is latency added
+// to fix an ordering problem — and it would still need this rule, because the loops
+// that queue behind it are exactly the ones already in flight. Reads are taken
+// monotonically, so the later-taken read is the later state; a reply from an earlier
+// one is answering a question the page has already asked again.
+//
+// The re-read is still CONSUMED locally by the loop that took it: this record is
+// busy for the whole loop, so no second write to it can be in flight, and its own
+// value in its own re-read is authoritative for it whatever another record did
+// meanwhile. What goes stale is the whole-set PUBLICATION, and that is what the
+// generation guards.
 
 import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -118,6 +140,12 @@ export class NotificationPreferenceWriter {
    * because what supersedes them is the teardown rather than each other.
    */
   readonly #rounds = new AttemptGeneration();
+  /**
+   * The rounds of whole-set re-reads. Separate from the writes above because these
+   * DO supersede each other: every record's loop reads the same set, and only the
+   * latest-taken read describes the state the page should be showing.
+   */
+  readonly #setReads = new AttemptGeneration();
 
   public constructor(options: {
     readonly port: AttentionPreferencePort;
@@ -223,11 +251,18 @@ export class NotificationPreferenceWriter {
         // Re-read rather than patched, so this page never holds a second copy of a
         // record the daemon owns — and so a queued toggle is composed against what
         // the daemon actually stored rather than against what this writer sent.
+        const setRead = this.#setReads.begin();
         const reread = await this.#port.attentionPreferenceRead({ participantId });
         if (!this.#rounds.isCurrent(round)) {
           return;
         }
-        this.#onRecordsRead(reread);
+        if (this.#setReads.isCurrent(setRead)) {
+          // Published only while this is still the newest set read. A read another
+          // record's loop took after this one describes a later state, and handing
+          // the page this older snapshot afterwards would revert that record's
+          // accepted toggle on screen with nothing to say why.
+          this.#onRecordsRead(reread);
+        }
         const queued = this.#takeNextQueuedFlip(recordKey);
         if (queued === undefined) {
           this.#busyRecordKeys.delete(recordKey);

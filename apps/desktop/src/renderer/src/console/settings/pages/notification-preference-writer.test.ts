@@ -12,24 +12,23 @@ import { growthUnavailable } from "../../bridge/index.js";
 import {
   projectPreferenceRows,
   type AttentionPreference,
-  type AttentionPreferenceReadOutcome,
   type PreferenceToggleMember,
 } from "./attention-preference-model.js";
+import {
+  drain,
+  UPDATED_AT,
+  writerFor,
+  type UpdateOutcome,
+} from "./notification-preference-writer.test-support.js";
 import {
   NotificationPreferenceWriter,
   type AttentionPreferencePort,
   type TogglePreferenceRow,
 } from "./notification-preference-writer.js";
 
-const PARTICIPANT_ID = "participant-ana";
-const UPDATED_AT = "2026-01-01T10:06:00.000Z";
-
 const TWO_SWITCHES: readonly AttentionPreference[] = [
   { key: "attention", value: { mentions: true, runs: false } },
 ];
-
-/** What one whole-record write answers, so the harness settles the real shape. */
-type UpdateOutcome = Awaited<ReturnType<AttentionPreferencePort["attentionPreferenceUpdate"]>>;
 
 /** One update as the writer sent it, so a case can read what was composed. */
 interface RecordedUpdate {
@@ -119,20 +118,6 @@ function twoSwitchRecord(): {
     throw new Error("the projection did not draw two switches");
   }
   return { record, mentions, runs };
-}
-
-function writerFor(
-  port: AttentionPreferencePort,
-  onRecordsRead: (outcome: AttentionPreferenceReadOutcome) => void = () => undefined,
-): NotificationPreferenceWriter {
-  return new NotificationPreferenceWriter({ port, participantId: PARTICIPANT_ID, onRecordsRead });
-}
-
-/** Let a settled write and the re-read behind it run. */
-async function drain(): Promise<void> {
-  for (let pass = 0; pass < 6; pass += 1) {
-    await Promise.resolve();
-  }
 }
 
 describe("the preference writer — one write per record at a time", () => {
