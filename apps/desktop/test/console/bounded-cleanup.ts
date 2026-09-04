@@ -53,8 +53,8 @@ export interface ClosableApplication {
  * negative-pid arm below.
  */
 export interface ProcessTerminator {
-  /** Kill the tree led by `pid`. Returns whether a signal was delivered. */
-  readonly terminate: (pid: number) => boolean;
+  /** Kill the tree led by `processId`. Returns whether a signal was delivered. */
+  readonly terminate: (processId: number) => boolean;
   /**
    * Whether that process is still alive, asked without signalling it.
    *
@@ -63,7 +63,7 @@ export interface ProcessTerminator {
    * kill by asking this question, and a cleanup that must decide whether a
    * FAILED close left anything running asks exactly the same one.
    */
-  readonly isRunning: (pid: number) => boolean;
+  readonly isRunning: (processId: number) => boolean;
 }
 
 /**

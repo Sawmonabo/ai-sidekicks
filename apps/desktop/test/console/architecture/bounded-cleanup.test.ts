@@ -58,8 +58,8 @@ describe("bounded cleanup — a close that never settles", () => {
     return {
       killed,
       isRunning: () => running,
-      terminate: (pid: number) => {
-        killed.push(pid);
+      terminate: (processId: number) => {
+        killed.push(processId);
         return delivers;
       },
     };
