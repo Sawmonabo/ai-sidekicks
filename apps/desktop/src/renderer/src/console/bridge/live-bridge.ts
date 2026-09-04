@@ -43,6 +43,10 @@ export function createLiveBridge(sidekicks: SidekicksBridge): ConsoleBridge {
     // be a singleton the console's own rules reject, and the allocation is one
     // empty set per window.
     growthServedOperations: new Set(),
+    // No view host, which is 12.11's third arm rather than an omission: this task
+    // mints no main-process host, so a pane in a live window reports its rectangle
+    // to nothing and renders the sentence that says so.
+    paneViewHostScript: undefined,
     source: "live",
     scenarioEngine: undefined,
   };

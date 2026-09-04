@@ -64,6 +64,7 @@ import {
 } from "@ai-sidekicks/contracts";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
+import { createScriptedPaneViewHost } from "./pane-view-host-script.js";
 import {
   FIXTURE_SERVED_GROWTH_OPERATION_IDS,
   createFixtureGrowthPort,
@@ -218,6 +219,11 @@ export function createFixtureBridge(options: FixtureBridgeOptions): ConsoleBridg
     // set beside it still described a different one.
     growth: createFixtureGrowthPort(scenarioEngine),
     growthServedOperations: new Set(FIXTURE_SERVED_GROWTH_OPERATION_IDS),
+    // 12.11's scripted arm. Without it the resolver could only ever return the
+    // unavailable host, so every geometry publish under the fixture and under the
+    // end-to-end runs was suppressed and the attached path the wiring table
+    // promises was exercised by nothing.
+    paneViewHostScript: createScriptedPaneViewHost(),
     source: "fixture",
     scenarioEngine,
   };

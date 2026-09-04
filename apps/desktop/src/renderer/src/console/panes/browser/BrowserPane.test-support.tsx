@@ -11,7 +11,12 @@ import { act, render, screen, waitFor, type RenderResult } from "@testing-librar
 import { expect } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  createFixtureBridge,
+  createLiveBridge,
+  SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { FrameStore } from "../../store/index.js";
 import type { ConsolePaneContext } from "../../seats/index.js";
@@ -40,8 +45,48 @@ export async function findRefusalBanner(): Promise<HTMLElement> {
   });
 }
 
+/**
+ * The bridge a fixture or end-to-end run hands this pane.
+ *
+ * Named rather than inlined at each mount, because three suites now need to reach
+ * for the SAME window: the pane's view host is resolved from the bridge, so a case
+ * about geometry and a case about navigation have to be describing one bridge or
+ * they are describing two different windows.
+ */
+export function fixtureBrowserBridge(): ConsoleBridge {
+  return createFixtureBridge({ scenario: BROWSER_SCENARIO });
+}
+
+/**
+ * The bridge a live window hands this pane, over the same preload contract.
+ *
+ * The fixture's own `sidekicks` namespace IS that contract, so this is the real live
+ * wrapper answering for a window with no view host — 12.11's third arm, reached
+ * through the wiring table rather than asserted about it.
+ */
+export function liveBrowserBridge(): ConsoleBridge {
+  return createLiveBridge(fixtureBrowserBridge().sidekicks);
+}
+
+/**
+ * A fixture bridge whose scripted host says the pane it is asked about is gone.
+ *
+ * The arm no scenario can script — a pane's destruction is not a session event —
+ * and the one a surface has to render, because the publisher disposes itself over
+ * it and the viewport would otherwise go on offering "no page yet" forever.
+ */
+export function paneViewHostRefusing(detail: string): ConsoleBridge {
+  return {
+    ...fixtureBrowserBridge(),
+    paneViewHostScript: {
+      transport: SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
+      holdsPane: () => ({ holds: false, detail }),
+    },
+  };
+}
+
 function paneContext(
-  bridge: ConsoleBridge = createFixtureBridge({ scenario: BROWSER_SCENARIO }),
+  bridge: ConsoleBridge = fixtureBrowserBridge(),
   paneId = DEFAULT_TEST_PANE_ID,
 ): {
   readonly context: ConsolePaneContext;
@@ -160,7 +205,7 @@ export function navigationReportingBridge(): {
   /** End the producer's side, the way a daemon that has finished reporting would. */
   readonly endReporting: () => void;
 } {
-  const base = createFixtureBridge({ scenario: BROWSER_SCENARIO });
+  const base = fixtureBrowserBridge();
   const queued: NavigationEvent[] = [];
   let wake: (() => void) | undefined;
   let closed = false;
