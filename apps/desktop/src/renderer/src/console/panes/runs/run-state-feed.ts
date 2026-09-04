@@ -36,7 +36,7 @@
 // timer of any kind: elapsed is measured between two instants the WIRE supplied, so
 // the pane never needs to know what time it is now.
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import {
   RunRolledBackEventSchema,
   RunStateChangeEventSchema,
@@ -50,6 +50,7 @@ import { normalizeWireRejection } from "../../../../../shared/wire-errors.js";
 import {
   RUN_STATE_SUBSCRIBE_STREAM,
   subscribeDaemon,
+  useSessionScopedState,
   type ConsoleBridge,
 } from "../../bridge/index.js";
 import {
@@ -319,6 +320,14 @@ export function runElapsedMilliseconds(run: RunProjection): number | undefined {
  * unmount are dropped rather than written into a torn-down component, which is the
  * same close-race posture the session binder takes one layer down.
  *
+ * THE FEED IS STAMPED WITH ITS SUBJECT, so a pane rebound from one session to
+ * another never renders the previous session's runs. Clearing the feed in the
+ * effect would leave the previous projections on screen for the render that first
+ * commits the new session — and the pane seats every projected run, so those rows
+ * and their run-addressed controls would be live under a session they do not belong
+ * to. The stamped holder answers with the empty feed on that pass instead, which is
+ * synchronous rather than one commit late.
+ *
  * TAKES THE STORE AND NOT A BARE SESSION ID, because two different reads answer two
  * different questions here. This stream answers "what has happened to the runs";
  * the store's snapshot answers "has the read that says which runs exist landed", and
@@ -328,12 +337,11 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStor
   const sessionId = sessionStore.sessionId;
   const hasReadSnapshot = useSessionInitialised(sessionStore);
   const projection = useRef<RunStateProjection>(new RunStateProjection());
-  const [feed, setFeed] = useState<RunStateFeed>(EMPTY_FEED);
+  const [feed, setFeed] = useSessionScopedState<RunStateFeed>(bridge, sessionId, EMPTY_FEED);
 
   useEffect(() => {
     const fold = new RunStateProjection();
     projection.current = fold;
-    setFeed(EMPTY_FEED);
     let isMounted = true;
 
     // The stream's own registered request, parsed here rather than assembled at

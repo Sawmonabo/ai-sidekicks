@@ -94,6 +94,15 @@ export type {
 } from "./provider-account-quota.js";
 export { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-account-quota.js";
 
+// State that belongs to the bridge and session it was produced under. Here rather
+// than beside either consumer because two of them — the runs pane's live feed and
+// the composer's attachment picker — sit in different families that may not import
+// one another, and the failure it closes is the same failure in both: a mounted
+// surface rebound to another subject rendering the previous one's answer, and a read
+// still in flight settling into a surface that has since moved on.
+export { useSessionScopedState } from "./session-scoped-state.js";
+export type { SessionScopedState } from "./session-scoped-state.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,
