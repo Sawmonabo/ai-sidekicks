@@ -20,7 +20,7 @@ import {
   describeFailingPaths,
   type DaemonReply,
 } from "./daemon-reply.js";
-import { createFixtureBridge } from "./fixture-bridge.js";
+import { bridgeAnswering, createFixture } from "./fixture-bridge.test-support.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 
 /**
@@ -48,55 +48,6 @@ const SEEN_AT = "2026-01-01T14:20:00.500Z";
  * assertion that it is absent reads as the claim it is making.
  */
 const OFF_CONTRACT = "the participant said something private";
-
-/** What the daemon was asked, so a case can assert it was never asked at all. */
-interface RecordedCall {
-  readonly method: string;
-  readonly params: unknown;
-}
-
-interface BridgeUnderTest {
-  readonly bridge: ConsoleBridge;
-  readonly calls: readonly RecordedCall[];
-}
-
-/**
- * The shipped fixture bridge with its `daemon.call` replaced by one this suite
- * decides the answer for.
- *
- * A spread over a real bridge, which is the console's established shape for driving
- * one namespace member (`palette/bridge-commands.test.tsx`). That the rest is real
- * matters: `callDaemon` reaches the wire through `bridge.sidekicks.daemon.call` and
- * nothing else, so a case passing against a hand-built object would not prove it
- * reached a bridge at all.
- */
-function bridgeAnswering(answer: (call: RecordedCall) => Promise<unknown>): BridgeUnderTest {
-  const calls: RecordedCall[] = [];
-  const fixture = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-  return { bridge: withDaemonCall(fixture, answer, calls), calls };
-}
-
-/** One bridge whose call arm is this suite's, and whose every other arm is real. */
-function withDaemonCall(
-  fixture: ConsoleBridge,
-  answer: (call: RecordedCall) => Promise<unknown>,
-  calls: RecordedCall[],
-): ConsoleBridge {
-  return {
-    ...fixture,
-    sidekicks: {
-      ...fixture.sidekicks,
-      daemon: {
-        ...fixture.sidekicks.daemon,
-        call: (async (method: string, params: unknown): Promise<unknown> => {
-          const recorded: RecordedCall = { method, params };
-          calls.push(recorded);
-          return answer(recorded);
-        }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
-      },
-    },
-  };
-}
 
 /** The refusal a reply carries, or a failure naming what it carried instead. */
 function refusalOf(reply: DaemonReply<unknown>): ConsoleRefusal {
@@ -392,7 +343,11 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     // The bridge that actually ships is the Tier-1 preload stub, and it throws
     // synchronously. A non-`async` wrapper would put that throw outside the promise
     // and past every `.catch` in the console.
-    const fixture = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    //
+    // Overridden here rather than through `withDaemonCall`, and that is the case
+    // itself: the shared arm is `async`, so a throw inside it is already a
+    // rejection, which is the one thing this case must not assert.
+    const fixture = createFixture().bridge;
     const bridge: ConsoleBridge = {
       ...fixture,
       sidekicks: {
