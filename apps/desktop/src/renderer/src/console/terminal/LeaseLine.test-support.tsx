@@ -109,38 +109,70 @@ export function bridgeRejectingWith(rejection: unknown): ConsoleBridge {
 }
 
 /**
- * A bridge whose claim never settles until the case says so.
+ * The lease wire, with every claim held until a case settles it by name.
  *
- * The rebind cases need a call that is genuinely still out across a prop change, and
- * a promise the test holds the settlement of is the only way to have one: a fixture
- * that answers on its own microtask has already resolved by the time a rerender can
- * run. It rejects rather than resolves, so the settlement carries the wire's own code
- * and a case can say exactly which session's answer reached the screen.
+ * A class rather than a factory returning one settle function, because the state IS
+ * the point: the rebind cases need more than one call out at once — the session the
+ * pane left and the session it moved to — and a fixture that only reached the newest
+ * could not say which of them a settlement belonged to. A held promise is also the
+ * only way to have a call genuinely still out across a rerender: the fixture port
+ * answers on its own microtask, so it has already resolved by the time a rerender
+ * can run.
+ *
+ * The calls REJECT rather than resolve, so a settlement carries the wire's own code
+ * and a case can read exactly which session's answer reached the screen.
  */
-export function bridgeWithUnsettledClaim(): {
-  readonly bridge: ConsoleBridge;
-  readonly rejectTheHeldClaim: () => void;
-} {
-  const base = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
-  let rejectHeldClaim: ((rejection: unknown) => void) | undefined;
-  return {
-    bridge: {
+export class HeldLeaseWire {
+  /** What a daemon says when somebody else has the shell. The wire's own shape. */
+  public static readonly LEASE_CONFLICT: { readonly code: string; readonly message: string } = {
+    code: "terminal.lease_conflict",
+    message: "Another participant holds the shell.",
+  };
+
+  readonly #heldSessionIds: string[] = [];
+  readonly #heldRejectors: ((rejection: unknown) => void)[] = [];
+  public readonly bridge: ConsoleBridge;
+
+  public constructor() {
+    const base = createFixtureBridge({ scenario: TERMINAL_SCENARIO });
+    const hold = (request: { readonly sessionId: string }): Promise<never> => {
+      this.#heldSessionIds.push(request.sessionId);
+      return new Promise<never>((_resolve, reject) => {
+        this.#heldRejectors.push(reject);
+      });
+    };
+    this.bridge = {
       ...base,
       growth: {
         ...base.growth,
-        terminalAcquireWriteLease: () =>
-          new Promise<never>((_resolve, reject) => {
-            rejectHeldClaim = reject;
-          }),
+        terminalAcquireWriteLease: hold,
+        terminalReleaseWriteLease: hold,
       },
-    },
-    rejectTheHeldClaim: () => {
-      rejectHeldClaim?.({
-        code: "terminal.lease_conflict",
-        message: "Another participant holds the shell.",
-      });
-    },
-  };
+    };
+  }
+
+  /** How many calls are out. The premise of every case that settles one. */
+  public get heldCallCount(): number {
+    return this.#heldRejectors.length;
+  }
+
+  /** The session a held call was made under, in the order the calls went out. */
+  public sessionIdOfCall(callIndex: number): string {
+    const sessionId = this.#heldSessionIds[callIndex];
+    if (sessionId === undefined) {
+      throw new Error(`no lease call number ${String(callIndex)} is out`);
+    }
+    return sessionId;
+  }
+
+  /** Settle one held call the way a lease conflict does. */
+  public rejectCall(callIndex: number): void {
+    const reject = this.#heldRejectors[callIndex];
+    if (reject === undefined) {
+      throw new Error(`no lease call number ${String(callIndex)} is out`);
+    }
+    reject(HeldLeaseWire.LEASE_CONFLICT);
+  }
 }
 
 export function markFor(participantId: string): TerminalParticipantMark | undefined {

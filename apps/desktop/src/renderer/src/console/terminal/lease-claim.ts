@@ -14,12 +14,25 @@
 // this file acquires a rule about WHO HOLDS the shell, that rule belongs in the fold
 // where it can be tested without React.
 //
-// BOTH OF THOSE FACTS ARE ABOUT A SUBJECT, which is what the generation below keeps
-// them attached to. They are renderer-local, not session-local, so nothing outside
-// this hook can tell that a disabled control and a refusal on screen belong to a
-// session the pane has since left.
+// BOTH OF THOSE FACTS ARE ABOUT A SUBJECT, AND THE SUBJECT IS STAMPED ON THEM.
+// They are renderer-local, not session-local, so nothing outside this hook can tell
+// that a disabled control and a refusal on screen belong to a session the pane has
+// since left. The family's own answer to that is `viewer-identity.ts`'s: a settled
+// value is held together with the `(bridge, sessionId)` it was produced for, and the
+// COMPARISON HAPPENS DURING RENDER. An effect that reset the state after the commit
+// was one frame too late — session B's first committed render inherited A's disabled
+// control or A's refusal, and a person who pressed the control in that frame issued
+// a call under A's generation which A's own cleanup then retired. The stamp makes
+// B's first render idle by construction, with no pass to be wrong on.
+//
+// A DISPATCH IS THE GENERATION, which is the second half of the same idea. Each call
+// mints its own serial and stamps it beside the subject, and a settlement is admitted
+// only while the state it would write into is still that dispatch's. So a reply for a
+// session the pane has left is dropped; so is a reply for a call a LATER press on the
+// same session superseded; and an unmount needs no flag of its own, because there is
+// no longer a committed state for a late settlement to reach.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
@@ -46,6 +59,36 @@ export interface TerminalLeaseClaim {
 }
 
 /**
+ * One dispatch's state, together with the subject it was made under.
+ *
+ * The subject is `(bridge, sessionId)` because that is what the call was made under:
+ * `session.takeControl` and `session.releaseControl` both take `{ sessionId }` and
+ * V1 gives a session one shared shell, so the pane's own terminal id is not an input
+ * any call here carries. The serial distinguishes two dispatches on ONE subject,
+ * which the subject alone cannot: without it an earlier press's `finally` cleared the
+ * in-flight flag a later press had just set.
+ */
+interface StampedTerminalLeaseClaim {
+  readonly bridge: ConsoleBridge;
+  readonly sessionId: string;
+  readonly dispatchSerial: number;
+  readonly isInFlight: boolean;
+  readonly refusal: ConsoleRefusal | undefined;
+}
+
+/**
+ * What a subject that has dispatched nothing renders as.
+ *
+ * One frozen value rather than a fresh literal per render: the two members are read
+ * straight out of it on every pass where the stamp does not match, and a new object
+ * each time would be a new value for consumers that compare.
+ */
+const IDLE_TERMINAL_LEASE_CLAIM = {
+  isInFlight: false,
+  refusal: undefined,
+} as const satisfies Pick<TerminalLeaseClaim, "isInFlight" | "refusal">;
+
+/**
  * Call the lease wire and render what it answers — and nothing else.
  *
  * A hook rather than a class because its whole state is two renderer-local values
@@ -63,41 +106,34 @@ export function useTerminalLeaseClaim(
   bridge: ConsoleBridge,
   sessionId: string,
 ): TerminalLeaseClaim {
-  const [isInFlight, setIsInFlight] = useState(false);
-  const [refusal, setRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  // WHICH INPUTS THE CALLS IN FLIGHT WERE MADE UNDER, as a number that advances the
-  // moment those inputs stop being the current ones.
-  //
-  // The two state values below are ABOUT a call, and a call is about a bridge and a
-  // session. A pane rebound from one session to another kept both: the control stayed
-  // disabled on the new session for as long as the old session's call was unresolved
-  // — indefinitely, if it never resolved — and the old session's refusal was rendered
-  // beside a lease it had nothing to do with, under a code naming a shell the person
-  // was no longer looking at. The generation is what tells the two apart, and an
-  // unmount advances it too, so a reply that lands after the pane closed is dropped
-  // by the same test rather than by a second flag.
-  //
-  // The pane's own terminal id is deliberately not part of it: `session.takeControl`
-  // and `session.releaseControl` both take `{ sessionId }` and V1 gives a session one
-  // shared shell, so a terminal id is not an input any call here was made under.
-  const callGenerationRef = useRef(0);
-
-  useEffect(() => {
-    // The new subject inherits no call state. Whatever was in flight, and whatever
-    // refused, belonged to the inputs the cleanup below has just retired.
-    setIsInFlight(false);
-    setRefusal(undefined);
-    return () => {
-      callGenerationRef.current += 1;
-    };
-  }, [bridge, sessionId]);
+  const [stampedClaim, setStampedClaim] = useState<StampedTerminalLeaseClaim | undefined>(
+    undefined,
+  );
+  // The serial is minted inside `call`, never during render: a ref written on a
+  // render pass is a write React is entitled to run twice, and this one has to
+  // advance exactly once per press.
+  const [dispatchSerials] = useState(() => new DispatchSerialSequence());
 
   const call = useCallback(
     (operation: "acquire" | "release"): void => {
-      const dispatchedUnderGeneration = callGenerationRef.current;
-      const isStillCurrent = (): boolean => callGenerationRef.current === dispatchedUnderGeneration;
-      setIsInFlight(true);
-      setRefusal(undefined);
+      // The subject is read out of the closure, and the closure is rebuilt whenever
+      // either input changes — so a press on session B's FIRST committed render
+      // carries B, with no effect having had to flush first.
+      const dispatchSerial = dispatchSerials.next();
+      const isStillCurrent = (
+        previous: StampedTerminalLeaseClaim | undefined,
+      ): previous is StampedTerminalLeaseClaim =>
+        previous !== undefined &&
+        previous.bridge === bridge &&
+        previous.sessionId === sessionId &&
+        previous.dispatchSerial === dispatchSerial;
+      setStampedClaim({
+        bridge,
+        sessionId,
+        dispatchSerial,
+        isInFlight: true,
+        refusal: undefined,
+      });
       const request = { sessionId };
       const pending =
         operation === "acquire"
@@ -105,24 +141,32 @@ export function useTerminalLeaseClaim(
           : bridge.growth.terminalReleaseWriteLease(request);
       void pending
         .then((outcome) => {
-          if (!isStillCurrent()) {
-            return;
-          }
-          setRefusal(outcome.status === "unavailable" ? outcome : undefined);
+          setStampedClaim((previous) =>
+            isStillCurrent(previous)
+              ? {
+                  ...previous,
+                  refusal: outcome.status === "unavailable" ? outcome : undefined,
+                }
+              : previous,
+          );
         })
         .catch((error: unknown) => {
-          if (!isStillCurrent()) {
-            return;
-          }
-          setRefusal(refusalFromRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error));
+          setStampedClaim((previous) =>
+            isStillCurrent(previous)
+              ? {
+                  ...previous,
+                  refusal: refusalFromRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error),
+                }
+              : previous,
+          );
         })
         .finally(() => {
-          if (isStillCurrent()) {
-            setIsInFlight(false);
-          }
+          setStampedClaim((previous) =>
+            isStillCurrent(previous) ? { ...previous, isInFlight: false } : previous,
+          );
         });
     },
-    [bridge, sessionId],
+    [bridge, dispatchSerials, sessionId],
   );
 
   const acquire = useCallback(() => {
@@ -132,5 +176,31 @@ export function useTerminalLeaseClaim(
     call("release");
   }, [call]);
 
-  return { isInFlight, refusal, acquire, release };
+  // The comparison, during render. A state stamped with anything but the subject
+  // this pass is about renders as the idle arm — never as the previous session's
+  // disabled control, and never as its refusal.
+  const isCurrentSubject =
+    stampedClaim !== undefined &&
+    stampedClaim.bridge === bridge &&
+    stampedClaim.sessionId === sessionId;
+  const claim = isCurrentSubject ? stampedClaim : IDLE_TERMINAL_LEASE_CLAIM;
+
+  return { isInFlight: claim.isInFlight, refusal: claim.refusal, acquire, release };
+}
+
+/**
+ * The monotonic serial each dispatch is stamped with.
+ *
+ * A tiny class rather than a `useRef` counter incremented in place, on this
+ * package's rule that stateful logic is encapsulated: the sequence is per hook
+ * instance, it is never read during render, and the one thing a caller may do with
+ * it is take the next number.
+ */
+class DispatchSerialSequence {
+  #issued = 0;
+
+  public next(): number {
+    this.#issued += 1;
+    return this.#issued;
+  }
 }

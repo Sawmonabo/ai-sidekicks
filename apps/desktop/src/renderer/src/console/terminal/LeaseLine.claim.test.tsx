@@ -24,7 +24,7 @@ import {
   VIEWER,
   VIEWER_IDENTITY_READ,
   bridgeRejectingWith,
-  bridgeWithUnsettledClaim,
+  HeldLeaseWire,
   claimControl,
   leaseState,
   markFor,
@@ -185,11 +185,11 @@ describe("the claim control — one affordance, and three things it never does",
     // local, so nothing outside the hook could tell that they belonged to a session
     // the pane had left. A pane rebound while a take was unresolved kept the disabled
     // control on the new session, for as long as the old call stayed out.
-    const { bridge, rejectTheHeldClaim } = bridgeWithUnsettledClaim();
+    const heldWire = new HeldLeaseWire();
     const state = leaseState({ holding: "unheld", holderVouching: "vouched" });
     const view = render(
       <LeaseLine
-        bridge={bridge}
+        bridge={heldWire.bridge}
         sessionId={SESSION_ID}
         state={state}
         markFor={markFor}
@@ -202,7 +202,7 @@ describe("the claim control — one affordance, and three things it never does",
 
     view.rerender(
       <LeaseLine
-        bridge={bridge}
+        bridge={heldWire.bridge}
         sessionId={OTHER_SESSION_ID}
         state={state}
         markFor={markFor}
@@ -214,7 +214,7 @@ describe("the claim control — one affordance, and three things it never does",
     expect(claimControl(view.container).disabled).toBe(false);
 
     await act(async () => {
-      rejectTheHeldClaim();
+      heldWire.rejectCall(0);
     });
 
     // And the answer to a question about the other session is not rendered against
@@ -227,15 +227,15 @@ describe("the claim control — one affordance, and three things it never does",
   it("negative control: the session it is still on DOES render its own refusal", async () => {
     // Without it the case above would pass against a hook that dropped every
     // completion, which is a claim control that never reports anything at all.
-    const { bridge, rejectTheHeldClaim } = bridgeWithUnsettledClaim();
+    const heldWire = new HeldLeaseWire();
     const { container } = renderLease(
       leaseState({ holding: "unheld", holderVouching: "vouched" }),
-      bridge,
+      heldWire.bridge,
     );
     fireEvent.click(claimControl(container));
 
     await act(async () => {
-      rejectTheHeldClaim();
+      heldWire.rejectCall(0);
     });
 
     expect(container.textContent).toContain("terminal.lease_conflict");
