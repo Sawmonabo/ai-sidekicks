@@ -235,6 +235,72 @@ describe("KeyboardHandback.decide — the claim is an exact mirrored chord", () 
   });
 });
 
+describe("KeyboardHandback.decide — tinykeys' optional modifiers", () => {
+  // The grammar has two modifier sets. `$mod+[Shift]+KeyK` says "meta-K, and I do not
+  // mind whether shift is down", and a keystroke has no sets at all — only modifiers
+  // that are held. Re-authoring the keystroke as a chord put every held modifier in
+  // the REQUIRED set and left the optional one empty, so a bracketed binding compared
+  // equal to no keystroke in either valid form: the console claimed the chord from the
+  // page and could then never replay it, which is a keystroke that reaches nobody.
+  const OPTIONAL_SHIFT_CHORD = "$mod+[Shift]+KeyK";
+
+  it("claims the chord with the optional modifier held", () => {
+    expect(
+      handbackOver([OPTIONAL_SHIFT_CHORD]).decide(chord({ metaKey: true, shiftKey: true })),
+    ).toStrictEqual({ claimed: true });
+  });
+
+  it("claims the same chord with the optional modifier absent", () => {
+    expect(handbackOver([OPTIONAL_SHIFT_CHORD]).decide(chord({ metaKey: true }))).toStrictEqual({
+      claimed: true,
+    });
+  });
+
+  it("still refuses a REQUIRED modifier that is not held", () => {
+    // The half an over-permissive matcher would break: a chord written without
+    // brackets means the modifier is part of the chord, and a keystroke without it is
+    // the page's.
+    expect(handbackOver(["$mod+Shift+KeyK"]).decide(chord({ metaKey: true }))).toStrictEqual({
+      claimed: false,
+      because: "not-mirrored",
+    });
+  });
+
+  it("negative control: a modifier outside BOTH sets still leaves the keystroke alone", () => {
+    // Without this the two claiming cases above would pass against a matcher that had
+    // simply stopped looking at modifiers, which takes every modified keystroke on the
+    // page as soon as one bracketed chord is installed.
+    expect(
+      handbackOver([OPTIONAL_SHIFT_CHORD]).decide(chord({ metaKey: true, altKey: true })),
+    ).toStrictEqual({ claimed: false, because: "not-mirrored" });
+  });
+
+  it("replays a bracketed chord it claimed, in both of its forms", () => {
+    // The whole point of claiming one: a chord taken from the page and not replayed
+    // is a keystroke that reached nobody at all.
+    const handback = handbackOver([OPTIONAL_SHIFT_CHORD]);
+    const paneRoot = attachedPaneRoot();
+
+    expect(handback.replay(chord({ metaKey: true, shiftKey: true }), paneRoot).status).toBe(
+      "replayed",
+    );
+    expect(handback.replay(chord({ metaKey: true }), paneRoot).status).toBe("replayed");
+    expect(handback.replayCount).toBe(2);
+  });
+
+  it("matches a keystroke on the spellings the event itself carries", () => {
+    // The matcher reads `key` and `code`, so a chord authored either way claims a
+    // keystroke that carries both. A keystroke carrying NO code is matched on its key
+    // alone — the fourth rule's direction, toward the page, for a chord the mirror
+    // spells in code.
+    expect(handbackOver(["$mod+KeyK"]).decide(chord({ metaKey: true })).claimed).toBe(true);
+    expect(handbackOver(["$mod+k"]).decide(chord({ code: "", metaKey: true })).claimed).toBe(true);
+    expect(handbackOver(["$mod+KeyK"]).decide(chord({ code: "", metaKey: true })).claimed).toBe(
+      false,
+    );
+  });
+});
+
 describe("KeyboardHandback.replay", () => {
   it("focuses the pane and replays the chord, carrying every modifier through unchanged", () => {
     const handback = handbackOver(["$mod+Shift+KeyK"]);
