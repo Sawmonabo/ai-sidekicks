@@ -202,6 +202,10 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
     frameStore,
     sessionStore: undefined,
     sessionStoreRegistry: new SessionStoreRegistry({ read: () => Promise.resolve(undefined) }),
+    // This composition's own board, which is what the surface opens panes out of —
+    // the same instance the pane helper above mounts bodies from, so a tier that
+    // opens a run from the destination reaches the body this file registered.
+    paneRegistry: familyPaneRegistry(),
     uiStateStore: UiStateStore.opening(),
     draftStore: new DraftStore(),
   };

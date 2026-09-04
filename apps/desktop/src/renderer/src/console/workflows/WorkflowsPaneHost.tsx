@@ -18,10 +18,17 @@
 // the change here is one line: this host hands its address to the deck's own opener
 // instead of holding it, and the pane-kind door below is already the one the deck uses.
 //
-// ONE DOOR, NOT A SECOND REGISTRY. The pane body is resolved through
-// `consolePaneRegistry`, the deck's own single mount door, so this surface renders the
-// same body the deck will and cannot drift from it. A kind with no registered body is
-// the registry's own reserved-not-stubbed absence rather than a hole.
+// ONE DOOR, NOT A SECOND REGISTRY — AND THE DOOR THIS COMPOSITION FILLED. The pane
+// body is resolved through the pane board on the surface context, which is the deck's
+// own single mount door, so this surface renders the same body the deck will and
+// cannot drift from it. A kind with no registered body is the registry's own
+// reserved-not-stubbed absence rather than a hole.
+//
+// Off the context rather than the process-wide singleton, because `registerConsoleFamilies`
+// takes the board as a parameter: a test and an auxiliary window compose their own, and
+// a host that read the singleton showed such a composition the reserved absence — or a
+// production body it had deliberately not registered — however carefully it had asked.
+// That is inert only while every pane seat is still reserved, and this family fills two.
 //
 // THE SCOPE IS HELD HERE BECAUSE BOTH HALVES OF THE SLOT NEED IT. The destination
 // asks which session it reads from, and the pane it opens has to be handed that same
@@ -35,7 +42,6 @@
 import { useCallback, useState } from "react";
 
 import type { ConsolePaneAddress, ConsolePaneContext } from "../seats/index.js";
-import { consolePaneRegistry } from "../seats/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import { Nothing } from "../primitives/index.js";
 import { useFrameStore, type SessionStore } from "../store/index.js";
@@ -113,6 +119,10 @@ export function WorkflowsPaneHost(props: WorkflowsPaneHostProps): React.JSX.Elem
  * on, which outranks both the route and the window's retention because it is the one
  * of the three they performed deliberately. A pane handed no store renders its own
  * absence, which is the honest shape wherever no session is in scope at all.
+ *
+ * The BOARD is the composition's, taken off the same context: this surface resolves
+ * bodies from the registry the composition around it registered them into, never from
+ * the process-wide one.
  */
 function OpenPaneBody(props: {
   readonly address: ConsolePaneAddress;
@@ -120,7 +130,7 @@ function OpenPaneBody(props: {
   readonly scopeSessionId: string | undefined;
 }): React.JSX.Element {
   const { address, context, scopeSessionId } = props;
-  const descriptor = consolePaneRegistry.descriptorFor(address.kind);
+  const descriptor = context.paneRegistry.descriptorFor(address.kind);
   if (descriptor === undefined) {
     return (
       <Nothing
