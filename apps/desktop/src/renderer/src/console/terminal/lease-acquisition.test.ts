@@ -5,12 +5,12 @@
 // `pty.permission_denied` back — an offer the daemon exists to refuse. Every case
 // below is one participant, one holding, and the single control the surface may draw.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 import type { MembershipRole } from "@ai-sidekicks/contracts";
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import type { CallerMembershipRoleResult } from "../store/index.js";
-import { resolveTerminalClaimAffordance } from "./lease-acquisition.js";
+import { ACQUIRING_MEMBERSHIP_ROLES, resolveTerminalClaimAffordance } from "./lease-acquisition.js";
 import type { TerminalLeaseHolding } from "./lease-model.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
 
@@ -33,7 +33,10 @@ function resolve(
 
 describe("the acquisition control is offered by role", () => {
   it("offers it to an owner and to a collaborator", () => {
-    for (const role of ["owner", "collaborator"] satisfies readonly MembershipRole[]) {
+    // Driven from the declaration itself rather than from a list restated here: a
+    // second spelling of a closed set is how the surface and its test start to
+    // disagree about who may claim the shell.
+    for (const role of ACQUIRING_MEMBERSHIP_ROLES) {
       expect(resolve("unheld", IDENTITY_READ, roleRead(role))).toStrictEqual({
         control: "acquire",
       });
@@ -113,6 +116,32 @@ describe("release is not gated with acquisition", () => {
     // for everything, which offers a handback for a shell the person does not hold.
     expect(resolve("held-by-another", IDENTITY_READ, roleRead("collaborator"))).toStrictEqual({
       control: "acquire",
+    });
+  });
+});
+
+// The closed set behind the offer, read as data.
+//
+// It was a module-level `ReadonlySet<MembershipRole>`, an annotation that restricts
+// the binding and leaves the collection mutable — the shape `apps/desktop/AGENTS.md`
+// rejects. As a tuple the vocabulary is checkable here, and both directions matter:
+// an entry outside the contract's role union would match no participant the daemon
+// can send, and a set widened to the whole union would offer the shell to a viewer.
+describe("the roles the take admits", () => {
+  it("holds only roles the contract's own union names, and not all of them", () => {
+    expectTypeOf<(typeof ACQUIRING_MEMBERSHIP_ROLES)[number]>().toExtend<MembershipRole>();
+    expectTypeOf<(typeof ACQUIRING_MEMBERSHIP_ROLES)[number]>().not.toEqualTypeOf<MembershipRole>();
+  });
+
+  it("negative control: a role it does not name is withheld with that reason", () => {
+    // Without this, a tuple that had silently become every role would satisfy the
+    // offer cases above and would draw the control for a viewer — the exact defect
+    // the role read was added to close.
+    const withheldRole: MembershipRole = "viewer";
+    expect(ACQUIRING_MEMBERSHIP_ROLES).not.toContain(withheldRole);
+    expect(resolve("unheld", IDENTITY_READ, roleRead(withheldRole))).toStrictEqual({
+      control: "none",
+      withheld: { reason: "role-cannot-acquire", role: withheldRole },
     });
   });
 });

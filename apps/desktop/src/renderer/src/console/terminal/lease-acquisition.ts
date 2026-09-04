@@ -35,15 +35,23 @@ import type { TerminalViewerIdentity } from "./viewer-identity.js";
 /**
  * The roles the registered take admits.
  *
- * A closed set declared once and derived from the contract's own role union, so a
- * role added to the wire fails this file at compile time rather than silently
- * defaulting to "may not claim" — which would take the control away from somebody
- * entitled to it and say nothing.
+ * A TUPLE AND NOT A `Set`, on `browser/geometry-publisher.ts`'s
+ * `CLIPPING_OVERFLOW_VALUES` shape. `apps/desktop/AGENTS.md` rejects a module-level
+ * collection singleton, and the rule is right about this one rather than merely
+ * applying to it: `ReadonlySet<MembershipRole>` restricted the BINDING while the
+ * collection under it stayed mutable for the life of the process, and two frozen
+ * literals need no hash table to be compared against.
+ *
+ * The contract's own role union stays the ground truth, and the assertion that ties
+ * the two together sits in the co-located test rather than in a `satisfies` clause
+ * here: this package compiles under `isolatedDeclarations`, which admits a bare
+ * `as const` on an exported binding and refuses one carrying a `satisfies`, because
+ * that clause cannot be resolved without the checker. So the tuple is exported plain
+ * and the test asserts its element type extends `MembershipRole` — a role spelt
+ * wrong is a compile error there rather than an entry that silently matches nothing,
+ * which would take the control away from somebody entitled to it and say nothing.
  */
-const ACQUIRING_MEMBERSHIP_ROLES: ReadonlySet<MembershipRole> = new Set<MembershipRole>([
-  "owner",
-  "collaborator",
-]);
+export const ACQUIRING_MEMBERSHIP_ROLES = ["owner", "collaborator"] as const;
 
 /** Why no acquisition control is offered. Each arm is a different sentence. */
 export type TerminalClaimWithholding =
@@ -104,5 +112,7 @@ function withholdingFor(
   if (role === undefined) {
     return { reason: "role-unread-in-roster" };
   }
-  return ACQUIRING_MEMBERSHIP_ROLES.has(role) ? undefined : { reason: "role-cannot-acquire", role };
+  return ACQUIRING_MEMBERSHIP_ROLES.some((acquiringRole) => acquiringRole === role)
+    ? undefined
+    : { reason: "role-cannot-acquire", role };
 }
