@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import {
+  SECOND_PAGE_CURSOR,
   SERVED_DEFINITION,
   portAnswering,
   renderBrowser,
@@ -38,6 +39,12 @@ function emptyGroupTitles(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll(".meridian-workflow__scope .meridian-nothing--empty")].map(
     (nothing) => nothing.textContent ?? "",
   );
+}
+
+/** How many groups reported that they have read only part of the enumeration. */
+function unresolvedGroupCount(container: HTMLElement): number {
+  return container.querySelectorAll(".meridian-workflow__scope .meridian-nothing--not-checked")
+    .length;
 }
 
 describe("the workflows browser — what one outcome becomes on screen", () => {
@@ -82,6 +89,39 @@ describe("the workflows browser — what one outcome becomes on screen", () => {
     expect(emptyGroupTitles(container)).toStrictEqual([]);
 
     await settle();
+  });
+
+  it("claims no scope is empty while the daemon still holds a cursor", async () => {
+    // The whole finding, end to end: the first page carries a cursor and one `session`
+    // row, so `project` and `shared` have been read only in part. They said
+    // `No project definitions` and `No shared definitions` anyway — a definitive result
+    // about a daemon that had just said there was more to come.
+    const container = renderBrowser(
+      portAnswering({
+        status: "served",
+        value: { definitions: [SERVED_DEFINITION], nextCursor: SECOND_PAGE_CURSOR },
+      }),
+    );
+
+    await settle();
+
+    expect(container.textContent).toContain("Release checklist");
+    expect(emptyGroupTitles(container)).toStrictEqual([]);
+    expect(unresolvedGroupCount(container)).toBe(2);
+  });
+
+  it("negative control: the last page lets the scopes it did not fill say they are empty", async () => {
+    // Without this, the case above passes for a browser that never resolves a scope at
+    // all — the same conflation in the other direction, with a console that has read
+    // the whole enumeration unable to report a real empty result.
+    const container = renderBrowser(
+      portAnswering({ status: "served", value: { definitions: [SERVED_DEFINITION] } }),
+    );
+
+    await settle();
+
+    expect(unresolvedGroupCount(container)).toBe(0);
+    expect(emptyGroupTitles(container).join(" ")).toContain("No project definitions.");
   });
 
   it("shows the rows a served page carried", async () => {

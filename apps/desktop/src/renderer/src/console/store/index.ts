@@ -73,13 +73,12 @@ export {
 
 // The subject-stamped read, through this door because three surfaces above the store
 // hold one: the definitions a session can see, the runs it holds, and one run's
-// snapshot. It is state bound to React and keyed by a subject, which is what this
-// family is, and it is not a store — so it ships from the module that declares it
-// rather than from `hooks.ts`, whose subject is the console's two stores.
-// `SubjectReadStart` stays inside the family: it is what `subjectReadStart` answers
-// with and what `SubjectStampedRead` is built from, and no caller above names it.
-export {
-  subjectReadStart,
-  useSubjectStampedRead,
-  type SubjectStampedRead,
-} from "./subject-stamped-state.js";
+// snapshot. It is state bound to React and keyed by the source and subject a read is
+// about, which is what this family is, and it is not a store — so it ships from the
+// module that declares it rather than from `hooks.ts`, whose subject is the console's
+// two stores. `SubjectReadStart` stays inside the family: it is what the hook starts a
+// read at and what `SubjectStampedRead` is built from, and no caller above names it.
+// Nor does any caller state the start itself any more — the hook settles a changed
+// source during the render that brings it, so the reset the three consumers used to
+// perform in their own effects has one home rather than three.
+export { useSubjectStampedRead, type SubjectStampedRead } from "./subject-stamped-state.js";

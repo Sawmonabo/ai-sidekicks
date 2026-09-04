@@ -16,10 +16,21 @@
 //     rows or A's phases were renderable under B's address, and nothing about them
 //     said so.
 //
-// The fix is that the state is STAMPED with the subject it belongs to and the
-// disagreement is settled DURING the render that brings the new one — React's own
-// adjustment pattern: setting state during a render discards that pass and re-renders
-// with the corrected value, so nothing claiming the wrong subject is ever committed.
+// The fix is that the state is STAMPED with what it belongs to and the disagreement is
+// settled DURING the render that brings a new one — React's own adjustment pattern:
+// setting state during a render discards that pass and re-renders with the corrected
+// value, so nothing claiming the wrong subject is ever committed.
+//
+// WHAT A READ BELONGS TO IS A PAIR, AND NOT THE SUBJECT ALONE. A read is put THROUGH
+// something — the growth port its caller was handed — and answered ABOUT a subject, so
+// two reads through different sources are two different reads even under one subject
+// id. The stamp was the subject alone, and the source moving under it is not a
+// hypothetical: the fixture's scenario switch mints a new bridge and hands the same
+// session id back, so the first render under the new source committed the PREVIOUS
+// source's entities and only the passive effect afterwards took them down. Stamping
+// the pair is what makes that frame unreachable, and it retires the reset each of the
+// three callers used to state in its own effect — one rule, in one place, instead of
+// the same rule written three times and enforced one commit late.
 //
 // WHY THIS IS ONE HELPER AND NOT THREE COPIES. The rule is one rule — a subject in
 // hand is a question being put, no subject is a question that cannot be — and the
@@ -53,38 +64,44 @@ export type SubjectReadStart = { readonly status: "unasked" } | { readonly statu
 export type SubjectStampedRead<TSettled> = SubjectReadStart | TSettled;
 
 /**
- * Where a read stands the moment it is addressed at `subject`, and nowhere else.
+ * What a held read belongs to: the source it was put through, and its subject.
  *
- * Exported beside the hook because a caller's effect re-issues the read when its PORT
- * changes under an unchanged subject — a bridge swapped underneath, which the fixture
- * scenario switch does — and that reset states the same rule. Stating it twice is how
- * the two would come apart.
+ * The source is compared by identity, which is exactly the claim: a port is minted
+ * once per bridge, so an unchanged reference is the same seam and a new one is a
+ * different daemon's worth of answers wearing the same session id.
  */
-export function subjectReadStart(subject: string | undefined): SubjectReadStart {
+interface StampedReadAddress {
+  readonly source: object;
+  readonly subject: string | undefined;
+}
+
+/** Where a read stands the moment it is addressed at `subject`, and nowhere else. */
+function subjectReadStart(subject: string | undefined): SubjectReadStart {
   return subject === undefined ? { status: "unasked" } : { status: "reading" };
 }
 
 /**
- * Hold one subject-keyed read's state, stamped with the subject it is about.
+ * Hold one read's state, stamped with the source and subject it is about.
  *
- * The returned state is always about the subject passed on this render: on the render
- * that brings a new one it is `reading` (or `unasked`, where the new subject is none),
- * never the previous subject's answer, and never an absence claim about a question
- * already asked.
+ * The returned state is always about the pair passed on this render: on the render
+ * that brings a new source or a new subject it is `reading` (or `unasked`, where the
+ * new subject is none), never the previous pair's answer, and never an absence claim
+ * about a question already asked.
  *
  * The setter is the caller's own: this helper decides what a read STARTS as and
  * nothing about how it settles.
  */
 export function useSubjectStampedRead<TSettled>(
+  source: object,
   subject: string | undefined,
 ): readonly [SubjectStampedRead<TSettled>, Dispatch<SetStateAction<SubjectStampedRead<TSettled>>>] {
   const [state, setState] = useState<SubjectStampedRead<TSettled>>(() => subjectReadStart(subject));
-  // The subject the state on screen belongs to, adjusted DURING the render that brings
-  // a new one. React discards this pass and re-renders with the corrected value, so
-  // the stale pair is never committed and no effect has to race the paint.
-  const [stampedSubject, setStampedSubject] = useState<string | undefined>(subject);
-  if (stampedSubject !== subject) {
-    setStampedSubject(subject);
+  // What the state on screen belongs to, adjusted DURING the render that brings a new
+  // pair. React discards this pass and re-renders with the corrected value, so the
+  // stale pair is never committed and no effect has to race the paint.
+  const [address, setAddress] = useState<StampedReadAddress>(() => ({ source, subject }));
+  if (address.source !== source || address.subject !== subject) {
+    setAddress({ source, subject });
     setState(subjectReadStart(subject));
   }
   return [state, setState];

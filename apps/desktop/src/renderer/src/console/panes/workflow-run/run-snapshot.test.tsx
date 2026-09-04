@@ -15,6 +15,10 @@ import {
   WORKFLOWS_SCENARIO_RUNS,
 } from "../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
+import {
+  latestCommitted,
+  observeStampedRead,
+} from "../../store/subject-stamped-state.test-support.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 
 const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
@@ -232,5 +236,77 @@ describe("useWorkflowRunSnapshot — one read, four answers", () => {
       expect(settled.refusal.code).toBe("wire-unregistered");
       expect(settled.refusal.detail).toContain("Not checked");
     }
+  });
+});
+
+/**
+ * The real port answering the run read with a phase count a case can trace back to the
+ * bridge that served it, so a swap is observable in the snapshot and not only in the
+ * status.
+ */
+function phaseTruncatingGrowthPort(phaseStateCount: number): GrowthPort {
+  return {
+    ...createRefusingGrowthPort(),
+    workflowRunRead: async () => ({
+      status: "served",
+      value: {
+        ...WORKFLOWS_PARKED_RUN,
+        phaseStates: WORKFLOWS_PARKED_RUN.phaseStates.slice(0, phaseStateCount),
+      },
+    }),
+  };
+}
+
+function servedPhaseStateCount(state: WorkflowRunSnapshotState): number | undefined {
+  return state.status === "served" ? state.snapshot.phaseStates.length : undefined;
+}
+
+describe("useWorkflowRunSnapshot — the port is half of what the read is about", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("commits no phase from the previous bridge once the port is replaced", async () => {
+    // The fixture's scenario switch mints a new bridge and hands back the same run id.
+    // With the stamp keyed on the run alone the state agreed with itself, so this render
+    // committed the previous scenario's phases and park cards under the new one and only
+    // the passive effect afterwards took them down. The cases here read what each COMMIT
+    // carried, which is the only vantage that can tell the two hooks apart.
+    const probe = observeStampedRead(useWorkflowRunSnapshot, {
+      source: phaseTruncatingGrowthPort(2),
+      subject: WORKFLOWS_PARKED_RUN.workflowRunId,
+    });
+    await settle();
+    expect(servedPhaseStateCount(latestCommitted(probe.committed))).toBe(2);
+    const commitsBeforeSwap = probe.committed.length;
+
+    probe.readdress({
+      source: phaseTruncatingGrowthPort(1),
+      subject: WORKFLOWS_PARKED_RUN.workflowRunId,
+    });
+
+    expect(probe.committed.slice(commitsBeforeSwap).map((state) => state.status)).not.toContain(
+      "served",
+    );
+
+    await settle();
+    // The reset is only half the claim: a hook that reset and never re-read would leave
+    // the pane reading forever under a bridge that can answer.
+    expect(servedPhaseStateCount(latestCommitted(probe.committed))).toBe(1);
+  });
+
+  it("negative control: a re-render at the SAME port keeps the snapshot it settled on", async () => {
+    // Without this, the case above passes for a hook that reset on every render, which
+    // would re-read the run forever and never show a snapshot at all.
+    const growth = phaseTruncatingGrowthPort(2);
+    const probe = observeStampedRead(useWorkflowRunSnapshot, {
+      source: growth,
+      subject: WORKFLOWS_PARKED_RUN.workflowRunId,
+    });
+    await settle();
+
+    probe.readdress({ source: growth, subject: WORKFLOWS_PARKED_RUN.workflowRunId });
+
+    expect(servedPhaseStateCount(latestCommitted(probe.committed))).toBe(2);
   });
 });

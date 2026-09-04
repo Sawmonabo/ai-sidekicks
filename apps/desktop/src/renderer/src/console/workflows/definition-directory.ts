@@ -42,6 +42,16 @@
 // hands its caller a control; the caller renders it while a cursor exists and not
 // otherwise, which is the "absent, not disabled" rule the browser already obeys.
 //
+// AN EMPTY SCOPE IS NOT AN ANSWER UNTIL THE ENUMERATION IS EXHAUSTED. The cursor
+// pages the whole resolved union at once, so a first page carrying `nextCursor` and
+// no `shared` row says nothing about whether a later page holds one. The browser drew
+// that as `No shared definitions` — a definitive claim about the daemon, standing
+// while the continuation was in flight and standing again after it was refused. So
+// what each group may say about itself is projected HERE, from the continuation the
+// same read already carries, and the browser and the groups below it render the arm
+// they are handed rather than each deciding the question again from a different half
+// of the state.
+//
 // A CONTINUATION IS ITS OWN STATE, BESIDE THE PAGES AND NOT INSTEAD OF THEM. A
 // second page that is in flight, or that the daemon refused, changes nothing about
 // the rows already on screen: those were served and are still true. So the served
@@ -50,15 +60,15 @@
 // pages survive all four. Collapsing the refused one into the whole directory's
 // `unavailable` arm would withdraw a list the daemon never withdrew.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 
 import type { GrowthPort } from "../bridge/index.js";
+import { useSubjectStampedRead, type SubjectStampedRead } from "../store/index.js";
 import {
-  subjectReadStart,
-  useSubjectStampedRead,
-  type SubjectStampedRead,
-} from "../store/index.js";
-import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
+  WORKFLOW_DEFINITION_SCOPES,
+  type WorkflowDefinitionRow,
+  type WorkflowDefinitionScope,
+} from "./DefinitionsBrowser.js";
 import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What one settled page of the enumeration is, derived from the port's own answer. */
@@ -100,13 +110,40 @@ type SettledDefinitionDirectory =
  * Four states and no others, and the two unsettled ones come from the shared shape in
  * `store/subject-stamped-state.ts` — the rule this hook established and the runs
  * directory and the run snapshot now hold to as well, written once so the three
- * cannot drift about which frame is allowed to claim nobody asked.
+ * cannot drift about which frame is allowed to claim nobody asked, or about which
+ * frame is allowed to hold the previous bridge's answer.
  */
 export type WorkflowDefinitionDirectoryState = SubjectStampedRead<SettledDefinitionDirectory>;
+
+/**
+ * What the pages read so far let each scope group say about itself.
+ *
+ * TWO FACTS AND NOT ONE, because they answer different questions and a group renders a
+ * different absence for each. `pendingScopes` is which scopes are waiting on a page —
+ * one read serves all three, so a wait genuinely belongs to every one of them.
+ * `hasUnreadPages` is whether the enumeration is finished, which is what decides
+ * whether an empty group may say so: a group with no rows and pages still unread has a
+ * prefix rather than an answer, and `No <scope> definitions` under it is the console
+ * asserting a result the daemon never gave.
+ *
+ * A refused continuation lands on the same `hasUnreadPages` as an unfollowed cursor,
+ * and that is deliberate: the daemon's own sentence is rendered ONCE, under the groups,
+ * beside the control that retries it. Repeating it inside each empty group would turn
+ * one refused page into three refusals about three scopes — the mistake the whole-read
+ * refusal already avoids by not distributing.
+ */
+export interface WorkflowDefinitionScopeResolution {
+  /** Scopes whose page is in flight. Absent where nothing is being waited on. */
+  readonly pendingScopes: readonly WorkflowDefinitionScope[] | undefined;
+  /** True while the enumeration holds pages nobody has read. */
+  readonly hasUnreadPages: boolean;
+}
 
 /** The directory a caller renders, and the one thing it can ask for. */
 export interface WorkflowDefinitionDirectory {
   readonly state: WorkflowDefinitionDirectoryState;
+  /** What the groups may claim, projected from the state rather than re-derived. */
+  readonly scopeResolution: WorkflowDefinitionScopeResolution;
   /**
    * Ask the daemon for the page after the ones held.
    *
@@ -129,14 +166,17 @@ export function useWorkflowDefinitionDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory {
-  // The state is stamped with the session it is about, and the disagreement is
-  // settled DURING the render that brings a new one rather than in the effect below —
-  // which runs after the commit, so a hook that only reset there had one committed
-  // render per subject in which `unasked` was true of a session the caller had already
-  // asked about. The browser paints `unasked` as three served-looking empty groups, so
-  // every scoped load flashed "No session definitions" and exposed that claim to
-  // assistive technology before the request had answered.
-  const [state, setState] = useSubjectStampedRead<SettledDefinitionDirectory>(sessionId);
+  // The state is stamped with the PORT AND THE SESSION it is about, and the
+  // disagreement is settled DURING the render that brings a new pair rather than in the
+  // effect below — which runs after the commit, so a hook that only reset there had one
+  // committed render per subject in which `unasked` was true of a session the caller had
+  // already asked about. The browser paints `unasked` as three served-looking empty
+  // groups, so every scoped load flashed "No session definitions" and exposed that claim
+  // to assistive technology before the request had answered. The port is half of the
+  // stamp for the mirror-image reason: the fixture's scenario switch replaces the bridge
+  // and keeps the session id, so a subject-only stamp committed the previous scenario's
+  // definitions under the new one before the effect could reset them.
+  const [state, setState] = useSubjectStampedRead<SettledDefinitionDirectory>(growth, sessionId);
   // Which read the state on screen belongs to. A page that comes back after the
   // subject changed — or after the surface went away — belongs to a list nobody is
   // looking at, and splicing it into the current one would show a session's
@@ -153,10 +193,10 @@ export function useWorkflowDefinitionDirectory(
       // over an address that names no session promises an answer never coming.
       return;
     }
-    // The PORT can change under an unchanged session — the fixture's scenario switch
-    // swaps the bridge — and the subject stamp does not see that, so the reset is
-    // stated here for exactly that case, through the same rule rather than beside it.
-    setState(subjectReadStart(sessionId));
+    // No reset here. The stamp above covers a port swapped under an unchanged session
+    // as well as a session change, and it covers it during the render rather than one
+    // commit later — a reset stated again in this effect would be the same rule in two
+    // places, agreeing until one of them moved.
     void settleGrowthRead(growth.workflowDefinitionList({ sessionId })).then((outcome) => {
       if (readGeneration.current !== generation) {
         // The unmount or the subject change already happened. Dropping the answer is
@@ -194,7 +234,40 @@ export function useWorkflowDefinitionDirectory(
     });
   }, [growth, sessionId, setState, state]);
 
-  return { state, continueReading };
+  // Memoized on the read state alone: the projection is a pure function of it, and the
+  // pending tuple is the module constant rather than a fresh array, so the groups are
+  // handed one stable identity across every render that changed nothing.
+  const scopeResolution = useMemo(() => scopeResolutionOf(state), [state]);
+
+  return { state, scopeResolution, continueReading };
+}
+
+/**
+ * What each scope group may claim, given one read state.
+ *
+ * Exported beside the hook because it is the whole of the rule and a case that drove it
+ * through a rendered surface would be asserting the rule and the rendering at once.
+ *
+ * `unasked` resolves to a definitive empty on purpose: nothing was asked, so there are
+ * no unread pages, and the browser's three named groups on a bare rail address are the
+ * design's own empty state rather than a claim about a read.
+ */
+export function scopeResolutionOf(
+  state: WorkflowDefinitionDirectoryState,
+): WorkflowDefinitionScopeResolution {
+  if (state.status === "reading") {
+    return { pendingScopes: WORKFLOW_DEFINITION_SCOPES, hasUnreadPages: true };
+  }
+  if (state.status !== "served") {
+    return { pendingScopes: undefined, hasUnreadPages: false };
+  }
+  if (state.continuation.status === "reading") {
+    return { pendingScopes: WORKFLOW_DEFINITION_SCOPES, hasUnreadPages: true };
+  }
+  return {
+    pendingScopes: undefined,
+    hasUnreadPages: state.continuation.status !== "exhausted",
+  };
 }
 
 /**

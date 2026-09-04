@@ -144,6 +144,24 @@
 }
 
 /*
+ * WHAT THE LIST IS MISSING, BESIDE THE LIST RATHER THAN INSTEAD OF IT. A refused node
+ * directory with an open session in this window still offers a usable choice, so the
+ * choices stay and the refusal stands above them — the console's own sentence about
+ * what it managed to offer, then the daemon's own code and message underneath it.
+ */
+.meridian-workflows-scope-picker__partial {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.meridian-workflows-scope-picker__partial-note {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+/*
  * THE SLOT'S OPENED PANE. The workflows destination leads to two pane kinds, and on
  * a bare route there is no deck to put one in — so the pane stands where the lists
  * were, under one control back to them. A column rather than a deck: one pane at a

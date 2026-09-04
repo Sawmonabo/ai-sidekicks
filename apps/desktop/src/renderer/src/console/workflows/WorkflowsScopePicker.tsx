@@ -22,6 +22,18 @@
 // conflation `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to
 // prevent.
 //
+// A REFUSED DIRECTORY WITH SOMETHING TO OFFER IS A PARTIAL READ, AND IT SAYS SO. The
+// two sources are a union, so a refused node directory beside one open session still
+// leaves a usable list — and the surface presented that list as though it were the
+// node's own. That is the release build's path today, not a corner: the live bridge
+// refuses `sessionList` by name, so an operator asking to choose a different session
+// was shown the one session already open and nothing saying the rest had not been
+// read. The choices stay, because withdrawing a session this window genuinely holds
+// helps nobody, and the daemon's refusal is rendered beside them — the same
+// partial-read shape the definitions browser uses for a refused continuation: the
+// rows held are still true, the refusal is about what is missing, and both are on
+// screen at once.
+//
 // NOTHING IS ANNOUNCED HERE. `frame/ContextPicker.tsx` performs this same read and
 // announces nothing, and the reason carries over: the three absences above ARE the
 // rendering of this settlement, and a live region repeating them would say twice what
@@ -30,11 +42,22 @@
 // owns it.
 
 import { offeredSessionIds, useSessionDirectory, type GrowthPort } from "../bridge/index.js";
-import { Nothing, WireChoiceList } from "../primitives/index.js";
+import { InlineRefusal, Nothing, WireChoiceList } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStoreRegistry } from "../store/index.js";
 
 /** The question the list is labelled with, written once for the heading and the list. */
 const SCOPE_QUESTION = "Which session's workflows should this show?";
+
+/**
+ * What the list holds when the node's directory could not be read.
+ *
+ * The console's own sentence about its own list, which is a different thing from the
+ * daemon's message and stands beside it rather than paraphrasing it: rule 9 fixes what
+ * reaches the screen from a refusal at the code and the message, and neither of those
+ * says which sessions the surface managed to offer anyway.
+ */
+const PARTIAL_LIST_NOTE =
+  "These are the sessions this window already has open. The node's own list was not read, so it may hold others.";
 
 export interface WorkflowsScopePickerProps {
   readonly growth: GrowthPort;
@@ -86,6 +109,12 @@ export function WorkflowsScopePicker(props: WorkflowsScopePickerProps): React.JS
         Definitions resolve session, then project, then shared — from one session outwards — so the
         list below is the scope the daemon would resolve against.
       </p>
+      {directory.status === "unavailable" ? (
+        <div className="meridian-workflows-scope-picker__partial">
+          <p className="meridian-workflows-scope-picker__partial-note">{PARTIAL_LIST_NOTE}</p>
+          <InlineRefusal {...directory.refusal} />
+        </div>
+      ) : null}
       <WireChoiceList values={sessionIds} onSelect={props.onChoose} label={SCOPE_QUESTION} />
     </section>
   );

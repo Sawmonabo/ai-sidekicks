@@ -203,6 +203,7 @@ interface DefinitionScopeGroupProps {
   readonly scope: WorkflowDefinitionScope;
   readonly definitions: readonly WorkflowDefinitionRow[];
   readonly isPending: boolean;
+  readonly hasUnreadPages: boolean;
   readonly onOpenDefinition: OpenDefinition | undefined;
   /** The group's own escape hatch, when its caller supplies one. */
   readonly emptyAction: React.ReactNode;
@@ -225,10 +226,17 @@ function DefinitionScopeGroup(props: DefinitionScopeGroupProps): React.JSX.Eleme
 /**
  * A group's body: its rows, or the right kind of nothing.
  *
- * `not-loaded` while this scope's page is still arriving and `empty` once it has —
- * the two are different next moves (wait, versus create one), and a group that
- * rendered "no definitions" during its own fetch would be asserting an answer it had
- * not received.
+ * THREE ABSENCES, because there are three different next moves. `not-loaded` while a
+ * page that could hold this scope is arriving — wait. `not-checked` once it has, while
+ * the enumeration still holds pages nobody has read — read on. `empty` only when the
+ * enumeration is exhausted — create one.
+ *
+ * The middle arm is the one the browser used to skip. The cursor pages the whole
+ * resolved union at once, so a first page with no `shared` row establishes nothing
+ * about `shared`; rendering `No shared definitions` there is the console asserting a
+ * result the daemon never gave, and it stood while the continuation was in flight and
+ * again after the daemon refused it. The daemon's refusal itself is rendered once,
+ * under the groups, beside the control that retries it — never three times over.
  */
 function renderScopeBody(props: DefinitionScopeGroupProps): React.ReactNode {
   if (props.definitions.length > 0) {
@@ -253,6 +261,16 @@ function renderScopeBody(props: DefinitionScopeGroupProps): React.ReactNode {
       />
     );
   }
+  if (props.hasUnreadPages) {
+    return (
+      <Nothing
+        kind="not-checked"
+        placement="surface"
+        title={`No ${props.scope} definitions in the pages read so far.`}
+        detail="The enumeration has more pages and the console has not read them. Reading on may reach definitions at this scope."
+      />
+    );
+  }
   return (
     <Nothing
       kind="empty"
@@ -269,6 +287,14 @@ export interface DefinitionsBrowserProps {
   readonly definitions: readonly WorkflowDefinitionRow[];
   /** Scopes whose page is still in flight, so their absence reads as a wait. */
   readonly pendingScopes?: readonly WorkflowDefinitionScope[] | undefined;
+  /**
+   * True while the enumeration holds pages nobody has read.
+   *
+   * Separate from `pendingScopes` because it answers a different question — that one
+   * is what is being waited on, this one is whether the answer is finished — and only
+   * a finished enumeration lets a group with no rows say there are none.
+   */
+  readonly hasUnreadPages?: boolean | undefined;
   /** Opens one definition's detail. Absent while nothing can open one. */
   readonly onOpenDefinition?: OpenDefinition | undefined;
   /** Reads a definition file in and submits it. Absent while nothing can import one. */
@@ -330,6 +356,7 @@ export function DefinitionsBrowser(props: DefinitionsBrowserProps): React.JSX.El
             scope={scope}
             definitions={props.definitions.filter((definition) => definition.scope === scope)}
             isPending={pendingScopes.includes(scope)}
+            hasUnreadPages={props.hasUnreadPages === true}
             onOpenDefinition={props.onOpenDefinition}
             emptyAction={
               // Import belongs to the scope an import lands in, and a control offered

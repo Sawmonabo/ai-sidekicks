@@ -45,11 +45,7 @@ import { useEffect } from "react";
 // version id, which is what lets a row read as more than an id and lets the frozen
 // pin be an inequality rather than a guess.
 import type { GrowthPort, WorkflowRunListEntry } from "../bridge/index.js";
-import {
-  subjectReadStart,
-  useSubjectStampedRead,
-  type SubjectStampedRead,
-} from "../store/index.js";
+import { useSubjectStampedRead, type SubjectStampedRead } from "../store/index.js";
 import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What this read looks like once it has an answer, either kind. */
@@ -63,7 +59,8 @@ type SettledRunDirectory =
  * Four states and no others, and the two unsettled ones are the shared shape rather
  * than a third spelling of it: `store/subject-stamped-state.ts` owns what a
  * subject-keyed read starts as, so this hook and the two beside it cannot drift about
- * which frame is allowed to claim nobody asked.
+ * which frame is allowed to claim nobody asked, or about which frame is allowed to
+ * hold the previous bridge's answer.
  */
 export type WorkflowRunDirectoryState = SubjectStampedRead<SettledRunDirectory>;
 
@@ -75,18 +72,20 @@ export type WorkflowRunDirectoryState = SubjectStampedRead<SettledRunDirectory>;
  * while a bridge swapped underneath — the fixture's scenario switch — and a move to
  * a different session both do.
  *
- * THE STATE IS STAMPED WITH THE SESSION IT IS ABOUT, so the session change is settled
- * during the render that brings it rather than in the effect after the commit. Before
- * that, a mounted list committed one frame of `unasked` under a session it had already
- * asked about — which the runs surface draws as an assertion that this context holds
- * no runs — and, across a move from one session to another, kept the previous
- * session's rows renderable under the new session's name.
+ * THE STATE IS STAMPED WITH THE PORT AND THE SESSION IT IS ABOUT, so either change is
+ * settled during the render that brings it rather than in the effect after the commit.
+ * Before that, a mounted list committed one frame of `unasked` under a session it had
+ * already asked about — which the runs surface draws as an assertion that this context
+ * holds no runs — and, across a move from one session to another, kept the previous
+ * session's rows renderable under the new session's name. The port is half of the stamp
+ * because the fixture's scenario switch replaces the bridge and keeps the session id,
+ * so a subject-only stamp committed the previous scenario's runs under the new one.
  */
 export function useWorkflowRunDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowRunDirectoryState {
-  const [state, setState] = useSubjectStampedRead<SettledRunDirectory>(sessionId);
+  const [state, setState] = useSubjectStampedRead<SettledRunDirectory>(growth, sessionId);
   useEffect(() => {
     if (sessionId === undefined) {
       // Nothing to reset: the stamp already put this read at `unasked` during the
@@ -94,10 +93,10 @@ export function useWorkflowRunDirectory(
       // over an address that names no session promises an answer never coming.
       return;
     }
-    // The PORT can change under an unchanged session — the fixture's scenario switch
-    // swaps the bridge — and the subject stamp does not see that, so the reset is
-    // stated here for exactly that case, through the same rule rather than beside it.
-    setState(subjectReadStart(sessionId));
+    // No reset here. The stamp above covers a port swapped under an unchanged session
+    // as well as a session change, and it covers it during the render rather than one
+    // commit later — a reset stated again in this effect would be the same rule in two
+    // places, agreeing until one of them moved.
     let isMounted = true;
     void settleGrowthRead(growth.workflowRunList({ sessionId })).then((outcome) => {
       if (!isMounted) {
