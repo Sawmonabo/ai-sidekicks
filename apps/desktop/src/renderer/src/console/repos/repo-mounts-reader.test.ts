@@ -178,8 +178,12 @@ describe("RepoMountsReader — the read", () => {
     // The clone list used to be dropped on publication, so a session running in the
     // `ephemeral clone` mode reported no execution root while the daemon had named one.
     expect(reading.worktrees).toHaveLength(2);
-    expect(reading.ephemeralClones).toHaveLength(1);
+    // Two clones, and the second is the swept one: `cleanedAt` decides a row's
+    // disposition ahead of its deadline, so a scenario with no stamped clone could
+    // not reach the reclaimed reading on any surface.
+    expect(reading.ephemeralClones).toHaveLength(2);
     expect(reading.ephemeralClones[0]?.workspaceId).toBe(reading.workspaces[0]?.id);
+    expect(reading.ephemeralClones[1]?.cleanedAt).toBeDefined();
   });
 
   it("negative control: a root read carrying no clone publishes none", async () => {

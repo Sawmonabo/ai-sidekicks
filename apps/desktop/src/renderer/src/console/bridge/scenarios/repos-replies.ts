@@ -31,6 +31,7 @@ import type { ConsoleScenario } from "../scenario.js";
 
 import {
   EPHEMERAL_CLONE_ID,
+  RECLAIMED_CLONE_ID,
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
   IMPLEMENTER_BRANCH_CONTEXT_ID,
@@ -255,12 +256,15 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // section draws that mount's roots as the `empty` kind of nothing rather than as
     // an unasked question.
     //
-    // `ephemeralClones` carries ONE row, and it is the only way this scenario can reach
-    // that list at all: clone transitions are not separately evented, so no beat can
-    // state a clone and this read is the whole surface. It is past its disposal time on
-    // purpose — the elapsed reading is the one state on the execution-root surface that
-    // arrives with nobody acting, and a fixture whose clone was merely scheduled could not
-    // reach it.
+    // `ephemeralClones` carries TWO rows, and this read is the only way this scenario
+    // can reach that list at all: clone transitions are not separately evented, so no
+    // beat can state a clone and this read is the whole surface. The first is past its
+    // disposal time on purpose — the elapsed reading is the one state on the
+    // execution-root surface that arrives with nobody acting, and a fixture whose clone
+    // was merely scheduled could not reach it. The second carries `cleanedAt`, which is
+    // read AHEAD of the deadline and is the only way to reach the reclaimed disposition;
+    // its deadline is deliberately still ahead, so a card that derived disposition from
+    // `expiresAt` alone would draw it as awaiting a disposal that has already happened.
     //
     // The IMPLEMENTER's root is `dirty`, agreeing with the beat above it: the reclaim
     // controls have to be unavailable somewhere, and a fixture whose every root is
@@ -305,6 +309,20 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
           cleanupPolicy: "on_run_complete",
           expiresAt: "2026-01-01T09:05:01.500Z",
           createdAt: "2026-01-01T09:05:00.960Z",
+        },
+        {
+          cloneId: RECLAIMED_CLONE_ID,
+          workspaceId: GIT_WORKSPACE_ID,
+          cloneRoot: "/Users/dev/code/ai-sidekicks-clones/rate-limit-probe",
+          branchName: "probe/rate-limit-wiring",
+          state: "ready",
+          cleanupPolicy: "on_run_complete",
+          // Ahead of the scenario's own instant where the row above is behind it, so
+          // the two clones differ in the one field a countdown is derived from and the
+          // stamp below is what separates their dispositions.
+          expiresAt: "2026-01-01T09:35:00.000Z",
+          createdAt: "2026-01-01T09:05:00.980Z",
+          cleanedAt: "2026-01-01T09:05:01.100Z",
         },
       ],
     },
