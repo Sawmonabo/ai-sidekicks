@@ -51,6 +51,11 @@ import type {
   AttentionSessionGroup,
   RefusedAttentionSession,
 } from "./attention-plane.js";
+import {
+  NOTHING_NEEDS_YOU,
+  uncheckedSessionsSentence,
+  unrecognisedItemsSentence,
+} from "./attention-sentences.js";
 
 /**
  * How one trigger reads. Total over the closed six by construction, so a seventh
@@ -147,7 +152,7 @@ function ProjectionBody(props: {
       <Nothing
         kind="empty"
         placement="surface"
-        title="Nothing needs you."
+        title={NOTHING_NEEDS_YOU}
         detail="Approvals, questions, finished runs, invitations, and mentions all appear here while they are unresolved."
       />
     ) : (
@@ -210,36 +215,22 @@ function RefusedSessions(props: {
   );
 }
 
-/** What the console says about sessions the fan-out never got an answer for. */
-function uncheckedSessionsSentence(refusedCount: number): string {
-  return refusedCount === 1
-    ? "One session could not be checked."
-    : `${formatCount(refusedCount)} sessions could not be checked.`;
-}
-
-/** The dropped-members line, in both of the places a read can produce one. */
+/**
+ * The dropped-members line, in both of the places a read can produce one.
+ *
+ * A plain paragraph and NOT `role="status"`, which it carried until this line got a
+ * spoken half. Two reasons, and either is enough. `primitives/LiveAnnouncerProvider`
+ * states the rule — "no other component in the console ever creates an `aria-live`
+ * node" — and `role="status"` is one implicitly. And the region would have been the
+ * unreliable kind anyway: it mounts carrying its own text, which is exactly the shape
+ * `primitives/live-announcer.ts` decision 1 exists to avoid, so it was a live region
+ * a reader may or may not speak. The fact now travels in the settlement sentence,
+ * which is said through the one region that was in the tree before the text arrived.
+ */
 function DroppedMembersLine(props: { readonly droppedCount: number }): React.JSX.Element {
   return (
-    <p className="meridian-attention__dropped" role="status">
-      {unrecognisedItemsSentence(props.droppedCount)}
-    </p>
+    <p className="meridian-attention__dropped">{unrecognisedItemsSentence(props.droppedCount)}</p>
   );
-}
-
-/**
- * What the console says about members its boundary refused.
- *
- * One sentence with two homes — beside the groups a partial read produced, and as
- * the whole body of a read that produced none — so the two can never drift into
- * saying different things about one number. It names the SHAPE rather than one
- * cause, because the boundary drops on several: a trigger or severity outside its
- * closed set, a missing required member, and an optional member the producer sent
- * that could not be read.
- */
-function unrecognisedItemsSentence(droppedCount: number): string {
-  return droppedCount === 1
-    ? "One item in that read did not match the shape this console recognises, and was not shown."
-    : `${formatCount(droppedCount)} items in that read did not match the shape this console recognises, and were not shown.`;
 }
 
 /**

@@ -60,6 +60,7 @@ import {
   NotificationCenter,
   attentionProjectionReaderFor,
   useAttentionProjection,
+  useAttentionSettlementAnnouncement,
   type AttentionReading,
 } from "./notifications/index.js";
 import { DerivedFigure, InlineRefusal, Nothing, formatCount } from "../primitives/index.js";
@@ -104,6 +105,11 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
     context.bridge,
     context.sessionStoreRegistry,
   );
+  // Said once per settlement, here rather than inside the center: this destination is
+  // where the read lives, and the center is handed a reading and mounted in two other
+  // harnesses that render it with no announcer above them. The panel draws the same
+  // read for everyone who can see it — this is the half for everyone who cannot.
+  useAttentionSettlementAnnouncement(attention);
   // Counts presses rather than recording a boolean, so the built node can be keyed
   // on it: a second press remounts and therefore starts a second session.
   const [startRequestCount, setStartRequestCount] = useState(0);
