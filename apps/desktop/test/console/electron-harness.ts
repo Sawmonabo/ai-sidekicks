@@ -101,12 +101,13 @@ export interface ConsoleApplication {
   /**
    * Close the app and remove its private profile. Safe to call twice.
    *
-   * REJECTS when cleanup did not end in a clean close — a close that timed out,
-   * one whose termination was refused, or one that rejected outright. A caller
-   * that awaits this in a `finally` therefore fails a test whose assertions
-   * passed but which leaked an Electron, which is the point: vitest does not read
-   * logs, and the process would otherwise survive into the launches after it. The
-   * second call is a no-op and never throws.
+   * REJECTS when cleanup may have left something behind — a termination that was
+   * refused, or a close that rejected outright. A caller that awaits this
+   * therefore fails a test whose assertions passed but which leaked an Electron,
+   * which is the point: vitest does not read logs, and the process would
+   * otherwise survive into the launches after it. A close that lost its race and
+   * was SIGKILLed is breadcrumbed and resolves: the tree is gone, so the launches
+   * after it are unaffected. The second call is a no-op and never throws.
    */
   readonly close: () => Promise<void>;
 }
@@ -230,19 +231,23 @@ export async function launchConsole(
     } finally {
       rmSync(userDataDirectory, { recursive: true, force: true });
     }
+    // Breadcrumbed on every settlement but a clean close, and that is wider than
+    // the set that throws: a SIGKILLed tree is worth a line in the log and is not
+    // worth a red check, so `terminated` is recorded here and passes below.
+    if (cleanupOutcome.settlement !== "closed") {
+      console.error(
+        `${LAUNCH_TRACE_TAG} close settled ${cleanupOutcome.settlement} after ` +
+          `${String(cleanupOutcome.waitedMs)} ms of the ${String(cleanupOutcome.budgetMs)} ms it was given`,
+      );
+    }
     const failure = cleanupFailure(cleanupOutcome);
     if (failure === undefined) {
       return;
     }
-    // Breadcrumbed AND thrown. The log is for the launch-failure path, which
-    // swallows this rejection to keep the original error on top; the throw is for
-    // the ordinary path, where a `console.error` is not a failure to vitest and a
-    // tier whose assertions passed would otherwise report success while leaving an
-    // Electron alive for every launch after it.
-    console.error(
-      `${LAUNCH_TRACE_TAG} close settled ${cleanupOutcome.settlement} after ` +
-        `${String(cleanupOutcome.waitedMs)} ms of the ${String(cleanupOutcome.budgetMs)} ms it was given`,
-    );
+    // Thrown, not only logged: a `console.error` is not a failure to vitest, so a
+    // tier whose assertions passed would otherwise report success while leaving
+    // an Electron alive for every launch after it. The launch-failure path
+    // swallows this rejection to keep the original error on top.
     throw failure;
   };
 

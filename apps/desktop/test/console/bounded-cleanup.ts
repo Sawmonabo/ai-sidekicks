@@ -262,7 +262,7 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
 }
 
 /**
- * Raised when a launch's cleanup did not end in a clean close.
+ * Raised when cleanup may have left something behind, or failed outright.
  *
  * Thrown rather than logged, which is the whole point. A `console.error` is not a
  * failure to vitest, so a tier whose assertions passed reported success while
@@ -298,12 +298,26 @@ export class CleanupFailedError extends Error {
 }
 
 /**
- * The error a caller must be shown, or `undefined` when cleanup was clean.
+ * The error a caller must be shown, or `undefined` when nothing was left behind.
  *
- * A function rather than a conditional at the call site so the rule — every
- * settlement but `closed` is a failure — is stated once and can be tested without
- * launching Electron, which is the only way to reach these settlements for real.
+ * A function rather than a conditional at the call site so the rule is stated
+ * once and can be tested without launching Electron, which is the only way to
+ * reach these settlements for real. Two settlements raise, and they are the two
+ * a later launch can feel: `unterminable`, where a process nothing could kill
+ * may still be holding its profile, and `closed-after-rejection`, where the
+ * close failed outright and the caller would otherwise never hear the rejection.
+ *
+ * `terminated` is deliberately NOT one of them. It says the tree was SIGKILLed,
+ * which `withCleanupOutcome` reports in the same breath as "later launches are
+ * unaffected" — and a verdict cannot both say that and fail a tier over it. What
+ * failing it would actually catch is a healthy shutdown that ran long: the
+ * endurance tier closes minutes after its launch deadline is spent, so the
+ * applied bound is the reserve alone, and an Electron flushing a session store
+ * on a loaded two-core runner can lose that race with every assertion passed and
+ * nothing leaked. So it is a breadcrumb the harness prints, not a red check.
  */
 export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | undefined {
-  return outcome.settlement === "closed" ? undefined : new CleanupFailedError(outcome);
+  return outcome.settlement === "unterminable" || outcome.settlement === "closed-after-rejection"
+    ? new CleanupFailedError(outcome)
+    : undefined;
 }

@@ -280,15 +280,15 @@ describe("bounded cleanup — what a caller is told", () => {
     ).toBeUndefined();
   });
 
-  it.each(["terminated", "unterminable", "closed-after-rejection"] as const)(
+  it.each(["unterminable", "closed-after-rejection"] as const)(
     "raises a failure the caller cannot ignore when the close settled %s",
     (settlement) => {
       // THE FINDING. Cleanup that went wrong was breadcrumbed with `console.error`
       // and the harness resolved anyway — and a log line is not a failure to
       // vitest, so a tier whose assertions passed reported success while leaving
-      // an Electron alive for every launch after it. Every settlement but a clean
-      // close is now raised, `terminated` included: a run that had to SIGKILL its
-      // browser did not close it.
+      // an Electron alive for every launch after it. These are the two
+      // settlements a LATER launch can feel: a process nothing could kill, and a
+      // close that failed outright.
       const failure = cleanupFailure(outcomeOf(settlement));
       expect(failure).toBeInstanceOf(CleanupFailedError);
       expect(failure?.settlement).toBe(settlement);
@@ -299,6 +299,21 @@ describe("bounded cleanup — what a caller is told", () => {
       expect(failure?.message).toContain("4242");
     },
   );
+
+  it("lets a SIGKILLed tree pass, because the tree is gone", () => {
+    // THE SECOND FINDING, and it is the mirror of the one above. `terminated`
+    // says the close lost its race and the process tree was killed — which is
+    // what `withCleanupOutcome` reports in the same breath as "later launches are
+    // unaffected". Failing a tier over it would not catch a leak; it would catch
+    // a healthy shutdown that ran long, which on the endurance tier is a close
+    // bounded by the reserve alone after a full replay. The harness prints the
+    // breadcrumb and the tier stays green.
+    expect(cleanupFailure(outcomeOf("terminated"))).toBeUndefined();
+    // Non-vacuous: the same outcome shape with the settlement that DOES reach a
+    // later launch still raises, so this is the settlement deciding and not the
+    // helper having stopped raising at all.
+    expect(cleanupFailure(outcomeOf("unterminable"))).toBeInstanceOf(CleanupFailedError);
+  });
 
   it("says so plainly when the process that would not close cannot be named", () => {
     // `processId()` answers `undefined` once Playwright has reaped the child, and
@@ -312,18 +327,20 @@ describe("bounded cleanup — what a caller is told", () => {
   it("warns about the profile lock only where a process may still hold it", () => {
     // `unterminable` is the settlement that breaks the NEXT launch —
     // `requestSingleInstanceLock()` is lost to a process nothing could kill — and
-    // the one that earns the extra sentence. A terminated tree does not.
+    // the one that earns the extra sentence. The other raising settlement, a
+    // close that rejected while its process exited anyway, leaves nothing to
+    // hold the lock and must not send a reader looking for one.
     expect(cleanupFailure(outcomeOf("unterminable"))?.message).toContain(
       "requestSingleInstanceLock",
     );
-    expect(cleanupFailure(outcomeOf("terminated"))?.message).not.toContain(
+    expect(cleanupFailure(outcomeOf("closed-after-rejection"))?.message).not.toContain(
       "requestSingleInstanceLock",
     );
   });
 
   it("carries a rejected close as the cause rather than discarding it", () => {
     const rejection = new Error("Target page, context or browser has been closed");
-    const failure = cleanupFailure({ ...outcomeOf("terminated"), closeRejection: rejection });
+    const failure = cleanupFailure({ ...outcomeOf("unterminable"), closeRejection: rejection });
     expect(failure?.cause).toBe(rejection);
   });
 
@@ -368,6 +385,15 @@ describe("bounded cleanup — the harness spends both dispositions", () => {
     // Not `console.error(...)` and fall through, which is what it used to do.
     expect(harness).toMatch(/const failure = cleanupFailure\(cleanupOutcome\);/);
     expect(harness).toMatch(/\n\s*throw failure;/);
+  });
+
+  it("breadcrumbs a wider set than it throws on", () => {
+    // The two are separate statements because `terminated` reaches one and not
+    // the other: a SIGKILLed tree is worth a line in a CI log and is not worth a
+    // red check. A breadcrumb guarded by the failure instead would print nothing
+    // for exactly the settlement whose figures a reader needs to re-derive the
+    // bound from.
+    expect(harness).toMatch(/if \(cleanupOutcome\.settlement !== "closed"\) \{\s*console\.error\(/);
   });
 
   it("swallows that throw on the launch-failure path and attaches the outcome", () => {
