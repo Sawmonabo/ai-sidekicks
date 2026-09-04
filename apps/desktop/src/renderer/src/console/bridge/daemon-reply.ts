@@ -49,15 +49,24 @@
 // for unregistered methods or dropping the parse for registered ones. A row landing
 // moves an operation from that table to this registry, which is the only crossing.
 //
-// THE REJECTION ARM IS A SEAM UNDER CONSTRUCTION. `normalizeDaemonRejection` below
-// is the console's first develop-level normalizer of a rejection into a
-// `ConsoleRefusal`; `src/shared/wire-errors.ts` normalizes one into an `Error`,
-// which is the three legacy renderer families' currency, and nothing else does. It
-// is deliberately private with exactly one call site, so the console-wide
-// normalizer — when it lands in `core/` — replaces this body and changes no caller.
+// THE REJECTION ARM IS THE CONSOLE'S ONE NORMALIZER, CONSUMED AND NOT COPIED. A
+// rejection reaching this door goes to `normalizeWireRejection`
+// (`core/wire-rejection.ts`), which holds the console's only reading of a rejected
+// promise, and this module supplies only the two things that are its own: the origin
+// every refusal here carries, and the sentence for a rejection that said nothing
+// machine-readable. Four of that module's properties are the reason a private copy
+// here would be wrong rather than merely redundant — the JSON-RPC arm, which takes
+// the project's dotted code off `data.type` where a `{ code: string }` guard cannot
+// see it because the JSON-RPC `code` is a NUMBER; the retry bound a rate-limit
+// envelope registers; a structural unwrap of a carried refusal, which survives the
+// realm crossing and the structured clone that leave `instanceof` silent; and the
+// backstop that keeps the whole path total. A door that read a daemon refusal a
+// second way is how `session.not_found` becomes `call-rejected`.
+// `src/shared/wire-errors.ts` normalizes a rejection into an `Error`, which is the
+// three legacy renderer families' currency; it answers a different question and is
+// consumed for its leaf helpers rather than for this.
 
-import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
-import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
+import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import {
   CONSOLE_DAEMON_METHOD_BINDINGS,
@@ -157,7 +166,18 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
     ) => Promise<unknown>;
     reply = await call(method, sendable.data);
   } catch (rejection: unknown) {
-    return { status: "refused", refusal: normalizeDaemonRejection(method, rejection) };
+    return {
+      status: "refused",
+      // The fallback is offered and not imposed: every typed arm runs first, so a
+      // rejection carrying a code of its own keeps it and only one that carries
+      // none reaches this sentence. It names the method and stops there — the
+      // rejected value is not quoted into it, because a rejection off the wire can
+      // carry participant content as readily as a schema failure can.
+      refusal: normalizeWireRejection(DAEMON_REPLY_REFUSAL_ORIGIN, rejection, {
+        code: "call-rejected" satisfies DaemonReplyRefusalCode,
+        detail: `${method} was rejected.`,
+      }),
+    };
   }
 
   const readable = binding.responseSchema.safeParse(reply);
@@ -211,36 +231,4 @@ function describeFailingPaths(error: unknown): string {
   }
   const named = paths.slice(0, NAMED_FAILING_PATH_CAP).join(", ");
   return paths.length > NAMED_FAILING_PATH_CAP ? ` (at ${named}, and more)` : ` (at ${named})`;
-}
-
-/**
- * Turn a rejection into the console's one refusal shape, keeping the daemon's own
- * code wherever the rejection carries one.
- *
- * Three arms, most specific first:
- *   1. A value that already IS a `ConsoleRefusal`, or an error carrying one. The
- *      fixture bridge's `FixtureBridgeError` and every other `ConsoleRefusalError`
- *      arrive this way, and re-labelling them would lose the origin they name.
- *   2. A typed wire envelope. The code and the message pass through VERBATIM — the
- *      console never paraphrases the daemon — and the origin becomes this module so
- *      a refusal rendered three layers up still names where it surfaced.
- *   3. Anything else, rendered through the total stringifier under the one code the
- *      console owns for "the call was rejected and said nothing machine-readable".
- */
-function normalizeDaemonRejection(method: string, rejection: unknown): ConsoleRefusal {
-  const carried: unknown =
-    rejection instanceof Error && "refusal" in rejection
-      ? (rejection as { readonly refusal: unknown }).refusal
-      : rejection;
-  if (isConsoleRefusal(carried)) {
-    return carried;
-  }
-  if (isWireErrorEnvelope(rejection)) {
-    return refuse(DAEMON_REPLY_REFUSAL_ORIGIN, rejection.code, rejection.message);
-  }
-  return refuse(
-    DAEMON_REPLY_REFUSAL_ORIGIN,
-    "call-rejected" satisfies DaemonReplyRefusalCode,
-    `${method} was rejected: ${lossyStringify(rejection)}`,
-  );
 }
