@@ -19,6 +19,13 @@
 // This is `store/hooks.ts`'s caller-identity rule — a settled answer belongs to the
 // inputs that produced it — as a reusable holder, and the keying is the pair
 // `queue-feed.ts` already keys a session's reading by.
+//
+// THE SUBJECT IS A BRIDGE AND A KEY WITHIN IT, and the key is not always a session.
+// The composer's operation states belong to the ADDRESS the act was issued at — its
+// draft key — and a session id would be the wrong key there, since one session holds
+// many addressed composers. So the holder takes an opaque subject key and
+// `useSessionScopedState` is the session-named door onto it: one implementation, and
+// a call site that reads as the key space it is in rather than as a string.
 
 import { useCallback, useState } from "react";
 
@@ -27,15 +34,15 @@ import type { ConsoleBridge } from "./console-bridge.js";
 /** A value together with the subject it was produced under. */
 interface SubjectScopedValue<Value> {
   readonly bridge: ConsoleBridge;
-  readonly sessionId: string;
+  readonly subjectKey: string;
   readonly value: Value;
 }
 
 /** What a caller reads and how it publishes: the current value, and a stamped setter. */
-export type SessionScopedState<Value> = readonly [Value, (value: Value) => void];
+export type SubjectScopedState<Value> = readonly [Value, (value: Value) => void];
 
 /**
- * Hold one value per `(bridge, sessionId)` subject.
+ * Hold one value per `(bridge, subjectKey)` subject.
  *
  * The subject reset runs DURING render rather than in an effect, which is what makes
  * the guarantee synchronous: the pass that first sees a new subject already reads
@@ -47,19 +54,19 @@ export type SessionScopedState<Value> = readonly [Value, (value: Value) => void]
  * `initialValue` is read only when the subject changes and at first mount, so a
  * caller may pass a literal without re-arming anything on an ordinary render.
  */
-export function useSessionScopedState<Value>(
+export function useSubjectScopedState<Value>(
   bridge: ConsoleBridge,
-  sessionId: string,
+  subjectKey: string,
   initialValue: Value,
-): SessionScopedState<Value> {
+): SubjectScopedState<Value> {
   const [held, setHeld] = useState<SubjectScopedValue<Value>>({
     bridge,
-    sessionId,
+    subjectKey,
     value: initialValue,
   });
-  const isCurrent = held.bridge === bridge && held.sessionId === sessionId;
+  const isCurrent = held.bridge === bridge && held.subjectKey === subjectKey;
   if (!isCurrent) {
-    setHeld({ bridge, sessionId, value: initialValue });
+    setHeld({ bridge, subjectKey, value: initialValue });
   }
 
   // Keyed on the subject, so the function a caller closed over carries the subject
@@ -69,13 +76,29 @@ export function useSessionScopedState<Value>(
   const publish = useCallback(
     (value: Value) => {
       setHeld((previous) =>
-        previous.bridge === bridge && previous.sessionId === sessionId
-          ? { bridge, sessionId, value }
+        previous.bridge === bridge && previous.subjectKey === subjectKey
+          ? { bridge, subjectKey, value }
           : previous,
       );
     },
-    [bridge, sessionId],
+    [bridge, subjectKey],
   );
 
   return [isCurrent ? held.value : initialValue, publish];
+}
+
+/**
+ * Hold one value per `(bridge, sessionId)` subject.
+ *
+ * The session-named door onto the holder above, for the callers whose subject IS the
+ * session. It exists so those call sites say which key space they are in — a session
+ * id and a composer address are both strings and are not interchangeable — and it
+ * adds no second implementation.
+ */
+export function useSessionScopedState<Value>(
+  bridge: ConsoleBridge,
+  sessionId: string,
+  initialValue: Value,
+): SubjectScopedState<Value> {
+  return useSubjectScopedState(bridge, sessionId, initialValue);
 }

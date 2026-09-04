@@ -34,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import {
+  BridgeScopedLatch,
   SessionRepairWatcher,
   consoleClockFor,
   useSessionScopedState,
@@ -217,56 +218,13 @@ export function useApprovalsReader(
 }
 
 /**
- * Which subjects have a goal mutation in flight.
- *
- * A class with a private field rather than a boolean ref, because the rule it keeps
- * is about a SUBJECT and not about a component: `session.goalUpdate` names the
- * session it mutates, so "one mutation in flight" is one per `(bridge, sessionId)`
- * and never one per mounted card. A single boolean said otherwise, and a pane
- * rebound from session A to session B while A's call was outstanding then refused
- * B's first change as though B already had one settling — and an A call that never
- * answered left B refusing for as long as the pane stayed mounted.
- *
- * A `WeakMap` on the bridge for `driver-capability-read.ts`'s reason: the key is a
- * live object, so a bridge that goes away takes its held sessions with it.
- */
-class GoalMutationLatch {
-  readonly #inFlightSessionIdsByBridge = new WeakMap<ConsoleBridge, Set<string>>();
-
-  /** Take one subject's slot, or answer `false` where that subject already holds it. */
-  public claim(bridge: ConsoleBridge, sessionId: string): boolean {
-    const inFlightSessionIds = this.#inFlightSessionIdsFor(bridge);
-    if (inFlightSessionIds.has(sessionId)) {
-      return false;
-    }
-    inFlightSessionIds.add(sessionId);
-    return true;
-  }
-
-  /** Release one subject's slot. Every other subject's is untouched. */
-  public release(bridge: ConsoleBridge, sessionId: string): void {
-    this.#inFlightSessionIdsByBridge.get(bridge)?.delete(sessionId);
-  }
-
-  #inFlightSessionIdsFor(bridge: ConsoleBridge): Set<string> {
-    const held = this.#inFlightSessionIdsByBridge.get(bridge);
-    if (held !== undefined) {
-      return held;
-    }
-    const created = new Set<string>();
-    this.#inFlightSessionIdsByBridge.set(bridge, created);
-    return created;
-  }
-}
-
-/**
  * The one goal mutation a session may have in flight.
  *
  * THIS HOOK'S OWN RULE, because no committed document states it: a second mutation
- * is never queued behind the first. The guard is the latch above rather than the
- * disabled attribute, because a disabled button is a rendering and this is a rule
- * about the wire — a keyboard-driven double submit lands between renders and would
- * otherwise send two.
+ * is never queued behind the first. The guard is the shared `BridgeScopedLatch`
+ * rather than the disabled attribute, because a disabled button is a rendering and
+ * this is a rule about the wire — a keyboard-driven double submit lands between
+ * renders and would otherwise send two.
  *
  * EVERYTHING THIS HOOK HOLDS BELONGS TO A SUBJECT. The state, the refusal, and the
  * latch are all about the `(bridge, sessionId)` the mutation was issued under, and
@@ -275,8 +233,10 @@ class GoalMutationLatch {
  * beside the new session's goal. The two readings ride
  * `useSessionScopedState`, which resets them during the render that first sees a new
  * subject and drops a settlement whose captured subject is no longer current; the
- * latch is keyed by the same pair. Nothing here is a timer or a counter: a late
- * answer is discarded because of WHOSE it is, not because of when it arrived.
+ * latch is claimed under the same pair, so this session's slot is the only one a
+ * settlement of this session's call can release. Nothing here is a timer or a
+ * counter: a late answer is discarded because of WHOSE it is, not because of when it
+ * arrived.
  */
 export function useSessionGoalMutation(
   bridge: ConsoleBridge,
@@ -296,7 +256,7 @@ export function useSessionGoalMutation(
   // A `useState` initializer rather than a `useMemo`, on `frame/session-lifecycle.ts`'s
   // reasoning: this runs once per mounted component and is never recomputed, and a
   // latch React was free to rebuild would forget a call that was still outstanding.
-  const [latch] = useState(() => new GoalMutationLatch());
+  const [latch] = useState(() => new BridgeScopedLatch());
   const isMountedRef = useRef(true);
 
   useEffect(() => {

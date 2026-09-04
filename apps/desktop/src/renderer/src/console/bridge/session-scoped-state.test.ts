@@ -12,7 +12,7 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "./console-bridge.js";
-import { useSessionScopedState } from "./session-scoped-state.js";
+import { useSessionScopedState, useSubjectScopedState } from "./session-scoped-state.js";
 
 const BRIDGE_ONE = { source: "fixture" } as unknown as ConsoleBridge;
 const BRIDGE_TWO = { source: "fixture" } as unknown as ConsoleBridge;
@@ -112,5 +112,53 @@ describe("a value belongs to the subject it was produced under", () => {
     await holder.rebindTo({ bridge: BRIDGE_ONE, sessionId: SESSION_TWO });
     await publishNow(holder, "session two's own answer");
     expect(holder.rendered.at(-1)).toBe("session two's own answer");
+  });
+});
+
+describe("the subject key is not always a session", () => {
+  it("holds one value per key for a caller whose subject is a composer address", async () => {
+    // The general door, driven on the key space that made it necessary: one session
+    // holds many addressed composers, so the composer's operation states belong to
+    // the address the act was issued at rather than to the session it sits in.
+    const rendered: string[] = [];
+    function Holder(props: { readonly draftKey: string }): null {
+      const [value, publish] = useSubjectScopedState(BRIDGE_ONE, props.draftKey, "idle");
+      rendered.push(value);
+      publishers.push(publish);
+      return null;
+    }
+    const publishers: ((value: string) => void)[] = [];
+    const view = render(createElement(Holder, { draftKey: "channel-message|session|alpha" }));
+    await act(async () => {
+      publishers.at(-1)?.("sending");
+      await Promise.resolve();
+    });
+    expect(rendered.at(-1)).toBe("sending");
+
+    await act(async () => {
+      view.rerender(createElement(Holder, { draftKey: "channel-message|session|beta" }));
+      await Promise.resolve();
+    });
+    expect(rendered.at(-1)).toBe("idle");
+  });
+
+  it("negative control: the same key across a re-render keeps its value", () => {
+    // Without this, a holder that reset on every render would pass the case above.
+    const rendered: string[] = [];
+    const publishers: ((value: string) => void)[] = [];
+    function Holder(props: { readonly draftKey: string }): null {
+      const [value, publish] = useSubjectScopedState(BRIDGE_ONE, props.draftKey, "idle");
+      rendered.push(value);
+      publishers.push(publish);
+      return null;
+    }
+    const view = render(createElement(Holder, { draftKey: "channel-message|session|alpha" }));
+    act(() => {
+      publishers.at(-1)?.("sending");
+    });
+    act(() => {
+      view.rerender(createElement(Holder, { draftKey: "channel-message|session|alpha" }));
+    });
+    expect(rendered.at(-1)).toBe("sending");
   });
 });

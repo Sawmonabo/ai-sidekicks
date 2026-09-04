@@ -51,6 +51,23 @@ export interface ComposerSettlementIdentity {
   readonly attemptId: number;
 }
 
+/**
+ * The key one act's in-flight slot is held under, while it is still travelling.
+ *
+ * The same two axes the identity carries, minus the attempt: the latch answers
+ * whether THIS address already has a send — or a Stop — going, and the attempt id is
+ * what separates one such act from the next, which is a question about settlements
+ * rather than about admission. Composed here rather than inside the hook so that
+ * what the latch calls "the same act at the same address" and what a settlement
+ * calls it cannot drift apart.
+ *
+ * The two segments are joined by a separator that appears in neither, and no reader
+ * splits one back: keys address entries in one window's `Map` and are never parsed.
+ */
+export function addressedOperationKey(draftKey: string, operation: ComposerSendOperation): string {
+  return `${draftKey}::${operation}`;
+}
+
 /** A refusal held under the identity of the act that produced it. */
 export interface HeldComposerRefusal {
   readonly identity: ComposerSettlementIdentity;
