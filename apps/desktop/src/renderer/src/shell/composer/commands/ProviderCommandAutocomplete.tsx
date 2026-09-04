@@ -53,6 +53,7 @@ import { InlineRefusal, Nothing, WireFigure } from "../../../console/primitives/
 import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { useComposerAddress } from "../composer-address.js";
 import type { CommandOutcome } from "../router/command-executor.js";
+import { composerDraftKey } from "../router/draft-key.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
 import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
 import { useDirectiveLineDiscovery } from "./directive-line-observer.js";
@@ -90,7 +91,13 @@ export function ProviderCommandAutocomplete(
   // and a host that passed the answer down would be a host that knew what each zone
   // was for.
   const { target } = useComposerAddress(props.sessionStore, props.focusedPane);
-  const discovery = useDirectiveLineDiscovery(region);
+  // The same store and the same key the send bar reads its line from, so what this
+  // surface sees and what the line displays are one reading rather than two that
+  // agree only while somebody is typing.
+  const discovery = useDirectiveLineDiscovery(region, {
+    draftStore: props.draftStore,
+    draftKey: composerDraftKey(target),
+  });
   const isOpen = discovery.prefix !== undefined;
   const enumeration = useProviderCommandEnumeration({
     enumeration: commandEnumeration,
