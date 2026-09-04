@@ -91,6 +91,7 @@ import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.j
 import { useLedgerFind } from "./ledger-find.js";
 import {
   chapterRunIdOf,
+  jumpOutcomeRowId,
   useDeferredRowJump,
   useEventIdJumpOutcome,
   useLedgerJumpReach,
@@ -236,7 +237,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // The act each absence deserves cannot itself jump — every one of them widens the
   // window on the next render — so the jump is requested and spent when the row is
   // one the viewport holds.
-  const requestJump = useDeferredRowJump(visible.rows, jumpToRow);
+  const requestJump = useDeferredRowJump({
+    visibleRows: visible.rows,
+    jumpToRow,
+    // The request dies with the question that asked it: a held jump whose row the
+    // field no longer names would scroll the ledger away long after the person who
+    // asked closed the field.
+    questionRowId: jumpOutcomeRowId(eventIdJump),
+  });
   const setLedgerFilter = ledgerFilter.setFilter;
   const clearLedgerFilter = useCallback(() => {
     setLedgerFilter(UNFILTERED_LEDGER);
