@@ -32,7 +32,7 @@ import { useEffect, useState } from "react";
 
 import { RealClock, type ConsoleClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
-import { callDaemonMethod } from "../seats/index.js";
+import { callDaemonMethod, isCurrentSessionSubject, type SessionSubject } from "../seats/index.js";
 import type { SessionStore } from "../store/index.js";
 import {
   AGENT_ATTACH_METHOD,
@@ -92,30 +92,27 @@ interface HeldChildRunLinkage {
  * fields.
  */
 export class AgentConsoleModels {
-  public readonly sessionId: string;
+  /**
+   * The exact bridge and store this set was built for.
+   *
+   * Public because it is what {@link useAgentConsoleModels} compares at render, and
+   * the store is held rather than reduced to a `sessionId` for a second reason: a
+   * child link and a refused create both arrive as session events, so the linkage
+   * read needs the stream itself and not the name of the session it belongs to.
+   */
+  public readonly subject: SessionSubject;
   public readonly roster: AgentRosterRead;
   public readonly driverCatalog: DriverCatalogRead;
   public readonly definitions: SidekickDefinitionRead;
 
-  readonly #bridge: ConsoleBridge;
   readonly #clock: ConsoleClock;
-  /**
-   * The store the linkage read takes its push signal from.
-   *
-   * Held rather than reduced to a `sessionId`: a child link and a refused create
-   * both arrive as session events, so the read that answers for them needs the
-   * stream itself and not the name of the session it belongs to.
-   */
-  readonly #sessionStore: SessionStore;
   #linkage: HeldChildRunLinkage | undefined;
   #outstandingLinkageLeaseCount = 0;
   #disposed = false;
 
   public constructor(bridge: ConsoleBridge, sessionStore: SessionStore) {
-    this.#bridge = bridge;
+    this.subject = { bridge, sessionStore };
     this.#clock = bridge.scenarioEngine?.clock ?? new RealClock();
-    this.#sessionStore = sessionStore;
-    this.sessionId = sessionStore.sessionId;
     this.roster = createAgentRoster(bridge, sessionStore, this.#clock);
     this.driverCatalog = createDriverCatalog(bridge, this.#clock);
     this.definitions = createSidekickDefinitions(bridge, this.#clock);
@@ -125,13 +122,24 @@ export class AgentConsoleModels {
   }
 
   /**
+   * The session these reads answer for.
+   *
+   * Read off the subject rather than copied beside it: a second field holding the
+   * same string is a second answer to which session this set belongs to, and the
+   * one the guard consults would not be the one a caller composed a request from.
+   */
+  public get sessionId(): string {
+    return this.subject.sessionStore.sessionId;
+  }
+
+  /**
    * Attach a sidekick. Zero-residue on refusal: no agent row, no partial
    * configuration, no run — which is the daemon's guarantee and the reason this
    * method neither pre-creates anything nor cleans anything up.
    */
   public attach(request: AttachRequest): Promise<AgentAttachReading> {
     return callDaemonMethod<AttachRequest, AgentAttachReading>(
-      this.#bridge,
+      this.subject.bridge,
       AGENT_ATTACH_METHOD,
       request,
     );
@@ -148,14 +156,18 @@ export class AgentConsoleModels {
         Record<ProviderAxis, string>
       >,
       AgentConfigUpdateReading
-    >(this.#bridge, AGENT_CONFIG_UPDATE_METHOD, { agentId, interruptAndSwitch, ...axes });
+    >(this.subject.bridge, AGENT_CONFIG_UPDATE_METHOD, { agentId, interruptAndSwitch, ...axes });
   }
 
   /** Move an agent to `disabled`. Reversible by re-attaching. */
   public detach(agentId: string): Promise<void> {
-    return callDaemonMethod<{ readonly agentId: string }, void>(this.#bridge, AGENT_DETACH_METHOD, {
-      agentId,
-    });
+    return callDaemonMethod<{ readonly agentId: string }, void>(
+      this.subject.bridge,
+      AGENT_DETACH_METHOD,
+      {
+        agentId,
+      },
+    );
   }
 
   /**
@@ -168,7 +180,10 @@ export class AgentConsoleModels {
     return callDaemonMethod<
       { readonly sessionId: string; readonly enabled: boolean },
       PeerInvocationReading
-    >(this.#bridge, SIDEKICK_PEER_INVOCATION_SET_METHOD, { sessionId: this.sessionId, enabled });
+    >(this.subject.bridge, SIDEKICK_PEER_INVOCATION_SET_METHOD, {
+      sessionId: this.sessionId,
+      enabled,
+    });
   }
 
   /** Which run the held linkage answers for, or `undefined` while none is held. */
@@ -198,7 +213,12 @@ export class AgentConsoleModels {
     this.#releaseLinkage();
     const linkage: HeldChildRunLinkage = {
       parentRunId,
-      read: createChildRunLinkage(this.#bridge, this.#sessionStore, parentRunId, this.#clock),
+      read: createChildRunLinkage(
+        this.subject.bridge,
+        this.subject.sessionStore,
+        parentRunId,
+        this.#clock,
+      ),
     };
     this.#linkage = linkage;
     this.#outstandingLinkageLeaseCount = 1;
@@ -260,16 +280,25 @@ export class AgentConsoleModels {
  * state — an auxiliary address that named no session — and answers `undefined`, which
  * the surfaces render as the absence it is.
  *
- * A MODEL NEVER BELONGS TO A SESSION IT IS NOT FOR. State replaced from an effect
+ * A MODEL NEVER BELONGS TO A SUBJECT IT IS NOT FOR. State replaced from an effect
  * lags its own inputs by one committed frame, so a console moving directly from one
  * open session to another renders once with the previous session's models under the
  * new session's store. That frame is not merely a stale roster: the binding column
  * would dispatch `agent.attach`, `agent.configUpdate`, and `agent.detach` through the
  * session the console has LEFT while naming the agent of the one it arrived at. So
- * the held set is answered only while it matches the store it was asked about, and
+ * the held set is answered only while it matches the subject it was asked about, and
  * the mismatched frame answers `undefined` — the absence every consumer already
  * renders, and the one honest thing to say about a session nothing has been read for
  * yet.
+ *
+ * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID, which is what this guard used to
+ * compare. A replacement bridge or a rebuilt store for the SAME session passes an id
+ * comparison, so the first committed render after either replacement handed back
+ * models whose reads are bound to the transport and the projection that were just
+ * retired — and the binding column dispatched through the superseded bridge before
+ * the effect installed the replacement. `seats/session-subject.ts` owns the
+ * comparison, because the collaboration family's holder had written the same guard
+ * with the same defect and two copies of a predicate drift.
  */
 export function useAgentConsoleModels(
   bridge: ConsoleBridge | undefined,
@@ -290,8 +319,5 @@ export function useAgentConsoleModels(
     };
   }, [bridge, sessionStore]);
 
-  // Inline rather than hoisted: the collaboration family applies the same rule to
-  // its own holder, and one shared guard would put a single symbol under two
-  // owners for a comparison that is one expression at each site.
-  return models !== undefined && models.sessionId === sessionStore?.sessionId ? models : undefined;
+  return isCurrentSessionSubject(models?.subject, bridge, sessionStore) ? models : undefined;
 }

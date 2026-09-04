@@ -91,11 +91,12 @@ function LeaseProbe(props: {
     leaseCount: props.holder.outstandingLeaseCount,
     liveSubscriptionCount: props.liveSubscriptionCount?.() ?? 0,
   });
+  const modelsSessionId = models?.subject.sessionStore.sessionId;
   props.onFrame?.({
-    modelsSessionId: models?.sessionId,
+    modelsSessionId,
     storeSessionId: props.sessionStore.sessionId,
   });
-  return <p>{models === undefined ? "waiting" : models.sessionId}</p>;
+  return <p>{modelsSessionId ?? "waiting"}</p>;
 }
 
 /** A section body that fails the way a real one does: during its own render. */
@@ -347,5 +348,101 @@ describe("the sidebar's models — a render React abandons leaves nothing behind
     expect(holder.outstandingLeaseCount).toBeGreaterThan(0);
     expect(counted.liveSubscriptionCount()).toBeGreaterThan(0);
     holder.dispose();
+  });
+});
+
+describe("the sidebar's models — the exact bridge and store they answer for", () => {
+  /** Which bridge each committed frame's set was built against. */
+  function bridgesAnsweredAfterReplacing(
+    before: { readonly bridge: ConsoleBridge; readonly sessionStore: SessionStore },
+    after: { readonly bridge: ConsoleBridge; readonly sessionStore: SessionStore },
+  ): readonly (ConsoleBridge | undefined)[] {
+    const holder = new CollaborationSessionModelHolder();
+    const answered: (ConsoleBridge | undefined)[] = [];
+    function SubjectProbe(props: {
+      readonly bridge: ConsoleBridge;
+      readonly sessionStore: SessionStore;
+    }): React.JSX.Element {
+      const models = useSessionModels(holder, props.bridge, props.sessionStore);
+      answered.push(models?.subject.bridge);
+      return <p>{models === undefined ? "waiting" : "held"}</p>;
+    }
+    const view = render(<SubjectProbe {...before} />);
+    const beforeReplacement = answered.length;
+    view.rerender(<SubjectProbe {...after} />);
+    view.unmount();
+    return answered.slice(beforeReplacement);
+  }
+
+  it("hands out nothing on the frame where the bridge was replaced under one session", () => {
+    const sessionStore = new SessionStore({ sessionId: "session-reconnect" });
+    const replacement = countedFixtureBridge("session-reconnect-b").bridge;
+    const answered = bridgesAnsweredAfterReplacing(
+      { bridge: countedFixtureBridge("session-reconnect-a").bridge, sessionStore },
+      { bridge: replacement, sessionStore },
+    );
+
+    // The held set's channel and presence reads are bound to a transport this
+    // sidebar no longer holds, and a control pressed on that frame would dispatch
+    // through it.
+    expect(answered[0]).toBeUndefined();
+    expect(answered.at(-1)).toBe(replacement);
+  });
+
+  it("hands out nothing on the frame where the store was rebuilt under one session", () => {
+    const bridge = countedFixtureBridge("session-store-rebuild").bridge;
+    const rebuilt = new SessionStore({ sessionId: "session-rebuilt" });
+    const holder = new CollaborationSessionModelHolder();
+    const answered: (SessionStore | undefined)[] = [];
+    function StoreProbe(props: { readonly sessionStore: SessionStore }): React.JSX.Element {
+      const models = useSessionModels(holder, bridge, props.sessionStore);
+      answered.push(models?.subject.sessionStore);
+      return <p>{models === undefined ? "waiting" : "held"}</p>;
+    }
+    const view = render(
+      <StoreProbe sessionStore={new SessionStore({ sessionId: "session-rebuilt" })} />,
+    );
+    const beforeReplacement = answered.length;
+    view.rerender(<StoreProbe sessionStore={rebuilt} />);
+
+    // Same session id, a different projection: the held roster reads the stream the
+    // previous store owned, which nothing is appending to any more.
+    expect(answered[beforeReplacement]).toBeUndefined();
+    expect(answered.at(-1)).toBe(rebuilt);
+    view.unmount();
+  });
+
+  it("negative control: an unchanged pair keeps handing out the set it holds", () => {
+    // Without this, the two cases above would pass over a hook that handed out
+    // nothing on every frame it ever rendered — and over a holder that answered a
+    // replacement by never building a second set at all.
+    const bridge = countedFixtureBridge("session-unchanged").bridge;
+    const sessionStore = new SessionStore({ sessionId: "session-unchanged" });
+    const answered = bridgesAnsweredAfterReplacing(
+      { bridge, sessionStore },
+      { bridge, sessionStore },
+    );
+    expect(answered.at(-1)).toBe(bridge);
+  });
+
+  it("builds a second set rather than joining the retired bridge's, and disposes the first", () => {
+    // The holder's own cache has to agree with the render guard: an `acquire` that
+    // joined on the session id would hand back a set the guard then refuses to
+    // render, and the section would sit at `not-loaded` for the window's life.
+    const holder = new CollaborationSessionModelHolder();
+    const sessionStore = new SessionStore({ sessionId: "session-id-only" });
+    const retiredBridge = countedFixtureBridge("session-id-only-a");
+    const replacementBridge = countedFixtureBridge("session-id-only-b");
+    const retiredLease = holder.acquire(retiredBridge.bridge, sessionStore);
+    expect(retiredBridge.liveSubscriptionCount()).toBe(1);
+
+    const rejoined = holder.acquire(replacementBridge.bridge, sessionStore);
+
+    expect(rejoined.models.subject.bridge).toBe(replacementBridge.bridge);
+    expect(rejoined.models).not.toBe(retiredLease.models);
+    expect(retiredBridge.liveSubscriptionCount()).toBe(0);
+    expect(replacementBridge.liveSubscriptionCount()).toBe(1);
+    rejoined.release();
+    expect(replacementBridge.liveSubscriptionCount()).toBe(0);
   });
 });

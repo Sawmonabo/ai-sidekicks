@@ -44,13 +44,21 @@ import { useEffect, useState } from "react";
 import type { SessionStore } from "../store/index.js";
 import type { ConsoleClock } from "../core/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
+import { isCurrentSessionSubject, type SessionSubject } from "../seats/index.js";
 import { ActivityIndicatorRegistry, type ChannelActivityLabels } from "./activity-model.js";
 import { createChannelDirectory, type ChannelDirectory } from "./channel-model.js";
 import { createPresenceRoster, type PresenceRoster } from "./presence-model.js";
 
 /** Everything one session's collaboration surfaces read from. */
 export interface CollaborationSessionModels {
-  readonly sessionId: string;
+  /**
+   * The exact bridge and store this set was built for.
+   *
+   * The one identity the set carries — a `sessionId` beside it would be a second
+   * answer to which session these models belong to, and the guard below reads the
+   * one the reads were actually opened against.
+   */
+  readonly subject: SessionSubject;
   readonly clock: ConsoleClock;
   readonly activity: ActivityIndicatorRegistry;
   readonly channelDirectory: ChannelDirectory;
@@ -96,7 +104,7 @@ export class CollaborationSessionModelHolder {
 
   /** Which session the held set belongs to, or `undefined` while nothing is held. */
   public get heldSessionId(): string | undefined {
-    return this.#current?.sessionId;
+    return this.#current?.subject.sessionStore.sessionId;
   }
 
   /**
@@ -106,10 +114,16 @@ export class CollaborationSessionModelHolder {
    * subscription and no timer survives a session the sidebar has left. Every other
    * ask for the session already held joins that set rather than starting a rival
    * projection of one session's channels and presence.
+   *
+   * "Already held" is the SUBJECT and not the session id, by the same predicate the
+   * hook renders through — and it has to be, or the two would disagree: a
+   * replacement bridge for one session would join a set the render guard then
+   * refuses to hand out, and the section would sit at `not-loaded` for as long as
+   * the window lived.
    */
   public acquire(bridge: ConsoleBridge, sessionStore: SessionStore): CollaborationModelsLease {
     const existing = this.#current;
-    if (existing !== undefined && existing.sessionId === sessionStore.sessionId) {
+    if (existing !== undefined && isCurrentSessionSubject(existing.subject, bridge, sessionStore)) {
       this.#outstandingLeaseCount += 1;
       return this.#leaseOn(existing);
     }
@@ -173,7 +187,7 @@ function buildSessionModels(
 ): CollaborationSessionModels {
   const clock = consoleClockFor(bridge);
   return {
-    sessionId: sessionStore.sessionId,
+    subject: { bridge, sessionStore },
     clock,
     activity: new ActivityIndicatorRegistry(clock),
     channelDirectory: createChannelDirectory({ bridge, sessionStore, clock }),
@@ -196,10 +210,17 @@ function buildSessionModels(
  * matters: the render naming the new store commits before the effect that leases
  * its models, so the held set is still the PREVIOUS session's. That frame is now
  * rendered as absent rather than as the previous session's models — the check below
- * hands out a set only while it belongs to the store it was asked about. Without it
+ * hands out a set only while it belongs to the subject it was asked about. Without it
  * the sections spent a committed frame drawing one session's channels and members
  * under another session's context, and a control pressed on that frame would have
  * carried the old session's channel id through the new session's seat.
+ *
+ * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID, which is what this check used to
+ * compare. A window handed a replacement bridge or a rebuilt store for the SAME
+ * session passed that comparison on the first committed render after the
+ * replacement, and the sections drew reads bound to the transport and the projection
+ * that had just been retired. `seats/session-subject.ts` owns the predicate, shared
+ * with the agents family's holder, which carried the same guard with the same defect.
  *
  * It narrows what is HANDED OUT and not what is held: the lease bookkeeping above
  * is untouched, so the mismatched frame still holds exactly the lease it took.
@@ -222,7 +243,7 @@ export function useSessionModels(
       setModels(undefined);
     };
   }, [holder, bridge, sessionStore]);
-  return models?.sessionId === sessionStore.sessionId ? models : undefined;
+  return isCurrentSessionSubject(models?.subject, bridge, sessionStore) ? models : undefined;
 }
 
 /**
