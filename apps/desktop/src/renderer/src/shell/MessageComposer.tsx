@@ -56,7 +56,10 @@ export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
   const regionRef = useRef<HTMLElement | null>(null);
   // One per mounted composer, and its lifetime is the composer's: the enumeration is
   // read live and never persisted, so a holder shared across mounts would be the
-  // cache that rule forbids.
+  // cache that rule forbids. It deliberately survives a bridge swap under this same
+  // composer — WHICH binding a reading was taken under is the holder's own key, and
+  // that key compares the bridge by identity, so a replaced bridge re-reads rather
+  // than being served the previous wire's catalog.
   const commandEnumeration = useMemo(() => new ProviderCommandEnumeration(), []);
   return (
     <section

@@ -1,58 +1,57 @@
 // What is left of each provider account's quota, read from the account plane.
 //
 // WHERE THIS DATA IS NOT. The composer's rate chips used to fold
-// `usage.rate_limit_update` rows out of the session timeline. That row is
-// ACCOUNT-PLANE: `Spec-006 §Daemon-Scope Event Binding And Node-Scope Anchoring`
-// binds it to the reserved node-scope sentinel session, so a live session store
-// holds none of them and the chips could appear only under a fixture that put one
-// in a session's log. The whole surface was therefore fixture-only, and nothing
-// about it would have failed until someone opened it against a daemon.
+// `usage.rate_limit_update` rows out of the session timeline. `Spec-006 §Daemon-Scope
+// Event Binding And Node-Scope Anchoring` binds that row to the reserved node-scope
+// sentinel session, so no live session store ever held one and the chips could appear
+// only under a fixture — a surface nothing would have failed on until someone opened
+// it against a daemon.
 //
 // SO THE READING COMES OFF THE REGISTERED ACCOUNT-PLANE WIRE. `providerAccount.list`
 // answers with the accounts and the durable quota rows together, and
 // `providerAccount.subscribe` is the live tail beside it. The read is what seeds the
-// chips — the subscription is a tail rather than a snapshot replay, so a console
-// that only subscribed would show nothing until the next probe or run happened to
-// produce an update — and the tail is what keeps them current.
+// chips — the subscription is a tail rather than a snapshot replay, so a console that
+// only subscribed would show nothing until the next probe or run happened to produce
+// an update — and the tail is what keeps them current.
 //
-// NODE-SCOPED, SO ONE READING PER BRIDGE AND NOT ONE PER SESSION. The registry is
-// the machine's; two sessions open in one window ask the same question and are
-// served the same answer. The reading is held on a `WeakMap` keyed by the bridge, so
-// a closed window takes its entry with it, and it is dropped once nobody is watching
-// — the stream closes with the last watcher, and a surface that mounts later reads
-// afresh rather than being handed a list that stopped being updated.
+// THIS MODULE IS ONE OF THREE, AND THE SPLIT FOLLOWS THE QUEUE READING'S.
+// `provider-quota-fold.ts` owns which reading is current for each
+// `(accountId, limitId)` and what a surface renders for it — pure, so the
+// supersession rules are drivable with no bridge and no React. This module owns the
+// WIRE: one read, one tail, and what the console says when either could not be read.
+// `provider-quota-feed.ts` owns how many readings exist and how long each lives.
 //
-// THE FOLD IS THE ONE THE TIMELINE VERSION HAD, MOVED RATHER THAN REWRITTEN: newest
-// `observedAt` per `(accountId, limitId)`, with arrival order breaking an exact tie.
-// The key is the pair and not the window's duration, because a pinned provider
-// surface publishes three distinct windows of the same length and a duration key
-// silently collapses them into whichever arrived last.
-//
-// AND SUPERSESSION IS NOW A COMPARISON THE WIRE ACTUALLY SUPPORTS. The timeline fold
-// could only call a reading stale relative to other readings the same session had
-// seen. Every quota row carries the `credentialGeneration` it was observed under and
-// every account carries the generation it is on now, so a reading behind its own
-// account's current generation is stale as a fact rather than as an inference — which
-// is what the account plane's own contract asks a renderer to do, because a
-// credential-home rebuild does not clear stored readings.
+// THREE DECISIONS THIS FILE MAKES, each argued where it is made rather than twice.
+// The tail opens BEFORE the read, so notifications arriving across it are held and
+// replayed rather than silently overwritten by the snapshot (`#seedRead`,
+// `#holdAcrossSeedRead`). A delivery outside the registered union is COUNTED as a
+// partial read rather than dropped, and the count is never cleared by a snapshot
+// (`#deliver`). And a same-window reading below the high-water mark is recorded as a
+// diagnostic rather than rendered as a regression (`#mergeWindow`).
 
-import { useCallback, useSyncExternalStore } from "react";
 import {
   ProviderAccountListResponseSchema,
   ProviderAccountNotificationSchema,
   ProviderAccountSubscribeRequestSchema,
-  type ProviderAccount,
+  type ProviderAccountNotification,
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
-import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
+import {
+  isConsoleRefusal,
+  refuse,
+  refusedMemberPaths,
+  type ConsoleRefusal,
+} from "../core/index.js";
 import {
   PROVIDER_ACCOUNT_LIST_METHOD,
   PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   callDaemon,
   subscribeNodeDaemon,
 } from "./daemon-calls.js";
+import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
+import { ProviderQuotaNotificationHold } from "./provider-quota-notification-hold.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -60,38 +59,6 @@ export const PROVIDER_QUOTA_REFUSAL_ORIGIN = "provider-account-quota";
 
 /** How the registry read has gone. Three answers, and none of them is an empty list. */
 export type ProviderQuotaReadPhase = "reading" | "read" | "refused";
-
-/** One provider account's quota in one limit window, as a surface renders it. */
-export interface ProviderQuotaReading {
-  readonly accountId: string;
-  readonly limitId: string;
-  /** The account's operator-chosen label. A chip that named no account names nothing. */
-  readonly accountLabel: string;
-  /**
-   * The window's own label where the provider publishes one, and its `limitId`
-   * verbatim where it does not.
-   *
-   * The fallback is the wire's own identifier rather than composed prose: the id is
-   * what the provider calls this window, so it is the most specific true thing the
-   * console holds, and inventing a name would put a word on screen no provider used.
-   */
-  readonly limitLabel: string;
-  /** Utilization as sent. NOT clamped: a soft limit can genuinely be over-consumed. */
-  readonly usedPercent: number;
-  /** RFC 3339 where the provider supplied one. A countdown renders only if it did. */
-  readonly resetsAt: string | undefined;
-  /** RFC 3339 observation instant — the merge key. */
-  readonly observedAt: string;
-  /**
-   * True when this reading was observed under an older credential generation than
-   * its own account is on now.
-   *
-   * A credential-home rebuild does not clear stored readings — the provider-side
-   * allowance keeps running while the home is empty — so the reading stays the best
-   * figure available and is presented as one taken before the current credential.
-   */
-  readonly isStale: boolean;
-}
 
 /** What the account plane answered, and why it did not where it did not. */
 export interface ProviderQuotaReadout {
@@ -106,22 +73,27 @@ export interface ProviderQuotaReadout {
    * identical — and the one a person needs to act on is the one that says nothing.
    */
   readonly readRefusal: ConsoleRefusal | undefined;
-}
-
-/** Remaining quota, from the consumed figure the wire supplies. Never sent as such. */
-export function remainingPercentOf(reading: ProviderQuotaReading): number {
-  // Floored at zero for the same reason the used figure is NOT clamped: the wire may
-  // report over-consumption against a soft limit, which is a true reading to show,
-  // while a negative remainder is an arithmetic artefact rather than a quota.
-  return Math.max(0, 100 - reading.usedPercent);
-}
-
-const NO_READINGS: readonly ProviderQuotaReading[] = Object.freeze([]);
-
-/** One quota row with the arrival ordinal that breaks an exact `observedAt` tie. */
-interface HeldQuotaWindow {
-  readonly usageWindow: ProviderAccountUsageWindow;
-  readonly arrivalOrdinal: number;
+  /**
+   * Deliveries that parsed as no registered account-plane notification.
+   *
+   * Named as `queue-reading.ts` names its own, deliberately: one stream vocabulary
+   * for two streams, so a surface rendering both is not reading two words for one
+   * fact.
+   */
+  readonly unreadableDeliveryCount: number;
+  /**
+   * The newest unreadable delivery's own parse refusal, naming the members that
+   * failed. Bounded by keeping only the newest — the refusals do not accumulate —
+   * and by naming member paths rather than carrying the payload that failed.
+   */
+  readonly unreadableRefusal: ConsoleRefusal | undefined;
+  /**
+   * Whether these readings may be behind what the daemon has sent.
+   *
+   * Derived from the count rather than set beside it, so the two can never disagree
+   * about whether this reading is partial.
+   */
+  readonly isPartial: boolean;
 }
 
 /**
@@ -130,16 +102,24 @@ interface HeldQuotaWindow {
  * A class with private fields rather than a hook's state, because every surface in
  * the window asks the same node-scoped question: the first watcher opens the tail
  * and takes the read once, and the second is handed the reading already in hand.
+ * How many of these exist and how long each lives is `provider-quota-feed.ts`'s,
+ * exactly as `queue-feed.ts` owns that for `queue-reading.ts`.
  */
-class NodeProviderQuotaReading {
+export class NodeProviderQuotaReading {
   readonly #bridge: ConsoleBridge;
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
-  readonly #accountsById = new Map<string, ProviderAccount>();
-  readonly #windowsByKey = new Map<string, HeldQuotaWindow>();
+  readonly #fold = new ProviderQuotaFold();
+  readonly #notificationHold = new ProviderQuotaNotificationHold();
   #closeStream: (() => void) | undefined = undefined;
   #isOpen = false;
-  #nextArrivalOrdinal = 0;
+  // Identifies the read attempt a reply belongs to. A reply whose ordinal has moved
+  // on was abandoned by an overflow re-read and seats nothing — without it the
+  // abandoned snapshot would land after the fresh one and undo it.
+  #seedReadOrdinal = 0;
+  #hasReportedHighWaterDrop = false;
+  #unreadableDeliveryCount = 0;
+  #unreadableRefusal: ConsoleRefusal | undefined = undefined;
   #phase: ProviderQuotaReadPhase = "reading";
   #readRefusal: ConsoleRefusal | undefined = undefined;
   #readout: ProviderQuotaReadout;
@@ -203,13 +183,32 @@ class NodeProviderQuotaReading {
       return;
     }
 
+    this.#seedRead();
+  }
+
+  /**
+   * Take the registry snapshot, holding the tail's notifications across it.
+   *
+   * Called again on buffer overflow, which is why the attempt carries an ordinal:
+   * whichever read is newest is the only one whose reply may seat anything.
+   */
+  #seedRead(): void {
+    this.#seedReadOrdinal += 1;
+    const readOrdinal = this.#seedReadOrdinal;
+    this.#notificationHold.begin();
+
     void callDaemon(this.#bridge, PROVIDER_ACCOUNT_LIST_METHOD, {})
       .then((reply) => {
-        if (!this.#isOpen) {
+        if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
           return;
         }
         const parsed = ProviderAccountListResponseSchema.safeParse(reply);
         if (!parsed.success) {
+          // The held notifications are replayed even here. They are not waiting on
+          // this snapshot for correctness — they were waiting so the snapshot could
+          // not overwrite them — and with no snapshot they are the only reading the
+          // console has.
+          this.#replayHeldNotifications();
           this.#settleRefused(
             refuse(
               PROVIDER_QUOTA_REFUSAL_ORIGIN,
@@ -220,23 +219,36 @@ class NodeProviderQuotaReading {
           return;
         }
         for (const account of parsed.data.accounts) {
-          this.#accountsById.set(account.accountId, account);
+          this.#fold.seatAccount(account);
         }
         for (const usageWindow of parsed.data.usageWindows) {
           this.#mergeWindow(usageWindow);
         }
         this.#phase = "read";
+        this.#replayHeldNotifications();
         this.#publish();
       })
       .catch((rejection: unknown) => {
-        if (!this.#isOpen) {
+        if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
           return;
         }
+        this.#replayHeldNotifications();
         const wireError = normalizeWireRejection(rejection, { total: true });
         this.#settleRefused(
           refuse(PROVIDER_QUOTA_REFUSAL_ORIGIN, wireError.name, wireError.message),
         );
       });
+  }
+
+  /**
+   * Apply everything held across the read, in arrival order, and stop holding.
+   *
+   * Every caller publishes after it, so the replay itself does not.
+   */
+  #replayHeldNotifications(): void {
+    for (const notification of this.#notificationHold.release()) {
+      this.#applyNotification(notification);
+    }
   }
 
   #close(): void {
@@ -248,11 +260,12 @@ class NodeProviderQuotaReading {
   /**
    * One notification off the tail.
    *
-   * Every kind is a re-entrant state update rather than a delta, so an account that
-   * changed is written whole and a removed one takes its readings with it — a quota
-   * row whose account has left the registry names an account nothing can label.
-   * A payload the registered union does not admit changes nothing at all: it is a
-   * frame this build cannot read, and guessing at it would be worse than ignoring it.
+   * A payload the registered union does not admit moves no account and no window: it
+   * is a frame this build cannot read, and guessing at it would be worse than
+   * ignoring it. It is COUNTED rather than ignored, though — a reading that went on
+   * presenting its previous snapshot as current would be saying something it no
+   * longer knows. A readable one either moves the fold now or is held until the
+   * opening read has seated — a question of ORDER and never of whether it is applied.
    */
   #deliver(payload: unknown): void {
     if (!this.#isOpen) {
@@ -260,54 +273,81 @@ class NodeProviderQuotaReading {
     }
     const parsed = ProviderAccountNotificationSchema.safeParse(payload);
     if (!parsed.success) {
+      // EVERY delivery publishes, readable or not. One this build cannot read moves
+      // no account and no window — the fold never saw it — but it does change what
+      // the chips MEAN, and a count that never reached a render could not say so.
+      //
+      // NOTHING EVER CLEARS THIS COUNT, which is where this stream deliberately
+      // differs from the queue's. That snapshot restates its whole list at one moment
+      // and supersedes what preceded it; this read answers for an instant the tail has
+      // already moved past — the very reason frames are held across it — so it may not
+      // claim to cover a frame that arrived after it. And a payload outside the
+      // registered union is a BUILD-level fact rather than a transient one: the same
+      // shape keeps arriving unreadable, and a count that reset would report a live
+      // gap as closed.
+      this.#unreadableDeliveryCount += 1;
+      this.#unreadableRefusal = unreadableDeliveryRefusal(parsed.error.issues);
+      this.#publish();
       return;
     }
-    const notification = parsed.data;
+    if (this.#notificationHold.isHolding) {
+      this.#holdAcrossSeedRead(parsed.data);
+      return;
+    }
+    if (this.#applyNotification(parsed.data)) {
+      this.#publish();
+    }
+  }
+
+  /** Hold one notification across the opening read, or take the overflow's way out. */
+  #holdAcrossSeedRead(notification: ProviderAccountNotification): void {
+    if (this.#notificationHold.hold(notification) === "held") {
+      return;
+    }
+    // Overflowed: apply what is held plus the frame that overflowed, and take a FRESH
+    // read whose reply supersedes the one now in flight. Nothing is dropped.
+    this.#replayHeldNotifications();
+    this.#applyNotification(notification);
+    this.#publish();
+    this.#seedRead();
+  }
+
+  /**
+   * Apply one notification to the fold, and say whether anything moved.
+   *
+   * Every kind is a re-entrant state update rather than a delta, so an account that
+   * changed is written whole and a removed one takes its readings with it — a quota
+   * row whose account has left the registry names an account nothing can label.
+   */
+  #applyNotification(notification: ProviderAccountNotification): boolean {
     switch (notification.kind) {
       case "account_changed":
-        this.#accountsById.set(notification.account.accountId, notification.account);
-        break;
+        this.#fold.seatAccount(notification.account);
+        return true;
       case "account_removed":
-        this.#forgetAccount(notification.accountId);
-        break;
+        this.#fold.forgetAccount(notification.accountId);
+        return true;
       case "usage_window_updated":
         this.#mergeWindow(notification.window);
-        break;
+        return true;
       case "login_completed":
         // Deliberately nothing. A provider reporting its flow finished is not itself
         // a reading; the daemon observes health next and publishes `account_changed`,
         // which is the notification that moves anything here.
-        return;
-    }
-    this.#publish();
-  }
-
-  /**
-   * Drop an account and every reading filed under it.
-   *
-   * The readings go with the account rather than being left keyed to an id nothing
-   * can label: `accountId` is daemon-minted and immutable, so a re-registration
-   * mints a NEW one and these rows could never be claimed again — they would sit in
-   * the fold for the life of the window describing an account that has left.
-   */
-  #forgetAccount(accountId: string): void {
-    this.#accountsById.delete(accountId);
-    for (const [key, held] of this.#windowsByKey) {
-      if (held.usageWindow.accountId === accountId) {
-        this.#windowsByKey.delete(key);
-      }
+        return false;
     }
   }
 
-  /** Newest `observedAt` per `(accountId, limitId)`, arrival order breaking a tie. */
+  /** Merge one reading, and say so once if the monotonicity guard had to hold it. */
   #mergeWindow(usageWindow: ProviderAccountUsageWindow): void {
-    const key = quotaKey(usageWindow.accountId, usageWindow.limitId);
-    const held = this.#windowsByKey.get(key);
-    const arrival = { usageWindow, arrivalOrdinal: this.#nextArrivalOrdinal };
-    this.#nextArrivalOrdinal += 1;
-    if (held === undefined || supersedes(arrival, held)) {
-      this.#windowsByKey.set(key, arrival);
+    const disposition = this.#fold.mergeWindow(usageWindow);
+    if (disposition !== "dropped-below-high-water" || this.#hasReportedHighWaterDrop) {
+      return;
     }
+    this.#hasReportedHighWaterDrop = true;
+    console.warn(
+      `${PROVIDER_QUOTA_REFUSAL_ORIGIN}: dropped-below-high-water: account ${usageWindow.accountId} limit "${usageWindow.limitId}" reported ${String(usageWindow.usedPercent)}% used inside a window already observed higher; consumption does not fall inside one window, so the higher reading stands. Further such readings are dropped without another line.`,
+    );
   }
 
   #settleRefused(readRefusal: ConsoleRefusal): void {
@@ -317,21 +357,13 @@ class NodeProviderQuotaReading {
   }
 
   #composeReadout(): ProviderQuotaReadout {
-    const readings: ProviderQuotaReading[] = [];
-    for (const held of this.#windowsByKey.values()) {
-      const account = this.#accountsById.get(held.usageWindow.accountId);
-      if (account === undefined) {
-        // A reading whose account the registry does not carry is dropped rather than
-        // rendered under its opaque id: the chip's first word is whose quota this is,
-        // and an id nobody chose answers that question with a value nobody recognises.
-        continue;
-      }
-      readings.push(readingFor(held.usageWindow, account));
-    }
     return {
-      readings: readings.length === 0 ? NO_READINGS : readings.sort(compareByLabels),
+      readings: this.#fold.readings(),
       phase: this.#phase,
       readRefusal: this.#readRefusal,
+      unreadableDeliveryCount: this.#unreadableDeliveryCount,
+      unreadableRefusal: this.#unreadableRefusal,
+      isPartial: this.#unreadableDeliveryCount > 0,
     };
   }
 
@@ -343,44 +375,22 @@ class NodeProviderQuotaReading {
   }
 }
 
-/** One window and its account, as a surface renders the pair. */
-function readingFor(
-  usageWindow: ProviderAccountUsageWindow,
-  account: ProviderAccount,
-): ProviderQuotaReading {
-  return {
-    accountId: usageWindow.accountId,
-    limitId: usageWindow.limitId,
-    accountLabel: account.displayLabel,
-    limitLabel: usageWindow.label ?? usageWindow.limitId,
-    usedPercent: usageWindow.usedPercent,
-    resetsAt: usageWindow.resetsAt,
-    observedAt: usageWindow.observedAt,
-    isStale: usageWindow.observedCredentialGeneration < account.credentialGeneration,
-  };
-}
-
-/** The `(accountId, limitId)` pair, spelled once. */
-function quotaKey(accountId: string, limitId: string): string {
-  return `${accountId} ${limitId}`;
-}
-
-function supersedes(candidate: HeldQuotaWindow, held: HeldQuotaWindow): boolean {
-  if (candidate.usageWindow.observedAt === held.usageWindow.observedAt) {
-    return candidate.arrivalOrdinal > held.arrivalOrdinal;
-  }
-  return candidate.usageWindow.observedAt > held.usageWindow.observedAt;
-}
-
 /**
- * Ordered by label so two renders of one reading place a chip in the same position.
+ * One unreadable delivery as the refusal a surface renders.
  *
- * Deliberately NOT by urgency: a chip that moves when its own number moves is a chip
- * a person has to re-find at the moment they most need to read it.
+ * Names the failing MEMBER PATHS and never the payload: the payload is a frame this
+ * build could not read, so quoting it would put an unbounded and unvalidated value on
+ * screen to explain why an unvalidated value was refused. The path set is fixed by
+ * the registered union, which is what bounds the sentence without a cap to spend.
  */
-function compareByLabels(left: ProviderQuotaReading, right: ProviderQuotaReading): number {
-  const byAccount = left.accountLabel.localeCompare(right.accountLabel);
-  return byAccount === 0 ? left.limitLabel.localeCompare(right.limitLabel) : byAccount;
+function unreadableDeliveryRefusal(
+  issues: readonly { readonly path: readonly PropertyKey[] }[],
+): ConsoleRefusal {
+  return refuse(
+    PROVIDER_QUOTA_REFUSAL_ORIGIN,
+    "delivery-unreadable",
+    `A provider-account delivery did not match the registered notification shape, so it moved no account or quota here: ${refusedMemberPaths(issues).join(", ")}.`,
+  );
 }
 
 /**
@@ -400,44 +410,4 @@ function streamRefusalFor(rejection: unknown): ConsoleRefusal {
   }
   const wireError = normalizeWireRejection(rejection, { total: true });
   return refuse(PROVIDER_QUOTA_REFUSAL_ORIGIN, wireError.name, wireError.message);
-}
-
-/**
- * The window's readings, one per bridge.
- *
- * A `WeakMap` on the bridge so a closed window takes its reading with it, and the
- * entry is dropped once nobody is watching.
- */
-class NodeProviderQuotaReadings {
-  readonly #byBridge = new WeakMap<ConsoleBridge, NodeProviderQuotaReading>();
-
-  public reading(bridge: ConsoleBridge): NodeProviderQuotaReading {
-    const held = this.#byBridge.get(bridge);
-    if (held !== undefined) {
-      return held;
-    }
-    const created = new NodeProviderQuotaReading(bridge, () => {
-      this.#byBridge.delete(bridge);
-    });
-    this.#byBridge.set(bridge, created);
-    return created;
-  }
-}
-
-const nodeProviderQuotaReadings = new NodeProviderQuotaReadings();
-
-/**
- * Read this node's provider-account quotas.
- *
- * Every consumer on one bridge is served by one read and one subscription. No timer
- * and no poll: the tail is what makes a reading current, and a surface that polled
- * would be asking a registry that already tells it when something moved.
- */
-export function useProviderQuotas(bridge: ConsoleBridge): ProviderQuotaReadout {
-  const reading = nodeProviderQuotaReadings.reading(bridge);
-  const subscribe = useCallback(
-    (onReadoutChanged: () => void) => reading.watch(onReadoutChanged),
-    [reading],
-  );
-  return useSyncExternalStore(subscribe, reading.snapshot, reading.snapshot);
 }

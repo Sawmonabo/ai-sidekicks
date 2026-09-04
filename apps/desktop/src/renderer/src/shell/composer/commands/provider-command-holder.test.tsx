@@ -12,6 +12,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
+
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
@@ -28,8 +30,17 @@ interface RecordedCall {
   readonly params: unknown;
 }
 
-/** The real fixture bridge with a recorder in front of `daemon.call`. */
-function recordingBridge(recorded: RecordedCall[]): ConsoleBridge {
+/**
+ * The real fixture bridge with a recorder in front of `daemon.call`.
+ *
+ * `parkedEnumerations`, where a case supplies it, collects a resolver for every
+ * enumeration call instead of letting it answer — which is the only way to hold one
+ * bridge's reply outstanding across a swap to another bridge and then let it land.
+ */
+function recordingBridge(
+  recorded: RecordedCall[],
+  parkedEnumerations?: ((reply: unknown) => void)[],
+): ConsoleBridge {
   const base = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
   const call = base.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>;
   return {
@@ -40,10 +51,35 @@ function recordingBridge(recorded: RecordedCall[]): ConsoleBridge {
         ...base.sidekicks.daemon,
         call: ((method: string, params: unknown) => {
           recorded.push({ method, params });
+          if (parkedEnumerations !== undefined && method === ENUMERATION_METHOD) {
+            return new Promise<unknown>((resolveEnumeration) => {
+              parkedEnumerations.push(resolveEnumeration);
+            });
+          }
           return call(method, params);
         }) as typeof base.sidekicks.daemon.call,
       },
     },
+  };
+}
+
+/**
+ * A reply naming one command, in the registered result shape.
+ *
+ * Named distinctively so a case can tell WHICH bridge answered rather than only that
+ * something did — which is the whole claim when a stale reply lands late.
+ */
+function enumerationReplyNaming(commandName: string): ProviderCommandListResult {
+  const binding = { driverName: "claude", providerAccountId: null };
+  return {
+    bindings: [
+      {
+        runId: null,
+        binding,
+        entries: [{ name: commandName, kind: "command", binding }],
+        complete: true,
+      },
+    ],
   };
 }
 
@@ -320,5 +356,116 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
     // a list held for the next time somebody types a slash.
     expect(enumeration.snapshot().phase).toBe("not-checked");
     expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeUndefined();
+  });
+});
+
+describe("ProviderCommandEnumeration — the bridge is part of which binding this is", () => {
+  it("re-reads when the bridge is replaced under the same session and agent", async () => {
+    // `SidekicksBridgeProvider` can swap its bridge while the composer stays addressed
+    // where it was. A key of session and agent alone reads that as "nothing moved" and
+    // serves the previous wire's catalog, which is exactly the routing invariant the
+    // enumeration exists to keep.
+    const recorded: RecordedCall[] = [];
+    const firstBridge = recordingBridge(recorded);
+    const secondBridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
+    const { result, rerender } = renderHook(
+      (bridge: ConsoleBridge) =>
+        useProviderCommandEnumeration({
+          enumeration,
+          bridge,
+          target: targetForAgent("agent-one"),
+          isOpen: true,
+        }),
+      { initialProps: firstBridge },
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.phase).toBe("served");
+
+    rerender(secondBridge);
+
+    // Discarded the instant the wire changed, exactly as a re-address discards.
+    expect(result.current.phase).toBe("not-loaded");
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(enumerationCalls(recorded)).toHaveLength(2);
+    expect(result.current.phase).toBe("served");
+  });
+
+  it("drops a reply from the bridge that has been replaced", async () => {
+    // The second half of the same defect: the outstanding read was guarded by a key
+    // the swap did not move, so the old wire's catalog could land ON TOP of the new
+    // one's after the surface had already been re-served.
+    const recorded: RecordedCall[] = [];
+    const parkedOnFirstBridge: ((reply: unknown) => void)[] = [];
+    const firstBridge = recordingBridge(recorded, parkedOnFirstBridge);
+    const secondBridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
+    const { rerender } = renderHook(
+      (bridge: ConsoleBridge) =>
+        useProviderCommandEnumeration({
+          enumeration,
+          bridge,
+          target: targetForAgent("agent-one"),
+          isOpen: true,
+        }),
+      { initialProps: firstBridge },
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    rerender(secondBridge);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeDefined();
+
+    // The replaced wire answers only now.
+    await act(async () => {
+      parkedOnFirstBridge[0]?.(enumerationReplyNaming("only-on-the-replaced-bridge"));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      enumeration.publishedEntryNamed("only-on-the-replaced-bridge", ADDRESSED),
+    ).toBeUndefined();
+    expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeDefined();
+  });
+
+  it("negative control: the same bridge at the same address asks nothing a second time", async () => {
+    // Without this the two cases above would hold over a holder that re-read on every
+    // render, which is a different defect wearing the same green.
+    const recorded: RecordedCall[] = [];
+    const bridge = recordingBridge(recorded);
+    const enumeration = new ProviderCommandEnumeration();
+    const { rerender } = renderHook(
+      (bridgeForRender: ConsoleBridge) =>
+        useProviderCommandEnumeration({
+          enumeration,
+          bridge: bridgeForRender,
+          target: targetForAgent("agent-one"),
+          isOpen: true,
+        }),
+      { initialProps: bridge },
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    rerender(bridge);
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(enumerationCalls(recorded)).toHaveLength(1);
   });
 });

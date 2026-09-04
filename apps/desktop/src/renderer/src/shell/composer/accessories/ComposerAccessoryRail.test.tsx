@@ -16,6 +16,7 @@ import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekick
 
 import {
   PROVIDER_ACCOUNT_LIST_METHOD,
+  PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
   QUEUE_SUBSCRIBE_STREAM,
   createFixtureBridge,
   type ConsoleBridge,
@@ -584,5 +585,98 @@ describe("ComposerAccessoryRail — the quota chips come off the account plane",
     const refusal = container.querySelector(".meridian-refusal");
     expect(refusal).not.toBeNull();
     expect(refusal?.textContent).toContain("reply-unreadable");
+  });
+});
+
+describe("ComposerAccessoryRail — an unreadable delivery is said beside the chips", () => {
+  /**
+   * The fixture bridge with the account-plane tail's own handler captured.
+   *
+   * Captured rather than scripted because what is being claimed is what happens AFTER
+   * the read has settled, and a scenario beat would put that moment on the fixture's
+   * clock instead of on the case's — the same reason the reading's own test captures
+   * its tail.
+   */
+  function bridgeWithCapturedAccountTail(reply: unknown): {
+    readonly bridge: ConsoleBridge;
+    readonly deliver: (payload: unknown) => void;
+  } {
+    const base = createFixtureBridge({
+      scenario: {
+        ...EMPTY_SCENARIO,
+        replies: [{ call: PROVIDER_ACCOUNT_LIST_METHOD, result: reply }],
+      },
+    });
+    const subscribe = base.sidekicks.daemon.subscribe;
+    let deliverToTail: ((payload: unknown) => void) | undefined;
+    const bridge: ConsoleBridge = {
+      ...base,
+      sidekicks: {
+        ...base.sidekicks,
+        daemon: {
+          ...base.sidekicks.daemon,
+          subscribe: ((event: string, handler: (payload: unknown) => void) => {
+            if (event !== PROVIDER_ACCOUNT_SUBSCRIBE_STREAM) {
+              return (subscribe as (name: string, sink: (payload: unknown) => void) => () => void)(
+                event,
+                handler,
+              );
+            }
+            deliverToTail = handler;
+            return () => {
+              deliverToTail = undefined;
+            };
+          }) as typeof base.sidekicks.daemon.subscribe,
+        },
+      },
+    };
+    return {
+      bridge,
+      deliver: (payload: unknown): void => {
+        if (deliverToTail === undefined) {
+          throw new Error("nothing is subscribed to the account plane");
+        }
+        deliverToTail(payload);
+      },
+    };
+  }
+
+  it("keeps the chip and says the tail is incomplete", async () => {
+    // Beside the chip and never instead of it: the reading on screen is the best the
+    // console has, and what the notice adds is that the tail carrying the next one is
+    // incomplete — which an unreadable `account_removed` or `usage_window_updated`
+    // used to hide entirely.
+    const plane = bridgeWithCapturedAccountTail(ONE_URGENT_QUOTA);
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], { bridge: plane.bridge });
+    });
+    await act(async () => {
+      plane.deliver({ kind: "account_removed" });
+    });
+
+    const partial = container.querySelector(".meridian-quota-partial");
+    expect(partial).not.toBeNull();
+    expect(partial?.textContent).toContain("could not be read");
+    expect(partial?.querySelector(".meridian-refusal")?.textContent).toContain(
+      "delivery-unreadable",
+    );
+    expect(container.querySelector(".meridian-rate-chip")).not.toBeNull();
+  });
+
+  it("negative control: a readable delivery leaves no notice at all", async () => {
+    // Without this the case above would hold over a rail that rendered the notice
+    // whenever the tail delivered anything.
+    const plane = bridgeWithCapturedAccountTail(ONE_URGENT_QUOTA);
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      container = mountRail([], { bridge: plane.bridge });
+    });
+    await act(async () => {
+      plane.deliver({ kind: "account_removed", accountId: "acct-elsewhere" });
+    });
+
+    expect(container.querySelector(".meridian-quota-partial")).toBeNull();
+    expect(container.querySelector(".meridian-rate-chip")).not.toBeNull();
   });
 });

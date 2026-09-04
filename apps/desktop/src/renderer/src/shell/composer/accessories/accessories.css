@@ -244,6 +244,21 @@
   font-size: var(--meridian-text-xs);
 }
 
+/* The quota tail's partial-read notice. Its own class rather than the shelf's,
+   because the two sit in different regions of the rail and a shared class would make
+   a spacing change to one silently move the other. */
+.meridian-quota-partial {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-quota-partial__copy {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
 /* --- Attachments and the `+` menu ---------------------------------------- */
 
 .meridian-plus-menu {
