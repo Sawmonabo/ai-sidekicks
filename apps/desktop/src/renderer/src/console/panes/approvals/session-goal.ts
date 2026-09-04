@@ -61,12 +61,41 @@ export const sessionGoalTextSchema: z.ZodType<string> = z
     message: "A goal cannot contain a NUL character.",
   });
 
-/** The current goal, as the log says it is. */
+/**
+ * Which log entry a goal projection was read from.
+ *
+ * The projection is recomputed whenever the timeline grows — every `usage.*` beat,
+ * every run transition — and a consumer that watched the projection OBJECT would see
+ * a change on each of them. So the reading carries the identity of the entry it was
+ * read from, and a consumer keys on that: it moves when, and only when, a different
+ * goal event wins the fold.
+ *
+ * The identity is the winner's own durable one, on the same two-source rule the
+ * ranking uses: the `(originNodeId, originSeq)` pair the accepting daemon stamped,
+ * or the envelope `id` for an event appended before those keys existed. Both are
+ * global, so two nodes handed the same events answer with the same revision — the
+ * property the fold already has, carried onto its identity. The two forms are
+ * prefixed so neither can be read as the other, and the sequence precedes the node
+ * id so the boundary between them is unambiguous however a node id is spelled.
+ *
+ * It is deliberately NOT the goal's text: a goal re-set to the text it already had
+ * is still a new act by a participant, and a consumer told otherwise would treat it
+ * as though nothing had happened.
+ */
+type GoalRevisionPrefix = "o:" | "e:";
+
+const ORIGIN_KEYED_REVISION_PREFIX: GoalRevisionPrefix = "o:";
+const ENVELOPE_KEYED_REVISION_PREFIX: GoalRevisionPrefix = "e:";
+
+/** The revision of a session no goal event has ever named. Neither prefix's shape. */
+const UNSET_GOAL_REVISION = "unset";
+
+/** The current goal, as the log says it is, and which entry says it. */
 export type SessionGoalProjection =
-  | { readonly status: "none" }
-  | { readonly status: "set"; readonly text: string }
+  | { readonly status: "none"; readonly revision: string }
+  | { readonly status: "set"; readonly text: string; readonly revision: string }
   /** A goal event landed and its payload did not carry a readable goal. */
-  | { readonly status: "unreadable" };
+  | { readonly status: "unreadable"; readonly revision: string };
 
 const goalPayloadSchema = z.object({ goal: z.object({ text: z.string() }) });
 
@@ -134,11 +163,31 @@ interface OriginGoalCandidate {
  */
 export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): SessionGoalProjection {
   const winner = selectLatestGoalEvent(timeline);
+  const revision = goalRevisionOf(winner);
   if (winner === undefined || winner.kind === SESSION_GOAL_CLEARED_EVENT_KIND) {
-    return { status: "none" };
+    return { status: "none", revision };
   }
   const parsed = goalPayloadSchema.safeParse(winner.payload);
-  return parsed.success ? { status: "set", text: parsed.data.goal.text } : { status: "unreadable" };
+  return parsed.success
+    ? { status: "set", text: parsed.data.goal.text, revision }
+    : { status: "unreadable", revision };
+}
+
+/**
+ * The identity of the entry this projection was read from.
+ *
+ * Reads the origin keys through the same schema the ranking reads them through, so
+ * a payload the fold could not rank by is not one this can key by either — the two
+ * cannot come apart, which is what would happen if this read the members by hand.
+ */
+function goalRevisionOf(winner: ConsoleSessionEvent | undefined): string {
+  if (winner === undefined) {
+    return UNSET_GOAL_REVISION;
+  }
+  const originKeys = goalOriginKeysSchema.safeParse(winner.payload);
+  return originKeys.success
+    ? `${ORIGIN_KEYED_REVISION_PREFIX}${String(originKeys.data.originSeq)}:${originKeys.data.originNodeId}`
+    : `${ENVELOPE_KEYED_REVISION_PREFIX}${winner.id}`;
 }
 
 /** Stage one per origin, then stage two across the origins' winners. */

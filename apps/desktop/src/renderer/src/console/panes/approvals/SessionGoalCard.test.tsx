@@ -13,8 +13,15 @@ import { ACCENT_FILL_CLASS } from "../../primitives/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
 import { type SessionGoalProjection } from "./session-goal.js";
 
-const NO_GOAL: SessionGoalProjection = { status: "none" };
-const A_GOAL: SessionGoalProjection = { status: "set", text: "Ship the approvals pane" };
+// The revisions below stand for whatever entry the fold read each projection from.
+// The card compares them and never parses them, so what they say does not matter and
+// whether two of them are the same does.
+const NO_GOAL: SessionGoalProjection = { status: "none", revision: "unset" };
+const A_GOAL: SessionGoalProjection = {
+  status: "set",
+  text: "Ship the approvals pane",
+  revision: "o:1:node-alpha",
+};
 
 function renderCard(
   overrides: {
@@ -162,6 +169,50 @@ describe("nothing is optimistic", () => {
     expect(screen.getByText("Ship the approvals pane")).not.toBeNull();
   });
 
+  it("keeps the editor and the draft across an event that did not touch the goal", () => {
+    // The fold runs over the whole timeline and answers with a fresh object on every
+    // beat, so a `usage.*` reading or a run transition arriving mid-edit used to
+    // close this editor and throw away what the participant had typed. Same
+    // revision, different object: the goal did not move, and neither does this.
+    const view = renderCard({ goal: A_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Half a sentence" } });
+    view.rerender({ ...A_GOAL });
+    const field = screen.getByRole("textbox");
+    expect((field as HTMLTextAreaElement).value).toBe("Half a sentence");
+  });
+
+  it("closes the editor when the goal is re-set to the text it already had", () => {
+    // A new revision carrying the same words is a participant's act, not a no-op,
+    // and a card that compared TEXT would leave the editor open over it.
+    const view = renderCard({ goal: A_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    view.rerender({ ...A_GOAL, revision: "o:2:node-alpha" });
+    expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("closes the editor when the goal is cleared", () => {
+    const view = renderCard({ goal: A_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    view.rerender({ status: "none", revision: "o:3:node-alpha" });
+    expect(screen.queryByRole("textbox")).toBeNull();
+    expect(screen.getByText("No goal set")).not.toBeNull();
+  });
+
+  it("negative control: an unchanged revision on a fresh object is still a change of object", () => {
+    // Without this, a card that had simply stopped closing on anything would pass
+    // the case above. The object really is new on each of these re-renders, which is
+    // what the old identity-keyed effect was reacting to.
+    const view = renderCard({ goal: A_GOAL });
+    fireEvent.click(screen.getByRole("button", { name: "Change goal" }));
+    const first = { ...A_GOAL };
+    const second = { ...A_GOAL };
+    expect(second).not.toBe(first);
+    view.rerender(first);
+    view.rerender(second);
+    expect(screen.queryByRole("textbox")).not.toBeNull();
+  });
+
   it("says the change is settling while it is in flight", () => {
     renderCard({ goal: A_GOAL, isMutating: true });
     expect(screen.getByText("The goal change is settling.")).not.toBeNull();
@@ -182,7 +233,7 @@ describe("the readings that are not a goal", () => {
   });
 
   it("says the latest goal event could not be read", () => {
-    renderCard({ goal: { status: "unreadable" } });
+    renderCard({ goal: { status: "unreadable", revision: "e:event-nine" } });
     expect(screen.getByText("The latest goal event could not be read.")).not.toBeNull();
   });
 
