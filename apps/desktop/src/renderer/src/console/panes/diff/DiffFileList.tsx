@@ -42,7 +42,7 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { DerivedFigure, Glyph } from "../../primitives/index.js";
+import { DerivedFigure, Glyph, windowedRowPosition } from "../../primitives/index.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD, DIFF_FILE_ROW_HEIGHT_PX } from "./diff-bounds.js";
 import {
   HIDDEN_SELECTION_COPY,
@@ -147,6 +147,10 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
                 key={entry.kind === "all-files" ? "all-files" : `file:${entry.path}`}
                 className="meridian-diff-files__row"
                 data-index={virtualRow.index}
+                // The window mounts a slice, so each row says how long the list is and
+                // where in it this row sits — without which a reader is told the change
+                // set is as long as the window happens to be.
+                {...windowedRowPosition(virtualRow.index, entries.length)}
                 style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
               >
                 <DiffFileEntryButton

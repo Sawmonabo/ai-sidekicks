@@ -38,6 +38,10 @@ export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 
 export { Nothing } from "./Nothing.js";
 
+// The windowed-row position pair, through the door because two view families draw a
+// windowed list and the off-by-one between an index and a position is one decision.
+export { windowedRowPosition } from "./windowed-row-position.js";
+
 export { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the

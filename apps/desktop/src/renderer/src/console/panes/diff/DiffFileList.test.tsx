@@ -391,3 +391,54 @@ describe("diff file list — a move made in a list that then changed", () => {
     expect(tabbable?.getAttribute("data-entry-index")).toBe(String(SMALL_DIFF_SHAPE.fileCount));
   });
 });
+
+describe("diff file list — a window is a slice, and each row says so", () => {
+  /** The set size and position one mounted row reports, by its own index. */
+  function rowPositionAt(
+    container: HTMLElement,
+    entryIndex: number,
+  ): [string | null, string | null] {
+    const row = container.querySelector(
+      `.meridian-diff-files__row[data-index="${String(entryIndex)}"]`,
+    );
+    if (row === null) {
+      throw new Error(`the window did not mount the row at ${String(entryIndex)}`);
+    }
+    return [row.getAttribute("aria-setsize"), row.getAttribute("aria-posinset")];
+  }
+
+  it("reports the whole change set's length and each row's place in it", () => {
+    // Only the window's rows exist in the accessibility tree, so without these a
+    // screen reader reads a thirty-row slice as the complete changed-file list.
+    const container = renderFileList(REPOSITORY_WIDE_DIFF);
+
+    // The reset control plus one row per file, which is the list the `<ul>` holds.
+    const setSize = String(REPOSITORY_WIDE_DIFF.files.length + 1);
+    expect(rowPositionAt(container, 0)).toStrictEqual([setSize, "1"]);
+    expect(rowPositionAt(container, 1)).toStrictEqual([setSize, "2"]);
+  });
+
+  it("counts a filtered list as the rows that filter leaves", () => {
+    // The set is what the list DRAWS, so a filter shortens it — a row claiming a
+    // place in five thousand while nine are drawn would be as wrong as the slice.
+    const container = renderFileList(REPOSITORY_WIDE_DIFF);
+
+    filterTo(container, "module-01");
+
+    const [setSize] = rowPositionAt(container, 0);
+    expect(Number(setSize)).toBe(container.querySelectorAll(".meridian-diff-files__row").length);
+  });
+
+  it("negative control: the position is the row's own and not the window's", () => {
+    // Without this, rows numbered from the top of the mounted window would satisfy
+    // the first case for row zero and misreport every row below the fold.
+    const container = renderFileList(REPOSITORY_WIDE_DIFF, REPOSITORY_WIDE_DIFF.files[4_000]?.path);
+
+    const rows = [...container.querySelectorAll(".meridian-diff-files__row")];
+    const first = rows[0];
+    if (first === undefined) {
+      throw new Error("the window mounted no row at all");
+    }
+    expect(Number(first.getAttribute("aria-posinset"))).toBeGreaterThan(1);
+  });
+});
