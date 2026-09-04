@@ -148,7 +148,9 @@ function CollapsedSummary(props: {
 }): React.JSX.Element {
   const { entries } = props;
   if (entries.length === 0) {
-    return <Nothing kind="empty" title={EMPTY_CARRIER_TITLE} />;
+    // The summary is a paragraph, so the absence takes its inline shape: a block-shaped
+    // absence would put a `<div>` inside a `<p>`, which the parser closes early.
+    return <Nothing kind="empty" placement="inline" title={EMPTY_CARRIER_TITLE} />;
   }
   const refusedCount = entries.filter((entry) => entry.state === "refused").length;
   return (

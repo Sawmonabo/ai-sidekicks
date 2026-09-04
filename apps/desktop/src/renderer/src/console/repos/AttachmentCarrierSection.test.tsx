@@ -130,5 +130,11 @@ describe("AttachmentCarrierSection — the collapsed line", () => {
       expect(container.querySelector(".meridian-attachment-section__summary")).not.toBeNull();
     });
     expect(container.querySelector(".meridian-attachment-section")).toBeNull();
+    // The summary is a paragraph, so the absence it carries must take its inline shape:
+    // a block-shaped absence puts a `<div>` inside the `<p>`, which the parser closes
+    // early and React warns about on every mount.
+    const summary = container.querySelector(".meridian-attachment-section__summary");
+    expect(summary?.querySelector("div, p, section")).toBeNull();
+    expect(summary?.querySelector(".meridian-nothing")?.tagName).toBe("SPAN");
   });
 });
