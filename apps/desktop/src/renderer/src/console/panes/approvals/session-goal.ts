@@ -19,6 +19,7 @@
 // acknowledgement and takes the refusal path.
 
 import { z } from "zod";
+import { EVENT_ENVELOPE_SEQUENCE_MAX } from "@ai-sidekicks/contracts";
 
 import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
@@ -70,40 +71,69 @@ export type SessionGoalProjection =
 const goalPayloadSchema = z.object({ goal: z.object({ text: z.string() }) });
 
 /**
+ * The origin keys the accepting daemon stamps on every goal payload.
+ *
+ * `originNodeId` is the daemon that accepted the mutation and `originSeq` is that
+ * daemon's own per-session append position for the event — the durable pair the
+ * event taxonomy puts on both goal payloads. They are read through a schema rather
+ * than off the record by hand because the projected payload is `unknown` at this
+ * boundary: a hand-shaped read would take a string sequence, a fractional one, or
+ * an empty node id as an order and rank on it.
+ *
+ * `originSeq` takes the envelope sequence's own injectivity ceiling, imported from
+ * the contract rather than restated, so a value this fold could not tell apart from
+ * its neighbour is not read as an order at all.
+ *
+ * A payload that does not carry the pair parses `false` here. That is not an error
+ * — an event appended before the keys existed carries neither — and such an event
+ * folds through the single envelope-ordered slot below.
+ */
+const goalOriginKeysSchema = z.object({
+  originNodeId: z.string().min(1),
+  originSeq: z.number().int().nonnegative().max(EVENT_ENVELOPE_SEQUENCE_MAX),
+});
+
+/** One origin's latest goal event, with the position that made it latest. */
+interface OriginGoalCandidate {
+  readonly event: ConsoleSessionEvent;
+  readonly originSeq: number;
+}
+
+/**
  * Fold the log's goal events into the current goal.
  *
  * Reads EVERY goal event and ranks them, because arrival order is not authorship
  * order. A relayed event is appended to this timeline when it reaches this node, so
- * its local `sequence` records when it arrived here and not when it was written: a
- * delayed update can land after one authored later and overwrite it, and a clear can
- * lose to an update it preceded. A fold that stopped at the newest local position
- * would answer with whichever event happened to arrive last.
+ * its local `sequence` records when it arrived here and not when it was written —
+ * and a fold that ranked on local position would answer with whichever event
+ * happened to arrive last, and would answer differently on every node.
  *
- * The ranking is the wire's `occurredAt`, newest wins, with the session's own local
- * `sequence` breaking an exact-instant tie — a real order the store maintains rather
- * than one this module invented, and the same two-clause rule the composer's rate
- * readings already rank on. BOTH kinds compete in the one ranking, so a clear newer
- * than an update wins and an update newer than a clear wins.
+ * THE RANKING IS THE CORPUS'S TWO-STAGE GOAL FOLD, IN ITS TWO STAGES. Within one
+ * origin daemon that daemon's own append order is authoritative, so the greatest
+ * `originSeq` wins and a delayed same-origin event never displaces a newer one —
+ * wall-clock plays no part there, because a clock step between two serial local
+ * mutations must not invert them. Only BETWEEN different origins' winners does the
+ * cross-origin comparator apply: envelope `occurredAt`, tie-broken by envelope
+ * `id`. BOTH kinds compete in the one ranking, so a clear newer than an update wins
+ * and an update newer than a clear wins.
  *
- * There is no event-id tiebreak below the instant. The corpus's cross-origin rule
- * breaks an identical instant on the envelope's `id`, and the store's projected
- * event shape (`ConsoleSessionEvent`) carries no `id` — a fact about what this
- * renderer is handed, not a deferral. Local `sequence` is the order it does carry.
+ * A goal event whose payload carries no origin keys — one appended before they
+ * existed — cannot join an origin's register, so every such event competes for a
+ * single envelope-ordered slot and that slot's holder enters the cross-origin
+ * comparison as one more candidate. That is the same disposition the channel
+ * directory gives a pre-extension publication, rather than a second ranking rule.
+ *
+ * Local `sequence` is read NOWHERE in the ranking. Two nodes handed the same goal
+ * events in different arrival orders therefore settle on the same goal, which is
+ * the property the fold exists to have.
  *
  * An unparseable `occurredAt` never beats a parseable one: letting an unreadable
  * stamp overwrite a reading the console knows is real is the direction that loses
- * information, so the fold fails closed toward the readable event.
+ * information, so the comparator fails closed toward the readable event, and two
+ * unreadable stamps still settle on `id` rather than on who arrived first.
  */
 export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): SessionGoalProjection {
-  let winner: ConsoleSessionEvent | undefined;
-  for (const entry of timeline) {
-    if (!GOAL_EVENT_KINDS.has(entry.kind)) {
-      continue;
-    }
-    if (winner === undefined || supersedes(entry, winner)) {
-      winner = entry;
-    }
-  }
+  const winner = selectLatestGoalEvent(timeline);
   if (winner === undefined || winner.kind === SESSION_GOAL_CLEARED_EVENT_KIND) {
     return { status: "none" };
   }
@@ -111,27 +141,79 @@ export function foldSessionGoal(timeline: readonly ConsoleSessionEvent[]): Sessi
   return parsed.success ? { status: "set", text: parsed.data.goal.text } : { status: "unreadable" };
 }
 
+/** Stage one per origin, then stage two across the origins' winners. */
+function selectLatestGoalEvent(
+  timeline: readonly ConsoleSessionEvent[],
+): ConsoleSessionEvent | undefined {
+  const latestPerOrigin = new Map<string, OriginGoalCandidate>();
+  let unkeyedCandidate: ConsoleSessionEvent | undefined;
+  for (const entry of timeline) {
+    if (!GOAL_EVENT_KINDS.has(entry.kind)) {
+      continue;
+    }
+    const originKeys = goalOriginKeysSchema.safeParse(entry.payload);
+    if (!originKeys.success) {
+      if (unkeyedCandidate === undefined || compareByEnvelope(entry, unkeyedCandidate) > 0) {
+        unkeyedCandidate = entry;
+      }
+      continue;
+    }
+    const { originNodeId, originSeq } = originKeys.data;
+    const held = latestPerOrigin.get(originNodeId);
+    if (held === undefined || outranksWithinOrigin(entry, originSeq, held)) {
+      latestPerOrigin.set(originNodeId, { event: entry, originSeq });
+    }
+  }
+  let winner = unkeyedCandidate;
+  for (const candidate of latestPerOrigin.values()) {
+    if (winner === undefined || compareByEnvelope(candidate.event, winner) > 0) {
+      winner = candidate.event;
+    }
+  }
+  return winner;
+}
+
 /**
- * Whether one goal event is a later reading of the register than another.
+ * Stage one: whether a candidate is a later append by the origin that stamped it.
  *
- * Both `occurredAt` values are ISO-8601 on the wire, so both ordinarily parse; a
- * candidate whose stamp does not answers `false` and keeps the held event, and a
- * candidate whose stamp does parse displaces a held one whose does not. Two
- * unreadable stamps carry no order at all, so the held reading stands.
+ * The origin's own sequence decides. An equal sequence is a redelivery of one
+ * append rather than a second one, and the two copies are separated on the envelope
+ * so the answer does not depend on which copy arrived first.
  */
-function supersedes(candidate: ConsoleSessionEvent, held: ConsoleSessionEvent): boolean {
-  const candidateInstant = Date.parse(candidate.occurredAt);
-  const heldInstant = Date.parse(held.occurredAt);
-  if (Number.isNaN(candidateInstant)) {
-    return false;
+function outranksWithinOrigin(
+  candidate: ConsoleSessionEvent,
+  candidateOriginSeq: number,
+  held: OriginGoalCandidate,
+): boolean {
+  if (candidateOriginSeq !== held.originSeq) {
+    return candidateOriginSeq > held.originSeq;
   }
-  if (Number.isNaN(heldInstant)) {
-    return true;
+  return compareByEnvelope(candidate, held.event) > 0;
+}
+
+/**
+ * Stage two: the cross-origin comparator — envelope `occurredAt`, then envelope
+ * `id`. Total and order-independent, which is what makes two nodes agree.
+ *
+ * Both `occurredAt` values are ISO-8601 on the wire, so both ordinarily parse; one
+ * that does not ranks below one that does, and two that do not fall through to `id`
+ * rather than to arrival.
+ */
+function compareByEnvelope(left: ConsoleSessionEvent, right: ConsoleSessionEvent): number {
+  const leftInstant = Date.parse(left.occurredAt);
+  const rightInstant = Date.parse(right.occurredAt);
+  const leftIsReadable = !Number.isNaN(leftInstant);
+  const rightIsReadable = !Number.isNaN(rightInstant);
+  if (leftIsReadable !== rightIsReadable) {
+    return leftIsReadable ? 1 : -1;
   }
-  if (candidateInstant === heldInstant) {
-    return candidate.sequence > held.sequence;
+  if (leftIsReadable && rightIsReadable && leftInstant !== rightInstant) {
+    return leftInstant > rightInstant ? 1 : -1;
   }
-  return candidateInstant > heldInstant;
+  if (left.id === right.id) {
+    return 0;
+  }
+  return left.id > right.id ? 1 : -1;
 }
 
 /** Set the session's goal. */
