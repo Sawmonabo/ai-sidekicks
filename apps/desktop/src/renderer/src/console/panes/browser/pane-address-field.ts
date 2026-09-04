@@ -17,6 +17,7 @@ import {
   FOLLOWING_ADDRESS_FIELD,
   type AddressFieldState,
 } from "../../browser/address-field-model.js";
+import { isCurrentPaneSubject, type PaneSubject } from "../../browser/pane-subject.js";
 
 /**
  * A draft and the `(bridge, paneId)` it was typed against.
@@ -33,9 +34,7 @@ import {
  * is called on this bridge with this `paneId`, so a draft typed under either of the
  * other combinations is not a destination for this one.
  */
-interface StampedAddressField {
-  readonly bridge: ConsoleBridge;
-  readonly paneId: string;
+interface StampedAddressField extends PaneSubject {
   readonly field: AddressFieldState;
 }
 
@@ -68,9 +67,8 @@ export function usePaneAddressField(bridge: ConsoleBridge, paneId: string): Pane
     },
     [bridge, paneId],
   );
-  const addressField =
-    stamped.bridge === bridge && stamped.paneId === paneId
-      ? stamped.field
-      : FOLLOWING_ADDRESS_FIELD;
+  const addressField = isCurrentPaneSubject(stamped, { bridge, paneId })
+    ? stamped.field
+    : FOLLOWING_ADDRESS_FIELD;
   return { addressField, setAddressField };
 }

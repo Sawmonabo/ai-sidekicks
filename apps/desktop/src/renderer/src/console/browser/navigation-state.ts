@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
+import { isCurrentPaneSubject, type PaneSubject } from "./pane-subject.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
 const NAVIGATION_REFUSAL_ORIGIN = "browser-navigation";
@@ -109,9 +110,7 @@ const UNREAD_NAVIGATION: NavigationReading = { status: "unread" };
  * A stamp rather than a reset-in-an-effect, because a reset is a second render pass
  * that the first pass — the one that dispatches — happens before.
  */
-interface StampedNavigationReading {
-  readonly bridge: ConsoleBridge;
-  readonly paneId: string;
+interface StampedNavigationReading extends PaneSubject {
   readonly reading: NavigationReading;
 }
 
@@ -219,10 +218,10 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
   }, [bridge, paneId]);
 
   // The comparison the whole stamp exists for, and it runs on the render that
-  // dispatches rather than one after it.
-  return stamped.bridge === bridge && stamped.paneId === paneId
-    ? stamped.reading
-    : UNREAD_NAVIGATION;
+  // dispatches rather than one after it. Through the family's one comparison, so the
+  // three surfaces that stamp against this pair cannot come to disagree about what
+  // "the same subject" means.
+  return isCurrentPaneSubject(stamped, { bridge, paneId }) ? stamped.reading : UNREAD_NAVIGATION;
 }
 
 /**

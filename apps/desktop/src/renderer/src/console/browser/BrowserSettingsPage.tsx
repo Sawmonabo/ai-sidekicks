@@ -34,7 +34,7 @@ import {
   type BrowserPolicySettingsProps,
   type BrowserPolicySwitchId,
 } from "./PolicySettings.js";
-import type { ConsoleRefusal } from "../core/index.js";
+import { PARTITION_FOLD_THRESHOLD, type ConsoleRefusal } from "../core/index.js";
 import {
   InlineRefusal,
   Nothing,
@@ -44,17 +44,6 @@ import {
 } from "../primitives/index.js";
 import { PartitionClearControl } from "./PartitionClearControl.js";
 import type { SiteDataAct } from "./site-data-clear.js";
-
-/**
- * Partitions rendered before the table folds.
- *
- * 13.16 fixes the number, and it is spent here rather than in `core/constants.ts`
- * because that module's own rule is that "each view family adds its own bound beside
- * its subtree, so a bound always sits next to the code that spends it". Ten is the
- * point past which a table stops being read and starts being scanned; a node holding
- * more sessions than that has a list, not a table.
- */
-const PARTITION_FOLD_THRESHOLD = 10;
 
 /** A stored size, or why it could not be measured. Never a zero standing in for either. */
 export type BrowserPartitionSize =

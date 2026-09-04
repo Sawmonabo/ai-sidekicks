@@ -48,7 +48,8 @@ import {
   type NavigationReading,
 } from "../../browser/navigation-state.js";
 import { consoleOcclusionRegistry } from "../../browser/occlusion-registry.js";
-import { resolvePaneViewHost } from "../../browser/view-host.js";
+import { isCurrentPaneSubject, type PaneSubject } from "../../browser/pane-subject.js";
+import { resolvePaneViewHost, type PaneViewHost } from "../../browser/view-host.js";
 import { RealClock } from "../../core/index.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
 import { tokenReference } from "../../tokens/index.js";
@@ -80,7 +81,8 @@ interface PaneAttributionStyle extends React.CSSProperties {
 }
 
 /**
- * One publisher over the host this window actually has, for the pane it is for.
+ * One publisher over the host this window actually has, for the pane it is for, and
+ * the subject it was resolved under.
  *
  * The bridge and the pane id are what 12.11's wiring table selects on, and passing
  * them is the whole correction: this called the table with an empty options bag, so
@@ -88,14 +90,40 @@ interface PaneAttributionStyle extends React.CSSProperties {
  * and every publish was suppressed — with the pane's own suites mocking the table, so
  * nothing on either side reported the gap.
  *
+ * The host is kept BESIDE the publisher rather than being resolved a second time by
+ * whoever needs to know what it said: one resolution per binding is what makes "this
+ * pane's viewport is describing this pane's host" a fact rather than two lookups that
+ * agree today.
+ *
  * Pure: it arms nothing.
  */
-function createGeometryPublisher(bridge: ConsoleBridge, paneId: string): PaneGeometryPublisher {
-  return new PaneGeometryPublisher({
-    host: resolvePaneViewHost({ bridge, paneId }),
-    clock: new RealClock(),
-    occlusion: consoleOcclusionRegistry,
-  });
+function createGeometryBinding(subject: PaneSubject): BoundGeometryPublisher {
+  const host = resolvePaneViewHost(subject);
+  return {
+    ...subject,
+    host,
+    publisher: new PaneGeometryPublisher({
+      host,
+      clock: new RealClock(),
+      occlusion: consoleOcclusionRegistry,
+    }),
+  };
+}
+
+/**
+ * What a binding says before its first publish — the host's own refusal where the
+ * wiring table has none, and nothing where it has one.
+ *
+ * The resting value exists because a binding is minted in a render and armed in an
+ * effect, so there is always one committed pass with no recorded outcome. On an
+ * unavailable host that pass has a fact to report and reporting nothing would make it
+ * indistinguishable from a pane nobody has told anything yet, which is rule 8's
+ * collapse. On an attached host it genuinely has none: the first sample has not been
+ * taken. `observe` records the same suppression a frame later, so this is the same
+ * sentence early rather than a second author of it.
+ */
+function restingGeometryOutcome(host: PaneViewHost): PaneGeometryOutcome | undefined {
+  return host.state === "unavailable" ? { status: "suppressed", refusal: host.refusal } : undefined;
 }
 
 /**
@@ -128,25 +156,38 @@ function useGeometryPublisher(
   readonly outcome: PaneGeometryOutcome | undefined;
 } {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [bound, setBound] = useState<BoundGeometryPublisher>(() => ({
-    paneId,
-    publisher: createGeometryPublisher(bridge, paneId),
-  }));
+  const subject: PaneSubject = { bridge, paneId };
+  const [bound, setBound] = useState<BoundGeometryPublisher>(() => createGeometryBinding(subject));
   const publisher = bound.publisher;
   const subscribe = useCallback(
     (onOutcome: () => void) => publisher.subscribeToOutcomes(onOutcome),
     [publisher],
   );
   const readOutcome = useCallback(() => publisher.lastOutcome(), [publisher]);
-  const outcome = useSyncExternalStore(subscribe, readOutcome, readOutcome);
+  const publishedOutcome = useSyncExternalStore(subscribe, readOutcome, readOutcome);
+  // THE COMPARISON, DURING RENDER, and it is the whole of this correction. A binding
+  // outlives its subject: React keeps this instance while the window hands it a
+  // different bridge or the deck hands it a different pane, and until the passive
+  // effect below has run the state still holds the PREVIOUS binding. Reading its
+  // outcome on that pass put the retired host's published view under the new
+  // subject's viewport — a rectangle a different window accepted, presented as this
+  // one's. Suppressed here rather than cleared in an effect, because an effect runs
+  // one pass after the pass a person reads.
+  const isCurrentBinding = isCurrentPaneSubject(bound, subject);
+  const outcome = isCurrentBinding
+    ? (publishedOutcome ?? restingGeometryOutcome(bound.host))
+    : restingGeometryOutcome(resolvePaneViewHost(subject));
 
   useEffect(() => {
-    // The pane a publisher was minted FOR is carried beside it, because the host is
-    // addressed per pane: a deck that swaps which pane this slot is for would
-    // otherwise leave the publisher writing this element's rectangle under the
-    // previous pane's address, which is a rectangle for a pane nobody is looking at.
-    if (publisher.isDisposed || bound.paneId !== paneId) {
-      setBound({ paneId, publisher: createGeometryPublisher(bridge, paneId) });
+    // The subject a publisher was minted FOR is carried beside it, because the host
+    // is addressed per bridge and per pane: a deck that swaps either would otherwise
+    // leave the publisher writing this element's rectangle to the previous window's
+    // host under the previous pane's address. The re-mint is here and not in the
+    // render body because it is paired with the disposal below — React may throw a
+    // render away, and a publisher disposed on a pass that never committed is a
+    // pane with no publisher at all.
+    if (publisher.isDisposed || !isCurrentPaneSubject(bound, { bridge, paneId })) {
+      setBound(createGeometryBinding({ bridge, paneId }));
       return undefined;
     }
     const hostElement = hostRef.current;
@@ -163,9 +204,9 @@ function useGeometryPublisher(
   return { hostRef, outcome };
 }
 
-/** One publisher and the pane address its host was resolved against. */
-interface BoundGeometryPublisher {
-  readonly paneId: string;
+/** One publisher, the host it writes to, and the subject both were resolved under. */
+interface BoundGeometryPublisher extends PaneSubject {
+  readonly host: PaneViewHost;
   readonly publisher: PaneGeometryPublisher;
 }
 

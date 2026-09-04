@@ -13,10 +13,17 @@
 // and an audit had to know all of them. The rendering is what belongs here; the
 // numbers and their derivations belong where every other cap is.
 //
-// Nothing below scales anything. Every figure goes through `formatCount`, the
-// console's one quantity formatter, and carries its unit as a word — scaling a byte
-// ceiling to a binary unit here would be the second byte formatter
-// `apps/desktop/AGENTS.md` names a chokepoint breach.
+// Nothing below decides how a figure is formatted, and nothing below scales one. The
+// unit a bound DECLARES says which of the console's two figure chokepoints it goes
+// through — `formatCount` for a counted ceiling, `formatByteQuantity` for a
+// byte-valued one — and `core/constants.ts` carries that answer as a map total over
+// its own unit set. A byte ceiling sent through `formatCount` renders raw decimal
+// bytes, which is a figure that disagrees with every other byte quantity the console
+// shows, and reads in powers of a thousand where the rest of the product reads in
+// powers of 1024; a second scaling
+// written here would be the second byte formatter `apps/desktop/AGENTS.md` names a
+// chokepoint breach. So the surface dispatches and never converts, and the exact
+// wire value rides the figure as its title so a reviewer can still read the byte.
 //
 // The meter renders nothing on its own initiative — 12.10's "Renders. Nothing
 // normally." — and the pane mounts it behind a disclosure, which is rule 7's "one
@@ -27,10 +34,12 @@
 import {
   BROWSER_BOUNDS,
   BROWSER_BOUND_NAMES,
+  BROWSER_SCALAR_UNIT_BYTE_QUALIFIER,
   type BrowserBoundMeasure,
   type BrowserBoundName,
+  type BrowserScalarUnit,
 } from "../core/index.js";
-import { Glyph, Nothing, formatCount } from "../primitives/index.js";
+import { Glyph, Nothing, formatByteQuantity, formatCount } from "../primitives/index.js";
 
 /** A live reading for a scalar bound. Absent means nobody measured, not zero. */
 export type BrowserBoundReadings = Readonly<Partial<Record<BrowserBoundName, number>>>;
@@ -83,7 +92,7 @@ function BoundRow(props: {
       <th scope="row" className="meridian-browser-bounds__name">
         {props.name}
       </th>
-      <td>{describeMeasure(bound.measure)}</td>
+      <td title={scalarFigureTitle(bound.measure)}>{describeMeasure(bound.measure)}</td>
       <td>
         <BoundReading measure={bound.measure} reading={props.reading} />
       </td>
@@ -99,7 +108,59 @@ function describeMeasure(measure: BrowserBoundMeasure): string {
   if (measure.kind === "extent") {
     return `${formatCount(measure.widthPx)} by ${formatCount(measure.heightPx)} px`;
   }
-  return `${formatCount(measure.value)} ${measure.unit}`;
+  return describeScalarCeiling(measure.value, measure.unit);
+}
+
+/**
+ * One figure in the chokepoint its unit declares — the ONE dispatch, shared by the
+ * ceiling column and the reading column beside it.
+ *
+ * Shared rather than written twice because the two columns are read against each
+ * other: a column that scaled the ceiling and not the reading would put a binary
+ * figure beside a decimal byte count and invite exactly the comparison that is wrong.
+ *
+ * The dispatch is a lookup rather than a test here. This surface owns the layout;
+ * which chokepoint a unit goes through is `core/constants.ts`'s declaration.
+ */
+function scaleScalarFigure(value: number, unit: BrowserScalarUnit): string {
+  return BROWSER_SCALAR_UNIT_BYTE_QUALIFIER[unit] === undefined
+    ? formatCount(value)
+    : formatByteQuantity(value).text;
+}
+
+/**
+ * A ceiling: the figure, and the unit words that survive the scaling.
+ *
+ * A counted ceiling carries its whole unit as a word. A byte one carries whatever the
+ * unit still says once `formatByteQuantity` has supplied a binary unit label in place
+ * of `bytes` — nothing for a bare byte ceiling, `per entry` for a per-entry one. The
+ * reading
+ * column deliberately carries no unit word at all: the row already names it once, and
+ * a byte quantity brings its own binary label with it.
+ */
+function describeScalarCeiling(value: number, unit: BrowserScalarUnit): string {
+  const byteQualifier = BROWSER_SCALAR_UNIT_BYTE_QUALIFIER[unit];
+  if (byteQualifier === undefined) {
+    return `${formatCount(value)} ${unit}`;
+  }
+  const quantity = scaleScalarFigure(value, unit);
+  return byteQualifier === "" ? quantity : `${quantity} ${byteQualifier}`;
+}
+
+/**
+ * The exact figure, for the cell that scaled it — and nothing for one that did not.
+ *
+ * A scaled byte quantity is rounded to one fraction digit, so the byte a refusal
+ * would name is no longer on screen; the title is where it stays readable. A counted
+ * figure is already exact, and a title repeating it would be noise on nineteen rows.
+ */
+function exactFigureTitle(value: number, unit: BrowserScalarUnit): string | undefined {
+  return BROWSER_SCALAR_UNIT_BYTE_QUALIFIER[unit] === undefined ? undefined : String(value);
+}
+
+/** The same, for a ceiling — absent on the two kinds that carry no single number. */
+function scalarFigureTitle(measure: BrowserBoundMeasure): string | undefined {
+  return measure.kind === "scalar" ? exactFigureTitle(measure.value, measure.unit) : undefined;
 }
 
 function BoundReading(props: {
@@ -121,9 +182,9 @@ function BoundReading(props: {
     ? "meridian-browser-bounds__reading meridian-browser-bounds__reading--tripped"
     : "meridian-browser-bounds__reading";
   return (
-    <span className={className}>
+    <span className={className} title={exactFigureTitle(props.reading, props.measure.unit)}>
       {isTripped ? <Glyph name="alert" size={ALERT_GLYPH_SIZE} /> : null}
-      {formatCount(props.reading)}
+      {scaleScalarFigure(props.reading, props.measure.unit)}
       {isTripped ? <span>at the ceiling</span> : null}
     </span>
   );

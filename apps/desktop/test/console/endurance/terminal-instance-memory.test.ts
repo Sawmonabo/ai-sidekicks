@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+//
 // The terminal-instance memory budget, measured — Plan-023 Phase 1C (T-023p-1C-7).
 //
 // `Spec-023 §Console Design (Meridian)` §Budgets bounds "one `terminal` pane
@@ -16,26 +18,38 @@
 // report green over a pane well past the ceiling, which is the one failure a budget
 // exists to catch.
 //
-// So the subject is held WHOLE here: the built console in a real Electron window,
-// a `terminal` pane resolved out of the deck's own registry and mounted through a
+// So the pane is held WHOLE here: the built console in a real Electron window, a
+// `terminal` pane resolved out of the deck's own registry and mounted through a
 // real React commit, its emulator on a live WebGL2 context, bound to a session the
 // scenario engine has delivered into. The three claims that make that true are
 // asserted rather than assumed — the renderer mode each instance REPORTS, the
 // canvas the WebGL renderer draws into, and the session store's admitted event
-// count — and each of them fails the run rather than degrading it.
+// count — and each of them fails the run rather than degrading it. The window-side
+// instrument that produces those readings is `terminal-pane-harness.ts`.
 //
-// WHAT THE HARNESS IS, AND WHY IT IS NOT A DECK
+// ONE SUBJECT, ONE VERDICT — AND WHY THE FIGURE IS A SUM
 //
-// Nothing in this revision mounts a registered pane: `registerConsolePanes` claims
-// the `terminal` kind and the deck that would resolve a descriptor out of that
-// registry is a later family's. `console/frame/PaneHarnessSurface.tsx` is the
-// smallest honest door — a `define`-gated fixture surface, reached at
-// `#/pane-harness/<paneKind>/<sessionId>`, that resolves the body through
-// `ConsolePaneRegistry` and mounts one more of it per press. It is deliberately not
-// a deck: a reading taken inside one would fold the deck's tab strip, layout, and
-// drag machinery into a figure the row scopes to a pane INSTANCE, and would report
-// a pane over budget for the deck's own cost. The deck's absence from the subject
-// is closer to the row's sentence than its presence would be.
+// The row bounds a populated terminal, so the gate has to price one. Its two
+// components are not measurable in the same process in this revision, and pricing
+// them SEPARATELY against the same ceiling is not a gate at all: each half would
+// receive the whole 20 MiB, and a 19.5 MiB buffer beside a 1 MiB pane would pass
+// two green checks while the instance the row names sat 500 kB over its ceiling.
+// So both halves are measured here, at one width and one scrollback depth, and
+// `evaluateBudget` is called ONCE, on their sum:
+//
+//   • the pane's standing cost — the emulator, its addons, its WebGL renderer, the
+//     React tree, the lease fold, and the store state it reads — as the difference
+//     one mounted pane makes to the real window's settled heap;
+//   • what a FULL scrollback retains, driven through the real parser at the same
+//     width by `measureFullScrollbackRetainedBytes`.
+//
+// The second half is measured in THIS process rather than in the window, and not by
+// choice: the byte stream, the scrollback, and the resize report are `Plan-023
+// §Console growth slate` row 3, which the growth port refuses by name, so no wire
+// in this revision can put a line into a mounted pane. The sum is therefore a
+// conservative reading of one terminal — two allocators, so the halves do not share
+// a page — and it is the reading the ceiling is compared against. The day slate row
+// 3 lands, the second half moves into the window and the sum becomes one delta.
 //
 // WHY THE BASELINE IS TAKEN AFTER A WARM-UP CYCLE
 //
@@ -44,49 +58,38 @@
 // Measured from a cold baseline, the first instance's delta would carry the whole
 // library and the run's own slope check — the control that keeps a fixed cost from
 // being reported as the instance — would be comparing a library against a terminal.
-// So one instance is opened and closed before the baseline is read, which is the
-// same discipline `terminal-endurance.test.ts` applies to its churn reading.
-//
-// WHAT THE FIGURE COVERS, AND THE ONE HALF IT CANNOT YET
-//
-// The emulator this pane mounts has an empty BUFFER, and not by choice: the byte
-// stream, the scrollback, and the resize report are `Plan-023 §Console growth
-// slate` row 3, which the growth port refuses by name, so no wire in this revision
-// can put a line into a terminal pane. The figure is therefore the pane's own
-// standing cost — the emulator, its addons, its WebGL renderer, the React tree, the
-// lease fold, and the store state it reads — at the default scrollback SETTING,
-// with nothing scrolled back. The other half of this ceiling, what a FULL buffer
-// costs, is bounded against this same row by `terminal-endurance.test.ts`, which
-// drives twice the default scrollback through the real parser in process and
-// compares the retained bytes to this budget as a reference figure. The two
-// together cover the row; neither covers it alone, and the day slate row 3 lands
-// this harness drives bytes into the mounted pane and the figure moves.
+// So one instance is opened and closed before the baseline is read; the scrollback
+// half takes a warm-up fill before ITS baseline for the same reason.
 //
 // WHAT THIS FILE DOES NOT OWN. The adapter-level claims — that the scrollback
 // evicts rather than grows, that a disposal gives the bytes back, and that a
 // working day of open-and-close cycles leaves the page where it started — are
-// `terminal-endurance.test.ts`'s and are not restated here. This file reads that
-// file's subject one level up and adds the only claim it cannot make: what a whole
-// pane costs.
+// `terminal-endurance.test.ts`'s and are not restated here. That file makes no
+// ceiling claim of its own: this row has one gate, and it is below.
 
 import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import type { CDPSession } from "@playwright/test";
-
+import { fixtureBundleExists, launchConsole } from "../electron-harness.js";
+import { HeapSampler } from "../heap-sampling.js";
 import {
-  fixtureBundleExists,
-  launchConsole,
-  type ConsoleApplication,
-} from "../electron-harness.js";
+  measureFullScrollbackRetainedBytes,
+  requireHeapCollector,
+  TerminalAdapterWorkload,
+} from "./terminal-adapter-workload.js";
 import {
-  advanceScenario,
-  readAppliedEventCount,
-  readSettledHeapBytes,
-} from "./console-workload.js";
+  closeEveryPane,
+  openHarnessOnDeliveredSession,
+  openPaneAndAwaitWebglReadiness,
+  RendererHeapProbe,
+} from "./terminal-pane-harness.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
-import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/core/constants.js";
+import {
+  TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
+  TERMINAL_DEFAULT_SCROLLBACK_LINES,
+} from "../../../src/renderer/src/console/core/constants.js";
+import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/renderer-pool.js";
 import {
   ConsoleBudgetRegistry,
   evaluateBudget,
@@ -101,19 +104,8 @@ const TERMINAL_INSTANCE_BUDGET_ID = "terminal-instance-memory";
 const registry = ConsoleBudgetRegistry.load();
 const budget = registry.requireBudget(TERMINAL_INSTANCE_BUDGET_ID);
 
-/** The pane kind the address names. The harness is per kind; this row is this one. */
-const MEASURED_PANE_KIND = "terminal";
-
-/** Where the harness opens, with the pane kind and the session it binds to. */
-const HARNESS_ROUTE = `#/pane-harness/${MEASURED_PANE_KIND}/${encodeURIComponent(TERMINAL_SCENARIO.sessionId)}`;
-
-/** The harness surface's accessible name, and the control it offers. */
-const HARNESS_SURFACE_SELECTOR = '[aria-label="Pane harness"]';
-const OPEN_CONTROL_NAME = "Open a pane";
-const CLOSE_CONTROL_NAME = "Close the newest pane";
-
-/** The emulator's mount box, and the attribute on which it reports its renderer. */
-const TERMINAL_HOST_SELECTOR = ".meridian-terminal-host";
+/** This file's collector and settling loop, for the half measured in process. */
+const heapSampler = new HeapSampler();
 
 /**
  * How many instances the slope is read over.
@@ -129,8 +121,8 @@ const MEASURED_INSTANCE_COUNT = 3;
  * How far the later instances' slope may sit from the first instance's delta.
  *
  * A FACTOR rather than a byte figure, because a tolerance tight enough to mean
- * something at this revision's ~940 kB reading would be inside the noise once the
- * output stream lands and the same pane holds a filled buffer.
+ * something at this revision's ~940 kB pane reading would be inside the noise once
+ * the output stream lands and the same pane holds a filled buffer.
  *
  * The LOWER bound is the load-bearing half and the reason this control exists: a
  * first delta inflated by a one-time cost — the emulator chunk, a lazily created
@@ -148,14 +140,18 @@ const MEASURED_INSTANCE_COUNT = 3;
  * absolute figures move by a few kilobytes between runs and the RATIO does not — it
  * read 0.88 in every one — which is the quantity this control is about. The width is
  * headroom for a different runner's allocator rather than slack this reading needs.
+ *
+ * Read against the PANE half alone, deliberately. The slope is a claim about what a
+ * second pane costs, and the scrollback half is measured once for the subject rather
+ * than per mounted instance.
  */
 const SLOPE_AGREEMENT_LOWER_FACTOR = 0.5;
 const SLOPE_AGREEMENT_UPPER_FACTOR = 2;
 
 /**
- * How much of one instance's cost may still be held after every pane is closed.
+ * How much of one pane's cost may still be held after every pane is closed.
  *
- * One instance's own figure. Three came and went, so a per-instance retention would
+ * One pane's own figure. Three came and went, so a per-instance retention would
  * show three times over; anything under one instance cannot be a per-instance leak.
  * The claim is deliberately the weaker one — this file owns the pane-shaped
  * teardown, and the adapter's own churn accounting over a working day of cycles is
@@ -163,82 +159,17 @@ const SLOPE_AGREEMENT_UPPER_FACTOR = 2;
  */
 const TEARDOWN_RESIDUE_FACTOR = 1;
 
-/** How long a pane may take to mount its emulator and settle on a renderer. */
-const PANE_READINESS_TIMEOUT_MS = 60_000;
-
-/** How long the harness surface itself may take to appear after the navigation. */
-const ROUTE_TRANSITION_TIMEOUT_MS = 30_000;
-
-/** How many advances the terminal script is walked in, and how many drain it. */
-const SCENARIO_DELIVERY_STEP_COUNT = 20;
-const SCENARIO_DRAIN_STEP_COUNT = 5;
-
 /**
- * How many collect-and-yield rounds precede a reading.
+ * The split this gate exists to catch, priced in bytes.
  *
- * The same number and the same reasoning as `test/console/heap-sampling.ts`'s
- * `SETTLE_ROUNDS`, one process over: one collection reclaims what is unreachable at
- * that instant, and a disposed emulator releases its observers, its listeners, and
- * its detached canvas across a task boundary rather than inside the call that
- * disposed it.
+ * Not a plausible reading and not measured from anything: it is the arithmetic
+ * Codex's own counterexample names, held here so the combining is asserted rather
+ * than merely performed. Each half passes the row's ceiling on its own and the sum
+ * does not — which is exactly the state two separately gated halves would have
+ * reported green.
  */
-const COLLECTION_ROUNDS = 4;
-
-/**
- * The renderer's heap, read after its garbage has actually been collected.
- *
- * WHY A FORCED COLLECTION AND NOT THE SAMPLER ALONE. `readSettledHeapBytes` takes
- * the minimum over settling samples, which is the right discipline for a figure
- * bounded ONCE — the tier's at-rest ceiling — because the incremental collector
- * gets several chances to run and the smallest reading is the floor. It is not
- * enough for a DIFFERENCE of a few megabytes taken five times across one run: the
- * first pane's mount leaves the emulator chunk's own allocations uncollected, a
- * later mount triggers a major collection that reclaims them, and the second
- * instance then reads as NEGATIVE — measured on this code, −5.8 MB per instance,
- * against a real per-instance cost of about 4 MB. The sampling discipline is kept
- * and a collection is put in front of it, which is exactly what
- * `test/console/heap-sampling.ts` does for the two tiers that measure in process.
- *
- * WHY CDP AND NOT `--js-flags=--expose-gc`. The flag would have to be passed at
- * launch, and the launcher is shared with every other file in this tier and with
- * the end-to-end tier — so one file's instrument would change what all of them
- * measure. A DevTools session is scoped to this run and to this window, and
- * `HeapProfiler.collectGarbage` is the same collection the flag would expose.
- */
-class RendererHeapProbe {
-  readonly #consoleApplication: ConsoleApplication;
-  readonly #cdpSession: CDPSession;
-
-  private constructor(consoleApplication: ConsoleApplication, cdpSession: CDPSession) {
-    this.#consoleApplication = consoleApplication;
-    this.#cdpSession = cdpSession;
-  }
-
-  public static async attachTo(consoleApplication: ConsoleApplication): Promise<RendererHeapProbe> {
-    const cdpSession = await consoleApplication.application
-      .context()
-      .newCDPSession(consoleApplication.window);
-    return new RendererHeapProbe(consoleApplication, cdpSession);
-  }
-
-  /** Collect, let finalisation run, and read the settled heap. */
-  public async readSettledBytes(): Promise<number> {
-    for (let round = 0; round < COLLECTION_ROUNDS; round += 1) {
-      await this.#cdpSession.send("HeapProfiler.collectGarbage");
-      await this.#consoleApplication.window.evaluate(
-        async () =>
-          new Promise((resolve) => {
-            setTimeout(resolve, 0);
-          }),
-      );
-    }
-    return readSettledHeapBytes(this.#consoleApplication);
-  }
-
-  public async detach(): Promise<void> {
-    await this.#cdpSession.detach();
-  }
-}
+const PLANTED_SPLIT_PANE_BYTES = 1024 * 1024;
+const PLANTED_SPLIT_SCROLLBACK_BYTES = Math.round(19.5 * 1024 * 1024);
 
 /**
  * The row rewritten with a ceiling one byte under whatever was measured.
@@ -255,132 +186,6 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): ConsoleBudget {
   };
 }
 
-/** What every mounted emulator reports about itself, read in one round trip. */
-interface MountedTerminalReadings {
-  readonly hostCount: number;
-  readonly rendererModes: readonly string[];
-  readonly canvasCount: number;
-}
-
-function readMountedTerminals(
-  consoleApplication: ConsoleApplication,
-): Promise<MountedTerminalReadings> {
-  return consoleApplication.window.evaluate((hostSelector: string) => {
-    const hosts = [...document.querySelectorAll(hostSelector)];
-    return {
-      hostCount: hosts.length,
-      rendererModes: hosts.map((host) => host.getAttribute("data-renderer") ?? "absent"),
-      // The WebGL renderer draws into canvases it appends inside the terminal; the
-      // DOM renderer draws rows of spans and appends none. Counted as corroboration
-      // that a frame was actually produced, beside the mode each host REPORTS.
-      canvasCount: hosts.reduce((total, host) => total + host.querySelectorAll("canvas").length, 0),
-    };
-  }, TERMINAL_HOST_SELECTOR);
-}
-
-/**
- * Open one more pane and wait until every instance is drawing on a WebGL context.
- *
- * The wait is on the renderer mode leaving `"pending"` rather than on the box
- * appearing: `XtermHost` mounts its box on the commit that attaches the adapter and
- * reports the settled mode immediately after, so a wait on the box alone would
- * return before the renderer had been selected and a reading taken there would
- * measure a terminal that had not drawn.
- *
- * A run that settles on the DOM renderer FAILS rather than continuing. The row's
- * subject includes the WebGL renderer, so a figure taken over the fallback is a
- * figure for a different pane — and passing on it would restore, one renderer down,
- * exactly the too-narrow subject that sent this row back to `n/a`.
- */
-async function openPaneAndAwaitWebglReadiness(
-  consoleApplication: ConsoleApplication,
-  expectedInstanceCount: number,
-): Promise<void> {
-  await consoleApplication.window.getByRole("button", { name: OPEN_CONTROL_NAME }).click();
-  await consoleApplication.window.waitForFunction(
-    ([hostSelector, wanted]: [string, number]) => {
-      const hosts = [...document.querySelectorAll(hostSelector)];
-      return (
-        hosts.length === wanted &&
-        hosts.every((host) => (host.getAttribute("data-renderer") ?? "pending") !== "pending")
-      );
-    },
-    [TERMINAL_HOST_SELECTOR, expectedInstanceCount] as [string, number],
-    { timeout: PANE_READINESS_TIMEOUT_MS },
-  );
-
-  const readings = await readMountedTerminals(consoleApplication);
-  expect(readings.hostCount).toBe(expectedInstanceCount);
-  expect(
-    readings.rendererModes.every((mode) => mode === "webgl"),
-    `every instance must be drawing on a WebGL2 context for this row's subject to be whole; ` +
-      `the ${String(readings.hostCount)} mounted emulator(s) report [${readings.rendererModes.join(", ")}]. ` +
-      "A `dom` reading means this runner gave the renderer no WebGL2 — on a headless Linux runner " +
-      "that is the display server and the GL stack, not the console, and the endurance job must " +
-      "supply software GL (`--use-gl=angle --use-angle=swiftshader`) before this budget can be read there.",
-  ).toBe(true);
-  expect(
-    readings.canvasCount,
-    "the WebGL renderer draws into canvases it appends inside the terminal, and none is present, " +
-      "so nothing has been drawn on the context the mode reports",
-  ).toBeGreaterThanOrEqual(expectedInstanceCount);
-}
-
-/** Close every open pane and wait for the harness to report none mounted. */
-async function closeEveryPane(
-  consoleApplication: ConsoleApplication,
-  openInstanceCount: number,
-): Promise<void> {
-  for (let closed = 0; closed < openInstanceCount; closed += 1) {
-    await consoleApplication.window.getByRole("button", { name: CLOSE_CONTROL_NAME }).click();
-  }
-  await consoleApplication.window.waitForFunction(
-    (hostSelector: string) => document.querySelectorAll(hostSelector).length === 0,
-    TERMINAL_HOST_SELECTOR,
-    { timeout: PANE_READINESS_TIMEOUT_MS },
-  );
-}
-
-/**
- * Open the harness at this row's address, with the session it binds to delivered.
- *
- * The script is walked BEFORE any measurement, so every reading below is taken over
- * a settled store rather than one still being written into: the pane folds its
- * lease, its transition ledger, and its host-presence reading off this session's
- * timeline, and those are part of what the row bounds.
- */
-async function openHarnessOnDeliveredSession(
-  consoleApplication: ConsoleApplication,
-): Promise<void> {
-  await consoleApplication.window.evaluate((targetHash: string) => {
-    globalThis.location.hash = targetHash;
-  }, HARNESS_ROUTE);
-  await consoleApplication.window
-    .locator(HARNESS_SURFACE_SELECTOR)
-    .waitFor({ state: "visible", timeout: ROUTE_TRANSITION_TIMEOUT_MS });
-
-  const scriptSpanMs = TERMINAL_SCENARIO.beats.at(-1)?.atMs ?? 0;
-  const stepMs = Math.max(1, Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT));
-  let deliveredBeatCount: number | null = null;
-  for (let step = 0; step < SCENARIO_DELIVERY_STEP_COUNT + SCENARIO_DRAIN_STEP_COUNT; step += 1) {
-    deliveredBeatCount = await advanceScenario(consoleApplication, stepMs);
-  }
-  expect(
-    deliveredBeatCount,
-    "the scenario handle is not exposed by this build, so nothing drove content into the session the panes bind to",
-  ).not.toBeNull();
-  expect(Number(deliveredBeatCount)).toBe(TERMINAL_SCENARIO.beats.length);
-
-  const appliedEventCount = await readAppliedEventCount(
-    consoleApplication,
-    TERMINAL_SCENARIO.sessionId,
-  );
-  expect(
-    Number(appliedEventCount),
-    "no event reached this window's session store, so the panes below would fold a lease off an empty log",
-  ).toBeGreaterThan(0);
-}
-
 describe("the terminal-instance memory budget row", () => {
   // The ceiling, the unit, and the row's `n/a`-versus-`enforced` consistency are the
   // budget tier's to hold (`test/console/budget/budgets.test.ts`) and are deliberately
@@ -394,10 +199,41 @@ describe("the terminal-instance memory budget row", () => {
     );
     expect(budget.producedBy).toBe("T-023p-1C-7");
   });
+
+  // The combining, asserted on figures rather than on a reading: two halves that each
+  // pass the ceiling and together do not. This is the negative control for the sum —
+  // without it, a gate that quietly went back to comparing one half would keep passing
+  // every assertion in this file.
+  it("fails a split that passes each half and exceeds the ceiling together", () => {
+    expect(evaluateBudget(budget, PLANTED_SPLIT_PANE_BYTES).withinBudget).toBe(true);
+    expect(evaluateBudget(budget, PLANTED_SPLIT_SCROLLBACK_BYTES).withinBudget).toBe(true);
+    expect(
+      evaluateBudget(budget, PLANTED_SPLIT_PANE_BYTES + PLANTED_SPLIT_SCROLLBACK_BYTES)
+        .withinBudget,
+      "a 1 MiB pane holding a 19.5 MiB buffer is over this row's ceiling, and a gate that " +
+        "priced the two halves separately would have called it green twice",
+    ).toBe(false);
+  });
 });
 
-describe.skipIf(!bundleIsBuilt)("endurance — one terminal pane, held whole", () => {
-  it("holds one pane instance under the budget's ceiling, and gives it back", async () => {
+describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held whole", () => {
+  it("holds one populated pane instance under the budget's ceiling, and gives it back", async () => {
+    // The scrollback half first, and given back before the window opens: the figure
+    // is what a filled buffer retains, not what this process happens to be holding
+    // while it drives another one.
+    requireHeapCollector(heapSampler);
+    const adapterWorkload = new TerminalAdapterWorkload();
+    let fullScrollbackBytes: number;
+    try {
+      fullScrollbackBytes = await measureFullScrollbackRetainedBytes(
+        adapterWorkload,
+        new TerminalRendererPool(),
+        heapSampler,
+      );
+    } finally {
+      adapterWorkload.disposeEverything();
+    }
+
     const consoleApplication = await launchConsole({ scenarioId: TERMINAL_SCENARIO.id });
     const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
     try {
@@ -413,7 +249,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — one terminal pane, held whole", (
 
       await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
       const oneInstanceHeapBytes = await heapProbe.readSettledBytes();
-      const firstInstanceBytes = oneInstanceHeapBytes - baselineHeapBytes;
+      const paneStandingBytes = oneInstanceHeapBytes - baselineHeapBytes;
 
       for (let instance = 2; instance <= MEASURED_INSTANCE_COUNT; instance += 1) {
         await openPaneAndAwaitWebglReadiness(consoleApplication, instance);
@@ -426,56 +262,79 @@ describe.skipIf(!bundleIsBuilt)("endurance — one terminal pane, held whole", (
       const afterTeardownHeapBytes = await heapProbe.readSettledBytes();
       const teardownResidueBytes = Math.max(0, afterTeardownHeapBytes - baselineHeapBytes);
 
-      const verdict = evaluateBudget(budget, firstInstanceBytes);
+      // One subject, one verdict.
+      const populatedInstanceBytes = paneStandingBytes + fullScrollbackBytes;
+      const verdict = evaluateBudget(budget, populatedInstanceBytes);
 
       // Reported before the assertions, on the reason the two readings beside it in
       // this tier print theirs: a gate that speaks only when it fails gives a
       // reviewer no way to watch a margin shrink over months until the day it
-      // crosses.
+      // crosses. Both halves are named, because a sum that moved is a question about
+      // which half moved.
       process.stdout.write(
-        `[console-endurance] terminal pane instance ${String(Math.round(firstInstanceBytes / 1024))} kB ` +
+        `[console-endurance] populated terminal pane ` +
+          `${String(Math.round(populatedInstanceBytes / 1024))} kB ` +
           `of ${String(Math.round(budget.limit.canonicalValue / 1024))} kB ` +
-          `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) at ` +
-          `${String(TERMINAL_DEFAULT_SCROLLBACK_LINES)} lines of scrollback; ` +
-          `later instances ${String(Math.round(laterInstanceBytes / 1024))} kB each; ` +
+          `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) = ` +
+          `pane ${String(Math.round(paneStandingBytes / 1024))} kB + scrollback ` +
+          `${String(Math.round(fullScrollbackBytes / 1024))} kB at ` +
+          `${String(TERMINAL_DEFAULT_SCROLLBACK_LINES)} lines × ` +
+          `${String(TERMINAL_BUDGET_MEASUREMENT_COLUMNS)} columns; ` +
+          `later panes ${String(Math.round(laterInstanceBytes / 1024))} kB each; ` +
           `${String(Math.round(teardownResidueBytes / 1024))} kB still held after closing ` +
           `${String(MEASURED_INSTANCE_COUNT)}\n`,
       );
 
+      // The verdict is taken on the SUM, and this is the assertion that keeps it
+      // there: a gate quietly returned to pricing one half would still satisfy every
+      // other expectation in this case.
+      expect(
+        verdict.measuredCanonicalValue,
+        "this row's verdict must be taken on the populated pane, not on either half of it",
+      ).toBe(paneStandingBytes + fullScrollbackBytes);
+
       expect(
         verdict.withinBudget,
-        `${budget.label}: ${String(firstInstanceBytes)} B against a ${String(budget.limit.canonicalValue)} B ceiling`,
+        `${budget.label}: ${String(populatedInstanceBytes)} B (pane ${String(paneStandingBytes)} B ` +
+          `+ scrollback ${String(fullScrollbackBytes)} B) against a ` +
+          `${String(budget.limit.canonicalValue)} B ceiling`,
       ).toBe(true);
 
-      // The figure has to be a figure. A delta at or below zero means the reading
-      // moved the wrong way and the comparison above was vacuous.
+      // Each half has to be a figure. A pane delta at or below zero means the reading
+      // moved the wrong way, and a scrollback half at zero means the sum above was
+      // the pane alone — the exact state this gate was rebuilt to end.
       expect(
-        firstInstanceBytes,
+        paneStandingBytes,
         "mounting a terminal pane did not raise the renderer's heap at all, so the comparison above measured nothing",
       ).toBeGreaterThan(0);
+      expect(
+        fullScrollbackBytes,
+        "a full scrollback retained nothing, so the gated sum is the empty pane again",
+      ).toBeGreaterThan(0);
 
-      // The slope control: the later instances cost about what the first one did, so
-      // the figure this row gates on is the price of an instance rather than a
+      // The slope control: the later panes cost about what the first one did, so the
+      // pane half of the gated figure is the price of an instance rather than a
       // one-time cost the first instance happened to carry.
       expect(
         laterInstanceBytes,
-        `later instances cost ${String(Math.round(laterInstanceBytes / 1024))} kB against the first instance's ` +
-          `${String(Math.round(firstInstanceBytes / 1024))} kB, so the gated figure is dominated by a cost that is ` +
+        `later panes cost ${String(Math.round(laterInstanceBytes / 1024))} kB against the first pane's ` +
+          `${String(Math.round(paneStandingBytes / 1024))} kB, so the gated figure is dominated by a cost that is ` +
           "paid once rather than per instance",
-      ).toBeGreaterThan(firstInstanceBytes * SLOPE_AGREEMENT_LOWER_FACTOR);
-      expect(laterInstanceBytes).toBeLessThan(firstInstanceBytes * SLOPE_AGREEMENT_UPPER_FACTOR);
+      ).toBeGreaterThan(paneStandingBytes * SLOPE_AGREEMENT_LOWER_FACTOR);
+      expect(laterInstanceBytes).toBeLessThan(paneStandingBytes * SLOPE_AGREEMENT_UPPER_FACTOR);
 
       // The leak half, pane-shaped: three whole panes came and went and the page is
-      // back within one instance of where it started.
+      // back within one pane of where it started.
       expect(
         teardownResidueBytes,
         `${String(MEASURED_INSTANCE_COUNT)} panes were closed and ${String(Math.round(teardownResidueBytes / 1024))} kB is still held`,
-      ).toBeLessThan(firstInstanceBytes * TEARDOWN_RESIDUE_FACTOR);
+      ).toBeLessThan(paneStandingBytes * TEARDOWN_RESIDUE_FACTOR);
 
       // A ceiling planted one byte under the reading must fail the same comparison
       // this gate just passed.
       expect(
-        evaluateBudget(budgetWithCeilingBelow(firstInstanceBytes), firstInstanceBytes).withinBudget,
+        evaluateBudget(budgetWithCeilingBelow(populatedInstanceBytes), populatedInstanceBytes)
+          .withinBudget,
       ).toBe(false);
     } finally {
       // The session before the window: detaching a DevTools session from a closed

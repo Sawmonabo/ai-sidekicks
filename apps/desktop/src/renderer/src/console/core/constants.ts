@@ -180,6 +180,10 @@ export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
 //
 // Spent by three different modules under `console/terminal/`, and two of them are
 // also read by a test tier that must not construct an emulator to learn a number.
+// One of them is spent by that tier ALONE — the width a terminal is measured at —
+// and it lives here rather than beside the harness because the budget row's meaning
+// depends on it exactly as it depends on the scrollback depth below, and the two
+// files that price the row's two halves have to read one number, not two.
 
 /**
  * Lines of scrollback one terminal keeps.
@@ -190,6 +194,17 @@ export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
  * measured at, so moving this moves what the budget means.
  */
 export const TERMINAL_DEFAULT_SCROLLBACK_LINES = 10_000;
+
+/**
+ * Columns a terminal is driven at when this budget's halves are measured.
+ *
+ * A buffer line allocates twelve bytes per cell eagerly, so the width is a
+ * multiplier on everything the `terminal-instance-memory` row bounds — changing it
+ * changes the figure without changing a line of the code being measured. A working
+ * width rather than a wide one: the row bounds a terminal someone is using, and a
+ * width chosen to make the number small would be measuring a different pane.
+ */
+export const TERMINAL_BUDGET_MEASUREMENT_COLUMNS = 120;
 
 /**
  * How many terminals may hold a WebGL renderer at once.
@@ -213,6 +228,45 @@ export const TERMINAL_WEBGL_POOL_CAP = 12;
  */
 export const TERMINAL_LEASE_LEDGER_CAP = 32;
 
+// ── The embedded browser's position observer ─────────────────────────────────
+
+/**
+ * Boxes beside the pane's ancestry whose intrinsic size the position observer
+ * watches.
+ *
+ * The observer covers content-driven layout by watching each SIBLING of the pane and
+ * of its ancestors: an auto-sized sibling that grows on a text-node update or a
+ * nested insertion moves the pane while no watched box changes shape, no watched
+ * attribute changes, and no ancestor's direct child list moves. Nothing else in the
+ * module can see that.
+ *
+ * Bounded because the sibling count is a property of the DOCUMENT, not of the pane. A
+ * pane nested inside a live feed has as many siblings as the feed has rows, and an
+ * observer per row is the per-row layout cost the attribute observer's own width rule
+ * already refuses. Sixty-four covers every layout the console composes with room to
+ * spare; past it the NEAREST siblings are the ones observed, because a box beside the
+ * pane moves it further than a box beside the document body does, and the remainder
+ * stays covered by the five sources that do not depend on this one.
+ */
+export const POSITION_SIBLING_OBSERVER_CAP = 64;
+
+// ── The embedded browser's settings page ─────────────────────────────────────
+
+/**
+ * Partitions the site-data table renders before the rest fold behind a disclosure.
+ *
+ * `Spec-023 §Console Design (Meridian)` 13.16 fixes the number — "the table folds
+ * past ten partitions" — and ten is the point past which a table stops being read
+ * and starts being scanned: a node holding more sessions than that has a list, not
+ * a table.
+ *
+ * It lives here rather than beside the page that spends it because a bound declared
+ * in a view family is a ceiling nobody audits. `apps/desktop/AGENTS.md` §Config
+ * single-sourcing states the rule and `cap-constant-home.test.ts` enforces it, over
+ * `_THRESHOLD` as well as `_CAP` and `_MAX`.
+ */
+export const PARTITION_FOLD_THRESHOLD = 10;
+
 // ── The embedded browser's resource ceiling ───────────────────────────────────
 //
 // `Spec-023 §Console Design (Meridian)` 12.10: "Make the resource ceiling a named,
@@ -232,10 +286,13 @@ export const TERMINAL_LEASE_LEDGER_CAP = 32;
 //     the event log's content ceiling, so it is that constant rather than a copy of
 //     its digits — which is what makes "a snapshot result seals into the content
 //     column without truncation" a fact rather than a hope.
-//   • **Nothing is scaled.** The surface puts every figure through `formatCount`,
-//     the console's one quantity formatter, and carries its unit as a word. Scaling
-//     a byte ceiling to a binary unit would be the second byte formatter
-//     `apps/desktop/AGENTS.md` names a chokepoint breach.
+//   • **Every figure goes through a chokepoint, and WHICH one is declared here.** A
+//     counted ceiling renders through `formatCount` with its unit as a word; a
+//     byte-valued one renders through `formatByteQuantity`, the console's single
+//     byte-scaling site, in binary units. The unit set below says which of the two a
+//     bound is, so the surface dispatches on a declaration rather than deciding for
+//     itself — and a `bytes` ceiling printed as a raw decimal figure disagrees with
+//     every other byte quantity the console shows.
 
 /**
  * Every bound, by the constant name 12.10 gives it. Closed, and the tuple is the
@@ -268,11 +325,59 @@ export const BROWSER_BOUND_NAMES = [
 export type BrowserBoundName = (typeof BROWSER_BOUND_NAMES)[number];
 
 /**
+ * Every unit a scalar bound is measured in. Closed, and the tuple is the declaration:
+ * the qualifier map below is total over it, so a unit added here does not compile
+ * until it has said whether it counts things or measures bytes.
+ */
+export const BROWSER_SCALAR_UNITS = [
+  "pages",
+  "views",
+  "partitions",
+  "elements",
+  "entries",
+  "bytes",
+  "bytes per entry",
+  "ms",
+  "MB per view",
+] as const;
+
+/** One unit a scalar bound carries. Derived from the tuple, never restated. */
+export type BrowserScalarUnit = (typeof BROWSER_SCALAR_UNITS)[number];
+
+/**
+ * Which chokepoint a unit's figure renders through, and what is left of the unit
+ * once it has.
+ *
+ * `undefined` means the figure is a COUNT: it goes through `formatCount` and the
+ * unit rides beside it as a word. A string means the figure is a BYTE quantity: it
+ * goes through `formatByteQuantity`, which supplies its own binary unit label, and
+ * this is whatever the unit still says after `bytes` has been replaced by the binary
+ * unit label — empty for a bare byte ceiling, `per entry` for a per-entry one.
+ *
+ * A map rather than a predicate over a substring, because "bytes" appearing inside a
+ * unit word is a guess and this is a declaration; total over the unit set rather
+ * than partial, so the answer cannot be missing for a unit somebody adds.
+ */
+export const BROWSER_SCALAR_UNIT_BYTE_QUALIFIER: Readonly<
+  Record<BrowserScalarUnit, string | undefined>
+> = {
+  pages: undefined,
+  views: undefined,
+  partitions: undefined,
+  elements: undefined,
+  entries: undefined,
+  ms: undefined,
+  "MB per view": undefined,
+  bytes: "",
+  "bytes per entry": "per entry",
+};
+
+/**
  * How a bound is measured. Three kinds, because three genuinely different things are
  * being said: one number, a pixel box, or "this ceiling belongs to somebody else".
  */
 export type BrowserBoundMeasure =
-  | { readonly kind: "scalar"; readonly value: number; readonly unit: string }
+  | { readonly kind: "scalar"; readonly value: number; readonly unit: BrowserScalarUnit }
   | { readonly kind: "extent"; readonly widthPx: number; readonly heightPx: number }
   | { readonly kind: "deferred"; readonly owner: string };
 
@@ -282,7 +387,7 @@ export interface BrowserBound {
   readonly derivation: string;
 }
 
-function scalarBound(value: number, unit: string, derivation: string): BrowserBound {
+function scalarBound(value: number, unit: BrowserScalarUnit, derivation: string): BrowserBound {
   return { measure: { kind: "scalar", value, unit }, derivation };
 }
 

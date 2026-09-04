@@ -13,14 +13,17 @@ export {
   APPLY_COALESCE_MS,
   BROWSER_BOUNDS,
   BROWSER_BOUND_NAMES,
+  BROWSER_SCALAR_UNIT_BYTE_QUALIFIER,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
   PALETTE_RECENTS_CAP,
   PALETTE_RESULT_CAP,
+  PARTITION_FOLD_THRESHOLD,
   PERSISTENCE_QUOTA_PRESSURE_RATIO,
   PERSISTENCE_RECORD_BYTE_CAP,
   PERSISTENCE_SESSION_PARTITION_CAP,
+  POSITION_SIBLING_OBSERVER_CAP,
   PRE_INITIALISATION_BUFFER_CAP,
   REFRESH_DEBOUNCE_MS,
   REFRESH_MAX_WAIT_MS,
@@ -32,6 +35,7 @@ export {
   WHEN_CLAUSE_MAX_DEPTH,
   type BrowserBoundMeasure,
   type BrowserBoundName,
+  type BrowserScalarUnit,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
