@@ -54,19 +54,35 @@ export interface RendererFrameSource {
   readonly awaitTwoFrames: () => Promise<number>;
 }
 
-/** Frames arrived inside the budget. */
-export interface FramesWitnessed {
-  readonly painting: true;
+/**
+ * What every verdict carries, whichever way the race went.
+ *
+ * `budgetMs` is here rather than left for a caller to look up, and that is the
+ * whole of this shape's reason for existing: the budget is a CONSTRUCTOR
+ * argument with a default, so a caller that interpolated the module constant
+ * into its sentence would be describing a bound the witness may never have
+ * applied — wrong by a factor of 75 against the 200 ms every case in
+ * `architecture/frame-witness.test.ts` injects. It is the same rule
+ * `CleanupOutcome.budgetMs` states for the close: there is one figure, produced
+ * where the bound is computed.
+ */
+interface FrameWitnessMeasurement {
   /** Wall milliseconds the witness waited, measured on the driver side. */
   readonly waitedMs: number;
+  /** The bound this witness was actually held to, in milliseconds. */
+  readonly budgetMs: number;
+}
+
+/** Frames arrived inside the budget. */
+export interface FramesWitnessed extends FrameWitnessMeasurement {
+  readonly painting: true;
   /** Renderer-side milliseconds from the request to the second frame. */
   readonly frameIntervalMs: number;
 }
 
 /** No frame arrived inside the budget. */
-export interface FramesMissing {
+export interface FramesMissing extends FrameWitnessMeasurement {
   readonly painting: false;
-  readonly waitedMs: number;
 }
 
 export type FrameWitnessOutcome = FramesWitnessed | FramesMissing;
@@ -128,9 +144,10 @@ export class FrameWitness {
     try {
       const frameIntervalMs = await Promise.race([framesDelivered, budgetExpired]);
       const waitedMs = Date.now() - startedAt;
+      const budgetMs = this.#budgetMs;
       return frameIntervalMs === null
-        ? { painting: false, waitedMs }
-        : { painting: true, waitedMs, frameIntervalMs };
+        ? { painting: false, waitedMs, budgetMs }
+        : { painting: true, waitedMs, budgetMs, frameIntervalMs };
     } finally {
       clearTimeout(timeoutHandle);
     }

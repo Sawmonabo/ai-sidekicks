@@ -55,7 +55,6 @@ import {
 } from "./bounded-cleanup.js";
 import { FrameWitness, type RendererFrameSource } from "./frame-witness.js";
 import { composeLaunchArgs } from "./launch-args.js";
-import { FRAME_WITNESS_TIMEOUT_MS } from "./launch-budgets.js";
 import {
   LAUNCH_BUDGET_MS,
   LaunchDeadline,
@@ -308,7 +307,7 @@ export async function launchConsole(
     const frames = await new FrameWitness(rendererFrameSource(window)).witness();
     if (!frames.painting) {
       throw new Error(
-        `no animation frame arrived within ${String(FRAME_WITNESS_TIMEOUT_MS)} ms of the renderer ` +
+        `no animation frame arrived within ${String(frames.budgetMs)} ms of the renderer ` +
           "signalling ready, so it is not painting and nothing timed in it would describe the " +
           "console; an unrevealed window paints only with background throttling off " +
           "(src/main/window-reveal.ts)",
@@ -319,7 +318,7 @@ export async function launchConsole(
     // printed only when it is already too late is no evidence at all.
     console.error(
       `${LAUNCH_TRACE_TAG} first frame ${String(Math.round(frames.frameIntervalMs))} ms in-renderer, ` +
-        `${String(frames.waitedMs)} ms driver-side, against a ${String(FRAME_WITNESS_TIMEOUT_MS)} ms bound`,
+        `${String(frames.waitedMs)} ms driver-side, against a ${String(frames.budgetMs)} ms bound`,
     );
     return { application, window, close };
   } catch (error: unknown) {
