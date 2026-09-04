@@ -24,6 +24,21 @@
 // minted contexts without bound, and the terminal that lost its renderer would be
 // an older one still on screen rather than the one that churned.
 //
+// AND THE ALLOCATION IS PER CONTEXT, NOT PER TERMINAL. A terminal id is the
+// SESSION's id (`panes/terminal/TerminalPane.tsx` binds the emulator to
+// `sessionStore.sessionId`), and more than one pane can be open on one session —
+// the fixture pane harness mounts exactly that, deliberately, because the
+// per-instance slope the `terminal-instance-memory` budget reads depends on it.
+// Each of those panes builds its own `WebglAddon` and its own context. A ledger
+// keyed on the terminal id therefore treated the second pane's acquisition as an
+// idempotent re-entry: the lifetime count stayed at one while two contexts were
+// live, disposing EITHER pane removed the one holder record while the other kept
+// drawing, and a page churning duplicate panes walked past the cap into Chromium's
+// own eviction — which is the failure the cap exists to prevent. So a context is
+// the unit: `acquire` mints a lease per created context, `release` and `reclaim`
+// require the lease back, and the per-terminal readings below are a GROUPING over
+// the leases rather than the key they are stored under.
+//
 // WHICH LEAVES TWO WAYS TO STOP HOLDING A CONTEXT, AND THEY ARE NOT THE SAME.
 // `release` says a terminal stopped drawing; the context it made is still out
 // there, so the lifetime reading does not move. `reclaim` says the context does
@@ -39,28 +54,45 @@
 // page degrades to the DOM renderer past the cap — a reflow of about a device
 // pixel per cell (xterm.js issue #6015) — rather than growing.
 
-import { TERMINAL_WEBGL_POOL_CAP } from "./constants.js";
+import { TERMINAL_WEBGL_POOL_CAP } from "../core/index.js";
+
+/**
+ * One created context's standing in the ledger.
+ *
+ * Minted by `acquire` and handed back to `release` or `reclaim`, which is what
+ * makes the allocation per CONTEXT rather than per terminal: two panes on one
+ * session hold two of these, and each hands back only its own.
+ *
+ * Compared by IDENTITY and never by its contents. A ledger honours the objects it
+ * minted, so a value a caller assembled itself — or one minted by a different
+ * ledger — is refused, and the terminal it names is carried for the grouping
+ * readings below rather than as a key anything is stored under.
+ */
+export interface TerminalContextLease {
+  /** The terminal the context was taken for. Read by the groupings, never matched on. */
+  readonly terminalId: string;
+}
 
 /**
  * The WebGL context ledger.
  *
  * A class rather than a counter because two different quantities have to stay
- * apart — the contexts this page has created and the terminals drawing on one
- * right now — and because a slot is owned by ONE terminal id, so a remount that
- * re-acquires must not consume a second while the first is still drawing.
+ * apart — the contexts this page has created and the contexts being drawn on right
+ * now — and because a hand-back has to name the context it is about, which is what
+ * keeps one pane's teardown from retiring a sibling pane's live renderer.
  */
 export class TerminalRendererPool {
   readonly #cap: number;
-  readonly #holderTerminalIds = new Set<string>();
+  readonly #heldLeases = new Set<TerminalContextLease>();
   #createdContextCount = 0;
 
   public constructor(cap: number = TERMINAL_WEBGL_POOL_CAP) {
     this.#cap = cap;
   }
 
-  /** How many terminals are drawing on a context right now. */
+  /** How many contexts are being drawn on right now. */
   public get heldSlotCount(): number {
-    return this.#holderTerminalIds.size;
+    return this.#heldLeases.size;
   }
 
   /**
@@ -82,39 +114,61 @@ export class TerminalRendererPool {
     return this.#createdContextCount >= this.#cap;
   }
 
-  /** Whether this terminal is drawing on one right now. Idempotent re-acquisition rests on it. */
+  /**
+   * Whether anything mounted for this terminal is drawing on a context right now.
+   *
+   * A GROUPING over the leases rather than a lookup: one session can have several
+   * panes open, so this answers "any of them", and the count that the cap is
+   * checked against is never derived from it.
+   */
   public holds(terminalId: string): boolean {
-    return this.#holderTerminalIds.has(terminalId);
+    return this.heldContextCountFor(terminalId) > 0;
+  }
+
+  /** How many contexts this terminal's mounted panes are drawing on right now. */
+  public heldContextCountFor(terminalId: string): number {
+    let held = 0;
+    for (const lease of this.#heldLeases) {
+      if (lease.terminalId === terminalId) {
+        held += 1;
+      }
+    }
+    return held;
   }
 
   /**
-   * Take a context, or answer false once the page has created its allowance.
+   * Take a context, or answer nothing once the page has created its allowance.
    *
-   * False is not a failure: it sends this instance to the DOM renderer, which
+   * `undefined` is not a failure: it sends this instance to the DOM renderer, which
    * xterm.js issue #6015 says reflows the grid by up to about a device pixel per
    * cell — a far better outcome than a stolen context.
+   *
+   * Every call that is granted mints a context and counts one, including a second
+   * call naming a terminal that already holds one: that second caller is a second
+   * pane with a second `WebglAddon`, and the page pays for it whether or not the
+   * ledger notices.
    */
-  public acquire(terminalId: string): boolean {
-    if (this.#holderTerminalIds.has(terminalId)) {
-      return true;
-    }
+  public acquire(terminalId: string): TerminalContextLease | undefined {
     if (this.#createdContextCount >= this.#cap) {
-      return false;
+      return undefined;
     }
-    this.#holderTerminalIds.add(terminalId);
+    const lease: TerminalContextLease = Object.freeze({ terminalId });
+    this.#heldLeases.add(lease);
     this.#createdContextCount += 1;
-    return true;
+    return lease;
   }
 
   /**
-   * Stop drawing, and leave the context counted.
+   * Stop drawing on this context, and leave it counted.
    *
    * What a teardown does. The addon's disposal does not hand the context back, so
-   * neither does this: the terminal stops holding one, and the page's allowance
-   * stays spent. Idempotent, because teardown paths run more than once.
+   * neither does this: the lease stops being held, and the page's allowance stays
+   * spent. Idempotent, because teardown paths run more than once — and a lease this
+   * ledger did not mint is refused rather than silently accounted for, which is
+   * what keeps one pane's teardown off a sibling pane's renderer.
    */
-  public release(terminalId: string): void {
-    this.#holderTerminalIds.delete(terminalId);
+  public release(lease: TerminalContextLease): void {
+    this.#heldLeases.delete(lease);
   }
 
   /**
@@ -124,11 +178,31 @@ export class TerminalRendererPool {
    * before a context was made, and a context the host lost and did not restore.
    * Both are the same claim — there is nothing out there counting against the
    * page's ceiling — and it is the only claim that may move the lifetime reading
-   * down. Idempotent: a terminal that is not holding one reclaims nothing.
+   * down. Idempotent, and refused for a lease this ledger is not holding: a
+   * reclaim that trusted its argument would let a stale or foreign token spend the
+   * allowance of a context still on screen.
    */
-  public reclaim(terminalId: string): void {
-    if (this.#holderTerminalIds.delete(terminalId) && this.#createdContextCount > 0) {
+  public reclaim(lease: TerminalContextLease): void {
+    if (this.#heldLeases.delete(lease) && this.#createdContextCount > 0) {
       this.#createdContextCount -= 1;
+    }
+  }
+
+  /**
+   * Reclaim every context this terminal is holding, for a caller that has no lease.
+   *
+   * The grouping's write half, and the only hand-back that is keyed by terminal. It
+   * exists for a page-wide sweep — a suite clearing the module ledger between cases,
+   * where the leases were minted inside a component that has since been unmounted —
+   * and it is deliberately not what a pane's own teardown calls: a pane that reached
+   * for this would reclaim a sibling pane's live context along with its own, which
+   * is the defect the lease keying exists to close, reintroduced from the other side.
+   */
+  public reclaimEveryContextFor(terminalId: string): void {
+    for (const lease of [...this.#heldLeases]) {
+      if (lease.terminalId === terminalId) {
+        this.reclaim(lease);
+      }
     }
   }
 }

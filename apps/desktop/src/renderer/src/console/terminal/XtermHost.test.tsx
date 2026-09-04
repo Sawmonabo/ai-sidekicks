@@ -34,7 +34,7 @@ afterEach(() => {
   // releases, because this environment has no WebGL2 and so never made a context
   // for a stale hold to stand for.
   for (const terminalId of ["host-1", "host-2"]) {
-    terminalRendererPool.reclaim(terminalId);
+    terminalRendererPool.reclaimEveryContextFor(terminalId);
   }
 });
 

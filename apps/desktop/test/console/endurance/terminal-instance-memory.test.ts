@@ -86,7 +86,7 @@ import {
   readSettledHeapBytes,
 } from "./console-workload.js";
 import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
-import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/terminal/constants.js";
+import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/core/constants.js";
 import {
   ConsoleBudgetRegistry,
   evaluateBudget,

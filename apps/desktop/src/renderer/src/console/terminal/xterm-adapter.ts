@@ -41,8 +41,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { Terminal, type ITerminalOptions } from "@xterm/xterm";
 
-import type { Unsubscribe } from "../core/index.js";
-import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
+import { TERMINAL_DEFAULT_SCROLLBACK_LINES, type Unsubscribe } from "../core/index.js";
 import { TerminalRendererPool, terminalRendererPool } from "./renderer-pool.js";
 import { TerminalAddonSuite, type TerminalRendererMode } from "./xterm-addons.js";
 import { TerminalHostBinding } from "./xterm-host-binding.js";

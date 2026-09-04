@@ -46,7 +46,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { ConsoleBudgetRegistry, evaluateBudget } from "../../../scripts/budget/budget-registry.mjs";
-import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/terminal/constants.js";
+import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "../../../src/renderer/src/console/core/constants.js";
 import { XtermTerminalAdapter } from "../../../src/renderer/src/console/terminal/xterm-adapter.js";
 import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/renderer-pool.js";
 import { HeapSampler, retainedGrowthBytes } from "../heap-sampling.js";
@@ -275,9 +275,12 @@ describe("a working day of opening and closing the pane", () => {
     // instance here can acquire a WebGL slot. The pool's accounting is asserted
     // directly, because that is the part this process can observe.
     const pool = new TerminalRendererPool();
-    expect(pool.acquire("proof-of-life")).toBe(true);
+    const lease = pool.acquire("proof-of-life");
+    expect(lease).toBeDefined();
     expect(pool.heldSlotCount).toBe(1);
-    pool.release("proof-of-life");
+    if (lease !== undefined) {
+      pool.release(lease);
+    }
     expect(pool.heldSlotCount).toBe(0);
   });
 });
