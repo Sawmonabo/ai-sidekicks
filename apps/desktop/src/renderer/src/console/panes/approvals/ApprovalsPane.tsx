@@ -48,6 +48,7 @@ import { CallbackTools } from "./CallbackTools.js";
 import { RememberedGrants } from "./RememberedGrants.js";
 import { SessionGoalCard } from "./SessionGoalCard.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
+import { useGoalMutationAuthorization } from "./goal-authorization.js";
 import { type ApprovalRecord, type RememberedRule } from "./approval-records.js";
 import { type ReadPhase } from "./approvals-reader.js";
 import { foldSessionGoal } from "./session-goal.js";
@@ -90,6 +91,7 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
   const bridge = props.bridgeContext.bridge;
   const { snapshot, reader } = useApprovalsReader(bridge, props.sessionStore);
   const goalMutation = useSessionGoalMutation(bridge, props.sessionStore.sessionId);
+  const goalAuthorization = useGoalMutationAuthorization(bridge, props.sessionStore);
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const goal = useMemo(() => foldSessionGoal(timeline), [timeline]);
 
@@ -119,10 +121,13 @@ function ApprovalsPaneBody(props: ApprovalsPaneBodyProps): React.JSX.Element {
     <div className="meridian-approvals" ref={paneRootRef}>
       <SessionGoalCard
         goal={goal}
-        // The role read this control is gated on is not on this pane's wire, and a
-        // renderer never derives an eligibility — so the control is absent, which
-        // is the same thing a read-only role sees and the fail-closed arm.
-        canMutate={undefined}
+        // Resolved rather than assumed: the caller-identity read chained to this
+        // session's own roster answers which role this window holds, and the goal
+        // contract admits an owner and a collaborator. A role still being read, one
+        // whose read refused, and one the roster does not carry all leave this
+        // undefined — the fail-closed arm — and the refusal beside it says which.
+        canMutate={goalAuthorization.canMutate}
+        authorizationRefusal={goalAuthorization.refusal}
         isMutating={goalMutation.isMutating}
         refusal={goalMutation.refusal}
         onUpdate={goalMutation.update}

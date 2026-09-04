@@ -105,6 +105,7 @@ export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 // context picker each have to name which sessions are open before either can
 // read one, and the registry is the only thing that knows.
 export {
+  useCallerMembershipRole,
   useFrameStore,
   useLocationHash,
   useOpenSessionIds,
@@ -114,3 +115,11 @@ export {
   useSessionPartition,
   useSessionStore,
 } from "./hooks.js";
+// The caller-role chain leaves the family with its first consumer: the approvals
+// pane, which gates the goal controls on it. The reader type travels with it
+// because the read itself lives on the growth port in `bridge/` — a family this one
+// may not reach up to — so the composition site above adapts that outcome into this
+// shape, and it has to be able to NAME the shape to do so. The result type travels
+// for the same reason: a caller mapping three arms onto what a control may offer
+// writes that mapping over the union rather than over a boolean it inferred.
+export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";
