@@ -18,7 +18,7 @@
 // than passing under a recorder that had been updated to match it.
 
 import type { ConsoleBridge, GrowthPort } from "../bridge/index.js";
-import { AttachmentIngestClient } from "./attachment-ingest.js";
+import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { attachmentSourceFrom, type AttachmentSource } from "./attachment-model.js";
 
 /** One recorded `AttachmentIngestInit`, exactly as the registry declares it. */

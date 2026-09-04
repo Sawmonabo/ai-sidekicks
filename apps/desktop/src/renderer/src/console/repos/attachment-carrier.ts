@@ -1,8 +1,8 @@
 // The carrier binding: where a file a participant chose becomes an ingest, and where
 // the ingest client is constructed, subscribed, and disposed.
 //
-// WHY THIS MODULE EXISTS AT ALL. The ingest client is a class with a lifecycle and
-// `AttachmentCarrierSection.tsx` is a render; between them there has to
+// WHY THIS MODULE EXISTS AT ALL. `attachment-ingest-machine.ts` is a class with a
+// lifecycle and `AttachmentCarrierSection.tsx` is a render; between them there has to
 // be exactly one place that owns construction, subscription, and teardown, or every
 // surface that wanted an upload would own three of them. That is this file, on
 // `repo-mounts-reader.ts`'s own shape one directory over: the class holds the state
@@ -26,7 +26,7 @@ import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../core/index.js";
-import { AttachmentIngestClient } from "./attachment-ingest.js";
+import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-model.js";
 
 /** What the carrier holds, and the instant it last said so. */
