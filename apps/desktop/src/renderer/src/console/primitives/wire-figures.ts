@@ -179,6 +179,41 @@ export function formatPercent(fraction: number, locale?: string): string {
 }
 
 /**
+ * One wire instant as epoch milliseconds, or `undefined` where the platform cannot
+ * read it.
+ *
+ * The single reading of a wire timestamp, private to this module and published only
+ * through {@link wireInstantRank}. `Date.parse` answers `NaN` for a string it cannot
+ * read, and `NaN` is the one number that compares false against everything including
+ * itself — so a caller that forgot the guard would not get a wrong figure, it would
+ * get a comparison whose answer depends on which side the unreadable value landed
+ * on. Answering an absence instead makes the guard the type's own.
+ */
+function readWireInstant(iso: string): number | undefined {
+  const milliseconds = Date.parse(iso);
+  return Number.isNaN(milliseconds) ? undefined : milliseconds;
+}
+
+/**
+ * A wire instant as a comparable rank. Newest is greatest; unknown is least.
+ *
+ * THE STAMPS ARE PARSED AND NOT COMPARED AS TEXT. An ISO-8601 instant may carry a
+ * numeric offset as readily as `Z`, so one instant has many spellings and two
+ * spellings sort by neither: `10:00+02:00` is an hour EARLIER than `09:00Z` and
+ * sorts after it in every lexical comparison. A surface that ordered rows by their
+ * stamps as strings therefore showed the wrong one as newest.
+ *
+ * Absent and unreadable answer the same `-Infinity`, which puts such a row below
+ * every readable stamp while leaving it reachable when it is the only row there is —
+ * and, unlike `NaN`, gives it one place in the order rather than a different one at
+ * each end of a fold.
+ */
+export function wireInstantRank(iso: string | undefined): number {
+  const milliseconds = iso === undefined ? undefined : readWireInstant(iso);
+  return milliseconds ?? Number.NEGATIVE_INFINITY;
+}
+
+/**
  * A relative time, through `Intl.RelativeTimeFormat`.
  *
  * The unit is chosen by magnitude, not by arithmetic on a wire figure: the input is
@@ -189,8 +224,8 @@ export function formatRelativeTime(
   nowMilliseconds: number,
   locale?: string,
 ): string {
-  const fromMilliseconds = Date.parse(fromIso);
-  if (Number.isNaN(fromMilliseconds)) {
+  const fromMilliseconds = readWireInstant(fromIso);
+  if (fromMilliseconds === undefined) {
     return "—";
   }
   const deltaSeconds = (fromMilliseconds - nowMilliseconds) / 1000;
@@ -213,8 +248,8 @@ export function formatRelativeTime(
  * align; the date is shown separately by the day divider, never per row.
  */
 export function formatClockTime(iso: string, locale?: string): string {
-  const milliseconds = Date.parse(iso);
-  if (Number.isNaN(milliseconds)) {
+  const milliseconds = readWireInstant(iso);
+  if (milliseconds === undefined) {
     return "—";
   }
   return new Intl.DateTimeFormat(locale, {
@@ -242,8 +277,8 @@ export function formatClockTime(iso: string, locale?: string): string {
  * neighbour so two figures on one surface do not disagree about the format.
  */
 export function formatDateTime(iso: string, locale?: string): string {
-  const milliseconds = Date.parse(iso);
-  if (Number.isNaN(milliseconds)) {
+  const milliseconds = readWireInstant(iso);
+  if (milliseconds === undefined) {
     return "—";
   }
   return new Intl.DateTimeFormat(locale, {

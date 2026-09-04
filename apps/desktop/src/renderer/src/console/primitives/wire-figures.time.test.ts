@@ -23,6 +23,7 @@ import {
   formatDateTime,
   formatDuration,
   formatRelativeTime,
+  wireInstantRank,
 } from "./wire-figures.js";
 
 describe("formatDuration — the unit changes rather than the number growing", () => {
@@ -177,5 +178,43 @@ describe("formatDateTime — the reading for a surface with no day divider", () 
   it("renders the same dash as its neighbours for an instant it cannot parse", () => {
     expect(formatDateTime("not an instant", "en-US")).toBe("—");
     expect(formatDateTime("", "en-US")).toBe("—");
+  });
+});
+
+describe("wireInstantRank — one instant has many spellings", () => {
+  it("ranks by the instant and not by the string", () => {
+    // The whole reason this reading is shared. `10:00+02:00` is an hour EARLIER than
+    // `09:00Z` and sorts AFTER it in every lexical comparison, so a surface ordering
+    // rows by their stamps as text names the older row as newest.
+    const earlier = "2026-09-01T10:00:00.000+02:00";
+    const later = "2026-09-01T09:00:00.000Z";
+    expect(wireInstantRank(earlier)).toBeLessThan(wireInstantRank(later));
+    expect(earlier > later).toBe(true);
+  });
+
+  it("gives two spellings of one instant one rank", () => {
+    expect(wireInstantRank("2026-09-01T11:00:00.000+02:00")).toBe(
+      wireInstantRank("2026-09-01T09:00:00.000Z"),
+    );
+  });
+
+  it("ranks an absent and an unreadable stamp below every readable one, and equally", () => {
+    // Equally, and not as `NaN`: a comparison against `NaN` is false in both
+    // directions, so an unreadable stamp would take a different place at each end
+    // of a fold. `-Infinity` gives it one place.
+    expect(wireInstantRank(undefined)).toBe(Number.NEGATIVE_INFINITY);
+    expect(wireInstantRank("not an instant")).toBe(Number.NEGATIVE_INFINITY);
+    expect(wireInstantRank("")).toBe(Number.NEGATIVE_INFINITY);
+    expect(wireInstantRank("2026-09-01T09:00:00.000Z")).toBeGreaterThan(
+      wireInstantRank("not an instant"),
+    );
+  });
+
+  it("negative control: two different instants do not share a rank", () => {
+    // Without this, the cases above would pass over a reading that answered one
+    // number for everything it was given.
+    expect(wireInstantRank("2026-09-01T09:00:00.000Z")).not.toBe(
+      wireInstantRank("2026-09-01T10:00:00.000Z"),
+    );
   });
 });

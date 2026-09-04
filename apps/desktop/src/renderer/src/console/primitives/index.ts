@@ -113,4 +113,9 @@ export {
   formatRelativeTime,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatWireString,
+  // The one reading of a wire timestamp, through the same door as the formatters
+  // that share it: more than one view family orders rows by `touchedAt`, and an
+  // ordering written twice is where a lexical comparison of two offsets survives
+  // the fix made in the other copy.
+  wireInstantRank,
 } from "./wire-figures.js";

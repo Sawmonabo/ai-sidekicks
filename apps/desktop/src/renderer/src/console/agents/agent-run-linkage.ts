@@ -34,44 +34,24 @@
 
 import { useMemo } from "react";
 
+import { wireInstantRank } from "../primitives/index.js";
 import { useSessionPartition, type SessionStore } from "../store/index.js";
-
-/**
- * Recency, as a comparable number. Newest is greatest; unstamped and unparseable
- * are least.
- *
- * THE STAMPS ARE PARSED RATHER THAN COMPARED AS TEXT. `touchedAt` is an ISO-8601
- * instant, and the event contract accepts a NUMERIC OFFSET as readily as `Z` — so
- * two stamps for the same instant can be two different strings, and two different
- * instants can sort the wrong way round: `10:00+02:00` is an hour EARLIER than
- * `09:00Z` and sorts after it in every lexical comparison. A linkage panel that
- * picked by text therefore read and displayed the wrong parent run, and kept doing
- * so for as long as both rows were in the projection.
- *
- * A stamp the platform cannot parse is the same answer as no stamp at all, and it
- * is deliberately not `NaN`: a comparison against `NaN` is false in both directions,
- * so a malformed row would win or lose by whichever end of the fold it landed on.
- * `-Infinity` puts it below every real instant while leaving it reachable when it is
- * the only row this agent has — which is the rule this selector already stated for
- * an unstamped row, now held for a row whose stamp the console cannot read either.
- */
-function runRecency(touchedAt: string | undefined): number {
-  if (touchedAt === undefined) {
-    return Number.NEGATIVE_INFINITY;
-  }
-  const milliseconds = Date.parse(touchedAt);
-  return Number.isNaN(milliseconds) ? Number.NEGATIVE_INFINITY : milliseconds;
-}
 
 /**
  * The newest run the session projects for one agent, where the log named one.
  *
  * `undefined` where no run has been attributed to this agent yet, which a linkage
  * surface renders as the absence it is rather than as an empty result. Newest is
- * decided by the projection's own `touchedAt` and by nothing this console invents:
- * a run row with no `touchedAt` — or with one the platform cannot parse — sorts
- * below every row that has a readable stamp rather than being dropped, so such a row
- * is still reachable when it is the only one.
+ * decided by the projection's own `touchedAt` and by nothing this console invents,
+ * through the primitives family's one reading of a wire timestamp: `touchedAt` is an
+ * ISO-8601 instant and the event contract accepts a numeric offset as readily as
+ * `Z`, so comparing two of them as TEXT can name the older run — `10:00+02:00` is an
+ * hour earlier than `09:00Z` and sorts after it — and the panel then read and
+ * displayed the wrong parent run for as long as both rows stayed in the projection.
+ *
+ * A run row with no `touchedAt`, or with one the platform cannot read, sorts below
+ * every row that has a readable stamp rather than being dropped, so such a row is
+ * still reachable when it is the only one.
  *
  * Ties keep the row already held, so the answer for two rows at the same instant is
  * decided by the projection's own order rather than by a re-reading of it.
@@ -90,7 +70,7 @@ export function newestRunIdForAgent(
     return undefined;
   }
   return runs.reduce((newest, candidate) =>
-    runRecency(candidate.touchedAt) > runRecency(newest.touchedAt) ? candidate : newest,
+    wireInstantRank(candidate.touchedAt) > wireInstantRank(newest.touchedAt) ? candidate : newest,
   ).id;
 }
 
