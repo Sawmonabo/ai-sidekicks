@@ -21,6 +21,7 @@ import { useMemo } from "react";
 
 import { usePushDrivenRead, type SidebarSectionContext } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
+import { useSessionDegraded } from "../store/index.js";
 import { Memberships } from "./Memberships.js";
 import { rosterRowsFrom } from "./presence-model.js";
 import { Roster } from "./Roster.js";
@@ -68,6 +69,10 @@ function MembersSectionBody(props: {
   const { context, models, selfParticipantId } = props;
   const state = usePushDrivenRead(models.presenceRoster);
   const hueAllocator = context.sessionStore.hueAllocator;
+  // Subscribed rather than sampled, for `ChannelsSection`'s reason: this section
+  // subscribes only to its presence read, so a degraded transition that settles no
+  // read would move the flag and re-render nothing.
+  const isLastKnown = useSessionDegraded(context.sessionStore);
 
   const rows = useMemo(
     () =>
@@ -96,7 +101,7 @@ function MembersSectionBody(props: {
         nowMilliseconds={models.clock.now()}
         labels={models.labels}
         composingChannelFor={(participantId) => models.activity.composingChannelFor(participantId)}
-        isLastKnown={context.sessionStore.snapshot().degradedCause !== undefined}
+        isLastKnown={isLastKnown}
       />
       <Memberships context={context} />
     </>

@@ -14,6 +14,7 @@
 
 import { usePushDrivenRead, type SidebarSectionContext } from "../seats/index.js";
 import { Nothing } from "../primitives/index.js";
+import { useSessionDegraded } from "../store/index.js";
 import { ChannelList } from "./ChannelList.js";
 import {
   useSessionModels,
@@ -50,6 +51,12 @@ function ChannelsSectionBody(props: {
 }): React.JSX.Element {
   const { context, models } = props;
   const state = usePushDrivenRead(models.channelDirectory);
+  // The store's own sticky degraded flag, read rather than inferred: the console
+  // never decides on its own that a projection is behind. SUBSCRIBED rather than
+  // sampled — a snapshot read in this body has nothing behind it, and this section
+  // subscribes only to its channel read, so a store entering or leaving its degraded
+  // state without that read settling moved the flag and re-rendered nothing.
+  const isCatchingUp = useSessionDegraded(context.sessionStore);
 
   return (
     <ChannelList
@@ -57,9 +64,7 @@ function ChannelsSectionBody(props: {
       openPane={context.openPane}
       activity={models.activity}
       labels={models.labels}
-      // The store's own sticky degraded flag, read rather than inferred: the console
-      // never decides on its own that a projection is behind.
-      isCatchingUp={context.sessionStore.snapshot().degradedCause !== undefined}
+      isCatchingUp={isCatchingUp}
     />
   );
 }

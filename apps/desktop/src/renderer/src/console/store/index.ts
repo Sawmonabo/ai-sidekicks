@@ -84,6 +84,7 @@ export {
   useLocationHash,
   useOpenSessionIds,
   useOpenSessionStore,
+  useSessionDegraded,
   useSessionInitialised,
   useSessionPartition,
 } from "./hooks.js";
