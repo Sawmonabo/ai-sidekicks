@@ -100,3 +100,13 @@ export type {
   SubjectScopedPublish,
   SubjectScopedState,
 } from "./subject-scoped-state.js";
+export {
+  /** @consumedBy T-023p-1C-8 */
+  GenerationLatch,
+  /** @consumedBy T-023p-1C-8 */
+  useGenerationLatch,
+} from "./generation-latch.js";
+export type {
+  /** @consumedBy T-023p-1C-8 */
+  GenerationClaim,
+} from "./generation-latch.js";
