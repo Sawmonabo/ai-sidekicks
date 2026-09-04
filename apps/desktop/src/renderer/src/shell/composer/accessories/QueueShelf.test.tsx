@@ -42,6 +42,8 @@ function shelfWith(options: {
   const { container } = render(
     <QueueShelf
       items={[queuedRow(FIRST_ITEM), queuedRow(SECOND_ITEM)]}
+      phase="read"
+      readRefusal={undefined}
       pendingCancelIds={options.pendingCancelIds ?? new Set<string>()}
       cancelRefusalByItemId={options.cancelRefusalByItemId ?? new Map<string, ConsoleRefusal>()}
       onCancel={() => undefined}
@@ -94,6 +96,8 @@ describe("the queue shelf says when part of its stream could not be read", () =>
     const { container } = render(
       <QueueShelf
         items={options.items ?? [queuedRow(FIRST_ITEM)]}
+        phase="read"
+        readRefusal={undefined}
         pendingCancelIds={new Set<string>()}
         cancelRefusalByItemId={new Map<string, ConsoleRefusal>()}
         onCancel={() => undefined}
@@ -148,5 +152,78 @@ describe("the queue shelf says when part of its stream could not be read", () =>
 
     const withNothing = renderShelf({ items: [], unreadableDeliveryCount: 0 });
     expect(withNothing.querySelector(".meridian-queue-shelf")).toBeNull();
+  });
+});
+
+describe("the queue shelf says when the snapshot itself could not be read", () => {
+  /** The refusal `run.queueList` settles as, in the shape the reading publishes. */
+  const READ_REFUSAL: ConsoleRefusal = refuse(
+    "session-queue",
+    "reply-unreadable",
+    "The queue reply did not match the registered list shape, so the console did not read rows from it.",
+  );
+
+  /** The shelf under whatever snapshot phase and rows the case supplies. */
+  function renderShelf(options: {
+    readonly items?: readonly QueueItemSummary[];
+    readonly phase: "reading" | "read" | "refused";
+    readonly readRefusal?: ConsoleRefusal;
+  }): HTMLElement {
+    const { container } = render(
+      <QueueShelf
+        items={options.items ?? []}
+        phase={options.phase}
+        readRefusal={options.readRefusal}
+        pendingCancelIds={new Set<string>()}
+        cancelRefusalByItemId={new Map<string, ConsoleRefusal>()}
+        onCancel={() => undefined}
+      />,
+    );
+    return container;
+  }
+
+  it("appears with no rows at all, rather than reading as an empty queue", () => {
+    // The finding: the rail passed rows and nothing else, so a refused snapshot with
+    // an empty tail hid the shelf — which is the surface saying "nothing is queued"
+    // about a list nobody managed to read.
+    const container = renderShelf({ phase: "refused", readRefusal: READ_REFUSAL });
+
+    expect(container.querySelector(".meridian-queue-shelf")).not.toBeNull();
+    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
+      "The queue could not be read",
+    );
+    expect(container.querySelector(".meridian-refusal")?.textContent).toContain("reply-unreadable");
+  });
+
+  it("keeps the tail's rows and says they are not the whole queue", () => {
+    // The other half: the tail opens before the snapshot, so a refused read can
+    // leave a subset on screen — which without this reads as the complete list.
+    const container = renderShelf({
+      items: [queuedRow(FIRST_ITEM)],
+      phase: "refused",
+      readRefusal: READ_REFUSAL,
+    });
+
+    expect(container.querySelectorAll(".meridian-queue-shelf__row")).toHaveLength(1);
+    expect(container.querySelector(".meridian-queue-shelf__partial-copy")?.textContent).toContain(
+      "is not the whole queue",
+    );
+  });
+
+  it("says nothing the read did not carry when the refusal is absent", () => {
+    // The reading publishes the phase and the refusal separately, so the notice
+    // renders on the phase alone and invents no cause where none was carried.
+    const container = renderShelf({ phase: "refused" });
+
+    expect(container.querySelector(".meridian-queue-shelf__partial-copy")).not.toBeNull();
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+  });
+
+  it("negative control: a served empty read still hides the shelf", () => {
+    // Without this the cases above would hold over a shelf that had simply stopped
+    // hiding itself — and the hidden-until-an-item-exists rule is what keeps the
+    // ordinary case quiet.
+    expect(renderShelf({ phase: "read" }).querySelector(".meridian-queue-shelf")).toBeNull();
+    expect(renderShelf({ phase: "reading" }).querySelector(".meridian-queue-shelf")).toBeNull();
   });
 });

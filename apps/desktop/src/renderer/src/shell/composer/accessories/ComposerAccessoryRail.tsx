@@ -29,6 +29,12 @@
 // subscription — the composer used to open its own, so a session view holding both
 // surfaces tailed one stream twice.
 //
+// THE FILTER IS THE ONLY THING THE RAIL NARROWS. The reading's PHASE and its
+// snapshot refusal are handed on untouched: a rail that passed rows alone left the
+// shelf unable to tell an empty queue from a queue nobody could read, and the shelf
+// hides itself on the first. The runs pane renders the same two members from the
+// same reading, so the two surfaces answer "could the queue be read" the same way.
+//
 // WHAT THE RAIL DOES NOT DECIDE. It never derives eligibility. The compaction
 // control is handed a capability state and a target run and renders what those say;
 // the rail does not compute whether compaction is allowed, and where it has not read
@@ -133,6 +139,8 @@ export function ComposerAccessoryRail(props: ComposerSeatProps): React.JSX.Eleme
     <div className="meridian-composer__rail">
       <QueueShelf
         items={waitingItems}
+        phase={queueFeed.phase}
+        readRefusal={queueFeed.readRefusal}
         pendingCancelIds={queueFeed.pendingCancelIds}
         cancelRefusalByItemId={queueFeed.cancelRefusalByItemId}
         onCancel={queueFeed.cancelItem}

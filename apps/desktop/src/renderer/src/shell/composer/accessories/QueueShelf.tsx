@@ -19,6 +19,17 @@
 // an empty list beside an unreadable delivery is not the ordinary case the rule
 // exists to keep quiet: it is a list whose emptiness is unknown.
 //
+// A REFUSED SNAPSHOT IS THE SAME CLAIM WITH A DIFFERENT CAUSE, and it yields the
+// hidden arm for the same reason. The tail opens BEFORE the snapshot is taken, so a
+// refused `run.queueList` leaves the shelf holding whatever the tail happened to
+// deliver in that window — nothing at all, or a subset — and neither is the queue.
+// An empty shelf would then say "nothing is waiting" about a list nobody managed to
+// read, and a subset would present the window's arrivals as the whole of it. So the
+// phase and the read's own refusal reach this surface and are said, through the same
+// notice the unreadable-delivery count is said through rather than a second one
+// beside it: the two are one claim — what is on screen is not the whole queue — and
+// they differ only in the cause printed under it.
+//
 // A CANCEL IN FLIGHT DISABLES ITS OWN ROW AND NO OTHER. The shelf renders the state
 // the reading publishes rather than holding its own: the same set the runs pane's
 // queue reads, so two surfaces over one reading never disagree about which row is
@@ -35,11 +46,23 @@ import {
   formatCount,
 } from "../../../console/primitives/index.js";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
+import type { QueueReadPhase } from "../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import { QUEUE_SHELF_ROW_CAP } from "./accessory-bounds.js";
 
 export interface QueueShelfProps {
   readonly items: readonly QueueItemSummary[];
+  /**
+   * How the session's snapshot read has gone, straight off the one reading.
+   *
+   * Required rather than optional, unlike the partial-read pair below: every caller
+   * of this shelf reads the feed that carries it, so a caller with nothing to pass
+   * is a caller that has stopped reading the queue — and defaulting it would make
+   * this surface answer "read" for a snapshot nobody asked about.
+   */
+  readonly phase: QueueReadPhase;
+  /** Why the snapshot could not be read. Rendered rather than swallowed. */
+  readonly readRefusal: ConsoleRefusal | undefined;
   /** The ids whose cancel is in flight, straight off the session's one reading. */
   readonly pendingCancelIds: ReadonlySet<string>;
   readonly cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal>;
@@ -67,18 +90,26 @@ const CANCEL_GLYPH_SIZE = 12;
 export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
   const unreadableDeliveryCount = props.unreadableDeliveryCount ?? 0;
   const isPartial = unreadableDeliveryCount > 0;
-  if (props.items.length === 0 && !isPartial) {
+  const isSnapshotRefused = props.phase === "refused";
+  if (props.items.length === 0 && !isPartial && !isSnapshotRefused) {
     return null;
   }
   const rendered = props.items.slice(0, QUEUE_SHELF_ROW_CAP);
   const foldedCount = props.items.length - rendered.length;
   return (
     <section className="meridian-queue-shelf" aria-label="Queued messages">
+      {isSnapshotRefused ? (
+        <IncompleteReading refusal={props.readRefusal}>
+          The queue could not be read, so what is on this shelf arrived on the live tail alone and
+          is not the whole queue.
+        </IncompleteReading>
+      ) : null}
       {isPartial ? (
-        <PartialRead
-          unreadableDeliveryCount={unreadableDeliveryCount}
-          refusal={props.unreadableRefusal}
-        />
+        <IncompleteReading refusal={props.unreadableRefusal}>
+          <DerivedFigure text={formatCount(unreadableDeliveryCount)} />{" "}
+          {unreadableDeliveryCount === 1 ? "queue delivery" : "queue deliveries"} could not be read
+          — the shelf may be stale.
+        </IncompleteReading>
       ) : null}
       <ul className="meridian-queue-shelf__rows">
         {rendered.map((item) => (
@@ -101,24 +132,25 @@ export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
 }
 
 /**
- * What the shelf says when part of its stream could not be read.
+ * What the shelf says when what it is showing is not the whole queue.
+ *
+ * ONE notice for both causes — a snapshot that refused and a delivery that did not
+ * parse — because they are one claim to the person reading it: what is on screen is
+ * incomplete. Only the sentence and the refusal beneath it differ, so they are what
+ * the caller supplies and everything else is here once.
  *
  * Above the rows and never instead of them, and phrased about the SHELF rather than
  * about the wire: a person reading this is deciding whether to trust what they are
- * looking at, and "may be stale" is the consequence, while the delivery's own parse
- * refusal beneath it is the cause for whoever needs it.
+ * looking at, so the consequence is the sentence and the read's own refusal beneath
+ * it is the cause for whoever needs it.
  */
-function PartialRead(props: {
-  readonly unreadableDeliveryCount: number;
+function IncompleteReading(props: {
+  readonly children: React.ReactNode;
   readonly refusal: ConsoleRefusal | undefined;
 }): React.JSX.Element {
   return (
     <div className="meridian-queue-shelf__partial" role="status">
-      <p className="meridian-queue-shelf__partial-copy">
-        <DerivedFigure text={formatCount(props.unreadableDeliveryCount)} />{" "}
-        {props.unreadableDeliveryCount === 1 ? "queue delivery" : "queue deliveries"} could not be
-        read — the shelf may be stale.
-      </p>
+      <p className="meridian-queue-shelf__partial-copy">{props.children}</p>
       {props.refusal === undefined ? null : (
         <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
       )}
