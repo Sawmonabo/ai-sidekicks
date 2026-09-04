@@ -1,18 +1,29 @@
 // The sessions on this node, as a surface can honestly know them.
 //
-// Two surfaces ask the same question — the sessions destination lists them, the
-// auxiliary context picker offers them — and until this hook neither could ask it
-// at all. The only session set the renderer could name was the set this window
-// happens to have open, which is a different question with a different answer: a
-// node with six sessions and a window that has opened none of them is not an empty
-// node.
+// Every surface that has to OFFER sessions asks the same question — the sessions
+// destination lists them, the auxiliary context picker asks which one a window should
+// follow, the workflows destination asks which one its definitions resolve from — and
+// until this hook none of them could ask it at all. The only session set the renderer
+// could name was the set this window happens to have open, which is a different
+// question with a different answer: a node with six sessions and a window that has
+// opened none of them is not an empty node. The callers are deliberately not counted
+// here: a count is a claim that goes stale the first time a surface is added without
+// it.
 //
-// WHY IT LIVES IN `frame/` AND NOT IN `store/`
+// WHY IT LIVES IN `bridge/`
 //
-// It reads the growth port, and `store/` sits BELOW `bridge/` in the console's
-// family DAG precisely so a store cannot reach a wire. `useOpenSessionIds` stays
-// where it is and stays the seam for what this WINDOW holds; this is its
-// neighbour, not its replacement, and the two surfaces compose them.
+// It reads the growth port, so `bridge/` is the lowest family on the console's DAG
+// that owns its inputs — `store/` sits BELOW `bridge/` precisely so a store cannot
+// reach a wire, and `frame/`, where this hook was written, sits above every surface
+// that asks the question. It lived there while the frame held its only two callers,
+// and a third caller in a view family could then reach it only by deep-importing
+// past a door it cannot import at all: the frame's door composes the view families,
+// so a view family importing it closes a cycle. Hoisting the hook to the family that
+// owns the port is what makes the question askable through one door.
+//
+// `useOpenSessionIds` stays where it is and stays the seam for what this WINDOW
+// holds; this is its neighbour, not its replacement, and each surface composes them
+// through `offeredSessionIds` below.
 //
 // ONE READ PER MOUNT, AND NO POLLING
 //
@@ -34,7 +45,9 @@
 
 import { useEffect, useState } from "react";
 
-import type { GrowthPort, GrowthSessionSummary, GrowthUnavailable } from "../bridge/index.js";
+import type { GrowthUnavailable } from "./growth-outcome.js";
+import type { GrowthPort } from "./growth-port.js";
+import type { GrowthSessionSummary } from "./growth-values/sessions.js";
 
 /** What a surface knows about the node's sessions at one moment. */
 export type SessionDirectoryState =

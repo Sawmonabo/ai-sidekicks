@@ -52,10 +52,10 @@ export {
 export { createFixtureBridge } from "./fixture-bridge.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
-// read over it and two surfaces read the session directory through it, so the
-// port type, the one summary shape those surfaces render, the refusal they render
-// instead, and the builder that mints one all leave through this door — the same
-// door the bridge itself does, because a growth refusal IS what this bridge
+// read over it and every surface that offers sessions reads the directory through
+// it, so the port type, the one summary shape those surfaces render, the refusal
+// they render instead, and the builder that mints one all leave through this door —
+// the same door the bridge itself does, because a growth refusal IS what this bridge
 // answers for a wire the corpus has not registered.
 // `GrowthSessionSummary` leaves through the module that DECLARES it, never through
 // `growth-values/index.js`. That inner barrel is the bridge's own sub-module door,
@@ -67,6 +67,28 @@ export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
+
+// The node's session directory, read through that port. It lives in this family
+// rather than in the frame that first needed it because this is the lowest family
+// that owns its input: the hook calls the growth port, and a view family asking the
+// same question can reach the port's own door while it cannot reach the frame's,
+// which composes the view families and so closes a cycle when one imports it.
+export { offeredSessionIds, useSessionDirectory } from "./session-directory.js";
+export type { SessionDirectoryState } from "./session-directory.js";
+
+// The workflow plane's read shapes, for the family that renders them. Declared on
+// this substrate because no code package registers a `workflow.*` type yet, and
+// re-exported here rather than deep-imported because a view family reaches another
+// family only through its door. Every one of them goes when `packages/contracts`
+// registers the plane and `workflow-projection.ts` is deleted with its slate row.
+export { WORKFLOW_DEFINITION_SCOPES } from "./workflow-projection.js";
+export type {
+  WorkflowDefinitionScope,
+  WorkflowDefinitionSummary,
+  WorkflowPhaseState,
+  WorkflowRunListEntry,
+  WorkflowRunSnapshot,
+} from "./workflow-projection.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

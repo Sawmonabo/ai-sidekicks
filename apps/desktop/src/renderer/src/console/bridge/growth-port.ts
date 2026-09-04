@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names thirty-two wires the console builds
+// `Plan-023 §Console growth slate` names thirty-three wires the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -194,6 +194,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     workflowGateResolve: async () => growthUnavailable("workflowGateResolve"),
     workflowHumanFormSubmit: async () => growthUnavailable("workflowHumanFormSubmit"),
     workflowGateChainVerify: async () => growthUnavailable("workflowGateChainVerify"),
+    workflowRunList: async () => growthUnavailable("workflowRunList"),
     // gitflow
     gitflowBranchContextRead: async () => growthUnavailable("gitflowBranchContextRead"),
     gitflowPrPrepare: async () => growthUnavailable("gitflowPrPrepare"),

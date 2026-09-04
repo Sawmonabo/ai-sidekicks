@@ -17,7 +17,6 @@
 // one file that six families then need to widen. What is shared is the DECLARATION,
 // which is what drifts when it is prose.
 
-// Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6
 /**
  * What a plan-owned slot says about itself.
  *
@@ -46,8 +45,6 @@ export interface OwnerSlotContract {
  * broken feature. It is a required member carrying `undefined` rather than an
  * optional one, so a mount that forgot to read the seat is a compile error at the
  * construction site instead of an absent key that renders identically.
- *
- * @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6
  */
 export interface OwnerSlotProps<TBody> {
   readonly contract: OwnerSlotContract;

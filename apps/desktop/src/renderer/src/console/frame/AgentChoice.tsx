@@ -29,9 +29,8 @@
 
 import { useMemo } from "react";
 
-import { Nothing } from "../primitives/index.js";
+import { Nothing, WireChoiceList } from "../primitives/index.js";
 import { useSessionInitialised, useSessionPartition, type SessionStore } from "../store/index.js";
-import { WireChoiceList } from "./WireChoiceList.js";
 
 export interface AgentChoiceProps {
   /** The pending session's store. Required: the picker renders the frame before

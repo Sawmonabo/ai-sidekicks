@@ -23,13 +23,11 @@
 // "1.0 KiB", and forbidding that would forbid testing the chokepoint's own output.
 
 import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "src", "console");
+import { CONSOLE_SOURCE_DIRECTORY } from "../paths.js";
 
 /**
  * The one module allowed to scale a byte figure.
@@ -70,7 +68,7 @@ function byteScalingSignatures(source: string): readonly string[] {
 }
 
 function consoleSourceModules(): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
+  return readdirSync(CONSOLE_SOURCE_DIRECTORY, { recursive: true, encoding: "utf8" })
     .filter(
       (entry) =>
         (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
@@ -82,14 +80,14 @@ function consoleSourceModules(): readonly string[] {
 }
 
 function readConsoleSource(module: string): string {
-  return readFileSync(join(CONSOLE_DIRECTORY, module), "utf8");
+  return readFileSync(join(CONSOLE_SOURCE_DIRECTORY, module), "utf8");
 }
 
 describe("wire-figure-formatting — byte scaling happens in exactly one module", () => {
   const modules = consoleSourceModules();
 
   it("finds a console tree to scan at all", () => {
-    // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
+    // Without this, a wrong CONSOLE_SOURCE_DIRECTORY would scan nothing and every
     // assertion below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
     expect(modules).toContain(CHOKEPOINT_MODULE);

@@ -1,0 +1,135 @@
+/*
+ * The workflows family's shared chrome, and the family's single stylesheet edge.
+ *
+ * `workflows/index.ts` imports THIS file and nothing else, so the bundler sees one
+ * edge into the family's rules and a surface can never render a chrome that arrived
+ * without them. The per-surface sheets below are pulled in from here rather than from
+ * their own modules for that reason: each is owned and edited by the surface it names,
+ * and none of them is a second import edge.
+ *
+ * ONE SHEET IN THIS FAMILY IS DELIBERATELY NOT BELOW, and naming it here is what keeps
+ * the list a claim rather than a coincidence: `panes/workflow-run/phase-graph/phase-graph.css`
+ * rides the lazy graph chunk. It is imported beside the graph library's own `base.css`
+ * from that chunk's own door, `panes/workflow-run/phase-graph/index.ts`, which is
+ * reached through `import()` and nothing else, and it has to load AFTER that sheet to
+ * win at equal specificity. Pulled in here it would land in the document the operator
+ * waits for and would load BEFORE the sheet it overrides, so the library's fallback
+ * palette would paint. Both sheets enter through a barrel like every other sheet in
+ * the console — the chunk's rather than the family's — which is the rule
+ * `test/console/architecture/stylesheet-edges.test.ts` holds every module to.
+ *
+ * WHAT STAYS HERE. The chrome every workflows surface stands in — the block, the
+ * header, the body column, the reserved-slot box, and the one action treatment the
+ * browser's primary act and the run controls both wear. A rule that belongs to exactly
+ * one surface belongs in that surface's file.
+ *
+ * `Spec-023 §Console Design (Meridian)` governs every rule in all six files:
+ *   • rule 7  — density: one primary action in the header, nothing beside it; the
+ *               version chain, the hashes and the schema marker are one click away
+ *               and so appear in no rule below.
+ *   • rule 8  — the absence blocks are the primitives' and are not restyled here;
+ *               these files give them the box they stand in.
+ *   • rule 5  — nothing animates. A chrome that moves while a read settles is a
+ *               chrome that draws attention to its own arrival rather than to what
+ *               arrived.
+ */
+
+/* The per-surface sheets, in the order a person meets the surfaces. */
+@import "./workflows-destination.css";
+@import "./definitions-browser.css";
+@import "./run-list.css";
+@import "./park-badge.css";
+@import "../panes/workflow-run/run-controls.css";
+@import "../panes/workflow-builder/builder-authoring.css";
+
+.meridian-workflow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  block-size: 100%;
+  padding: var(--meridian-space-5);
+  overflow-y: auto;
+}
+
+/* ------------------------------------------------------------------ header */
+
+/*
+ * The glyph sits on the first text line rather than centred on the block: the
+ * heading group is two lines and a centred glyph would float between them, which
+ * reads as decoration rather than as the surface's kind mark.
+ */
+.meridian-workflow__header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--meridian-space-3);
+  padding-block-end: var(--meridian-space-3);
+  border-block-end: 1px solid var(--meridian-edge);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow__heading-group {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-inline-size: 0;
+}
+
+.meridian-workflow__heading {
+  margin: 0;
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-md);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+.meridian-workflow__summary {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-workflow__primary-action {
+  flex: none;
+}
+
+/* -------------------------------------------------------------------- body */
+
+.meridian-workflow__body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-block-size: 0;
+}
+
+/*
+ * A slot standing empty is a dotted boundary rather than a filled panel: the
+ * treatment says "reserved" at a glance and does not compete with the surfaces
+ * around it that hold something.
+ */
+.meridian-workflow__slot {
+  display: flex;
+  flex-direction: column;
+  padding: var(--meridian-space-4);
+  border: 1px dashed var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+}
+
+/* ----------------------------------------------------------------- actions */
+
+.meridian-workflow__action {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-accent-text);
+  cursor: pointer;
+  background: var(--meridian-surface-raised);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-workflow__action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

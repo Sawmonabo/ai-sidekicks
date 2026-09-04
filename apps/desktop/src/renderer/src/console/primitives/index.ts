@@ -39,7 +39,6 @@ export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 export { Nothing } from "./Nothing.js";
 
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   InlineRefusal,
   RefusalBanner,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -55,13 +54,11 @@ export {
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipTone,
 } from "./Chip.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   CHIP_TONES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   Chip,
 } from "./Chip.js";
 
@@ -84,14 +81,19 @@ export type {
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   DerivedFigure,
-  // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and
-  // `frame/WireChoiceList.tsx` both render identifiers through it — so the tag that
+  // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and the
+  // `WireChoiceList` beside it both render identifiers through it — so the tag that
   // stood here was the half of the marker its importing change owed and did not
   // pay. `--treat-tag-hints-as-errors` is what reported the debt.
   WireFigure,
 } from "./Figure.js";
+
+// The one row every surface that offers wire identifiers to choose between renders.
+// A primitive rather than a frame component because its input is a list of wire
+// strings and its only dependency is the figure above: the frame is not the lowest
+// family that owns that, and a view family cannot import the frame's door at all.
+export { WireChoiceList } from "./WireChoiceList.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -100,11 +102,10 @@ export type {
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatByteQuantity,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatClockTime,
   formatCount,
+  formatDateTime,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatDuration,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */

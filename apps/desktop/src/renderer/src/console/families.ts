@@ -39,8 +39,9 @@ import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
-import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type { ConsolePaneRegistry } from "./seats/index.js";
+import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
+import { registerWorkflowSurfaces } from "./workflows/index.js";
 
 /**
  * Register every shipped view family against the three registries a composition owns.
@@ -99,7 +100,7 @@ export function registerConsoleFamilies(
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos
-  // T-023p-1C-6 workflows
+  registerWorkflowSurfaces(registry);
   // T-023p-1C-7 browser-terminal
   // T-023p-1C-8 gallery
 }

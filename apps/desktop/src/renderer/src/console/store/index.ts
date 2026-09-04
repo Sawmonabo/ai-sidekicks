@@ -70,3 +70,16 @@ export {
   useSessionInitialised,
   useSessionPartition,
 } from "./hooks.js";
+
+// The subject-stamped read, through this door because three surfaces above the store
+// hold one: the definitions a session can see, the runs it holds, and one run's
+// snapshot. It is state bound to React and keyed by a subject, which is what this
+// family is, and it is not a store — so it ships from the module that declares it
+// rather than from `hooks.ts`, whose subject is the console's two stores.
+// `SubjectReadStart` stays inside the family: it is what `subjectReadStart` answers
+// with and what `SubjectStampedRead` is built from, and no caller above names it.
+export {
+  subjectReadStart,
+  useSubjectStampedRead,
+  type SubjectStampedRead,
+} from "./subject-stamped-state.js";

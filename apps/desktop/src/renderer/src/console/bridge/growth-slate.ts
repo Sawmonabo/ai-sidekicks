@@ -43,6 +43,7 @@ export type GrowthSlateRowId =
   | "provider-session-import"
   | "attention-plane"
   | "workflow-run-control"
+  | "workflow-run-enumeration"
   | "caller-participant-identity"
   | "callback-tool-registry-read"
   | "sidekick-definition-registry"
@@ -287,6 +288,14 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     owningDocument:
       "Spec-017 §Interfaces And Contracts (the definition, run, gate, phase-output, and human-form operations) + §Operator run control (SA-45) (the cancel and resume pair); Plan-017 (the shared-contracts and client-SDK registration, which no code package carries)",
     consumingSurface: "workflow-run pane, workflow builder",
+    wireRegistered: false,
+  },
+  "workflow-run-enumeration": {
+    id: "workflow-run-enumeration",
+    wire: "a read of the workflow runs a session holds. Registered nowhere, and not one of the thirteen rows the row above draws on: every registered run operation addresses ONE run by an id the caller must already hold, so a surface that lists runs has no wire to ask and no id to ask it with",
+    owningDocument:
+      "Spec-017 §Interfaces And Contracts (the run operations, none of which enumerates); Plan-017 (the shared-contracts and client-SDK registration an enumeration would join)",
+    consumingSurface: "workflows destination (the runs it holds)",
     wireRegistered: false,
   },
   "caller-participant-identity": {

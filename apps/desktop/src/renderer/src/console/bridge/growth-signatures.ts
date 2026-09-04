@@ -68,6 +68,7 @@ import type {
   WorkflowPhaseOutput,
   WorkflowPhaseRunState,
   WorkflowPhaseState,
+  WorkflowRunListEntry,
   WorkflowRunSnapshot,
   WorkflowRunState,
 } from "./workflow-projection.js";
@@ -318,6 +319,23 @@ export interface GrowthOperationSignatures {
         | "missing_event_anchor"
         | "signature_invalid";
     };
+  };
+  // The run enumeration, appended after the nine registered methods because it is
+  // not one of them: no workflow method enumerates runs, so this serves the
+  // `workflow-run-enumeration` slate row rather than the one above it. The request
+  // is keyed by session and by nothing narrower — a run list shows what a session
+  // holds, and a per-definition narrowing would be a request member with no caller.
+  //
+  // The value is an envelope rather than a bare array, so the reply has somewhere to
+  // grow a cursor the day the wire lands with one; the console synthesizes none and
+  // reads none.
+  workflowRunList: {
+    request: { readonly sessionId: string };
+    // `WorkflowRunListEntry` and not the run read's own shape: an enumeration answers
+    // with runs nobody named, and the two definition facts on that entry are what let
+    // a row read as something other than an opaque id. `workflow-projection.ts` says
+    // why no registered read can supply them after the fact.
+    value: { readonly runs: readonly WorkflowRunListEntry[] };
   };
   // gitflow
   //

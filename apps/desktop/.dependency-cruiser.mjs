@@ -50,6 +50,25 @@ const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
 const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
 
 /**
+ * The one cross-family deep specifier the tree still carries, and why it is named here.
+ *
+ * `frame/surface-registry.ts` declares `ConsoleSurfaceContext` and the registry a view
+ * family registers itself into, and a view family cannot import the FRAME's door to
+ * reach them: that door composes the view families through `families.ts`, so an import
+ * back closes a cycle `no-circular` fails. Its right home is `seats/` — it is a contract
+ * through which families hand each other bodies, and it imports nothing above `bridge/`
+ * — and the pane registry now travels through the surface context, but the module still
+ * sits in `frame/`; moving it is the cross-family structure audit's, at which point this
+ * exemption is deleted and the rule covers the whole console. Naming the one module
+ * rather than excepting `frame/` keeps the rule's reach exact: a second deep specifier
+ * into this family, including one into this same module's neighbours, still fails.
+ */
+const FRAME_SURFACE_REGISTRY = `${CONSOLE}/frame/surface-registry\\.ts$`;
+
+/** Every family door, and only a family door — a sub-module door is one segment deeper. */
+const CONSOLE_FAMILY_DOORS = `${CONSOLE}/[^/]+/index\\.ts$`;
+
+/**
  * Every barrel under `console/` — a family door and a sub-module door alike.
  *
  * Two alternatives rather than one `(?:[^/]+/)*` because dependency-cruiser refuses a rule
@@ -228,6 +247,35 @@ export default {
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
     },
     {
+      name: "console-cross-family-deep-import",
+      comment:
+        "A console family reached into another family's module instead of its door. " +
+        "`apps/desktop/AGENTS.md` §Module shape: cross-family imports go through the " +
+        "family door, intra-family imports are deep. The two rules above order the " +
+        "families and keep view families apart; neither says anything about HOW a " +
+        "permitted edge is written, so a downward edge past a barrel — the shape a " +
+        "caller reaches for when importing the door would close a cycle — stayed green. " +
+        "The fix is never the deep specifier: hoist the symbol to the lowest family " +
+        "that owns its inputs, and import it from that family's door. A sub-module " +
+        "door (`bridge/growth-values/`, `bridge/scenarios/`) is deliberately NOT a " +
+        "legal target here — it publishes to its own family only, which is why the " +
+        "exemption below matches a family door's single path segment and not a nested " +
+        "one. The composition sites are subtracted at both ends on the same terms the " +
+        "view-family rule subtracts them: `panes/` sits above every family by " +
+        "construction, so its edges are composition rather than layering.",
+      severity: "error",
+      from: { path: `${CONSOLE}/([^/]+)/`, pathNot: [COMPOSITION_PANE_BOARD] },
+      to: {
+        path: `${CONSOLE}/[^/]+/`,
+        pathNot: [
+          `${CONSOLE}/$1/`,
+          CONSOLE_FAMILY_DOORS,
+          COMPOSITION_PANE_BOARD,
+          FRAME_SURFACE_REGISTRY,
+        ],
+      },
+    },
+    {
       name: "console-no-barrel-chain",
       comment:
         "A barrel re-exported from another barrel. A family door publishes its own family's " +
@@ -247,8 +295,11 @@ export default {
     doNotFollow: { path: "node_modules" },
     // Test files are not subjects of the layering DAG: a `console-unit` test legitimately
     // reaches across families to drive the module it covers, and reaches both process trees to
-    // assert the boundary between them.
-    exclude: { path: "\\.(test|bench)\\.(ts|tsx)$|__tests__/" },
+    // assert the boundary between them. `*.test-support.*` is the same class by the same
+    // reasoning — it is the scaffolding a suite factors out, imported by test files and by
+    // nothing else — and it was outside this pattern only because the pattern was written
+    // before that suffix existed.
+    exclude: { path: "\\.(test|test-support|bench)\\.(ts|tsx)$|__tests__/" },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {
       extensions: [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json"],

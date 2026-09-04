@@ -13,10 +13,10 @@
 // established from are driven beside it, because the served set says an operation
 // answers and says nothing about what it answered.
 //
-// The three subjects that used to sit under this header have their own files, one
-// per concern: `fixture-growth-port.attention.test.ts`,
-// `fixture-growth-port.gitflow.test.ts`, and
-// `fixture-growth-port.refusals.test.ts`.
+// The subjects that used to sit under this header have their own files, one per
+// concern: `fixture-growth-port.attention.test.ts`,
+// `fixture-growth-port.gitflow.test.ts`, `fixture-growth-port.refusals.test.ts`,
+// and `fixture-growth-port.workflows.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,6 +29,7 @@ import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
+import { WORKFLOWS_SCENARIO } from "./scenarios/workflows.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
 
 /**
@@ -66,11 +67,21 @@ function scenarioDeclaring(state: string): ConsoleScenario {
 
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
   it("answers every operation its bridge claims to serve, and refuses every other", async () => {
-    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    // Driven over the WORKFLOWS scenario rather than the flagship, on the second half
+    // of the rule the helper above states: a served operation may legitimately answer
+    // from what the scenario SAYS and refuse where it says nothing —
+    // `callerParticipantRead` does that for a viewer, and the two workflow snapshot
+    // reads do it for a run that has no empty form. The workflows scenario is the one
+    // that states all of it, so a refusal here is a broken served claim rather than a
+    // script that has not spoken. The other side of that pair — the flagship, which
+    // scripts no workflow read — is driven by the workflow suite at the foot of this
+    // file, so neither arm ships untested.
+    const scenario = WORKFLOWS_SCENARIO;
+    const bridge = createFixtureBridge({ scenario });
     const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
 
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
-      const outcome = await callOperation(bridge.growth, operationId);
+      const outcome = await callOperation(bridge.growth, operationId, scenario.sessionId);
       expect(outcome.status, `${operationId} answered the wrong way`).toBe(
         served.has(operationId) ? "served" : "unavailable",
       );

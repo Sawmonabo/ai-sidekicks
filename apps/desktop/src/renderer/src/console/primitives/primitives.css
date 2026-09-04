@@ -45,6 +45,7 @@
  * 3:1 against ADJACENT colours, and a ring drawn over a border has no adjacent.
  */
 .meridian-chip:focus-visible,
+.meridian-choice-list__choice:focus-visible,
 .meridian-chord :focus-visible,
 .meridian-nothing :focus-visible,
 .meridian-refusal :focus-visible,
@@ -158,6 +159,43 @@
  */
 .meridian-figure--derived {
   color: var(--meridian-text-muted);
+}
+
+/* -------------------------------------------------------------- choice list */
+
+/* One list, and every surface that offers wire identifiers to choose between: the
+   sessions destination offers sessions to open in place, the auxiliary picker asks
+   first which session a window should follow and then which agent inside it, and the
+   workflows destination asks which session its definitions resolve from. All of them
+   render the identical row, so the row is styled once. */
+
+.meridian-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-choice-list__choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  width: 100%;
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface);
+  color: inherit;
+  font: inherit;
+  text-align: start;
+  cursor: default;
+  transition: border-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-choice-list__choice:hover {
+  border-color: var(--meridian-edge-strong);
 }
 
 /* ------------------------------------------------------------------- chips */
