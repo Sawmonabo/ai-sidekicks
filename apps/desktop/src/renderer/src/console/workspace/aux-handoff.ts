@@ -109,6 +109,21 @@ export class AuxiliaryHandoff {
   readonly #changes = new Emitter<readonly DetachedPane[]>("auxiliary hand-off change");
   #paneErrorStream: PaneErrorSignal | undefined;
   #paneErrorRefusal: AuxiliaryHandoffRefusal | undefined;
+  /**
+   * Which watch a start belongs to, bumped by every stop — and, beside it, the
+   * generation a start is in flight for.
+   *
+   * A COUNTER RATHER THAN THE `superseded` BOOLEAN the two persistence restores use
+   * (`layout-persistence.ts`, `sidebar/sidebar-state.ts`): those guard one effect that
+   * owns its own flag, and this guards a class outliving any single call, so a boolean
+   * captured per call is unreachable from the stop that has to invalidate it. The
+   * pending mark is generation-SCOPED for the same reason it is not a bare
+   * `isStarting` flag — after a stop, a detach arriving while the old request is still
+   * pending has to start a new subscription rather than be turned away into no watch
+   * at all.
+   */
+  #paneErrorWatchGeneration = 0;
+  #pendingStartGeneration: number | undefined;
 
   public constructor(options: { readonly growth: ConsoleGrowthPort }) {
     this.#growth = options.growth;
@@ -290,14 +305,41 @@ export class AuxiliaryHandoff {
   /**
    * Watch the pane-error signal, so a window that crashed returns its pane.
    *
-   * Idempotent: a second call while a stream is open is a no-op, because the deck
-   * detaching a second pane must not open a second subscription to the same signal.
+   * Idempotent across BOTH states a watch can be in, which is the half this used to
+   * miss. A second call while a stream is open is a no-op, because the deck detaching
+   * a second pane must not open a second subscription to the same signal — and a
+   * second call while the FIRST request is still in flight is a no-op for exactly the
+   * same reason, which a guard reading only the installed stream cannot say.
+   *
+   * AND A REQUEST THAT OUTLIVES ITS WATCH INSTALLS NOTHING. The subscription is
+   * asked for over a process boundary, so the last pane can come back while the
+   * request is in flight; without the generation the response then installed a
+   * stream and drained it for a window with nothing detached, which is the
+   * permanent-notice-about-a-hazard-the-window-does-not-have shape this file's header
+   * rules out. A stale response closes what it opened and installs nothing.
    */
   public async watchPaneErrors(): Promise<void> {
     if (this.#paneErrorStream !== undefined) {
       return;
     }
+    if (this.#pendingStartGeneration === this.#paneErrorWatchGeneration) {
+      return;
+    }
+    const generation = this.#paneErrorWatchGeneration;
+    this.#pendingStartGeneration = generation;
+
     const answer = await this.#growth.windowSubscribePaneErrors({});
+    if (generation !== this.#paneErrorWatchGeneration) {
+      // Stopped while this was in flight. `#pendingStartGeneration` is deliberately
+      // left alone: a stop cleared it, and a later detach may already have claimed it
+      // for the watch that replaced this one.
+      if (answer.status === "served") {
+        answer.value.close();
+      }
+      return;
+    }
+    this.#pendingStartGeneration = undefined;
+
     if (answer.status === "unavailable") {
       this.#paneErrorRefusal = refuseHandoff("wire-unregistered", answer.detail);
       this.#publish();
@@ -308,8 +350,17 @@ export class AuxiliaryHandoff {
     await this.#drainPaneErrors(answer.value);
   }
 
-  /** Close the signal. Called when the last pane comes back, and on teardown. */
+  /**
+   * Close the signal. Called when the last pane comes back, and on teardown.
+   *
+   * The generation is bumped FIRST, so a request still in flight is invalidated by
+   * the same act that closes an installed stream — a stop that reached only what was
+   * installed left the pending one to arrive afterwards and re-open the watch it had
+   * just closed.
+   */
   public stopWatchingPaneErrors(): void {
+    this.#paneErrorWatchGeneration += 1;
+    this.#pendingStartGeneration = undefined;
     this.#paneErrorStream?.close();
     this.#paneErrorStream = undefined;
     this.#paneErrorRefusal = undefined;
