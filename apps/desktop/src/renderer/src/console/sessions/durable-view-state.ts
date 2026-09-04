@@ -32,6 +32,17 @@
 // ignores a superseded reply. It still marks the state hydrated, because the read
 // DID settle and a remount must not re-ask; what is discarded is the value, not the
 // fact that the question was answered.
+//
+// AND NEITHER DOES A LATE WRITE. Every commit writes a COMPLETE snapshot of the
+// record, so two of them in flight at once are two whole records racing for the same
+// key: pinning a session and then pinning a second one before the first write
+// settles could leave the one-pin snapshot durable, and the adapter's own settlement
+// order is not the order the acts happened in. So the writes are SERIALISED — one at
+// the store at a time, the newest snapshot nothing has carried yet waiting behind it,
+// and a later act REPLACING that waiting snapshot rather than queueing after it,
+// because the value is a full record and writing the intermediate one first would
+// spend a write on a state no surface shows any more. What reaches the store is
+// every issued snapshot in the order it was issued, ending on the newest.
 
 import {
   AttemptGeneration,
@@ -85,6 +96,18 @@ export class DurableViewState<TValue extends PersistedValue> {
    * and `hydrate` only captures.
    */
   readonly #localActs = new AttemptGeneration();
+  /**
+   * The write at the store, mapped never to reject, or `undefined` while the store
+   * is idle. Exactly one write is ever at the store.
+   */
+  #writeAtStore: Promise<void> | undefined;
+  /**
+   * The newest snapshot no write has carried yet. Replaced by a later act, never
+   * appended to — see {@link QueuedSnapshot}.
+   */
+  #queuedSnapshot: QueuedSnapshot<TValue> | undefined;
+  /** The one write that snapshot will ride. Every caller waiting on it shares it. */
+  #queuedWrite: Promise<PersistenceWriteOutcome> | undefined;
 
   public constructor(options: DurableViewStateOptions<TValue>) {
     this.#store = options.store;
@@ -189,12 +212,93 @@ export class DurableViewState<TValue extends PersistedValue> {
    * second one is right — it is this write's own reason and not the last one's. What
    * it does not do is emit twice for the settlement that changed nothing, which is
    * every successful write after the first.
+   *
+   * THE ANSWER A COALESCED CALLER GETS IS THE WRITE THAT CARRIED ITS STATE. Two acts
+   * before the store frees are one waiting snapshot, so both callers settle on the
+   * one write that took the newest value — which is the honest answer to "did what I
+   * asked for reach the store", and the only one the serialisation leaves true.
    */
   public async commit(next: TValue): Promise<PersistenceWriteOutcome> {
     this.#localActs.supersedeAll();
     this.#value = next;
     this.#changes.emit();
+    return await this.#persist(next);
+  }
+
+  /** Send `next` to the store, or fold it into the snapshot already waiting. */
+  #persist(next: TValue): Promise<PersistenceWriteOutcome> {
+    const writeAtStore = this.#writeAtStore;
+    if (writeAtStore === undefined) {
+      return this.#issue(next);
+    }
+    const waiting = this.#queuedSnapshot;
+    const waitingWrite = this.#queuedWrite;
+    if (waiting !== undefined && waitingWrite !== undefined) {
+      waiting.value = next;
+      return waitingWrite;
+    }
+    const queued: QueuedSnapshot<TValue> = { value: next };
+    // Read at ISSUE time and not here: an act landing between now and the store
+    // freeing supersedes this snapshot's value, and the write has to carry what the
+    // surface is showing when it leaves rather than what it was showing when it
+    // was queued.
+    const write = writeAtStore.then(() => this.#issueQueued(queued));
+    this.#queuedSnapshot = queued;
+    this.#queuedWrite = write;
+    return write;
+  }
+
+  /** Claim the freed store for the waiting snapshot. */
+  #issueQueued(queued: QueuedSnapshot<TValue>): Promise<PersistenceWriteOutcome> {
+    this.#queuedSnapshot = undefined;
+    this.#queuedWrite = undefined;
+    return this.#issue(queued.value);
+  }
+
+  /**
+   * Put one write at the store and hold the door until it settles.
+   *
+   * The door is released in a continuation of the write's own settlement, so the
+   * waiting snapshot — chained on the same promise, and chained FIRST — claims the
+   * store in the very turn it is freed. That is why the release keeps the door shut
+   * while a snapshot is waiting: an act arriving in the turns between the two folds
+   * into that snapshot instead of opening a second write beside it.
+   */
+  #issue(next: TValue): Promise<PersistenceWriteOutcome> {
+    const settlement = this.#writeThrough(next);
+    this.#writeAtStore = settlement.then(
+      () => {
+        this.#releaseStore();
+      },
+      () => {
+        this.#releaseStore();
+      },
+    );
+    return settlement;
+  }
+
+  #releaseStore(): void {
+    if (this.#queuedSnapshot === undefined) {
+      this.#writeAtStore = undefined;
+    }
+  }
+
+  /**
+   * The write itself, and the settlement it is allowed to publish.
+   *
+   * A settlement belonging to a superseded act publishes NOTHING. Its snapshot is
+   * not what the surface is showing, and the write that carries what the surface IS
+   * showing is already queued behind it — so recording this one would put a refusal
+   * about a state nobody can see beside a control, or clear a standing refusal on the
+   * strength of a write for a value that has been replaced. `hydrate` discards a
+   * superseded record for the same reason and through the same generation.
+   */
+  async #writeThrough(next: TValue): Promise<PersistenceWriteOutcome> {
+    const actsAtWrite = this.#localActs.current();
     const outcome = await this.#store.writeGlobal(this.#key, this.#valueClass, next);
+    if (!this.#localActs.isCurrent(actsAtWrite)) {
+      return outcome;
+    }
     const settledRefusal = outcome.outcome === "refused" ? outcome.refusal : undefined;
     const refusalChanged = settledRefusal !== this.#lastRefusal;
     this.#lastRefusal = settledRefusal;
@@ -203,4 +307,15 @@ export class DurableViewState<TValue extends PersistedValue> {
     }
     return outcome;
   }
+}
+
+/**
+ * A snapshot waiting for the store to free.
+ *
+ * A mutable box rather than a value, because that is the coalescing: a later act
+ * REPLACES what the waiting write will carry, and every caller already holding the
+ * write's promise settles on the one write that then takes it.
+ */
+interface QueuedSnapshot<TValue> {
+  value: TValue;
 }
