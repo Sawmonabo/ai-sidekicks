@@ -80,12 +80,13 @@ describe("the gate's own vocabularies", () => {
     expect(ANNOUNCED_GATE_SETTLEMENTS).not.toContain("not-checked");
   });
 
-  it("owns four refusal codes and none collides with the port's own", () => {
+  it("owns five refusal codes and none collides with the port's own", () => {
     expect([...PROPOSAL_GATE_REFUSAL_CODES]).toStrictEqual([
       "no-served-context",
       "action-not-accepted",
       "action-in-flight",
       "subject-not-addressable",
+      "context-superseded",
     ]);
     expect(PROPOSAL_GATE_REFUSAL_CODES).not.toContain("wire-unregistered");
   });

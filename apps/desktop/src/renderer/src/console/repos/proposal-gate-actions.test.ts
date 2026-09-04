@@ -25,6 +25,7 @@ import {
   type MovingPort,
   OpenReaders,
   REPLY_ABANDONED,
+  SERVED_CALLER_PARTICIPANT,
   SERVED_CONTEXT,
   SERVED_PREPARATION,
   SUBJECT,
@@ -34,6 +35,7 @@ import {
   publishedProposalOf,
   recordingPort,
   rejectsWith,
+  servedContext,
   settle,
   settleAct,
 } from "./proposal-gate-scripted-port.js";
@@ -553,5 +555,126 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
     await settleAct(clock, reader);
 
     expect(reader.snapshot.actionRefusals.get("push")?.code).toBe("wire-unregistered");
+  });
+});
+
+describe("ProposalGateActions — the context an act was admitted against", () => {
+  /**
+   * A port that holds the caller-identity read open, which is the window a refresh
+   * lands in.
+   *
+   * The identity read is what every git action awaits before it sends, so it is the
+   * one place a refresh can replace the served context under an act that has already
+   * been admitted. Held by hand here rather than raced, so the case states the
+   * interleaving instead of hoping for it.
+   */
+  interface HeldIdentityPort {
+    readonly bridge: ConsoleBridge;
+    readonly serveContext: (answer: unknown) => void;
+    readonly answerIdentity: () => void;
+    readonly gitActionCallCount: () => number;
+  }
+
+  function bridgeHoldingIdentity(): HeldIdentityPort {
+    let branchContext: unknown = SERVED_CONTEXT;
+    let gitActionCalls = 0;
+    let release = (): void => {};
+    const held = new Promise<void>((settleHeld) => {
+      release = (): void => {
+        settleHeld();
+      };
+    });
+    return {
+      bridge: {
+        growth: {
+          gitflowBranchContextRead: async () => branchContext,
+          gitflowPrPrepare: async () => SERVED_PREPARATION,
+          gitActionExecute: async () => {
+            gitActionCalls += 1;
+            return ACCEPTED_ACTION;
+          },
+          callerParticipantRead: async () => {
+            await held;
+            return SERVED_CALLER_PARTICIPANT;
+          },
+        },
+      } as unknown as ConsoleBridge,
+      serveContext: (answer: unknown) => {
+        branchContext = answer;
+      },
+      answerIdentity: release,
+      gitActionCallCount: () => gitActionCalls,
+    };
+  }
+
+  /** Press Commit against the served context, caught inside the identity await. */
+  async function pressCommitMidIdentityRead(): Promise<{
+    reader: ProposalGateReader;
+    clock: ManualClock;
+    port: HeldIdentityPort;
+  }> {
+    const clock = new ManualClock();
+    const port = bridgeHoldingIdentity();
+    const reader = readers.open(port.bridge, clock);
+    reader.start();
+    await settle(clock, reader);
+
+    void reader.requestAction("commit");
+    await Promise.resolve();
+    return { reader, clock, port };
+  }
+
+  /** Serve `next` and let a focus refresh land while the act is still waiting. */
+  async function refreshTo(
+    port: HeldIdentityPort,
+    clock: ManualClock,
+    reader: ProposalGateReader,
+    next: unknown,
+  ): Promise<void> {
+    port.serveContext(next);
+    window.dispatchEvent(new Event("focus"));
+    await settle(clock, reader);
+  }
+
+  it("sends nothing when the refreshed context is a different root", async () => {
+    // The whole defect: the continuation checked only that no LATER ACT had taken the
+    // register, then sent the context it captured — mutating a branch context the gate
+    // had already stopped showing.
+    const { reader, clock, port } = await pressCommitMidIdentityRead();
+    await refreshTo(port, clock, reader, servedContext({ headBranch: "feat/something-else" }));
+
+    port.answerIdentity();
+    await settleAct(clock, reader);
+
+    expect(port.gitActionCallCount()).toBe(0);
+    expect(reader.snapshot.actionRefusals.get("commit")?.code).toBe("context-superseded");
+    expect(reader.snapshot.actionRefusals.get("commit")?.detail).toContain("Commit");
+  });
+
+  it("sends nothing when the refresh left the gate with no context at all", async () => {
+    // The other half of what a refresh can do: the read can be REFUSED, which leaves
+    // the gate showing no root — and an act sent then would name one nothing read.
+    const { reader, clock, port } = await pressCommitMidIdentityRead();
+    await refreshTo(port, clock, reader, WIRE_UNREGISTERED);
+
+    port.answerIdentity();
+    await settleAct(clock, reader);
+
+    expect(port.gitActionCallCount()).toBe(0);
+    expect(reader.snapshot.actionRefusals.get("commit")?.code).toBe("context-superseded");
+  });
+
+  it("negative control: a refresh serving the same context still sends the act", async () => {
+    // Without this the two cases above would pass against a sender that refused every
+    // act that outlived a refresh — which is every act on a gate that re-reads on
+    // focus, a reconnect, and every repo frame the daemon sends.
+    const { reader, clock, port } = await pressCommitMidIdentityRead();
+    await refreshTo(port, clock, reader, SERVED_CONTEXT);
+
+    port.answerIdentity();
+    await settleAct(clock, reader);
+
+    expect(port.gitActionCallCount()).toBe(1);
+    expect(reader.snapshot.actionRefusals.has("commit")).toBe(false);
   });
 });

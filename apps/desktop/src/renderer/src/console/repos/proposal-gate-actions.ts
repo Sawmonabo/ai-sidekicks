@@ -37,6 +37,13 @@
 // it was issued under before it writes: a reply for a request the register has moved
 // past describes a proposal a later act superseded, and writing it puts that payload back.
 //
+// AND THE REGISTER SAYS NOTHING ABOUT THE READ. It answers "did a later act supersede
+// this one", while the branch-context read runs on its own schedule and can replace or
+// lose the served context inside an act's own await. So a git action re-checks, at the
+// moment it would go on the wire, that the context it was admitted under is still the
+// one the gate has read — by the pairing rule's three members, not by object identity —
+// and refuses rather than mutating a root the participant is no longer looking at.
+//
 // THE TARGET BRANCH IS THE CONTEXT'S AND NEVER A SELECTION. `branch-context-model.ts`
 // forbids inferring base or head from a pane, a tab, or a focused view; the
 // preparation call's `targetBranch` is read off the served context's `baseBranch` and
@@ -54,7 +61,7 @@
 import type { ConsoleBridge } from "../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import type { BranchContextReading } from "./branch-context-model.js";
-import type { PreparedProposal } from "./prepared-proposal.js";
+import { proposalContextKeysMatch, type PreparedProposal } from "./prepared-proposal.js";
 import { gitActionExecuteRequest } from "./git-action-request.js";
 import { refusalFromRejection } from "./repo-reads.js";
 import {
@@ -258,6 +265,18 @@ export class ProposalGateActions {
     return !this.#disposed && this.#inFlight?.requestId === request.requestId;
   }
 
+  /**
+   * Whether the context an act was admitted under is still the one the gate has read.
+   *
+   * The pairing rule's three members and not the object's identity: a re-read serves a
+   * fresh value every time, so comparing references would refuse every act that
+   * outlived a refresh which changed nothing.
+   */
+  #stillActingOn(context: BranchContextReading): boolean {
+    const served = this.#host.servedContext();
+    return served !== undefined && proposalContextKeysMatch(context, served);
+  }
+
   async #prepareProposal(
     context: BranchContextReading,
     request: InFlightProposalAction,
@@ -300,6 +319,29 @@ export class ProposalGateActions {
     // half that reads, so this await resolves immediately for every act after the first.
     const causationParticipantId = await this.#host.callerParticipantId();
     if (!this.#stillStandingFor(request)) {
+      return;
+    }
+    if (!this.#stillActingOn(context)) {
+      // THE REGISTER IS NOT THE WHOLE ANSWER. Holding it says no LATER ACT superseded
+      // this one; it says nothing about the READ, which runs on its own schedule and
+      // can replace or lose the served context inside this await. A gate already
+      // showing a different root — or none — would otherwise mutate the branch context
+      // this press was admitted against, which is a remote act against something the
+      // participant is no longer looking at.
+      //
+      // REFUSED AT THE SEND RATHER THAN CANCELLED ON THE REFRESH, because the refresh
+      // belongs to the half that reads: `ProposalGateActionHost` gives it no operation
+      // that reaches the register, and adding one would let the reader decide an act's
+      // fate. The comparison is the pairing rule's own three members, so "still the
+      // context I was pressed against" is one decision in this family rather than two.
+      this.#recordActionRefusal(
+        action,
+        refuse(
+          PROPOSAL_GATE_REFUSAL_ORIGIN,
+          "context-superseded" satisfies ProposalGateRefusalCode,
+          `${PROPOSAL_ACTION_PRESENTATION[action].label} was pressed against a branch context this gate has since read again, so nothing was sent against it.`,
+        ),
+      );
       return;
     }
     const outcome = await this.#bridge.growth.gitActionExecute(
