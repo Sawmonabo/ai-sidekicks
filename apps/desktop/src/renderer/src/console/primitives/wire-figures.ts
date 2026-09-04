@@ -93,6 +93,53 @@ export function formatWireString(value: string): string {
   return value;
 }
 
+/** One member of a structured wire value, ready to render as a pair. */
+export interface WireDescriptorEntry {
+  readonly key: string;
+  /** The member's value, as it will be shown. Wire-verbatim for a string. */
+  readonly value: string;
+}
+
+/**
+ * A structured wire value — an approval's `resourceDescriptor`, and anything else
+ * the wire types `Record<string, unknown>` — decomposed into renderable pairs.
+ *
+ * Here rather than at the surface that first needed one, because deciding how a
+ * non-string member READS is formatting, and a surface that made that decision for
+ * itself would be the second implementation this module exists to prevent. Two
+ * rules, and both are about not lying:
+ *
+ *   • A string member renders verbatim, with no quotes added around it. Quoting it
+ *     would put two characters on screen that the daemon never sent, which is
+ *     exactly what a mono wire figure promises it will not do.
+ *   • Every other member renders as its JSON form — the one serialization that is
+ *     total over `unknown`, stable across runs, and reversible by eye. `undefined`
+ *     has no JSON form, so the member is named as one the reply left unset rather
+ *     than dropped, because a member that vanishes is a member nobody can ask about.
+ *
+ * Insertion order is kept. The daemon composed this descriptor and the order it
+ * composed it in is the order it meant; sorting would be the console re-deciding
+ * what the most important part of a request is.
+ */
+export function formatWireDescriptor(
+  descriptor: Readonly<Record<string, unknown>>,
+): readonly WireDescriptorEntry[] {
+  return Object.entries(descriptor).map(([key, value]) => ({
+    key,
+    value: formatDescriptorMember(value),
+  }));
+}
+
+/** What an `undefined` member reads as. Named, because it is copy and not a value. */
+const UNSET_DESCRIPTOR_MEMBER_TEXT = "(no value)";
+
+function formatDescriptorMember(value: unknown): string {
+  if (value === undefined) {
+    return UNSET_DESCRIPTOR_MEMBER_TEXT;
+  }
+  return typeof value === "string" ? value : JSON.stringify(value);
+}
+
 /** A count the console derived. Grouped per locale; never abbreviated. */
 export function formatCount(value: number, locale?: string): string {
   if (!Number.isFinite(value)) {

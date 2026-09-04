@@ -18,6 +18,11 @@
 
 import "./primitives.css";
 
+// The sheet's one filled-accent face, named where TypeScript can see it. Two
+// surfaces outside this family wear it, so the name is declared once rather than
+// spelled at each of them.
+export { ACCENT_FILL_CLASS } from "./accent-fill.js";
+
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
 
@@ -38,13 +43,7 @@ export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
 
 export { Nothing } from "./Nothing.js";
 
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  InlineRefusal,
-  RefusalBanner,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  RefusalCard,
-} from "./Refusal.js";
+export { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -55,13 +54,11 @@ export {
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipTone,
 } from "./Chip.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   CHIP_TONES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   Chip,
 } from "./Chip.js";
 
@@ -69,10 +66,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   LedgerRowProps,
 } from "./LedgerRow.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
-  LedgerRow,
-} from "./LedgerRow.js";
+export { LedgerRow } from "./LedgerRow.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -83,15 +77,12 @@ export type {
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  DerivedFigure,
-  // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and
-  // `frame/WireChoiceList.tsx` both render identifiers through it — so the tag that
-  // stood here was the half of the marker its importing change owed and did not
-  // pay. `--treat-tag-hints-as-errors` is what reported the debt.
-  WireFigure,
-} from "./Figure.js";
+// Neither name carries a marker any more: `WireFigure` is rendered by
+// `frame/ContextPicker.tsx` and `frame/WireChoiceList.tsx`, and `DerivedFigure` by
+// the runs, approvals, and inspector panes, so a surviving tag would be the half of
+// the marker an importing change owed and did not pay — which
+// `--treat-tag-hints-as-errors` reports.
+export { DerivedFigure, WireFigure } from "./Figure.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -100,18 +91,15 @@ export type {
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatByteQuantity,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatClockTime,
   formatCount,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatDuration,
+  formatWireDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatMoney,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatRate,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatRelativeTime,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatWireString,

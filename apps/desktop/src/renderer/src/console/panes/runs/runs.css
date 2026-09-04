@@ -1,0 +1,519 @@
+/* The runs pane's own sheet.
+
+   Imported from this subtree's door (`index.ts`) and from nowhere else, so a runs
+   surface can no more arrive without its CSS than a primitive can, and the bundler
+   sees one edge into the sheet rather than one per component.
+
+   Every value here is a Meridian token. There is no colour literal, no font stack,
+   and no spacing number in this file: rule 3 puts the palette in one place, and a
+   pane that hard-coded one would be a second palette nobody could re-theme. */
+
+.meridian-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-4);
+  min-width: 0;
+}
+
+.meridian-runs__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-runs__section-title {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* The stream is open and some of what it carried could not be read. Quiet, muted,
+   and beside the rows: it qualifies the list rather than replacing it, so it takes
+   the same treatment the other partial-read notes take. */
+.meridian-runs__incomplete-stream {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+/* Same measure and same quiet weight as the incomplete-stream sentence: both
+   qualify the list beside it rather than standing in for it, so neither may read
+   as a failure card. */
+.meridian-runs__awaiting-projection {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-runs__rows {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A row seated from the session's own record. It is deliberately quieter than a
+   live row and carries no attribution edge: the ledger's edge is the signature of a
+   reading the stream supplied, and this row is not one. */
+.meridian-known-run {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+  min-width: 0;
+}
+
+.meridian-known-run__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-known-run__trigger,
+.meridian-known-run__clean-close,
+.meridian-known-run__provenance {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-known-run__failure {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-known-run__failure-detail {
+  color: var(--meridian-text-muted);
+}
+
+/* --- One run --------------------------------------------------------------- */
+
+.meridian-run-row__reading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-run-row__trigger,
+.meridian-run-row__clean-close,
+.meridian-run-row__blocked,
+.meridian-run-row__no-history {
+  margin: var(--meridian-space-1) 0 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-row__failure {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  margin: var(--meridian-space-1) 0 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-row__failure-detail {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-run-row__ask {
+  margin-top: var(--meridian-space-2);
+}
+
+/* The detail toggle is quiet chrome: a text button that carries no border until it
+   is reached, so the row reads as a line rather than as a form. */
+.meridian-run-row__detail-toggle {
+  align-self: flex-start;
+  margin-top: var(--meridian-space-2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-run-row__detail-toggle:hover {
+  color: var(--meridian-text);
+}
+
+.meridian-run-row__detail-toggle:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-run-row__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-3);
+  margin-top: var(--meridian-space-2);
+  padding-top: var(--meridian-space-2);
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-run-row__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+}
+
+.meridian-run-row__section-title {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  font-weight: 500;
+}
+
+.meridian-run-row__history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-run-row__history-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-row__history-mark {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-run-row__history-states,
+.meridian-run-row__history-position {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  color: var(--meridian-text-muted);
+}
+
+/* --- The control row ------------------------------------------------------- */
+
+.meridian-run-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-run-controls__primary,
+.meridian-run-controls__overflow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-run-controls__action,
+.meridian-run-controls__overflow-toggle,
+.meridian-queue__cancel,
+.meridian-run-composer__confirm,
+.meridian-run-composer__dismiss {
+  display: inline-flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-run-controls__action:hover,
+.meridian-run-controls__overflow-toggle:hover,
+.meridian-queue__cancel:hover:enabled,
+.meridian-run-composer__confirm:hover,
+.meridian-run-composer__dismiss:hover {
+  border-color: var(--meridian-edge-strong);
+}
+
+.meridian-run-controls__action:focus-visible,
+.meridian-run-controls__overflow-toggle:focus-visible,
+.meridian-queue__cancel:focus-visible,
+.meridian-run-composer__confirm:focus-visible,
+.meridian-run-composer__dismiss:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-run-controls__action[aria-busy="true"],
+.meridian-queue__cancel:disabled {
+  color: var(--meridian-text-muted);
+  cursor: progress;
+}
+
+/* --- The queue ------------------------------------------------------------- */
+
+.meridian-queue__rows {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-queue__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-queue__identity,
+.meridian-queue__figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+}
+
+.meridian-queue__figure {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-queue__figure dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-queue__figure dd {
+  margin: 0;
+}
+
+/* The partial-read warning sits above the rows and reads as a qualifier rather
+   than a failure card: the rows below it are still the best reading there is. */
+.meridian-queue__partial {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin-bottom: var(--meridian-space-2);
+}
+
+.meridian-queue__partial-copy {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1.5;
+}
+
+.meridian-queue__withheld {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+/* --- Interventions and the rollback settlement ------------------------------ */
+
+.meridian-interventions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-interventions__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  border-left: 2px solid var(--meridian-edge);
+  padding-left: var(--meridian-space-2);
+}
+
+.meridian-interventions__head {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-interventions__detail,
+.meridian-interventions__reason {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-rollback__head {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-rollback__summary,
+.meridian-rollback__resend,
+.meridian-rollback__standing,
+.meridian-rollback__enumeration-empty {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback__summary {
+  color: var(--meridian-text);
+}
+
+.meridian-rollback__resend,
+.meridian-rollback__standing,
+.meridian-rollback__enumeration-empty {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-rollback__positions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  margin: 0;
+}
+
+.meridian-rollback__position {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-rollback__position dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback__position dd {
+  margin: 0;
+}
+
+.meridian-rollback__no-position {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback__files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-rollback__enumeration-summary {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-rollback__enumeration-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-rollback__enumeration-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: var(--meridian-space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* --- The steer and rewind composer ----------------------------------------- */
+
+.meridian-run-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-run-composer__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-run-composer__label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-composer__position,
+.meridian-run-composer__body {
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  resize: vertical;
+}
+
+.meridian-run-composer__position:focus-visible,
+.meridian-run-composer__body:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-run-composer__preview,
+.meridian-run-composer__composite {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-composer__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}

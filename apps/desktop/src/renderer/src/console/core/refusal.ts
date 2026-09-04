@@ -62,6 +62,24 @@ export class ConsoleRefusalError extends Error {
   }
 }
 
+/**
+ * The member paths a parse refused on, for a refusal's own sentence.
+ *
+ * PATHS AND NEVER THE REFUSED VALUE. A stream delivery's payload may be participant
+ * content, and `detail` says what was refused rather than repeating it — so what a
+ * reader gets is the members that failed, which is also what they search for.
+ *
+ * Here rather than in either stream because two of them compose this same list into
+ * their own sentence, and two copies of one mapping drift while both stay green.
+ */
+export function refusedMemberPaths(
+  issues: readonly { readonly path: readonly PropertyKey[] }[],
+): readonly string[] {
+  return issues.map((issue) =>
+    issue.path.length === 0 ? "the payload" : issue.path.map(String).join("."),
+  );
+}
+
 /** True when a value is a refusal, for a seam that returns a result or a refusal. */
 export function isConsoleRefusal(value: unknown): value is ConsoleRefusal {
   if (typeof value !== "object" || value === null) {

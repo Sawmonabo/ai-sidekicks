@@ -17,9 +17,24 @@
 // The kind vocabulary leaves the family beside the reference it keys, because the
 // seat that decides which entity kinds a pane is a view of has to decide it for
 // EVERY kind — a list of the admitted ones grows a hole the day a kind is added,
-// which is how repo and invite went missing from the inspector's scope.
+// which is how repo and invite went missing from the inspector's scope. The
+// enumeration ships beside the union for the same reason the deck needs both: the
+// inspector keys one record body per kind and its table is total over this set by
+// type, so a new kind fails to compile at the table rather than reaching a deck
+// that renders it blank, and a claim about a CLOSED SET has to be countable at
+// runtime for a test to hold it — a second union declared here instead would be the
+// mirrored closed set `apps/desktop/AGENTS.md` rejects.
+//
+// `ConsoleEntity` joins its ref on the door with `useSessionPartition` below: a
+// partition is a map OF entities, so a consumer that can subscribe to one and
+// cannot name what it holds would have to restate the shape to read it.
 export { CONSOLE_ENTITY_KINDS } from "./entities.js";
-export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
+export type {
+  ConsoleEntity,
+  ConsoleEntityKind,
+  ConsoleEntityRef,
+  ConsoleSessionEvent,
+} from "./entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names
 // and this family deliberately knows none, so the type travels out and the
@@ -35,7 +50,7 @@ export {
   consoleEntityProjectorRegistry,
 } from "./entity-projector-registry.js";
 
-export { SessionStore } from "./session-store.js";
+export { SessionStore, type SessionStoreState } from "./session-store.js";
 // The base state a read establishes. Exported because the composition root now
 // builds one — the adapter over the growth port's session read lives there, which
 // is where a family that may reach the bridge is allowed to be.
@@ -57,16 +72,54 @@ export { SessionStoreRegistry } from "./session-store-registry.js";
 // than a type anything outside names.
 export type { SessionSnapshotRead } from "./open-session-entry.js";
 
-// The partition and initialisation reads leave the family with their first
-// surface caller: the auxiliary window's agent step reads a session's agents,
-// which is one entity kind's map plus the fact that the store has a base state to
-// read it from. Both go through this door rather than a deep import, so the
-// family's one subscription path stays the only one.
+// The refresh chokepoint, on the family door because the rule it realises binds
+// every family above this one: `Spec-023 §Console Design (Meridian)` §The eight
+// rules puts every read behind one scheduler, and a view family that could not
+// reach it through this barrel would have to arm a timer of its own — which is
+// exactly what the rule forbids. `ApplyQueue` stays off the door: its only caller
+// is `SessionStoreRegistry`, and a second one would be a second writer into the
+// apply chokepoint.
+export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
+
+// `useSessionPartition` joins the door with its cross-family consumers: the
+// composer reads the `agent`, `run`, and `channel` partitions to resolve what a
+// send is addressed to, and the frame's agent step reads a session's agents. It is
+// the partitioned subscription rule 6 asks for — a surface that reached for
+// `useSessionStore` with a selector of its own would be the second subscription
+// path this module exists to prevent.
+// `useSessionStore` ships beside them for the reason stated above: it is the ONE
+// selector-shaped read of a session store, and a surface that could not reach it
+// through this door would reach for `useSyncExternalStore` and become the second
+// subscription path with its own equality rule. `SessionStoreState` travels with
+// it because a caller hoisting a selector to module scope has to name the state
+// it selects from.
+//
+// `useSessionInitialised` and `useSessionDegradedCause` are the two absences a
+// partition read cannot express: a map with no rows means one thing before the
+// read has answered, another when the daemon has said the projection is
+// incomplete, and a third when the session simply has none of that kind. A
+// surface that could reach only the partition would have to render all three as
+// "empty", which is the collapse rule 8 forbids.
+//
+// `useOpenSessionIds` ships with them because the sessions surface and the
+// context picker each have to name which sessions are open before either can
+// read one, and the registry is the only thing that knows.
 export {
+  useCallerMembershipRole,
   useFrameStore,
   useLocationHash,
   useOpenSessionIds,
   useOpenSessionStore,
+  useSessionDegradedCause,
   useSessionInitialised,
   useSessionPartition,
+  useSessionStore,
 } from "./hooks.js";
+// The caller-role chain leaves the family with its first consumer: the approvals
+// pane, which gates the goal controls on it. The reader type travels with it
+// because the read itself lives on the growth port in `bridge/` — a family this one
+// may not reach up to — so the composition site above adapts that outcome into this
+// shape, and it has to be able to NAME the shape to do so. The result type travels
+// for the same reason: a caller mapping three arms onto what a control may offer
+// writes that mapping over the union rather than over a boolean it inferred.
+export type { CallerMembershipRoleResult, CallerParticipantReader } from "./hooks.js";

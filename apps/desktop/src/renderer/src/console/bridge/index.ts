@@ -42,6 +42,81 @@ export { SESSION_EVENT_STREAM } from "./session-event-streams.js";
 // would be measured against the wrong one.
 export { runStateForTransitionKind } from "./session-event-streams.js";
 
+// The one widening of the daemon's branded `call` / `subscribe` signatures, and the
+// registered method-name constants the console reaches through it. Here rather than
+// beside a caller because two families need it and neither may import the other —
+// `daemon-calls.ts` records the whole reasoning.
+export {
+  COMPACT_CONTEXT_METHOD,
+  DAEMON_STREAM_REFUSAL_ORIGIN,
+  DRIVER_LIST_CAPABILITIES_METHOD,
+  LIST_PROVIDER_COMMANDS_METHOD,
+  PROVIDER_ACCOUNT_LIST_METHOD,
+  PROVIDER_ACCOUNT_SUBSCRIBE_STREAM,
+  QUEUE_CANCEL_METHOD,
+  QUEUE_LIST_METHOD,
+  QUEUE_SUBSCRIBE_STREAM,
+  RUN_INTERVENE_METHOD,
+  RUN_PAUSE_METHOD,
+  RUN_RESUME_METHOD,
+  RUN_STATE_SUBSCRIBE_STREAM,
+  callDaemon,
+  subscribeDaemon,
+  subscribeNodeDaemon,
+} from "./daemon-calls.js";
+export type { DaemonStreamOpen } from "./daemon-calls.js";
+
+// The declared-capability read, and the two shapes its consumers resolve against.
+// Here rather than beside either consumer because two view families gate controls on
+// it and neither may import the other — one read per bridge serves both, and a hook
+// living in one of them would make the other's copy a second call on one wire.
+export {
+  declaredFlagsForDriver,
+  useDriverCapabilities,
+  useDriverCapabilityRepairRead,
+  withRunDriverBindings,
+} from "./driver-capability-read.js";
+export {
+  foldRunDriverBindings,
+  selectSessionTimeline,
+  useRunDriverBindings,
+} from "./run-driver-binding.js";
+export { SessionRepairWatcher } from "./session-repair-watcher.js";
+export type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-read.js";
+
+// The session's one queue reading. Here for the same reason the capability read is:
+// the runs pane and the composer's shelf ask two questions of one list, and each
+// used to ask its own down its own subscription.
+export { useQueueFeed } from "./queue-feed.js";
+export type { QueueFeed, QueueReadPhase } from "./queue-reading.js";
+
+// The node's provider-account quotas: one read, one tail, one fold per bridge.
+//
+// Here rather than in the composer because the readings are the NODE's and not a
+// session's — `usage.rate_limit_update` is bound to the node-scope sentinel session,
+// so no session store ever held one and the composer's timeline fold could only ever
+// have rendered a fixture. A settings surface listing accounts asks the same
+// question of the same registry, so the read lives at the bridge where both reach it.
+//
+// Three modules, and the door re-exports each symbol from the one that DECLARES it:
+// `provider-quota-fold.ts` owns which reading is current and what a surface renders
+// for it, `provider-account-quota.ts` owns the wire that feeds it, and
+// `provider-quota-feed.ts` owns how many readings there are and how long each lives.
+export { useProviderQuotas } from "./provider-quota-feed.js";
+export type { ProviderQuotaReadPhase, ProviderQuotaReadout } from "./provider-account-quota.js";
+export { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-account-quota.js";
+export { remainingPercentOf } from "./provider-quota-fold.js";
+export type { ProviderQuotaReading } from "./provider-quota-fold.js";
+
+// State that belongs to the bridge and session it was produced under. Here rather
+// than beside either consumer because two of them — the runs pane's live feed and
+// the composer's attachment picker — sit in different families that may not import
+// one another, and the failure it closes is the same failure in both: a mounted
+// surface rebound to another subject rendering the previous one's answer, and a read
+// still in flight settling into a surface that has since moved on.
+export { useSessionScopedState } from "./session-scoped-state.js";
+export type { SessionScopedState } from "./session-scoped-state.js";
+
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,

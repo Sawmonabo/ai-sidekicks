@@ -1,0 +1,88 @@
+/* The discovery popover, sitting above the line it watches.
+ *
+ * A sibling sheet rather than an addition to `composer.css`: the zone is one lane's
+ * work behind one barrel, and a family-wide sheet edited by every zone is a file
+ * three branches conflict in. Meridian tokens only — no raw colour reaches this file.
+ */
+
+.meridian-command-discovery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-command-discovery__lede {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-command-discovery__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  max-height: var(--meridian-enumeration-max-height);
+  overflow-y: auto;
+  list-style: none;
+}
+
+.meridian-command-discovery__list:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-command-discovery__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-command-discovery__row--active {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-command-discovery__name {
+  font-family: var(--meridian-font-mono);
+}
+
+.meridian-command-discovery__binding {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-command-discovery__description {
+  flex: 1 1 auto;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-command-discovery__run {
+  flex: 0 0 auto;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font-family: var(--meridian-font-sans);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-command-discovery__state {
+  display: flex;
+}
+
+/* The answer to a key press the surface could not honour. Muted like the lede,
+   because it explains the surface rather than reporting a failure of one. */
+.meridian-command-discovery__notice {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}

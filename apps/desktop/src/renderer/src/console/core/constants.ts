@@ -173,3 +173,20 @@ export const LIVE_ANNOUNCEMENT_QUEUE_CAP = 8;
  * `LIVE_ANNOUNCEMENT_QUEUE_CAP` × this — seconds, not minutes.
  */
 export const LIVE_ANNOUNCEMENT_HOLD_MS = 500;
+
+/**
+ * Account-plane notifications held while that registry's OPENING read is in
+ * flight.
+ *
+ * The tail opens before the read, and the read's reply restates the whole
+ * registry at an instant the tail has already moved past — so a removal or a
+ * credential-generation bump that arrives in that window has to be replayed
+ * AFTER the snapshot seats or the snapshot silently undoes it. The buffer's
+ * lifetime is therefore one round trip, and its size is whatever the tail bursts
+ * inside one: a node's accounts and their limit windows are a handful, so this is
+ * a memory bound rather than a policy. Past it the reading stops buffering,
+ * applies what it holds live, and takes a FRESH read — nothing is dropped,
+ * because the tail emits no second notification for a mutation it already
+ * reported.
+ */
+export const PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP = 64;

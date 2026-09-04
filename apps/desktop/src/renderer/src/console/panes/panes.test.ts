@@ -18,7 +18,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ConsolePaneRegistry } from "../seats/index.js";
+import { ConsolePaneRegistry, type PaneKind } from "../seats/index.js";
 import { registerConsolePanes } from "./index.js";
 
 declare global {
@@ -39,15 +39,24 @@ const seatBoardSources = import.meta.glob("./index.ts", {
 /** The seat board's own text. One entry, keyed by the glob's resolved path. */
 const seatBoardSource: string = Object.values(seatBoardSources).join("");
 
-/** The reserved lines, in the order the branches cut against. */
+/**
+ * The lines still reserved, in the order the branches cut against.
+ *
+ * A family that lands REPLACES its line, so this list shrinks by exactly one entry
+ * per family and the assertion below stays a claim about the seats nobody has taken
+ * yet. `T-023p-1C-3` is gone from it because that family's three registrations are
+ * on the board; the case that pins them is in the composition block.
+ */
 const RESERVED_LINES: readonly string[] = [
   "// T-023p-1C-2 timeline",
-  "// T-023p-1C-3 runs approvals inspector",
   "// T-023p-1C-4 agent-console",
   "// T-023p-1C-5 diff artifact",
   "// T-023p-1C-6 workflow-run workflow-builder",
   "// T-023p-1C-7 browser terminal",
 ];
+
+/** Kinds a landed family has claimed, in the declaration order the deck answers in. */
+const CLAIMED_PANE_KINDS: readonly PaneKind[] = ["inspector", "runs", "approvals"];
 
 /** The body of `registerConsolePanes`, from its brace to the matching close. */
 function seatBoardFunctionBody(source: string): string {
@@ -68,33 +77,35 @@ describe("pane seat board — reserved lines only", () => {
     expect(seatBoardSource).toContain("export function registerConsolePanes");
   });
 
-  it("carries the six reserved lines in task order", () => {
+  it("carries every unclaimed seat's reserved line, in task order", () => {
     const body = seatBoardFunctionBody(seatBoardSource);
-    expect(body.split("\n").map((line) => line.trim())).toStrictEqual([...RESERVED_LINES]);
+    const commentLines = body
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("//"));
+    expect(commentLines).toStrictEqual([...RESERVED_LINES]);
   });
 
-  it("negative control: a body with a real registration is rejected", () => {
+  it("negative control: a body that lost a reserved line is rejected", () => {
     // Without this, the case above would pass over an implementation of
     // `seatBoardFunctionBody` that returned the reserved lines whatever the file
     // said — and over a regex that matched a prefix of a longer body.
-    const withRegistration = seatBoardSource.replace(
-      "  // T-023p-1C-2 timeline\n",
-      "  registerLedgerPanes(registry);\n",
-    );
-    expect(withRegistration).not.toBe(seatBoardSource);
+    const withoutSeat = seatBoardSource.replace("  // T-023p-1C-2 timeline\n", "");
+    expect(withoutSeat).not.toBe(seatBoardSource);
     expect(
-      seatBoardFunctionBody(withRegistration)
+      seatBoardFunctionBody(withoutSeat)
         .split("\n")
-        .map((line) => line.trim()),
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("//")),
     ).not.toStrictEqual([...RESERVED_LINES]);
   });
 });
 
 describe("pane seat board — composing it today", () => {
-  it("registers nothing while every seat is reserved", () => {
+  it("claims exactly the kinds the landed families own", () => {
     const registry = new ConsolePaneRegistry();
     registerConsolePanes(registry);
-    expect(registry.registeredPaneKinds()).toStrictEqual([]);
+    expect(registry.registeredPaneKinds()).toStrictEqual([...CLAIMED_PANE_KINDS]);
   });
 
   it("survives being composed twice, as a hot reload does it", () => {
@@ -105,12 +116,15 @@ describe("pane seat board — composing it today", () => {
     }).not.toThrow();
   });
 
-  it("negative control: the registry itself does report a claimed kind", () => {
-    // The empty result above would also be produced by a `registeredPaneKinds`
-    // that always answered `[]`, which would make the first case vacuous.
+  it("negative control: a kind no family claimed is absent", () => {
+    // The list above would also be produced by a `registeredPaneKinds` that
+    // answered every declared kind, which would make the case vacuous.
     const registry = new ConsolePaneRegistry();
-    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
     registerConsolePanes(registry);
-    expect(registry.registeredPaneKinds()).toStrictEqual(["timeline"]);
+    expect(registry.registeredPaneKinds()).not.toContain("timeline");
+    // And the registry does report a kind once someone claims it, so the absence
+    // above is a fact about the seat board rather than about the registry.
+    registry.register({ kind: "timeline", owner: "panes-test", render: () => null });
+    expect(registry.registeredPaneKinds()).toContain("timeline");
   });
 });
