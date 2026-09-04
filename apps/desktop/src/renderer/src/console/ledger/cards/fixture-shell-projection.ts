@@ -74,11 +74,10 @@
 
 import {
   RunRolledBackEventSchema,
-  type AssistantOutputPayload,
   type InterventionRequestPayload,
   type RunRolledBackEvent,
   type RunStateChangeEvent,
-  type ToolActivityPayload,
+  type SessionEvent,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
   TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
@@ -156,22 +155,22 @@ const RUN_ATTRIBUTION_PAYLOAD_MEMBERS: readonly string[] = TIMELINE_RUN_ATTRIBUT
  * whichever run-naming member turned up first would file a child run's rows in its
  * parent's chapter — the same defect pointing the other way.
  *
- * THE TWO ARTIFACTS ARE BOTH LIVE, and they meet in `runIdOf`: the contract names
- * the candidates and this table decides each one, so a member the contract grows
- * and this file has not decided is SKIPPED rather than trusted — a row that stays
- * session-level, which is the fail-closed direction, instead of one attributed to
- * whichever run a member nobody has read happens to name.
+ * HOW FAR THE COMPLETENESS CLAIM REACHES, which is a fact about what the contracts
+ * package publishes. `SessionEvent` is that package's own registered discriminated
+ * union, so `SessionEvent["payload"]` is EVERY payload shape it registers under it:
+ * an arm added there carrying a run-naming member arrives at this table with nobody
+ * having to widen a list here. The three shapes named beside it are `runControl.ts`',
+ * which that union does not carry — they are the payloads of the run and
+ * intervention kinds this shell also reads, and the package publishes no union over
+ * them — so those three are enumerated and the claim is bounded to exactly them: a
+ * FOURTH run-control shape has to be added here by hand.
  */
 type RunNamingMemberOf<TPayload> = TPayload extends unknown
   ? Extract<keyof TPayload, "runId" | `${string}RunId`>
   : never;
 
 type RunNamingPayloadMember = RunNamingMemberOf<
-  | AssistantOutputPayload
-  | ToolActivityPayload
-  | RunStateChangeEvent
-  | RunRolledBackEvent
-  | InterventionRequestPayload
+  SessionEvent["payload"] | RunStateChangeEvent | RunRolledBackEvent | InterventionRequestPayload
 >;
 
 /** Whether a member names the run the event is ABOUT, or some other run. */
