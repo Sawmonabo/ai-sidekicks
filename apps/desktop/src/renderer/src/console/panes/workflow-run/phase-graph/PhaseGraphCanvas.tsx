@@ -10,14 +10,22 @@
 // module in the console to it. The door's own header carries why the two sheets ride
 // this chunk rather than `workflows.css`, and why their order is load-bearing.
 //
-// THE PIN IS 12.11.5, NOT THE NEWEST 12.11.x. `Spec-023 §Console Libraries` requires
-// an exact pin inside the `12.11.x` band with `@xyflow/system` in lockstep, and
-// 12.11.5 is the newest release the workspace's 24-hour `minimumReleaseAge` guard
-// admits — it is also the release that fixed the broken 12.11.4 that row warns
-// about, and its manifest declares `@xyflow/system@0.0.81` exactly, so the lockstep
-// constraint is met by the library's own dependency rather than by agreement between
-// two hand-written numbers. `base.css` is byte-identical across the two releases, so
-// the token set this family's sheet drives does not depend on which one is pinned.
+// THE PIN IS 12.11.6, WHICH IS THE BASELINE `Spec-023 §Console Libraries` MEASURED.
+// That row binds an exact pin with `@xyflow/system` in lockstep and records its
+// bundle and heap figures against 12.11.6 / `@xyflow/system@0.0.82`; the manifest
+// carried 12.11.5 / 0.0.81, so the code was running a pair the governing decision had
+// not measured. The lockstep half needs no second hand-written number either way —
+// 12.11.6's manifest declares `@xyflow/system@0.0.82` exactly, so the library's own
+// dependency is what meets it — and 12.11.5's fix for the broken 12.11.4 that row
+// warns about is carried forward rather than left behind.
+//
+// MOVING THE PIN COST 488 RAW BYTES AND 75 GZIPPED, ALL OF THEM IN THIS LAZY CHUNK
+// (measured over both builds of this tree: 180,576 B raw / 58,465 B gzip at 12.11.5
+// against 181,064 B / 58,540 B at 12.11.6). The initial graph does not move at all —
+// 624,224 B raw and 187,562 B gzip on both — which is the lazy arrangement's whole
+// claim holding under a version move. The chunk's stylesheet is byte-identical across
+// the two releases, so the token set this family's sheet drives does not depend on
+// which one is pinned.
 //
 // READ-ONLY IS EXPRESSED AS PROPS, NOT AS A CONVENTION. Dragging, connecting,
 // selecting, reconnecting, deleting and keyboard node movement are each switched off

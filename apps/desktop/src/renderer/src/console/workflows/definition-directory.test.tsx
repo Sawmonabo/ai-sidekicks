@@ -25,6 +25,8 @@ import {
 } from "./definition-directory.js";
 
 const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
+/** A second session, so a scope change is a change of subject and not of nothing. */
+const SECOND_PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3402";
 const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
 
 /** The continuation token the first page below hands back. */
@@ -116,17 +118,33 @@ function observeDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory[] {
+  return rescopableDirectory(growth, sessionId).observed;
+}
+
+/**
+ * The same probe, with the handle a scope change needs.
+ *
+ * The browser is not remounted when the operator moves to another session — it is
+ * re-rendered with a different scope, which is the subject of the rescope case below.
+ */
+function rescopableDirectory(
+  growth: GrowthPort,
+  sessionId: string | undefined,
+): {
+  readonly observed: WorkflowDefinitionDirectory[];
+  readonly rescope: (next: string) => void;
+} {
   const observed: WorkflowDefinitionDirectory[] = [];
-  render(
-    <DirectoryProbe
-      growth={growth}
-      sessionId={sessionId}
-      onObserve={(directory) => {
-        observed.push(directory);
-      }}
-    />,
-  );
-  return observed;
+  const collect = (directory: WorkflowDefinitionDirectory): void => {
+    observed.push(directory);
+  };
+  const view = render(<DirectoryProbe growth={growth} sessionId={sessionId} onObserve={collect} />);
+  return {
+    observed,
+    rescope: (next) => {
+      view.rerender(<DirectoryProbe growth={growth} sessionId={next} onObserve={collect} />);
+    },
+  };
 }
 
 function latest(observed: readonly WorkflowDefinitionDirectory[]): WorkflowDefinitionDirectory {
@@ -189,14 +207,29 @@ describe("useWorkflowDefinitionDirectory — one read, four answers", () => {
     expect(firstState(observeDirectory(growth, PROBE_SESSION_ID)).status).toBe("reading");
   });
 
+  it("shows the previous session's definitions nowhere once the scope moves", async () => {
+    // Before the stamp, the first session's rows stayed renderable under the second
+    // session's name until the effect got round to resetting them, and nothing on
+    // screen said which session they had been read for.
+    const probe = rescopableDirectory(twoPagePort(), PROBE_SESSION_ID);
+    await settle();
+    expect(definitionIds(lastState(probe.observed))).toEqual(["first", "second"]);
+
+    act(() => {
+      probe.rescope(SECOND_PROBE_SESSION_ID);
+    });
+
+    expect(lastState(probe.observed).status).toBe("reading");
+  });
+
   it("starts as a read in flight and settles on what the scenario serves", async () => {
     // A scenario that scripts nothing is served EMPTY rather than refused: an
     // enumeration has an empty form and it is a real answer about this context.
     const growth = createFixtureBridge({ scenario: scenarioAnsweringTheEnumeration([]) }).growth;
 
     const observed = observeDirectory(growth, PROBE_SESSION_ID);
-    // The state after the mount and before the answer. The first observation is the
-    // pre-effect `unasked` default, which says nothing about what the hook asked.
+    // The state after the mount and before the answer. Every render of it, first
+    // included, because the read is stamped with the session it is about.
     expect(lastState(observed).status).toBe("reading");
 
     await settle();

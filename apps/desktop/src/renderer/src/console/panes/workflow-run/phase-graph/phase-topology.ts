@@ -48,8 +48,10 @@ export type PhaseTopology = readonly PhaseDependencyDeclaration[];
  *     draw. Nothing is wrong; the picture is simply incomplete and says so.
  *   • `not-drawable` — a definition DID reach it and its topology is not one a graph
  *     can draw: it supplies `dependsOn` on some phases and not others, which the
- *     all-or-none rule forbids, or it describes a phase set that is not the run's.
- *     Drawing part of it would be a picture short of a dependency.
+ *     all-or-none rule forbids, it describes a phase set that is not the run's, or its
+ *     dependencies close a cycle, so phases in it can never become eligible. Drawing
+ *     part of it would be a picture short of a dependency, and drawing a cycle would
+ *     present a definition no run can execute as one this run is executing.
  */
 export type PhaseTopologyAbsence = "not-supplied" | "not-drawable";
 
@@ -217,11 +219,6 @@ export function declaredEdges(
       if (target === undefined || !phaseById.has(sourcePhaseId)) {
         return undefined;
       }
-      if (sourcePhaseId === declaration.phaseId) {
-        // A phase waiting on itself. The edge is a loop no run could ever leave, and
-        // drawing it would say the engine is blocked on something it is producing.
-        return undefined;
-      }
       const edge = dependencyEdge(sourcePhaseId, target);
       if (edges.has(edge.edgeId)) {
         // One dependency listed twice. Deduping it would hide a definition the
@@ -231,7 +228,60 @@ export function declaredEdges(
       edges.set(edge.edgeId, edge);
     }
   }
+  // A dependency cycle, checked over the WHOLE declaration rather than one edge at a
+  // time. The direct self-dependency this used to reject is the one-phase case of it,
+  // and rejecting only that let A-depends-on-B-depends-on-A through: both edges were
+  // drawn, the layout reported the sequence drawable, and an impossible definition was
+  // presented as a picture of a run — without even the `not-drawable` caption that
+  // would have said the graph could not be trusted.
+  if (phasesNeverEligible(declaring).length > 0) {
+    return undefined;
+  }
   return [...edges.values()];
+}
+
+/**
+ * Every declared phase that can never become eligible, in declaration order.
+ *
+ * Kahn's peel, run to exhaustion: a phase whose dependencies are all satisfied comes
+ * off, which satisfies the phases waiting on it, and so on. A well-formed definition
+ * peels away entirely. What is left is the phases a cycle blocks — its own members and
+ * anything waiting behind them, which is deliberate: the operator's question is which
+ * phases will never run, and a list of only the cycle's members would be silent about
+ * the branch stalled behind it.
+ *
+ * NAMED RATHER THAN COUNTED. "This definition is cyclic" leaves an operator to find
+ * the loop by reading the whole declaration; the identifiers are the only thing here
+ * that says where to look, which is the same reason the repeated-id refusal beside
+ * this one names its ids.
+ *
+ * Every dependency named here is already known to be a declared phase — `declaredEdges`
+ * establishes that before it calls this — so an unresolved name is impossible rather
+ * than silently treated as satisfied.
+ */
+export function phasesNeverEligible(topology: PhaseTopology): readonly string[] {
+  const unsatisfied = new Map<string, Set<string>>(
+    topology.map((declaration) => [declaration.phaseId, new Set(declaration.dependsOn ?? [])]),
+  );
+  let peeled = true;
+  while (peeled) {
+    peeled = false;
+    for (const [phaseId, dependencies] of unsatisfied) {
+      if (dependencies.size > 0) {
+        continue;
+      }
+      unsatisfied.delete(phaseId);
+      for (const waiting of unsatisfied.values()) {
+        waiting.delete(phaseId);
+      }
+      peeled = true;
+    }
+  }
+  // Declaration order rather than map order, so two runs of one definition name the
+  // phases in the same sequence a reader meets them in.
+  return topology
+    .map((declaration) => declaration.phaseId)
+    .filter((phaseId) => unsatisfied.has(phaseId));
 }
 
 /**

@@ -25,9 +25,16 @@
 // prose, not in mono, on the same reasoning that keeps a daemon's refusal message
 // out of the mono column while its code stays in it.
 //
-// NOTHING HERE IS A CONTROL. Resuming, cancelling, and re-pinning are daemon
-// adjudications; this says what is true, and the surface that offers an action
+// NOTHING HERE ADJUDICATES. Resuming, cancelling, and re-pinning are the daemon's
+// decisions; this says what is true, and the surface that offers one of those actions
 // renders the daemon's typed refusal when the daemon declines it.
+//
+// THE ONE CONTROL THIS CARD CARRIES IS A ROUTE AND NOT A DECISION. A phase waiting on
+// a person ends when that person submits ITS form, and this card is where the sentence
+// saying so is drawn — so when the surface mounting the card can open that form, the
+// route to it belongs here rather than somewhere else on the surface. It is optional
+// and absent by default: the run list renders the same card for a phase in another
+// pane's run and has nowhere to send anybody.
 
 import { Chip, WireFigure, formatDateTime, type ChipTone } from "../primitives/index.js";
 import { parkAwaitsPerson } from "./run-list-projection.js";
@@ -127,6 +134,37 @@ function ParkSchedule(props: {
   );
 }
 
+/**
+ * How this card reaches the form that ends its wait, where the caller can offer one.
+ *
+ * Three arms because the operator's next move differs: press this to answer the phase,
+ * nothing to press because this phase's form is already the one open, and nothing to
+ * press because the run did not report the handle it would be answered through. A
+ * boolean plus a detail string would collapse the last two, and they are the difference
+ * between "you are already here" and "this cannot be answered from this build".
+ */
+export type WorkflowParkFormRoute =
+  | { readonly kind: "openable"; readonly openForm: () => void }
+  | { readonly kind: "open" }
+  | { readonly kind: "unaddressable"; readonly detail: string };
+
+/** The route's own line: a control, or the sentence saying why there is none. */
+function ParkFormRoute(props: { readonly route: WorkflowParkFormRoute }): React.JSX.Element {
+  const { route } = props;
+  if (route.kind === "openable") {
+    return (
+      <button type="button" className="meridian-park__form-action" onClick={route.openForm}>
+        Open this phase&apos;s form
+      </button>
+    );
+  }
+  return (
+    <p className="meridian-park__form-state">
+      {route.kind === "open" ? "This phase\u2019s form is open below." : route.detail}
+    </p>
+  );
+}
+
 export interface ParkBadgeProps {
   /**
    * The parked phase as the projection classified it — never the raw park.
@@ -136,6 +174,13 @@ export interface ParkBadgeProps {
    * itself, which is the second authority that produced "Scheduled to resume at —".
    */
   readonly parked: WorkflowParkedPhase;
+  /**
+   * The route to this phase's form, where the surface mounting the card holds one.
+   *
+   * Absent, not disabled, and absent is the ordinary case: the run list draws this
+   * card for phases of runs it does not host, and a control there would point nowhere.
+   */
+  readonly formRoute?: WorkflowParkFormRoute;
 }
 
 /** One parked phase's reason, what ends its wait, and the engine's own cause. */
@@ -179,6 +224,7 @@ export function ParkBadge(props: ParkBadgeProps): React.JSX.Element {
       </div>
       <p className="meridian-park__cause">{park.parkCause}</p>
       <ParkSchedule schedule={schedule} parkReason={park.parkReason} />
+      {props.formRoute === undefined ? null : <ParkFormRoute route={props.formRoute} />}
     </div>
   );
 }

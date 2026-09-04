@@ -60,7 +60,8 @@
 // band order and the newest-first secondary key are read off it — and shifting the
 // four of them would have restated that spread instead of preserving it. Every beat
 // keeps its millisecond offset from the start, so the ordering the script claims
-// among its own beats is untouched. `scenarios/workflows.test.ts` holds the rule.
+// among its own beats is untouched. `scenarios/workflows.chronology.test.ts` holds the
+// rule.
 //
 // EVERY ID IS THE UUID THE WIRE DECLARES. `scenarios/wire-truth.ts` presents each beat
 // to the strict contract layer as the whole envelope it claims to be, so a readable

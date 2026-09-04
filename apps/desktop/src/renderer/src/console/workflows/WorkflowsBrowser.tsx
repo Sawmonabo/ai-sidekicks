@@ -109,12 +109,33 @@ function continuationRefusalFor(
  * The count is the whole resolved union rather than a figure per scope, because that is
  * what the read answered: one request serves all three, and three sentences would
  * report a split the daemon never made. A refusal carries the daemon's own sentence.
+ *
+ * A CONTINUATION IN FLIGHT HAS SETTLED NOTHING, AND THE PAGES STAY `served` WHILE IT
+ * RUNS. So the directory's own status is not the whole discriminator: pressing "Show
+ * more definitions" produced a fresh state object carrying the OLD count, and the
+ * settlement hook — which counts once per state object — spoke that count again as
+ * though a second read had completed, before the page it announced had answered. And
+ * when the daemon refused that page, this function still handed back the count, so the
+ * refusal rendered on screen and was never spoken at all. Both arms are the
+ * continuation's own, and both are read from it.
  */
 function directorySentence(directory: WorkflowDefinitionDirectoryState): string | undefined {
-  if (directory.status === "served") {
-    return `Definitions visible from this session: ${String(directory.definitions.length)}.`;
+  if (directory.status === "unavailable") {
+    return directory.refusal.detail;
   }
-  return directory.status === "unavailable" ? directory.refusal.detail : undefined;
+  if (directory.status !== "served") {
+    return undefined;
+  }
+  const { continuation } = directory;
+  if (continuation.status === "reading") {
+    // Nothing has settled since the last thing this said. Announcing here would
+    // promise a result the page has not produced, and the hook records only what it
+    // spoke — so the settlement that follows is still announced when it arrives.
+    return undefined;
+  }
+  return continuation.status === "unavailable"
+    ? continuation.refusal.detail
+    : `Definitions visible from this session: ${String(directory.definitions.length)}.`;
 }
 
 /** The scopes whose page is still in flight, given one read state. */

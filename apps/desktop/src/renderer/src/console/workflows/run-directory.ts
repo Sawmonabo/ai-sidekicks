@@ -35,7 +35,7 @@
 // nobody is waiting on — and the refusal's `origin` is what still says which of the
 // two authors raised it.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 // The ENTRY the port answers with, which is the bridge's declaration rather than the
 // list projection's. A hook that retyped the answer would be asserting a shape the
@@ -45,14 +45,27 @@ import { useEffect, useState } from "react";
 // version id, which is what lets a row read as more than an id and lets the frozen
 // pin be an inequality rather than a guess.
 import type { GrowthPort, WorkflowRunListEntry } from "../bridge/index.js";
+import {
+  subjectReadStart,
+  useSubjectStampedRead,
+  type SubjectStampedRead,
+} from "../store/index.js";
 import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
-/** What a runs surface knows about the runs this session holds, at one moment. */
-export type WorkflowRunDirectoryState =
-  | { readonly status: "unasked" }
-  | { readonly status: "reading" }
+/** What this read looks like once it has an answer, either kind. */
+type SettledRunDirectory =
   | { readonly status: "served"; readonly runs: readonly WorkflowRunListEntry[] }
   | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
+
+/**
+ * What a runs surface knows about the runs this session holds, at one moment.
+ *
+ * Four states and no others, and the two unsettled ones are the shared shape rather
+ * than a third spelling of it: `store/subject-stamped-state.ts` owns what a
+ * subject-keyed read starts as, so this hook and the two beside it cannot drift about
+ * which frame is allowed to claim nobody asked.
+ */
+export type WorkflowRunDirectoryState = SubjectStampedRead<SettledRunDirectory>;
 
 /**
  * Read every run one session holds, once, for as long as the caller is mounted.
@@ -61,23 +74,30 @@ export type WorkflowRunDirectoryState =
  * bridge and is stable for the life of a window, so a re-render never re-reads,
  * while a bridge swapped underneath — the fixture's scenario switch — and a move to
  * a different session both do.
+ *
+ * THE STATE IS STAMPED WITH THE SESSION IT IS ABOUT, so the session change is settled
+ * during the render that brings it rather than in the effect after the commit. Before
+ * that, a mounted list committed one frame of `unasked` under a session it had already
+ * asked about — which the runs surface draws as an assertion that this context holds
+ * no runs — and, across a move from one session to another, kept the previous
+ * session's rows renderable under the new session's name.
  */
 export function useWorkflowRunDirectory(
   growth: GrowthPort,
   sessionId: string | undefined,
 ): WorkflowRunDirectoryState {
-  const [state, setState] = useState<WorkflowRunDirectoryState>({ status: "unasked" });
+  const [state, setState] = useSubjectStampedRead<SettledRunDirectory>(sessionId);
   useEffect(() => {
     if (sessionId === undefined) {
-      // Not `reading`: there is no question to put, and a spinner over an address
-      // that names no session promises an answer that is never coming.
-      setState({ status: "unasked" });
+      // Nothing to reset: the stamp already put this read at `unasked` during the
+      // render that dropped the session, and there is no question to put — a spinner
+      // over an address that names no session promises an answer never coming.
       return;
     }
-    // Reset rather than leaving the previous session's runs on screen while the new
-    // read runs: a stale list under a fresh subject reads as a current one, and
-    // nothing about it says otherwise.
-    setState({ status: "reading" });
+    // The PORT can change under an unchanged session — the fixture's scenario switch
+    // swaps the bridge — and the subject stamp does not see that, so the reset is
+    // stated here for exactly that case, through the same rule rather than beside it.
+    setState(subjectReadStart(sessionId));
     let isMounted = true;
     void settleGrowthRead(growth.workflowRunList({ sessionId })).then((outcome) => {
       if (!isMounted) {
@@ -96,6 +116,8 @@ export function useWorkflowRunDirectory(
     return () => {
       isMounted = false;
     };
-  }, [growth, sessionId]);
+    // `setState` is the stamped read's own setter and is stable for the life of the
+    // hook; it is named so the dependency list is the whole of what this effect uses.
+  }, [growth, sessionId, setState]);
   return state;
 }

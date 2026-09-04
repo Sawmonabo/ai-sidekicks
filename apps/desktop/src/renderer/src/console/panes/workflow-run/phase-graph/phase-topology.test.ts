@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 import {
   declaredEdges,
   phaseDisplayText,
+  phasesNeverEligible,
   type PhaseGraphNode,
   type PhaseTopology,
 } from "./phase-topology.js";
@@ -226,6 +227,59 @@ describe("a topology no graph can be drawn from", () => {
       const edges = declaredEdges([phase("plan"), phase("ship")], topology) ?? [];
       expect(edges.filter((edge) => edge.sourcePhaseId === edge.targetPhaseId)).toStrictEqual([]);
     }
+  });
+
+  it("refuses two phases that wait on each other", () => {
+    // Neither declaration is a self-edge, so the direct check this replaced passed
+    // both, drew both edges, and reported an impossible definition as drawable.
+    const topology: PhaseTopology = [
+      { phaseId: "plan", dependsOn: ["ship"] },
+      { phaseId: "ship", dependsOn: ["plan"] },
+    ];
+    expect(declaredEdges([phase("plan"), phase("ship")], topology)).toBeUndefined();
+    expect(phasesNeverEligible(topology)).toStrictEqual(["plan", "ship"]);
+  });
+
+  it("negative control: nothing in that pair is a self-dependency", () => {
+    // What makes the case above bite rather than restate the self-edge rule. Every
+    // declaration names a phase other than its own, so the refusal can only have come
+    // from reading the declaration as a whole.
+    const topology: PhaseTopology = [
+      { phaseId: "plan", dependsOn: ["ship"] },
+      { phaseId: "ship", dependsOn: ["plan"] },
+    ];
+    for (const declaration of topology) {
+      expect(declaration.dependsOn).not.toContain(declaration.phaseId);
+    }
+  });
+
+  it("refuses a cycle of three, naming every phase on it", () => {
+    const topology: PhaseTopology = [
+      { phaseId: "plan", dependsOn: ["ship"] },
+      { phaseId: "buildA", dependsOn: ["plan"] },
+      { phaseId: "ship", dependsOn: ["buildA"] },
+    ];
+    expect(
+      declaredEdges([phase("plan"), phase("buildA"), phase("ship")], topology),
+    ).toBeUndefined();
+    expect(phasesNeverEligible(topology)).toStrictEqual(["plan", "buildA", "ship"]);
+  });
+
+  it("names the phase stalled behind a cycle beside the cycle's own members", () => {
+    // The operator's question is which phases will never run, and a branch waiting on
+    // a loop never runs either — naming only the loop would be silent about it.
+    const topology: PhaseTopology = [
+      { phaseId: "plan", dependsOn: ["buildA"] },
+      { phaseId: "buildA", dependsOn: ["plan"] },
+      { phaseId: "ship", dependsOn: ["buildA"] },
+    ];
+    expect(phasesNeverEligible(topology)).toStrictEqual(["plan", "buildA", "ship"]);
+  });
+
+  it("negative control: a definition that branches and joins blocks nothing", () => {
+    // Without this the cycle check would pass for an implementation that called every
+    // topology cyclic, and no run with declared dependencies would ever draw an edge.
+    expect(phasesNeverEligible(FAN_OUT_TOPOLOGY)).toStrictEqual([]);
   });
 
   it("negative control: the well-formed topology beside each of these is drawable", () => {

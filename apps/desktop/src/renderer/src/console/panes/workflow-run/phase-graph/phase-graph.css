@@ -323,12 +323,29 @@
   color: var(--meridian-text-faint);
 }
 
+/*
+ * A RUNNING PHASE IS A STATUS, AND THE ACCENT IS NOT FOR STATUSES. `tokens/palette.ts`
+ * spends the accent on interactive affordances, and this canvas switches off dragging,
+ * connecting, selecting, reconnecting, deleting and keyboard node movement — so the
+ * cyan border offered the one box a person cannot touch as the one thing on the canvas
+ * that looks touchable, and the fixture's own running run exercises exactly that state.
+ *
+ * THERE IS NO LIVE OR PROGRESS TOKEN TO MOVE TO, and one is not minted here: the
+ * palette's attention set is closed at amber (a person is needed), red (something
+ * failed) and the accent, and its own comment names a third attention hue as the rule's
+ * failure mode. So the live phase is separated from the settled one by WEIGHT rather
+ * than by hue — the full-strength text token on the state word against `text-muted` for
+ * a completed phase and `text-faint` for the two that are not going to run — over the
+ * same control-boundary edge `completed` carries. The state WORD differs in every case
+ * regardless, so the distinction survives for a reader who sees no colour at all.
+ */
 .meridian-phase-node[data-state="running"] {
-  border-color: var(--meridian-accent);
+  border-color: var(--meridian-edge-strong);
 }
 
 .meridian-phase-node[data-state="running"] .meridian-phase-node__state {
-  color: var(--meridian-accent-text);
+  color: var(--meridian-text);
+  font-weight: 600;
 }
 
 .meridian-phase-node[data-state="completed"] {
