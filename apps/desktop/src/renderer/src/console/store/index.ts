@@ -68,6 +68,12 @@ export type { SessionSnapshotRead } from "./open-session-entry.js";
 // would route around rather than through.
 export { RefreshScheduler, type RefreshReason } from "./scheduling.js";
 
+// The signal half of a push-driven read, beside the scheduler that coalesces it.
+// It leaves the family because its callers are view families, which are siblings
+// and cannot reach each other — so the second caller's only alternative to this
+// door was the second copy of the filter that this export replaces.
+export { subscribeToSessionEventKinds } from "./session-event-signal.js";
+
 // The partition and initialisation reads leave the family with their first
 // surface caller: the auxiliary window's agent step reads a session's agents,
 // which is one entity kind's map plus the fact that the store has a base state to

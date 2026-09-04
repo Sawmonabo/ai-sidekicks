@@ -66,7 +66,11 @@ export const SIDEKICK_DEFINITION_EDITOR_SLOT: OwnerSlotProps<SidekickDefinitionE
 // one of them would be an export nothing outside can name.
 
 export { AgentConsoleModels, useAgentConsoleModels } from "./agent-console-model.js";
-export type { ChildRunLinkageRead } from "./agent-console-model.js";
+// Straight from the module that DECLARES it. The read factories and their reading
+// types moved out of the model when lifetime and refresh became two files, and a
+// barrel that went on naming the model for this type would be re-exporting a
+// re-export — the chain this family's one door exists to avoid.
+export type { ChildRunLinkageRead } from "./agent-console-reads.js";
 
 // Which run is this agent's newest, for every surface that has to ask. The
 // SUBSCRIPTION is what leaves: the pure selector under it is this family's own and
