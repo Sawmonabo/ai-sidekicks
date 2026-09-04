@@ -15,6 +15,7 @@ import type { ConsoleBridge } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { ManualClock } from "../core/index.js";
 import { SessionStore } from "../store/index.js";
+import { WIRE_UNREGISTERED } from "./proposal-gate-scripted-port.js";
 import { WorktreeGateRow } from "./WorktreeGateRow.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";
@@ -46,13 +47,6 @@ function bridgeAnswering(branchContext: unknown): ConsoleBridge {
     growth: { gitflowBranchContextRead: async () => branchContext },
   } as unknown as ConsoleBridge;
 }
-
-const WIRE_UNREGISTERED = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  origin: "growth-port",
-  detail: "Not checked — the branch-context read is not registered yet (Spec-011 owns it).",
-};
 
 const SERVED_CONTEXT = {
   status: "served",
@@ -174,7 +168,13 @@ describe("WorktreeGateRow — the root and the gate under it", () => {
   it("puts the port's own refusal beside the arm that carries no message", async () => {
     const { container } = await renderRefusedRow();
     expect(container.textContent).toContain("wire-unregistered");
-    expect(container.textContent).toContain("Spec-011 owns it");
+    // The port's sentence, rendered rather than paraphrased — and the sentence is
+    // product vocabulary: the governing document travels on the refusal's own ledger
+    // member, never inside the words. A hand-written twin of this refusal is free to
+    // put it back, which is why the fixture composes the refusal instead of copying it.
+    expect(container.textContent).toContain(WIRE_UNREGISTERED.detail);
+    expect(WIRE_UNREGISTERED.owningDocument.length).toBeGreaterThan(0);
+    expect(WIRE_UNREGISTERED.detail).not.toContain(WIRE_UNREGISTERED.owningDocument);
   });
 
   it("reports a served context on the collapsed line", async () => {

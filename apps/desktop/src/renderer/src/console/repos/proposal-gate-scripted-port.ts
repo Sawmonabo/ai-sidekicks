@@ -16,7 +16,7 @@
 // clock is manual, so "the gate never polls" is read off `pendingCount` rather than
 // asserted.
 
-import { type ConsoleBridge } from "../bridge/index.js";
+import { growthUnavailable, type ConsoleBridge, type GrowthUnavailable } from "../bridge/index.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
 import {
   GIT_MOUNT_ID,
@@ -44,13 +44,18 @@ export const SUBJECT: ProposalGateSubject = {
 /** A read-only subject on the mount whose mode produces no writable context. */
 export const READ_ONLY_SUBJECT: ProposalGateSubject = { ...SUBJECT, executionMode: "read-only" };
 
-/** The port's refusal for a wire nothing has registered, as the live bridge returns it. */
-export const WIRE_UNREGISTERED = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  origin: "growth-port",
-  detail: "Not checked — the branch-context read is not registered yet (Spec-011 owns it).",
-} as const;
+/**
+ * The port's refusal for a wire nothing has registered — taken from the port itself.
+ *
+ * COMPOSED RATHER THAN COPIED. This was a hand-written twin of a sentence the live
+ * bridge composes, and it had drifted into naming the governing document inside the
+ * words a person reads — which is exactly what `growth-port.ts` composes to avoid: the
+ * document travels on the refusal's own `owningDocument` member, for the ledger, and
+ * the sentence stays product vocabulary. Written twice, the copy is free to say
+ * something the live port never would, and every case here would still pass. Taken
+ * from `growthUnavailable`, it cannot.
+ */
+export const WIRE_UNREGISTERED: GrowthUnavailable = growthUnavailable("gitflowBranchContextRead");
 
 /** The port's other refusal class: the question was put and the answer never came. */
 export const REPLY_ABANDONED = {
