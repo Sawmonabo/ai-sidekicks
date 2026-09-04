@@ -80,7 +80,12 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
-import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
+import {
+  isConsoleRefusal,
+  refuse,
+  refusedMemberPaths,
+  type ConsoleRefusal,
+} from "../core/index.js";
 import {
   QUEUE_CANCEL_METHOD,
   QUEUE_LIST_METHOD,
@@ -369,9 +374,7 @@ export class SessionQueueReading {
 function unreadableDeliveryRefusal(
   issues: readonly { readonly path: readonly PropertyKey[]; readonly message: string }[],
 ): ConsoleRefusal {
-  const members = issues.map((issue) =>
-    issue.path.length === 0 ? "the payload" : issue.path.map(String).join("."),
-  );
+  const members = refusedMemberPaths(issues);
   return refuse(
     QUEUE_REFUSAL_ORIGIN,
     "delivery-unreadable",

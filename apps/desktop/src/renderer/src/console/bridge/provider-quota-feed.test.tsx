@@ -184,21 +184,41 @@ class AccountPlaneBridge {
   }
 }
 
+/** The partial-read arm as a case reads it — what the rail would render. */
+interface QuotaPartialArm {
+  readonly unreadableDeliveryCount: number;
+  readonly unreadableRefusalCode: string | undefined;
+  readonly isPartial: boolean;
+}
+
+const NOTHING_UNREADABLE: QuotaPartialArm = {
+  unreadableDeliveryCount: 0,
+  unreadableRefusalCode: undefined,
+  isPartial: false,
+};
+
 /** The readings the hook publishes, captured out of a render. */
 interface MountedQuotas {
   readonly readingsNow: () => readonly ProviderQuotaReading[];
   readonly refusalCodeNow: () => string | undefined;
+  readonly partialNow: () => QuotaPartialArm;
   readonly unmount: () => void;
 }
 
 async function mountQuotas(bridge: ConsoleBridge): Promise<MountedQuotas> {
   let readings: readonly ProviderQuotaReading[] = [];
   let refusalCode: string | undefined;
+  let partial: QuotaPartialArm = NOTHING_UNREADABLE;
 
   function Probe(): React.JSX.Element {
     const readout = useProviderQuotas(bridge);
     readings = readout.readings;
     refusalCode = readout.readRefusal?.code;
+    partial = {
+      unreadableDeliveryCount: readout.unreadableDeliveryCount,
+      unreadableRefusalCode: readout.unreadableRefusal?.code,
+      isPartial: readout.isPartial,
+    };
     return <output>{String(readout.readings.length)}</output>;
   }
 
@@ -213,6 +233,7 @@ async function mountQuotas(bridge: ConsoleBridge): Promise<MountedQuotas> {
   return {
     readingsNow: () => readings,
     refusalCodeNow: () => refusalCode,
+    partialNow: () => partial,
     unmount: () => {
       rendered.unmount();
     },
@@ -426,6 +447,56 @@ describe("useProviderQuotas — the tail moves one reading", () => {
     });
 
     expect(readingAt(mounted.readingsNow(), "weekly-all").usedPercent).toBe(99);
+  });
+});
+
+describe("useProviderQuotas — a delivery this build cannot read is a partial read", () => {
+  it("counts an unreadable delivery and keeps the snapshot it already has", async () => {
+    // The chips a person is looking at stay: they are the best reading the console
+    // has. What changes is that the console now says the tail carrying the next one
+    // is incomplete, instead of presenting the old snapshot as current.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]));
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      plane.deliver({ kind: "account_removed" });
+    });
+
+    expect(mounted.partialNow().unreadableDeliveryCount).toBe(1);
+    expect(mounted.partialNow().isPartial).toBe(true);
+    expect(mounted.partialNow().unreadableRefusalCode).toBe("delivery-unreadable");
+    expect(mounted.readingsNow()).toHaveLength(1);
+  });
+
+  it("keeps counting, because an unreadable shape is a build fact and not a blip", async () => {
+    // Nothing clears this count — deliberately, and unlike the queue's. The registry
+    // read answers for an instant the tail has already moved past, so no snapshot may
+    // claim to cover a frame that arrived after it.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]));
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      plane.deliver({ kind: "account_removed" });
+      plane.deliver({ kind: "usage_window_updated", accountId: ACCOUNT_ID });
+    });
+
+    expect(mounted.partialNow().unreadableDeliveryCount).toBe(2);
+  });
+
+  it("negative control: a readable delivery leaves the reading whole", async () => {
+    // Without this the cases above would hold over a reading that counted every
+    // delivery, readable or not, and `isPartial` would mean nothing.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]));
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      plane.deliver({ kind: "account_removed", accountId: ACCOUNT_ID });
+    });
+
+    expect(mounted.partialNow().unreadableDeliveryCount).toBe(0);
+    expect(mounted.partialNow().isPartial).toBe(false);
+    expect(mounted.partialNow().unreadableRefusalCode).toBeUndefined();
+    expect(mounted.readingsNow()).toStrictEqual([]);
   });
 });
 
