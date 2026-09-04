@@ -147,6 +147,16 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
               // observer reads the document instead, because a sibling can move a
               // pane without carrying it — an overlay's rectangle is read live on
               // every change, so it needs no such measurement.
+              //
+              // WHAT THAT READING EXCLUDES, and why this path needs it as much as
+              // the document one does. `hasRunningMotion` runs
+              // `animation-motion.ts`'s box-moving filter, so an overlay holding a
+              // `not-loaded` skeleton — an infinite opacity pulse on every read in
+              // flight — arms no frame at all. Unfiltered, one loading dialog kept
+              // this sampler running for as long as the read was out and emitted an
+              // occlusion change on every animation frame, which is the permanent
+              // RAF loop the idle-CPU budget forbids and which nothing on screen
+              // reported.
               isMotionRunning: () => hasRunningMotion(element),
               clock: this.#clock,
               onFrame: () => {

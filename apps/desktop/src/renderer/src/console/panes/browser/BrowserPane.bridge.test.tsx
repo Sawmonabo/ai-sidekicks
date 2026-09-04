@@ -7,30 +7,21 @@
 // screen when nothing arrived the way the happy path expected.
 
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import {
-  PANE_VIEW_HOST_REFUSAL_ORIGIN,
-  resolvePaneViewHost,
-  type AttachedPaneViewHost,
-  type PaneRectOutcome,
-} from "../../browser/view-host.js";
-import {
   addressField,
   findRefusalBanner,
+  fixtureBrowserBridge,
+  liveBrowserBridge,
   navigationReportingBridge,
+  paneViewHostRefusing,
   queryRefusalBanner,
   renderBrowserPane,
   reportedState,
 } from "./BrowserPane.test-support.js";
-
-// The view host is the ONE seam this pane resolves rather than takes, and 12.11's
-// wiring table hands every window an unavailable one until a main-process host
-// exists. Spied rather than replaced, so every case that does not name a host runs
-// against the real table and gets the real answer.
-vi.mock(import("../../browser/view-host.js"), { spy: true });
 
 // A bridge call that does not answer at all.
 //
@@ -265,41 +256,70 @@ describe("browser pane overlapping acts", () => {
 // one that matters most is the host rejecting a rectangle for a pane it says is
 // gone: the publisher disposes itself over it and stops, and if that sentence does
 // not reach the surface the viewport goes on offering "no page yet" forever.
+//
+// NOTHING HERE MOCKS THE WIRING TABLE, and that is the correction. These cases used
+// to replace `resolvePaneViewHost` outright, which made every one of them pass over a
+// pane that called the real table with an empty options bag — so the attached path
+// the table promises was exercised by no test and reached by no run. They drive the
+// real table now, over the two bridges the console actually runs on.
 describe("browser pane geometry outcomes", () => {
   const PANE_GONE = "The pane was destroyed while this window still held it.";
 
-  afterEach(() => {
-    vi.mocked(resolvePaneViewHost).mockRestore();
+  it("publishes this pane's rectangle to the host the fixture bridge supplies", async () => {
+    const published: string[] = [];
+    const bridge: ConsoleBridge = {
+      ...fixtureBrowserBridge(),
+      paneViewHostScript: {
+        transport: "scripted",
+        holdsPane: (paneId) => {
+          published.push(paneId);
+          return { holds: true };
+        },
+      },
+    };
+
+    const { region } = await renderBrowserPane(bridge);
+
+    await waitFor(() => {
+      expect(published.length).toBeGreaterThan(0);
+    });
+    // The pane the rectangle is filed under is this pane, not whichever one the
+    // window opened first.
+    expect(new Set(published)).toStrictEqual(new Set(["pane-browser-1"]));
+    // And with the host taking rectangles the sentence under the viewport falls
+    // through to the next question down — the navigation wire nobody registered.
+    await waitFor(() => {
+      expect(region.textContent).toContain("is not registered on this build yet");
+    });
   });
 
-  /** A host that takes rectangles and answers however the case says. */
-  function hostAnswering(answer: () => PaneRectOutcome): AttachedPaneViewHost {
-    return { state: "attached", transport: "test", setRect: answer };
-  }
-
   it("renders the host's refusal, which lands after the frame the pane cannot wait for", async () => {
-    vi.mocked(resolvePaneViewHost).mockReturnValue(
-      hostAnswering(() => ({
-        status: "rejected",
-        refusal: refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", PANE_GONE),
-      })),
-    );
-    const { region } = await renderBrowserPane();
+    const { region } = await renderBrowserPane(paneViewHostRefusing(PANE_GONE));
     await waitFor(() => {
       expect(region.textContent).toContain(PANE_GONE);
     });
   });
 
-  it("negative control: a host that takes the rectangle raises no refusal", async () => {
-    // Without this, a viewport that rendered a refusal unconditionally would satisfy
-    // the case above and would report a destroyed pane on every mount. With the host
-    // taking rectangles, the sentence under the viewport falls through to the next
-    // question down — the navigation wire nobody has registered.
-    vi.mocked(resolvePaneViewHost).mockReturnValue(hostAnswering(() => ({ status: "accepted" })));
-    const { region } = await renderBrowserPane();
+  it("renders the unavailable host's own sentence under a live bridge, and publishes nothing", async () => {
+    // 12.11's third arm, reached through the real wiring table rather than asserted
+    // about it: a live window has no view host today, so the publish is suppressed
+    // and the pane says why instead of claiming it was never told which page it holds.
+    const { region } = await renderBrowserPane(liveBrowserBridge());
+    await waitFor(() => {
+      expect(region.textContent).toContain("reports its rectangle to nothing");
+    });
+    expect(region.textContent).not.toContain("has not been told which page it holds");
+  });
+
+  it("negative control: the fixture bridge is not the unavailable arm", async () => {
+    // Without this, a pane that suppressed every publish — which is what calling the
+    // table with an empty bag did — would satisfy the refusal cases above and would
+    // look correct in every fixture run and every screenshot.
+    const { region } = await renderBrowserPane(fixtureBrowserBridge());
     await waitFor(() => {
       expect(region.textContent).toContain("is not registered on this build yet");
     });
+    expect(region.textContent).not.toContain("reports its rectangle to nothing");
     expect(region.textContent).not.toContain(PANE_GONE);
   });
 });

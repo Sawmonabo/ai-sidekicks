@@ -23,6 +23,7 @@ import { act, render, waitFor, type RenderResult } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { terminalEmulatorLoader } from "./emulator-loader.js";
+import { XtermTerminalAdapter } from "./xterm-adapter.js";
 import { TerminalRendererPool, terminalRendererPool } from "./renderer-pool.js";
 import { XtermHost } from "./XtermHost.js";
 
@@ -572,5 +573,60 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
     );
     expect(isEmulatorAcceptingInput(surfaceOf(container))).toBe(true);
     expect(surfaceOf(container).getAttribute("aria-label")).toBe("Terminal output");
+  });
+});
+
+// The one moment the component can construct an emulator and never get a disposer.
+//
+// `subscribeToRendererMode` delivers the settled mode SYNCHRONOUSLY, inside the
+// effect body and before its cleanup exists. A parent whose `onRendererMode` throws
+// therefore threw out of the effect with the adapter already attached and its slot
+// already taken, and React had nothing to dispose: the terminal, its observers, and
+// its renderer allocation outlived the tree that made them.
+//
+// The adapter class is the real one the loader resolves — the spy observes it rather
+// than standing in for it — so the claim is about what the component does to the
+// emulator it actually built.
+describe("a renderer-mode consumer that throws during the first delivery", () => {
+  it("disposes the adapter, leaves no slot held, and still raises the failure", async () => {
+    const dispose = vi.spyOn(XtermTerminalAdapter.prototype, "dispose");
+    const consumerFailure = new Error("the renderer-mode consumer refused the delivery");
+    render(
+      <XtermHost
+        terminalId="host-1"
+        isWriteEnabled={false}
+        label="Terminal output"
+        onRendererMode={() => {
+          throw consumerFailure;
+        }}
+      />,
+    );
+
+    await expect(settleEmulatorLoad()).rejects.toThrow(consumerFailure);
+
+    expect(dispose).toHaveBeenCalledTimes(1);
+    expect(terminalRendererPool.heldSlotCount).toBe(0);
+    dispose.mockRestore();
+  });
+
+  it("negative control: a consumer that returns leaves the emulator running", async () => {
+    // Without this, a component that disposed the adapter on every mount would
+    // satisfy the case above and would tear the terminal down the moment it
+    // reported which renderer it had settled on.
+    const dispose = vi.spyOn(XtermTerminalAdapter.prototype, "dispose");
+    const modes: string[] = [];
+    const { container } = await mountHost(
+      <XtermHost
+        terminalId="host-2"
+        isWriteEnabled={false}
+        label="Terminal output"
+        onRendererMode={(mode) => modes.push(mode)}
+      />,
+    );
+
+    expect(modes.length).toBeGreaterThan(0);
+    expect(dispose).not.toHaveBeenCalled();
+    expect(surfaceOf(container).childElementCount).toBeGreaterThan(0);
+    dispose.mockRestore();
   });
 });

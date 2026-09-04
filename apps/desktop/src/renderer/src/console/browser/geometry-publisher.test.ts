@@ -237,9 +237,12 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     publisher.dispose();
   });
 
-  it("announces the host's rejection before disposing itself over it", () => {
-    // The order is the whole point: disposal is terminal, so a notification raised
-    // after it would be raised into a publisher nobody is listening to any more.
+  it("announces the host's rejection over a publisher it has already disposed", () => {
+    // Both halves in one claim, and the order between them is what the case after
+    // this one pins: disposal is terminal and it deliberately keeps the sinks, so a
+    // notification raised after it still reaches everyone who was subscribed — and
+    // reaches them over a publisher whose `isDisposed` already agrees with the
+    // sentence they are about to render.
     const host = new RecordingViewHost();
     host.rejectNextWith(
       refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
@@ -272,6 +275,68 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     expect(listener.count()).toBe(1);
     expect(publisher.lastOutcome()?.status).toBe("suppressed");
+  });
+
+  it("reaches its terminal state even when a sink throws on the rejection", () => {
+    // `Emitter` re-raises what a sink threw. With the announcement first, a single
+    // throwing observer carried the exception out of the flush before the disposal
+    // ran — leaving the publisher armed, subscribed, and still writing rectangles to
+    // a pane the host had just declared gone. The throw is still raised; what
+    // changed is that it can no longer keep the publisher alive.
+    const host = new RecordingViewHost();
+    host.rejectNextWith(
+      refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
+    );
+    const clock = new ManualClock();
+    const publisher = new PaneGeometryPublisher({
+      host,
+      clock,
+      occlusion: new PaneOcclusionRegistry(),
+    });
+    const sinkFailure = new Error("the outcome sink refused the rejection");
+    publisher.subscribeToOutcomes(() => {
+      throw sinkFailure;
+    });
+    publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
+
+    expect(() => {
+      clock.runFrame();
+    }).toThrow(sinkFailure);
+
+    expect(publisher.isDisposed).toBe(true);
+    expect(publisher.armedSourceCount).toBe(0);
+    expect(host.samples).toHaveLength(1);
+
+    // And nothing reaches the host afterwards, however late an invalidation arrives.
+    publisher.invalidate("window-resize");
+    clock.runFrame();
+    expect(host.samples).toHaveLength(1);
+  });
+
+  it("negative control: a sink that returns leaves the same terminal state", () => {
+    // Without this, a flush that disposed and then swallowed every sink failure
+    // would satisfy the case above while hiding a defect in the one path whose
+    // whole job is to report one.
+    const host = new RecordingViewHost();
+    host.rejectNextWith(
+      refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
+    );
+    const clock = new ManualClock();
+    const publisher = new PaneGeometryPublisher({
+      host,
+      clock,
+      occlusion: new PaneOcclusionRegistry(),
+    });
+    const listener = countingSubscriber(publisher);
+    publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
+
+    expect(() => {
+      clock.runFrame();
+    }).not.toThrow();
+
+    expect(listener.count()).toBe(1);
+    expect(publisher.isDisposed).toBe(true);
+    expect(publisher.armedSourceCount).toBe(0);
   });
 
   it("negative control: a stopped subscription hears nothing further", () => {

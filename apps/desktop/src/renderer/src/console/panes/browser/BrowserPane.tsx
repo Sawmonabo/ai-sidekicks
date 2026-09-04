@@ -55,6 +55,7 @@ import { tokenReference } from "../../tokens/index.js";
 import { useBrowserPaneActs } from "./act-sequence.js";
 import { usePaneAddressField } from "./pane-address-field.js";
 import { ChromeControl } from "./ChromeControl.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsolePaneContext } from "../../seats/index.js";
 
 /** The pane region's accessible name. The tab strip's own labels arrive with it. */
@@ -78,10 +79,20 @@ interface PaneAttributionStyle extends React.CSSProperties {
   readonly "--meridian-browser-pane-hue": string;
 }
 
-/** One publisher over the host this window actually has. Pure: it arms nothing. */
-function createGeometryPublisher(): PaneGeometryPublisher {
+/**
+ * One publisher over the host this window actually has, for the pane it is for.
+ *
+ * The bridge and the pane id are what 12.11's wiring table selects on, and passing
+ * them is the whole correction: this called the table with an empty options bag, so
+ * under the fixture and the end-to-end runs it could only reach the unavailable arm
+ * and every publish was suppressed — with the pane's own suites mocking the table, so
+ * nothing on either side reported the gap.
+ *
+ * Pure: it arms nothing.
+ */
+function createGeometryPublisher(bridge: ConsoleBridge, paneId: string): PaneGeometryPublisher {
   return new PaneGeometryPublisher({
-    host: resolvePaneViewHost({}),
+    host: resolvePaneViewHost({ bridge, paneId }),
     clock: new RealClock(),
     occlusion: consoleOcclusionRegistry,
   });
@@ -109,12 +120,19 @@ function createGeometryPublisher(): PaneGeometryPublisher {
  * dependency is the publisher, so a self-disposal after a rejection does NOT re-mint:
  * that arm is terminal on purpose.
  */
-function useGeometryPublisher(): {
+function useGeometryPublisher(
+  bridge: ConsoleBridge,
+  paneId: string,
+): {
   readonly hostRef: React.RefObject<HTMLDivElement | null>;
   readonly outcome: PaneGeometryOutcome | undefined;
 } {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const [publisher, setPublisher] = useState<PaneGeometryPublisher>(createGeometryPublisher);
+  const [bound, setBound] = useState<BoundGeometryPublisher>(() => ({
+    paneId,
+    publisher: createGeometryPublisher(bridge, paneId),
+  }));
+  const publisher = bound.publisher;
   const subscribe = useCallback(
     (onOutcome: () => void) => publisher.subscribeToOutcomes(onOutcome),
     [publisher],
@@ -123,8 +141,12 @@ function useGeometryPublisher(): {
   const outcome = useSyncExternalStore(subscribe, readOutcome, readOutcome);
 
   useEffect(() => {
-    if (publisher.isDisposed) {
-      setPublisher(createGeometryPublisher());
+    // The pane a publisher was minted FOR is carried beside it, because the host is
+    // addressed per pane: a deck that swaps which pane this slot is for would
+    // otherwise leave the publisher writing this element's rectangle under the
+    // previous pane's address, which is a rectangle for a pane nobody is looking at.
+    if (publisher.isDisposed || bound.paneId !== paneId) {
+      setBound({ paneId, publisher: createGeometryPublisher(bridge, paneId) });
       return undefined;
     }
     const hostElement = hostRef.current;
@@ -136,15 +158,21 @@ function useGeometryPublisher(): {
       detach();
       publisher.dispose();
     };
-  }, [publisher]);
+  }, [bound, bridge, paneId, publisher]);
 
   return { hostRef, outcome };
+}
+
+/** One publisher and the pane address its host was resolved against. */
+interface BoundGeometryPublisher {
+  readonly paneId: string;
+  readonly publisher: PaneGeometryPublisher;
 }
 
 export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   const { bridge, paneId, focusHue } = context;
   const navigation = useReportedNavigation(bridge, paneId);
-  const geometry = useGeometryPublisher();
+  const geometry = useGeometryPublisher(bridge, paneId);
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
   const {
     refusal: actRefusal,
