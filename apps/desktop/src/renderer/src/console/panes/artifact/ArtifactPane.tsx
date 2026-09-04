@@ -134,6 +134,10 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
     // its repair edge for three of its four refresh reasons, and an id carries
     // neither.
     context.sessionStore,
+    // The subject, because the reader's payload arm and fetch register are about this
+    // artifact and nothing else. A deck that reuses this pane for another one gets a
+    // reader of its own rather than the previous subject's bytes under this header.
+    context.entity.id,
   );
 
   // The instant the rows were rendered against. It moves when the reading moves and on

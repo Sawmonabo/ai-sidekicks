@@ -33,7 +33,12 @@
 import { memo } from "react";
 
 import { Glyph, Nothing } from "../../primitives/index.js";
-import type { DiffLine, DiffLineKind, DiffViewMode } from "./diff-model.js";
+import {
+  diffFileChangeNotes,
+  type DiffLine,
+  type DiffLineKind,
+  type DiffViewMode,
+} from "./diff-model.js";
 import type { DiffRow, DiffRowIndex } from "./hunk-virtualization.js";
 import type { IntralineReading, IntralineSegmentCache } from "./intraline-segments.js";
 
@@ -113,11 +118,18 @@ export const DiffRowView: React.MemoExoticComponent<
 
   if (row.kind === "file-header") {
     const file = index.model.files[row.fileIndex];
+    // What the patch's extended headers said, where they said anything. A
+    // rename-only, copy-only, mode-only, or binary file has no hunks at all, so this
+    // row is the ONLY row it has and the note is the only place its change appears.
+    const changeNotes = file === undefined ? [] : diffFileChangeNotes(file);
     return (
       <div {...rowProps} className="meridian-diff__row meridian-diff__row--file">
         <span className="meridian-diff__file-path" role="cell" title={file?.path}>
           <Glyph name="diff" size={DIFF_ROW_GLYPH_SIZE} />
           {file?.path ?? ""}
+          {changeNotes.length === 0 ? null : (
+            <span className="meridian-diff__file-change">{changeNotes.join(", ")}</span>
+          )}
         </span>
       </div>
     );

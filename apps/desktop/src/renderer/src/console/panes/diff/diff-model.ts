@@ -139,10 +139,49 @@ export interface DiffHunk {
   readonly lines: readonly DiffLine[];
 }
 
-/** One file's change set. */
+/**
+ * A file's mode on each side, where the patch declared that it changed.
+ *
+ * Both sides, because a mode change is only legible as a pair: `100755` on its own
+ * says what the file is now and not what changed about it. Wire-verbatim octal
+ * strings, rendered as the patch spelled them.
+ */
+export interface DiffFileModeChange {
+  readonly from: string;
+  readonly to: string;
+}
+
+/**
+ * One file's change set.
+ *
+ * THE EXTENDED-HEADER MEMBERS ARE NOT DECORATION, AND THEY ARE WHY A FILE CAN HAVE
+ * NO HUNKS AT ALL. A git patch states a rename, a copy, a mode change, and a binary
+ * change in the headers ABOVE the hunks, and a change that is only one of those
+ * produces a file with no textual hunks whatsoever. Carried on the model rather than
+ * inferred from `hunks.length === 0`, which cannot say WHICH of the four it was — and
+ * a file drawn as `+0 −0` with nothing beside it is the console reporting that
+ * nothing happened to a file something happened to.
+ *
+ * Each is absent where the patch did not declare it, so presence IS the claim and
+ * there is no arm meaning "declared, but nothing changed".
+ */
 export interface DiffFile {
   /** Wire-verbatim path, rendered as received and never re-rooted. */
   readonly path: string;
+  /** Where a renamed file came from. The patch's `rename from`, path-verbatim. */
+  readonly renamedFrom?: string;
+  /**
+   * Where a copied file came from. The patch's `copy from`, path-verbatim.
+   *
+   * A DIFFERENT FACT FROM A RENAME and not folded into it: git emits `copy from`
+   * only when the source still exists, and reporting a copy as a rename would tell a
+   * reader the original is gone.
+   */
+  readonly copiedFrom?: string;
+  /** The two modes, where the patch declared the file's mode changed. */
+  readonly modeChange?: DiffFileModeChange;
+  /** True where the patch states the two sides differ and carries no text for it. */
+  readonly binary?: boolean;
   readonly hunks: readonly DiffHunk[];
 }
 
@@ -190,6 +229,35 @@ export function diffFileChangeCounts(file: DiffFile): DiffFileChangeCounts {
     }
   }
   return { insertions, deletions };
+}
+
+/**
+ * What a file's extended headers say changed about it, as sentences a surface draws.
+ *
+ * ONE DERIVATION FOR BOTH SURFACES, because the file list and the row renderer must
+ * not disagree about what a file's change is: two spellings of "renamed from" is two
+ * places for one of them to go stale. Ordered rename-or-copy, mode, binary — the
+ * order git writes the headers in, so a reader meeting both sees them in the order
+ * the patch states them.
+ *
+ * Empty for an ordinary textual change, which is the common case: the counts beside
+ * the path already say what happened and a note would be noise.
+ */
+export function diffFileChangeNotes(file: DiffFile): readonly string[] {
+  const notes: string[] = [];
+  if (file.renamedFrom !== undefined) {
+    notes.push(`renamed from ${file.renamedFrom}`);
+  }
+  if (file.copiedFrom !== undefined) {
+    notes.push(`copied from ${file.copiedFrom}`);
+  }
+  if (file.modeChange !== undefined) {
+    notes.push(`mode ${file.modeChange.from} → ${file.modeChange.to}`);
+  }
+  if (file.binary === true) {
+    notes.push("binary file changed");
+  }
+  return notes;
 }
 
 /**

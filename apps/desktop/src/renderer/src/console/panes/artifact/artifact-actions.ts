@@ -24,7 +24,8 @@
 //     either way and there is nothing to reconcile.
 //   • `deleteArtifact` establishes that a row is GONE, which no in-flight list read
 //     can discover, so it reconciles rather than returning — and only disposal
-//     silences it.
+//     silences it. It is also the one act that SUPERSEDES another: bytes belonging
+//     to a manifest the daemon has destroyed are not a reading anybody may publish.
 //   • `fetchPayload` is SINGLE-FLIGHT, by its own request identity rather than by the
 //     reader's refresh stamp. The reading holds ONE payload, so two fetches racing put
 //     one artifact's bytes under another's name.
@@ -45,10 +46,22 @@
 // the pending one MINE", because a reply for a request the register has moved past
 // describes bytes a later act has already superseded, and writing it would put the
 // older payload back on the reading.
+//
+// AND A CALL THAT REJECTS IS AN ANSWER, WHICH IS WHY NO ACT HERE AWAITS THE PORT
+// BARE. The live bridge crosses a process boundary, so an IPC disconnect makes the
+// call THROW rather than answer a refusal — and a thrown fetch never reached
+// `growthAnswerReading` at all: the `finally` gave the register back while the
+// reading stayed on `{ status: "fetching" }`, which is the arm the pane holds its
+// control by and the arm a scheduled list read deliberately carries forward. The
+// pane was then stuck until it was remounted. Every act goes through `#answer`
+// below, which reads a rejection as the refusal it is through the repos family's
+// one rejection normalizer, so a disconnect lands on the same refused arm a typed
+// wire refusal does and the control comes back.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { artifactManifestRowFromSummary } from "../../repos/artifact-model.js";
+import { refusalFromRejection } from "../../repos/repo-reads.js";
 import {
   growthAnswerReading,
   payloadFetchInFlightRefusal,
@@ -59,6 +72,8 @@ import {
   type ArtifactDeleteOutcome,
   type ArtifactPaneReading,
   type ArtifactRowActOutcome,
+  type GrowthAnswer,
+  type GrowthAnswerReading,
 } from "./artifact-pane-reading.js";
 import { artifactPayloadReadingFrom, type ArtifactPayloadOutcome } from "./artifact-payload.js";
 
@@ -145,9 +160,8 @@ export class ArtifactPaneActions {
    */
   public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
     const generation = this.#host.scheduledReadGeneration();
-    const answer = growthAnswerReading(
-      "The manifest re-read",
-      await this.#bridge.growth.artifactRead({ artifactId }),
+    const answer = await this.#answer("The manifest re-read", () =>
+      this.#bridge.growth.artifactRead({ artifactId }),
     );
     if (generation !== this.#host.scheduledReadGeneration()) {
       return { status: "superseded" };
@@ -250,12 +264,21 @@ export class ArtifactPaneActions {
    * removal and still schedules the re-read, because the fact the answer established
    * is true regardless of which refresh was in flight, and that re-read is the thing
    * that takes the row back off the screen the racing list put it on.
+   *
+   * AND IT SUPERSEDES THE FETCH FOR THE SAME ARTIFACT, WHICH THE PUBLISH ALONE DOES
+   * NOT. Clearing the payload arm takes the preview off the screen; it does not stop
+   * the answer that is still on the wire. A read the daemon completed BEFORE the
+   * delete can be delivered after it, and that continuation passed
+   * `#stillStandingFor` — the register was untouched — so it republished the
+   * destroyed manifest's bytes, and the reconciling list read carries a payload arm
+   * forward rather than clearing it. Dropping the register is what makes the late
+   * settlement `superseded`; it also gives the control back at the same moment the
+   * screen says nothing is being fetched, which the untouched register contradicted.
    */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     const generation = this.#host.scheduledReadGeneration();
-    const answer = growthAnswerReading(
-      "The delete",
-      await this.#bridge.growth.artifactDelete({ artifactId }),
+    const answer = await this.#answer("The delete", () =>
+      this.#bridge.growth.artifactDelete({ artifactId }),
     );
     if (answer.status === "refused") {
       // A refusal records an act that did NOT happen, so a stamp that moved under it
@@ -271,6 +294,9 @@ export class ArtifactPaneActions {
       return { status: "superseded" };
     }
     const receipt = answer.value;
+    // Before the publish, because the publish is what clears the visible payload and
+    // the register is what would put it back.
+    this.#supersedePayloadFetchFor(artifactId);
     const reading = this.#host.currentReading();
     this.#host.publish({
       ...reading,
@@ -299,9 +325,8 @@ export class ArtifactPaneActions {
   /** The call, and what its answer writes if this request still holds the register. */
   async #awaitPayload(request: InFlightPayloadFetch): Promise<ArtifactPayloadOutcome> {
     const { artifactId } = request;
-    const answer = growthAnswerReading(
-      "The payload fetch",
-      await this.#bridge.growth.artifactRead({ artifactId, includePayload: true }),
+    const answer = await this.#answer("The payload fetch", () =>
+      this.#bridge.growth.artifactRead({ artifactId, includePayload: true }),
     );
     if (!this.#stillStandingFor(request)) {
       return { status: "superseded" };
@@ -331,6 +356,42 @@ export class ArtifactPaneActions {
   }
 
   /**
+   * Put one call to the port and read what came back — including a rejection.
+   *
+   * THE ONE DOOR ALL THREE ACTS GO THROUGH, because all three ask the same live
+   * bridge and a live bridge can fail in a way the port's own union cannot express.
+   * `growthAnswerReading` is total over what a call ANSWERS; it is never reached by a
+   * call that threw. On the fetch that was the whole defect: the thrown rejection
+   * propagated out of the `await`, `finally` released the register, and the reading
+   * kept the `fetching` arm forever — control held, refresh reads carrying it
+   * forward, nothing left to settle it. So the rejection is read here instead, and
+   * every act ends on one of the two arms a caller already handles.
+   *
+   * THROUGH THE REPOS FAMILY'S NORMALIZER RATHER THAN A SECOND ONE. `repo-reads.ts`
+   * already owns turning a rejection into this console's one refusal shape, and its
+   * ordering is what matters: a value that already IS a `ConsoleRefusal` — which the
+   * fixture bridge throws — passes through with the origin it named, a typed wire
+   * envelope keeps the daemon's own code and message verbatim, and only the
+   * remainder becomes `call-rejected`. A pane-local rewrite of that would be the
+   * second implementation `apps/desktop/AGENTS.md` rejects, and would relabel codes
+   * the console is not allowed to paraphrase.
+   *
+   * The THUNK rather than a promise: a bridge whose namespace is gone can throw
+   * synchronously, and a promise parameter would have to be built outside the `try`
+   * to be passed in.
+   */
+  async #answer<TValue>(
+    operation: string,
+    call: () => Promise<GrowthAnswer<TValue>>,
+  ): Promise<GrowthAnswerReading<TValue>> {
+    try {
+      return growthAnswerReading(operation, await call());
+    } catch (rejection) {
+      return { status: "refused", refusal: refusalFromRejection(operation, rejection) };
+    }
+  }
+
+  /**
    * Give the register back, but only where it is still this request's to give.
    *
    * A disposal clears the register out from under a continuation, and a request that
@@ -339,6 +400,24 @@ export class ArtifactPaneActions {
    */
   #release(request: InFlightPayloadFetch): void {
     if (this.#inFlightFetch?.requestId === request.requestId) {
+      this.#inFlightFetch = undefined;
+    }
+  }
+
+  /**
+   * Give up the register where the fetch it holds is for an artifact that is gone.
+   *
+   * KEYED ON THE REGISTER AND NOT ON THE READING, because the register is what a
+   * continuation is checked against: the reading names the pending artifact too, but
+   * a settlement asks `#stillStandingFor`, so clearing the arm without clearing the
+   * register leaves the answer admissible. Scoped to the matching artifact — a fetch
+   * for a DIFFERENT one is unaffected by this delete and its answer is still wanted.
+   *
+   * The awaiting call still runs its `finally`; `#release` is identity-checked, so it
+   * finds the register already given up and leaves any successor alone.
+   */
+  #supersedePayloadFetchFor(artifactId: string): void {
+    if (this.#inFlightFetch?.artifactId === artifactId) {
       this.#inFlightFetch = undefined;
     }
   }
