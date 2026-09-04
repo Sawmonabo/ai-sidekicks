@@ -24,6 +24,7 @@ import {
 } from "./element-motion.js";
 import {
   fakeAnimation,
+  fakeAnimationOf,
   movingAnimation,
   settleMutationRecords,
   withAnimations,
@@ -140,21 +141,82 @@ describe("hasRunningDocumentMotion", () => {
     withAnimations(ancestor, []);
     withDocumentAnimations([fakeAnimation("running")]);
 
-    expect(hasRunningDocumentMotion()).toBe(true);
+    expect(hasRunningDocumentMotion(element)).toBe(true);
     // The element-scoped reading of the same instant, which is the whole point.
     expect(hasRunningMotion(element)).toBe(false);
   });
 
   it("negative control: an animation that is not running is not motion here either", () => {
+    const { element } = attachedPair();
     withDocumentAnimations([fakeAnimation("finished"), fakeAnimation("paused")]);
 
-    expect(hasRunningDocumentMotion()).toBe(false);
+    expect(hasRunningDocumentMotion(element)).toBe(false);
   });
 
   it("reports stillness on a shim that implements no Web Animations at all", () => {
+    const { element } = attachedPair();
     withDocumentAnimations(undefined);
 
-    expect(hasRunningDocumentMotion()).toBe(false);
+    expect(hasRunningDocumentMotion(element)).toBe(false);
+  });
+
+  it("a loading skeleton's opacity pulse is not motion, however long it runs", () => {
+    // The finding. Every `not-loaded` skeleton runs an infinite opacity pulse, so one
+    // loading surface anywhere on screen held this predicate true forever — and the
+    // position sampler re-armed on every frame for as long as it did.
+    const { element } = attachedPair();
+    const skeleton = document.createElement("div");
+    document.body.append(skeleton);
+    attachedRoots.push(skeleton);
+    withDocumentAnimations([
+      fakeAnimationOf({ playState: "running", properties: ["opacity"], target: skeleton }),
+    ]);
+
+    expect(hasRunningDocumentMotion(element)).toBe(false);
+  });
+
+  it("a transform on an ancestor is motion, which is what the sampler is for", () => {
+    const { ancestor, element } = attachedPair();
+    withDocumentAnimations([
+      fakeAnimationOf({ playState: "running", properties: ["transform"], target: ancestor }),
+    ]);
+
+    expect(hasRunningDocumentMotion(element)).toBe(true);
+  });
+
+  it("an in-flow sibling animating its width is motion no containment test reaches", () => {
+    // The case the document-wide reading exists for, and the one an over-eager
+    // containment bound would have thrown away with the skeleton.
+    const { ancestor, element } = attachedPair();
+    const sibling = document.createElement("div");
+    ancestor.append(sibling);
+    withDocumentAnimations([
+      fakeAnimationOf({ playState: "running", properties: ["inline-size"], target: sibling }),
+    ]);
+
+    expect(hasRunningDocumentMotion(element)).toBe(true);
+  });
+
+  it("an out-of-flow box animating its geometry moves no box beside it", () => {
+    const { ancestor, element } = attachedPair();
+    const overlay = document.createElement("div");
+    overlay.style.position = "fixed";
+    ancestor.append(overlay);
+    withDocumentAnimations([
+      fakeAnimationOf({ playState: "running", properties: ["inline-size"], target: overlay }),
+    ]);
+
+    expect(hasRunningDocumentMotion(element)).toBe(false);
+  });
+
+  it("negative control: an animation whose effect cannot be read still counts", () => {
+    // The fail-safe arm, and without it every case above would pass against a
+    // predicate that had simply stopped answering true — which is a pane left at
+    // coordinates it abandoned for the whole of every animation.
+    const { element } = attachedPair();
+    withDocumentAnimations([fakeAnimation("running")]);
+
+    expect(hasRunningDocumentMotion(element)).toBe(true);
   });
 });
 
@@ -441,6 +503,58 @@ describe("observeElementPosition", () => {
     ancestor.dispatchEvent(new Event("transitionrun", { bubbles: true }));
 
     expect(clock.pendingFrameCount).toBe(1);
+    detach();
+  });
+
+  it("stays idle at rest while a loading skeleton pulses somewhere on the page", () => {
+    // The finding, measured where it costs: a skeleton's infinite opacity animation
+    // used to arm the sampler on install and re-arm it on every frame it ran, so the
+    // pane's geometry was read once a frame for as long as anything was loading.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { element } = attachedPair();
+    const skeleton = document.createElement("div");
+    document.body.append(skeleton);
+    attachedRoots.push(skeleton);
+    withAnimations(element, []);
+    withDocumentAnimations([
+      fakeAnimationOf({ playState: "running", properties: ["opacity"], target: skeleton }),
+    ]);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock, onMove });
+
+    expect(clock.pendingFrameCount).toBe(0);
+    for (let frame = 0; frame < 5; frame += 1) {
+      clock.runFrame();
+    }
+    expect(onMove).not.toHaveBeenCalled();
+    expect(clock.pendingCount).toBe(0);
+    detach();
+  });
+
+  it("negative control: the same skeleton beside a real move still samples the move", () => {
+    // Without it the case above would pass against an observer that had stopped
+    // sampling document motion at all, which is the defect this arm exists for.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const { ancestor, element } = attachedPair();
+    const skeleton = document.createElement("div");
+    document.body.append(skeleton);
+    attachedRoots.push(skeleton);
+    withAnimations(element, []);
+    withAnimations(ancestor, []);
+    withDocumentAnimations([
+      fakeAnimationOf({ playState: "running", properties: ["opacity"], target: skeleton }),
+      fakeAnimationOf({ playState: "running", properties: ["transform"], target: ancestor }),
+    ]);
+    const onMove = vi.fn();
+
+    const detach = observeElementPosition({ element, clock, onMove });
+
+    expect(clock.pendingFrameCount).toBe(1);
+    clock.runFrame();
+    expect(onMove).toHaveBeenCalledTimes(1);
     detach();
   });
 
