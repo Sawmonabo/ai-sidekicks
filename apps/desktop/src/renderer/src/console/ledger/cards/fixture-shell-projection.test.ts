@@ -290,7 +290,9 @@ describe("which payload member names a row's run", () => {
   it("attributes a child run to itself and never to the parent it names", () => {
     // `run.queued` carries `parentRunId` beside its own `runId`. Reading any
     // run-naming member would file the child's rows in the parent's chapter, which
-    // is the same defect in the other direction.
+    // is the same defect in the other direction. What keeps it out here is the
+    // CONTRACT's attributing list, which does not carry that spelling; the
+    // decision table's own job is the compile gate `run-attribution.test.ts` drives.
     const projection = projectFixtureShellRows([
       event({
         sequence: 1,
