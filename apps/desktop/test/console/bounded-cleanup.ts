@@ -56,6 +56,15 @@ export interface ClosableApplication {
 export interface ProcessTerminator {
   /** Kill the tree led by `pid`. Returns whether a signal was delivered. */
   readonly terminate: (pid: number) => boolean;
+  /**
+   * Whether that process is still alive, asked without signalling it.
+   *
+   * On the same seam as `terminate` rather than a fourth constructor argument,
+   * because the two are one subject: `terminationSucceeded` already decides a
+   * kill by asking this question, and a cleanup that must decide whether a
+   * FAILED close left anything running asks exactly the same one.
+   */
+  readonly isRunning: (pid: number) => boolean;
 }
 
 /**
@@ -65,11 +74,25 @@ export interface ProcessTerminator {
  * into it: it means a process may still be running and holding a profile, which
  * is the one cleanup outcome that can affect a LATER launch, and a reader who
  * cannot tell it from a successful kill has lost the only actionable half.
+ *
+ * `closed-after-rejection` is distinct from `closed` for the mirror reason. The
+ * close failed and the process is nonetheless gone, so nothing leaked and no kill
+ * was needed — but a caller told plain `closed` would have no way to surface the
+ * rejection, and this cleanup used to discard it silently.
  */
-export type CleanupSettlement = "closed" | "terminated" | "unterminable";
+export type CleanupSettlement = "closed" | "closed-after-rejection" | "terminated" | "unterminable";
 
 export interface CleanupOutcome {
   readonly settlement: CleanupSettlement;
+  /**
+   * Why `application.close()` rejected, when it did.
+   *
+   * Present on every settlement reached through a rejection and absent
+   * otherwise, so a caller can attach it rather than lose it. It used to be
+   * caught and dropped on the floor, which is how a close that failed outright
+   * could be reported as one that succeeded.
+   */
+  readonly closeRejection?: unknown;
   /** Wall milliseconds spent closing, measured driver-side. */
   readonly waitedMs: number;
   /**
@@ -140,6 +163,7 @@ function processExists(pid: number): boolean {
 }
 
 export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
+  isRunning: (pid: number): boolean => processExists(pid),
   terminate: (pid: number): boolean => {
     const stillExists = (): boolean => processExists(pid);
     if (process.platform === "win32") {
@@ -221,14 +245,17 @@ export class BoundedCleanup {
     // Attaching does not remove it from the race, so a close that fails FAST
     // still settles the race rather than waiting out the budget.
     closing.catch(() => undefined);
-    let raced: "closed" | "expired";
+    let raced: "closed" | "expired" | "rejected";
+    let closeRejection: unknown;
     try {
       raced = await Promise.race([closing, budgetExpired]);
-    } catch {
-      // A close that REJECTS has finished closing, unsuccessfully. There is
-      // nothing left to bound and nothing to kill that its own failure did not
-      // already reach; reporting it as a hang would name the wrong thing.
-      raced = "closed";
+    } catch (error: unknown) {
+      // A close that REJECTS has stopped trying. Whether it LEFT anything
+      // running is a separate question, and it is the one that matters: this
+      // used to answer "closed", skip termination, and discard the rejection, so
+      // a tier could go green with an Electron still holding its profile.
+      closeRejection = error;
+      raced = "rejected";
     } finally {
       clearTimeout(timeoutHandle);
     }
@@ -236,6 +263,29 @@ export class BoundedCleanup {
       return { settlement: "closed", waitedMs: Date.now() - startedAt, budgetMs };
     }
     const processId = this.#application.processId();
+    if (raced === "rejected") {
+      // Nothing to kill: either the handle is gone or the process is. The close
+      // still failed, so this is not plain `closed` and the rejection travels
+      // with it — the launch-failure path attaches it, and the success path
+      // refuses to report a green tier over it.
+      if (processId === undefined || !this.#terminator.isRunning(processId)) {
+        return {
+          settlement: "closed-after-rejection",
+          waitedMs: Date.now() - startedAt,
+          budgetMs,
+          closeRejection,
+        };
+      }
+      return {
+        settlement: this.#terminator.terminate(processId) ? "terminated" : "unterminable",
+        waitedMs: Date.now() - startedAt,
+        budgetMs,
+        closeRejection,
+      };
+    }
+    // The budget expired with the close still outstanding, so the process is
+    // presumed alive and the probe is skipped: a SIGKILL has not been reaped yet
+    // at this instant, and asking would only make a live target look gone.
     const terminated = processId !== undefined && this.#terminator.terminate(processId);
     return {
       settlement: terminated ? "terminated" : "unterminable",
@@ -257,6 +307,13 @@ export class BoundedCleanup {
 export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | undefined): unknown {
   if (outcome === undefined || outcome.settlement === "closed") {
     return error;
+  }
+  if (outcome.settlement === "closed-after-rejection") {
+    return new Error(
+      `a launch failed, and closing the Electron process then failed too — though the process did ` +
+        `exit, so nothing was left running; the failure that started this is the cause below`,
+      { cause: error },
+    );
   }
   const consequence =
     outcome.settlement === "terminated"

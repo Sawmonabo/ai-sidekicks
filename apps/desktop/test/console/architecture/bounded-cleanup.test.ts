@@ -39,16 +39,28 @@ describe("bounded cleanup — a close that never settles", () => {
     return { close: () => new Promise<void>(() => undefined), processId: () => processId };
   }
 
-  /** A terminator that records rather than signals — killing for real would take this runner with it. */
-  function terminatorSpy(delivers: boolean): ProcessTerminator & { readonly killed: number[] } {
+  /**
+   * A terminator that records rather than signals — killing for real would take
+   * this runner with it — and answers liveness however the case needs.
+   */
+  function terminatorSpy(
+    delivers: boolean,
+    running = true,
+  ): ProcessTerminator & { readonly killed: number[] } {
     const killed: number[] = [];
     return {
       killed,
+      isRunning: () => running,
       terminate: (pid: number) => {
         killed.push(pid);
         return delivers;
       },
     };
+  }
+
+  /** An application whose close rejects, with a pid the case decides the fate of. */
+  function applicationWhoseCloseRejects(rejection: Error): ClosableApplication {
+    return { close: () => Promise.reject(rejection), processId: () => 4242 };
   }
 
   /** A deadline with nothing left, which is what cleanup on the failure path meets. */
@@ -161,23 +173,65 @@ describe("bounded cleanup — a close that never settles", () => {
     ]);
   });
 
-  it("treats a close that rejects as finished, not as a hang to wait out", async () => {
-    // A rejected close has closed, unsuccessfully. Waiting out the bound and then
-    // SIGKILLing would spend the slice on a process whose own failure already
-    // reached it, and would name the wrong thing in the report.
-    const terminator = terminatorSpy(true);
+  it("kills the process a rejected close left running, carrying the rejection", async () => {
+    // THE FINDING. A rejected close used to be labelled `closed` outright: the
+    // termination was skipped and the rejection discarded, so a tier could report
+    // green with an Electron still holding its profile — and every Playwright
+    // tier shares this harness, so the leak reaches the rest of the run.
+    const rejection = new Error("Electron process failed to close");
+    const terminator = terminatorSpy(true, true);
     const outcome = await new BoundedCleanup(
-      {
-        close: () => Promise.reject(new Error("Electron has already exited")),
-        processId: () => 4242,
-      },
+      applicationWhoseCloseRejects(rejection),
       terminator,
       spentDeadline(),
       TEST_RESERVE_MS,
     ).close();
-    expect(outcome.settlement).toBe("closed");
+    expect(outcome.settlement).toBe("terminated");
+    expect(terminator.killed).toStrictEqual([4242]);
+    // The rejection travels rather than being swallowed, so both callers can
+    // surface what actually went wrong.
+    expect(outcome.closeRejection).toBe(rejection);
+    // Settled on the rejection, not by waiting the bound out: a close that has
+    // stopped trying is not a hang.
     expect(outcome.waitedMs).toBeLessThan(TEST_RESERVE_MS);
+  });
+
+  it("settles a rejected close whose process did exit as its own kind, still carrying it", async () => {
+    // Nothing leaked and no kill was needed, so this is not `terminated`; but the
+    // close DID fail, so it is not plain `closed` either — a caller told that
+    // would have no way to surface the rejection, which is how it used to vanish.
+    const rejection = new Error("Electron has already exited");
+    const terminator = terminatorSpy(true, false);
+    const outcome = await new BoundedCleanup(
+      applicationWhoseCloseRejects(rejection),
+      terminator,
+      spentDeadline(),
+      TEST_RESERVE_MS,
+    ).close();
+    expect(outcome.settlement).toBe("closed-after-rejection");
+    expect(outcome.closeRejection).toBe(rejection);
     expect(terminator.killed).toStrictEqual([]);
+  });
+
+  it("negative control: the same rejection settles two ways on the liveness answer alone", async () => {
+    // Without this, the pair above is ambiguous between "the probe decided" and
+    // "the two cases differ for some other reason". One rejection, one spy shape,
+    // one bit changed.
+    const rejection = new Error("Electron process failed to close");
+    const settlements = await Promise.all(
+      [true, false].map(
+        async (running) =>
+          (
+            await new BoundedCleanup(
+              applicationWhoseCloseRejects(rejection),
+              terminatorSpy(true, running),
+              spentDeadline(),
+              TEST_RESERVE_MS,
+            ).close()
+          ).settlement,
+      ),
+    );
+    expect(settlements).toStrictEqual(["terminated", "closed-after-rejection"]);
   });
 
   it("survives an abandoned close rejecting after the bound expired", async () => {
