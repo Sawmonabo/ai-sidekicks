@@ -181,7 +181,7 @@ import type {
 // therefore bought nothing on the render path and is gone; the compile-time
 // binding to the contracts literal survives in the one view that BRANCHES on
 // the code (`MixedVersionStatus.tsx#VERSION_FLOOR_EXCEEDED_WIRE_CODE`).
-import { normalizeWireRejection } from "../../../shared/wire-errors.js";
+import { wireRejectionToError } from "../../../shared/wire-errors.js";
 
 // The `window.sidekicks` ambient type lives in the renderer-wide
 // `sidekicks-bridge.d.ts` (Plan-002 Phase 6 T6.0; part of the renderer
@@ -415,7 +415,7 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
           // to `error` (the Tier-3 posture, matching the initial-read
           // failure); a resilient "keep last snapshot" is a Tier-8 polish, not
           // a Tier-3 requirement.
-          const normalizedError = normalizeWireRejection(bridgeError);
+          const normalizedError = wireRejectionToError(bridgeError);
           setRosterViewState({ kind: "error", error: normalizedError });
         }
       })();
@@ -450,7 +450,7 @@ export function NodeRoster({ sessionId }: NodeRosterProps): React.JSX.Element {
       refreshSnapshot();
     } catch (subscribeError: unknown) {
       if (!cancelled) {
-        setRosterViewState({ kind: "error", error: normalizeWireRejection(subscribeError) });
+        setRosterViewState({ kind: "error", error: wireRejectionToError(subscribeError) });
       }
     }
 

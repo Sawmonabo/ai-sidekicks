@@ -346,4 +346,71 @@ export default [
       ],
     },
   },
+  // The console's two single-reading chokepoints, enforced as SYNTAX because they are
+  // not import bans and `no-restricted-imports` cannot express any of them. This is the
+  // package's first and only `no-restricted-syntax` invocation: flat config replaces a
+  // rule's options at the LAST matching config object, so a later block that also
+  // configures this rule for any file under `console/` or `shell/` must restate every
+  // selector below rather than add to them.
+  //
+  // A FOURTH selector lived here and is gone. It banned importing
+  // `normalizeWireRejection` from `src/shared/wire-errors.ts`, back when a function of
+  // that name lived in both that module and `console/core/wire-rejection.ts` with two
+  // different return types — an import from the wrong one compiled wherever the result
+  // was only rendered. The shared function is now `wireRejectionToError`, named for
+  // what it answers, so the collision is closed at its source. What the selector used
+  // to catch, `tsc` now catches first and better: the stale import is
+  // `error TS2305: Module ... has no exported member 'normalizeWireRejection'`
+  // (measured against the real typecheck script, not assumed). A lint rule whose only
+  // reachable target is a symbol that does not exist guards nothing.
+  //
+  // Scope is `console/**` and `shell/**`, tests included. `shell/**` matches nothing on
+  // this branch and is named anyway: it is a `console-unit` resident by
+  // `apps/desktop/AGENTS.md`, and a gate that arrives after the code it governs arrives
+  // too late. A `files` pattern matching no file is not an ESLint error.
+  //
+  // Four files are exempt, and each is exempt for its own reason rather than by
+  // convenience: `core/instant.ts` and `core/wire-rejection.ts` are the readings the
+  // rules point at; `core/clock.ts` is the console's one `Date.now` seam; and the two
+  // tests are the negative controls, which have to CALL the banned API to demonstrate
+  // that `Date.parse` answers a number for a value RFC 3339 refuses. A ban nobody can
+  // show the cost of is a ban nobody keeps.
+  {
+    files: ["src/renderer/src/console/**/*.{ts,tsx}", "src/renderer/src/shell/**/*.{ts,tsx}"],
+    ignores: [
+      "src/renderer/src/console/core/instant.ts",
+      "src/renderer/src/console/core/instant.test.ts",
+      "src/renderer/src/console/core/clock.ts",
+      "src/renderer/src/console/core/wire-rejection.ts",
+      "src/renderer/src/console/primitives/wire-figures.time.test.ts",
+    ],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: 'CallExpression[callee.object.name="Date"][callee.property.name="parse"]',
+          message:
+            "`Date.parse` is not a validator: it reads a timezone-less stamp in the HOST's zone, reads a date-only string in UTC, and normalizes a day that does not exist (`2026-02-30T10:00:00Z` becomes March 2). Each answers a NUMBER, so the `Number.isNaN` guard passes and a surface renders an instant the wire never sent. Read the stamp with `parseInstant` from `console/core/instant.ts`, and order two of them with `compareInstants`.",
+        },
+        {
+          // A string-shaped argument only. `new Date(<milliseconds>)` is how a fixture
+          // composes an instant from a base and an offset and stays legitimate; a
+          // numeric literal can carry none of `-`, `:`, or `T`, and a negative one is a
+          // `UnaryExpression` rather than a `Literal`, so neither matches.
+          selector:
+            'NewExpression[callee.name="Date"] > :matches(TemplateLiteral, Literal[value=/[-:T]/])',
+          message:
+            "`new Date(<string>)` is `Date.parse` with a wrapper and carries the same leniency. Read the stamp with `parseInstant` from `console/core/instant.ts`; build a fixture instant from `Date.UTC(...)` instead of parsing one.",
+        },
+        {
+          // Any `String(...)` inside a `catch`, not only one applied to the binding:
+          // `String(thrown.detail)` runs the same ToPrimitive on the same untrusted
+          // value. `lossyStringify` is total, so nothing is given up by the width.
+          selector: 'CatchClause CallExpression[callee.name="String"]',
+          message:
+            "`String(...)` inside a `catch` is not total: it runs ToPrimitive, which throws on a null-prototype value carrying no `toString` and on any hostile accessor — inside the expression that exists to report a failure, and inside a `catch` that has already been left. Use `lossyStringify` from `src/shared/wire-errors.ts`, or `normalizeWireRejection` from `console/core/wire-rejection.ts` where the result is a refusal.",
+        },
+      ],
+    },
+  },
 ];

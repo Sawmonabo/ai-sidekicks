@@ -33,19 +33,49 @@ export interface WireErrorEnvelope {
 }
 
 /**
+ * Read one property off an arbitrary rejected value, and cannot throw.
+ *
+ * A plain `value.code` is NOT safe on a value nobody validated: a property access
+ * runs a getter, and a getter that throws propagates out of the very guard that
+ * exists to decide whether the value is renderable. A Proxy's `get` trap throws the
+ * same way, and so does any accessor a hostile or merely broken producer defined.
+ * The absent reading and the throwing reading collapse to the same `undefined`,
+ * because to every caller here they mean the same thing: this value does not carry
+ * that member in any usable form.
+ *
+ * `function` joins `object` in the accepted set because a function is a property
+ * container too — a null-prototype function carrying `code` and `message` is a
+ * perfectly good envelope and `typeof` reports it as neither `"object"` nor null.
+ */
+export function readGuardedProperty(value: unknown, key: string): unknown {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+    return undefined;
+  }
+  try {
+    return (value as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Whether `value` is a wire error envelope.
  *
  * Shape-generic — any string `code` plus any string `message` — deliberately not
  * bound to specific code literals: a caller that needs to branch on a particular
  * code uses {@link isWireErrorEnvelopeWithCode}, and one that only needs to
  * render `code: message` must not have to enumerate every code that exists.
+ *
+ * Reads through {@link readGuardedProperty} rather than directly, so the guard is
+ * as total as the stringifier beside it. A predicate that can throw is not a guard:
+ * every caller here is on a failure path already, and a throw there replaces a
+ * rendered refusal with an unmounted subtree.
  */
 export function isWireErrorEnvelope(value: unknown): value is WireErrorEnvelope {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as { code?: unknown; message?: unknown };
-  return typeof candidate.code === "string" && typeof candidate.message === "string";
+  return (
+    typeof readGuardedProperty(value, "code") === "string" &&
+    typeof readGuardedProperty(value, "message") === "string"
+  );
 }
 
 /**
@@ -84,8 +114,8 @@ export function lossyStringify(value: unknown): string {
   }
 }
 
-/** How far {@link normalizeWireRejection} must go to render a hostile value. */
-export interface NormalizeWireRejectionOptions {
+/** How far {@link wireRejectionToError} must go to render a hostile value. */
+export interface WireRejectionToErrorOptions {
   /**
    * `true` renders a non-`Error`, non-envelope rejection through
    * {@link lossyStringify} instead of bare `String(...)`.
@@ -103,7 +133,16 @@ export interface NormalizeWireRejectionOptions {
 }
 
 /**
- * Normalizes a rejection into a render-ready `Error`.
+ * Renders a rejection as an `Error`, for a surface whose view state holds one.
+ *
+ * NAMED FOR WHAT IT ANSWERS, not for what it does to its input. It was
+ * `normalizeWireRejection`, which is also what `console/core/wire-rejection.ts` is
+ * called — and that one answers a `ConsoleRefusal` and keeps the daemon's own code
+ * where this one flattens it onto `Error.name`. Two functions, one name, two return
+ * types, and an import from the wrong module compiles wherever the result is only
+ * rendered. The console's cannot live here (its answer is a renderer-only shape and
+ * `src/shared/` may import the contracts package and nothing else), so the collision
+ * is closed by naming rather than by a lint rule.
  *
  *   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt as
  *     a fresh `Error` with the wire `code` as `Error.name`, so the rendered
@@ -113,9 +152,9 @@ export interface NormalizeWireRejectionOptions {
  *   • Any other `Error` passes through unchanged.
  *   • Anything else is wrapped, per `options.total`.
  */
-export function normalizeWireRejection(
+export function wireRejectionToError(
   rejection: unknown,
-  options: NormalizeWireRejectionOptions = {},
+  options: WireRejectionToErrorOptions = {},
 ): Error {
   if (isWireErrorEnvelope(rejection)) {
     const envelopeError = new Error(rejection.message);
