@@ -174,19 +174,33 @@ export const WORKTREE_DISK_DISPOSITION_COPY: Readonly<Record<WorktreeDiskDisposi
 };
 
 /**
- * Whether a clone has reached its disposal time.
+ * What a clone's disposal actually is: still ahead, past due, or already done.
  *
- * Two readings, not three: the design calls a clone past `expiresAt` degraded and
- * says nothing about one approaching it, and a "soon" band would need a threshold
- * whose only justification would be that it felt right.
+ * THREE READINGS, AND THE THIRD IS A DIFFERENT KIND OF FACT. `scheduled` and
+ * `elapsed` are both derived from a DEADLINE against the caller's instant, and there
+ * is deliberately no fourth band between them: the design calls a clone past
+ * `expiresAt` degraded and says nothing about one approaching it, and a "soon" band
+ * would need a threshold whose only justification would be that it felt right.
+ * `reclaimed` is not a band on that scale at all — it is the sweep's own stamp,
+ * `WorktreeStatusReadResponse.ephemeralClones[].cleanedAt`, registered in
+ * `api-payload-contracts.md` §Plan-010 as the "async disk-cleanup stamp; absent until
+ * the sweep runs". A row carrying one has had its files removed, whatever the
+ * deadline says about when they were due to be.
  */
-export const CLONE_EXPIRY_READINGS = ["scheduled", "elapsed"] as const;
+export const CLONE_EXPIRY_READINGS = ["scheduled", "elapsed", "reclaimed"] as const;
 
 /** One expiry reading. Derived, so the vocabulary is declared exactly once. */
 export type CloneExpiryReading = (typeof CLONE_EXPIRY_READINGS)[number];
 
 /**
- * Classify a clone's disposal time against the caller's instant.
+ * Classify a clone's disposal against the sweep's stamp, then against the instant.
+ *
+ * `cleanedAt` IS READ FIRST AND INDEPENDENTLY OF THE DEADLINE, exactly as
+ * `worktreeDiskDisposition` reads it one screen above: the stamp means the sweep ran,
+ * and the deadline it ran before or after says nothing about that. Reading the
+ * deadline first reported a swept clone with time left as awaiting disposal, and a
+ * swept one past its time as files that "may" already be gone — hedging about a fact
+ * the record establishes.
  *
  * A pure function of `nowMilliseconds` rather than of the wall clock, which is the
  * no-polling rule made structural: nothing here can schedule a re-render, so a
@@ -199,6 +213,9 @@ export function cloneExpiryReading(
   record: EphemeralCloneStatusRecord,
   nowMilliseconds: number,
 ): CloneExpiryReading {
+  if (record.cleanedAt !== undefined) {
+    return "reclaimed";
+  }
   const expiresAtMilliseconds = Date.parse(record.expiresAt);
   if (Number.isNaN(expiresAtMilliseconds)) {
     return "scheduled";
@@ -217,12 +234,19 @@ export const CLONE_EXPIRY_COPY: Readonly<Record<CloneExpiryReading, string>> = {
   scheduled: "Disposal takes this clone's snapshot refs with it.",
   elapsed:
     "Past its disposal time. Disposal takes this clone's snapshot refs with it; they may already be gone.",
+  // No hedge and no countdown: the sweep stamped this row, so the refs went with it.
+  // The record and its provenance stay, which is what the disclosure below is for.
+  reclaimed:
+    "The clone has been reclaimed and its snapshot refs went with it. The record and its provenance stay.",
 };
 
 /** The tone each reading carries. Elapsed is amber: it is a person's to act on. */
 export const CLONE_EXPIRY_TONE: Readonly<Record<CloneExpiryReading, ChipTone>> = {
   scheduled: "neutral",
   elapsed: "attention",
+  // Neutral, not amber: a reclaimed clone is settled. Amber is for what a person
+  // still has to act on, and there is nothing left here to act on.
+  reclaimed: "neutral",
 };
 
 /**

@@ -19,6 +19,9 @@ const EXPIRES_AT = "2026-01-01T12:00:00.000Z";
 const BEFORE_EXPIRY = Date.parse("2026-01-01T09:30:00.000Z");
 const AFTER_EXPIRY = Date.parse("2026-01-01T13:00:00.000Z");
 
+/** The sweep's own stamp, in the one arm where it decides what the row says. */
+const CLEANED_AT = "2026-01-01T09:45:00.000Z";
+
 function cloneRecord(
   overrides: Partial<EphemeralCloneStatusRecord> = {},
 ): EphemeralCloneStatusRecord {
@@ -113,5 +116,53 @@ describe("EphemeralCloneCard — the disclosure", () => {
       <EphemeralCloneCard record={cloneRecord()} nowMilliseconds={AFTER_EXPIRY} />,
     );
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+});
+
+describe("EphemeralCloneCard — a swept clone is reclaimed, not awaiting disposal", () => {
+  it("reads reclaimed while the deadline is still ahead", () => {
+    // The defect: disposition came off `expiresAt` alone, so a clone the sweep had
+    // already stamped reported as awaiting a disposal that had happened.
+    const { container } = render(
+      <EphemeralCloneCard
+        record={cloneRecord({ cleanedAt: CLEANED_AT })}
+        nowMilliseconds={BEFORE_EXPIRY}
+      />,
+    );
+    expect(container.textContent).toContain(CLONE_EXPIRY_COPY.reclaimed);
+    expect(container.textContent).not.toContain(CLONE_EXPIRY_COPY.scheduled);
+    // The stamp displaces the countdown: no deadline chip, and the exact stamp is on
+    // the element that carries it, as every other stamp on this card is.
+    expect(container.querySelector(`[title="${EXPIRES_AT}"]`)).toBeNull();
+    expect(container.querySelector(`[title="${CLEANED_AT}"]`)).not.toBeNull();
+    expect(container.textContent).toContain(formatRelativeTime(CLEANED_AT, BEFORE_EXPIRY));
+  });
+
+  it("reads reclaimed once the deadline has passed too, with no hedge", () => {
+    // The other half of the same defect: past the deadline the card said the refs
+    // "may" already be gone, while the stamp on the record establishes that they are.
+    const { container } = render(
+      <EphemeralCloneCard
+        record={cloneRecord({ cleanedAt: CLEANED_AT })}
+        nowMilliseconds={AFTER_EXPIRY}
+      />,
+    );
+    expect(container.textContent).toContain(CLONE_EXPIRY_COPY.reclaimed);
+    expect(container.textContent).not.toContain(CLONE_EXPIRY_COPY.elapsed);
+  });
+
+  it("negative control: a clone with no stamp still reads off its deadline", () => {
+    // Without this the pair above would pass against a card that reported every clone
+    // as reclaimed, which would say the files are gone for every row on the surface.
+    const scheduled = render(
+      <EphemeralCloneCard record={cloneRecord()} nowMilliseconds={BEFORE_EXPIRY} />,
+    );
+    const elapsed = render(
+      <EphemeralCloneCard record={cloneRecord()} nowMilliseconds={AFTER_EXPIRY} />,
+    );
+    expect(scheduled.container.textContent).toContain(CLONE_EXPIRY_COPY.scheduled);
+    expect(elapsed.container.textContent).toContain(CLONE_EXPIRY_COPY.elapsed);
+    expect(scheduled.container.textContent).not.toContain(CLONE_EXPIRY_COPY.reclaimed);
+    expect(elapsed.container.textContent).not.toContain(CLONE_EXPIRY_COPY.reclaimed);
   });
 });

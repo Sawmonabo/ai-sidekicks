@@ -83,7 +83,10 @@ describe("RepoSection — the ephemeral clones the root read named", () => {
 
     await waitFor(
       () => {
-        expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(1);
+        // One card per clone the read named, and the scenario names two: an unswept
+        // one past its deadline and a swept one whose deadline is still ahead. A list
+        // that drew one of them would be dropping a root the daemon reported.
+        expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(2);
       },
       { timeout: READ_TIMEOUT_MS },
     );
@@ -128,7 +131,7 @@ describe("RepoSection — the clone list stands on its own read", () => {
 
     await waitFor(
       () => {
-        expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(1);
+        expect(list.querySelectorAll(ROOT_CARD_SELECTOR)).toHaveLength(2);
       },
       { timeout: READ_TIMEOUT_MS },
     );

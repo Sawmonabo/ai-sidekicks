@@ -1382,3 +1382,51 @@
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }
+
+/* ------------------------------------------------- attachment carrier section */
+
+/*
+ * The sidebar's artifacts section: the picker, then the carrier's rows.
+ *
+ * The same column and the same gap as the repos section one screen above it, because
+ * the two are siblings in one sidebar and a second rhythm between them would read as
+ * two sidebars.
+ */
+.meridian-attachment-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: 0 var(--meridian-space-3) var(--meridian-space-2);
+}
+
+/*
+ * The picker. A label WRAPPING its input, so the control's accessible name is the
+ * text a person reads and no id has to be minted to pair them — the input itself
+ * stays the host's file control rather than a button that opens one, which is the
+ * only affordance a renderer has that reaches the host's dialog at all.
+ */
+.meridian-attachment-section__picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The collapsed line, matching the repos section's own. */
+.meridian-attachment-section__summary {
+  margin: 0;
+  padding: 0 var(--meridian-space-3);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-attachment-section__count {
+  font-family: var(--meridian-font-mono);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-attachment-section :focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}

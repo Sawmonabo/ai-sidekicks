@@ -14,6 +14,13 @@
 // surface that changes with nobody acting, which is exactly the fact that must not
 // be one click away.
 //
+// AND THE COUNTDOWN GOES AWAY ONCE IT HAS NOTHING LEFT TO COUNT. `cleanedAt` is the
+// sweep's own stamp, and a row carrying one is settled: its files are gone whatever
+// the deadline said. So the reclaimed arm renders the stamp where the countdown was
+// and states the disposition plainly, rather than reporting a swept clone with time
+// left as awaiting disposal or hedging that a swept one's refs "may" be gone. Which
+// arm a row is in is `cloneExpiryReading`'s, exactly as the two deadline arms are.
+//
 // THE COUNTDOWN NEVER TICKS. `nowMilliseconds` is a prop, the reading is a pure
 // function of it, and `Spec-023 §Rules every console surface obeys`' "No interval
 // polling" is therefore structural
@@ -90,16 +97,36 @@ export function EphemeralCloneCard(props: EphemeralCloneCardProps): React.JSX.El
             <DerivedFigure text={formatRelativeTime(record.createdAt, nowMilliseconds)} />
           </dd>
         </div>
-        <div className="meridian-root-card__pair">
-          <dt>{EPHEMERAL_CLONE_COLUMN_LABELS.expiresAt}</dt>
-          <dd title={record.expiresAt}>
-            <Chip
-              tone={CLONE_EXPIRY_TONE[expiry]}
-              glyph="clock"
-              label={formatRelativeTime(record.expiresAt, nowMilliseconds)}
-            />
-          </dd>
-        </div>
+        {/*
+          THE STAMP DISPLACES THE COUNTDOWN RATHER THAN SITTING BESIDE IT. A reclaimed
+          clone has no deadline left to count towards — the sweep already ran — and a
+          row that showed both would be asking a reader to work out which of the two
+          facts was the current one. Which pair renders is the disposal reading's, so
+          the card decides nothing about it.
+        */}
+        {expiry === "reclaimed" && record.cleanedAt !== undefined ? (
+          <div className="meridian-root-card__pair">
+            <dt>{EPHEMERAL_CLONE_COLUMN_LABELS.cleanedAt}</dt>
+            <dd title={record.cleanedAt}>
+              <Chip
+                tone={CLONE_EXPIRY_TONE[expiry]}
+                glyph="dot"
+                label={formatRelativeTime(record.cleanedAt, nowMilliseconds)}
+              />
+            </dd>
+          </div>
+        ) : (
+          <div className="meridian-root-card__pair">
+            <dt>{EPHEMERAL_CLONE_COLUMN_LABELS.expiresAt}</dt>
+            <dd title={record.expiresAt}>
+              <Chip
+                tone={CLONE_EXPIRY_TONE[expiry]}
+                glyph="clock"
+                label={formatRelativeTime(record.expiresAt, nowMilliseconds)}
+              />
+            </dd>
+          </div>
+        )}
       </dl>
 
       <p className="meridian-root-card__disposition">{CLONE_EXPIRY_COPY[expiry]}</p>

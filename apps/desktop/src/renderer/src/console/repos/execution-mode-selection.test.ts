@@ -36,10 +36,24 @@ interface HeldModeSelect {
 /** The daemon's answer to a released select: the scenario's own, or a rejection. */
 type ReleasedSelect = "served" | "rejected";
 
-function bridgeHoldingModeSelect(released: ReleasedSelect = "served"): HeldModeSelect {
+/**
+ * What each released select answers, in call order.
+ *
+ * A LIST AND NOT ONE VALUE, because the retry cases turn on the answer CHANGING: a
+ * refusal followed by a second press that is served is the sequence a stale refusal
+ * survives, and a port that answered every call the same way could not produce it.
+ * The last entry repeats, so a case naming one answer still names it once.
+ */
+type ReleasedSelects = ReleasedSelect | readonly ReleasedSelect[];
+
+function bridgeHoldingModeSelect(released: ReleasedSelects = "served"): HeldModeSelect {
   const fixture = createFixtureBridge({ scenario: REPOS_SCENARIO });
   const parked: (() => void)[] = [];
   let calls = 0;
+  const answerFor = (callNumber: number): ReleasedSelect =>
+    typeof released === "string"
+      ? released
+      : (released[Math.min(callNumber - 1, released.length - 1)] ?? "served");
   return {
     bridge: {
       ...fixture,
@@ -52,8 +66,9 @@ function bridgeHoldingModeSelect(released: ReleasedSelect = "served"): HeldModeS
               return await fixture.sidekicks.daemon.call(method, params);
             }
             calls += 1;
+            const answer = answerFor(calls);
             await new Promise<void>((letThrough) => parked.push(letThrough));
-            if (released === "rejected") {
+            if (answer === "rejected") {
               // A typed daemon refusal, in the envelope shape the wire sends. The
               // refusal path is what a settle-after-unmount would WRITE, which is why
               // the case that asserts it writes nothing has to take this arm.
@@ -100,7 +115,7 @@ async function drain(): Promise<void> {
 }
 
 /** A section that has read, with its mode-select call parked. */
-async function openWithHeldSelect(released: ReleasedSelect = "served"): Promise<{
+async function openWithHeldSelect(released: ReleasedSelects = "served"): Promise<{
   reader: RepoMountsReader;
   clock: ManualClock;
   port: HeldModeSelect;
@@ -243,5 +258,66 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
 
     expect(reader.snapshot).toBe(readingBefore);
     expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
+  });
+});
+
+describe("ExecutionModeSelections — a retry clears the refusal it is retrying", () => {
+  it("shows no stale refusal while the retried switch is on the wire", async () => {
+    // The defect: `#hold` published the pending mode and left the old entry in
+    // `refusalByWorkspaceId`, so the picker showed the failure the participant had
+    // just retried away from beside "Switching to …" for the whole flight — and, on an
+    // accepted switch, until the follow-up read finished.
+    const { reader, port } = await openWithHeldSelect(["rejected", "served"]);
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    port.release();
+    await drain();
+    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+
+    expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBe(WORKTREE_MODE);
+    // Absent, never a held key with no value — the picker asks whether there IS one.
+    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
+    expect(Object.keys(reader.snapshot.refusalByWorkspaceId)).toStrictEqual([]);
+  });
+
+  it("records the retry's own refusal when the retry is refused too", async () => {
+    // Clearing on issue must not become swallowing: a retry that fails records its own
+    // result, and the row ends holding the second answer rather than nothing.
+    const { reader, port } = await openWithHeldSelect("rejected");
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    port.release();
+    await drain();
+
+    void reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
+    await drain();
+    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
+    port.release();
+    await drain();
+
+    expect(port.selectCallCount()).toBe(2);
+    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+    expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
+  });
+
+  it("negative control: issuing a switch clears no other workspace's refusal", async () => {
+    // Without this the pair above would pass against a publish that emptied the whole
+    // refusal map, which would take a row's daemon refusal off the screen because an
+    // unrelated row was pressed.
+    const { reader, port } = await openWithHeldSelect("rejected");
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    port.release();
+    await drain();
+    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+
+    void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
+    await drain();
+
+    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+    expect(reader.snapshot.pendingModeByWorkspaceId[PLAIN_WORKSPACE_ID]).toBe(BRANCH_MODE);
   });
 });

@@ -41,6 +41,11 @@ export const REVIEWER_WORKTREE_ID: string = "9f2c4a10-0000-4000-8000-00000000002
 // which is exactly why a scenario that scripted none left that whole list
 // undrawable.
 export const EPHEMERAL_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000022";
+// The fourth root, and the only SWEPT one. `cleanedAt` decides a clone's disposition
+// ahead of its deadline, and a fixture whose every clone was unswept could not reach
+// the reclaimed reading at all — which is the arm that says the files are gone rather
+// than hedging that they may be.
+export const RECLAIMED_CLONE_ID: string = "9f2c4a10-0000-4000-8000-000000000023";
 export const IMPLEMENTER_RUN_ID: string = "9f2c4a10-0000-4000-8000-000000000030";
 // One branch context per worktree, because `branch_contexts` upserts a row per
 // `(workspace, worktree)` binding: two roots in one workspace are two contexts, and a

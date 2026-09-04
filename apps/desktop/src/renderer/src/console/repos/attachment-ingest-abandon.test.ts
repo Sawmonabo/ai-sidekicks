@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ATTACHMENT_CHUNK_BYTE_CAP, consoleTripwires } from "../core/index.js";
-import { INGEST_ABORT_SITE } from "./attachment-ingest.js";
+import { INGEST_ABORT_SITE } from "./attachment-ingest-abort.js";
 import {
   SMALL_SOURCE,
   ScriptedGrowthPort,
