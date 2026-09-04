@@ -20,20 +20,22 @@
 // WHAT THIS FILE IS NOT. It is not the `terminal-instance-memory` budget's
 // measurement, and it does not claim to be: that row's subject is a whole terminal
 // PANE — the emulator, its WebGL renderer, and the pane's own React, lease, and
-// store state — and this process holds only the adapter. The row is `n/a` in
-// `budgets.json` for exactly that reason and names no harness. The ceiling below is
-// READ from that row as a reference figure, never restated, because comparing an
-// adapter against a number chosen here instead would be a second source of truth
-// for a budget the spec already fixed.
+// store state — and this process holds only the adapter. The row's own harness is
+// `terminal-instance-memory.test.ts`, beside this file in this tier, which opens
+// that pane in the built console through the deck's registry and reads the
+// difference it makes to a real renderer's heap. The ceiling below is READ from
+// that row as a reference figure, never restated, because comparing an adapter
+// against a number chosen here instead would be a second source of truth for a
+// budget the spec already fixed.
 //
-// WHY THIS FILE DRIVES THE ADAPTER IN PROCESS RATHER THAN A REAL WINDOW. Every
-// other file in this tier drives the built application through Playwright's
-// `_electron`, which is the right shape when the subject is the whole console. It
-// is not available for this subject at this revision: no deck mounts a pane yet,
-// so there is no way to open a terminal in that window and nothing to drive. The
-// honest alternative is to drive the real `@xterm/xterm` against a DOM here and
-// say so — a stand-in emulator would answer questions about the stand-in, and
-// waiting for the deck would leave the churn untested for as long as that takes.
+// WHY THIS FILE DRIVES THE ADAPTER IN PROCESS RATHER THAN A REAL WINDOW. Its
+// subject is the adapter, and the three claims below are about the adapter's own
+// bookkeeping: that a full scrollback evicts rather than grows, that a disposal
+// gives the bytes back, and that a working day of cycles leaves the ledger where it
+// started. Driving those through a window would put a renderer, a React tree, and a
+// pane's store between the write and the reading, which is the right arrangement for
+// the budget's harness and the wrong one for a claim about eviction — and the two
+// files are separate precisely so neither has to answer the other's question.
 //
 // WHAT THAT COSTS, STATED. The DOM shim has no WebGL2, so every instance settles
 // on the fallback renderer, and the WebGL context leak this pool exists to bound
@@ -64,10 +66,10 @@ const heapSampler = new HeapSampler();
 /**
  * The reference ceiling, read from the budget row rather than restated here.
  *
- * Read and not claimed: the row is `n/a`, so nothing in this file is its gate, and
- * the assertions below say what the ADAPTER does against a figure the spec already
- * fixed. Restating the number would put one ceiling in two places, which the
- * package's config single-sourcing rule refuses.
+ * Read and not claimed: the row's `measuredBy` names the file beside this one, so
+ * nothing here is its gate, and the assertions below say what the ADAPTER does
+ * against a figure the spec already fixed. Restating the number would put one
+ * ceiling in two places, which the package's config single-sourcing rule refuses.
  */
 const terminalBudget = registry.requireBudget("terminal-instance-memory");
 

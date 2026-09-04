@@ -229,7 +229,6 @@ type ConsolePaneAddressOf<TKind extends PaneKind> = [PaneEntityScopeByKind[TKind
     ? { readonly kind: TKind; readonly entity: PaneEntityScopeByKind[TKind] }
     : { readonly kind: TKind; readonly entity?: PaneEntityScopeByKind[TKind] };
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * Which pane, over which entity — the address a pane is opened at.
  *
@@ -359,7 +358,6 @@ function readEntityRefCandidate(candidate: unknown): ConsoleEntityRef | undefine
     : undefined;
 }
 
-// Consumed by T-023p-1C-2, T-023p-1C-3
 /**
  * Admit one address that arrived untyped, or refuse it by name.
  *
