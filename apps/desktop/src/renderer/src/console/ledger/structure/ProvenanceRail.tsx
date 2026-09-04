@@ -37,6 +37,7 @@ import { RealClock, type ConsoleClock } from "../../core/index.js";
 import { Glyph } from "../../primitives/index.js";
 import { RAIL_HIT_STRIP_WIDTH_PX, RAIL_PREVIEW_GRACE_MS } from "./constants.js";
 import {
+  clampRailViewportBand,
   RAIL_TICK_KINDS,
   type ProvenanceRailModel,
   type RailTick,
@@ -306,16 +307,42 @@ function railStripStyle(): React.CSSProperties {
   return { width: `${String(RAIL_HIT_STRIP_WIDTH_PX)}px` };
 }
 
+/**
+ * The viewport thumb, clamped ONCE.
+ *
+ * The top and the height are not independent — a top clamped into `[0, 1]` beside a
+ * height clamped into `[0, 1]` admits `0.909 + 0.1`, a thumb hanging over the
+ * rail's foot — so the pair goes through `clampRailViewportBand`, which settles the
+ * height and then takes the top against `1 - extent`. The props are clamped rather
+ * than trusted because a band arriving from a caller is not necessarily one the
+ * rail model built.
+ */
 function thumbStyle(position: number, extent: number): React.CSSProperties {
-  return {
-    top: `${String(Math.min(100, Math.max(0, position * 100)))}%`,
-    height: `${String(Math.min(100, Math.max(1, extent * 100)))}%`,
-  };
+  const band = clampRailViewportBand({ position, extent });
+  return { top: railPercent(band.position), height: railPercent(band.extent) };
 }
 
 function previewStyle(offsetFraction: number): React.CSSProperties {
-  return { top: `${String(Math.min(100, Math.max(0, offsetFraction * 100)))}%` };
+  return { top: railPercent(Math.min(1, Math.max(0, offsetFraction))) };
 }
+
+/**
+ * A fraction of the rail as a CSS percentage.
+ *
+ * Fixed to `RAIL_PERCENT_FRACTION_DIGITS` rather than printed raw: binary doubles
+ * make `0.9 * 100` read `90.00000000000001`, and a top and a height that should sum
+ * to exactly the rail's length would instead sum to a hair over it and to a string
+ * nobody reviewing a computed style can read.
+ */
+function railPercent(fraction: number): string {
+  return `${(fraction * 100).toFixed(RAIL_PERCENT_FRACTION_DIGITS)}%`;
+}
+
+/**
+ * Decimal places a rail percentage keeps. Four is under a thousandth of a 600px
+ * rail — below the device pixel on any display — and short enough to read.
+ */
+const RAIL_PERCENT_FRACTION_DIGITS = 4;
 
 /**
  * The grace before a preview card opens.

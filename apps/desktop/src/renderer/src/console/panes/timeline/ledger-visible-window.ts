@@ -42,7 +42,11 @@ import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 // binding's own shape, reached by module path the way this family's other subtrees
 // reach the frame's internals.
 import { type LedgerVisibleRowRange } from "../../ledger/frame/viewport-binding.js";
-import { ProvenanceRailModel } from "../../ledger/structure/index.js";
+import {
+  ProvenanceRailModel,
+  railViewportBand,
+  type RailViewportBand,
+} from "../../ledger/structure/index.js";
 import { type LedgerWindowModel } from "./ledger-window.js";
 
 /** The window the viewport is showing, and what fell outside it. */
@@ -133,20 +137,21 @@ export function useVisibleLedgerWindow(
   }, [ledgerWindow, revealedRows, viewportRows]);
 }
 
-/** Where the reader is in the window, and how much of it they can see. */
-export interface RailGeometry {
-  readonly position: number;
-  readonly extent: number;
-}
-
 /**
- * The rail's two fractions, in ROW space.
+ * The rail's thumb, in ROW space.
  *
  * Row space rather than pixel space because that is the space the rail lays its own
  * marks out in: a tick sits at its row's place in the window, so a thumb measured in
  * pixels would drift away from the marks it is supposed to point at wherever rows
  * differ in height — which, with tool cards and streamed prose in the same log, is
  * everywhere.
+ *
+ * The arithmetic itself is `rail-model.ts`'s row-band model and is not restated
+ * here. That is the whole point of the seam: the marks and the thumb are placed by
+ * ONE function of one ordering, so a thumb that no longer contains the marks under
+ * it is not a shape this pair can take. `rowCount` is the retained viewport row
+ * count — the same ordering the rail model is handed, headers included — and the
+ * indices are positions in it.
  *
  * Measured off the binding's `visibleRange` and NOT off `virtualItems`, which is
  * that range widened by the overscan at both edges: at the estimated row height a
@@ -158,21 +163,14 @@ export interface RailGeometry {
 export function useRailGeometry(
   visibleRange: LedgerVisibleRowRange | undefined,
   rowCount: number,
-): RailGeometry {
+): RailViewportBand {
   const firstIndex = visibleRange?.startIndex;
   const lastIndex = visibleRange?.endIndex;
   return useMemo(() => {
-    if (rowCount === 0 || firstIndex === undefined || lastIndex === undefined) {
+    if (firstIndex === undefined || lastIndex === undefined) {
       return { position: 0, extent: 1 };
     }
-    const visibleCount = lastIndex - firstIndex + 1;
-    // Divided by the last INDEX rather than by the count, so a viewport sitting on
-    // the final row reports 1 rather than falling short of the rail's own end.
-    const lastPossibleIndex = Math.max(1, rowCount - 1);
-    return {
-      position: Math.min(1, firstIndex / lastPossibleIndex),
-      extent: Math.min(1, visibleCount / rowCount),
-    };
+    return railViewportBand(firstIndex, lastIndex, rowCount);
     // The two indices rather than the range object: the virtualizer recomputes that
     // object whenever the scroll offset moves, so keying on its identity would
     // re-derive the geometry on scrolls that did not change which rows are on

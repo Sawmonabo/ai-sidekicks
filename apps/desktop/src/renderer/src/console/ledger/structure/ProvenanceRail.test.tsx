@@ -81,6 +81,8 @@ function renderRail(
     readonly clock?: ManualClock;
     /** Whether a caller can page earlier rows at all. Absent, no affordance is drawn. */
     readonly canLoadEarlier?: boolean;
+    /** The viewport band the thumb draws. The head quarter of the rail by default. */
+    readonly viewport?: { readonly position: number; readonly extent: number };
   } = {},
 ): RailHarness {
   const jumps: string[] = [];
@@ -91,8 +93,8 @@ function renderRail(
   render(
     <ProvenanceRail
       model={options.model ?? railModel()}
-      viewportPosition={0}
-      viewportExtent={0.25}
+      viewportPosition={options.viewport?.position ?? 0}
+      viewportExtent={options.viewport?.extent ?? 0.25}
       isFollowing={false}
       onJumpToRow={(rowId) => jumps.push(rowId)}
       {...(options.canLoadEarlier === false ? {} : { onLoadEarlier: loadEarlier })}
@@ -103,6 +105,21 @@ function renderRail(
     slider: screen.getByRole("slider"),
     jumps,
     loadEarlierCount: () => loadEarlierCount,
+  };
+}
+
+/** The thumb's top and height, in percent of the rail. */
+function thumbBounds(slider: HTMLElement): {
+  readonly topPercent: number;
+  readonly heightPercent: number;
+} {
+  const thumb = slider.querySelector<HTMLElement>(".meridian-rail__thumb");
+  if (thumb === null) {
+    throw new Error("the rail drew no viewport thumb");
+  }
+  return {
+    topPercent: Number.parseFloat(thumb.style.top),
+    heightPercent: Number.parseFloat(thumb.style.height),
   };
 }
 
@@ -129,6 +146,31 @@ describe("rail — the accessible layer over an opaque canvas", () => {
     const canvas = slider.querySelector("canvas");
     expect(canvas).not.toBeNull();
     expect(canvas?.getAttribute("aria-hidden")).toBe("true");
+  });
+});
+
+describe("rail — the viewport thumb stays inside the rail", () => {
+  it("ends a tail viewport's thumb exactly at the foot", () => {
+    const { slider } = renderRail({ viewport: { position: 0.9, extent: 0.1 } });
+    const { topPercent, heightPercent } = thumbBounds(slider);
+    expect(topPercent + heightPercent).toBeCloseTo(100, 6);
+  });
+
+  it("negative control: clamping the two independently hangs the thumb off the end", () => {
+    // The band a tail viewport produced before the geometry was fixed. Clamped
+    // top-and-height-apart it survives untouched, which is exactly how a 90.9%
+    // top and a 10% height reached the DOM; one clamp over the pair pulls it back
+    // to the foot instead.
+    const overrunning = { position: 0.909, extent: 0.1 };
+    expect(Math.min(1, overrunning.position) + Math.min(1, overrunning.extent)).toBeGreaterThan(1);
+    const { slider } = renderRail({ viewport: overrunning });
+    const { topPercent, heightPercent } = thumbBounds(slider);
+    expect(topPercent + heightPercent).toBeCloseTo(100, 6);
+  });
+
+  it("draws a mid-window thumb where it was asked to", () => {
+    const { slider } = renderRail({ viewport: { position: 0.25, extent: 0.5 } });
+    expect(thumbBounds(slider)).toStrictEqual({ topPercent: 25, heightPercent: 50 });
   });
 });
 

@@ -250,10 +250,9 @@ describe("the rail's two fractions", () => {
       ),
     );
     expect(result.current.extent).toBeCloseTo(VISIBLE_ROW_COUNT / RAIL_WINDOW_ROW_COUNT, 6);
-    expect(result.current.position).toBeCloseTo(
-      FIRST_VISIBLE_INDEX / (RAIL_WINDOW_ROW_COUNT - 1),
-      6,
-    );
+    // One denominator for both readings — the retained row count — which is what
+    // makes the thumb the span of the bands the marks are placed in.
+    expect(result.current.position).toBeCloseTo(FIRST_VISIBLE_INDEX / RAIL_WINDOW_ROW_COUNT, 6);
   });
 
   it("negative control: the overscanned mount range gives a different, wrong answer", () => {
@@ -274,11 +273,41 @@ describe("the rail's two fractions", () => {
       (VISIBLE_ROW_COUNT + 2 * LEDGER_OVERSCAN_ROWS) / RAIL_WINDOW_ROW_COUNT,
       6,
     );
-    expect(result.current.position).toBeLessThan(FIRST_VISIBLE_INDEX / (RAIL_WINDOW_ROW_COUNT - 1));
+    expect(result.current.position).toBeLessThan(FIRST_VISIBLE_INDEX / RAIL_WINDOW_ROW_COUNT);
+  });
+
+  it("ends a tail viewport's thumb exactly at the rail's foot", () => {
+    // Rows 90 to 99 of 100: the arithmetic that shipped read 90.9% down with 10%
+    // of height, and `thumbStyle` clamped the two independently, so the thumb ran
+    // off the end of the rail rather than finishing at it.
+    const { result } = renderHook(() => useRailGeometry({ startIndex: 90, endIndex: 99 }, 100));
+    expect(result.current.position + result.current.extent).toBeCloseTo(1, 12);
+  });
+
+  it("negative control: the old top-against-the-last-index form overruns", () => {
+    const staleTop = 90 / (100 - 1);
+    const { result } = renderHook(() => useRailGeometry({ startIndex: 90, endIndex: 99 }, 100));
+    expect(staleTop + result.current.extent).toBeGreaterThan(1);
+    expect(result.current.position).toBeLessThan(staleTop);
+  });
+
+  it("gives a viewport spanning every row the whole rail", () => {
+    const { result } = renderHook(() =>
+      useRailGeometry(
+        { startIndex: 0, endIndex: RAIL_WINDOW_ROW_COUNT - 1 },
+        RAIL_WINDOW_ROW_COUNT,
+      ),
+    );
+    expect(result.current).toStrictEqual({ position: 0, extent: 1 });
   });
 
   it("negative control: an unmeasured box claims the whole rail rather than the head", () => {
     const { result } = renderHook(() => useRailGeometry(undefined, RAIL_WINDOW_ROW_COUNT));
+    expect(result.current).toStrictEqual({ position: 0, extent: 1 });
+  });
+
+  it("negative control: an empty window claims the whole rail too", () => {
+    const { result } = renderHook(() => useRailGeometry({ startIndex: 0, endIndex: 0 }, 0));
     expect(result.current).toStrictEqual({ position: 0, extent: 1 });
   });
 });
