@@ -41,11 +41,11 @@ export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.El
  * The two boundary arms, split from the frame so the record's hooks are never
  * called conditionally.
  *
- * `linkedSourcePaneId` is passed as `undefined` because the deck's pane context
- * carries no link member today: `ConsolePaneContext` is the seat contract, and a
- * member added to it is the seats owner's edit rather than a pane body's. The prop
- * exists on the record already, so the link renders the moment the deck supplies
- * one — and until then the record simply does not claim to be linked.
+ * `linkedSourcePaneId` comes straight off the pane context, which is where the deck
+ * puts it: a pane opened from another carries the source pane's id on its seat, and
+ * an unlinked one carries `undefined` there deliberately rather than by omission. So
+ * the record claims a link exactly when the deck made one, and the pane invents
+ * neither the presence nor the absence.
  */
 function InspectorPaneBody(props: {
   readonly context: PaneContextOf<"inspector">;
@@ -69,7 +69,7 @@ function InspectorPaneBody(props: {
     <InspectedEntity
       entityRef={context.entity}
       sessionStore={context.sessionStore}
-      linkedSourcePaneId={undefined}
+      linkedSourcePaneId={context.linkedSourcePaneId}
     />
   );
 }
