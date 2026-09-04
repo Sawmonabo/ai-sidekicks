@@ -212,7 +212,7 @@ describe("a replay across a projection change", () => {
     return renderHook((ledgerWindow: LedgerWindowModel) => useLedgerReplay(ledgerWindow), {
       initialProps: windowOver(STARTING_EVENT_COUNT),
       wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
-        createElement(SidekicksBridgeProvider, { bridge }, children),
+        createElement(SidekicksBridgeProvider, { bridge, children }),
     });
   }
 

@@ -94,6 +94,13 @@ function recordingReplayState(
       revealedRowIds: [],
     },
     isRevealed: false,
+    // A walk over the window as it stands admitted nothing after it began, and no
+    // act in this file leaves one, so the count is zero and `end` is recorded like
+    // every other control rather than left unrepresentable.
+    rowsAdmittedSinceReplayBegan: 0,
+    end: () => {
+      trace.push("end");
+    },
     reveal: () => {
       trace.push("reveal");
     },

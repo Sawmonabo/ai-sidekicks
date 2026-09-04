@@ -93,6 +93,10 @@ describe("the visible ledger window", () => {
       prunedAwayRows: [],
       withheldByReplayRows: [],
       hasEarlierRows: false,
+      // Nothing outside this window, so both stage memberships are the rows
+      // themselves — the identity the partition would have produced.
+      revealedRowKeys: new Set(ledgerWindow.rows.map((row) => row.id)),
+      heldRowKeys: new Set(ledgerWindow.rows.map((row) => row.id)),
       railModel: new ProvenanceRailModel({ rows: ledgerWindow.rows, hasEarlierRows: false }),
     };
     const { result } = renderHook(() => useLedgerFind(wholeLogWindow));
