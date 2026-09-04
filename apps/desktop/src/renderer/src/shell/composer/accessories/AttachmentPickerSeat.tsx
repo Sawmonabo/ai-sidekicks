@@ -19,11 +19,18 @@
 // appears. Live delivery on a steer additionally waits on the typed attachment arm,
 // which the registered intervention payload does not carry — the `replacementSend`
 // leg has no attachment member at all.
+//
+// AND WHAT IT SAYS BELONGS TO THE SESSION IT ASKED. The composer is rebound from one
+// session to another while it stays mounted, and this menu can be open across that
+// change. What one session accepts is not what another does, so the reading is held
+// per `(bridge, sessionId)`: the pass that commits a new session reads the unasked
+// state, and a read still in flight against the previous one settles into nothing
+// rather than into this surface.
 
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { InlineRefusal, Nothing, formatByteQuantity } from "../../../console/primitives/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { useSessionScopedState, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { ATTACHMENT_CARRIER_COUNT_CAP } from "./accessory-bounds.js";
 
 export interface AttachmentPickerSeatProps {
@@ -41,24 +48,30 @@ type PickerState =
       readonly maximumByteLength: number;
     };
 
+/** The state before anything was asked, and what a rebind returns the seat to. */
+const UNASKED: PickerState = { phase: "unasked" };
+
 export function AttachmentPickerSeat(props: AttachmentPickerSeatProps): React.JSX.Element {
-  const [state, setState] = useState<PickerState>({ phase: "unasked" });
   const { bridge, sessionId } = props;
+  const [state, publishState] = useSessionScopedState<PickerState>(bridge, sessionId, UNASKED);
 
   const readAllowList = useCallback(() => {
-    setState({ phase: "asking" });
+    publishState({ phase: "asking" });
     void bridge.growth.artifactAllowlistRead({ sessionId }).then((outcome) => {
+      // Published through the holder the render that opened this read handed out,
+      // so an answer arriving after the composer moved to another session is
+      // dropped instead of claiming that session accepts what this one does.
       if (outcome.status === "unavailable") {
-        setState({ phase: "refused", refusal: outcome });
+        publishState({ phase: "refused", refusal: outcome });
         return;
       }
-      setState({
+      publishState({
         phase: "offered",
         contentTypes: outcome.value.contentTypes,
         maximumByteLength: outcome.value.maximumByteLength,
       });
     });
-  }, [bridge, sessionId]);
+  }, [bridge, publishState, sessionId]);
 
   return (
     <div className="meridian-attachment-seat">
