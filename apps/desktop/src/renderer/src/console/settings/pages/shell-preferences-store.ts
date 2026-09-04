@@ -22,18 +22,16 @@
 // Snapping the switch back on that answer would tell a person their choice was
 // refused, which is false — nobody was asked. So an UNAVAILABLE carrier holds the
 // value for this window and the row says so. A carrier that is PRESENT and rejects
-// is the other fact, and that one does leave the stored value and render the code
-// ("a failed preference write leaves the control at its stored value and renders
-// the code"). Both arms are implemented; only the first is reachable today, which
-// is why the second is driven by a stub port in this module's own test.
+// is the other fact, and that one does leave the stored value and render the code.
+// Both arms are implemented; only the first is reachable today, which is why the
+// second is driven by a stub port in this module's own test.
 //
 // NOTHING HERE PERSISTS, AND THE COPY SAYS SO
 //
-// `console/persistence/` admits a closed value-class enumeration — layout, scroll,
-// selection, pin, expansion, scheme, keybinding — and a preference is none of them.
-// Widening that set is a spec amendment rather than a page's decision, so a held
-// value lives for this window's lifetime and every consumer renders the note rather
-// than implying a durable write nothing performed.
+// `console/persistence/` admits a closed value-class enumeration and a preference is
+// none of them. Widening that set is a spec amendment rather than a page's decision,
+// so a held value lives for this window's lifetime and every consumer renders the
+// note rather than implying a durable write nothing performed.
 
 import {
   AttemptGeneration,
@@ -41,6 +39,7 @@ import {
   Emitter,
   isConsoleRefusal,
   refuse,
+  type Attempt,
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../../core/index.js";
@@ -93,8 +92,13 @@ export interface ShellPreferenceSnapshot {
   readonly reading: ShellPreferenceReading;
   /** Values chosen in this window that no carrier has taken. */
   readonly heldLocally: Readonly<Record<string, boolean>>;
-  /** The key whose write is in flight, or `undefined` when none is. */
-  readonly pendingKey: ShellPreferenceKey | undefined;
+  /**
+   * Every key whose write is in flight. A SET, because the carrier updates one key
+   * per call and two keys chosen in quick succession are two independent acts: one
+   * key here drew the second choice's spinner over the first and then cleared BOTH
+   * on the first settlement, so a row still writing said it had finished.
+   */
+  readonly pendingKeys: ReadonlySet<ShellPreferenceKey>;
   /** The last refusal per key. Cleared when that key is attempted again. */
   readonly refusalByKey: Readonly<Record<string, ConsoleRefusal>>;
   /** Bumped on every transition, so `useSyncExternalStore` sees a new identity. */
@@ -104,15 +108,15 @@ export interface ShellPreferenceSnapshot {
 /**
  * What a window reads before its store has been acquired or asked anything.
  *
- * Exported because the React binding next door renders it while its acquiring
- * effect settles: the opening arm a page draws then has to be the SAME snapshot the
- * store itself opens on, and a second literal there would be a second answer to
- * "nothing has happened yet" that nothing keeps equal to this one.
+ * Exported because the React binding next door renders it while its acquiring effect
+ * settles: the opening arm a page draws has to be the SAME snapshot the store itself
+ * opens on, and a second literal there would be a second answer to "nothing has
+ * happened yet" that nothing keeps equal to this one.
  */
 export const NOTHING_CHOSEN: ShellPreferenceSnapshot = {
   reading: { kind: "not-read" },
   heldLocally: {},
-  pendingKey: undefined,
+  pendingKeys: new Set(),
   refusalByKey: {},
   revision: 0,
 };
@@ -134,20 +138,26 @@ export class ShellPreferenceStore {
   #started = false;
   #disposed = false;
   /**
-   * The rounds this store's writes have opened.
+   * The rounds this store's writes have opened, and which round each key is on.
    *
-   * TWO ROLES, ONE GENERATION, which is the shape `core/attempt-generation.ts`
-   * describes: a new write supersedes the one before it, so a settled call that is
-   * no longer the latest writes nothing — and the OPENING READ is superseded by any
-   * write, because the record that read answers with is the record from before the
-   * choice. `sessions/durable-view-state.ts` states the same rule for a durable
-   * hydration racing a local act; `choose` takes `begin()` and the read takes
-   * `current()`, which is what puts the read on the superseded side of it.
+   * ONE COUNTER, TWO QUESTIONS ASKED OF IT. The counter is `core/attempt-generation.ts`'s
+   * and the OPENING READ is superseded by any write, because the record that read
+   * answers with is the record from before the choice — `choose` takes `begin()` and
+   * the read takes `current()`, which is what puts the read on the superseded side.
    *
-   * Being DISPOSED is a separate flag above, because that fact is terminal and this
-   * one is not.
+   * But supersession between WRITES is per KEY, because the carrier's write is per
+   * key: `shellConfigWrite` takes one key and leaves the others alone, so choosing B
+   * while A is in flight replaces nothing of A's. Sharing one round made B's choice
+   * discard A's settlement, leaving the carrier holding a value this window went on
+   * rendering the old one for — for the rest of the window, since this store reads
+   * once and never refreshes. The map's entry is deleted when its write settles, so
+   * it is the PENDING set as well and a continuation whose entry has been replaced
+   * or removed is by construction not the latest.
+   *
+   * Being DISPOSED is the separate flag above: that fact is terminal and this is not.
    */
   readonly #writes = new AttemptGeneration();
+  readonly #writesByKey = new Map<ShellPreferenceKey, Attempt>();
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
@@ -164,10 +174,9 @@ export class ShellPreferenceStore {
   /**
    * Read the carrier once.
    *
-   * Idempotent, because React mounts an effect twice under strict mode and a second
-   * read would ask the same question twice. One read and no refresh: the wire behind
-   * this seam refuses today, so a repeat would re-ask a question with no answer, and
-   * `store/scheduling.ts` is where a real re-read lands when there is one.
+   * Idempotent, because React mounts an effect twice under strict mode. One read and
+   * no refresh: the wire behind this seam refuses today, so a repeat would re-ask a
+   * question with no answer, and `store/scheduling.ts` is where a real re-read lands.
    */
   public start(): void {
     if (this.#started || this.#disposed) {
@@ -197,9 +206,10 @@ export class ShellPreferenceStore {
    */
   public async choose(key: ShellPreferenceKey, enabled: boolean): Promise<void> {
     const write = this.#writes.begin();
+    this.#writesByKey.set(key, write);
     this.#publish({
       ...this.#snapshot,
-      pendingKey: key,
+      pendingKeys: this.#pendingKeys(),
       // The prior refusal for THIS key is dropped on the attempt rather than on its
       // settlement, so a person pressing again does not read last time's reason
       // beside this time's spinner.
@@ -208,7 +218,7 @@ export class ShellPreferenceStore {
     });
     try {
       const outcome = await this.#bridge.growth.shellConfigWrite({ key, enabled });
-      if (this.#disposed || !this.#writes.isCurrent(write)) {
+      if (!this.#settle(key, write)) {
         return;
       }
       if (outcome.status === "unavailable") {
@@ -217,7 +227,7 @@ export class ShellPreferenceStore {
         this.#publish({
           ...this.#snapshot,
           heldLocally: { ...this.#snapshot.heldLocally, [key]: enabled },
-          pendingKey: undefined,
+          pendingKeys: this.#pendingKeys(),
           revision: this.#snapshot.revision + 1,
         });
         return;
@@ -226,22 +236,36 @@ export class ShellPreferenceStore {
         ...this.#snapshot,
         reading: appliedReading(this.#snapshot.reading, key, enabled),
         heldLocally: withoutKey(this.#snapshot.heldLocally, key),
-        pendingKey: undefined,
+        pendingKeys: this.#pendingKeys(),
         revision: this.#snapshot.revision + 1,
       });
     } catch (rejection: unknown) {
-      if (this.#disposed || !this.#writes.isCurrent(write)) {
+      if (!this.#settle(key, write)) {
         return;
       }
       // A present carrier that rejected. The stored value stands and the code
       // renders beside the control that asked for the change.
       this.#publish({
         ...this.#snapshot,
-        pendingKey: undefined,
+        pendingKeys: this.#pendingKeys(),
         refusalByKey: { ...this.#snapshot.refusalByKey, [key]: asRefusal(rejection) },
         revision: this.#snapshot.revision + 1,
       });
     }
+  }
+
+  /** Whether this settled write is still its key's latest, and retire it if it is. */
+  #settle(key: ShellPreferenceKey, write: Attempt): boolean {
+    if (this.#disposed || this.#writesByKey.get(key) !== write) {
+      return false;
+    }
+    this.#writesByKey.delete(key);
+    return true;
+  }
+
+  /** The keys still in flight, copied so a published snapshot never changes under a reader. */
+  #pendingKeys(): ReadonlySet<ShellPreferenceKey> {
+    return new Set(this.#writesByKey.keys());
   }
 
   /** Drop one key's refusal — the dismiss a person presses on the notice. */
@@ -310,8 +334,8 @@ export class ShellPreferenceStore {
  * The value a row shows: this window's choice, then the carrier's, then the default.
  *
  * Exported because the store's own test asserts the precedence directly rather than
- * through a rendered row — the ordering is the rule, and a test that could only see
- * it through a component would be asserting the component instead.
+ * through a rendered row — the ordering is the rule, and a test that saw it only
+ * through a component would be asserting the component instead.
  */
 export function effectivePreference(
   snapshot: ShellPreferenceSnapshot,
