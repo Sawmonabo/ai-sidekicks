@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { installFakeResizeObserver } from "../primitives/element-resize.test-support.js";
 import { TERMINAL_DEFAULT_SCROLLBACK_LINES } from "./constants.js";
-import { TerminalRendererPool } from "./renderer-pool.js";
+import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool.js";
 import { XtermTerminalAdapter } from "./xterm-adapter.js";
 
 const liveAdapters: XtermTerminalAdapter[] = [];
@@ -37,19 +37,19 @@ class RecordingRendererPool extends TerminalRendererPool {
   public readonly releasedTerminalIds: string[] = [];
   public readonly reclaimedTerminalIds: string[] = [];
 
-  public override acquire(terminalId: string): boolean {
+  public override acquire(terminalId: string): TerminalContextLease | undefined {
     this.acquiredTerminalIds.push(terminalId);
     return super.acquire(terminalId);
   }
 
-  public override release(terminalId: string): void {
-    this.releasedTerminalIds.push(terminalId);
-    super.release(terminalId);
+  public override release(lease: TerminalContextLease): void {
+    this.releasedTerminalIds.push(lease.terminalId);
+    super.release(lease);
   }
 
-  public override reclaim(terminalId: string): void {
-    this.reclaimedTerminalIds.push(terminalId);
-    super.reclaim(terminalId);
+  public override reclaim(lease: TerminalContextLease): void {
+    this.reclaimedTerminalIds.push(lease.terminalId);
+    super.reclaim(lease);
   }
 }
 
@@ -434,7 +434,7 @@ describe("the context ledger, through the adapter", () => {
     // count — and a terminal opened after twenty cycles must still be able to take
     // one on a host that later has one to give.
     expect(pool.createdContextCount).toBe(0);
-    expect(pool.acquire("late-arrival")).toBe(true);
+    expect(pool.acquire("late-arrival")).toBeDefined();
   });
 
   it("negative control: the adapter did ask for one on every one of those cycles", () => {
@@ -458,11 +458,16 @@ describe("the context ledger, through the adapter", () => {
 
     adapter.dispose();
 
-    // The teardown adds a release and NOT a second reclaim. Reclaiming here is the
-    // churn bug: on a host that does have WebGL2 the context outlives the addon,
-    // so a teardown that handed the allowance back would let the page mint them
-    // without bound while the ledger never rose.
-    expect(pool.releasedTerminalIds).toStrictEqual(["torn-down"]);
+    // The teardown adds no second hand-back of either kind. There is no context to
+    // give up on this host — the selection already reclaimed the lease it was
+    // granted, and a hand-back names the LEASE now, so there is nothing left to
+    // name. Reclaiming again would spend the page's allowance twice for one
+    // context that never existed.
+    //
+    // The other arm — a teardown of a terminal that really is holding one, which
+    // releases and does not reclaim — needs a renderer that activates, so it lives
+    // in `webgl-context-loss.test.tsx` where one does.
+    expect(pool.releasedTerminalIds).toStrictEqual([]);
     expect(pool.reclaimedTerminalIds).toStrictEqual(["torn-down"]);
   });
 });

@@ -46,7 +46,7 @@ import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { WebglAddon } from "@xterm/addon-webgl";
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
-import { TerminalRendererPool } from "./renderer-pool.js";
+import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool.js";
 
 /** Which renderer an instance ended up with. Rendered, never inferred. */
 export const TERMINAL_RENDERER_MODES = ["webgl", "dom"] as const;
@@ -66,6 +66,12 @@ export class TerminalAddonSuite {
   #searchAddon: SearchAddon | undefined;
   #serializeAddon: SerializeAddon | undefined;
   #webglAddon: WebglAddon | undefined;
+  // The ledger's receipt for the context THIS suite created, held so the two
+  // hand-backs name that context rather than the terminal. A pane and its sibling
+  // on the same session hold one each, so a teardown that named the terminal would
+  // retire whichever record the ledger happened to hold and leave the other pane
+  // drawing on a context nothing counts.
+  #contextLease: TerminalContextLease | undefined;
   #contextLossSubscription: { dispose: () => void } | undefined;
   #rendererMode: TerminalRendererMode = "dom";
   // Whether this instance has already had a context taken away from it. Written in
@@ -129,13 +135,14 @@ export class TerminalAddonSuite {
    * documentation calls permanent, and churn a context per remount.
    */
   public selectRendererFor(terminal: Terminal): void {
-    if (
-      this.#hasLostWebglContext ||
-      this.#webglAddon !== undefined ||
-      !this.#pool.acquire(this.#terminalId)
-    ) {
+    if (this.#hasLostWebglContext || this.#webglAddon !== undefined) {
       return;
     }
+    const contextLease = this.#pool.acquire(this.#terminalId);
+    if (contextLease === undefined) {
+      return;
+    }
+    this.#contextLease = contextLease;
     try {
       const webglAddon = new WebglAddon();
       this.#contextLossSubscription = webglAddon.onContextLoss(() => {
@@ -148,7 +155,8 @@ export class TerminalAddonSuite {
       // No WebGL2 on this host: the addon threw before it made one. Reclaimed rather
       // than released, so a later terminal is not counted out by a context that was
       // never created.
-      this.#pool.reclaim(this.#terminalId);
+      this.#pool.reclaim(contextLease);
+      this.#contextLease = undefined;
       this.#setRendererMode("dom");
     }
   }
@@ -193,7 +201,10 @@ export class TerminalAddonSuite {
     this.#rendererModeChanges.clear();
     this.#contextLossSubscription?.dispose();
     this.#contextLossSubscription = undefined;
-    this.#pool.release(this.#terminalId);
+    if (this.#contextLease !== undefined) {
+      this.#pool.release(this.#contextLease);
+      this.#contextLease = undefined;
+    }
     this.#webglAddon = undefined;
     this.#setRendererMode("dom");
   }
@@ -238,7 +249,10 @@ export class TerminalAddonSuite {
     // reference and the pool slot both are — and this is what makes the fallback the
     // permanent thing the header above claims it is.
     this.#hasLostWebglContext = true;
-    this.#pool.reclaim(this.#terminalId);
+    if (this.#contextLease !== undefined) {
+      this.#pool.reclaim(this.#contextLease);
+      this.#contextLease = undefined;
+    }
     // Last, and re-raising: the invariant above is already restored, so what a sink
     // throws reaches the caller instead of being swallowed here.
     this.#setRendererMode("dom");
