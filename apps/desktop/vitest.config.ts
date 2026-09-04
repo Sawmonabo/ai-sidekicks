@@ -32,7 +32,7 @@
 //   • `main`'s `test/**/*.test.ts` would otherwise swallow every console tier
 //     under `test/console/**` and run it in the smoke project's node
 //     environment. It becomes `test/*.test.ts`, which is exactly the three
-//     root-level smoke tests it has always meant.
+//     files directly under `test/` it has always meant.
 //   • `renderer`'s `src/renderer/**/__tests__/**` is unchanged, but its
 //     `exclude` now names the console and shell subtrees so a test co-located
 //     under `src/renderer/src/console/**` or `src/renderer/src/shell/**`
@@ -217,10 +217,18 @@ export default defineConfig({
         test: {
           name: "main",
           environment: "node",
-          // The three root-level smoke tests, and only those. Narrowed from
-          // `test/**/*.test.ts` by Plan-023 Phase 1C so the console tiers under
-          // `test/console/**` are not double-discovered here in a node
-          // environment that would fail them for the wrong reason.
+          // The three files directly under `test/`, and only those: the two
+          // Electron-spawning probes and the sidecar unit that has always sat
+          // beside them. Narrowed from `test/**/*.test.ts` by Plan-023 Phase 1C
+          // so the console tiers under `test/console/**` are not
+          // double-discovered here in a node environment that would fail them
+          // for the wrong reason.
+          //
+          // The count is held by `vitest-project-globs.test.ts` rather than
+          // stated here and read never. A pure unit that landed at this address
+          // paid the whole tier for two `process.kill(pid, 0)` assertions — the
+          // Electron download, the smoke bundle, and the serialized queue below
+          // — so a fourth file here is now a red check rather than a slow one.
           include: ["test/*.test.ts"],
           // Two files under this glob each spawn a full Electron/Chromium
           // process tree — `launch.smoke.test.ts` and `lifecycle.gc.test.ts`.

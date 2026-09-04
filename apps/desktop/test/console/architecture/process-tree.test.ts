@@ -21,7 +21,7 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { processExists, terminationSucceeded } from "./helpers/process-tree.js";
+import { processExists, terminationSucceeded } from "../../helpers/process-tree.js";
 
 describe("process termination — a kill that was refused is not a kill", () => {
   /** A probe that records whether it was consulted, so "not consulted" is checkable. */
