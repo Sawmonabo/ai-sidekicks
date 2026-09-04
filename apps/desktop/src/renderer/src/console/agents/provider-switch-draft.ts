@@ -38,6 +38,20 @@
 // to have chosen. A value the driver CAN take and this model cannot is the other
 // rule's, and that one is held back rather than dropped, because the caller can see
 // the control and can fix it.
+//
+// AND THE DRAFT IS STAMPED WITH THE BINDING IT WAS COMPOSED AGAINST. The view stays
+// mounted while the agent it is about is re-read — a terminal event applying the
+// switch, another participant moving the same agent — so an unstamped draft would go
+// on taking precedence over values that had already moved, keep its actions offered,
+// and submit a second switch that moved the agent BACK. A draft is a proposed
+// difference from a binding, so when the binding moves the difference is recomputed
+// against the new one: an axis the binding has caught up with stops being an edit and
+// is dropped, and an axis still being edited is kept and re-validated. The stamp is
+// ADVANCED rather than only compared, because a comparison against the binding a
+// draft was born under cannot record that an axis was already settled — three moves
+// later the same value would come back as an edit nobody made.
+
+import { useReducer } from "react";
 
 import { PROVIDER_AXES, type AgentRosterEntry, type ProviderAxis } from "./agent-wire.js";
 import {
@@ -68,14 +82,27 @@ export const EMPTY_AXIS_DRAFT: AxisDraft = {};
  */
 const DRIVER_GOVERNED_AXES = ["modelId", "effort", "outputSpeed", "providerAccountId"] as const;
 
-export interface AxisDraftEdit {
-  readonly axis: ProviderAxis;
-  readonly value: string | undefined;
-  /** The binding the agent runs under now — what a draft is a move AWAY from. */
+/** The draft, with the binding it was composed against. */
+export interface HeldAxisDraft {
   readonly binding: AxisDraft;
-  /** Judged against, never held: the catalog is a read the models own. */
-  readonly catalog: DriverCatalogReading | undefined;
+  readonly axes: AxisDraft;
 }
+
+/**
+ * The two things that move a draft: a person editing one axis, and the binding itself
+ * moving under it. Both carry the binding, because both are resolved against it.
+ */
+export type AxisDraftAction =
+  | {
+      readonly kind: "edit";
+      readonly axis: ProviderAxis;
+      readonly value: string | undefined;
+      /** The binding the agent runs under now — what a draft is a move AWAY from. */
+      readonly binding: AxisDraft;
+      /** Judged against, never held: the catalog is a read the models own. */
+      readonly catalog: DriverCatalogReading | undefined;
+    }
+  | { readonly kind: "rebase"; readonly binding: AxisDraft };
 
 /**
  * The agent's effective binding as an axis record.
@@ -129,34 +156,106 @@ export function targetChainOf(draft: AxisDraft, binding: AxisDraft): ResolvedAxi
   return chain;
 }
 
-/** One edit, with the consequence its own axis carries applied in the same act. */
-export function applyAxisDraftEdit(previous: AxisDraft, edit: AxisDraftEdit): AxisDraft {
-  const next: AxisDraft = { ...previous };
-  if (edit.value === undefined || edit.value === "") {
-    delete next[edit.axis];
-  } else {
-    next[edit.axis] = edit.value;
+/** Whether two readings of a binding are the same one, axis by axis. */
+function isSameBinding(left: AxisDraft, right: AxisDraft): boolean {
+  return PROVIDER_AXES.every((axis) => left[axis] === right[axis]);
+}
+
+/**
+ * The draft as it stands against THIS binding.
+ *
+ * An axis the binding has caught up with is no longer a difference and stops being an
+ * edit: its control returns to showing the agent's own value and, where it was the
+ * only edit, the actions go away rather than offering a switch that would move
+ * nothing. An axis that still differs is the participant's work and is kept.
+ */
+export function rebasedAxes(held: HeldAxisDraft, binding: AxisDraft): AxisDraft {
+  if (isSameBinding(held.binding, binding)) {
+    return held.axes;
   }
-  if (edit.axis === "driverName") {
-    const previousTargetDriver = previous.driverName ?? edit.binding.driverName;
-    const nextTargetDriver = next.driverName ?? edit.binding.driverName;
+  const rebased: AxisDraft = {};
+  for (const axis of PROVIDER_AXES) {
+    const drafted = held.axes[axis];
+    if (drafted !== undefined && drafted !== binding[axis]) {
+      rebased[axis] = drafted;
+    }
+  }
+  return rebased;
+}
+
+/** One action, rebased onto the binding it names and then applied. */
+export function applyDraftAction(held: HeldAxisDraft, action: AxisDraftAction): HeldAxisDraft {
+  const standing = rebasedAxes(held, action.binding);
+  if (action.kind === "rebase") {
+    return { binding: action.binding, axes: standing };
+  }
+  const next: AxisDraft = { ...standing };
+  if (action.value === undefined || action.value === "") {
+    delete next[action.axis];
+  } else {
+    next[action.axis] = action.value;
+  }
+  if (action.axis === "driverName") {
+    const previousTargetDriver = standing.driverName ?? action.binding.driverName;
+    const nextTargetDriver = next.driverName ?? action.binding.driverName;
     if (nextTargetDriver !== previousTargetDriver) {
       for (const governedAxis of DRIVER_GOVERNED_AXES) {
         delete next[governedAxis];
       }
     }
-    return next;
+    return { binding: action.binding, axes: next };
   }
   if (
-    edit.axis === "modelId" &&
+    action.axis === "modelId" &&
     next.effort !== undefined &&
-    unvouchedAxesOf(targetChainOf(next, edit.binding), edit.catalog).includes("effort")
+    unvouchedAxesOf(targetChainOf(next, action.binding), action.catalog).includes("effort")
   ) {
     // The chosen model retires the vocabulary this level was chosen from — the same
     // act the attach form performs on the same pair of axes.
     delete next.effort;
   }
-  return next;
+  return { binding: action.binding, axes: next };
+}
+
+/** What one mounted switch form holds: the binding it is about, and the edits on it. */
+export interface ProviderSwitchDraft {
+  readonly binding: AxisDraft;
+  readonly axes: AxisDraft;
+  readonly setAxis: (axis: ProviderAxis, value: string | undefined) => void;
+}
+
+/**
+ * The draft for one agent, kept in step with the binding the roster reports.
+ *
+ * A hook rather than a render body, and a rebase taken DURING the render rather than
+ * from an effect: an effect lands one committed frame later, and that frame is the
+ * defect — the retired binding's draft over the arriving binding's values, with both
+ * actions live. Dispatching during the render is React's own answer to state that has
+ * to follow a prop; the render's output is discarded and re-run, so no such frame
+ * exists. It settles after one pass, because the stamp it installs is the binding it
+ * was compared against.
+ */
+export function useProviderSwitchDraft(
+  agent: AgentRosterEntry,
+  catalog: DriverCatalogReading | undefined,
+): ProviderSwitchDraft {
+  const [held, dispatch] = useReducer(applyDraftAction, agent, heldDraftFor);
+  const binding = bindingSnapshotOf(agent);
+  if (!isSameBinding(held.binding, binding)) {
+    dispatch({ kind: "rebase", binding });
+  }
+  return {
+    binding,
+    // Read rather than awaited: the rebase above advances the STAMP, and this render
+    // is entitled to the answer without waiting for the pass that records it.
+    axes: rebasedAxes(held, binding),
+    setAxis: (axis, value) => dispatch({ kind: "edit", axis, value, binding, catalog }),
+  };
+}
+
+/** A form opened on an agent starts stamped with that agent's own binding. */
+function heldDraftFor(agent: AgentRosterEntry): HeldAxisDraft {
+  return { binding: bindingSnapshotOf(agent), axes: EMPTY_AXIS_DRAFT };
 }
 
 /**

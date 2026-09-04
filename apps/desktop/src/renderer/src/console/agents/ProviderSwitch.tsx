@@ -41,7 +41,7 @@
 // intervention on the target run. It is not a sixth run control and the closed run
 // control set does not move.
 
-import { useId, useReducer } from "react";
+import { useId } from "react";
 
 import { Nothing, RefusalCard } from "../primitives/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
@@ -57,16 +57,14 @@ import {
   type DriverCatalogReading,
 } from "./driver-catalog.js";
 import {
-  applyAxisDraftEdit,
-  bindingSnapshotOf,
   driverMovedIn,
   submittableAxes,
   targetChainOf,
-  EMPTY_AXIS_DRAFT,
+  useProviderSwitchDraft,
   type AxisDraft,
 } from "./provider-switch-draft.js";
 import { SwitchSettlementLine } from "./SwitchSettlementLine.js";
-import type { AgentRosterEntry, AgentSwitchSettlement, ProviderAxis } from "./agent-wire.js";
+import type { AgentRosterEntry, AgentSwitchSettlement } from "./agent-wire.js";
 
 export interface ProviderSwitchProps {
   readonly agent: AgentRosterEntry;
@@ -94,12 +92,11 @@ export function ProviderSwitch(props: ProviderSwitchProps): React.JSX.Element {
   const { agent, catalog } = props;
   const submittingReasonId = useId();
   const isSubmitting = props.isSubmitting === true;
-  const [draft, editDraft] = useReducer(applyAxisDraftEdit, EMPTY_AXIS_DRAFT);
   const catalogValue = catalog.kind === "loaded" ? catalog.value : undefined;
-  const binding = bindingSnapshotOf(agent);
-  const setAxis = (axis: ProviderAxis, value: string | undefined): void => {
-    editDraft({ axis, value, binding, catalog: catalogValue });
-  };
+  // The draft and the binding it is a difference FROM, kept in step by the hook: this
+  // form stays mounted while the agent it is about is re-read, and a draft that
+  // outlived the values it was composed against would submit a second switch.
+  const { binding, axes: draft, setAxis } = useProviderSwitchDraft(agent, catalogValue);
 
   if (catalog.kind === "failed") {
     return <RefusalCard {...catalog.refusal} />;
