@@ -43,6 +43,19 @@ function interventionResponse(
 /** The ordinary answer: the run took the steer and its version moved on. */
 const STEER_APPLIED = interventionResponse("applied", 8);
 
+/**
+ * One registered `run.queueCreate` response, in the shape the wire actually admits.
+ *
+ * The new-turn path parses its reply for the same reason the steer path does, so a
+ * bare `{}` here would put every channel-addressed case below on the unreadable arm
+ * and prove nothing about the message having been queued.
+ */
+const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
+  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
+  state: "queued",
+  createdAt: "2026-09-02T09:00:00.000Z",
+};
+
 const CHANNEL_TARGET: ComposerChannelTarget = {
   path: "channel-message",
   sessionId: SESSION_ID,
@@ -150,6 +163,56 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
   });
 });
 
+describe("ComposerSendRouter — a fulfilled queue-create is not a successful send", () => {
+  it("keeps the message where the queue reply did not parse as the registered response", async () => {
+    // The finding: the new-turn path returned an unconditional success, so a reply
+    // outside `QueueItemCreateResponse` — a protocol-version mismatch is the case
+    // that produces one — was reported as sent and the controller cleared the
+    // participant's draft with no readable queue-item confirmation behind it.
+    const call = vi.fn().mockResolvedValue({ queued: true });
+    const outcome = await routerWith(call).send("ship the fix", CHANNEL_TARGET);
+
+    expect(outcome.status).toBe("refused");
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("queue-unreadable");
+    // Composer-origin, like its steer sibling: the call was answered and nothing was
+    // carried, so what refused is this console's own parse.
+    expect(outcome.status === "refused" && outcome.refusal.origin).toBe("composer");
+    // The half the participant acts on: the words are still where they left them.
+    expect(outcome.status === "refused" && outcome.refusal.detail).toContain("still in the line");
+  });
+
+  it("refuses a reply that carries the members with a state the wire does not admit", async () => {
+    // `.strict()` and a closed state union, both load-bearing: a reply shaped like
+    // the response but reporting a state no queue item can hold is exactly the
+    // half-understood payload a version mismatch produces, and it is not a
+    // confirmation.
+    const call = vi.fn().mockResolvedValue({ ...QUEUE_CREATED, state: "draining" });
+    const outcome = await routerWith(call).send("ship the fix", CHANNEL_TARGET);
+
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("queue-unreadable");
+  });
+
+  it("negative control: the registered reply is a send", async () => {
+    // Without this the cases above would hold over a router that had started
+    // refusing every new turn.
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
+    const outcome = await routerWith(call).send("ship the fix", CHANNEL_TARGET);
+
+    expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
+  });
+
+  it("leaves the stop settled by its fulfilment, because its ack carries nothing", async () => {
+    // The negative control for the parse's SCOPE. `driver.interruptRun` answers with
+    // `DriverAckResult` — the empty object — so a stop that fulfilled is a stop that
+    // was taken, and a parse applied here would refuse nothing a rejection has not
+    // already refused.
+    const call = vi.fn().mockResolvedValue({});
+    const outcome = await routerWith(call).stop(RUN_TARGET);
+
+    expect(outcome).toStrictEqual({ status: "sent", path: "provider-bound" });
+  });
+});
+
 describe("ComposerSendRouter — the next steer is guarded with the answer's own version", () => {
   it("sends the version the last intervention answered with", async () => {
     // An applied native steer advances the run version with no state event to
@@ -222,7 +285,7 @@ describe("ComposerSendRouter — the next steer is guarded with the answer's own
 
 describe("ComposerSendRouter — Send is a router, not a verb", () => {
   it("routes a channel-addressed message to the queue-create call", async () => {
-    const call = vi.fn().mockResolvedValue({});
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const outcome = await routerWith(call).send("ship the fix", CHANNEL_TARGET);
 
     expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
@@ -294,7 +357,7 @@ describe("ComposerSendRouter — the reserved slash prefix, on both paths", () =
   });
 
   it("escapes a doubled slash to one literal slash on the channel path", async () => {
-    const call = vi.fn().mockResolvedValue({});
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     await routerWith(call).send("//not-a-command", CHANNEL_TARGET);
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
@@ -390,7 +453,7 @@ describe("ComposerSendRouter — the daemon receives the text the participant wr
   const INDENTED_BODY = "  if (ready) {\n    ship();\n  }\n\n";
 
   it("queues a channel message byte-identical, indentation and blank line included", async () => {
-    const call = vi.fn().mockResolvedValue({});
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     await routerWith(call).send(INDENTED_BODY, CHANNEL_TARGET);
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
@@ -424,7 +487,7 @@ describe("ComposerSendRouter — the daemon receives the text the participant wr
   it("sends an indented line beginning with a slash as the prose it is", async () => {
     // The narrowing the raw read buys: a command opens its line. Pasted code whose
     // first non-blank character is a slash used to be refused as an unknown command.
-    const call = vi.fn().mockResolvedValue({});
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const outcome = await routerWith(call, ["help"]).send("  /help me read this", CHANNEL_TARGET);
 
     expect(outcome).toStrictEqual({ status: "sent", path: "channel-message" });
@@ -444,7 +507,7 @@ describe("ComposerSendRouter — the daemon receives the text the participant wr
   });
 
   it("strips exactly the escape and leaves the participant's spacing alone", async () => {
-    const call = vi.fn().mockResolvedValue({});
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     await routerWith(call).send("//literal  \n", CHANNEL_TARGET);
 
     expect(call).toHaveBeenCalledWith("run.queueCreate", {
@@ -499,7 +562,7 @@ describe("ComposerSendRouter — one router, and identifiers the wire would acce
   });
 
   it("resolves and sends through the same decision, so no second router can disagree", async () => {
-    const call = vi.fn().mockResolvedValue({});
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const router = routerWith(call);
     const resolution = router.resolve("one message", CHANNEL_TARGET);
     await router.send("one message", CHANNEL_TARGET);

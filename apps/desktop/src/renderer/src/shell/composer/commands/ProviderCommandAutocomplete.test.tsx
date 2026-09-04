@@ -65,6 +65,17 @@ const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = ProviderCommandList
     },
   ],
 }).bindings[0]!;
+/**
+ * The registered `run.queueCreate` reply, for the cases that need a send to LAND.
+ *
+ * The router parses this response before reporting a send, so an unregistered shape
+ * settles as a refusal and records nothing in the history these cases walk.
+ */
+const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
+  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
+  state: "queued",
+  createdAt: "2026-09-02T09:00:00.000Z",
+};
 const registeredIds: string[] = [];
 
 /** One recorded daemon call, so a re-read is distinguishable from a re-filter. */
@@ -784,11 +795,14 @@ describe("ProviderCommandAutocomplete — the surface follows every write to the
    * The scenario scripts no `run.queueCreate`, and an unscripted call is a fixture
    * rejection — which refuses the send and records nothing, leaving the walk below
    * with no history to walk. So this one answers that call and forwards the rest.
+   * The answer is the REGISTERED response: the router parses the reply before
+   * reporting a send, so a bare `{}` refuses as unreadable and records no history
+   * either.
    */
   async function mountWithHistory(): Promise<MountedComposer> {
     const mounted = await mountComposer({
       bridge: bridgeAnswering(async (method, _params, forward) =>
-        method === "run.queueCreate" ? {} : await forward(),
+        method === "run.queueCreate" ? QUEUE_CREATED : await forward(),
       ),
       focusedPane: undefined,
     });

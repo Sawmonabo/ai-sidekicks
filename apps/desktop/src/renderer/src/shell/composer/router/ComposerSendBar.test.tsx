@@ -19,6 +19,20 @@ import { ComposerSendBar } from "./ComposerSendBar.js";
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 const CHANNEL_ID = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 
+/**
+ * The registered `run.queueCreate` reply, for the cases that need a send to LAND.
+ *
+ * The router parses this response before reporting a send, so a stub answering
+ * `undefined` settles as the unreadable-reply refusal and the draft it was written
+ * on is kept — which is the shipped behaviour, and not what a case about clearing
+ * the line is asking about.
+ */
+const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
+  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
+  state: "queued",
+  createdAt: "2026-09-02T09:00:00.000Z",
+};
+
 /** A bridge whose daemon call the case owns. Nothing else here reaches the wire. */
 function stubBridge(call: (method: string, params: unknown) => Promise<unknown>): ConsoleBridge {
   return {
@@ -209,7 +223,7 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
   it("clears the draft once the send has settled, and not before", async () => {
     const draftStore = new DraftStore({ restartNoticePending: false });
     const sessionStore = openSessionStore();
-    const settle = vi.fn(async () => undefined);
+    const settle = vi.fn(async () => QUEUE_CREATED);
 
     const { line, result } = mountBar({
       bridge: stubBridge(settle),

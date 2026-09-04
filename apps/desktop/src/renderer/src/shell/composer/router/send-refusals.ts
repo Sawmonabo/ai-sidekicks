@@ -54,6 +54,7 @@ export const COMPOSER_REFUSAL_CODES = [
   "command-unexecutable",
   "provider-command-discovery-only",
   "intervention-unreadable",
+  "queue-unreadable",
 ] as const;
 
 /** One composer refusal code. Derived, so the vocabulary is declared exactly once. */
@@ -111,6 +112,22 @@ export function unreadableInterventionReply(): ConsoleRefusal {
   return composerRefusal(
     "intervention-unreadable",
     "The daemon answered this steer with a shape the console could not read, so it cannot confirm the message reached the run. Your message is still in the line.",
+  );
+}
+
+/**
+ * The refusal for a queue-create reply the registered response shape does not admit.
+ *
+ * The sibling of the one above, and composer-side for the same reason: the call was
+ * answered, and the answer is unreadable, so what refuses is this console's own
+ * parse rather than anything the daemon said. The DRAFT IS KEPT here too — a reply
+ * carrying no readable queue item is a reply that confirms no queued message, and
+ * clearing the line on it would lose the participant's words to a protocol mismatch.
+ */
+export function unreadableQueueReply(): ConsoleRefusal {
+  return composerRefusal(
+    "queue-unreadable",
+    "The daemon answered this message with a shape the console could not read, so it cannot confirm the message was queued. Your message is still in the line.",
   );
 }
 
