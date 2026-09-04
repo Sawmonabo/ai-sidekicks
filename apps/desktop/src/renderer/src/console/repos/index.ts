@@ -42,6 +42,7 @@ import { DiffPane, registerInlineDiffCardBody } from "../panes/diff/index.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { RefusalCard } from "../primitives/index.js";
 import { registerSidebarSection, type ConsolePaneRegistry, type PaneKind } from "../seats/index.js";
+import { AttachmentCarrierSection } from "./AttachmentCarrierSection.js";
 import { RepoSection } from "./RepoSection.js";
 
 /**
@@ -83,15 +84,25 @@ function misaddressedPaneRefusal(expected: PaneKind, received: PaneKind): Consol
 }
 
 /**
- * Fill the sidebar's repos section.
+ * Fill the sidebar's two repos-family sections.
  *
  * Reached from `console/families.ts`, at this family's own reserved line.
+ *
+ * TWO SECTIONS AND NOT ONE, because `seats/sidebar-sections.ts` names both as this
+ * family's: "repos and artifacts are the repos family's". The second is the
+ * attachment carrier — the ingest trio's one production entry point, and the only
+ * surface in this console through which a participant hands the session a file.
  */
 export function registerRepos(): void {
   registerSidebarSection({
     id: "repos",
     owner: REPOS_FAMILY_OWNER,
     render: (context) => createElement(RepoSection, { context }),
+  });
+  registerSidebarSection({
+    id: "artifacts",
+    owner: REPOS_FAMILY_OWNER,
+    render: (context) => createElement(AttachmentCarrierSection, { context }),
   });
   // The ledger row's three card bodies. They are registered HERE rather than at
   // each card module's own scope for the reason this whole file exists: a family
@@ -163,3 +174,23 @@ export function registerReposPanes(registry: ConsolePaneRegistry): void {
 // Consumed by `panes/runs/InterventionHistory.tsx`, the runs pane's intervention
 // history, in the cross-family task that composes it.
 export { FileRestoreDisclosure, type FileRestoreDisclosureProps } from "./FileRestoreDisclosure.js";
+
+// The ingest trio, published as the binding that owns it rather than as the client.
+//
+// THE CARRIER AND NOT THE CLIENT, deliberately. `AttachmentIngestClient` is a stream
+// with a lifecycle — constructed, subscribed, disposed — and a sibling family handed
+// the raw class would own three of those and get one of them wrong; the composer's
+// message-scoped attachments and this family's own artifacts section then hold two
+// carriers over one session. `useAttachmentCarrier` is that seam done once: it
+// constructs the client, publishes the entries with the instant they were published
+// at, and gives the daemon back every open spool on unmount.
+//
+// Consumed by the composer family's attachment affordance, in the cross-family task
+// that composes it. No dead-code exemption tag, on `FileRestoreDisclosure`'s reason
+// above: the section this door registers already reaches the binding, so the symbol
+// is used and a marker here would suppress nothing.
+export {
+  useAttachmentCarrier,
+  type AttachmentCarrierBinding,
+  type AttachmentCarrierSnapshot,
+} from "./attachment-carrier.js";

@@ -71,11 +71,23 @@ export class ScriptedGrowthPort {
    * `ingest-1`, so a case attaching one file reads the same recording it always did.
    */
   #nextIngestNumber = 1;
+  #beginRefusalCode: string | undefined;
   #chunkRefusalCode: string | undefined;
   #completeRefusalCode: string | undefined;
   #abortRefusalCode: string | undefined;
   #beginGate: Promise<void> | undefined;
   #chunkGate: Promise<void> | undefined;
+
+  /**
+   * Answer the next `begin` — and every later one — with a refusal.
+   *
+   * The request is still RECORDED, on `refuseAbortsWith`'s reason: a refused open is
+   * a request the daemon received, and a port that dropped it could not tell a stream
+   * that was refused from one that was never opened.
+   */
+  public refuseBeginWith(code: string | undefined): void {
+    this.#beginRefusalCode = code;
+  }
 
   public refuseChunksWith(code: string | undefined): void {
     this.#chunkRefusalCode = code;
@@ -118,7 +130,9 @@ export class ScriptedGrowthPort {
         const ingestId = `ingest-${String(this.#nextIngestNumber)}`;
         this.#nextIngestNumber += 1;
         await this.#beginGate;
-        return { status: "served", value: { ingestId } };
+        return this.#beginRefusalCode === undefined
+          ? { status: "served", value: { ingestId } }
+          : { status: "unavailable", code: this.#beginRefusalCode, detail: "scripted refusal" };
       },
       artifactIngestWriteChunk: async (request: RecordedChunk) => {
         this.chunkCalls.push(request);

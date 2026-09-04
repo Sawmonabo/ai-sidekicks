@@ -85,10 +85,13 @@ function paneContext(kind: (typeof REPOS_PANE_KINDS)[number]): ConsolePaneContex
 }
 
 afterEach(() => {
-  // The sidebar registry is process-wide, so a case that claimed the section has
-  // to give it back — otherwise the negative control below reads a claim some
-  // earlier case left behind and passes for the wrong reason.
+  // The sidebar registry is process-wide, so a case that claimed a section has to
+  // give it back — otherwise the negative controls below read a claim some earlier
+  // case left behind and pass for the wrong reason. BOTH of the family's sections,
+  // because a door that claims two and a teardown that releases one leaves the
+  // second's negative control asserting against a registry it never emptied.
   sidebarSectionRegistry.unregister("repos");
+  sidebarSectionRegistry.unregister("artifacts");
 });
 
 describe("repos family — the sidebar section", () => {
@@ -127,6 +130,32 @@ describe("repos family — the sidebar section", () => {
     // context: a collapsed section that rendered the open body would be the
     // sidebar's one-section-open rule quietly not applying to this one.
     expect(collapsed.container.querySelector(".meridian-repo-section__mounts")).toBeNull();
+  });
+});
+
+describe("repos family — the artifacts section", () => {
+  it("claims the artifacts section under the same owner", () => {
+    // `seats/sidebar-sections.ts` names both sections as this family's, and this is
+    // the second: the attachment carrier, which is the ingest trio's only production
+    // entry point. A door that registered one of the two would leave the Init /
+    // Chunk / Complete flow reachable from tests and from nothing else.
+    registerRepos();
+    expect(sidebarSectionRegistry.descriptorFor("artifacts")?.owner).toBe("repos");
+    expect(sidebarSectionRegistry.registeredSectionIds()).toContain("artifacts");
+  });
+
+  it("negative control: nothing claims it before the door is called", () => {
+    expect(sidebarSectionRegistry.descriptorFor("artifacts")).toBeUndefined();
+  });
+
+  it("renders the picker its body offers, open and not collapsed", () => {
+    registerRepos();
+    const descriptor = sidebarSectionRegistry.descriptorFor("artifacts");
+    expect(descriptor).toBeDefined();
+    const open = render(<>{descriptor?.render(sectionContext(true))}</>);
+    expect(within(open.container).getByLabelText("Attach a file")).toBeDefined();
+    const collapsed = render(<>{descriptor?.render(sectionContext(false))}</>);
+    expect(within(collapsed.container).queryByLabelText("Attach a file")).toBeNull();
   });
 });
 
@@ -205,11 +234,19 @@ describe("repos door — the bodies a sibling family mounts", () => {
     expect(typeof reposDoorModule.FileRestoreDisclosure).toBe("function");
   });
 
+  it("publishes the attachment carrier through the door", () => {
+    // The composer's attachment affordance is a sibling view family, so the door is
+    // the only way across — and it publishes the BINDING rather than the raw ingest
+    // client, so a second carrier over one session cannot be constructed by hand.
+    expect(typeof reposDoorModule.useAttachmentCarrier).toBe("function");
+  });
+
   it("negative control: the door publishes no body the family does not own", () => {
     // Without this the case above would pass over a barrel that re-exported the whole
     // family, which is what the one-door rule exists to prevent.
     const doorExports = Object.keys(reposDoorModule);
     expect(doorExports).not.toContain("RestorePathList");
+    expect(doorExports).not.toContain("AttachmentCard");
     expect(doorExports).not.toContain("ProposalGate");
   });
 });
