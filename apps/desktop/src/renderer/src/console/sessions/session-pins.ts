@@ -157,10 +157,11 @@ export function useSessionPins(store: UiStateStore): SessionPinBinding {
   );
   const readTiers = useCallback(() => binding?.tiers ?? NO_PINS, [binding]);
   const tiers = useSyncExternalStore(subscribe, readTiers, readTiers);
-  // Read AFTER the subscription, deliberately. A refused write emits a change of
-  // its own, so the component re-renders and this getter is re-read; folding the
-  // refusal into the subscribed value instead would change the map's identity on a
-  // write that did not change the map, and every memoised row would re-render.
+  // Read AFTER the subscription, deliberately. A write whose refusal CHANGED —
+  // raised or cleared — emits on its own, so the component re-renders and this
+  // getter is re-read; folding the refusal into the subscribed value instead would
+  // change the map's identity on a write that did not change the map, and every
+  // memoised row would re-render.
   const setTier = useCallback(
     (sessionId: string, tier: SessionPinTier) => {
       // Not awaited, and the rejection cannot escape: `setTier` declares its

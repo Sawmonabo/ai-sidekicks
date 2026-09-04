@@ -189,7 +189,8 @@ export function useHiddenInvites(store: UiStateStore): HiddenInviteBinding {
     },
     [acquire],
   );
-  // Read after the subscription, for `useSessionPins`' reason: a refused write
-  // emits its own change, so the re-render is what makes this getter current.
+  // Read after the subscription, for `useSessionPins`' reason: a write whose
+  // refusal changed — raised or cleared — emits on its own, so the re-render is
+  // what makes this getter current.
   return { hiddenInviteIds, lastRefusal: binding?.lastRefusal, hide, reveal, pruneAgainst };
 }

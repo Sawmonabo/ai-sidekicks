@@ -174,14 +174,31 @@ export class DurableViewState<TValue extends PersistedValue> {
     this.#changes.emit();
   }
 
-  /** Replace the value and write it. The refusal is recorded and returned. */
+  /**
+   * Replace the value and write it. The refusal is recorded and returned.
+   *
+   * THE SETTLEMENT EMITS WHEN THE REFUSAL CHANGES, IN EITHER DIRECTION. It emitted
+   * only on the refused arm, so a write that RECOVERED cleared `#lastRefusal` and
+   * told nobody: the pre-write emission happened while the old refusal was still
+   * present, and the pin list and the invitation shelf read this getter on a render
+   * they had no reason to perform — so a failure a person had already fixed stayed
+   * on screen until something unrelated re-rendered the surface.
+   *
+   * Identity is the comparison because a refusal is a value the store hands back
+   * whole: two refusals for the same cause are two objects, and re-rendering for the
+   * second one is right — it is this write's own reason and not the last one's. What
+   * it does not do is emit twice for the settlement that changed nothing, which is
+   * every successful write after the first.
+   */
   public async commit(next: TValue): Promise<PersistenceWriteOutcome> {
     this.#localActs.supersedeAll();
     this.#value = next;
     this.#changes.emit();
     const outcome = await this.#store.writeGlobal(this.#key, this.#valueClass, next);
-    this.#lastRefusal = outcome.outcome === "refused" ? outcome.refusal : undefined;
-    if (outcome.outcome === "refused") {
+    const settledRefusal = outcome.outcome === "refused" ? outcome.refusal : undefined;
+    const refusalChanged = settledRefusal !== this.#lastRefusal;
+    this.#lastRefusal = settledRefusal;
+    if (refusalChanged) {
       this.#changes.emit();
     }
     return outcome;
