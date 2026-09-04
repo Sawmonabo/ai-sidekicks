@@ -476,3 +476,103 @@ describe("terminal pane — the viewer the lease fold is told about", () => {
     expect(region.textContent).toContain(TERMINAL_SCENARIO_CAST.owner);
   });
 });
+
+describe("terminal pane — the output reading belongs to the shell it was read for", () => {
+  const PERMISSION_DENIED = {
+    code: "pty.permission_denied",
+    message: "You may not read this shell.",
+  };
+
+  /**
+   * A bridge whose output subscribe never settles, so the pane stays in the state it
+   * is in while a question is out.
+   */
+  function bridgeWithOutputStillOut(): ConsoleBridge {
+    const base = bridge();
+    return {
+      ...base,
+      growth: {
+        ...base.growth,
+        terminalSubscribeOutput: () => new Promise(() => undefined),
+      },
+    };
+  }
+
+  /** Mount the pane and hand back the re-render that swaps its bridge. */
+  function renderReboundPane(first: ConsoleBridge): {
+    readonly region: () => HTMLElement;
+    readonly rebindTo: (next: ConsoleBridge) => void;
+  } {
+    const store = storeThrough(1);
+    const { container, rerender } = render(
+      <TerminalPane paneId="pane-terminal" bridge={first} sessionStore={store} />,
+    );
+    const region = (): HTMLElement => {
+      const section = container.querySelector("section");
+      if (!(section instanceof HTMLElement)) {
+        throw new Error("TerminalPane rendered no region");
+      }
+      return section;
+    };
+    return {
+      region,
+      rebindTo: (next) => {
+        rerender(<TerminalPane paneId="pane-terminal" bridge={next} sessionStore={store} />);
+      },
+    };
+  }
+
+  it("asks again on a rebind rather than holding the previous shell's refusal", async () => {
+    const { region, rebindTo } = renderReboundPane(bridgeRejectingOutputWith(PERMISSION_DENIED));
+    await waitFor(() => {
+      expect(outputRefusal(region())).not.toBeNull();
+    });
+
+    rebindTo(bridgeWithOutputStillOut());
+
+    expect(outputRefusal(region())).toBeNull();
+    expect(region().textContent).toContain("Asking for the output stream");
+  });
+
+  it("asks again when the pane is bound to a different shell", async () => {
+    // The other half of the subject. A session store swap changes which shell the
+    // pane addresses — the session id IS the terminal's identity here — so the
+    // previous shell's refusal is a statement about a machine this pane has left.
+    const rejecting = bridgeRejectingOutputWith(PERMISSION_DENIED);
+    const first = storeThrough(1);
+    const { container, rerender } = render(
+      <TerminalPane paneId="pane-terminal" bridge={rejecting} sessionStore={first} />,
+    );
+    const region = (): HTMLElement => {
+      const section = container.querySelector("section");
+      if (!(section instanceof HTMLElement)) {
+        throw new Error("TerminalPane rendered no region");
+      }
+      return section;
+    };
+    await waitFor(() => {
+      expect(outputRefusal(region())).not.toBeNull();
+    });
+
+    const second = new SessionStore({ sessionId: "session-another-shell" });
+    second.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+    rerender(<TerminalPane paneId="pane-terminal" bridge={rejecting} sessionStore={second} />);
+
+    expect(outputRefusal(region())).toBeNull();
+    expect(region().textContent).toContain("Asking for the output stream");
+  });
+
+  it("negative control: a re-render that keeps the bridge keeps the refusal", async () => {
+    // Without it both cases above would pass against a pane that reverted to asking
+    // on every render — which is a shell whose refusal nobody could ever read.
+    const rejecting = bridgeRejectingOutputWith(PERMISSION_DENIED);
+    const { region, rebindTo } = renderReboundPane(rejecting);
+    await waitFor(() => {
+      expect(outputRefusal(region())).not.toBeNull();
+    });
+
+    rebindTo(rejecting);
+
+    expect(outputRefusal(region())?.textContent).toContain("You may not read this shell.");
+  });
+});

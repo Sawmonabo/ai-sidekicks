@@ -208,10 +208,13 @@ function BoundTerminalPane(props: {
  * "computing" absence rather than an empty stream.
  */
 function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): TerminalOutputReading {
-  const [reading, setReading] = useState<TerminalOutputReading>(ASKING_FOR_OUTPUT);
+  const [stamped, setStamped] = useState<StampedTerminalOutputReading | undefined>(undefined);
 
   useEffect(() => {
     let isMounted = true;
+    const publish = (reading: TerminalOutputReading): void => {
+      setStamped({ bridge, terminalId, reading });
+    };
     void bridge.growth
       .terminalSubscribeOutput({ terminalId })
       .then((outcome) => {
@@ -224,7 +227,7 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
         if (!isMounted) {
           return;
         }
-        setReading(
+        publish(
           outcome.status === "unavailable"
             ? absent({ kind: "not-checked", title: "No output stream", detail: outcome.detail })
             : absent({
@@ -237,7 +240,7 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
       })
       .catch((failure: unknown) => {
         if (isMounted) {
-          setReading({
+          publish({
             status: "refused",
             refusal: refusalFromRejection(
               OUTPUT_STREAM_REFUSAL_ORIGIN,
@@ -252,7 +255,34 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
     };
   }, [bridge, terminalId]);
 
-  return reading;
+  // The comparison the stamp exists for, on the render that mounts the emulator
+  // rather than one after it.
+  return stamped !== undefined && stamped.bridge === bridge && stamped.terminalId === terminalId
+    ? stamped.reading
+    : ASKING_FOR_OUTPUT;
+}
+
+/**
+ * A settled output reading together with the inputs it was read against.
+ *
+ * The reading is a fact about ONE shell on ONE bridge, and `BoundTerminalPane`
+ * outlives both: a deck that hands the same instance a different bridge or a
+ * different session store replaces the effect while the state still holds the
+ * previous terminal's answer, and the mount flag cannot help — it is the flag of the
+ * effect that is being torn down, and its cleanup runs a pass AFTER the render that
+ * has already put the previous shell's absence or refusal on screen for the
+ * replacement. A promise from the retired subject can also settle in that same
+ * window, before the cleanup that would have flipped the flag.
+ *
+ * So the reading travels with its subject and the render compares, which is the
+ * shape `terminal/viewer-identity.ts` and `browser/navigation-state.ts` already
+ * take. A mismatch reads `ASKING_FOR_OUTPUT` — the honest state for a question that
+ * has just been put and not yet answered — rather than the previous shell's.
+ */
+interface StampedTerminalOutputReading {
+  readonly bridge: ConsoleBridge;
+  readonly terminalId: string;
+  readonly reading: TerminalOutputReading;
 }
 
 /**
