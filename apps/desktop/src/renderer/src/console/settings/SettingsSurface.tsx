@@ -29,7 +29,7 @@
 import { useMemo, useState } from "react";
 
 import { Glyph, Nothing } from "../primitives/index.js";
-import { useFrameStore } from "../store/index.js";
+import { useFrameStore, useOpenSessionStore } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import {
   SETTINGS_SECTION_IDS,
@@ -83,10 +83,17 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
   // of them, and a session-scoped page handed it would render its no-session arm in
   // every window that had ever opened one. A window that has opened none still hands
   // `undefined`, and a page renders that as an absence it ASKED for.
+  // The retained session's store, resolved here rather than by any page: a page
+  // that could open one would open sessions from a render pass. `undefined` where
+  // this window has that session closed, which a session-scoped page renders as one
+  // push signal fewer and never as a failure.
+  const retainedSessionStore = useOpenSessionStore(context.sessionStoreRegistry, retainedSessionId);
+
   const pageContext: SettingsPageContext = {
     bridge: context.bridge,
     openSection,
     retainedSessionId,
+    retainedSessionStore,
   };
 
   // Memoised on the registry and the query: the registry is composed once by the

@@ -22,6 +22,7 @@ const CONTEXT = {
   bridge: undefined as never,
   openSection: () => undefined,
   retainedSessionId: undefined,
+  retainedSessionStore: undefined,
 } satisfies SettingsPageContext;
 
 function renderedText(): string {

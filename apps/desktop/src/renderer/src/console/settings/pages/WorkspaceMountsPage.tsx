@@ -58,7 +58,7 @@ import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page
 const OWNER = "collaboration-settings-mounts";
 
 export function WorkspaceMountsPage(props: { readonly context: SettingsPageContext }): ReactNode {
-  const { bridge, retainedSessionId } = props.context;
+  const { bridge, retainedSessionId, retainedSessionStore } = props.context;
   return (
     <div className="meridian-settings-page">
       <p className="meridian-settings-page__lede">
@@ -78,7 +78,11 @@ export function WorkspaceMountsPage(props: { readonly context: SettingsPageConte
             detail="Open a session from the Sessions list and the repositories it has mounted render here. Nothing was asked of this machine for a session nobody has opened."
           />
         ) : (
-          <MountInventoryList bridge={bridge} sessionId={retainedSessionId} />
+          <MountInventoryList
+            bridge={bridge}
+            sessionId={retainedSessionId}
+            sessionStore={retainedSessionStore}
+          />
         )}
       </section>
 
@@ -115,8 +119,9 @@ export function WorkspaceMountsPage(props: { readonly context: SettingsPageConte
 function MountInventoryList(props: {
   readonly bridge: SettingsPageContext["bridge"];
   readonly sessionId: string;
+  readonly sessionStore: SettingsPageContext["retainedSessionStore"];
 }): ReactNode {
-  const { bridge, sessionId } = props;
+  const { bridge, sessionId, sessionStore } = props;
   // The scenario's frozen clock under the fixture, the real one otherwise — the
   // same resolution the family's session models make, so a story advances this
   // read's coalescing window exactly when it advances everything else's.
@@ -126,8 +131,9 @@ function MountInventoryList(props: {
         bridge,
         sessionId,
         clock: bridge.scenarioEngine?.clock ?? new RealClock(),
+        sessionStore,
       }),
-    [bridge, sessionId],
+    [bridge, sessionId, sessionStore],
   );
   useEffect(() => {
     inventoryRead.start();
@@ -135,9 +141,12 @@ function MountInventoryList(props: {
       inventoryRead.dispose();
     };
   }, [inventoryRead]);
-  // Focus is a refresh reason and not a poll: a window that was away may have
-  // missed a mount going unreachable, and the request goes through the read's own
-  // scheduler so a flurry of focus changes still costs one read.
+  // Focus is the second of the section's three signals and not a poll: a window
+  // that was away may have missed a mount going unreachable, and the request goes
+  // through the read's own scheduler so a flurry of focus changes still costs one
+  // read. The first is the session's own event stream, bound by the read itself
+  // (see `mount-inventory.ts`, which also says why the third — reconnect — is bound
+  // nowhere in this console).
   useEffect(() => {
     const onWindowFocus = (): void => {
       inventoryRead.refresh("window-focus");

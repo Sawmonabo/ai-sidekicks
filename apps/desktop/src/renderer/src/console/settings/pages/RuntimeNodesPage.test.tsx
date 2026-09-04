@@ -29,7 +29,12 @@ function contextFor(
   bridge: ConsoleBridge,
   retainedSessionId: string | undefined,
 ): SettingsPageContext {
-  return { bridge, openSection: () => undefined, retainedSessionId };
+  return {
+    bridge,
+    openSection: () => undefined,
+    retainedSessionId,
+    retainedSessionStore: undefined,
+  };
 }
 
 /** The real fixture bridge over the scenario whose script names two machines. */

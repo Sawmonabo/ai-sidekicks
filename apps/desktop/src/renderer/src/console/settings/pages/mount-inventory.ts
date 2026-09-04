@@ -28,21 +28,48 @@
 // what "refusals are rendered on the row" requires, and what a single `Promise.all`
 // would make impossible by rejecting the whole inventory on the first failure.
 //
-// THE REFRESH IS THE PAGE'S, AND THERE IS NO PUSH SIGNAL HERE
+// WHICH SIGNALS REFRESH IT, AND THE ONE THE CONSOLE DOES NOT HAVE
 //
-// Mount and workspace lifecycle events are registered session-event types, and the
-// surface that refreshes on them is one holding the session's store. The settings
-// context deliberately carries no session store (see `settings-page-registry.ts`),
-// so this read has no push signal to open — the honest subscribe is the empty one,
-// and the page asks for a re-read when the window regains focus, through the
-// console's one refresh chokepoint and never a timer.
+// The section names three: focus, reconnect, and run-terminal events. Two of the
+// three are bound, and the third is absent from the whole console rather than from
+// this read.
+//
+//   • **Focus** is the page's, installed beside the read (`WorkspaceMountsPage`).
+//   • **The session's own event stream** carries every kind that can change what
+//     this list says. Nine of them, and each is a registered `SessionEventType`
+//     rather than a guess — the mount's own attachment lifecycle, the workspace
+//     lifecycle the inventory is DERIVED from, and the three run terminals the
+//     section names, since a run ending is what re-probes a worktree's health.
+//     The signal arrives through the console's own session store rather than
+//     through a second `daemon.subscribe`, exactly as the channel directory takes
+//     its own: the store is already the one subscriber to that stream, and opening
+//     another would be a second copy of the same feed arriving in a different
+//     order.
+//   • **Reconnect is registered nowhere.** `RefreshReason` names it, and no console
+//     module raises it: `SidekicksBridge` declares no connection-state member, no
+//     `online` / `offline` listener exists in the tree, and every producer of that
+//     reason today is a test. So there is nothing to bind, and this module invents
+//     no substitute — a transport signal composed here would be this window's guess
+//     at a connection it cannot observe. The read is bound to it the moment the
+//     console grows one, in one place.
+//
+// THE STORE IS OPTIONAL, AND ITS ABSENCE IS A REAL STATE. Settings is reachable
+// with no session open, and the retained session's store is `undefined` until the
+// window opens it. The read still performs — the wire call needs only a session id
+// — and refreshes on focus alone until a store arrives, which is one signal fewer
+// rather than a stale list nothing can correct.
 
-import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
+import type {
+  RepoMountReadResponse,
+  SessionEventType,
+  WorkspaceListResponse,
+} from "@ai-sidekicks/contracts";
 
 import type { ConsoleClock, ConsoleRefusal, Unsubscribe } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { MOUNT_INVENTORY_READ_CAP } from "../../core/index.js";
 import { PushDrivenRead, callDaemonMethod, consoleRefusalFrom } from "../../seats/index.js";
+import { subscribeToSessionEventKinds, type SessionStore } from "../../store/index.js";
 
 /** The registered method that names which mounts a session holds. */
 const WORKSPACE_LIST_METHOD = "repo.workspaceList";
@@ -52,6 +79,42 @@ const MOUNT_READ_METHOD = "repo.mountRead";
 
 /** Names this read in a refusal, so a failure says which read failed. */
 export const MOUNT_INVENTORY_ORIGIN = "mount-inventory";
+
+/**
+ * Every registered event kind that can change what this list says.
+ *
+ * Three groups, and each earns its place from what the inventory is BUILT from
+ * rather than from what sounds related:
+ *
+ *   • `repo.attached` / `repo.detached` — the attachment axis one row renders. A
+ *     mount that detaches while this page is open is a row whose first chip is now
+ *     wrong.
+ *   • The four `workspace.*` lifecycle kinds — the inventory's mount ids come from
+ *     `repo.workspaceList`, so a workspace arriving or being archived changes WHICH
+ *     mounts this session names, not merely how one of them is doing.
+ *   • `run.completed` / `run.failed` / `run.interrupted` — the section's own named
+ *     trigger. A run ending is what re-probes the worktree it was executing in, so
+ *     the reachability axis moves at exactly these three instants.
+ *
+ * `run.queued`, `run.starting` and the rest of the transitions are deliberately
+ * absent: a run beginning changes neither axis, and a subscription that woke on
+ * every transition would re-read the whole inventory through a run's lifetime for
+ * two readings that did not move.
+ *
+ * Typed as the contract's own census member, so a kind this console invents fails
+ * to compile rather than subscribing to a name the daemon never sends.
+ */
+const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
+  "repo.attached",
+  "repo.detached",
+  "workspace.provisioning",
+  "workspace.ready",
+  "workspace.stale",
+  "workspace.archived",
+  "run.completed",
+  "run.failed",
+  "run.interrupted",
+];
 
 /**
  * One mount's outcome. Two arms, because a mount that could not be read is still a
@@ -104,13 +167,27 @@ export function createMountInventoryRead(options: {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
   readonly clock: ConsoleClock;
+  /**
+   * The retained session's store, where this window has one open.
+   *
+   * `undefined` is a real answer rather than a defect — settings opens with no
+   * session — and it costs this read its push signal and nothing else.
+   */
+  readonly sessionStore: SessionStore | undefined;
 }): MountInventoryRead {
-  const { bridge, sessionId, clock } = options;
+  const { bridge, sessionId, clock, sessionStore } = options;
   return new PushDrivenRead<MountInventory>({
     clock,
     origin: MOUNT_INVENTORY_ORIGIN,
     read: async () => await readMountInventory(bridge, sessionId),
-    subscribe: noMountPushSignal,
+    // One re-read per burst, never one per event: the signal goes to the read's own
+    // `RefreshScheduler`, which debounces with an absolute deadline, so a run ending
+    // three worktrees at once costs one inventory read rather than three.
+    subscribe:
+      sessionStore === undefined
+        ? noSessionStoreOpen
+        : (onChangeSignal) =>
+            subscribeToSessionEventKinds(sessionStore, MOUNT_AFFECTING_EVENT_KINDS, onChangeSignal),
   });
 }
 
@@ -151,13 +228,13 @@ async function readMountInventory(
 }
 
 /**
- * The absent push signal, named rather than written inline.
+ * The subscribe for a window with no session store open, named rather than inline.
  *
- * A function that opens nothing and returns an unsubscribe that closes nothing.
- * It exists so the honest fact has a name at the call site: this surface holds no
- * session store, so the session-event stream that would refresh a mount list is
- * not reachable from here.
+ * A function that opens nothing and returns an unsubscribe that closes nothing. It
+ * exists so the honest fact has a name at the call site: there is no stream to bind
+ * because this window has no store for the session, NOT because the console has no
+ * signal for a mount — it has nine, and they are bound the moment a store arrives.
  */
-function noMountPushSignal(): Unsubscribe {
+function noSessionStoreOpen(): Unsubscribe {
   return () => undefined;
 }

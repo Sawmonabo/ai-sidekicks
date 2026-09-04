@@ -28,6 +28,7 @@ import { KeyedRegistry } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import { scoreSubsequence } from "../palette/subsequence-score.js";
 import { Nothing } from "../primitives/index.js";
+import type { SessionStore } from "../store/index.js";
 import type { OwnerSlotProps } from "../seats/index.js";
 
 /**
@@ -117,6 +118,20 @@ export interface SettingsPageContext {
    * session to hold it for.
    */
   readonly retainedSessionId: string | undefined;
+  /**
+   * That session's store, where this window has it open.
+   *
+   * A page that reads a session-scoped wire needs a push signal or it goes stale
+   * with nothing on screen saying so, and the session's own event stream is the
+   * one the console already subscribes to — exactly once, in the frame's binder.
+   * Handing the STORE here is what lets a page bind to that stream rather than
+   * open a second `daemon.subscribe`, which would be a second copy of one feed.
+   *
+   * It is the retained session's store and never a store a page may open: the
+   * registry resolves it, `undefined` means this window has that session closed,
+   * and a page reads that as one refresh signal fewer rather than as a failure.
+   */
+  readonly retainedSessionStore: SessionStore | undefined;
 }
 
 /** What a page renders. A function rather than a component type, as the seats are. */

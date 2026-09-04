@@ -45,6 +45,7 @@ function contextFor(): SettingsPageContext {
     },
     openSection: () => undefined,
     retainedSessionId: undefined,
+    retainedSessionStore: undefined,
   };
 }
 
