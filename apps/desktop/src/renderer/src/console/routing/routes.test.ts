@@ -38,6 +38,11 @@ const MAIN_WINDOW_ROUTES: readonly ConsoleRoute[] = [
   { kind: "workflows" },
   { kind: "settings", page: undefined },
   { kind: "settings", page: "providers" },
+  // The fixture-only arm. `parseRoute` produces it exactly where
+  // `__SIDEKICKS_CONSOLE_FIXTURES__` is true, which the `console-unit` project
+  // substitutes as it does for every console tier — so the round-trip below is
+  // testing the same build the fixture console runs.
+  { kind: "pane-harness", paneKind: "terminal", sessionId: "session-1" },
   { kind: "not-found", attempted: "#/nowhere" },
 ];
 
@@ -119,6 +124,18 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     expect(parseRoute("#/session/session-1").kind).toBe("workspace");
     expect(parseRoute("#/workflows").kind).toBe("workflows");
     expect(parseRoute("#/settings").kind).toBe("settings");
+    expect(parseRoute("#/pane-harness/terminal/session-1").kind).toBe("pane-harness");
+  });
+
+  it("refuses a pane-harness address missing either of its two required segments", () => {
+    // Both segments are grammar rather than convenience: the pane bodies the
+    // harness mounts are session-scoped, so an address naming a kind and no
+    // session would open a harness whose panes could only render their own
+    // not-bound absence.
+    expect(parseRoute("#/pane-harness").kind).toBe("not-found");
+    expect(parseRoute("#/pane-harness/terminal").kind).toBe("not-found");
+    expect(parseRoute("#/pane-harness/terminal/session-1/extra").kind).toBe("not-found");
+    expect(parseRoute("#/pane-harness/terminal/%zz").kind).toBe("not-found");
   });
 });
 

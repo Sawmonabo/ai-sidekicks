@@ -186,6 +186,10 @@ export function describeScope(route: ConsoleRoute): string {
         ? `${route.route} — no session chosen`
         : `${route.route} — session ${sessionId}`;
     }
+    case "pane-harness":
+      // The session is named for the same reason the workspace arm names it: a
+      // command run from here acts on the session the harness's panes are bound to.
+      return `${route.paneKind} panes — session ${route.sessionId}`;
     case "not-found":
       return "Nowhere";
   }
