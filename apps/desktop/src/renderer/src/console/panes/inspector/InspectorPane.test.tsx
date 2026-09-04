@@ -34,12 +34,13 @@ type InspectedRef = PaneContextOf<"inspector">["entity"];
 function paneContext(
   entity: InspectedRef,
   sessionStore: SessionStore | undefined,
+  linkedSourcePaneId: string | undefined = undefined,
 ): PaneContextOf<"inspector"> {
   return {
     kind: "inspector",
     entity,
     paneId: "pane-inspector",
-    linkedSourcePaneId: undefined,
+    linkedSourcePaneId,
     bridge: UNUSED_BRIDGE,
     frameStore: new FrameStore(),
     sessionStore,
@@ -51,9 +52,26 @@ function paneContext(
   };
 }
 
-function renderPane(entity: InspectedRef, sessionStore: SessionStore | undefined): HTMLElement {
-  const { container } = render(<InspectorPane {...paneContext(entity, sessionStore)} />);
+function renderPane(
+  entity: InspectedRef,
+  sessionStore: SessionStore | undefined,
+  linkedSourcePaneId?: string,
+): HTMLElement {
+  const { container } = render(
+    <InspectorPane {...paneContext(entity, sessionStore, linkedSourcePaneId)} />,
+  );
   return container;
+}
+
+/** A session store holding the one worktree the link cases inspect. */
+function storeWithWorktree(): SessionStore {
+  const store = new SessionStore({ sessionId: SESSION_ID });
+  store.initialise({
+    cursor: 1,
+    entities: [{ kind: "worktree", id: "worktree-1", state: "dirty" }],
+    participantJoinLog: [],
+  });
+  return store;
 }
 
 describe("the inspector's one boundary absence", () => {
@@ -97,6 +115,29 @@ describe("the inspector with an entity and a session", () => {
     );
     expect(pane?.getAttribute("aria-label")).toContain("worktree worktree-1");
     expect(pane?.getAttribute("aria-label")).toContain("Inspector");
+  });
+});
+
+describe("a linked inspector says which pane opened it", () => {
+  it("names the source pane the deck opened it from", () => {
+    // The deck puts the source pane's id on the seat, and the record has rendered
+    // that provenance line all along — the pane was discarding the member before
+    // the record could read it, so every linked inspector looked unlinked.
+    const container = renderPane(
+      { kind: "worktree", id: "worktree-1" },
+      storeWithWorktree(),
+      "pane-ledger-2",
+    );
+    const link = container.querySelector(".meridian-entity-record__link");
+    expect(link?.textContent).toContain("pane-ledger-2");
+    expect(link?.textContent).toContain("Closing that pane does not close this one.");
+  });
+
+  it("negative control: an unlinked inspector claims no source pane", () => {
+    // Without this, a pane that named some other pane unconditionally would pass
+    // the case above and tell every reader their inspector came from somewhere.
+    const container = renderPane({ kind: "worktree", id: "worktree-1" }, storeWithWorktree());
+    expect(container.querySelector(".meridian-entity-record__link")).toBeNull();
   });
 });
 

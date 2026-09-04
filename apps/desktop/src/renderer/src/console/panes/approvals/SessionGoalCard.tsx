@@ -21,7 +21,9 @@
 //     NUL-rejected, checked before the call rather than truncated to fit.
 //   • **A read-only role has no control at all.** Eligibility is never derived here:
 //     the caller supplies it, and an unknown role is treated as read-only, which is
-//     the fail-closed arm.
+//     the fail-closed arm. Where the role could not be READ, the caller hands the
+//     refusal down with it and the card renders that sentence, so a missing control
+//     is explained rather than silently absent.
 //
 // Turn-boundary effectiveness and cross-node honesty are stated in the copy rather
 // than implied by an animation: a goal change governs the NEXT turn, an in-flight
@@ -50,6 +52,15 @@ export interface SessionGoalCardProps {
    * would be deriving one.
    */
   readonly canMutate: boolean | undefined;
+  /**
+   * Why the role is unknown, where something refused to answer it.
+   *
+   * Separate from `refusal` below, which is the MUTATION's. The two are different
+   * failures — one says the console could not learn what this participant may do,
+   * the other says an attempt to change the goal was turned down — and folding them
+   * into one prop would render either sentence under the other's circumstances.
+   */
+  readonly authorizationRefusal: ConsoleRefusal | undefined;
   readonly isMutating: boolean;
   readonly refusal: ConsoleRefusal | undefined;
   readonly onUpdate: (text: string) => void;
@@ -155,6 +166,13 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
         </div>
       ) : null}
 
+      {/* Why no control is offered, when something refused to say. Above the
+          mutation's own refusal because it explains the surface rather than an
+          attempt made on it, and rendered in both editing states because in this
+          one there is no editor to open. */}
+      {props.authorizationRefusal === undefined ? null : (
+        <InlineRefusal {...props.authorizationRefusal} />
+      )}
       {props.isMutating ? (
         <Nothing kind="computing" placement="inline" title="The goal change is settling." />
       ) : null}

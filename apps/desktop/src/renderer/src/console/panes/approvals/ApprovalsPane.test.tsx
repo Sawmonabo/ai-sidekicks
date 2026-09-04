@@ -20,6 +20,7 @@ import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
 import { DraftStore, MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
 import { FrameStore, SessionStore } from "../../store/index.js";
+import { type ConsoleScenario } from "../../bridge/scenario.js";
 import { type PaneContextOf } from "../pane-chrome.js";
 
 function paneContext(
@@ -41,9 +42,27 @@ function paneContext(
   };
 }
 
-function boundStore(sessionId = "session-approvals"): SessionStore {
-  const store = new SessionStore({ sessionId });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: ["participant-you"] });
+/**
+ * A store bound to a session, carrying the scenario's own roster.
+ *
+ * The roster is seeded because the caller's ROLE is a lookup in it: the fixture
+ * answers which participant this window is, and the role that identity resolves to
+ * lives in the session's participant partition. A store with an empty roster would
+ * make every role-gated control render closed for a reason nothing checked, which is
+ * exactly the state the goal controls used to be pinned in.
+ */
+function boundStore(scenario: ConsoleScenario | undefined = APPROVALS_SCENARIO): SessionStore {
+  const store = new SessionStore({ sessionId: scenario?.sessionId ?? "session-approvals" });
+  const rolesByParticipantId = scenario?.membershipRoleByParticipantId ?? {};
+  store.initialise({
+    cursor: 0,
+    entities: Object.entries(rolesByParticipantId).map(([participantId, role]) => ({
+      kind: "participant",
+      id: participantId,
+      body: { role },
+    })),
+    participantJoinLog: Object.keys(rolesByParticipantId),
+  });
   return store;
 }
 
@@ -66,7 +85,7 @@ async function settle(bridge: ConsoleBridge): Promise<void> {
 
 async function mountPane(scenario = APPROVALS_SCENARIO): Promise<ConsoleBridge> {
   const bridge = createFixtureBridge({ scenario });
-  const context = paneContext(bridge, boundStore(scenario.sessionId));
+  const context = paneContext(bridge, boundStore(scenario));
   await act(async () => {
     render(<ApprovalsPane {...context} />);
   });
@@ -206,13 +225,75 @@ describe("the sections whose wire this pane does not open", () => {
 });
 
 describe("the session goal", () => {
-  it("renders the goal reading with no control, because no role was read", async () => {
+  it("offers the control to the owner this window is", async () => {
+    // The scenario says which participant this window is and the store's roster
+    // says that participant is an owner, so the goal contract's own eligibility
+    // resolves — rather than every caller being pinned in the unknown-role arm.
     const bridge = await mountPane();
     await settle(bridge);
     const goal = screen.getByRole("region", { name: "Session goal" });
     expect(within(goal).getByText("No goal set")).not.toBeNull();
-    // Eligibility is never derived: an unread role is treated exactly as read-only.
+    expect(within(goal).getByRole("button", { name: "Set a goal" })).not.toBeNull();
+  });
+
+  it("offers no control to a viewer, and says nothing about a refusal", async () => {
+    const viewerScenario: ConsoleScenario = {
+      ...APPROVALS_SCENARIO,
+      membershipRoleByParticipantId: {
+        ...APPROVALS_SCENARIO.membershipRoleByParticipantId,
+        ...(APPROVALS_SCENARIO.viewingParticipantId === undefined
+          ? {}
+          : { [APPROVALS_SCENARIO.viewingParticipantId]: "viewer" as const }),
+      },
+    };
+    const bridge = await mountPane(viewerScenario);
+    await settle(bridge);
+    const goal = screen.getByRole("region", { name: "Session goal" });
+    expect(within(goal).getByText("No goal set")).not.toBeNull();
     expect(within(goal).queryByRole("button")).toBeNull();
+  });
+
+  it("holds the unknown-role arm while the identity read is in flight", async () => {
+    // Before the read settles the role is not known, and an unknown role is
+    // treated exactly as read-only. Asserted on the first commit rather than after
+    // the flush, which is the interval a hook that kept a previous answer would
+    // have rendered a control in.
+    const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
+    render(<ApprovalsPane {...paneContext(bridge, boundStore())} />);
+    const goal = screen.getByRole("region", { name: "Session goal" });
+    expect(within(goal).queryByRole("button")).toBeNull();
+    await flush();
+  });
+
+  it("says why the control is missing when the identity read refuses", async () => {
+    // A scenario naming no viewer leaves the question unasked rather than answered
+    // emptily, so the fixture refuses it — and the card renders that refusal's own
+    // code instead of looking read-only for no stated reason.
+    const { viewingParticipantId, ...anonymousScenario } = APPROVALS_SCENARIO;
+    expect(viewingParticipantId).not.toBeUndefined();
+    const bridge = await mountPane(anonymousScenario);
+    await settle(bridge);
+    const goal = screen.getByRole("region", { name: "Session goal" });
+    expect(within(goal).queryByRole("button")).toBeNull();
+    expect(within(goal).getByText("wire-unregistered")).not.toBeNull();
+  });
+
+  it("negative control: the control is not offered to everyone", async () => {
+    // Without this, a card wired to a constant `true` would pass the owner case
+    // above and hand a viewer the same controls.
+    const viewerScenario: ConsoleScenario = {
+      ...APPROVALS_SCENARIO,
+      membershipRoleByParticipantId: {
+        ...APPROVALS_SCENARIO.membershipRoleByParticipantId,
+        ...(APPROVALS_SCENARIO.viewingParticipantId === undefined
+          ? {}
+          : { [APPROVALS_SCENARIO.viewingParticipantId]: "runtime contributor" as const }),
+      },
+    };
+    const bridge = await mountPane(viewerScenario);
+    await settle(bridge);
+    const goal = screen.getByRole("region", { name: "Session goal" });
+    expect(within(goal).queryByRole("button", { name: "Set a goal" })).toBeNull();
   });
 });
 

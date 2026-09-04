@@ -389,3 +389,119 @@ describe("a stream that cannot be opened is a refusal, not a crash", () => {
     expect(() => bypassed("run.subscribeState")).toThrow();
   });
 });
+
+/**
+ * A bridge that keeps EVERY subscription's handler, not only the newest.
+ *
+ * The rebind cases below need to deliver into the subscription a previous session
+ * opened, which a bridge holding one handler cannot express: overwriting it makes
+ * every delivery the current session's and hides the failure entirely.
+ */
+function multiSubscriptionBridge(): {
+  readonly bridge: ConsoleBridge;
+  readonly handlers: readonly ((payload: unknown) => void)[];
+} {
+  const handlers: ((payload: unknown) => void)[] = [];
+  const bridge = {
+    sidekicks: {
+      daemon: {
+        call: async (): Promise<unknown> => undefined,
+        subscribe: (_stream: string, handler: (payload: unknown) => void) => {
+          handlers.push(handler);
+          return () => undefined;
+        },
+      },
+    },
+    growth: {},
+    growthServedOperations: new Set(),
+    source: "fixture",
+    scenarioEngine: undefined,
+  } as unknown as ConsoleBridge;
+  return { bridge, handlers };
+}
+
+/**
+ * Mount the feed against a store the case can swap, recording what every render
+ * COMMITTED.
+ *
+ * Recorded during render rather than in an effect, because the interval this is
+ * about is exactly one commit long: a feed cleared in a passive effect is already
+ * gone by the time an effect could observe it, and the pane has meanwhile rendered
+ * and seated the previous session's runs.
+ */
+function mountRebindableFeed(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore,
+): {
+  readonly renderedFeeds: readonly RunStateFeed[];
+  readonly rebindTo: (store: SessionStore) => Promise<void>;
+  readonly forgetRenders: () => void;
+} {
+  const renderedFeeds: RunStateFeed[] = [];
+  function StateFeedProbe(props: { readonly store: SessionStore }): null {
+    renderedFeeds.push(useRunStateFeed(bridge, props.store));
+    return null;
+  }
+  const view = render(createElement(StateFeedProbe, { store: sessionStore }));
+  return {
+    renderedFeeds,
+    rebindTo: async (store) => {
+      await act(async () => {
+        view.rerender(createElement(StateFeedProbe, { store }));
+        await Promise.resolve();
+      });
+    },
+    forgetRenders: () => {
+      renderedFeeds.length = 0;
+    },
+  };
+}
+
+const OTHER_SESSION_ID = "1b2c3d4e-5f60-4172-8394-a5b6c7d8e9f0";
+
+describe("the feed belongs to the session it was read for", () => {
+  it("renders nothing of the previous session on the pass that commits the new one", async () => {
+    // The failure this closes: the pane seats every projected run, so for one
+    // commit the previous session's rows — and the run-addressed controls on them —
+    // were live under a session they do not belong to.
+    const { bridge, handlers } = multiSubscriptionBridge();
+    const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
+    await act(async () => {
+      handlers[0]?.(STATE_CHANGE_DELIVERY);
+      await Promise.resolve();
+    });
+    expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
+
+    mounted.forgetRenders();
+    await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
+    // The FIRST render under the new session, not the settled one: clearing in the
+    // effect passes the second assertion and fails this one.
+    expect(mounted.renderedFeeds[0]?.runs).toHaveLength(0);
+    expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(0);
+  });
+
+  it("drops a delivery from the previous session's subscription", async () => {
+    const { bridge, handlers } = multiSubscriptionBridge();
+    const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
+    mounted.forgetRenders();
+    await act(async () => {
+      handlers[0]?.(STATE_CHANGE_DELIVERY);
+      await Promise.resolve();
+    });
+    expect(mounted.renderedFeeds.every((feed) => feed.runs.length === 0)).toBe(true);
+  });
+
+  it("negative control: a delivery on the new session's own subscription is published", async () => {
+    // Without this, a feed that answered the empty reading unconditionally would
+    // pass both cases above and never show a run again after a rebind.
+    const { bridge, handlers } = multiSubscriptionBridge();
+    const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
+    await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
+    await act(async () => {
+      handlers.at(-1)?.(STATE_CHANGE_DELIVERY);
+      await Promise.resolve();
+    });
+    expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
+  });
+});
