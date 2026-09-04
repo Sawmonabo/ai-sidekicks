@@ -178,7 +178,23 @@ export class ExecutionModeSelections {
     );
   }
 
-  /** Publish the pending map with one workspace's entry set, or removed where absent. */
+  /**
+   * Publish the pending map with one workspace's entry set, or removed where absent.
+   *
+   * THE TWO BRANCHES ARE THE TWO MOMENTS, and the second one carries the refusal rule.
+   * A defined mode reaches this only from `#hold`, which runs when a NEW request takes
+   * the register — so that is exactly the moment this workspace's previous selection
+   * refusal stops describing anything. Left standing, the picker showed the failure the
+   * participant had just retried away from beside "Switching to …" for the whole flight
+   * and, on an accepted switch, until the follow-up read replaced the reading. Cleared
+   * here rather than in `#hold` so it is ONE publish: two would put the stale refusal
+   * and the new pending mode on screen together for a frame.
+   *
+   * The release path must NOT clear, and that is the whole reason the rule is keyed on
+   * the mode rather than on a flag: `#release` runs inside the `finally` that follows
+   * the settle, so clearing there would erase the daemon's own refusal a moment after
+   * recording it. A refused retry therefore records its own result and keeps it.
+   */
   #publishPending(workspaceId: string, executionMode: ExecutionMode | undefined): void {
     const reading = this.#host.currentReading();
     const pendingModeByWorkspaceId = { ...reading.pendingModeByWorkspaceId };
@@ -187,10 +203,13 @@ export class ExecutionModeSelections {
       // held key with no value a different thing from an absent one, and the picker
       // asks whether there IS an entry.
       delete pendingModeByWorkspaceId[workspaceId];
-    } else {
-      pendingModeByWorkspaceId[workspaceId] = executionMode;
+      this.#host.publish({ ...reading, pendingModeByWorkspaceId });
+      return;
     }
-    this.#host.publish({ ...reading, pendingModeByWorkspaceId });
+    pendingModeByWorkspaceId[workspaceId] = executionMode;
+    const refusalByWorkspaceId = { ...reading.refusalByWorkspaceId };
+    delete refusalByWorkspaceId[workspaceId];
+    this.#host.publish({ ...reading, pendingModeByWorkspaceId, refusalByWorkspaceId });
   }
 
   #recordRefusal(workspaceId: string, refusal: ConsoleRefusal): void {
