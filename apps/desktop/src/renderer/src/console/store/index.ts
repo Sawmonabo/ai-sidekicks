@@ -82,3 +82,43 @@ export {
   /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
   useDeadlineWake,
 } from "./deadline-wake.js";
+
+// THE TWO SUBJECT PRIMITIVES, and why they ship through this door rather than being
+// re-implemented per family. State that outlives its subject was the recurring defect
+// class across every console family: a pane rebound from one session to another kept
+// the previous one's editor text, busy flag, roster, or outcome for a frame, and a
+// call still in flight against the previous subject settled into the new one. Five
+// families each wrote their own holder and their own generation counter, and the
+// place copies of a guard drift is the predicate.
+//
+// `subject-scoped-state.ts` answers what a surface RENDERS for the subject it is
+// bound to; `generation-latch.ts` answers whether an act may be dispatched at all,
+// which a handler settles inside its own tick. `test/console/architecture/
+// subject-state-chokepoint.test.ts` fails the build on a second implementation of
+// either.
+//
+// The `@consumedBy` tags are the dead-code gate's one exemption, on this package's
+// terms: they name the task that imports the symbol, and they are deleted in the PR
+// that does. See `apps/desktop/AGENTS.md` §Mechanical gates.
+export {
+  /** @consumedBy T-023p-1C-8 */
+  SubjectScopedHolder,
+  useSubjectScopedState,
+} from "./subject-scoped-state.js";
+export type {
+  /** @consumedBy T-023p-1C-8 */
+  SubjectKey,
+  /** @consumedBy T-023p-1C-8 */
+  SubjectScopedPublish,
+  SubjectScopedState,
+} from "./subject-scoped-state.js";
+export {
+  /** @consumedBy T-023p-1C-8 */
+  GenerationLatch,
+  /** @consumedBy T-023p-1C-8 */
+  useGenerationLatch,
+} from "./generation-latch.js";
+export type {
+  /** @consumedBy T-023p-1C-8 */
+  GenerationClaim,
+} from "./generation-latch.js";
