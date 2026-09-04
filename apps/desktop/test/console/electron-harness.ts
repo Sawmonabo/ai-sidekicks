@@ -177,9 +177,12 @@ export interface LaunchConsoleOptions {
    * Extra command-line switches for the launched Electron.
    *
    * APPENDED to the two the harness owns — the private `--user-data-dir` and the
-   * built main entry — never merged with them and never able to replace them, so
-   * a tier can add a switch and cannot drop the profile isolation that keeps a
-   * launch off Electron's machine-wide `SingletonLock` (see `launch-args.ts`).
+   * built main entry. Naming either of those here is REFUSED with a
+   * `HarnessOwnedSwitchError` rather than quietly appended, because Chromium
+   * assigns the LAST duplicate of a switch: a caller's own `--user-data-dir`
+   * would replace the private profile, not sit inert behind it, and a launch back
+   * on Electron's machine-wide `SingletonLock` quits before opening a window
+   * (see `launch-args.ts`).
    *
    * For the switches that are a property of the RUNNER rather than of the
    * console: forcing ANGLE onto SwiftShader on a headless GPU-less runner, for

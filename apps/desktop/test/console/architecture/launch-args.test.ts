@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { composeLaunchArgs } from "../launch-args.js";
+import { composeLaunchArgs, HarnessOwnedSwitchError } from "../launch-args.js";
 
 /** Stand-ins: the property under test is positional, so the values only have to be distinguishable. */
 const PROFILE_DIRECTORY = "/tmp/ai-sidekicks-console-TESTONLY";
@@ -47,21 +47,47 @@ describe("launch args — the fixed set is authoritative and first", () => {
     ]);
   });
 
-  it("lets a caller's switch shadow nothing: the harness's copy still comes first", () => {
-    // The case the append order exists for. A caller that passes its own
-    // `--user-data-dir` does not replace the harness's — Chromium takes the
-    // first occurrence of a switch, so the private profile still wins and the
-    // caller's is inert rather than able to break the isolation.
-    const composed = composeLaunchArgs(PROFILE_DIRECTORY, MAIN_ENTRY, [
-      "--user-data-dir=/somewhere/else",
-    ]);
-    expect(composed[0]).toBe(`--user-data-dir=${PROFILE_DIRECTORY}`);
-    expect(composed.indexOf(`--user-data-dir=${PROFILE_DIRECTORY}`)).toBeLessThan(
-      composed.indexOf("--user-data-dir=/somewhere/else"),
+  it("refuses a switch the harness owns, naming it", () => {
+    // This case previously asserted the OPPOSITE and passed, which is the whole
+    // lesson: it checked that the harness's `--user-data-dir` sat at a lower
+    // index than the caller's and concluded the caller's was inert. Array
+    // position is not what Chromium reads. `base::CommandLine` assigns each
+    // parsed switch into a map, so the LAST duplicate wins — measured against a
+    // real launch, where `app.getPath("userData")` reported the CALLER's
+    // directory. Order can therefore never be the guarantee; refusal is.
+    let refusal: unknown;
+    try {
+      composeLaunchArgs(PROFILE_DIRECTORY, MAIN_ENTRY, ["--user-data-dir=/somewhere/else"]);
+    } catch (error: unknown) {
+      refusal = error;
+    }
+    expect(refusal).toBeInstanceOf(HarnessOwnedSwitchError);
+    expect((refusal as HarnessOwnedSwitchError).switchName).toBe("--user-data-dir");
+  });
+
+  it("refuses the valueless form of an owned switch too", () => {
+    // `--user-data-dir` with no `=` is still that switch, and Chromium would
+    // still take it as the later occurrence. Matching on the name rather than on
+    // the whole argument is what makes the refusal cover both spellings.
+    expect(() => composeLaunchArgs(PROFILE_DIRECTORY, MAIN_ENTRY, ["--user-data-dir"])).toThrow(
+      HarnessOwnedSwitchError,
     );
-    // And the main entry keeps its place between them, so the launch still points
-    // at this application.
-    expect(composed[1]).toBe(MAIN_ENTRY);
+    // And a value containing its own `=` still names the same switch, so the
+    // split is on the FIRST one.
+    expect(() =>
+      composeLaunchArgs(PROFILE_DIRECTORY, MAIN_ENTRY, ["--user-data-dir=/tmp/a=b"]),
+    ).toThrow(HarnessOwnedSwitchError);
+  });
+
+  it("negative control: an unowned switch that merely resembles one is admitted", () => {
+    // Without this the refusal could be a rule that rejects anything with
+    // `user-data-dir` in it, or anything at all. These are distinct switches
+    // Chromium treats separately, and a tier must still be able to pass them.
+    const admitted = ["--user-data-dir-suffix=x", "--use-gl=angle"];
+    expect(composeLaunchArgs(PROFILE_DIRECTORY, MAIN_ENTRY, admitted)).toStrictEqual([
+      ...FIXED_ARGS,
+      ...admitted,
+    ]);
   });
 
   it("negative control: a caller's switches are absent unless they are passed", () => {
