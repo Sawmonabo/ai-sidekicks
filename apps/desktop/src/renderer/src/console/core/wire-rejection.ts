@@ -177,13 +177,18 @@ function classifyRejection(
 /**
  * Normalize any rejection into the console's one refusal shape.
  *
- * TOTAL. It answers a refusal for every input and throws for none, and the `try` is
- * what makes that claim provable rather than merely likely: the guarded reads above
- * cannot throw on their own, but `isConsoleRefusal` and `isWireErrorEnvelope` are
- * shared predicates whose contracts are structural recognition rather than totality,
- * and a value carrying a hostile `refusal` getter would otherwise propagate out of
- * the very function a surface calls to say that something failed — a throw on the
- * failure path, landing in a `catch` that has already been left.
+ * TOTAL. It answers a refusal for every input and throws for none.
+ *
+ * Every step of `classifyRejection` is itself total today — the reads go through
+ * `readGuardedProperty`, and `isConsoleRefusal` and `isWireErrorEnvelope` were both
+ * widened to read through it too, which the hostile-value cases below the fold in
+ * this module's test prove by passing with the `try` removed. The `try` is kept as a
+ * BACKSTOP rather than as the mechanism, and the distinction is the reason: without
+ * it, totality here would be a property of three other modules staying total, and the
+ * edit that broke one of them would show up as a throw on the failure path — in a
+ * `catch` that has already been left, in the one function a surface calls to say that
+ * something failed. It costs nothing on a path that only runs when a call already
+ * failed, and it is the one arm nobody has to re-prove.
  *
  * `origin` is the calling subsystem, and it is what the synthesized terminal code is
  * built from, so even a rejection that said nothing machine-readable still names the
