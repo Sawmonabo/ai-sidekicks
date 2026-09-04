@@ -67,6 +67,7 @@
 // consumed for its leaf helpers rather than for this.
 
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../core/index.js";
+import { lossyStringify, readGuardedProperty } from "../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import {
   CONSOLE_DAEMON_METHOD_BINDINGS,
@@ -210,9 +211,23 @@ export async function callDaemon<MethodName extends ConsoleDaemonMethod>(
  * package's re-exported `ZodType` so that nothing above the bridge imports the
  * validator, and the same reason applies to its errors. A shape this cannot read
  * yields no clause rather than a wrong one.
+ *
+ * TOTAL, because that sentence is a claim and not a hope. A cast to
+ * `{ issues?: unknown }` reads a property, a property read runs a getter, and both
+ * `null` and `undefined` throw a `TypeError` on the way in — from inside the one
+ * module that answers for a value nobody validated. Every read here therefore goes
+ * through `readGuardedProperty`, which collapses absent and unreadable to the same
+ * `undefined`, and every path segment through the family's total stringifier rather
+ * than bare `String(...)`, which runs ToPrimitive and throws on a null-prototype
+ * segment. Both are cheap on a path that only runs once something has already failed.
+ *
+ * Exported for its co-located test and for nothing else: the door itself is the only
+ * caller, and `bridge/index.ts` deliberately publishes neither this nor the registry
+ * behind it. A surface that could reach a reading of a validator's error would be a
+ * surface that could compose a second refusal sentence.
  */
-function describeFailingPaths(error: unknown): string {
-  const issues: unknown = (error as { readonly issues?: unknown }).issues;
+export function describeFailingPaths(error: unknown): string {
+  const issues = readGuardedProperty(error, "issues");
   if (!Array.isArray(issues)) {
     return "";
   }
@@ -220,8 +235,10 @@ function describeFailingPaths(error: unknown): string {
     ...new Set(
       issues
         .map((issue: unknown) => {
-          const path: unknown = (issue as { readonly path?: unknown }).path;
-          return Array.isArray(path) && path.length > 0 ? path.map(String).join(".") : undefined;
+          const path = readGuardedProperty(issue, "path");
+          return Array.isArray(path) && path.length > 0
+            ? path.map((segment: unknown) => lossyStringify(segment)).join(".")
+            : undefined;
         })
         .filter((path): path is string => path !== undefined),
     ),

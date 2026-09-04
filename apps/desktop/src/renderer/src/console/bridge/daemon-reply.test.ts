@@ -14,7 +14,12 @@ import {
   type ConsoleRefusal,
 } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
-import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN, type DaemonReply } from "./daemon-reply.js";
+import {
+  callDaemon,
+  DAEMON_REPLY_REFUSAL_ORIGIN,
+  describeFailingPaths,
+  type DaemonReply,
+} from "./daemon-reply.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 
@@ -404,5 +409,60 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
 
     expect(refusal.code).toBe("call-rejected");
+  });
+});
+
+describe("describeFailingPaths — a shape it cannot read yields no clause", () => {
+  // Driven directly rather than through the door, because the door's own callers
+  // always hand it a real validator error: the parameter is typed `unknown`
+  // precisely to disclaim that knowledge, and a claim that only holds for the one
+  // shape the one caller passes is not the claim the signature makes.
+
+  it("answers an empty clause for the two values a property read throws on", () => {
+    expect(describeFailingPaths(null)).toBe("");
+    expect(describeFailingPaths(undefined)).toBe("");
+  });
+
+  it("answers an empty clause when reading `issues` throws", () => {
+    const hostile: unknown = {
+      get issues(): never {
+        throw new Error("this getter is the defect");
+      },
+    };
+
+    expect(describeFailingPaths(hostile)).toBe("");
+  });
+
+  it("skips an issue whose own `path` cannot be read, and keeps the rest", () => {
+    const mixed: unknown = {
+      issues: [
+        {
+          get path(): never {
+            throw new Error("this getter is the defect");
+          },
+        },
+        { path: ["participants", 0, "lastSeen"] },
+      ],
+    };
+
+    expect(describeFailingPaths(mixed)).toBe(" (at participants.0.lastSeen)");
+  });
+
+  it("names a segment it cannot render rather than throwing on it", () => {
+    // A path segment is whatever the validator put there. `String(...)` runs
+    // ToPrimitive, which throws on a null-prototype value carrying no `toString`,
+    // so the segment goes through the family's total stringifier and the clause
+    // says the segment is unrenderable instead of taking the sentence down.
+    const unrenderable: unknown = { issues: [{ path: [Object.create(null)] }] };
+
+    expect(describeFailingPaths(unrenderable)).toBe(" (at [unrepresentable value])");
+  });
+
+  it("negative control: an ordinary validator error still names its members", () => {
+    // Without this, a guard that answered `""` for everything would pass all four
+    // cases above and silently delete the clause from every refusal sentence.
+    const error: unknown = { issues: [{ path: ["participants", 0, "state"] }] };
+
+    expect(describeFailingPaths(error)).toBe(" (at participants.0.state)");
   });
 });
