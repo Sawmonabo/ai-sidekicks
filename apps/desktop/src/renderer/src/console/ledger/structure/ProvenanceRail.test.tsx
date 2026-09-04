@@ -7,7 +7,9 @@
 // affordance, and the preview grace on the frozen clock. Geometry belongs to the
 // browser tier, which has a real box to measure.
 
+import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { act, fireEvent, render, screen } from "@testing-library/react";
+import { type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
@@ -17,45 +19,60 @@ import { ProvenanceRailModel } from "./rail-model.js";
 import { generalRow, runRow } from "./row-fixtures.js";
 
 /** Four marks: a message, an approval, a tool error, and a handoff. */
+function storyRows(): readonly TimelineRow[] {
+  return [
+    generalRow({
+      id: "m1",
+      sequence: 1,
+      type: "user.message",
+      category: "interactive_request",
+      summary: "asked for the deploy plan",
+    }),
+    runRow({
+      id: "ap",
+      sequence: 2,
+      type: "approval.requested",
+      category: "approval_flow",
+      runId: "run-a",
+      position: 1,
+      summary: "wants to write outside the worktree",
+    }),
+    runRow({
+      id: "te",
+      sequence: 3,
+      type: "tool.error",
+      category: "tool_activity",
+      runId: "run-a",
+      position: 2,
+      summary: "the build step exited 1",
+    }),
+    runRow({
+      id: "ha",
+      sequence: 4,
+      type: "agent.attached",
+      category: "membership_change",
+      runId: "run-a",
+      position: 3,
+      summary: "a second agent joined",
+    }),
+  ];
+}
+
 function railModel(hasEarlierRows = false): ProvenanceRailModel {
+  return new ProvenanceRailModel({ hasEarlierRows, rows: storyRows() });
+}
+
+/**
+ * The same rail over a subset of its rows — what replay, a filter, or the cap
+ * leaves behind. The ordering is the surviving rows, which is what a viewport
+ * holding only those would hand the model.
+ */
+function railModelOver(rowIds: readonly string[]): ProvenanceRailModel {
+  const rows = storyRows().filter((row) => rowIds.includes(row.id));
   return new ProvenanceRailModel({
-    hasEarlierRows,
-    rows: [
-      generalRow({
-        id: "m1",
-        sequence: 1,
-        type: "user.message",
-        category: "interactive_request",
-        summary: "asked for the deploy plan",
-      }),
-      runRow({
-        id: "ap",
-        sequence: 2,
-        type: "approval.requested",
-        category: "approval_flow",
-        runId: "run-a",
-        position: 1,
-        summary: "wants to write outside the worktree",
-      }),
-      runRow({
-        id: "te",
-        sequence: 3,
-        type: "tool.error",
-        category: "tool_activity",
-        runId: "run-a",
-        position: 2,
-        summary: "the build step exited 1",
-      }),
-      runRow({
-        id: "ha",
-        sequence: 4,
-        type: "agent.attached",
-        category: "membership_change",
-        runId: "run-a",
-        position: 3,
-        summary: "a second agent joined",
-      }),
-    ],
+    rows,
+    retainedRowKeys: rows.map((row) => row.id),
+    hasEarlierRows: false,
   });
 }
 
@@ -73,6 +90,8 @@ interface RailHarness {
   readonly jumps: readonly string[];
   /** How many times it asked for earlier rows. */
   loadEarlierCount(): number;
+  /** Hand the SAME mounted rail a different model — a replay, a filter, a prune. */
+  showModel(model: ProvenanceRailModel): void;
 }
 
 function renderRail(
@@ -81,6 +100,8 @@ function renderRail(
     readonly clock?: ManualClock;
     /** Whether a caller can page earlier rows at all. Absent, no affordance is drawn. */
     readonly canLoadEarlier?: boolean;
+    /** The viewport band the thumb draws. The head quarter of the rail by default. */
+    readonly viewport?: { readonly position: number; readonly extent: number };
   } = {},
 ): RailHarness {
   const jumps: string[] = [];
@@ -88,21 +109,41 @@ function renderRail(
   const loadEarlier = (): void => {
     loadEarlierCount += 1;
   };
-  render(
+  const clock = options.clock ?? new ManualClock();
+  const railOver = (model: ProvenanceRailModel): ReactElement => (
     <ProvenanceRail
-      model={options.model ?? railModel()}
-      viewportPosition={0}
-      viewportExtent={0.25}
+      model={model}
+      viewportPosition={options.viewport?.position ?? 0}
+      viewportExtent={options.viewport?.extent ?? 0.25}
       isFollowing={false}
       onJumpToRow={(rowId) => jumps.push(rowId)}
       {...(options.canLoadEarlier === false ? {} : { onLoadEarlier: loadEarlier })}
-      clock={options.clock ?? new ManualClock()}
-    />,
+      clock={clock}
+    />
   );
+  const view = render(railOver(options.model ?? railModel()));
   return {
     slider: screen.getByRole("slider"),
     jumps,
     loadEarlierCount: () => loadEarlierCount,
+    showModel: (model) => {
+      view.rerender(railOver(model));
+    },
+  };
+}
+
+/** The thumb's top and height, in percent of the rail. */
+function thumbBounds(slider: HTMLElement): {
+  readonly topPercent: number;
+  readonly heightPercent: number;
+} {
+  const thumb = slider.querySelector<HTMLElement>(".meridian-rail__thumb");
+  if (thumb === null) {
+    throw new Error("the rail drew no viewport thumb");
+  }
+  return {
+    topPercent: Number.parseFloat(thumb.style.top),
+    heightPercent: Number.parseFloat(thumb.style.height),
   };
 }
 
@@ -129,6 +170,31 @@ describe("rail — the accessible layer over an opaque canvas", () => {
     const canvas = slider.querySelector("canvas");
     expect(canvas).not.toBeNull();
     expect(canvas?.getAttribute("aria-hidden")).toBe("true");
+  });
+});
+
+describe("rail — the viewport thumb stays inside the rail", () => {
+  it("ends a tail viewport's thumb exactly at the foot", () => {
+    const { slider } = renderRail({ viewport: { position: 0.9, extent: 0.1 } });
+    const { topPercent, heightPercent } = thumbBounds(slider);
+    expect(topPercent + heightPercent).toBeCloseTo(100, 6);
+  });
+
+  it("negative control: clamping the two independently hangs the thumb off the end", () => {
+    // The band a tail viewport produced before the geometry was fixed. Clamped
+    // top-and-height-apart it survives untouched, which is exactly how a 90.9%
+    // top and a 10% height reached the DOM; one clamp over the pair pulls it back
+    // to the foot instead.
+    const overrunning = { position: 0.909, extent: 0.1 };
+    expect(Math.min(1, overrunning.position) + Math.min(1, overrunning.extent)).toBeGreaterThan(1);
+    const { slider } = renderRail({ viewport: overrunning });
+    const { topPercent, heightPercent } = thumbBounds(slider);
+    expect(topPercent + heightPercent).toBeCloseTo(100, 6);
+  });
+
+  it("draws a mid-window thumb where it was asked to", () => {
+    const { slider } = renderRail({ viewport: { position: 0.25, extent: 0.5 } });
+    expect(thumbBounds(slider)).toStrictEqual({ topPercent: 25, heightPercent: 50 });
   });
 });
 
@@ -208,6 +274,74 @@ describe("rail — every offer is reachable without a pointer", () => {
     fireEvent.keyDown(slider, { key: "End" });
     fireEvent.keyDown(slider, { key: "ArrowDown" });
     expect(jumps).toStrictEqual(["ha"]);
+  });
+});
+
+describe("rail — the selection is a mark, and every walk starts from it", () => {
+  /** The rail after a replay scrubbed back and withheld the mark that was selected. */
+  function railWithSelectedMarkWithheld(): RailHarness {
+    const harness = renderRail();
+    fireEvent.keyDown(harness.slider, { key: "End" });
+    expect(harness.slider.getAttribute("aria-valuetext")).toBe("handoff: a second agent joined");
+    harness.showModel(railModelOver(["m1", "ap", "te"]));
+    return harness;
+  }
+
+  it("says the selected mark is gone rather than keeping it selected", () => {
+    const harness = railWithSelectedMarkWithheld();
+    expect(harness.slider.getAttribute("aria-valuetext")).toBe("No mark selected");
+    expect(harness.slider.getAttribute("aria-valuenow")).toBe("0");
+  });
+
+  it("walks from the rail's head again, and announces where it landed", () => {
+    const harness = railWithSelectedMarkWithheld();
+    fireEvent.keyDown(harness.slider, { key: "ArrowDown" });
+    expect(harness.jumps).toStrictEqual(["ha", "m1"]);
+    // The announced value and the walk are one resolution: the mark the press
+    // reached is the mark the slider now names.
+    expect(harness.slider.getAttribute("aria-valuetext")).toBe(
+      "participant-message: asked for the deploy plan",
+    );
+    expect(harness.slider.getAttribute("aria-valuenow")).toBe("0");
+  });
+
+  it("finds the first visible mark of a kind after the selected one goes away", () => {
+    const harness = railWithSelectedMarkWithheld();
+    fireEvent.keyDown(harness.slider, { code: "Digit3", key: "3" });
+    expect(harness.jumps).toStrictEqual(["ha", "te"]);
+    expect(harness.slider.getAttribute("aria-valuetext")).toBe(
+      "tool-error: the build step exited 1",
+    );
+  });
+
+  it("negative control: the removed mark's sequence walks past every visible one", () => {
+    // The origin that shipped — the recorded sequence, kept after its mark left
+    // the model. It is after every mark the rail still holds, so both walks the
+    // cases above make find nothing at all: ArrowDown moves nowhere and the digit
+    // walk moves nowhere, while the slider says nothing is selected. That is the
+    // disagreement, and it is what the resolved origin removes.
+    const model = railModelOver(["m1", "ap", "te"]);
+    const removedMarkSequence = 4;
+    expect(model.model().ticks.every((tick) => tick.sequence < removedMarkSequence)).toBe(true);
+    expect(model.model().ticks.find((tick) => tick.sequence > removedMarkSequence)).toBeUndefined();
+    expect(model.tickOfKind("tool-error", removedMarkSequence, "next")).toBeUndefined();
+  });
+
+  it("re-selects the person's own mark when the model admits it again", () => {
+    // The recorded sequence is kept rather than cleared, so a replay scrubbed
+    // back forward returns the mark they chose instead of leaving a substitute
+    // selected in its place.
+    const harness = railWithSelectedMarkWithheld();
+    expect(harness.slider.getAttribute("aria-valuetext")).toBe("No mark selected");
+    harness.showModel(railModel());
+    expect(harness.slider.getAttribute("aria-valuetext")).toBe("handoff: a second agent joined");
+    expect(harness.slider.getAttribute("aria-valuenow")).toBe("3");
+  });
+
+  it("reaches the last visible mark with ArrowUp from no selection", () => {
+    const harness = railWithSelectedMarkWithheld();
+    fireEvent.keyDown(harness.slider, { key: "ArrowUp" });
+    expect(harness.jumps).toStrictEqual(["ha", "te"]);
   });
 });
 

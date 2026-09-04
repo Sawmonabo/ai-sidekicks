@@ -63,6 +63,18 @@ export const RAIL_FISHEYE_MAX_SCALE = 2.6;
 export const RAIL_PREVIEW_GRACE_MS = 160;
 
 /**
+ * The shortest the rail's viewport thumb is drawn, as a fraction of the rail.
+ *
+ * A window of ten thousand rows shows five of them, and the honest extent for that
+ * is half a pixel of a 600px rail — a thumb nobody can see and nobody can aim at.
+ * One percent is the floor at which the thumb still reads as a band rather than as
+ * a hairline. It is spent by the one clamp in `rail-model.ts`, which takes the
+ * floor out of the extent and off the top in the same act, so a raised floor can
+ * never push the thumb past the rail's bottom.
+ */
+export const RAIL_THUMB_MIN_EXTENT = 0.01;
+
+/**
  * Ticks the rail paints per column of ink.
  *
  * The rail draws the loaded window, which the ledger's own timeline cap already

@@ -24,10 +24,16 @@
 //   • **No invented ticks.** The rail never invents ticks for rows
 //     that are not loaded. Every tick here is produced from a row in the window it
 //     was handed; the unloaded extent is drawn as a segment, never as marks.
+//   • **One geometry.** A mark's place on the rail and the viewport thumb's place
+//     on it are the same measurement over one ordering, stated once below as the
+//     row-band model and derived nowhere else. Two derivations of "where on the
+//     rail" is how a mark ends up outside the thumb that is supposed to be
+//     pointing at it.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type GlyphName } from "../../tokens/index.js";
+import { RAIL_THUMB_MIN_EXTENT } from "./constants.js";
 import { LedgerSeamIndex, SEAM_WIRE_BINDINGS, type LedgerSeamKind } from "./seams.js";
 
 /**
@@ -160,6 +166,89 @@ export const RAIL_TICK_BINDINGS: Readonly<Record<RailTickKind, RailTickBinding>>
   },
 };
 
+/**
+ * THE ROW-BAND MODEL — the rail's one geometry, stated here and derived nowhere
+ * else.
+ *
+ * The retained viewport rows partition the rail into `n` equal BANDS, one per row,
+ * in the order the feed renders them. Two readings come out of that partition and
+ * they are the same measurement:
+ *
+ *   • A row's mark sits at the CENTRE of its band, `(rowIndex + 0.5) / n`.
+ *   • The viewport's thumb SPANS the bands of the rows the box intersects, from
+ *     `firstRowIndex / n` for `(lastRowIndex - firstRowIndex + 1) / n`.
+ *
+ * Which makes "a visible row's mark lies inside the thumb" arithmetic rather than
+ * coincidence — `firstRowIndex ≤ i ≤ lastRowIndex` gives
+ * `firstRowIndex / n ≤ (i + 0.5) / n < (lastRowIndex + 1) / n` — and it makes the
+ * thumb end exactly at the rail's bottom, because the last row's band does.
+ *
+ * BOTH HALVES WERE ONCE DERIVED SEPARATELY AND NEITHER WAS SAFE. Marks were placed
+ * by SEQUENCE distance, which is a different axis: filtering, sequence gaps, and
+ * the synthetic chapter-header rows the feed inserts all make row order and
+ * sequence order diverge, so a mark placed on one axis and a thumb placed on the
+ * other could not be compared. And the thumb's top was taken against the last
+ * INDEX while its height was taken against the row COUNT, which are two
+ * denominators: at the tail of a hundred rows that reads 90.9% down with 10% of
+ * height, and the thumb hung off the end of the rail.
+ */
+export interface RailViewportBand {
+  /** The band's top, 0 at the rail's head and 1 at its foot. */
+  readonly position: number;
+  /** How much of the rail the band covers, as a fraction. */
+  readonly extent: number;
+}
+
+/** Where the mark for the row at `rowIndex` sits, in a window of `retainedRowCount`. */
+export function railRowBandCentre(rowIndex: number, retainedRowCount: number): number {
+  // A rail with no bands has no centre to give. Unreachable from the derivation,
+  // which places a mark only for a row it found an index for, and answered rather
+  // than divided by zero because the two callers of a geometry are what this
+  // module exists to keep in step.
+  return retainedRowCount === 0 ? 0 : (rowIndex + 0.5) / retainedRowCount;
+}
+
+/**
+ * The band the rows `firstRowIndex` through `lastRowIndex` occupy.
+ *
+ * An unmeasured or empty window is the WHOLE rail rather than a band at its head:
+ * a thumb covering everything says "this is all of it", which is the honest answer
+ * for a box nothing has measured, and a thumb at the head would say the reader is
+ * at the top of a window nobody has read.
+ */
+export function railViewportBand(
+  firstRowIndex: number,
+  lastRowIndex: number,
+  retainedRowCount: number,
+): RailViewportBand {
+  if (retainedRowCount === 0) {
+    return { position: 0, extent: 1 };
+  }
+  return clampRailViewportBand({
+    position: firstRowIndex / retainedRowCount,
+    extent: (lastRowIndex - firstRowIndex + 1) / retainedRowCount,
+  });
+}
+
+/**
+ * Bring an arbitrary band inside the rail, in ONE act.
+ *
+ * The extent settles first and the top is then clamped against `1 - extent`,
+ * because those two numbers are not independent: clamping each into `[0, 1]` on
+ * its own admits `0.909 + 0.1`, which is a thumb hanging over the rail's foot. The
+ * order also means the minimum height is paid for out of the TOP rather than out
+ * of the rail — a one-row thumb at the very bottom is nudged up to fit rather than
+ * grown past the end.
+ *
+ * Exported because the component that draws the thumb is handed a band by its
+ * caller and cannot assume the caller built it here; one clamp, in one module, is
+ * what keeps the two sides of that seam from clamping differently.
+ */
+export function clampRailViewportBand(band: RailViewportBand): RailViewportBand {
+  const extent = Math.min(1, Math.max(RAIL_THUMB_MIN_EXTENT, band.extent));
+  return { position: Math.min(1 - extent, Math.max(0, band.position)), extent };
+}
+
 /** One mark on the rail. */
 export interface RailTick {
   readonly kind: RailTickKind;
@@ -176,7 +265,10 @@ export interface RailTick {
    * grace applies only to the card OPENING: there is no debounce on the read.
    */
   readonly summary: string;
-  /** Where along the rail this tick sits, 0 at the window's head and 1 at its tail. */
+  /**
+   * Where along the rail this tick sits — the centre of its row's band, per the
+   * row-band model above. Never an axis of its own.
+   */
   readonly position: number;
 }
 
@@ -201,6 +293,22 @@ export interface RailModel {
 /** What the caller knows about the window it handed in. */
 export interface RailWindowInput {
   readonly rows: readonly TimelineRow[];
+  /**
+   * Every retained viewport row key, in the order the feed renders them.
+   *
+   * THE ORDERING IS THE RAIL'S AXIS, and it is asked of the caller because only the
+   * viewport knows it. It is not `rows` re-keyed: the feed's list also carries rows
+   * that are not projected log rows — a folded chapter's synthetic header is one —
+   * and each of those occupies a band on the rail whether or not it can take a
+   * mark. Handing the rail the rows alone made every header shift the marks away
+   * from the thumb the same header had already shifted.
+   *
+   * Absent, the rows ARE the ordering, which is the caller asserting the feed
+   * renders these rows and nothing between them. True of a window with no folded
+   * chapter in it; false the moment one appears, which is why the composing hook
+   * always supplies the viewport's own list.
+   */
+  readonly retainedRowKeys?: readonly string[];
   /**
    * Whether rows exist before the window's head.
    *
@@ -298,12 +406,17 @@ export class ProvenanceRailModel {
       earliestLoadedSequence: first?.sequence,
       latestLoadedSequence: last?.sequence,
     };
-    const span = first === undefined || last === undefined ? 0 : last.sequence - first.sequence;
+    const retainedRowKeys = this.#input.retainedRowKeys ?? rows.map((row) => row.id);
+    const bandIndexByRowId = new Map(retainedRowKeys.map((key, index) => [key, index]));
 
     const ticks: RailTick[] = [];
     for (const row of rows) {
       const kind = this.#tickKindOf(row);
-      if (kind === undefined) {
+      const bandIndex = bandIndexByRowId.get(row.id);
+      // No band, no mark. A row the feed is not rendering has nowhere on the rail
+      // to be, and placing it anyway is how a mark ends up pointing at a row
+      // nobody can scroll to.
+      if (kind === undefined || bandIndex === undefined) {
         continue;
       }
       const binding = RAIL_TICK_BINDINGS[kind];
@@ -316,10 +429,7 @@ export class ProvenanceRailModel {
         tone: binding.tone,
         glyph: binding.glyph,
         summary: row.summary,
-        // A single-row window is one tick at the tail rather than a division by
-        // zero: the head and the tail are the same instant, and the tail is where
-        // the live marker sits.
-        position: span === 0 || first === undefined ? 1 : (row.sequence - first.sequence) / span,
+        position: railRowBandCentre(bandIndex, retainedRowKeys.length),
       });
     }
     return { ticks, clip };
