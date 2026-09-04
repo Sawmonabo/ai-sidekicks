@@ -15,10 +15,35 @@ import { describe, expect, it } from "vitest";
 
 import { FLAGSHIP_SCENARIO } from "./flagship.js";
 import { findScenarioWireTruthDefects } from "./wire-truth.js";
-import type { ConsoleScenario } from "../scenario.js";
+import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
 
 /** A session the branded schema accepts that is not the one the flagship's beats travel on. */
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
+
+/**
+ * The flagship with exactly ONE beat replaced — the first beat of the kind named.
+ *
+ * Every case in this file is about a single beat, and the seat board plays several
+ * runs, so replacing every beat of a kind would vary five and report five defects for
+ * the one defect the case is about. The helper is the only thing that knows there is
+ * more than one run; each case still reads as "the flagship's own beat, with X
+ * replaced", which is what its own comment claims.
+ */
+function scenarioWithFirstBeatOfKindReplaced(
+  scenarioId: string,
+  kind: string,
+  replace: (beat: ScenarioBeat) => ScenarioBeat,
+): ConsoleScenario {
+  const beatIndex = FLAGSHIP_SCENARIO.beats.findIndex((beat) => beat.event.kind === kind);
+  if (beatIndex === -1) {
+    throw new Error(`the flagship scenario plays no \`${kind}\` beat to build a case from`);
+  }
+  return {
+    ...FLAGSHIP_SCENARIO,
+    id: scenarioId,
+    beats: FLAGSHIP_SCENARIO.beats.map((beat, at) => (at === beatIndex ? replace(beat) : beat)),
+  };
+}
 
 describe("scenario wire truth — a run beat that reports two states at once", () => {
   /**
@@ -29,15 +54,10 @@ describe("scenario wire truth — a run beat that reports two states at once", (
    * seat board already ships and the predicate already accepts.
    */
   function scenarioWithStartingBeatState(scenarioId: string, newState: string): ConsoleScenario {
-    return {
-      ...FLAGSHIP_SCENARIO,
-      id: scenarioId,
-      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
-        beat.event.kind === "run.starting"
-          ? { ...beat, event: { ...beat.event, payload: { ...beat.event.payload, newState } } }
-          : beat,
-      ),
-    };
+    return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
+      ...beat,
+      event: { ...beat.event, payload: { ...beat.event.payload, newState } },
+    }));
   }
 
   it("reports a beat whose payload names a state its kind does not announce", () => {
@@ -70,18 +90,14 @@ describe("scenario wire truth — a run beat that reports two states at once", (
     // `newState`, pass the architecture suite, and then be refused at delivery as
     // unprojectable while the run-lifecycle projector dropped its mutation. Green
     // gate, nothing on screen.
-    const withoutNewState: ConsoleScenario = {
-      ...FLAGSHIP_SCENARIO,
-      id: "names-no-run-state",
-      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
-        beat.event.kind === "run.starting"
-          ? {
-              ...beat,
-              event: { ...beat.event, payload: { ...beat.event.payload, newState: undefined } },
-            }
-          : beat,
-      ),
-    };
+    const withoutNewState = scenarioWithFirstBeatOfKindReplaced(
+      "names-no-run-state",
+      "run.starting",
+      (beat) => ({
+        ...beat,
+        event: { ...beat.event, payload: { ...beat.event.payload, newState: undefined } },
+      }),
+    );
 
     const defects = findScenarioWireTruthDefects([withoutNewState]);
 
@@ -114,13 +130,10 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
     scenarioId: string,
     payload: Readonly<Record<string, unknown>>,
   ): ConsoleScenario {
-    return {
-      ...FLAGSHIP_SCENARIO,
-      id: scenarioId,
-      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
-        beat.event.kind === "run.starting" ? { ...beat, event: { ...beat.event, payload } } : beat,
-      ),
-    };
+    return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
+      ...beat,
+      event: { ...beat.event, payload },
+    }));
   }
 
   /**
@@ -215,27 +228,19 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
     scenarioId: string,
     payloadSessionId: string | undefined,
   ): ConsoleScenario {
-    return {
-      ...FLAGSHIP_SCENARIO,
-      id: scenarioId,
-      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
-        beat.event.kind === "run.starting"
-          ? {
-              ...beat,
-              event: {
-                ...beat.event,
-                kind: "run.rolled_back",
-                payload: {
-                  ...(payloadSessionId === undefined ? {} : { sessionId: payloadSessionId }),
-                  runId: beat.event.payload?.["runId"],
-                  runVersion: beat.event.payload?.["runVersion"],
-                  targetPosition: 1,
-                },
-              },
-            }
-          : beat,
-      ),
-    };
+    return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
+      ...beat,
+      event: {
+        ...beat.event,
+        kind: "run.rolled_back",
+        payload: {
+          ...(payloadSessionId === undefined ? {} : { sessionId: payloadSessionId }),
+          runId: beat.event.payload?.["runId"],
+          runVersion: beat.event.payload?.["runVersion"],
+          targetPosition: 1,
+        },
+      },
+    }));
   }
 
   it("reports a rollback beat that carries no session at all", () => {
@@ -280,13 +285,10 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
     scenarioId: string,
     payload: Readonly<Record<string, unknown>>,
   ): ConsoleScenario {
-    return {
-      ...FLAGSHIP_SCENARIO,
-      id: scenarioId,
-      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
-        beat.event.kind === "run.queued" ? { ...beat, event: { ...beat.event, payload } } : beat,
-      ),
-    };
+    return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.queued", (beat) => ({
+      ...beat,
+      event: { ...beat.event, payload },
+    }));
   }
 
   /**
@@ -301,15 +303,10 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
     kind: string,
     payload: Readonly<Record<string, unknown>>,
   ): ConsoleScenario {
-    return {
-      ...FLAGSHIP_SCENARIO,
-      id: scenarioId,
-      beats: FLAGSHIP_SCENARIO.beats.map((beat) =>
-        beat.event.kind === "run.starting"
-          ? { ...beat, event: { ...beat.event, kind, payload } }
-          : beat,
-      ),
-    };
+    return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
+      ...beat,
+      event: { ...beat.event, kind, payload },
+    }));
   }
 
   /** The identity every run-lifecycle payload carries, taken off the shipped beat. */

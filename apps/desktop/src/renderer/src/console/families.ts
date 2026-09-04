@@ -35,12 +35,14 @@
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
+import { registerLedger } from "./ledger/index.js";
 import { registerLegacySurfaces } from "./frame/legacy-surfaces.js";
 import { registerRunLifecycleProjectors } from "./frame/run-lifecycle-projector.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
 import { registerConsolePanes } from "./panes/index.js";
-import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
 import type { ConsolePaneRegistry } from "./seats/index.js";
+import type { ConsoleEntityProjectorRegistry } from "./store/index.js";
+import { NewSessionControl, Workspace } from "./workspace/index.js";
 
 /**
  * Register every shipped view family against the three registries a composition owns.
@@ -79,7 +81,12 @@ export function registerConsoleFamilies(
   // The registry refuses a second owner on one slot rather than letting import
   // order decide which surface mounts, so a seat added without the deletion is a
   // conflict the composition test names by slot rather than a silent swap.
-  registerLegacySurfaces(registry);
+  // The one composition argument this file carries. The sessions destination offers
+  // a composed new-session draft beside the shipped probe, and that control is the
+  // workspace family's — above the frame in the DAG, so the frame takes it as a
+  // parameter rather than importing it. Naming it here is the same act as naming a
+  // family below: which component fills a place, decided in one file.
+  registerLegacySurfaces(registry, { newSessionControl: NewSessionControl });
   // The deck's pane bodies have their own seat board, keyed by pane kind
   // rather than by surface slot. It is composed here so one call reaches the
   // whole console, and it takes the pane registry this function was HANDED —
@@ -95,7 +102,11 @@ export function registerConsoleFamilies(
   // Each seat below receives all three boards. A family claims a surface slot, a
   // pane kind, and the event kinds whose fold it owns — through its own
   // `register<Family>` entry point, never by editing a shared spine.
-  // T-023p-1C-2 ledger
+  // The ledger's own composition argument, on the same terms as the sessions control
+  // above: the session workspace's body is the `workspace/` family's, and one view
+  // family may not import another, so this root — the one file allowed to name more
+  // than one — says which component the ledger's workspace slot mounts.
+  registerLedger(registry, { workspace: Workspace });
   // T-023p-1C-3 composer
   // T-023p-1C-4 collaboration
   // T-023p-1C-5 repos

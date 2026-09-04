@@ -150,7 +150,6 @@ export interface InlineCardPropsByKind {
   readonly artifact: ArtifactInlineCardProps;
 }
 
-// Consumed by T-023p-1C-2
 /** The discriminated union of every card's props. Narrow on `kind`. */
 export type InlineCardSeatProps = InlineCardPropsByKind[InlineCardKind];
 
@@ -236,7 +235,6 @@ export class InlineCardSeatRegistry {
   }
 }
 
-// Consumed by T-023p-1C-2
 /** The process-wide registry the repos family calls at module scope. */
 export const inlineCardSeatRegistry: InlineCardSeatRegistry = new InlineCardSeatRegistry();
 
@@ -249,7 +247,6 @@ export function registerInlineCardBody<TKind extends InlineCardKind>(
   inlineCardSeatRegistry.register(kind, descriptor);
 }
 
-// Consumed by T-023p-1C-2
 /** One card kind's body, or `undefined` while nobody has filled it. */
 export function inlineCardBody(kind: InlineCardKind): InlineCardBodyDescriptor | undefined {
   return inlineCardSeatRegistry.bodyFor(kind);

@@ -1,4 +1,4 @@
-// The three shipped families reach the screen, and reach it honestly.
+// The shipped families still mounted by the console reach the screen, honestly.
 //
 // The elements are inspected rather than rendered, and that is the point rather
 // than a shortcut. All three components read `window.sidekicks` on mount, so
@@ -14,7 +14,7 @@ import type { ConsoleBridgeSource } from "../bridge/index.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
-import { ParticipantRoster } from "../../session-members/participant-roster.js";
+import { NewSessionControl } from "../workspace/index.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";
 import { SurfaceAbsence } from "./RouteSurface.js";
 import { SessionsSurface } from "./SessionsSurface.js";
@@ -58,7 +58,10 @@ function centredAbsence(node: ReactNode): { type: unknown; props: Record<string,
 
 function registeredLegacySurfaces(): ConsoleSurfaceRegistry {
   const registry = new ConsoleSurfaceRegistry();
-  registerLegacySurfaces(registry);
+  // The composition the root performs, performed here for the same reason: this
+  // file may not import a view family into the frame, and the tests are not
+  // subjects of that rule, so they name what the root names.
+  registerLegacySurfaces(registry, { newSessionControl: NewSessionControl });
   return registry;
 }
 
@@ -70,14 +73,19 @@ describe("legacy surfaces — which family holds which slot", () => {
       .map((slot) => [slot, registry.descriptorFor(slot)?.owner]);
     expect(claims).toStrictEqual([
       ["sessions", "session-bootstrap"],
-      ["workspace", "session-members"],
       ["agent-console", "runtime-node-attach"],
     ]);
   });
 
-  it("negative control: the slots nobody claimed stay reserved", () => {
+  it("negative control: the slots this registrar does not claim stay reserved", () => {
     // "Reserved, not stubbed" is the frame's rule for an unclaimed slot, and the
     // case above would read the same over a registrar that claimed all six.
+    //
+    // `workspace` and `timeline` are the ledger family's from T-023p-1C-2 on, and
+    // this file composes the legacy table ALONE — so their absence here is the
+    // assertion that the claim was deleted rather than merely shadowed. A
+    // registrar that still held `workspace` would fail this case as well as the
+    // one above.
     //
     // `workflows` is here for a second reason: the rail's middle destination is
     // reachable now and the family that fills it (T-023p-1C-6) ships on its own
@@ -86,6 +94,7 @@ describe("legacy surfaces — which family holds which slot", () => {
     const registry = registeredLegacySurfaces();
     expect(registry.descriptorFor("workflows")).toBeUndefined();
     expect(registry.descriptorFor("settings")).toBeUndefined();
+    expect(registry.descriptorFor("workspace")).toBeUndefined();
     expect(registry.descriptorFor("timeline")).toBeUndefined();
   });
 });
@@ -115,15 +124,31 @@ describe("legacy surfaces — under a live bridge, the family mounts", () => {
     expect(renderedElement(startSession()).type).toBe(SessionBootstrap);
   });
 
-  it("hands the roster the session the workspace address names", () => {
+  it("hands that surface the composed draft as a node, not as a builder", () => {
+    // The two controls differ in exactly this: building the probe is what creates a
+    // session, so it is deferred to the press; the draft creates nothing until its
+    // own send and owns what a person has chosen, so rebuilding it on each press
+    // would discard the composition. A `newSession` that arrived as a function
+    // would be the second mistake wearing the first one's clothes.
     const registry = registeredLegacySurfaces();
     const element = renderedElement(
-      registry
-        .descriptorFor("workspace")
-        ?.render(contextFor({ kind: "workspace", sessionId: "session-7" }, "live")),
+      registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "live")),
     );
-    expect(element.type).toBe(ParticipantRoster);
-    expect(element.props["sessionId"]).toBe("session-7");
+    const newSession = renderedElement(element.props["newSession"] as ReactNode);
+    expect(newSession.type).toBe(NewSessionControl);
+    expect(typeof element.props["newSession"]).not.toBe("function");
+  });
+
+  it("does not put the composed draft behind the bridge-source guard", () => {
+    // The negative control for the case above and for the fixture arm below: the
+    // draft is console-authored and takes the bridge it is handed, so under the
+    // fixture it still mounts. A guard copied from the probe would have replaced it
+    // with the not-checked absence on exactly the window the fixture tiers render.
+    const registry = registeredLegacySurfaces();
+    const element = renderedElement(
+      registry.descriptorFor("sessions")?.render(contextFor({ kind: "sessions" }, "fixture")),
+    );
+    expect(renderedElement(element.props["newSession"] as ReactNode).type).toBe(NewSessionControl);
   });
 
   it("hands the node roster the session the auxiliary address names", () => {
@@ -165,13 +190,21 @@ describe("legacy surfaces — under the fixture, the console says it did not ask
 
   it("does not reach the session lookup at all", () => {
     // A bridge check placed after the session lookup would report "no session"
-    // for a workspace address under the fixture, which is a different and false
-    // statement about a route that names one perfectly well.
+    // for an address under the fixture, which is a different and false statement
+    // about a route that names one perfectly well.
     const registry = registeredLegacySurfaces();
     const element = centredAbsence(
-      registry
-        .descriptorFor("workspace")
-        ?.render(contextFor({ kind: "workspace", sessionId: "session-7" }, "fixture")),
+      registry.descriptorFor("agent-console")?.render(
+        contextFor(
+          {
+            kind: "auxiliary",
+            route: "agent-console",
+            sessionId: "session-9",
+            agentId: undefined,
+          },
+          "fixture",
+        ),
+      ),
     );
     expect(element.props["kind"]).toBe("not-checked");
   });

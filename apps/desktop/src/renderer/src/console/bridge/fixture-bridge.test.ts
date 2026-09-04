@@ -35,12 +35,21 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixture, subscribeThroughBridge } from "./fixture-bridge.test-support.js";
+import {
+  createFixture,
+  lastScriptedBeatMs,
+  subscribeThroughBridge,
+} from "./fixture-bridge.test-support.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { RUN_STATE_EVENT_STREAM, SESSION_EVENT_STREAM } from "./session-event-streams.js";
 
-/** Past the flagship script's last beat, which is at 400 ms. */
-const PAST_EVERY_BEAT_MS = 500;
+/** Past the flagship script's last beat, read off the script so it cannot go stale. */
+const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
+
+/** How many beats of one kind the flagship plays, read off the script. */
+function flagshipBeatCountOfKind(kind: string): number {
+  return FLAGSHIP_SCENARIO.beats.filter((beat) => beat.event.kind === kind).length;
+}
 
 describe("fixture bridge — a subscription delivers only the event it named", () => {
   it("hands a kind subscriber that kind's beats and no others", () => {
@@ -49,10 +58,16 @@ describe("fixture bridge — a subscription delivers only the event it named", (
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    // The flagship script carries five kinds. A subscriber that named one of them
-    // is handed one of them — never `session.created`, which arrives first and is
-    // what an unfiltered fixture delivers into a `run.starting` handler.
-    expect(received.map((envelope) => envelope.type)).toStrictEqual(["run.starting"]);
+    // A subscriber that named one of the script's kinds is handed every beat of that
+    // kind and nothing else — never `session.created`, which arrives first and is
+    // what an unfiltered fixture delivers into a `run.starting` handler. The count is
+    // read off the script rather than written down, because the seat board plays as
+    // many runs as it has lanes.
+    const startingBeatCount = flagshipBeatCountOfKind("run.starting");
+    expect(startingBeatCount).toBeGreaterThan(0);
+    expect(received.map((envelope) => envelope.type)).toStrictEqual(
+      Array.from({ length: startingBeatCount }, () => "run.starting"),
+    );
   });
 
   it("negative control: the session stream still receives every beat", () => {
@@ -84,13 +99,12 @@ describe("fixture bridge — a subscription delivers only the event it named", (
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
+    const attachedBeatCount = flagshipBeatCountOfKind("agent.attached");
+    expect(attachedBeatCount).toBeGreaterThan(0);
     expect(streamed).toHaveLength(FLAGSHIP_SCENARIO.beats.length);
-    expect(attached.map((envelope) => envelope.type)).toStrictEqual([
-      "agent.attached",
-      "agent.attached",
-      "agent.attached",
-      "agent.attached",
-    ]);
+    expect(attached.map((envelope) => envelope.type)).toStrictEqual(
+      Array.from({ length: attachedBeatCount }, () => "agent.attached"),
+    );
   });
 });
 

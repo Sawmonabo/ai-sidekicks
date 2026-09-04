@@ -23,6 +23,22 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
+// Rule 4's mono provenance signature. Through the door because the frame renders
+// session ids with it, and a surface that reached for its own mono span would be
+// the second rendering of the one claim this primitive exists to make.
+//
+// No `@consumedBy` marker rides it: it has its consumers today — `frame/ContextPicker.tsx`
+// and `frame/WireChoiceList.tsx` both render identifiers through it — so a tag here would
+// be the half of a marker its importing change owed and did not pay, and
+// `--treat-tag-hints-as-errors` is what reports that debt.
+export { WireFigure } from "./Figure.js";
+
+// The "whose keystroke is it" pair, through the same door and for the same reason
+// `chord-format.js` is here: the keybinding table and the deck both ask it, both sit
+// above this family, and a second copy in either would be the drift this rule exists
+// to prevent.
+export { isEditableTarget, isTextEntryTarget } from "./editable-target.js";
+
 export type { ChordPlatform } from "./chord-format.js";
 export {
   HOST_CHORD_PLATFORM,
@@ -35,16 +51,14 @@ export {
 // regions per window: a family that reached past the barrel for its own would be
 // the second speaker this module exists to prevent.
 export { LiveAnnouncerProvider, useAnnounce } from "./LiveAnnouncerProvider.js";
+// The sink's own type, for a surface that settles an outcome somewhere other than
+// where it read the context — the deck reads `useAnnounce` in its component and
+// hands the result to the drag monitor, which is a hook and cannot read it twice.
+export type { Announce, AnnouncementPoliteness } from "./live-announcer.js";
 
 export { Nothing } from "./Nothing.js";
 
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  InlineRefusal,
-  RefusalBanner,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  RefusalCard,
-} from "./Refusal.js";
+export { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -55,13 +69,11 @@ export {
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipProps,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ChipTone,
 } from "./Chip.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   CHIP_TONES,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   Chip,
 } from "./Chip.js";
 
@@ -69,10 +81,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
   LedgerRowProps,
 } from "./LedgerRow.js";
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */
-  LedgerRow,
-} from "./LedgerRow.js";
+export { LedgerRow } from "./LedgerRow.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -80,18 +89,7 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
 } from "./Figure.js";
-// Rule 4's mono provenance signature. Through the door because the frame renders
-// session ids with it, and a surface that reached for its own mono span would be
-// the second rendering of the one claim this primitive exists to make.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  DerivedFigure,
-  // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and
-  // `frame/WireChoiceList.tsx` both render identifiers through it — so the tag that
-  // stood here was the half of the marker its importing change owed and did not
-  // pay. `--treat-tag-hints-as-errors` is what reported the debt.
-  WireFigure,
-} from "./Figure.js";
+export { DerivedFigure } from "./Figure.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -100,12 +98,9 @@ export type {
   FormattedByteQuantity,
 } from "./wire-figures.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatByteQuantity,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatClockTime,
   formatCount,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatDuration,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   formatMoney,

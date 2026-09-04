@@ -47,6 +47,18 @@ export function runTransitionBeat(payload: Readonly<Record<string, unknown>>): S
   };
 }
 
+/**
+ * The tick a scenario's last beat falls due at.
+ *
+ * Read off the script rather than written as a number, because the seat board's
+ * scripts grow: a hardcoded "past every beat" tick silently stops covering the tail
+ * the day a family scripts a beat past it, and a case that was asserting over the
+ * whole script starts asserting over a prefix of it and still passes.
+ */
+export function lastScriptedBeatMs(scenario: ConsoleScenario): number {
+  return scenario.beats.reduce((latest, beat) => Math.max(latest, beat.atMs), 0);
+}
+
 export interface FixtureUnderTest {
   readonly bridge: ReturnType<typeof createFixtureBridge>;
   readonly engine: ScenarioEngine;

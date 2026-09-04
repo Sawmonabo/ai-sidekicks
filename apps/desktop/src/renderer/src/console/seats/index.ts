@@ -59,22 +59,16 @@
 export {
   /** @consumedBy T-023p-1C-2 */
   DETACHABLE_PANE_KINDS,
-  /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
-  /** @consumedBy T-023p-1C-2 */
   isDetachablePaneKind,
-  /** @consumedBy T-023p-1C-2 */
   isPaneKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type PaneKind,
 } from "./pane-kinds.js";
 
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   paneEntityScopeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   parseConsolePaneAddress,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
@@ -87,18 +81,23 @@ export {
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneContext,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneOpener,
 } from "./pane-registry.js";
 
 export {
-  /** @consumedBy T-023p-1C-2 */
+  actorFollowHandler,
+  registerActorFollowHandler,
+  unregisterActorFollowHandler,
+  type ActorFollowHandler,
+  type ActorFollowOutcome,
+  type ActorFollowRequest,
+} from "./actor-follow-seat.js";
+
+export {
   composerSeatRenderer,
   /** @consumedBy T-023p-1C-3 */
   registerComposerSeat,
@@ -111,38 +110,27 @@ export {
 } from "./composer-seat.js";
 
 export {
-  /** @consumedBy T-023p-1C-3 */
   SIDEBAR_SECTION_IDS,
-  /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   registerSidebarSection,
-  /** @consumedBy T-023p-1C-3 */
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionContext,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
-  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
   TIMELINE_ROW_DENSITIES,
-  /** @consumedBy T-023p-1C-2 */
   registerTimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   timelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   unregisterTimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowDensity,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowRenderer,
-  /** @consumedBy T-023p-1C-2 */
   type TimelineRowSlotProps,
 } from "./timeline-row-slot.js";
 
@@ -151,9 +139,7 @@ export {
   INLINE_CARD_KINDS,
   /** @consumedBy T-023p-1C-2 */
   InlineCardSeatRegistry,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardBody,
-  /** @consumedBy T-023p-1C-2 */
   inlineCardSeatRegistry,
   /** @consumedBy T-023p-1C-5 */
   registerInlineCardBody,
@@ -171,13 +157,7 @@ export {
   type InlineCardKind,
   /** @consumedBy T-023p-1C-2, T-023p-1C-5 */
   type InlineCardPropsByKind,
-  /** @consumedBy T-023p-1C-2 */
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotContract,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotProps,
-} from "./owner-slot.js";
+export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";

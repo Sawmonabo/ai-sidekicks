@@ -36,7 +36,7 @@
     {
       "id": "frame-time-p95-four-lanes",
       "label": "Frame time, four lanes streaming",
-      "subject": "The 95th-percentile frame duration of the renderer while four agent lanes stream concurrently into the ledger, measured from the built bundle in the Electron shell against the fixture bridge's flagship scenario with the frozen clock.",
+      "subject": "The 95th-percentile frame duration of the renderer while four agent lanes stream concurrently into the ledger, measured from the built bundle in the Electron shell against the fixture bridge's flagship scenario with the frozen clock. The concurrency is a property of the sampled window rather than a description of it: the harness reads the peak number of runs mid-turn inside its own window off the scenario's beats and fails when it is not one lane per attached agent.",
       "specTarget": "p95 ≤ 16.7 ms on the reference machine",
       "limit": {
         "comparison": "<=",
@@ -45,11 +45,10 @@
         "canonicalValue": 16.7,
         "canonicalUnit": "ms"
       },
-      "status": "n/a",
+      "status": "enforced",
       "producedBy": "T-023p-1C-2",
-      "measuredBy": null,
-      "notMeasurableReason": "There is no four-lane streaming scenario to measure. The flagship scenario, the ledger frame, the reveal engine, and the cast bar are T-023p-1C-2's; until they land there is no render path whose frames could be sampled, and a synthetic stand-in would measure the harness rather than the console.",
-      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`."
+      "measuredBy": "apps/desktop/test/console/endurance/frame-time.test.ts",
+      "notes": "Hardware-dependent: gates on the pinned CI runner class only, per `measurementProtocol.hardwareDependent`. Off that class the harness still runs and prints the figure — the instrument is exercised everywhere and the comparison is withheld — which `test/console/endurance/pinned-runner-class.ts` decides for the whole tier. The reading is the median of three fresh launches' p95, each sampling 300 frame durations with a warm-up discarded, taken by nearest rank; a frame's duration is measured from the start of its `requestAnimationFrame` callback to the first task that runs after that frame's rendering has been committed, which is the main-thread work the frame cost and not the interval between frames — an interval is bounded below by the surface's own refresh period, so on the 60 Hz reference profile it reads ~16.7 ms for a renderer doing nothing and can never be under this ceiling; the warm-up is a frame count rather than the protocol's ten seconds because a frozen clock walked for ten seconds would deliver the whole script before the first sample, which the harness states in full. No runner-calibrated threshold is recorded yet, so the comparison is against this row's own product limit. The flagship scenario is the four-lane session and its script now drives one: four runs mid-turn at the same tick with interleaved thinking, message, and tool beats, an approval blocking one lane while the other three keep talking, a cost reading per lane, and a helper run threaded to the turn that spawned it. The run asserts three things about its own sampled window rather than describing them — the script finished delivering inside it, it was still arriving during it, and four lanes were streaming inside it, the last read off the scenario's beats by `src/renderer/src/console/bridge/scenarios/streaming-lanes.ts` and checked against the scenario's own cast size. Until 2026-09-02 the row was enforced against a skeleton script of eight beats with no assistant or tool row in it at all, so the comparison could stay green over a console that had never streamed anything; that script's own `notMeasurableReason` said as much and was deleted rather than answered. Until 2026-09-02 the harness sampled the interval instead, which is why the row went red on the pinned runner at 16.80 ms while the same tree read 9.90 ms on a 120 Hz laptop: each machine was reporting its own refresh period. Measured after the correction on an eight-core laptop across three passes of the tier: per-run p95 6.80–9.20 ms beside a p50 of 0.10–0.20 ms. Both statistics are printed, because a p50 sitting at the surface's refresh period is the cadence being reported rather than the console's work. The spread is recorded rather than a single figure pinned, because a duration is a property of this machine's CPU as much as of the console — which is the same fact that keeps the comparison on the pinned runner class, and off that class this row gates nothing."
     },
     {
       "id": "renderer-heap-at-rest",
@@ -159,11 +158,10 @@
         "canonicalValue": 800,
         "canonicalUnit": "ms"
       },
-      "status": "n/a",
+      "status": "enforced",
       "producedBy": "T-023p-1C-2",
-      "measuredBy": null,
-      "notMeasurableReason": "There is no ledger row to paint. The ledger frame, its row primitives, and the flagship scenario the launch path replays are all T-023p-1C-2's.",
-      "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the ledger exists — it is not one of the two hardware-dependent budgets."
+      "measuredBy": "apps/desktop/test/console/endurance/first-ledger-row.test.ts",
+      "notes": "Deterministic against the fixture's frozen clock, so it gates on any runner once the ledger exists — it is not one of the two hardware-dependent budgets. Window show is read as the renderer's own `first-contentful-paint` entry: `revealWindow` is called from `ready-to-show`, which Electron emits once the page has been rendered, and on macOS an automated launch deliberately never reveals the window at all — so there is no `show` timestamp to read and no wall clock is read in either process. The interval ends at the animation frame after the first row element is laid out, and the whole of it is measured inside one page function, so the only harness cost inside it is the gap between the launch handshake settling and that function starting, which the report prints separately rather than subtracting. Measured 43–46 ms of an 800 ms ceiling on an eight-core laptop across three runs of the tier, 13–22 ms of it that handshake."
     }
   ]
 }

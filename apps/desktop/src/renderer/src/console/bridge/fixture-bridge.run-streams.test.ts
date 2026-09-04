@@ -36,6 +36,7 @@ import { ConsoleRefusalError } from "../core/index.js";
 import {
   PROBE_RUN_ID,
   createFixture,
+  lastScriptedBeatMs,
   runTransitionBeat,
   subscribeThroughBridge,
 } from "./fixture-bridge.test-support.js";
@@ -49,14 +50,14 @@ import {
   SESSION_EVENT_STREAM,
 } from "./session-event-streams.js";
 
-/** Past the flagship script's last beat, which is at 400 ms. */
-const PAST_EVERY_BEAT_MS = 500;
+/** Past the flagship script's last beat, read off the script so it cannot go stale. */
+const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 100;
 
 /** The tick the probe's queue beat falls due at. Past the flagship's last. */
-const QUEUE_BEAT_MS = 440;
+const QUEUE_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 40;
 
 /** The tick the probe's rollback beat falls due at. */
-const ROLLBACK_BEAT_MS = 460;
+const ROLLBACK_BEAT_MS = lastScriptedBeatMs(FLAGSHIP_SCENARIO) + 60;
 
 const PROBE_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1150092";
 
@@ -166,13 +167,24 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     // Parsed, not spot-checked. `.strict()` means an envelope member surviving the
     // projection fails here, and a missing required member fails here too.
     const parsed = received.map((delivery) => RunStateChangeEventSchema.parse(delivery));
-    // One delivery, not two: the flagship plays `run.queued` and `run.starting`, and
-    // the first is the run's CREATION rather than a transition — no state precedes
-    // `queued` in the run state machine, so this stream does not carry that row.
-    expect(parsed.map((event) => event.currentState)).toStrictEqual(["starting"]);
-    expect(parsed.map((event) => event.previousState)).toStrictEqual(["queued"]);
-    // Sourced from the beat's envelope, which is the only place the instant lives.
-    expect(parsed.map((event) => event.timestamp)).toStrictEqual(["2026-01-01T14:20:00.400Z"]);
+    // The creation row is not a transition: the flagship plays `run.queued` for every
+    // run it starts, and no state precedes `queued` in the run state machine — so
+    // however many runs the script carries, none of their creations reaches this
+    // stream. Asserted as an absence rather than as a count, because a count would
+    // have to re-derive the kind-to-state table this projection owns.
+    expect(FLAGSHIP_SCENARIO.beats.some((beat) => beat.event.kind === "run.queued")).toBe(true);
+    expect(parsed.map((event) => event.currentState)).not.toContain("queued");
+    // The first transition the script plays, member by member.
+    expect(parsed[0]?.currentState).toBe("starting");
+    expect(parsed[0]?.previousState).toBe("queued");
+    // Sourced from the beat's own envelope, which is the only place the instant
+    // lives — and not from the scenario's start, which is what a projection
+    // stamping the clock it was handed would have delivered.
+    const firstTransitionBeat = FLAGSHIP_SCENARIO.beats.find(
+      (beat) => beat.event.kind === "run.starting",
+    );
+    expect(firstTransitionBeat?.event.occurredAt).not.toBe(FLAGSHIP_SCENARIO.startedAtIso);
+    expect(parsed[0]?.timestamp).toBe(firstTransitionBeat?.event.occurredAt);
   });
 
   it("negative control: the delivered payload is not the envelope it used to be", () => {
@@ -260,7 +272,13 @@ describe("run streams — the registered payload reaches the subscriber", () => 
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    expect(received.map((envelope) => envelope.type)).toStrictEqual(["run.starting"]);
+    const startingBeatCount = FLAGSHIP_SCENARIO.beats.filter(
+      (beat) => beat.event.kind === "run.starting",
+    ).length;
+    expect(startingBeatCount).toBeGreaterThan(0);
+    expect(received.map((envelope) => envelope.type)).toStrictEqual(
+      Array.from({ length: startingBeatCount }, () => "run.starting"),
+    );
   });
 });
 

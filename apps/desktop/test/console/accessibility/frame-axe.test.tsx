@@ -1,14 +1,10 @@
 // The accessibility tier.
 //
 // `Spec-023 §Console Test Tiers` names axe-core over every surface in both
-// schemes. It runs INSIDE the browser-mode page rather than through
-// `@axe-core/playwright`, which wants a `@playwright/test` `Page` handle Vitest
-// browser mode hands only to server-side custom commands, never to test code,
-// and which is the orchestrator page rather than the tester iframe — same
-// engine, same rule set, one less indirection. (`axe-core` is MPL-2.0 and is
-// admitted as a never-distributed test
-// dependency by ADR-020's Decision Log; it must not reach a shipped bundle, which
-// is why it is imported here and nowhere under `src/`.)
+// schemes. The run itself — which rule set, which root, and how a violation is
+// reported — is `axe-run.ts`', shared with this tier's other files so two
+// surfaces are never measured by two instruments and then compared as though the
+// results were comparable.
 //
 // Two things this file is careful about:
 //
@@ -19,10 +15,10 @@
 //     rather than the rendered composition — a muted label on a tinted card is a
 //     pair no token table knows about.
 
-import axe, { type Result } from "axe-core";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
+import { describeViolations, runAxe } from "./axe-run.js";
 
 import {
   ConsoleRoot,
@@ -30,18 +26,6 @@ import {
 } from "../../../src/renderer/src/console/frame/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
-
-/** WCAG 2.2 A + AA, which is the level `Spec-023 §Console Design (Meridian)` rule 3 sets. */
-const AXE_TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
-
-function describeViolations(violations: readonly Result[]): string[] {
-  return violations.map(
-    (violation) =>
-      `${violation.id} (${violation.impact ?? "unknown"}): ${violation.nodes
-        .map((node) => node.target.join(" "))
-        .join(", ")}`,
-  );
-}
 
 beforeEach(() => {
   document.location.hash = "";
@@ -62,9 +46,7 @@ describe("accessibility — the frame", () => {
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
-      const results = await axe.run(container, { runOnly: { type: "tag", values: AXE_TAGS } });
-
-      expect(describeViolations(results.violations)).toStrictEqual([]);
+      expect(describeViolations(await runAxe(container))).toStrictEqual([]);
     });
   }
 
@@ -76,8 +58,7 @@ describe("accessibility — the frame", () => {
     planted.innerHTML = '<img src="data:," />';
     document.body.append(planted);
     try {
-      const results = await axe.run(planted, { runOnly: { type: "tag", values: AXE_TAGS } });
-      expect(results.violations.map((violation) => violation.id)).toContain("image-alt");
+      expect((await runAxe(planted)).map((violation) => violation.id)).toContain("image-alt");
     } finally {
       planted.remove();
     }

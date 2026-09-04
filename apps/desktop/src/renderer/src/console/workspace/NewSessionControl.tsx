@@ -1,0 +1,261 @@
+// "+ New": the control that makes a new-session draft reachable.
+//
+// `NewSessionDraft` shipped with a co-located test and no consumer — no control
+// anywhere constructed one, so none of the draft selection, discard, or first-send
+// behaviour it holds could be reached by a person. This is that consumer, on the
+// sessions destination, which is where the corpus puts starting a session.
+//
+// WHY IT IS A SECOND CONTROL BESIDE "START A SESSION" AND NOT A REPLACEMENT. They
+// are two acts. "Start a session" mounts the shipped Tier-1 probe, which creates one
+// immediately with nothing chosen. A DRAFT is a session a person composes before it
+// exists — no daemon row until the first send, and closing it empty leaves nothing
+// behind. Replacing the probe would delete a path that works today; hiding the draft
+// behind it would leave the composed path unreachable, which is the defect.
+//
+// WHAT IT OFFERS, AND WHY THAT AND NOT MORE. The posture axis, because it is a
+// closed set the console already holds and the draft already takes. Agents and repo
+// mounts are not offered: both need reads this surface would have to invent, and
+// `Spec-023 §Console Design (Meridian)` rule 8 puts an unasked question in the
+// _not checked_ absence rather than in a picker with nothing behind it. The draft's
+// own send says the same thing about the wire — one of its three calls is
+// registered, so a send lands `session.create` and refuses the other two by name.
+//
+// SEND IS DISABLED WHILE A SEND IS RUNNING, AND THAT IS THE SECOND GUARD. The draft
+// coalesces repeated sends itself, so pressing twice cannot mint two sessions
+// whatever this control does; disabling the button is what stops a person pressing
+// into a control that looks like it did nothing. Structural guard first, affordance
+// second — never the affordance alone, which is a guard that a keyboard path or a
+// later caller does not get.
+//
+// AND A SETTLEMENT BELONGS TO THE DRAFT THAT ASKED FOR IT. Discard is reachable
+// while a send is in flight, and "+ New" is reachable the moment it is — so a send
+// can settle over a composition that is not the one it was sent for. Every draft
+// this control opens is minted with an identity, the send captures it before the
+// first await, and the result, the announcement, and the sending flag are all
+// withheld unless that identity is still the draft on screen. Two sends in flight
+// is the case the flag itself has to be per-draft for: one boolean over two drafts
+// re-enables Send under a composition that is still waiting.
+
+import { useCallback, useRef, useState } from "react";
+
+import { SIDEKICK_POSTURE_MODES, type ConsoleBridge } from "../bridge/index.js";
+import { InlineRefusal, useAnnounce } from "../primitives/index.js";
+import {
+  NewSessionDraft,
+  type DraftPostureMode,
+  type NewSessionDraftState,
+  type NewSessionSendResult,
+} from "./new-session-draft.js";
+
+/** How each posture reads on a control, in the vocabulary's own order. */
+const POSTURE_LABELS: Readonly<Record<DraftPostureMode, string>> = {
+  trusted: "Trusted",
+  "workspace-sandboxed": "Sandboxed to the workspace",
+  "readonly-sandboxed": "Sandboxed, read-only",
+};
+
+/** What a person hears once a send settles. One sentence per outcome. */
+const SEND_ANNOUNCEMENTS: Readonly<Record<NewSessionSendResult["outcome"], string>> = {
+  sent: "The session was created.",
+  partial: "The session was created, but not everything the draft asked for could be sent.",
+  refused: "Nothing was sent, and the draft is still here.",
+};
+
+export interface NewSessionControlProps {
+  readonly bridge: ConsoleBridge;
+}
+
+export function NewSessionControl(props: NewSessionControlProps): React.JSX.Element {
+  const composition = useNewSessionComposition(props.bridge);
+
+  if (composition.draftState === undefined) {
+    return (
+      <button type="button" className="meridian-new-session__open" onClick={composition.open}>
+        + New
+      </button>
+    );
+  }
+
+  return (
+    <section className="meridian-new-session" aria-label="New session draft">
+      <fieldset className="meridian-new-session__postures">
+        <legend>How its agents may work</legend>
+        {SIDEKICK_POSTURE_MODES.map((mode) => (
+          <label key={mode} className="meridian-new-session__posture">
+            <input
+              type="radio"
+              name="meridian-new-session-posture"
+              value={mode}
+              checked={composition.draftState?.posture === mode}
+              onChange={() => {
+                composition.setPosture(mode);
+              }}
+            />
+            {POSTURE_LABELS[mode]}
+          </label>
+        ))}
+      </fieldset>
+      {composition.sendResult?.refusal === undefined ? null : (
+        <InlineRefusal
+          code={composition.sendResult.refusal.code}
+          detail={composition.sendResult.refusal.detail}
+        />
+      )}
+      <div className="meridian-new-session__actions">
+        <button type="button" className="meridian-new-session__discard" onClick={composition.close}>
+          Discard
+        </button>
+        <button
+          type="button"
+          className="meridian-new-session__send"
+          disabled={composition.draftState.isEmpty || composition.isSending}
+          onClick={composition.send}
+        >
+          Send
+        </button>
+      </div>
+    </section>
+  );
+}
+
+/**
+ * One open draft, and which draft it is.
+ *
+ * The identity is a number this hook mints rather than the object itself, because
+ * the question a settlement has to answer is "is the draft I was sent for still the
+ * draft on screen?" — and a comparison against an object is a comparison that keeps
+ * the discarded draft alive for as long as its send is in flight.
+ */
+interface OpenNewSessionDraft {
+  readonly draftId: number;
+  readonly draft: NewSessionDraft;
+}
+
+/** Everything the control renders and every act it offers, in one hook. */
+interface NewSessionComposition {
+  /** `undefined` while no draft is open — the state the "+ New" button is in. */
+  readonly draftState: NewSessionDraftState | undefined;
+  readonly sendResult: NewSessionSendResult | undefined;
+  /**
+   * True while THIS draft's send is running — what disables Send meanwhile.
+   *
+   * Scoped to the draft on screen rather than to the control: an older draft's send
+   * settling says nothing about whether the composition a person is looking at may
+   * be sent again.
+   */
+  readonly isSending: boolean;
+  readonly open: () => void;
+  readonly close: () => void;
+  readonly setPosture: (posture: DraftPostureMode) => void;
+  readonly send: () => void;
+}
+
+/**
+ * Hold the draft, and keep the rendered state in step with it.
+ *
+ * The draft is the source of truth and this hook mirrors its snapshots rather than
+ * keeping selections of its own: two copies of what a person has chosen is how a
+ * discard clears one of them. Nothing is constructed until "+ New" is pressed, so
+ * mounting the sessions destination composes no draft — the act is the person's.
+ */
+function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition {
+  const [openDraft, setOpenDraft] = useState<OpenNewSessionDraft | undefined>(undefined);
+  const [draftState, setDraftState] = useState<NewSessionDraftState | undefined>(undefined);
+  const [sendResult, setSendResult] = useState<NewSessionSendResult | undefined>(undefined);
+  /**
+   * Which draft has a send running, rather than whether one has.
+   *
+   * A boolean is one flag over an unbounded number of drafts: a first draft's send
+   * settling would clear it while a second draft's send was still running, and Send
+   * would come back enabled under a composition that is still waiting.
+   */
+  const [sendingDraftId, setSendingDraftId] = useState<number | undefined>(undefined);
+  /**
+   * The draft on screen, readable from a settlement that resolved later.
+   *
+   * A ref and not the state, because the continuation below closes over the render
+   * it was created in: by the time a promise settles, `openDraft` in that closure is
+   * whatever was open when Send was pressed, which is exactly the value that cannot
+   * answer "is this still the draft?".
+   */
+  const currentDraftIdReference = useRef<number | undefined>(undefined);
+  const nextDraftIdReference = useRef(0);
+  const announce = useAnnounce();
+
+  const open = useCallback(() => {
+    const opened = new NewSessionDraft({ bridge });
+    const draftId = nextDraftIdReference.current + 1;
+    nextDraftIdReference.current = draftId;
+    currentDraftIdReference.current = draftId;
+    // Subscribed rather than re-read after each act: the draft emits on every
+    // commit, so one subscription keeps the render in step with every path that
+    // mutates it, including ones this control does not call itself.
+    opened.subscribe(setDraftState);
+    setOpenDraft({ draftId, draft: opened });
+    setDraftState(opened.snapshot());
+    setSendResult(undefined);
+    setSendingDraftId(undefined);
+  }, [bridge]);
+
+  const close = useCallback(() => {
+    // `discard()` first and then the local drop, in that order: the draft's own
+    // discard is what leaves no row behind, and dropping the object without it would
+    // make "closed empty" mean something different from what the draft says it means.
+    openDraft?.draft.discard();
+    currentDraftIdReference.current = undefined;
+    setOpenDraft(undefined);
+    setDraftState(undefined);
+    setSendResult(undefined);
+    setSendingDraftId(undefined);
+  }, [openDraft]);
+
+  const setPosture = useCallback(
+    (posture: DraftPostureMode) => {
+      openDraft?.draft.setPosture(posture);
+    },
+    [openDraft],
+  );
+
+  const send = useCallback(() => {
+    if (openDraft === undefined) {
+      return;
+    }
+    // The draft this send is FOR, captured before the first await. Everything the
+    // settlement writes — the result, the announcement, the sending flag — is about
+    // this draft, so every one of them is withheld once it is not the draft on
+    // screen: a discarded draft's refusal rendered under its replacement would be
+    // the console reporting a send the person never made.
+    const { draftId } = openDraft;
+    setSendingDraftId(draftId);
+    // `finally` rather than a second clear inside `then`: the flag has to clear on
+    // the rejected path too, or a send that threw would leave Send disabled with
+    // nothing on screen explaining why.
+    void openDraft.draft
+      .send()
+      .then((result) => {
+        if (currentDraftIdReference.current !== draftId) {
+          return;
+        }
+        setSendResult(result);
+        // Once, on the settlement, and never on a re-render: the outcome is the thing a
+        // person waited for, and the refusal below carries the detail.
+        announce(SEND_ANNOUNCEMENTS[result.outcome]);
+      })
+      .finally(() => {
+        if (currentDraftIdReference.current !== draftId) {
+          return;
+        }
+        setSendingDraftId(undefined);
+      });
+  }, [announce, openDraft]);
+
+  return {
+    draftState,
+    sendResult,
+    isSending: sendingDraftId !== undefined && sendingDraftId === openDraft?.draftId,
+    open,
+    close,
+    setPosture,
+    send,
+  };
+}

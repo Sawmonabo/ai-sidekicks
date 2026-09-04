@@ -77,7 +77,6 @@ export function unregisterComposerSeat(): void {
   composerSeat.unregister();
 }
 
-// Consumed by T-023p-1C-2
 /** The composer body, or `undefined` while the seat is empty. */
 export function composerSeatRenderer(): ComposerSeatRenderer | undefined {
   return composerSeat.renderer();

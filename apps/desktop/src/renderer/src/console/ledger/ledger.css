@@ -1,0 +1,1514 @@
+/* The ledger family's styles — the deck's shell and a pane's chrome.
+ *
+ * Imported from `ledger/index.ts` and nowhere else, so the sheet lands once per
+ * bundle and its rules cascade after the primitives' and the frame's.
+ *
+ * Every colour is a Meridian custom property and every space a step on the scale, so
+ * the family follows the scheme attribute with no conditional in JSX and its rhythm
+ * is a decision made once in `tokens/palette.ts`.
+ */
+
+/* --- The deck's shell --------------------------------------------------- */
+
+/*
+ * The empty-deck state: one pane, full width, filling the surface.
+ *
+ * A grid rather than a block, because `.meridian-frame__surface` is a scroll
+ * container and a percentage-height chain through a block would collapse the moment
+ * the pane's own body wanted to scroll instead. `minmax(0, 1fr)` in both axes is what
+ * lets the feed inside be the thing that scrolls.
+ */
+.meridian-ledger-surface {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 100%;
+}
+
+/* --- The loaded ledger -------------------------------------------------- */
+
+/*
+ * The whole feed for one session: an optional find strip above, and below it the
+ * scrolling window with its rail.
+ *
+ * A column grid whose second track is `minmax(0, 1fr)` rather than a flex column,
+ * because the find strip appears and disappears and a flex child that could grow
+ * would take its height back from the window on every toggle — which moves every
+ * row on screen for a reason the reader did not ask for. The grid keeps the
+ * window's track the whole remainder either way.
+ */
+.meridian-ledger {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+/*
+ * The window and the rail, side by side.
+ *
+ * The rail's track is sized from its own content rather than given a number here:
+ * the rail draws marks at a width the family's own tokens decide, and a literal
+ * would be a second place that decision lived. `minmax(0, 1fr)` on the window is
+ * what lets the viewport — and not this row — be the element that scrolls.
+ */
+.meridian-ledger__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+/*
+ * The rail is revealed by pointer and by focus, so it must be able to take focus
+ * without the layout moving underneath it — hence a track that is already there
+ * rather than one that appears on hover.
+ */
+.meridian-ledger__rail {
+  display: flex;
+  min-height: 0;
+}
+
+/* --- A pane ------------------------------------------------------------- */
+
+/*
+ * `--meridian-pane-hue` is set per pane by the body, from the actor the pane's
+ * entity is attributed to, and falls back to the neutral control boundary where
+ * there is no actor to attribute it to. It is read only by the focus rule below:
+ * the hue answers "who", and a pane that is not about anybody answers nothing.
+ */
+.meridian-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  overflow: hidden;
+}
+
+/*
+ * The ring is drawn on `:focus-within` rather than on a "this pane is active" class.
+ * Focus is where the keyboard is, the deck moves focus when it moves panes, and a
+ * second record of which pane is current is a second thing to keep in step.
+ *
+ * An inset shadow, not an outline: an outline on a rounded container paints outside
+ * the radius and clips against the neighbouring pane's edge.
+ */
+.meridian-pane:focus-within {
+  border-color: var(--meridian-pane-hue);
+  box-shadow: inset 0 0 0 1px var(--meridian-pane-hue);
+}
+
+.meridian-pane__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  min-height: 34px;
+  padding: 0 var(--meridian-space-2) 0 var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-pane__kind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  color: var(--meridian-text-muted);
+  flex: 0 0 auto;
+}
+
+.meridian-pane__heading {
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  color: var(--meridian-text);
+}
+
+/*
+ * The breadcrumb takes the row's slack and truncates from the start, so a long
+ * address loses its outermost crumb rather than the entity a person is looking at.
+ */
+.meridian-pane__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  direction: rtl;
+  text-align: left;
+}
+
+/* `direction` is flipped back on the crumbs themselves: the container truncates from
+   the start, and the ids inside it are still read left to right. */
+.meridian-pane__crumb,
+.meridian-pane__crumb-absent {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  direction: ltr;
+  white-space: nowrap;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-pane__crumb-absent {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+}
+
+.meridian-pane__controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  flex: 0 0 auto;
+}
+
+/*
+ * Quiet until reached. The control carries no border and no fill at rest — rule 7's
+ * "secondary controls live one click away" applied to a header that is one line —
+ * and it is a 26 px hit target with a 14 px glyph, which is the smallest square that
+ * still clears a pointer's aim at this density.
+ */
+.meridian-pane__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-pane__control:hover {
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-pane__control:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* --- The pane's body ---------------------------------------------------- */
+
+.meridian-pane__body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * The feed is the scroll container, and it is the ONLY one in the pane: a pane that
+ * scrolled as a whole would carry its own header out of view, and the reading anchor
+ * the ledger holds is an offset inside this box.
+ */
+.meridian-pane__feed {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* --- The ledger frame ---------------------------------------------------
+ *
+ * The virtualized feed, its reading-anchor affordances, and the error slots.
+ * `ledger/frame/` owns the behaviour; these rules own nothing but the boxes it
+ * needs. Every colour is a Meridian custom property and every space a step on the
+ * scale, so the frame follows the scheme attribute with no conditional in JSX.
+ */
+
+.meridian-ledger-viewport {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/*
+ * The one scroll container in the ledger. A second box that scrolled anywhere
+ * inside it would give the chokepoint a rival `scrollTop` it does not own, and the
+ * reading anchor is an offset inside THIS box.
+ *
+ * `overscroll-behavior: contain` keeps a flick at the end of the log from scrolling
+ * the window behind it, which on a pinned reading position reads as the ledger
+ * having moved on its own.
+ */
+.meridian-ledger-viewport__surface {
+  position: relative;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+
+.meridian-ledger-viewport__surface:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* Carries the whole log's height so the scrollbar is honest about how much there
+   is, while only the rows near the fold exist in the document. The height is written
+   by the virtualizer directly, so it is deliberately absent from this rule. */
+.meridian-ledger-viewport__sizer {
+  position: relative;
+  width: 100%;
+}
+
+/*
+ * Each mounted row is anchored at the top of the sizer and translated to its own
+ * offset. A transform rather than `top` because it composites: moving a row does not
+ * invalidate layout for anything that did not move, which is what keeps a four-lane
+ * stream inside the frame budget.
+ *
+ * The transform itself is written by the virtualizer under `directDomUpdates`, so no
+ * `transform` declaration belongs here: a value in this rule would be overwritten on
+ * the first scroll tick and would read as the row's position until then.
+ */
+.meridian-ledger-viewport__row {
+  display: block;
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  will-change: transform;
+}
+
+/*
+ * The tail strip: the pin's notice and the "N new" pill.
+ *
+ * Floating over the feed rather than in it, because inserting it into the flow
+ * would change the content height and move the very reading position it exists to
+ * protect.
+ */
+.meridian-ledger-viewport__tail {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--meridian-space-2);
+  position: absolute;
+  inset-inline: 0;
+  bottom: var(--meridian-space-3);
+  pointer-events: none;
+}
+
+.meridian-ledger-viewport__pin {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * The one primary act this surface offers. Quiet chrome everywhere else, so the
+ * pill can be the only filled control in the ledger without competing with anything.
+ */
+.meridian-ledger-viewport__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-ledger-viewport__pill:hover {
+  background: var(--meridian-surface);
+}
+
+.meridian-ledger-viewport__pill:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-ledger-viewport__notices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+}
+
+/* Ranked slots: the highest is a card, the rest sit under it as one quiet row. */
+.meridian-ledger-errors {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3) var(--meridian-space-3) 0;
+}
+
+/*
+ * A row that failed to project, in its own place in the log.
+ *
+ * Red and named, per the frame's error rule — a gap here would read as the session
+ * having nothing at this point, which is the one thing it is not.
+ */
+.meridian-ledger-row-failure {
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  background: var(--meridian-red-ground);
+}
+
+.meridian-ledger-retry {
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-ledger-retry:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* --- The provenance rail -------------------------------------------------- */
+
+/*
+ * The strip is the hit target and the canvas is the ink. `structure/rail-model.ts`
+ * fixes the strip at ≥32 px with a dead gutter, and the gutter is what the difference between the two
+ * widths IS: a pointer aimed a little wide still lands on the rail rather than on
+ * the pane behind it, and a pointer aimed at the pane is not stolen by the rail.
+ *
+ * The width is set inline from `RAIL_HIT_STRIP_WIDTH_PX`, so the number lives in
+ * the constants module and this sheet never restates it.
+ */
+.meridian-rail {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.meridian-rail__strip {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  cursor: pointer;
+  /* The ink is centred in the strip; the remainder either side is the dead
+     gutter, which is pointer-active but paints nothing. */
+  display: flex;
+  justify-content: center;
+}
+
+.meridian-rail__strip:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-rail__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/*
+ * The unloaded extent, drawn as a dotted segment at the head of the rail — the rail's
+ * clip honesty. A gradient rather than a border so the dotting reads at any height
+ * without the segment's own box being a second element to keep in step.
+ */
+.meridian-rail__unloaded {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: var(--meridian-space-6);
+  background-image: linear-gradient(
+    to bottom,
+    var(--meridian-edge-strong) 0 2px,
+    transparent 2px 6px
+  );
+  background-size: 100% 6px;
+  pointer-events: none;
+}
+
+/* The viewport thumb: where the reading position is, not what it contains. */
+.meridian-rail__thumb {
+  position: absolute;
+  inset-inline: 2px;
+  background: color-mix(in oklch, var(--meridian-text-muted) 18%, transparent);
+  border-radius: var(--meridian-radius-sm);
+  pointer-events: none;
+}
+
+/* The live marker at the tail, drawn only while the ledger is following. */
+.meridian-rail__live {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--meridian-accent);
+  pointer-events: none;
+}
+
+.meridian-rail__load-earlier {
+  flex: 0 0 auto;
+  padding: var(--meridian-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-rail__load-earlier:focus-visible,
+.meridian-find__load-earlier:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--meridian-radius-sm);
+}
+
+/*
+ * The hover preview. One card at a time and pointer-inert, so moving toward it
+ * never re-targets the rail underneath — the card is a reading, not a control.
+ */
+.meridian-rail__preview {
+  position: absolute;
+  inset-inline-end: calc(100% + var(--meridian-space-2));
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  max-width: 22rem;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.meridian-rail__preview-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --- The replay dock ------------------------------------------------------ */
+
+/*
+ * Docked over the rail and hidden until reached — the dock's density rule. `hidden`
+ * is the mechanism, so the control is inert to the pointer and to assistive
+ * technology at once; the base rule below styles it only when it is shown.
+ */
+.meridian-replay {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-replay__primary,
+.meridian-replay__seam,
+.meridian-replay__from-here,
+.meridian-replay__speed {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-replay__primary:hover,
+.meridian-replay__seam:hover,
+.meridian-replay__from-here:hover,
+.meridian-replay__speed:hover {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text);
+}
+
+.meridian-replay__primary:focus-visible,
+.meridian-replay__seam:focus-visible,
+.meridian-replay__from-here:focus-visible,
+.meridian-replay__speed:focus-visible,
+.meridian-replay__scrub:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The chosen speed is marked by `aria-pressed`, so the styling reads the same
+   attribute assistive technology does and there is no second "is selected" class. */
+.meridian-replay__speed[aria-pressed="true"] {
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-accent-text);
+}
+
+.meridian-replay__speeds {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.meridian-replay__scrub {
+  flex: 1 1 auto;
+  min-width: 6rem;
+  accent-color: var(--meridian-accent);
+}
+
+.meridian-replay__granularity {
+  color: var(--meridian-text-faint);
+  white-space: nowrap;
+}
+
+/* --- Find in ledger ------------------------------------------------------- */
+
+.meridian-find {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  flex-wrap: wrap;
+}
+
+.meridian-find__field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+/* The label names the field for assistive technology and is not repeated on
+   screen beside a search glyph that already says it. */
+.meridian-find__label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.meridian-find__input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+}
+
+.meridian-find__input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -1px;
+}
+
+.meridian-find__step,
+.meridian-find__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-find__step:disabled {
+  color: var(--meridian-text-faint);
+  cursor: default;
+}
+
+.meridian-find__step:focus-visible,
+.meridian-find__close:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/* The boundary sentence and its escape hatch, together on one line so the
+   affordance is read as part of the statement rather than as a stray control. */
+.meridian-find__scope {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-find__load-earlier {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-find__empty {
+  margin: 0;
+  color: var(--meridian-text-faint);
+}
+
+/* --- Cards: the code palette -------------------------------------------- */
+
+/*
+ * The nine code-token families, as custom properties.
+ *
+ * WHY THEY LIVE HERE AND NOT IN `tokens/palette.ts`. The palette owns three CLOSED
+ * sets — surfaces, text, and the two attention hues plus one accent — and its own
+ * comment says a third attention hue is that rule's failure mode. A syntax palette is
+ * none of those: it is the ledger's own, read by one family, and folding nine more
+ * colours into the console-wide token set would blur exactly the boundary rule 3
+ * depends on. So they are declared in this family's sheet, scoped to the block that
+ * spends them.
+ *
+ * WHY THE HIGHLIGHTER EMITS REFERENCES RATHER THAN COLOURS. `meridian-code-theme.ts`
+ * sets every foreground to a reference to this sheet's own per-family custom property
+ * rather than to a colour, so a cached token line is
+ * theme-independent: flipping the scheme repaints through the cascade and invalidates
+ * nothing. A theme carrying resolved colours would make the token cache wrong the
+ * moment the operator changed schemes.
+ *
+ * Four of the nine are token references and therefore need no per-scheme redefinition —
+ * they already follow the scheme. Only the five hued families are restated below, in the
+ * same three-block shape the generated palette uses: light unconditionally, the system
+ * preference where the operator has expressed none, then the explicit choice.
+ */
+.meridian-code {
+  --meridian-code-plain: var(--meridian-text);
+  --meridian-code-comment: var(--meridian-text-faint);
+  --meridian-code-operator: var(--meridian-text-muted);
+  --meridian-code-invalid: var(--meridian-red-text);
+
+  --meridian-code-keyword: oklch(0.45 0.12 300);
+  --meridian-code-name: oklch(0.44 0.1 250);
+  --meridian-code-string: oklch(0.42 0.1 150);
+  --meridian-code-number: oklch(0.45 0.11 45);
+  --meridian-code-type: oklch(0.45 0.09 200);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-console-scheme="light"]) .meridian-code {
+    --meridian-code-keyword: oklch(0.8 0.11 300);
+    --meridian-code-name: oklch(0.82 0.09 250);
+    --meridian-code-string: oklch(0.83 0.1 150);
+    --meridian-code-number: oklch(0.83 0.1 60);
+    --meridian-code-type: oklch(0.83 0.08 200);
+  }
+}
+
+[data-console-scheme="dark"] .meridian-code {
+  --meridian-code-keyword: oklch(0.8 0.11 300);
+  --meridian-code-name: oklch(0.82 0.09 250);
+  --meridian-code-string: oklch(0.83 0.1 150);
+  --meridian-code-number: oklch(0.83 0.1 60);
+  --meridian-code-type: oklch(0.83 0.08 200);
+}
+
+/* --- Cards: markdown prose ---------------------------------------------- */
+
+.meridian-markdown {
+  display: flow-root;
+  min-width: 0;
+}
+
+/*
+ * One measure. Rule 4's reading column, applied where a body is prose rather than a
+ * figure — a code block and a table opt out below, because both are structures whose
+ * width is their own.
+ */
+.meridian-markdown__paragraph {
+  margin: 0 0 var(--meridian-space-2);
+  max-width: 68ch;
+  overflow-wrap: anywhere;
+}
+
+.meridian-markdown__paragraph:last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * A message's headings are not the page's. Every level renders as one element carrying
+ * its depth, so a `#` inside a message cannot out-shout the surface it sits in; the
+ * weights below are the whole of the difference.
+ */
+.meridian-markdown__heading {
+  margin: var(--meridian-space-3) 0 var(--meridian-space-2);
+  max-width: 68ch;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.meridian-markdown__heading[data-depth="1"],
+.meridian-markdown__heading[data-depth="2"] {
+  font-size: var(--meridian-text-lg);
+}
+
+.meridian-markdown__heading[data-depth="3"] {
+  font-size: var(--meridian-text-md);
+}
+
+.meridian-markdown__heading[data-depth="4"],
+.meridian-markdown__heading[data-depth="5"],
+.meridian-markdown__heading[data-depth="6"] {
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-markdown__quote {
+  margin: 0 0 var(--meridian-space-2);
+  padding-left: var(--meridian-space-3);
+  border-left: 2px solid var(--meridian-edge-strong);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-markdown__list {
+  margin: 0 0 var(--meridian-space-2);
+  padding-left: var(--meridian-space-5);
+  max-width: 68ch;
+}
+
+.meridian-markdown__list-item {
+  margin-bottom: var(--meridian-space-1);
+}
+
+.meridian-markdown__task {
+  margin-right: var(--meridian-space-2);
+  accent-color: var(--meridian-accent);
+}
+
+.meridian-markdown__rule {
+  margin: var(--meridian-space-3) 0;
+  border: 0;
+  border-top: 1px solid var(--meridian-edge);
+}
+
+.meridian-markdown__code {
+  padding: 0 var(--meridian-space-1);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+/*
+ * A link with no anchor. Underlined so the author's intent survives, and NOT tinted with
+ * the accent, which in this console means "this is the one thing you can act on" — an
+ * inert link is precisely not that.
+ */
+.meridian-markdown__link--inert {
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
+}
+
+.meridian-markdown__image-alt {
+  color: var(--meridian-text-muted);
+  font-style: italic;
+}
+
+.meridian-markdown__footnote {
+  padding: 0 var(--meridian-space-1);
+  color: var(--meridian-accent-text);
+}
+
+/* A reference with no definition in its own message says so by weight, not by colour. */
+.meridian-markdown__footnote[data-defined="false"] {
+  color: var(--meridian-text-faint);
+}
+
+/* A reference that CAN be opened is a button, and reads as the marker it replaces: the
+   superscript position is the marker's, and the button's own chrome is removed rather
+   than a second control being drawn inside a sentence. */
+.meridian-markdown__footnote--open {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  vertical-align: super;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.meridian-markdown__footnote--open:hover {
+  text-decoration: underline;
+}
+
+/* The one popup a card opens every definition into. Bounded, because a definition is a
+   note and a note that filled the pane would hide the row it belongs to. */
+.meridian-footnote-popover {
+  max-width: 42ch;
+  max-height: 20rem;
+  overflow-y: auto;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  box-shadow: 0 0.5rem 1.5rem oklch(0% 0 0 / 18%);
+}
+
+.meridian-footnote-popover:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+/* Wide content scrolls inside its own container; the row never scrolls sideways. */
+.meridian-markdown__table-scroll {
+  margin-bottom: var(--meridian-space-2);
+  overflow-x: auto;
+}
+
+.meridian-markdown__table {
+  border-collapse: collapse;
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-markdown__table td {
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  text-align: left;
+}
+
+/* --- Cards: code blocks -------------------------------------------------- */
+
+.meridian-code {
+  margin: 0 0 var(--meridian-space-2);
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-sunken);
+  overflow-x: auto;
+  color: var(--meridian-code-plain);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+  tab-size: 2;
+}
+
+.meridian-code__line {
+  display: block;
+  min-height: 1lh;
+  white-space: pre;
+}
+
+/* --- Cards: math -------------------------------------------------------- */
+
+.meridian-math--display {
+  display: block;
+  margin: var(--meridian-space-2) 0;
+  overflow-x: auto;
+}
+
+.meridian-math--source code {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+/* --- Cards: ANSI command output ------------------------------------------ */
+
+/*
+ * The sixteen ANSI names, as the console's own colours.
+ *
+ * Four of them are text tokens already: a terminal's black and white are the two ends of
+ * the reading scale, and reproducing a tool's literal black on a dark scheme would render
+ * its output invisible. The twelve hued ones are restated per scheme in the same
+ * three-block shape the code palette above uses.
+ */
+.meridian-ansi {
+  /*
+   * The two colours this body paints when the stream names none, declared once so the
+   * body below and the reverse-video swap in `ansi-spans.ts` read the SAME pair. A
+   * reversed run with one unset channel resolves that channel here, so what it swaps
+   * against is what the reader is looking at rather than a second opinion about it.
+   */
+  --meridian-ansi-default-foreground: var(--meridian-text);
+  --meridian-ansi-default-background: var(--meridian-surface-sunken);
+
+  --meridian-ansi-black: var(--meridian-text-faint);
+  --meridian-ansi-white: var(--meridian-text-muted);
+  --meridian-ansi-bright-black: var(--meridian-text-muted);
+  --meridian-ansi-bright-white: var(--meridian-text);
+
+  --meridian-ansi-red: oklch(0.48 0.16 25);
+  --meridian-ansi-green: oklch(0.45 0.12 150);
+  --meridian-ansi-yellow: oklch(0.48 0.11 85);
+  --meridian-ansi-blue: oklch(0.46 0.11 255);
+  --meridian-ansi-magenta: oklch(0.47 0.13 330);
+  --meridian-ansi-cyan: oklch(0.46 0.09 205);
+  --meridian-ansi-bright-red: oklch(0.55 0.18 25);
+  --meridian-ansi-bright-green: oklch(0.52 0.14 150);
+  --meridian-ansi-bright-yellow: oklch(0.56 0.12 85);
+  --meridian-ansi-bright-blue: oklch(0.53 0.13 255);
+  --meridian-ansi-bright-magenta: oklch(0.54 0.15 330);
+  --meridian-ansi-bright-cyan: oklch(0.53 0.1 205);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-console-scheme="light"]) .meridian-ansi {
+    --meridian-ansi-red: oklch(0.76 0.14 25);
+    --meridian-ansi-green: oklch(0.8 0.12 150);
+    --meridian-ansi-yellow: oklch(0.84 0.11 85);
+    --meridian-ansi-blue: oklch(0.79 0.1 255);
+    --meridian-ansi-magenta: oklch(0.79 0.12 330);
+    --meridian-ansi-cyan: oklch(0.81 0.08 205);
+    --meridian-ansi-bright-red: oklch(0.83 0.14 25);
+    --meridian-ansi-bright-green: oklch(0.87 0.13 150);
+    --meridian-ansi-bright-yellow: oklch(0.9 0.11 85);
+    --meridian-ansi-bright-blue: oklch(0.86 0.1 255);
+    --meridian-ansi-bright-magenta: oklch(0.86 0.12 330);
+    --meridian-ansi-bright-cyan: oklch(0.88 0.08 205);
+  }
+}
+
+[data-console-scheme="dark"] .meridian-ansi {
+  --meridian-ansi-red: oklch(0.76 0.14 25);
+  --meridian-ansi-green: oklch(0.8 0.12 150);
+  --meridian-ansi-yellow: oklch(0.84 0.11 85);
+  --meridian-ansi-blue: oklch(0.79 0.1 255);
+  --meridian-ansi-magenta: oklch(0.79 0.12 330);
+  --meridian-ansi-cyan: oklch(0.81 0.08 205);
+  --meridian-ansi-bright-red: oklch(0.83 0.14 25);
+  --meridian-ansi-bright-green: oklch(0.87 0.13 150);
+  --meridian-ansi-bright-yellow: oklch(0.9 0.11 85);
+  --meridian-ansi-bright-blue: oklch(0.86 0.1 255);
+  --meridian-ansi-bright-magenta: oklch(0.86 0.12 330);
+  --meridian-ansi-bright-cyan: oklch(0.88 0.08 205);
+}
+
+.meridian-ansi__body {
+  margin: 0;
+  padding: var(--meridian-space-2) var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  color: var(--meridian-ansi-default-foreground);
+  background: var(--meridian-ansi-default-background);
+  overflow-x: auto;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.meridian-ansi__fg--black {
+  color: var(--meridian-ansi-black);
+}
+.meridian-ansi__fg--red {
+  color: var(--meridian-ansi-red);
+}
+.meridian-ansi__fg--green {
+  color: var(--meridian-ansi-green);
+}
+.meridian-ansi__fg--yellow {
+  color: var(--meridian-ansi-yellow);
+}
+.meridian-ansi__fg--blue {
+  color: var(--meridian-ansi-blue);
+}
+.meridian-ansi__fg--magenta {
+  color: var(--meridian-ansi-magenta);
+}
+.meridian-ansi__fg--cyan {
+  color: var(--meridian-ansi-cyan);
+}
+.meridian-ansi__fg--white {
+  color: var(--meridian-ansi-white);
+}
+.meridian-ansi__fg--bright-black {
+  color: var(--meridian-ansi-bright-black);
+}
+.meridian-ansi__fg--bright-red {
+  color: var(--meridian-ansi-bright-red);
+}
+.meridian-ansi__fg--bright-green {
+  color: var(--meridian-ansi-bright-green);
+}
+.meridian-ansi__fg--bright-yellow {
+  color: var(--meridian-ansi-bright-yellow);
+}
+.meridian-ansi__fg--bright-blue {
+  color: var(--meridian-ansi-bright-blue);
+}
+.meridian-ansi__fg--bright-magenta {
+  color: var(--meridian-ansi-bright-magenta);
+}
+.meridian-ansi__fg--bright-cyan {
+  color: var(--meridian-ansi-bright-cyan);
+}
+.meridian-ansi__fg--bright-white {
+  color: var(--meridian-ansi-bright-white);
+}
+
+.meridian-ansi__bg--black {
+  background: var(--meridian-ansi-black);
+}
+.meridian-ansi__bg--red {
+  background: var(--meridian-ansi-red);
+}
+.meridian-ansi__bg--green {
+  background: var(--meridian-ansi-green);
+}
+.meridian-ansi__bg--yellow {
+  background: var(--meridian-ansi-yellow);
+}
+.meridian-ansi__bg--blue {
+  background: var(--meridian-ansi-blue);
+}
+.meridian-ansi__bg--magenta {
+  background: var(--meridian-ansi-magenta);
+}
+.meridian-ansi__bg--cyan {
+  background: var(--meridian-ansi-cyan);
+}
+.meridian-ansi__bg--white {
+  background: var(--meridian-ansi-white);
+}
+.meridian-ansi__bg--bright-black {
+  background: var(--meridian-ansi-bright-black);
+}
+.meridian-ansi__bg--bright-red {
+  background: var(--meridian-ansi-bright-red);
+}
+.meridian-ansi__bg--bright-green {
+  background: var(--meridian-ansi-bright-green);
+}
+.meridian-ansi__bg--bright-yellow {
+  background: var(--meridian-ansi-bright-yellow);
+}
+.meridian-ansi__bg--bright-blue {
+  background: var(--meridian-ansi-bright-blue);
+}
+.meridian-ansi__bg--bright-magenta {
+  background: var(--meridian-ansi-bright-magenta);
+}
+.meridian-ansi__bg--bright-cyan {
+  background: var(--meridian-ansi-bright-cyan);
+}
+.meridian-ansi__bg--bright-white {
+  background: var(--meridian-ansi-bright-white);
+}
+
+/*
+ * The two channel values only reverse video reaches, and the only two of the four
+ * combinations that are reachable at all: a reversed run paints the body's background
+ * as its FOREGROUND and the body's foreground as its BACKGROUND. The other two would be
+ * a run painting the colour it already had, which nothing emits.
+ */
+.meridian-ansi__fg--default-background {
+  color: var(--meridian-ansi-default-background);
+}
+.meridian-ansi__bg--default-foreground {
+  background: var(--meridian-ansi-default-foreground);
+}
+
+.meridian-ansi--bold {
+  font-weight: 600;
+}
+.meridian-ansi--dim {
+  opacity: 0.7;
+}
+.meridian-ansi--italic {
+  font-style: italic;
+}
+.meridian-ansi--underline {
+  text-decoration: underline;
+}
+.meridian-ansi--strikethrough {
+  text-decoration: line-through;
+}
+
+/* --- Cards: the message card -------------------------------------------- */
+
+.meridian-message-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-message-card__family {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* Reasoning is an aside, and reads as one: the same layout, one step quieter. */
+.meridian-message-card--assistant-reasoning {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-message-card__cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-message-card__card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  align-items: flex-start;
+}
+
+.meridian-message-card__receipt {
+  margin: 0;
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-receipt-row {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  max-width: 68ch;
+}
+
+/* --- Cards: the tool card ------------------------------------------------ */
+
+/*
+ * One line, and it stays one line. `min-width: 0` on the summary is what lets it be the
+ * part that gives: a header that wrapped would defeat the density budget the collapsed
+ * row exists to hold.
+ */
+.meridian-tool-card__header {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+.meridian-tool-card__name {
+  flex: none;
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-tool-card__name--absent {
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-sans);
+  font-style: italic;
+}
+
+.meridian-tool-card__summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-tool-card__elapsed {
+  flex: none;
+  color: var(--meridian-text-faint);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * Hover-revealed, and revealed by focus too — a control that appears only under a
+ * pointer is a control a keyboard cannot reach.
+ */
+.meridian-tool-card__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  flex: none;
+  padding: 0 var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: none;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  font-size: var(--meridian-text-xs);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-ledger-row:hover .meridian-tool-card__disclosure,
+.meridian-tool-card__disclosure:focus-visible,
+.meridian-tool-card__disclosure[aria-expanded="true"] {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .meridian-tool-card__disclosure {
+    transition: none;
+  }
+}
+
+/* --- Cards: the machine-authored body ------------------------------------ */
+
+.meridian-machine-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  min-width: 0;
+}
+
+/*
+ * The empty body of an unreadable turn. It occupies the turn's position — that is the
+ * whole of what `cards/MachineBody.tsx` asks for — and carries no text, because the named absence beside
+ * it is where the reason is stated.
+ */
+.meridian-machine-body__empty {
+  margin: 0;
+  min-height: 1lh;
+}
+
+/* --- Structure: the seam row --------------------------------------------- */
+
+/*
+ * A seam is ONE LINE, which is the whole visual claim `SeamRow.tsx` is built on: a
+ * glyph, a label, and whichever wire members that kind carries, laid across the row
+ * rather than stacked. `flex-wrap` is what keeps that true on a narrow pane — the
+ * parts reflow onto a second line rather than the row growing a scrollbar or one
+ * member being clipped away, and a member a reader cannot see is a member the
+ * console did not render.
+ */
+.meridian-seam-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-seam-row__label {
+  color: var(--meridian-text);
+}
+
+/*
+ * The one caution in the set. Rule 3 spends amber on attention and red on failure,
+ * and `SEAM_WIRE_BINDINGS` marks exactly one member a caution — the failed provider
+ * switch — so this class is reachable from one binding and no other.
+ */
+.meridian-seam-row--caution .meridian-seam-row__label {
+  color: var(--meridian-red-text);
+}
+
+/*
+ * Every wire-sourced part, in mono. Mono is the console's figure treatment: it is
+ * how a reader tells a value the daemon sent from a word the console chose, and
+ * every part carrying it here is verbatim.
+ */
+.meridian-seam-row__figure {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text);
+}
+
+.meridian-seam-row__boundary,
+.meridian-seam-row__blocked-on,
+.meridian-seam-row__continuity {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-seam-row__losses {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+}
+
+/* --- Structure: the chapter header --------------------------------------- */
+
+/*
+ * One finished run, on one line, with the disclosure that opens it.
+ *
+ * The 2 px inline-start edge is the same attribution edge a ledger row wears, set
+ * from the participant wheel by the component so a chapter and the rows inside it
+ * are coloured by one allocation. The fallback is the neutral border, which is what
+ * an unattributed chapter takes — never a participant hue nobody was allocated.
+ */
+.meridian-chapter-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-chapter-header__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-chapter-header__actor {
+  color: var(--meridian-text);
+}
+
+.meridian-chapter-header__terminal,
+.meridian-chapter-header__figure {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+.meridian-chapter-header__counts {
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * The facet bar — the only surface that narrows this ledger.
+ *
+ * Sits with the find field on the sunken band above the log rather than floating
+ * over it: both are readings ABOUT the window rather than rows of it, and a control
+ * that overlaid the feed would cover the rows it is narrowing. Wraps, because the
+ * number of chips is the session's and not the layout's.
+ */
+.meridian-ledger-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-3);
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  flex-wrap: wrap;
+}
+
+.meridian-ledger-filter__axis {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.meridian-ledger-filter__axis-label {
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * One chip. The admitted state is carried by `aria-pressed` and painted from it,
+ * so the thing a screen reader announces and the thing an eye reads are one fact.
+ */
+.meridian-ledger-filter__facet {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--meridian-space-1);
+  padding: 0 var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-ledger-filter__facet[aria-pressed="true"] {
+  border-color: var(--meridian-accent);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-ledger-filter__facet-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 12rem;
+}
+
+.meridian-ledger-filter__clear {
+  margin-inline-start: auto;
+  padding: 0 var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-ledger-filter__facet:focus-visible,
+.meridian-ledger-filter__clear:focus-visible,
+.meridian-ledger__jump-action:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+  border-radius: var(--meridian-radius-sm);
+}
+
+/*
+ * The jump offer a query naming a row id produces. A sentence with one control in
+ * it, on the same band as the find field that raised it.
+ */
+.meridian-ledger__jump {
+  margin: 0;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-ledger__jump-action {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--meridian-accent);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
