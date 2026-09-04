@@ -26,6 +26,7 @@ import {
   declaredFlagsForDriver,
   useDriverCapabilities,
   useDriverCapabilityRepairRead,
+  withRunDriverBindings,
   type DriverCapabilityReadout,
 } from "./driver-capability-read.js";
 
@@ -421,6 +422,33 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     await settleRead(counted.clock);
     await settleRead(counted.clock);
     expect(capabilityCallCount(counted)).toBe(1);
+  });
+});
+
+describe("withRunDriverBindings", () => {
+  it("joins the session's bindings onto the node's declarations", () => {
+    const declarations: DriverCapabilityReadout = {
+      flagsByDriverName: new Map(),
+      driverNameByRunId: new Map(),
+      readRefusal: undefined,
+    };
+    const joined = withRunDriverBindings(declarations, new Map([["run-one", "codex"]]));
+    expect(joined?.driverNameByRunId.get("run-one")).toBe("codex");
+    // The declarations are carried through untouched: this joins a second reading
+    // onto the first and decides nothing about either.
+    expect(joined?.flagsByDriverName).toBe(declarations.flagsByDriverName);
+  });
+
+  it("returns the reading itself when there is nothing to join", () => {
+    const declarations: DriverCapabilityReadout = {
+      flagsByDriverName: new Map(),
+      driverNameByRunId: new Map(),
+      readRefusal: undefined,
+    };
+    // The same pointer, so a surface whose session named no binding re-renders no
+    // more often than one that asked for no join at all.
+    expect(withRunDriverBindings(declarations, new Map())).toBe(declarations);
+    expect(withRunDriverBindings(undefined, new Map([["run-one", "codex"]]))).toBeUndefined();
   });
 });
 

@@ -29,21 +29,23 @@
 // module keeps the half that is genuinely the runs pane's: which control is gated on
 // which flag, and which driver a RUN is bound to.
 //
-// WHAT NAMES A RUN'S DRIVER, AND WHAT DOES NOT. Nothing this console can read today
-// carries the pair on a run-scoped shape: `RunStateChangeEvent` and
+// WHAT NAMES A RUN'S DRIVER. No run-scoped wire shape does: `RunStateChangeEvent` and
 // `RunRolledBackEvent` (the two arms of `run.subscribeState`) and `QueueItemSummary`
 // each register no driver member, `runtime_bindings` is a daemon-local table with no
 // client read, and `run.running` carries the execution posture rather than the
-// binding. The one client-readable shape that pairs the two is
-// `ProviderCommandBindingGroup` on the `driver.listProviderCommands` reply —
-// `{ runId, binding: { driverName, providerAccountId } }` — which is addressed by
-// AGENT and which no console surface reads yet. `driverNameByRunId` is where such a
-// read lands; it is empty until one exists, and the resolution below falls back on
-// the only binding the capability reply itself admits: with exactly ONE driver
-// reported for the session, that driver is the only one any run in it can hold. With
-// two or more and no named binding, the answer is `undefined` — the console cannot
-// say — and a gated control is absent, which is a different fact from a driver
-// having declared `false` and is never reported as one.
+// binding. The AGENT does — `agent.attached` registers `driverName` on the persona,
+// and `run.queued` names the agent a run was created for — so the pair is joined
+// through the agent by `bridge/run-driver-binding.ts` and reaches this module as
+// `driverNameByRunId`. That join is what makes a node with two drivers installed
+// answerable at all: it used to be empty, and the resolution below then fell through
+// to `undefined` for every run on such a node, taking Rewind and Steer off every row
+// however loudly each run's own driver had declared them.
+//
+// The sole-report fallback stays beneath it, for the session whose join has nothing
+// to say yet: with exactly ONE driver reported for the node, that driver is the only
+// one any run can hold. With two or more and no named binding, the answer is
+// `undefined` — the console cannot say — and a gated control is absent, which is a
+// different fact from a driver having declared `false` and is never reported as one.
 //
 // This is a projection of what the daemon DECLARED, never a rule the renderer
 // derives. A control that is offered can still be refused — eligibility belongs to
@@ -77,10 +79,11 @@ export const CONTROL_CAPABILITY_GATE: Readonly<
 /**
  * Which driver a run is bound to, or `undefined` where the console cannot say.
  *
- * Two sources in priority order and no third: a binding a read named for this run,
- * then the sole-report fallback the header explains. Guessing between two reported
- * drivers is deliberately not one of them — a wrong guess offers a control the
- * daemon will always refuse, or hides one it would have honoured.
+ * Two sources in priority order and no third: the binding the session's own
+ * projection named for this run, then the sole-report fallback the header explains.
+ * Guessing between two reported drivers is deliberately not one of them — a wrong
+ * guess offers a control the daemon will always refuse, or hides one it would have
+ * honoured.
  */
 export function boundDriverNameForRun(
   readout: DriverCapabilityReadout | undefined,

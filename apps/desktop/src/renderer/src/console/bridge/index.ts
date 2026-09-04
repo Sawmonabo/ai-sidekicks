@@ -74,7 +74,13 @@ export {
   declaredFlagsForDriver,
   useDriverCapabilities,
   useDriverCapabilityRepairRead,
+  withRunDriverBindings,
 } from "./driver-capability-read.js";
+export {
+  foldRunDriverBindings,
+  selectSessionTimeline,
+  useRunDriverBindings,
+} from "./run-driver-binding.js";
 export { SessionRepairWatcher } from "./session-repair-watcher.js";
 export type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capability-read.js";
 

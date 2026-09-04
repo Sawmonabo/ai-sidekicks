@@ -92,11 +92,14 @@ export interface DriverCapabilityReadout {
    */
   readonly flagsByDriverName: ReadonlyMap<string, DeclaredDriverFlags>;
   /**
-   * Which driver each run is bound to, for every run a read has named a binding for.
+   * Which driver each run is bound to, for every run whose binding is nameable.
    *
-   * Empty today: nothing client-readable pairs a run with its driver on a run-scoped
-   * shape. It is a map rather than a derivation so that the read which lands it
-   * changes one producer and no consumer.
+   * NOT what `driver.listCapabilities` answers, and it never could be: that read is
+   * addressed at the NODE and names no run. This member is joined on by the consumer
+   * through `withRunDriverBindings` below, from the session's own projection —
+   * `run-driver-binding.ts` owns the join and says where each half comes from. It is
+   * empty on the readout the bridge settles, which is the honest reading of a
+   * node-scoped answer: that read named no run because it names none.
    */
   readonly driverNameByRunId: ReadonlyMap<string, string>;
   /**
@@ -327,6 +330,28 @@ export function useDriverCapabilityRepairRead(
       reading.requestRead("reconnect");
     }
   }, [degradedCause, reading, repairWatcher]);
+}
+
+/**
+ * The node's declarations, joined to one session's run-to-driver bindings.
+ *
+ * The two halves are read separately because they are answered separately — the
+ * declarations by a node-scoped call shared across every session in the window, the
+ * bindings by one session's own projection — and they are joined HERE, at the
+ * consumer, rather than inside the per-bridge cache, which holds no session and must
+ * not start holding one.
+ *
+ * The readout is returned untouched where there is nothing to join, so a surface
+ * that asked and got no bindings compares the same pointer it had.
+ */
+export function withRunDriverBindings(
+  readout: DriverCapabilityReadout | undefined,
+  driverNameByRunId: ReadonlyMap<string, string>,
+): DriverCapabilityReadout | undefined {
+  if (readout === undefined || driverNameByRunId.size === 0) {
+    return readout;
+  }
+  return { ...readout, driverNameByRunId };
 }
 
 /**
