@@ -48,12 +48,17 @@
 // `node-presence-model.ts` states the rule and why the payload's `actor` is not a
 // substitute for the link the wire withholds.
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { refusalFromRejection, type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
-import { useSessionStore, type SessionStore, type SessionStoreState } from "../../store/index.js";
+import {
+  useCallerMembershipRole,
+  useSessionStore,
+  type SessionStore,
+  type SessionStoreState,
+} from "../../store/index.js";
 import type { ConsolePaneContext } from "../../seats/index.js";
 import { LeaseLine, type TerminalParticipantMark } from "../../terminal/LeaseLine.js";
 import { XtermHost } from "../../terminal/XtermHost.js";
@@ -114,6 +119,19 @@ function BoundTerminalPane(props: {
   const timeline = useSessionStore(sessionStore, selectTimeline);
   const outputReading = useTerminalOutputStream(bridge, terminalId);
   const viewerIdentity = useTerminalViewerIdentity(bridge, sessionStore.sessionId);
+  // The entitlement beside the identity, because the claim control needs both: the
+  // fold compares the holder against WHO this window is, and the daemon checks what
+  // that participant MAY DO before it moves the shell. The reader is adapted here
+  // because `store/` sits below `bridge/` on the console's DAG and may not reach a
+  // port; the served arm hands over the participant id and the refusing arm travels
+  // as the `ConsoleRefusal` it already is.
+  const readCallerParticipant = useCallback(async () => {
+    const outcome = await bridge.growth.callerParticipantRead({
+      sessionId: sessionStore.sessionId,
+    });
+    return outcome.status === "served" ? outcome.value.participantId : outcome;
+  }, [bridge, sessionStore]);
+  const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore);
 
   // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
@@ -170,6 +188,7 @@ function BoundTerminalPane(props: {
         state={lease}
         markFor={markFor}
         viewerIdentity={viewerIdentity}
+        callerRole={callerRole}
       />
       {outputReading.status === "refused" ? (
         // A REJECTED subscribe is the bridge itself failing, and a bridge that

@@ -22,6 +22,9 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
 import { refuse } from "../core/index.js";
+import type { MembershipRole } from "@ai-sidekicks/contracts";
+
+import type { CallerMembershipRoleResult } from "../store/index.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../bridge/scenarios/terminal.js";
 import { LeaseLine, type TerminalParticipantMark } from "./LeaseLine.js";
@@ -179,10 +182,24 @@ function transitionAt(
  */
 const VIEWER_IDENTITY_READ: TerminalViewerIdentity = { status: "read", participantId: VIEWER };
 
+/**
+ * The role every case below renders under unless it is about the acquisition gate.
+ *
+ * A collaborator rather than an owner, and read: taking the shell is open to both, so
+ * a case about a HOLDING renders the control it names, and the one role the gate
+ * refuses is exercised where it belongs.
+ */
+const CALLER_ROLE_COLLABORATOR: CallerMembershipRoleResult = {
+  status: "read",
+  participantId: VIEWER,
+  role: "collaborator",
+};
+
 function renderLease(
   state: TerminalLeaseState,
   bridge: ConsoleBridge = refusingBridge(),
   viewerIdentity: TerminalViewerIdentity = VIEWER_IDENTITY_READ,
+  callerRole: CallerMembershipRoleResult = CALLER_ROLE_COLLABORATOR,
 ) {
   return render(
     <LeaseLine
@@ -191,6 +208,7 @@ function renderLease(
       state={state}
       markFor={markFor}
       viewerIdentity={viewerIdentity}
+      callerRole={callerRole}
     />,
   );
 }
@@ -272,6 +290,7 @@ describe("the holder line — every state 8.8 names", () => {
         })}
         markFor={named}
         viewerIdentity={VIEWER_IDENTITY_READ}
+        callerRole={CALLER_ROLE_COLLABORATOR}
       />,
     );
     expect(container.textContent).toContain("Priya holds the shell.");
@@ -632,6 +651,7 @@ describe("the claim control — one affordance, and three things it never does",
         state={state}
         markFor={markFor}
         viewerIdentity={VIEWER_IDENTITY_READ}
+        callerRole={CALLER_ROLE_COLLABORATOR}
       />,
     );
     fireEvent.click(claimControl(view.container));
@@ -644,6 +664,7 @@ describe("the claim control — one affordance, and three things it never does",
         state={state}
         markFor={markFor}
         viewerIdentity={VIEWER_IDENTITY_READ}
+        callerRole={CALLER_ROLE_COLLABORATOR}
       />,
     );
 
@@ -821,5 +842,100 @@ describe("the claim control is gated on knowing who the viewer is", () => {
     const { container } = renderLease(HELD_BY_SOMEBODY);
     expect(offeredClaimControl(container)?.textContent).toBe("Claim the shell");
     expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
+  });
+});
+
+describe("the lease line offers acquisition by role", () => {
+  const roleRead = (role: MembershipRole): CallerMembershipRoleResult => ({
+    status: "read",
+    participantId: VIEWER,
+    role,
+  });
+
+  it("renders a read-only statement for a viewer rather than a control it cannot use", () => {
+    // The finding. `session.takeControl` is owner/collaborator-only, so the button
+    // this used to draw could only ever come back `pty.permission_denied`.
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      refusingBridge(),
+      VIEWER_IDENTITY_READ,
+      roleRead("viewer"),
+    );
+
+    expect(container.querySelector(".meridian-lease-line__claim")).toBeNull();
+    expect(container.textContent).toContain("open to owners and collaborators");
+    expect(container.textContent).toContain("viewer");
+  });
+
+  it("renders the same statement for a runtime contributor", () => {
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      refusingBridge(),
+      VIEWER_IDENTITY_READ,
+      roleRead("runtime contributor"),
+    );
+
+    expect(container.querySelector(".meridian-lease-line__claim")).toBeNull();
+    expect(container.textContent).toContain("runtime contributor");
+  });
+
+  it("offers the claim to a collaborator", () => {
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      refusingBridge(),
+      VIEWER_IDENTITY_READ,
+      roleRead("collaborator"),
+    );
+
+    expect(claimControl(container).textContent).toBe("Claim the shell");
+  });
+
+  it("still offers the handback to a holder whose role has dropped to viewer", () => {
+    // Authorization loss propagates as an event, and until a transition says
+    // otherwise this participant holds the shell. Withdrawing the release control
+    // here would strand the keyboard with no way to give it back.
+    const { container } = renderLease(
+      leaseState({
+        holding: "held-by-you",
+        holderParticipantId: VIEWER,
+        holderVouching: "vouched",
+      }),
+      refusingBridge(),
+      VIEWER_IDENTITY_READ,
+      roleRead("viewer"),
+    );
+
+    expect(claimControl(container).textContent).toBe("Release the shell");
+    expect(container.textContent).not.toContain("open to owners and collaborators");
+  });
+
+  it("says the role is still being read rather than showing nothing at all", () => {
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched" }),
+      refusingBridge(),
+      VIEWER_IDENTITY_READ,
+      { status: "not-loaded" },
+    );
+
+    expect(container.querySelector(".meridian-lease-line__claim")).toBeNull();
+    expect(container.textContent).toContain("Reading what you may do");
+  });
+
+  it("negative control: the holder line is unchanged by any of this", () => {
+    // The gate is about the CONTROL. A line that had blanked itself for a viewer
+    // would satisfy every case above and tell nobody who holds the shell.
+    const { container } = renderLease(
+      leaseState({
+        holding: "held-by-another",
+        holderParticipantId: HOLDER,
+        holderVouching: "vouched",
+      }),
+      refusingBridge(),
+      VIEWER_IDENTITY_READ,
+      roleRead("viewer"),
+    );
+
+    expect(container.textContent).toContain("Held by");
+    expect(container.textContent).toContain(HOLDER);
   });
 });

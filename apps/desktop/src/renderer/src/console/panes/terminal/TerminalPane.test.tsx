@@ -20,6 +20,7 @@ import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { fixtureSessionSnapshot } from "../../bridge/fixture-session-snapshot.js";
 import { growthUnavailable } from "../../bridge/growth-port.js";
 import { TERMINAL_SCENARIO, TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
 import { terminalScenarioEventId } from "../../bridge/scenarios/terminal-beats.js";
@@ -60,7 +61,7 @@ function storeThrough(transitionOrdinal: number): SessionStore {
     );
   }
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise(fixtureSessionSnapshot(TERMINAL_SCENARIO, SESSION_ID));
   const events = TERMINAL_SCENARIO.beats
     .map((beat) => beat.event as ConsoleSessionEvent)
     .filter((event) => event.sequence <= lastLeaseBeat.event.sequence);
@@ -87,7 +88,7 @@ function storeThrough(transitionOrdinal: number): SessionStore {
  */
 function storeThroughEveryBeat(extraEvents: readonly ConsoleSessionEvent[] = []): SessionStore {
   const store = new SessionStore({ sessionId: SESSION_ID });
-  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  store.initialise(fixtureSessionSnapshot(TERMINAL_SCENARIO, SESSION_ID));
   const scripted = TERMINAL_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent);
   store.applyBatch([...scripted, ...extraEvents]);
   return store;
