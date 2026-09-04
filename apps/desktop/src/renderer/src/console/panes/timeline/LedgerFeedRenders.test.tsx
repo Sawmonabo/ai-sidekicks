@@ -15,17 +15,19 @@
 // query never moved that dependency and pinning either would pin nothing. The defect
 // was reachable only from above, which is where this case drives it from.
 //
-// WHAT THIS FILE DOES NOT CLAIM. Not that a row never re-renders: an admitted event
-// rebuilds the window and the viewport rows it carries are fresh objects, so every
-// mounted row re-renders on every event by construction. That is a different defect
-// with a different owner — it lives in the projection this feed consumes — and a
-// case asserting otherwise would be asserting something this diff did not do.
+// AND WHAT ONE ADMITTED EVENT COSTS THEM, which is the second describe below. The
+// projection used to rebuild every row and every identity triple per pass, so an
+// event that changed nothing visible re-rendered the whole mounted window TWICE —
+// measured on a ten-row window, ten bodies at mount and twenty-one more per event.
+// `ledger-window.ts`'s retention table holds those objects across passes and
+// `LedgerFeedRow`'s memo is what spends the stability, so what an event costs now is
+// the rows it actually changed.
 //
 // The mount is composed here rather than taken from `ledger-feed-fixtures.tsx`
 // because this case needs the PARENT in its hands, which that helper deliberately
 // does not expose — `LedgerFeedSeats.test.tsx`' precedent, for its reason.
 
-import { render } from "@testing-library/react";
+import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
@@ -33,8 +35,13 @@ import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { type TimelineRowSlotProps } from "../../seats/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { LedgerFeed } from "./LedgerFeed.js";
-import { REPLAY_LOG_EVENT_COUNT, withLaidOutViewport } from "./ledger-feed-fixtures.js";
-import { openSessionStoreWithGeneralLog } from "./ledger-feed-logs.js";
+import {
+  LeasingRowBody,
+  REPLAY_LOG_EVENT_COUNT,
+  renderFeed,
+  withLaidOutViewport,
+} from "./ledger-feed-fixtures.js";
+import { SESSION_ID, openSessionStoreWithGeneralLog } from "./ledger-feed-logs.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -141,5 +148,76 @@ describe("the ledger feed — what a parent's render costs the rows", () => {
     );
 
     expect(rowBodyRenders).toBeGreaterThan(rendersAtMount);
+  });
+});
+
+/** One more entry for the log the cases below open on, admitted the way the wire does. */
+function admitOneMoreEntry(sessionStore: SessionStore, sequence: number): void {
+  act(() => {
+    sessionStore.applyBatch([
+      {
+        id: `019b793b-7b60-7ea1-8110-e5e0d115${String(sequence).padStart(4, "0")}`,
+        sessionId: SESSION_ID,
+        sequence,
+        kind: "user.message",
+        occurredAt: new Date(Date.UTC(2026, 0, 1, 11, 1, sequence)).toISOString(),
+        payload: {},
+      },
+    ]);
+  });
+}
+
+describe("the ledger feed — what one admitted event costs the rows", () => {
+  it("draws no row body again for a row the event did not change", () => {
+    withLaidOutViewport();
+    const drawsByRowId = new Map<string, number>();
+    const sessionStore = openSessionStoreWithGeneralLog(REPLAY_LOG_EVENT_COUNT);
+    renderFeed(sessionStore, (mount) => {
+      drawsByRowId.set(mount.row.id, (drawsByRowId.get(mount.row.id) ?? 0) + 1);
+    });
+    const rowIdsAtMount = [...drawsByRowId.keys()];
+    // The floor the case rests on: rows were drawn at all, so a frozen count below is
+    // a memo holding rather than a feed that mounted nothing.
+    expect(rowIdsAtMount.length).toBeGreaterThan(0);
+    const drawsAtMount = new Map(drawsByRowId);
+
+    admitOneMoreEntry(sessionStore, REPLAY_LOG_EVENT_COUNT);
+
+    for (const rowId of rowIdsAtMount) {
+      expect(drawsByRowId.get(rowId), `row ${rowId} was drawn again by an event it is not in`).toBe(
+        drawsAtMount.get(rowId),
+      );
+    }
+    // And the event's own row WAS drawn, so the counter is live and the window did
+    // admit the entry rather than quietly ignoring it.
+    expect([...drawsByRowId.keys()].length).toBe(rowIdsAtMount.length + 1);
+  });
+
+  it("draws again exactly the row whose density the list changed", () => {
+    // The other half, and the one that separates this memo from a memo that never
+    // updates: the lease write moves the row renderer's identity, so every mounted row
+    // is re-rendered and every one of them is compared — and exactly the row whose
+    // density moved is drawn.
+    withLaidOutViewport();
+    const drawsByRowId = new Map<string, number>();
+    const feed = renderFeed(
+      openSessionStoreWithGeneralLog(REPLAY_LOG_EVENT_COUNT),
+      (mount) => {
+        drawsByRowId.set(mount.row.id, (drawsByRowId.get(mount.row.id) ?? 0) + 1);
+      },
+      LeasingRowBody,
+    );
+    const drawsBeforeThePress = new Map(drawsByRowId);
+    const pressedRow = feed.querySelector<HTMLElement>(".leasing-row");
+    if (pressedRow === null) {
+      throw new Error("the feed drew no leasing row to press");
+    }
+
+    fireEvent.click(pressedRow);
+
+    const redrawnRowIds = [...drawsByRowId.keys()].filter(
+      (rowId) => drawsByRowId.get(rowId) !== drawsBeforeThePress.get(rowId),
+    );
+    expect(redrawnRowIds).toHaveLength(1);
   });
 });

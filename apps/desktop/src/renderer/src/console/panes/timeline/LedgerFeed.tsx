@@ -64,31 +64,28 @@ import {
   LedgerRowLeaseProvider,
   LedgerRowRevealProvider,
   LedgerViewport,
-  type LedgerViewportRow,
   useLedgerReveal,
   useLedgerViewport,
 } from "../../ledger/frame/index.js";
 import {
-  ChapterHeader,
   FindInLedger,
   LedgerFilterBar,
   ProvenanceRail,
   ReplayControls,
-  SeamRow,
   jumpToEventId,
   type LedgerJumpOutcome,
 } from "../../ledger/structure/index.js";
-import { Nothing } from "../../primitives/index.js";
 import {
   LedgerEventIdJump,
   LedgerMatchesNotYetReplayedNotice,
   LedgerMatchesOutsideWindowNotice,
   LedgerWindowAbsences,
 } from "./LedgerFeedNotices.js";
+import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../seats/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
-import { densityFor, useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
+import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
 import { useLedgerFind } from "./ledger-find.js";
 import { useFilteredLedgerWindow, useLedgerFilter } from "./ledger-narrowing.js";
 import {
@@ -206,61 +203,14 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // could see.
   const renderTimelineRow = props.renderTimelineRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
-  const renderRow = useCallback(
-    (row: LedgerViewportRow) => {
-      // A CHAPTER HEADER IS A ROW OF THE LIST, keyed by the run it heads, so it is
-      // dispatched before the body lookup — there is no projected row behind it and
-      // there was never meant to be. Every terminal chapter has one; a live chapter
-      // has none and its rows stay top-level.
-      const chapter = ledgerWindow.chapterByHeaderKey.get(row.key);
-      if (chapter !== undefined) {
-        return (
-          <ChapterHeader
-            chapter={chapter}
-            isOpen={openedTerminalRunIds.has(chapter.runId)}
-            participantHue={
-              chapter.actorId === undefined ? undefined : hueForActor(chapter.actorId)
-            }
-            onToggle={toggleChapter}
-          />
-        );
-      }
-      const projected = ledgerWindow.rowsByKey.get(row.key);
-      if (projected === undefined) {
-        // The window moved under the viewport between its reconcile and this paint.
-        // Named rather than rendered as a blank band: a row that vanished mid-frame
-        // is a fact about the cap, not about the session.
-        return (
-          <Nothing kind="not-loaded" placement="inline" title="This entry is no longer loaded." />
-        );
-      }
-      const participantHue =
-        projected.actor === undefined ? undefined : hueForActor(projected.actor);
-      const isSuperseded = ledgerWindow.supersededRowIds.has(projected.id);
-      // A SEAM IS THE LEDGER'S OWN ROW, so it is drawn before the seat is asked.
-      // The seat fills with whichever renderer owns a session's row BODIES, and a
-      // seam has none: it is a change in the run's condition, laid on one line from
-      // parts `seams.ts` derived. Delegating it would render a rollback, a
-      // compaction, a switch or a block as an ordinary receipt and drop the boundary
-      // position, the continuity, the losses, the reason and the blocked-on state.
-      const seam = ledgerWindow.seamByRowId.get(projected.id);
-      if (seam !== undefined) {
-        return <SeamRow seam={seam} participantHue={participantHue} isSuperseded={isSuperseded} />;
-      }
-      return renderTimelineRow({
-        row: projected,
-        participantHue,
-        isSuperseded,
-        // THE LEASE OVERLAYS THE LIST, and the list is the fallback rather than the
-        // other way round: a row nobody has touched holds no lease and follows the
-        // chapter fold, and a row somebody opened keeps that choice across an
-        // unmount and across a prune, because the window re-parks it.
-        density:
-          rowLease(projected.id)?.density ?? densityFor(projected.id, ledgerWindow.collapsedRowIds),
-      });
-    },
-    [hueForActor, ledgerWindow, openedTerminalRunIds, renderTimelineRow, rowLease, toggleChapter],
-  );
+  const renderRow = useLedgerRowRenderer({
+    ledgerWindow,
+    openedTerminalRunIds,
+    hueForActor,
+    toggleChapter,
+    rowLease,
+    renderTimelineRow,
+  });
 
   const geometry = useRailGeometry(viewport.visibleRange, viewport.snapshot.rows.length);
   // "Here", for a console that cannot draw a per-row control: the row at the top of

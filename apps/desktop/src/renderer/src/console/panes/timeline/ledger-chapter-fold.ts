@@ -27,7 +27,7 @@ import {
   type LedgerChapter,
 } from "../../ledger/structure/index.js";
 import { type TimelineRowDensity } from "../../seats/index.js";
-import { chapterKeyFor, viewportRowFor, type LedgerWindowModel } from "./ledger-window.js";
+import { LedgerRowRetention, chapterKeyFor, type LedgerWindowModel } from "./ledger-window.js";
 
 /**
  * Fold every terminal chapter that is not open into a header and its receipt.
@@ -64,10 +64,17 @@ import { chapterKeyFor, viewportRowFor, type LedgerWindowModel } from "./ledger-
 export function foldChapterHeaders(
   model: LedgerWindowModel,
   openedTerminalRunIds: ReadonlySet<string>,
+  retention: LedgerRowRetention = new LedgerRowRetention(),
 ): LedgerWindowModel {
   if (model.chapterByHeaderKey.size === 0) {
     return model;
   }
+  // ITS OWN table, never the projection's: this pass files a live chapter's rows
+  // under no parent while the projection files them under their run, so one table
+  // shared between the two stages would answer each with the other's triple and
+  // thrash on every pass. The early return above leaves the table untouched, which is
+  // correct — a chapterless window publishes the projection's own rows unchanged.
+  retention.beginPass();
   const viewportRows: LedgerViewportRow[] = [];
   const rows: TimelineRow[] = [];
   const rowsByKey = new Map<string, TimelineRow>();
@@ -85,7 +92,7 @@ export function foldChapterHeaders(
     const runId = chapterKeyFor(row);
     const chapter = runId === undefined ? undefined : model.chapterByHeaderKey.get(runId);
     if (chapter === undefined || runId === undefined) {
-      viewportRows.push(viewportRowFor(row, undefined));
+      viewportRows.push(retention.retainRowIdentity(row, undefined));
       rows.push(row);
       rowsByKey.set(row.id, row);
       continue;
@@ -95,13 +102,13 @@ export function foldChapterHeaders(
       // At the chapter's FIRST row, so the header sits where the chapter starts and
       // the log's order is untouched. The header is its own cut unit: pruning it
       // takes its subtree with it, which is the ancestor closure the cap performs.
-      viewportRows.push({ key: runId, parentKey: undefined, rootCursor: runId });
+      viewportRows.push(retention.retainChapterHeaderIdentity(runId));
     }
     const cappedRowIds = cappedRowIdsByRunId.get(runId);
     const isOpenedAndWithinCap =
       openedTerminalRunIds.has(runId) && (cappedRowIds === undefined || cappedRowIds.has(row.id));
     if (isOpenedAndWithinCap || row.id === chapter.terminalRowId) {
-      viewportRows.push(viewportRowFor(row, runId));
+      viewportRows.push(retention.retainRowIdentity(row, runId));
       rows.push(row);
       rowsByKey.set(row.id, row);
     }
@@ -176,9 +183,12 @@ export function useFoldedChapters(
   model: LedgerWindowModel,
   openedTerminalRunIds: ReadonlySet<string>,
 ): LedgerWindowModel {
+  // One table for the life of the mount — the projection hook's own idiom, for its
+  // reason, and a second INSTANCE rather than a second class.
+  const [retention] = useState(() => new LedgerRowRetention());
   return useMemo(
-    () => foldChapterHeaders(model, openedTerminalRunIds),
-    [model, openedTerminalRunIds],
+    () => foldChapterHeaders(model, openedTerminalRunIds, retention),
+    [model, openedTerminalRunIds, retention],
   );
 }
 
