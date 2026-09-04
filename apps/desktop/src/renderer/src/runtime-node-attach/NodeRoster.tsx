@@ -168,7 +168,7 @@
 // manifest — the specifier no longer resolves here, per the SessionBootstrap
 // header.)
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import type {
   RuntimeNodeRosterEntry,
@@ -191,6 +191,21 @@ import type {
 // binding to the contracts literal survives in the one view that BRANCHES on
 // the code (`MixedVersionStatus.tsx#VERSION_FLOOR_EXCEEDED_WIRE_CODE`).
 import { normalizeWireRejection } from "../../../shared/wire-errors.js";
+
+// The held-answer stamp. A settled roster belongs to the session AND the transport
+// it was read through, and comparing one of those during render is what left the
+// retired transport's rows on screen — so the comparison is taken from the console's
+// one implementation of the rule rather than written a second time here.
+//
+// Reached by its own specifier rather than through the store family's door: this
+// component is a Tier-1 renderer subtree that the console ABSORBS, not a console
+// family, so the door's cross-family rule does not govern it — and the door
+// publishes the session stores, the frame store, and the schedulers, none of which
+// a view holding no store has any business pulling in to compare two identities.
+import {
+  useSubjectStampedState,
+  type SubjectStamp,
+} from "../console/store/subject-stamped-state.js";
 
 // The `window.sidekicks` ambient type lives in the renderer-wide
 // `sidekicks-bridge.d.ts` (Plan-002 Phase 6 T6.0; part of the renderer
@@ -342,16 +357,40 @@ export interface NodeRosterProps {
 // local view-model — so the render binds to the real contract axes by
 // construction.
 //
-// No-flicker contract (same as participant-roster): `loading` is set in only
-// two RENDER-PHASE places — the `useState` initializer (MOUNT) and the
-// `previousSessionId` guard (every `sessionId` CHANGE). It is NOT set on a
-// same-session subscribe-triggered re-read: `refreshSnapshot` setStates ONLY
-// to `loaded`/`error`, so a live-health re-read updates the node set IN PLACE
-// and never flashes back to the loading branch.
+// No-flicker contract (same as participant-roster): `loading` is what the view
+// shows whenever nothing has been read FOR THE CURRENT SUBJECT, and the subject
+// is the (session, transport) pair the effect below reads through. It is NOT
+// re-entered on a same-subject re-read: `refreshSnapshot` publishes ONLY
+// `loaded`/`error` under the subject it read for, so a live-health re-read updates
+// the node set IN PLACE and never flashes back to the loading branch.
 type RosterViewState =
   | { kind: "loading" }
   | { kind: "loaded"; nodes: RuntimeNodeRosterEntry[] }
   | { kind: "error"; error: Error };
+
+/**
+ * The "nothing has been read for this subject yet" answer, as one frozen value.
+ *
+ * A module constant rather than a fresh literal, so the identity of the absence does
+ * not change between the passes that produce it — the same reasoning `store/hooks.ts`
+ * gives for freezing its own not-loaded arm.
+ */
+const ROSTER_NOT_READ: RosterViewState = { kind: "loading" };
+
+/**
+ * What a held roster is an answer about: this session, read through this transport.
+ *
+ * Both, and written once. A change to EITHER makes the rows on screen an answer to a
+ * question nobody is asking — the session for the obvious reason, the transport
+ * because the console's bridge provider replaces its resolution without remounting
+ * its children, so a swapped scenario or a re-minted engine leaves the retired
+ * bridge's rows standing under a live one. The pair is also exactly the effect's own
+ * dependency list, which is what keeps the render-side comparison and the read-side
+ * teardown from ever disagreeing about what a new subject is.
+ */
+function rosterSubjectFor(sessionId: SessionId, reads: NodeRosterReads): SubjectStamp {
+  return [sessionId, reads];
+}
 
 /**
  * Renders the live roster of runtime nodes attached to a session: a loading
@@ -372,23 +411,21 @@ export function NodeRoster({
   sessionId,
   reads = INSTALLED_BRIDGE_READS,
 }: NodeRosterProps): React.JSX.Element {
-  const [rosterViewState, setRosterViewState] = useState<RosterViewState>({ kind: "loading" });
-
-  // Session-identity prop reset (React's "Adjusting some state when a prop
-  // changes" pattern — the SAME render-phase mechanism `ParticipantRoster`
-  // uses). On a `sessionId` change it resets to `loading` render-phase (BEFORE
-  // commit), so a future Plan-023 router reusing this instance across sessions
-  // never paints the prior session's `loaded` roster for a frame. It touches
-  // ONLY `rosterViewState`; the effect-scoped guards re-init inside the
-  // effect, which re-runs on the same `[sessionId]` change. The complete fix
-  // for instance reuse is the Tier-8 parent keying the roster per session
-  // (`key={sessionId}`); this render-phase reset is the narrower fallback
-  // until that keying lands.
-  const [previousSessionId, setPreviousSessionId] = useState(sessionId);
-  if (sessionId !== previousSessionId) {
-    setPreviousSessionId(sessionId);
-    setRosterViewState({ kind: "loading" });
-  }
+  // The held roster is STAMPED with the subject it was read for, rather than kept
+  // beside a comparison of one prop. A session change and a transport change are the
+  // same failure — rows answering a question that has been replaced — and the second
+  // one is the invisible half: the session id does not move when the console's bridge
+  // provider swaps its resolution, and a refresh deliberately never re-enters
+  // `loading`, so the retired bridge's roster would stand until the replacement read
+  // settled, which is unbounded. Stamping substitutes the not-read answer in the
+  // render that first sees the new subject, BEFORE commit, so no pass paints the old
+  // transport's rows under the new one. It also drops a reply published for a subject
+  // this view has left, which is the belt to the effect's own `cancelled` braces.
+  const rosterSubject = rosterSubjectFor(sessionId, reads);
+  const [rosterViewState, publishRosterViewState] = useSubjectStampedState<RosterViewState>(
+    rosterSubject,
+    ROSTER_NOT_READ,
+  );
 
   useEffect(() => {
     // Strict-mode-safe mount (same posture as participant-roster /
@@ -433,6 +470,13 @@ export function NodeRoster({
     // substitutable; it changes neither cast nor either wire name.
     const { readRoster, subscribePresence } = reads;
 
+    // The subject THIS effect run reads for, rebuilt from the same two inputs its
+    // dependency list names. Every publish below carries it, so a reply that lands
+    // after the view has moved on is dropped by the stamp rather than installed —
+    // and the render-side comparison is against the subject the render is about, not
+    // against whatever the last publish happened to be for.
+    const readSubject = rosterSubjectFor(sessionId, reads);
+
     // Shared decoded-snapshot read. Used for BOTH the initial read and every
     // subscribe-triggered refresh. The async-IIFE shape funnels a SYNCHRONOUS
     // Tier-1 stub throw (`() => tier1Throw("controlPlane.call")`,
@@ -462,7 +506,7 @@ export function NodeRoster({
           // full node set is rendered (admit-not-eject, I-003-1): no
           // `.filter(...)` drops a node by `state`, `healthState`, or
           // `readOnly`.
-          setRosterViewState({ kind: "loaded", nodes: rosterResponse.nodes });
+          publishRosterViewState(readSubject, { kind: "loaded", nodes: rosterResponse.nodes });
         } catch (bridgeError: unknown) {
           if (cancelled || requestSequence !== latestRequestSequence) return;
           // Tier-3 production branch: at Tier 1 every bridge method throws
@@ -484,7 +528,7 @@ export function NodeRoster({
           // failure); a resilient "keep last snapshot" is a Tier-8 polish, not
           // a Tier-3 requirement.
           const normalizedError = normalizeWireRejection(bridgeError);
-          setRosterViewState({ kind: "error", error: normalizedError });
+          publishRosterViewState(readSubject, { kind: "error", error: normalizedError });
         }
       })();
     };
@@ -521,7 +565,10 @@ export function NodeRoster({
       refreshSnapshot();
     } catch (subscribeError: unknown) {
       if (!cancelled) {
-        setRosterViewState({ kind: "error", error: normalizeWireRejection(subscribeError) });
+        publishRosterViewState(readSubject, {
+          kind: "error",
+          error: normalizeWireRejection(subscribeError),
+        });
       }
     }
 

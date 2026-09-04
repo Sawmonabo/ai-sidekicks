@@ -810,6 +810,72 @@ describe("NodeRoster", () => {
       expect(releaseSeam).not.toHaveBeenCalled();
     });
 
+    it("stops showing the retired transport's roster, and never repaints it late", async () => {
+      // The interval this case exists for: the effect above already re-subscribes
+      // on a transport swap, but the held roster used to survive it, and a refresh
+      // deliberately never re-enters `loading` — so the retired bridge's rows stood
+      // on screen until the replacement read settled, which is unbounded and may
+      // never happen. The first assertion is made with NO settling pass, because
+      // settling first is exactly what hid the defect.
+      const heldRetiredReRead = createDeferred<RuntimeNodeRosterResponse>();
+      const heldReplacementRead = createDeferred<RuntimeNodeRosterResponse>();
+      const retiredReads = vi
+        .fn<(request: RuntimeNodeRosterRequest) => Promise<RuntimeNodeRosterResponse>>()
+        .mockResolvedValueOnce(FIRST_SNAPSHOT)
+        .mockReturnValueOnce(heldRetiredReRead.promise);
+      const firstSeam = createInjectedSeam({ readRoster: retiredReads });
+      const secondSeam = createInjectedSeam({ readRoster: () => heldReplacementRead.promise });
+
+      const { rerender } = render(
+        <NodeRoster sessionId={FIRST_SESSION_ID} reads={firstSeam.reads} />,
+      );
+      await screen.findByText(`node id: ${REGISTERING_NODE_ID}`);
+      // A second read is now IN FLIGHT on the transport about to be retired, so the
+      // late-reply arm below has something real to land.
+      act(() => {
+        firstSeam.emitPresenceChange();
+      });
+
+      rerender(<NodeRoster sessionId={FIRST_SESSION_ID} reads={secondSeam.reads} />);
+
+      expect(screen.getByLabelText("node-roster-loading")).toBeDefined();
+      expect(screen.queryByText(`node id: ${REGISTERING_NODE_ID}`)).toBeNull();
+
+      // The retired transport answers after the swap. Its rows are an answer to a
+      // question this view is no longer asking, so nothing repaints.
+      await act(async () => {
+        heldRetiredReRead.resolve(FIRST_SNAPSHOT);
+        await heldRetiredReRead.promise;
+      });
+      expect(screen.queryByText(`node id: ${REGISTERING_NODE_ID}`)).toBeNull();
+      expect(screen.getByLabelText("node-roster-loading")).toBeDefined();
+
+      // …and the replacement read still lands, so the substitution is a pause and
+      // not a dead end.
+      await act(async () => {
+        heldReplacementRead.resolve(SECOND_SNAPSHOT);
+        await heldReplacementRead.promise;
+      });
+      expect(screen.getByText(`node id: ${JOINED_LATER_NODE_ID}`)).toBeDefined();
+    });
+
+    it("negative control: an unchanged seam re-rendered keeps the roster it has", async () => {
+      // Without this, both cases above would pass over a view that reset on every
+      // render — the SAME node, not merely an equal one, because an unmount and
+      // remount between renders is the flash the no-flicker contract forbids.
+      const seam = createInjectedSeam({
+        readRoster: async () => await Promise.resolve(FIRST_SNAPSHOT),
+      });
+
+      const { rerender } = render(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+      const firstRow = await screen.findByText(`node id: ${REGISTERING_NODE_ID}`);
+
+      rerender(<NodeRoster sessionId={FIRST_SESSION_ID} reads={seam.reads} />);
+
+      expect(screen.queryByLabelText("node-roster-loading")).toBeNull();
+      expect(screen.getByText(`node id: ${REGISTERING_NODE_ID}`)).toBe(firstRow);
+    });
+
     it("releases the supplied subscription on unmount", async () => {
       const unsubscribeSpy = vi.fn();
       const seam = createInjectedSeam({
