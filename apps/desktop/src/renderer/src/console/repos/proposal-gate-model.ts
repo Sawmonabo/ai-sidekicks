@@ -53,14 +53,16 @@ export const PROPOSAL_GATE_REFUSAL_ORIGIN = "proposal-gate";
  * Closed, and no member overlaps a growth-port or a daemon code — those travel
  * verbatim. These name the failures that are the reader's own to describe: an act
  * pressed with no served context behind it, an act the daemon answered without
- * accepting, an act pressed while another one is still unanswered, and a root the
- * registered request has no arm this console can fill for.
+ * accepting, an act pressed while another one is still unanswered, a root the
+ * registered request has no arm this console can fill for, and an act whose context
+ * the gate read again while that act was still waiting to go on the wire.
  */
 export const PROPOSAL_GATE_REFUSAL_CODES = [
   "no-served-context",
   "action-not-accepted",
   "action-in-flight",
   "subject-not-addressable",
+  "context-superseded",
 ] as const;
 
 /** One reader-side refusal code. Derived, so the vocabulary is declared exactly once. */

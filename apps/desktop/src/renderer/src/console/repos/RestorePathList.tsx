@@ -37,7 +37,7 @@ import {
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
   RESTORE_PATH_VISIBLE_ROW_CAP,
 } from "../core/index.js";
-import { WireFigure } from "../primitives/index.js";
+import { WireFigure, windowedRowPosition } from "../primitives/index.js";
 
 /** The tallest a windowed enumeration's scroll container may grow, in CSS pixels. */
 const RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX =
@@ -135,9 +135,10 @@ function WindowedRestorePathList(props: RestorePathListProps): React.JSX.Element
                 ref={virtualizer.measureElement}
                 // The window holds a slice, so each row says where it sits in the
                 // whole enumeration; without it a screen reader would be told the
-                // list is as long as the window.
-                aria-setsize={props.paths.length}
-                aria-posinset={virtualRow.index + 1}
+                // list is as long as the window. The pair is the primitives' —
+                // the changed-file list draws a windowed list too, and one of the
+                // two would eventually count its positions from zero.
+                {...windowedRowPosition(virtualRow.index, props.paths.length)}
               >
                 <RestorePathCell path={path} onOpenPath={props.onOpenPath} />
               </li>

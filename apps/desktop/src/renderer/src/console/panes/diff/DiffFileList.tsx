@@ -42,11 +42,12 @@
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
-import { DerivedFigure, Glyph } from "../../primitives/index.js";
+import { DerivedFigure, Glyph, windowedRowPosition } from "../../primitives/index.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD, DIFF_FILE_ROW_HEIGHT_PX } from "./diff-bounds.js";
 import {
+  HIDDEN_SELECTION_COPY,
   diffFileListReading,
-  selectedEntryIndex,
+  selectedEntryRow,
   type DiffFileListEntry,
 } from "./diff-file-entries.js";
 import type { ConsoleDiffModel } from "./diff-model.js";
@@ -74,7 +75,14 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     () => diffFileListReading(props.diff, filterText),
     [props.diff, filterText],
   );
-  const selectedIndex = selectedEntryIndex(entries, props.selectedFilePath);
+  const selectedRow = selectedEntryRow(entries, props.selectedFilePath);
+  // The row `aria-current` goes on, and `undefined` where the narrowing has none: a
+  // hidden selection marks nothing rather than marking the reset control, which would
+  // say the list is showing every file while the renderer shows one.
+  const currentIndex = selectedRow.kind === "row" ? selectedRow.index : undefined;
+  // Where the window opens and where the keyboard starts. Row zero for a hidden
+  // selection, which is the only row a filter that hides the narrowing always draws.
+  const openingIndex = currentIndex ?? 0;
 
   const entryWindow = useRowWindow({
     rowCount: entries.length,
@@ -83,12 +91,12 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
     // Where the list OPENS. A first paint happens before anything can scroll, so a
     // pane reopened on a selection a thousand rows down would otherwise open at the
     // top with the selected row unmounted; the effect below carries every later move.
-    initialOffsetPx: selectedIndex * DIFF_FILE_ROW_HEIGHT_PX,
+    initialOffsetPx: openingIndex * DIFF_FILE_ROW_HEIGHT_PX,
   });
   const { activeIndex, onKeyDown } = useRovingEntryFocus({
     entryWindow,
-    entryCount: entries.length,
-    selectedIndex,
+    entries,
+    selectedIndex: openingIndex,
     scrollerRef,
   });
 
@@ -96,8 +104,8 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   // control a reader cannot see the state of. Asked for on every change rather than
   // only on mount, because the filter can move a selected file's index under it.
   useEffect(() => {
-    entryWindow.scrollToIndex(selectedIndex);
-  }, [entryWindow, selectedIndex]);
+    entryWindow.scrollToIndex(openingIndex);
+  }, [entryWindow, openingIndex]);
 
   const isScrolling = props.diff.files.length > DIFF_FILE_LIST_SCROLL_THRESHOLD;
   const virtualRows = entryWindow.getVirtualItems();
@@ -139,12 +147,16 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
                 key={entry.kind === "all-files" ? "all-files" : `file:${entry.path}`}
                 className="meridian-diff-files__row"
                 data-index={virtualRow.index}
+                // The window mounts a slice, so each row says how long the list is and
+                // where in it this row sits — without which a reader is told the change
+                // set is as long as the window happens to be.
+                {...windowedRowPosition(virtualRow.index, entries.length)}
                 style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
               >
                 <DiffFileEntryButton
                   entry={entry}
                   entryIndex={virtualRow.index}
-                  isSelected={virtualRow.index === selectedIndex}
+                  isSelected={virtualRow.index === currentIndex}
                   isTabbable={virtualRow.index === activeIndex}
                   onSelectFilePath={props.onSelectFilePath}
                 />
@@ -155,6 +167,12 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
       </div>
       {matchCount === 0 ? (
         <p className="meridian-diff-files__no-match">No changed file matches that filter.</p>
+      ) : null}
+      {selectedRow.kind === "hidden-by-filter" ? (
+        // Said out loud rather than left to an absent highlight: the rows on the right
+        // are still the narrowed file's, and a list with nothing current and no line
+        // explaining it reads as a list that lost the selection.
+        <p className="meridian-diff-files__hidden-selection">{HIDDEN_SELECTION_COPY}</p>
       ) : null}
     </div>
   );
@@ -232,24 +250,36 @@ const ENTRY_MOVE_BY_KEY: Readonly<Record<string, "next" | "previous" | "first" |
  * list itself handled, so it cannot steal focus from elsewhere on the page: nothing
  * sets the pending flag but the handler, and the handler runs only on a key delivered
  * to this list.
+ *
+ * AND A MOVE BELONGS TO THE SEQUENCE IT WAS MADE IN, which is why the stored move
+ * carries that sequence with it.
  */
 function useRovingEntryFocus(options: {
   readonly entryWindow: RowWindow;
-  readonly entryCount: number;
+  /** The rows as drawn. Both the count and the identity a stored move is keyed to. */
+  readonly entries: readonly DiffFileListEntry[];
   readonly selectedIndex: number;
   readonly scrollerRef: React.RefObject<HTMLDivElement | null>;
 }): {
   readonly activeIndex: number;
   readonly onKeyDown: (keyEvent: React.KeyboardEvent<HTMLUListElement>) => void;
 } {
-  const { entryWindow, entryCount, selectedIndex, scrollerRef } = options;
-  const [movedToIndex, setMovedToIndex] = useState<number | undefined>(undefined);
+  const { entryWindow, entries, selectedIndex, scrollerRef } = options;
+  const entryCount = entries.length;
+  const [movedTo, setMovedTo] = useState<MovedEntry | undefined>(undefined);
   const pendingFocus = useRef(false);
 
   // The selection is where the keyboard starts, so a list reopened on a file puts its
-  // one tab stop on that file rather than at the top. A move supersedes it, and a
-  // move past the end of a filtered list falls back to the selection the same way.
-  const activeIndex = Math.min(movedToIndex ?? selectedIndex, Math.max(entryCount - 1, 0));
+  // one tab stop on that file rather than at the top. A move supersedes it — but only
+  // inside the sequence the move was made in.
+  //
+  // AN INDEX INTO A SEQUENCE THAT NO LONGER EXISTS ADDRESSES A DIFFERENT FILE, OR
+  // NONE. Clamping it to the shorter set was not enough: the stored move survived the
+  // filter, so clearing the filter restored a distant index while the window sat at
+  // the top, leaving every mounted button `tabIndex={-1}` and taking the whole list
+  // out of the page's tab order. Keyed to the sequence's own identity rather than
+  // clamped, because a clamp keeps a position the participant never moved to.
+  const activeIndex = (movedTo?.entries === entries ? movedTo.index : undefined) ?? selectedIndex;
 
   const virtualRows = entryWindow.getVirtualItems();
   useEffect(() => {
@@ -275,13 +305,19 @@ function useRovingEntryFocus(options: {
       keyEvent.preventDefault();
       const moved = movedEntryIndex(move, activeIndex, entryCount);
       pendingFocus.current = true;
-      setMovedToIndex(moved);
+      setMovedTo({ entries, index: moved });
       entryWindow.scrollToIndex(moved);
     },
-    [activeIndex, entryCount, entryWindow],
+    [activeIndex, entries, entryCount, entryWindow],
   );
 
   return { activeIndex, onKeyDown };
+}
+
+/** Where the keyboard moved to, and the drawn sequence that index addresses. */
+interface MovedEntry {
+  readonly entries: readonly DiffFileListEntry[];
+  readonly index: number;
 }
 
 /** Where one move lands. Clamped rather than wrapped: a list has two ends. */

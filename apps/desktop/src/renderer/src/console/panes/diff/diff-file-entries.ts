@@ -85,22 +85,37 @@ export function diffFileListReading(
 }
 
 /**
- * Which row the current narrowing is on.
+ * Where the current narrowing sits in the drawn rows, or that this filter hides it.
  *
- * Row zero for the whole change set, and row zero again for a selected path this
- * filter has hidden — the selection is still what the rows show, but the list has no
- * entry to point at, and pointing at the wrong one would move the keyboard's start
- * and the window's opening offset onto an unrelated file.
+ * A CLOSED TWO-ARM ANSWER RATHER THAN AN INDEX WITH A FALLBACK. A narrowing the filter
+ * hides has no row, and answering row zero for it made the list say the opposite of
+ * what the pane was doing: "All files" took `aria-current` while the renderer went on
+ * showing the one hidden file. The narrowing is the participant's own choice and the
+ * filter is a way of looking at the list, so the choice STANDS and the list reports
+ * that it has no row to point at — which is a state, not a value, and so is a member
+ * of this union rather than a number outside the index space (`-1` is a number every
+ * arithmetic in the caller would happily use).
  */
-export function selectedEntryIndex(
+export type SelectedEntryRow =
+  /** Row zero for the whole change set, or the row a selected path is drawn on. */
+  | { readonly kind: "row"; readonly index: number }
+  /** A file is narrowed to and this filter draws no row for it. */
+  | { readonly kind: "hidden-by-filter" };
+
+/** Read which row the current narrowing is on, or that the filter hides it. */
+export function selectedEntryRow(
   entries: readonly DiffFileListEntry[],
   selectedFilePath: string | undefined,
-): number {
+): SelectedEntryRow {
   if (selectedFilePath === undefined) {
-    return 0;
+    return { kind: "row", index: 0 };
   }
   const found = entries.findIndex(
     (entry) => entry.kind === "file" && entry.path === selectedFilePath,
   );
-  return found === -1 ? 0 : found;
+  return found === -1 ? { kind: "hidden-by-filter" } : { kind: "row", index: found };
 }
+
+/** What the list says where the filter hides the file the renderer is showing. */
+export const HIDDEN_SELECTION_COPY =
+  "This filter hides the file the diff is showing, so no row here is current.";

@@ -13,7 +13,7 @@
 // nothing, which is the state that makes such a bound meaningless.
 
 import { fireEvent, render } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
 import {
@@ -24,10 +24,27 @@ import {
 } from "./diff-fixture.js";
 import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
 import { DiffFileList } from "./DiffFileList.js";
+import { HIDDEN_SELECTION_COPY } from "./diff-file-entries.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
 
 const EXTENDED_HEADER_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 const TEXTUAL_ONLY_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
+
+/**
+ * A repository-wide patch: five thousand files, one changed line each.
+ *
+ * Built once for the whole file, because two describes need it and a change set this
+ * size is the only subject a windowing claim can be made against at all.
+ */
+const REPOSITORY_WIDE_DIFF = buildDiffFixture({
+  fileCount: 5_000,
+  hunksPerFile: 1,
+  linesPerHunk: 1,
+  precedingContextPerHunk: 0,
+  agentAttributionEveryNthLine: 0,
+  extendedHeaderFiles: false,
+  terminalNewlineFile: false,
+});
 
 const layout = new DiffLayoutFixture();
 
@@ -58,6 +75,33 @@ function entryFor(container: HTMLElement, path: string): HTMLElement {
     throw new Error(`the list drew no entry for ${path}`);
   }
   return entry;
+}
+
+/**
+ * One file of a change set, by index.
+ *
+ * Thrown for rather than answered as optional, because a fixture shorter than a case
+ * assumes is a broken case and not a state to assert about — and a `function`
+ * declaration below carries no narrowing a guard beside the fixture would have made.
+ */
+function fixtureFileAt(
+  diff: ConsoleDiffModel,
+  fileIndex: number,
+): ConsoleDiffModel["files"][number] {
+  const file = diff.files[fileIndex];
+  if (file === undefined) {
+    throw new Error(`the generated change set has no file at ${String(fileIndex)}`);
+  }
+  return file;
+}
+
+/** Type into the list's own filter, which is how every filtering case narrows it. */
+function filterTo(container: HTMLElement, filterText: string): void {
+  const filter = container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input");
+  if (filter === null) {
+    throw new Error("the list drew no filter input");
+  }
+  fireEvent.change(filter, { target: { value: filterText } });
 }
 
 /** The change note on one path's entry, or `undefined` where it drew none. */
@@ -136,17 +180,6 @@ describe("diff file list — a change set too long to mount", () => {
     DIFF_WINDOW_OVERSCAN_ROWS * 2 +
     2;
 
-  /** A repository-wide patch: five thousand files, one changed line each. */
-  const REPOSITORY_WIDE_DIFF = buildDiffFixture({
-    fileCount: 5_000,
-    hunksPerFile: 1,
-    linesPerHunk: 1,
-    precedingContextPerHunk: 0,
-    agentAttributionEveryNthLine: 0,
-    extendedHeaderFiles: false,
-    terminalNewlineFile: false,
-  });
-
   function mountedEntryCount(container: HTMLElement): number {
     return container.querySelectorAll(".meridian-diff-files__entry").length;
   }
@@ -183,10 +216,7 @@ describe("diff file list — a change set too long to mount", () => {
   it("opens the window on a selection the window would not otherwise reach", () => {
     // A narrowing whose row is off-window is a control a reader cannot see the state
     // of — and a pane reopened on a file a thousand rows down opens on exactly that.
-    const selected = REPOSITORY_WIDE_DIFF.files[4_000]?.path;
-    if (selected === undefined) {
-      throw new Error("the generated change set is shorter than the case assumes");
-    }
+    const selected = fixtureFileAt(REPOSITORY_WIDE_DIFF, 4_000).path;
     const container = renderFileList(REPOSITORY_WIDE_DIFF, selected);
 
     const current = container.querySelector('.meridian-diff-files__entry[aria-current="true"]');
@@ -264,5 +294,167 @@ describe("diff file list — reaching an entry the window has not mounted", () =
     fireEvent.keyDown(firstEntry(container), { key: "a" });
 
     expect(focusedEntryIndex(container)).toBe(0);
+  });
+});
+
+describe("diff file list — a narrowing this filter hides", () => {
+  const FIRST_FILE = fixtureFileAt(TEXTUAL_ONLY_DIFF, 0);
+  const SECOND_FILE = fixtureFileAt(TEXTUAL_ONLY_DIFF, 1);
+
+  /** The list, narrowed to the first file and filtered to the second. */
+  function renderWithHiddenNarrowing(): {
+    readonly container: HTMLElement;
+    readonly onSelectFilePath: ReturnType<typeof vi.fn>;
+  } {
+    const onSelectFilePath = vi.fn<(path: string | undefined) => void>();
+    const { container } = render(
+      <DiffFileList
+        diff={TEXTUAL_ONLY_DIFF}
+        selectedFilePath={FIRST_FILE.path}
+        onSelectFilePath={onSelectFilePath}
+      />,
+    );
+    filterTo(container, SECOND_FILE.path);
+    return { container, onSelectFilePath };
+  }
+
+  it("marks no row current, because the row the narrowing is on is not drawn", () => {
+    // The whole defect: the hidden narrowing fell back to row zero, so "All files"
+    // took `aria-current` while the renderer beside it went on showing one file.
+    const { container } = renderWithHiddenNarrowing();
+
+    expect(container.querySelector('.meridian-diff-files__entry[aria-current="true"]')).toBeNull();
+    expect(container.textContent).toContain(HIDDEN_SELECTION_COPY);
+  });
+
+  it("keeps the narrowing the participant chose rather than clearing it", () => {
+    // The filter is a way of looking at the list; the narrowing is a choice. Clearing
+    // it here would change what the pane renders as a side effect of typing.
+    const { onSelectFilePath } = renderWithHiddenNarrowing();
+
+    expect(onSelectFilePath).not.toHaveBeenCalled();
+  });
+
+  it("marks the row current again once the filter stops hiding it", () => {
+    const { container } = renderWithHiddenNarrowing();
+
+    filterTo(container, "");
+
+    const current = container.querySelector('.meridian-diff-files__entry[aria-current="true"]');
+    expect(current?.textContent).toContain(FIRST_FILE.path);
+    expect(container.textContent).not.toContain(HIDDEN_SELECTION_COPY);
+  });
+
+  it("negative control: a filter that still shows the narrowing marks its row", () => {
+    // Without this the cases above would pass against a list that marked nothing
+    // current and printed the line under every filter anybody typed.
+    const { container } = render(
+      <DiffFileList
+        diff={TEXTUAL_ONLY_DIFF}
+        selectedFilePath={FIRST_FILE.path}
+        onSelectFilePath={() => undefined}
+      />,
+    );
+
+    filterTo(container, FIRST_FILE.path);
+
+    const current = container.querySelector('.meridian-diff-files__entry[aria-current="true"]');
+    expect(current?.textContent).toContain(FIRST_FILE.path);
+    expect(container.textContent).not.toContain(HIDDEN_SELECTION_COPY);
+  });
+});
+
+describe("diff file list — a move made in a list that then changed", () => {
+  /** The mounted entries the page can tab to, which is at most one of them. */
+  function tabbableEntryCount(container: HTMLElement): number {
+    return [...container.querySelectorAll(".meridian-diff-files__entry")].filter(
+      (entry) => entry.getAttribute("tabindex") === "0",
+    ).length;
+  }
+
+  function firstEntry(container: HTMLElement): HTMLElement {
+    const entry = container.querySelector<HTMLElement>(".meridian-diff-files__entry");
+    if (entry === null) {
+      throw new Error("the list drew no entry");
+    }
+    return entry;
+  }
+
+  it("keeps the list in the page's tab order after a filter comes and goes", () => {
+    // The whole defect: the move survived the filter that shrank the entry set, so
+    // clearing the filter restored an index a thousand rows below the window and left
+    // every mounted button `tabIndex={-1}` — a file list a keyboard could not enter.
+    const container = renderFileList(REPOSITORY_WIDE_DIFF);
+    fireEvent.keyDown(firstEntry(container), { key: "End" });
+
+    filterTo(container, "module-01");
+    filterTo(container, "");
+
+    expect(tabbableEntryCount(container)).toBe(1);
+  });
+
+  it("negative control: a move inside an unchanged list still stands", () => {
+    // Without this the case above would pass against a list that dropped the moved
+    // position on every render, which would put the keyboard back at the top after
+    // every arrow key.
+    const container = renderFileList(TEXTUAL_ONLY_DIFF);
+    fireEvent.keyDown(firstEntry(container), { key: "End" });
+
+    const tabbable = container.querySelector('.meridian-diff-files__entry[tabindex="0"]');
+    expect(tabbable?.getAttribute("data-entry-index")).toBe(String(SMALL_DIFF_SHAPE.fileCount));
+  });
+});
+
+describe("diff file list — a window is a slice, and each row says so", () => {
+  /** The set size and position one mounted row reports, by its own index. */
+  function rowPositionAt(
+    container: HTMLElement,
+    entryIndex: number,
+  ): [string | null, string | null] {
+    const row = container.querySelector(
+      `.meridian-diff-files__row[data-index="${String(entryIndex)}"]`,
+    );
+    if (row === null) {
+      throw new Error(`the window did not mount the row at ${String(entryIndex)}`);
+    }
+    return [row.getAttribute("aria-setsize"), row.getAttribute("aria-posinset")];
+  }
+
+  it("reports the whole change set's length and each row's place in it", () => {
+    // Only the window's rows exist in the accessibility tree, so without these a
+    // screen reader reads a thirty-row slice as the complete changed-file list.
+    const container = renderFileList(REPOSITORY_WIDE_DIFF);
+
+    // The reset control plus one row per file, which is the list the `<ul>` holds.
+    const setSize = String(REPOSITORY_WIDE_DIFF.files.length + 1);
+    expect(rowPositionAt(container, 0)).toStrictEqual([setSize, "1"]);
+    expect(rowPositionAt(container, 1)).toStrictEqual([setSize, "2"]);
+  });
+
+  it("counts a filtered list as the rows that filter leaves", () => {
+    // The set is what the list DRAWS, so a filter shortens it — a row claiming a
+    // place in five thousand while nine are drawn would be as wrong as the slice.
+    const container = renderFileList(REPOSITORY_WIDE_DIFF);
+
+    filterTo(container, "module-01");
+
+    const [setSize] = rowPositionAt(container, 0);
+    expect(Number(setSize)).toBe(container.querySelectorAll(".meridian-diff-files__row").length);
+  });
+
+  it("negative control: the position is the row's own and not the window's", () => {
+    // Without this, rows numbered from the top of the mounted window would satisfy
+    // the first case for row zero and misreport every row below the fold.
+    const container = renderFileList(
+      REPOSITORY_WIDE_DIFF,
+      fixtureFileAt(REPOSITORY_WIDE_DIFF, 4_000).path,
+    );
+
+    const rows = [...container.querySelectorAll(".meridian-diff-files__row")];
+    const first = rows[0];
+    if (first === undefined) {
+      throw new Error("the window mounted no row at all");
+    }
+    expect(Number(first.getAttribute("aria-posinset"))).toBeGreaterThan(1);
   });
 });

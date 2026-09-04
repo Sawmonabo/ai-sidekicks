@@ -148,12 +148,18 @@ export class ProposalGateReader {
   /**
    * The caller-identity read, in flight or settled — one per reader, never one per act.
    *
-   * A PROMISE HELD RATHER THAN A VALUE, and never re-issued: the read answers which
-   * participant this window is, which does not change while a gate is mounted, so a
-   * second act reuses the first act's answer rather than putting the same question on
-   * the wire again. Held from the first act that needs it rather than started at
-   * `start()`, because a gate a participant never acts on should not spend a call on
-   * an identity nothing is going to attribute.
+   * A PROMISE HELD RATHER THAN A VALUE: the read answers which participant this window
+   * is, which does not change while a gate is mounted, so a second act reuses the first
+   * act's answer rather than putting the same question on the wire again. Held from the
+   * first act that needs it rather than started at `start()`, because a gate a
+   * participant never acts on should not spend a call on an identity nothing is going
+   * to attribute.
+   *
+   * AN ANSWER IS WHAT IS HELD, AND A NON-ANSWER IS NOT ONE. This field used to keep
+   * whatever the first act got, so an identity read refused or rejected during a
+   * transient disconnect made every later Commit and Push on that gate omit its
+   * causation for the rest of the gate's life — long after the read would have
+   * succeeded. Cleared on a non-answer, so the next act asks again.
    */
   #callerParticipantIdRead: Promise<string | undefined> | undefined;
   #proposal: PreparedProposal | undefined;
@@ -316,19 +322,34 @@ export class ProposalGateReader {
    * answers with an outcome, but a live bridge whose IPC never reaches the daemon
    * rejects instead, and an unhandled rejection here would take down an act that had
    * already been admitted.
+   *
+   * WHAT IS ABSORBED IS NOT WHAT IS REMEMBERED. Absence is the honest answer for the
+   * act that asked, and it is not an identity to hold: a refusal and a rejection are
+   * both states of the wire at one moment, and a reader that cached either would go on
+   * omitting the causation from every later act on a connection that had come back.
+   * Only a served identity is kept; anything else clears the field so the next act
+   * puts the question again. Cleared under the identity check the settle paths make,
+   * so a slow non-answer cannot drop the answer a later read has already installed.
    */
   async #readCallerParticipantId(): Promise<string | undefined> {
-    this.#callerParticipantIdRead ??= (async () => {
-      try {
-        const outcome = await this.#bridge.growth.callerParticipantRead({
-          sessionId: this.#sessionId,
-        });
-        return outcome.status === "served" ? outcome.value.participantId : undefined;
-      } catch {
-        return undefined;
-      }
-    })();
-    return await this.#callerParticipantIdRead;
+    const pending = (this.#callerParticipantIdRead ??= this.#askWhichParticipantThisIs());
+    const participantId = await pending;
+    if (participantId === undefined && this.#callerParticipantIdRead === pending) {
+      this.#callerParticipantIdRead = undefined;
+    }
+    return participantId;
+  }
+
+  /** Put the identity question on the wire once, answering absence for a non-answer. */
+  async #askWhichParticipantThisIs(): Promise<string | undefined> {
+    try {
+      const outcome = await this.#bridge.growth.callerParticipantRead({
+        sessionId: this.#sessionId,
+      });
+      return outcome.status === "served" ? outcome.value.participantId : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   async #performRead(): Promise<void> {
