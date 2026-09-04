@@ -689,3 +689,117 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     expect(artifactList).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("artifact pane — the reader is stamped to its subject", () => {
+  /**
+   * The same pane, re-addressed to another artifact in the same session.
+   *
+   * The bridge and the store are the SAME objects across both renders, which is the
+   * whole point: the deck reuses a mounted pane, so the only thing that moved is the
+   * address. A second `contextFor` call would mint a second store and remount the
+   * reader for that reason instead, and the case would pass over the defect.
+   */
+  function reAddressed(context: ArtifactPaneContext): ArtifactPaneContext {
+    return { ...context, entity: OTHER_ARTIFACT_ENTITY };
+  }
+
+  function renderReAddressed(
+    context: ArtifactPaneContext,
+    rerender: ReturnType<typeof render>["rerender"],
+  ): void {
+    rerender(
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        <ArtifactPane context={reAddressed(context)} />
+      </LiveAnnouncerProvider>,
+    );
+  }
+
+  it("does not render one artifact's fetched payload under another's header", async () => {
+    // The bug, exercised: the memo keyed only on the bridge and the store, so the
+    // reader survived the address change with its payload arm intact — and neither
+    // the text nor the opaque arm draws an artifact id, so A's bytes were presented
+    // as B's with nothing on screen to say otherwise.
+    const context = contextFor(ARTIFACT_ENTITY, {
+      // "diff --git a/one b/one" in RFC 4648 base64.
+      bridge: bridgeListing({
+        readAnswer: inlineReadAnswering("ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==", "base64"),
+      }),
+      sessionId: SESSION_ID,
+    });
+    const { container, getByRole, rerender } = renderPane(context);
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+    expect(container.querySelector(".meridian-artifact-payload__preview")?.textContent).toBe(
+      "diff --git a/one b/one",
+    );
+
+    renderReAddressed(context, rerender);
+    await readThrough();
+
+    expect(container.querySelector(".meridian-repos-pane__subject")?.textContent).toBe(
+      OTHER_ARTIFACT_ENTITY.id,
+    );
+    // `not-checked` renders no payload section at all, which is the honest absence
+    // for a subject nobody has asked about — not an empty preview.
+    expect(container.querySelector(".meridian-artifact-payload")).toBeNull();
+  });
+
+  it("does not hold the next subject's control with the previous subject's fetch", async () => {
+    // The other half. The control is held by the `fetching` arm, and that arm belongs
+    // to an artifact this pane is no longer addressed to — so a participant met a
+    // disabled Fetch on a subject nothing had ever been asked about.
+    const context = contextFor(ARTIFACT_ENTITY, {
+      bridge: {
+        growth: {
+          artifactList: async () => LISTED_ONE_ROW,
+          artifactAllowlistRead: async () => PORT_REFUSAL,
+          // Never answers: the fetch stays on the wire for the rest of the case.
+          artifactRead: () => new Promise<unknown>(() => undefined),
+          artifactDelete: async () => PORT_REFUSAL,
+        },
+      } as unknown as ConsoleBridge,
+      sessionId: SESSION_ID,
+    });
+    const { getByRole, rerender } = renderPane(context);
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+    expect(getByRole("button", { name: "Fetch payload" }).hasAttribute("disabled")).toBe(true);
+
+    renderReAddressed(context, rerender);
+    await readThrough();
+
+    expect(getByRole("button", { name: "Fetch payload" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("negative control: the same subject keeps its reader, its payload, and its reads", async () => {
+    // Without this, a memo keyed on the address OBJECT would pass both cases above
+    // and mint a reader — and a read pair — on every render the deck performs, which
+    // is the cost the stamp is deliberately narrow to avoid.
+    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const context = contextFor(ARTIFACT_ENTITY, {
+      bridge: bridgeListing({
+        artifactList,
+        readAnswer: inlineReadAnswering("ZGlmZiAtLWdpdCBhL29uZSBiL29uZQ==", "base64"),
+      }),
+      sessionId: SESSION_ID,
+    });
+    const { container, getByRole, rerender } = renderPane(context);
+    await readThrough();
+    fireEvent.click(getByRole("button", { name: "Fetch payload" }));
+    await settleAct();
+
+    rerender(
+      <LiveAnnouncerProvider clock={new ManualClock()}>
+        <ArtifactPane context={{ ...context }} />
+      </LiveAnnouncerProvider>,
+    );
+    await readThrough();
+
+    expect(container.querySelector(".meridian-artifact-payload__preview")?.textContent).toBe(
+      "diff --git a/one b/one",
+    );
+    expect(artifactList).toHaveBeenCalledTimes(1);
+  });
+});
