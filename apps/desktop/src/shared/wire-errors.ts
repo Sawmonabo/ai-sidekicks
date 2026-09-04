@@ -33,19 +33,49 @@ export interface WireErrorEnvelope {
 }
 
 /**
+ * Read one property off an arbitrary rejected value, and cannot throw.
+ *
+ * A plain `value.code` is NOT safe on a value nobody validated: a property access
+ * runs a getter, and a getter that throws propagates out of the very guard that
+ * exists to decide whether the value is renderable. A Proxy's `get` trap throws the
+ * same way, and so does any accessor a hostile or merely broken producer defined.
+ * The absent reading and the throwing reading collapse to the same `undefined`,
+ * because to every caller here they mean the same thing: this value does not carry
+ * that member in any usable form.
+ *
+ * `function` joins `object` in the accepted set because a function is a property
+ * container too — a null-prototype function carrying `code` and `message` is a
+ * perfectly good envelope and `typeof` reports it as neither `"object"` nor null.
+ */
+export function readGuardedProperty(value: unknown, key: string): unknown {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+    return undefined;
+  }
+  try {
+    return (value as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Whether `value` is a wire error envelope.
  *
  * Shape-generic — any string `code` plus any string `message` — deliberately not
  * bound to specific code literals: a caller that needs to branch on a particular
  * code uses {@link isWireErrorEnvelopeWithCode}, and one that only needs to
  * render `code: message` must not have to enumerate every code that exists.
+ *
+ * Reads through {@link readGuardedProperty} rather than directly, so the guard is
+ * as total as the stringifier beside it. A predicate that can throw is not a guard:
+ * every caller here is on a failure path already, and a throw there replaces a
+ * rendered refusal with an unmounted subtree.
  */
 export function isWireErrorEnvelope(value: unknown): value is WireErrorEnvelope {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as { code?: unknown; message?: unknown };
-  return typeof candidate.code === "string" && typeof candidate.message === "string";
+  return (
+    typeof readGuardedProperty(value, "code") === "string" &&
+    typeof readGuardedProperty(value, "message") === "string"
+  );
 }
 
 /**

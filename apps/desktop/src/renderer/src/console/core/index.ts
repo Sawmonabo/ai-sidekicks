@@ -50,3 +50,12 @@ export {
 export { DuplicateRegistrationError, KeyedRegistry } from "./keyed-registry.js";
 export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
 export { consoleTripwires, reportTripwire } from "./tripwires.js";
+export {
+  normalizeWireRejection,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type RejectionFallback,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type WireRefusal,
+  /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  type WireRetryHint,
+} from "./wire-rejection.js";
