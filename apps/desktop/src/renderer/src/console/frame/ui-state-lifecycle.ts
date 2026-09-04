@@ -12,16 +12,27 @@
 // is `session-lifecycle.ts`'s, deliberately — same window, same question, and a
 // second answer to it would be a second place to get the teardown wrong:
 //
-//   • **A `useState` initializer, not `useMemo`.** The initializer runs once per
-//     mounted component and its result is never recomputed; a memo may be discarded,
-//     and a recomputed store would be a second connection nobody closes.
+//   • **Held by `useSubjectScopedState`, not by `useState`.** The store's clock comes
+//     from the bridge, and the provider replaces that bridge — a reconnect, the
+//     fixture's scenario switch — while this window stays mounted. A `useState`
+//     initializer runs once and never again, so the replacement was answered by
+//     nothing here: the window went on stamping records from a retired scenario's
+//     clock and trimming an LRU ordered on those stamps. The holder re-addresses
+//     DURING the render that first sees the new bridge, and it mints exactly once per
+//     bridge even under the double-invoked render strict mode performs — where a
+//     `useState` initializer runs twice and one of the two connections it opens is
+//     discarded without ever being closed.
 //   • **Closed in the effect's cleanup**, which is the only place that knows the
-//     window is actually going away rather than merely re-rendering.
+//     window is actually going away rather than merely re-rendering — and, on a
+//     bridge swap, the only place carrying the RETIRED store in its own closure.
+//     Dropping a value is all a holder does; a connection has to be closed.
 //   • **Re-minted when the state holds a closed store.** React's StrictMode
 //     double-mount runs the cleanup and then mounts the SAME component instance
 //     again, so the second mount would otherwise be handed the corpse the first
-//     one's teardown just closed. Asking the store rather than remembering is what
-//     makes that arm correct without a second flag beside it.
+//     one's teardown just closed. That arm cannot be a render-phase comparison: the
+//     close happens in a cleanup and is invisible to the render before it, so the
+//     hook asks the store instead — which is what makes the arm correct without a
+//     second flag beside it.
 //   • **On the bridge's clock, like every other subsystem this window owns.** The
 //     store stamps each record's `updatedAt` from a clock and arms the database
 //     open's timeout on the same one, and both defaulted to the wall clock — so
@@ -31,16 +42,20 @@
 //     one answer to which clock a window runs on; `session-lifecycle.ts` asks it
 //     the same question for the session registry.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import { consoleClockFor, useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import { UiStateStore } from "../persistence/index.js";
+import { useSubjectScopedState } from "../store/index.js";
 
 /**
- * This window's UI-state store, closed when the console unmounts.
+ * This window's UI-state store, rebuilt on a new bridge and closed when the console
+ * unmounts.
  *
- * One store per mounted console, and exactly one open connection: the re-mint arm
- * replaces a closed store rather than leaving the window writing into one.
+ * One store per mounted console per bridge, and exactly one open connection at a
+ * time: the holder retires the store its bridge was replaced under, and the re-mint
+ * arm replaces one that closed itself, rather than leaving the window writing into
+ * either.
  *
  * The bridge is resolved from context rather than taken as an argument, for the
  * reason `useSessionStoreRegistry` states one level over: every caller then gets
@@ -49,10 +64,14 @@ import { UiStateStore } from "../persistence/index.js";
  */
 export function useUiStateStore(): UiStateStore {
   const bridge = useConsoleBridge();
-  const [uiStateStore, setUiStateStore] = useState<UiStateStore>(() => openUiStateStore(bridge));
+  const { value: uiStateStore, publish: publishStore } = useSubjectScopedState<UiStateStore>(
+    bridge,
+    undefined,
+    () => openUiStateStore(bridge),
+  );
   useEffect(() => {
     if (uiStateStore.isClosed) {
-      setUiStateStore(openUiStateStore(bridge));
+      publishStore(openUiStateStore(bridge));
       return;
     }
     return () => {
@@ -62,7 +81,7 @@ export function useUiStateStore(): UiStateStore {
       // here would be a defect, and an unhandled one is how it gets found.
       void uiStateStore.close();
     };
-  }, [uiStateStore, bridge]);
+  }, [uiStateStore, publishStore, bridge]);
   return uiStateStore;
 }
 
