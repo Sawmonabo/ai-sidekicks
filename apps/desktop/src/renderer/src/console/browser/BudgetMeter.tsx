@@ -19,7 +19,8 @@
 // byte-valued one — and `core/constants.ts` carries that answer as a map total over
 // its own unit set. A byte ceiling sent through `formatCount` renders raw decimal
 // bytes, which is a figure that disagrees with every other byte quantity the console
-// shows and reads as MB where the rest of the product reads MiB; a second scaling
+// shows, and reads in powers of a thousand where the rest of the product reads in
+// powers of 1024; a second scaling
 // written here would be the second byte formatter `apps/desktop/AGENTS.md` names a
 // chokepoint breach. So the surface dispatches and never converts, and the exact
 // wire value rides the figure as its title so a reviewer can still read the byte.
@@ -115,8 +116,8 @@ function describeMeasure(measure: BrowserBoundMeasure): string {
  * ceiling column and the reading column beside it.
  *
  * Shared rather than written twice because the two columns are read against each
- * other: a column that scaled the ceiling and not the reading would put a `KiB`
- * beside a decimal byte count and invite exactly the comparison that is wrong.
+ * other: a column that scaled the ceiling and not the reading would put a binary
+ * figure beside a decimal byte count and invite exactly the comparison that is wrong.
  *
  * The dispatch is a lookup rather than a test here. This surface owns the layout;
  * which chokepoint a unit goes through is `core/constants.ts`'s declaration.
@@ -131,8 +132,9 @@ function scaleScalarFigure(value: number, unit: BrowserScalarUnit): string {
  * A ceiling: the figure, and the unit words that survive the scaling.
  *
  * A counted ceiling carries its whole unit as a word. A byte one carries whatever the
- * unit still says once `formatByteQuantity` has supplied `KiB` in place of `bytes` —
- * nothing for a bare byte ceiling, `per entry` for a per-entry one. The reading
+ * unit still says once `formatByteQuantity` has supplied a binary unit label in place
+ * of `bytes` — nothing for a bare byte ceiling, `per entry` for a per-entry one. The
+ * reading
  * column deliberately carries no unit word at all: the row already names it once, and
  * a byte quantity brings its own binary label with it.
  */

@@ -336,8 +336,8 @@ export type BrowserScalarUnit = (typeof BROWSER_SCALAR_UNITS)[number];
  * `undefined` means the figure is a COUNT: it goes through `formatCount` and the
  * unit rides beside it as a word. A string means the figure is a BYTE quantity: it
  * goes through `formatByteQuantity`, which supplies its own binary unit label, and
- * this is whatever the unit still says after `bytes` has been replaced by `KiB` —
- * empty for a bare byte ceiling, `per entry` for a per-entry one.
+ * this is whatever the unit still says after `bytes` has been replaced by the binary
+ * unit label — empty for a bare byte ceiling, `per entry` for a per-entry one.
  *
  * A map rather than a predicate over a substring, because "bytes" appearing inside a
  * unit word is a guess and this is a declaration; total over the unit set rather
