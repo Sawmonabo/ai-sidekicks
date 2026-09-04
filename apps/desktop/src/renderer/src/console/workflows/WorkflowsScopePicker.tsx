@@ -11,8 +11,9 @@
 // ones from `SessionStoreRegistry`, offered as their union: the two answer to
 // different authorities and either can hold what the other does not — a node with
 // six sessions and a window that has opened none of them is not an empty node, and a
-// session created a moment ago may not be on the node's list yet. `frame/session-directory.ts`
-// owns both the read and the union, so neither is written a second time here.
+// session created a moment ago may not be on the node's list yet.
+// `bridge/session-directory.ts` owns both the read and the union, so neither is
+// written a second time here.
 //
 // THE ABSENCES ARE THE READ'S, NOT THIS SURFACE'S GUESS AT IT. A directory read in
 // flight is `not-loaded`; an answer with no rows is `empty`; a refusal with nothing
@@ -28,10 +29,8 @@
 // one that follows — that a session came into scope — and `WorkflowsDestination.tsx`
 // owns it.
 
-import type { GrowthPort } from "../bridge/index.js";
-import { offeredSessionIds, useSessionDirectory } from "../frame/session-directory.js";
-import { WireChoiceList } from "../frame/WireChoiceList.js";
-import { Nothing } from "../primitives/index.js";
+import { offeredSessionIds, useSessionDirectory, type GrowthPort } from "../bridge/index.js";
+import { Nothing, WireChoiceList } from "../primitives/index.js";
 import { useOpenSessionIds, type SessionStoreRegistry } from "../store/index.js";
 
 /** The question the list is labelled with, written once for the heading and the list. */

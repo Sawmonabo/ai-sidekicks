@@ -37,15 +37,14 @@
 
 import { useState, type ReactNode } from "react";
 
-import type { GrowthPort } from "../bridge/index.js";
-import { Nothing } from "../primitives/index.js";
-import { useOpenSessionIds, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
-import { WireChoiceList } from "./WireChoiceList.js";
 import {
   offeredSessionIds,
   useSessionDirectory,
+  type GrowthPort,
   type SessionDirectoryState,
-} from "./session-directory.js";
+} from "../bridge/index.js";
+import { Nothing, WireChoiceList } from "../primitives/index.js";
+import { useOpenSessionIds, type FrameStore, type SessionStoreRegistry } from "../store/index.js";
 
 /**
  * How the list names itself, for the heading and for assistive technology.

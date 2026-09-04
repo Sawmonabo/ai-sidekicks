@@ -15,6 +15,14 @@
 // agent list passed to a `sessionIds` prop would have been a lie in the one place
 // the compiler cannot catch one.
 //
+// WHY IT LIVES IN `primitives/`. Its only input is a list of wire strings and its
+// only dependency is the mono figure beside it, so this is the lowest family on the
+// console's DAG that owns what it renders. It was written in `frame/` while the
+// frame held every caller; a view family that wanted the same row could then only
+// deep-import past a door it cannot import at all, since the frame's door composes
+// the view families and an import back closes a cycle. One row for every caller was
+// always the point, and it is a primitive that makes that reachable.
+//
 // What is deliberately NOT shared is the absence beside it. A picker with nothing
 // to offer and a sessions list with nothing to show are different next moves, which
 // `Spec-023 §Console Design (Meridian)` rule 8 makes a distinction rather than a
@@ -29,7 +37,7 @@
 // prose paraphrasing a wire figure, which the same rule forbids. A subject with no
 // name renders by its identifier, which is what this row does.
 
-import { WireFigure } from "../primitives/index.js";
+import { WireFigure } from "./Figure.js";
 
 export interface WireChoiceListProps {
   /** The identifiers to offer, in the order they should read. */
