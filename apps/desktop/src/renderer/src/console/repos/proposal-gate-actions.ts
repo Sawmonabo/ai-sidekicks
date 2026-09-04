@@ -33,10 +33,9 @@
 // than ignored, because a press that produced nothing at all is the silent no-op
 // rule 8 forbids.
 //
-// SETTLED BY REQUEST IDENTITY, NOT MERELY BY LIVENESS. Every continuation checks the
-// id it was issued under before it writes: a reply for a request the register has
-// moved past describes a proposal a later act has already superseded, and writing it
-// would put the older payload back on the arm.
+// SETTLED BY REQUEST IDENTITY, NOT MERELY BY LIVENESS. Every continuation checks the id
+// it was issued under before it writes: a reply for a request the register has moved
+// past describes a proposal a later act superseded, and writing it puts that payload back.
 //
 // THE TARGET BRANCH IS THE CONTEXT'S AND NEVER A SELECTION. `branch-context-model.ts`
 // forbids inferring base or head from a pane, a tab, or a focused view; the
@@ -44,18 +43,13 @@
 // there is no parameter on this class through which a selection could reach it.
 //
 // AND A CALL THAT REJECTS IS AN ANSWER, WHICH IS WHY NO ACT HERE AWAITS THE PORT BARE.
-// The live bridge crosses a process boundary, so an IPC disconnect makes the call THROW
-// rather than answer a refusal — and a thrown act used to escape `request` entirely:
-// the `finally` gave the register back, so every control re-enabled, while nothing was
-// ever written beside the control that was pressed, and the binding discards the
-// promise so the rejection surfaced only as an unhandled one in the console. Both
-// wires reject the same way. So the dispatch below is wrapped, the rejection is read
-// through the repos family's ONE rejection normalizer — which keeps a carried
-// `ConsoleRefusal`'s own origin and a typed wire envelope's own code and message
-// verbatim — and it is recorded BEFORE the register is released, so the press that
-// produced nothing else at least produced a sentence. `request` therefore settles and
-// never rejects, which is what its one caller (`proposal-gate-binding.ts`, which voids
-// the promise) has always assumed.
+// The live bridge crosses a process boundary, so an IPC disconnect makes a call THROW
+// rather than answer a refusal, and a thrown act used to escape `request` entirely: the
+// `finally` gave the register back, so every control re-enabled, while nothing was
+// written beside the one that was pressed and the binding — which voids this promise —
+// left the rejection unhandled. Both wires reject the same way. So the dispatch is
+// wrapped, the rejection is read through the repos family's ONE normalizer, and it is
+// recorded BEFORE the register is released. `request` settles and never rejects.
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
@@ -210,20 +204,17 @@ export class ProposalGateActions {
     this.#nextRequestId += 1;
     this.#holdFor(request);
     try {
-      // Routed by the predicate rather than by naming the act, so a fourth act has to
-      // say which of the two wires it reaches before it can be sent from here — and the
-      // guard NARROWS, so the request builder below is handed an act the git action can
-      // actually take.
+      // Routed by the predicate rather than by naming the act, so a fourth act says
+      // which of the two wires it reaches before it can be sent — and the guard
+      // NARROWS, so the request builder is handed an act the git action can take.
       if (!reachesGitAction(action)) {
         await this.#prepareProposal(context, request);
         return;
       }
       await this.#executeGitAction(action, context, request);
     } catch (rejection) {
-      // The identity check the settle paths make, for the same reason: a rejection for
-      // a request the register has moved past describes an act a later press has
-      // already superseded, and recording it would put an older failure beside a
-      // control that has since been pressed again.
+      // The identity check the settle paths make, for their reason: a rejection for a
+      // request the register has moved past describes an act a later press superseded.
       if (this.#stillStandingFor(request)) {
         this.#recordActionRefusal(
           action,
@@ -396,21 +387,14 @@ export class ProposalGateActions {
   }
 }
 
-/** The preparation call, named once so a rejected act says which wire refused it. */
-const PR_PREPARE_OPERATION = "gitflowPrPrepare";
-
-/** The git action both remote-reaching acts are sent on, named once for the same reason. */
-const GIT_ACTION_EXECUTE_OPERATION = "gitActionExecute";
-
 /**
  * Which growth-port operation an act's press puts on the wire.
  *
- * Derived from the SAME predicate the dispatch routes on rather than from a table of
- * its own, so the wire a refusal names and the wire the act was actually sent on are
- * one decision. A table here would be a second routing that could disagree with the
- * first for a fourth act, and the sentence a participant reads would then name a call
- * the console never made.
+ * Read off the SAME predicate the dispatch routes on rather than from a table of its
+ * own, so the wire a refusal names and the wire the act was sent on are one decision:
+ * a second routing could disagree with the first for a fourth act, and the sentence a
+ * participant reads would then name a call the console never made.
  */
 function proposalActionWire(action: ProposalAction): string {
-  return reachesGitAction(action) ? GIT_ACTION_EXECUTE_OPERATION : PR_PREPARE_OPERATION;
+  return reachesGitAction(action) ? "gitActionExecute" : "gitflowPrPrepare";
 }
