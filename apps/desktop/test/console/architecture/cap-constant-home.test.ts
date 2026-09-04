@@ -13,11 +13,21 @@
 //
 // WHAT COUNTS AS A CAP, and why the line is drawn at the NAME. A cap is a ceiling
 // something is checked against, and a module that declares one says so in the
-// identifier: `_CAP`, `_MAX`, `MAXIMUM_`, `_LIMIT`, `_CEILING`, `_BUDGET`. A layout
-// literal does not — `ALERT_GLYPH_SIZE`, `CONTROL_GLYPH_SIZE`, and
-// `GEOMETRY_ROUNDING_FACTOR` are sizes and factors, not bounds — so the naming
-// convention this package already enforces is what separates them, rather than a
-// guess about what a number means.
+// identifier: `_CAP`, `_MAX`, `MAXIMUM_`, `_LIMIT`, `_CEILING`, `_BUDGET`,
+// `_THRESHOLD`. A layout literal does not — `ALERT_GLYPH_SIZE`,
+// `CONTROL_GLYPH_SIZE`, and `GEOMETRY_ROUNDING_FACTOR` are sizes and factors, not
+// bounds — so the naming convention this package already enforces is what separates
+// them, rather than a guess about what a number means.
+//
+// `THRESHOLD` IS THE SEGMENT THIS CHECKER WAS MISSING, and it was missing for a
+// stated reason that turned out to be wrong: `PARTITION_FOLD_THRESHOLD` was listed
+// below as a measurement rather than a bound, because a fold is about layout. It is
+// not — the browser settings page checks its partition COUNT against it and renders a
+// different shape past it, which is what every other entry here does, and the value
+// sat in a view family with a comment asserting the opposite placement rule. So the
+// segment joins the set and the constant moved to the home. `MAX` and `CAP` were
+// already in the set and needed no widening; a `_THRESHOLD` numeric export under a
+// view family is what this run newly reports.
 //
 // WHY THE SCOPE IS THE VIEW FAMILIES. `console/core/constants.ts` is the home, and
 // the layer families between it and the views — `primitives/`, `persistence/`,
@@ -73,6 +83,7 @@ const CAP_NAME_SEGMENTS: readonly string[] = [
   "LIMIT",
   "CEILING",
   "BUDGET",
+  "THRESHOLD",
 ];
 
 /** A `const` declaration, and an object-literal key — the two ways a bound is written. */
@@ -179,6 +190,11 @@ describe("cap-constant-home — a bound is declared in one module", () => {
       capNamesDeclaredIn('  PAGES_PER_RUN_MAX: scalarBound(\n    8,\n    "pages",\n  ),'),
     ).toStrictEqual(["PAGES_PER_RUN_MAX"]);
     expect(capNamesDeclaredIn('  "SNAPSHOT_TEXT_MAX",')).toStrictEqual(["SNAPSHOT_TEXT_MAX"]);
+    // The third shape, and the one the widened segment set exists for: the browser
+    // settings page's fold threshold, verbatim as it stood in that view family.
+    expect(capNamesDeclaredIn("const PARTITION_FOLD_THRESHOLD = 10;")).toStrictEqual([
+      "PARTITION_FOLD_THRESHOLD",
+    ]);
   });
 
   it("negative control: a layout literal and a measurement are not bounds", () => {
@@ -187,8 +203,8 @@ describe("cap-constant-home — a bound is declared in one module", () => {
     // would be turned off rather than obeyed.
     expect(capNamesDeclaredIn("const ALERT_GLYPH_SIZE = 12;")).toStrictEqual([]);
     expect(capNamesDeclaredIn("const GEOMETRY_ROUNDING_FACTOR = 100;")).toStrictEqual([]);
-    expect(capNamesDeclaredIn("const PARTITION_FOLD_THRESHOLD = 10;")).toStrictEqual([]);
     expect(capNamesDeclaredIn("const MINIMUM_VISIBLE_EDGE_PX = 1;")).toStrictEqual([]);
+    expect(capNamesDeclaredIn("const SCROLL_ANCHOR_OFFSET_PX = 24;")).toStrictEqual([]);
   });
 
   it("negative control: the home itself is full of them", async () => {
