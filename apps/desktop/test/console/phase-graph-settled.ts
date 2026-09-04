@@ -1,16 +1,27 @@
-// The readiness a captured surface owes when a lazily-drawn graph is on it.
+// The readiness a surface owes any tier that reads it, when a lazily-drawn graph is
+// on it.
 //
-// Not a test file — no `include` glob reaches it. `baseline-platform.ts` beside it
-// owns WHERE a reference may be compared; this module owns WHEN a surface carrying a
-// phase graph is still enough to be one.
+// Not a test file — no `include` glob reaches it. It lives in `test/console/` rather
+// than in one tier's directory because two tiers ask the same question of the same
+// surface: the screenshot tier asks it before a capture, and the accessibility tier
+// asks it before an axe run. One home, for the reason a second copy would rot — the
+// pre-fit transform this module names is a fact about the graph library, and a tier
+// carrying its own reading of it would be a tier that silently stopped waiting.
 //
-// WHY A CAPTURE NEEDS THIS AT ALL. The run pane's phase graph is a lazily-loaded
+// WHY A READER NEEDS THIS AT ALL. The run pane's phase graph is a lazily-loaded
 // chunk: the pane renders its absence primitive immediately, `import()`s the graph
 // renderer, and mounts the canvas when it arrives. `workflow-surfaces.tsx` waits for
 // the run READ — the park banner — which lands about a hundred milliseconds before
-// the chunk does, so nothing between that wait and the capture waits for the picture.
-// The reference nonetheless holds a drawn graph, because the capture's own round trip
-// is slower than the fetch; which frame of the graph's arrival it holds was luck.
+// the chunk does, so nothing between that wait and the read waits for the picture.
+//
+// FOR AN AUDIT, THAT IS THE WHOLE SUBJECT MISSING. A tier that runs over the surface
+// at the mount helper's own return audits a loading placeholder: the canvas, its
+// focusable nodes, and the library's attribution link are not in the tree yet, so a
+// regression unique to any of them leaves the tier green.
+//
+// FOR A CAPTURE, IT IS WORSE THAN MISSING — the reference holds a drawn graph anyway,
+// because the capture's own round trip is slower than the fetch, so which frame of
+// the graph's arrival it holds was luck.
 //
 // AND THE LUCK IS NOT HARMLESS, because the graph is fitted rather than placed. The
 // canvas asks the library to fit the sequence into the pane, and the fit lands as a
@@ -26,7 +37,9 @@
 // too short on a loaded runner, and it would have to be paid on every subject. What
 // is waited for is the fitted transform itself, and then its survival across a frame,
 // which is the difference between "the fit has been computed" and "the fit is what
-// the compositor last drew".
+// the compositor last drew". An auditing caller needs only the first of those two and
+// pays for the second anyway, which is one animation frame and buys it the same
+// answer the capture tier gets rather than a second, weaker readiness rule.
 
 import { waitFor } from "@testing-library/react";
 
@@ -76,11 +89,13 @@ function fittedViewportTransform(surface: HTMLElement): string | undefined {
 }
 
 /**
- * Whether this surface is still enough to capture.
+ * Whether this surface is still enough to read.
  *
  * A surface that draws no graph is settled by construction — the predicate reads the
  * pane's own container rather than the library's, so "no graph here" and "the graph
- * has not arrived" are different answers rather than one absent element.
+ * has not arrived" are different answers rather than one absent element — which is
+ * what lets a caller run this over every surface it reads rather than over the one it
+ * knows draws a graph.
  */
 export function isPhaseGraphSettled(surface: HTMLElement): boolean {
   if (surface.querySelector(".meridian-phase-graph") === null) {

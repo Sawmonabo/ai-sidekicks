@@ -42,7 +42,7 @@ import {
   type MountedFamilySurface,
 } from "../workflow-surfaces.js";
 import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
-import { awaitPhaseGraphSettled } from "./phase-graph-settled.js";
+import { awaitPhaseGraphSettled } from "../phase-graph-settled.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";

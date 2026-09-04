@@ -21,10 +21,21 @@
 // glyph-plus-prose composition, and one of the two carries a formatted clock time
 // beside the instant the wire sent — a pair whose accessible reading is the thing
 // this tier is the instrument for.
+//
+// AND IT IS THE CASE THAT HAS TO BE WAITED FOR. Its phase graph is a lazily-loaded
+// chunk, and the mount helper returns on the run READ — the park banner — which lands
+// before the chunk does. `phase-graph-settled.test.ts` proves exactly that: at the
+// helper's own return the graph is not settled. So an audit taken there read the
+// loading placeholder, and the canvas, its focusable nodes, and the library's
+// attribution link were audited by nothing. Every surface is settled through the
+// shared readiness helper before axe runs — every surface, not the one known to draw
+// a graph, because the helper answers "no graph here" and "the graph has not arrived"
+// differently and a per-surface exception would be a second rule to keep true.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
+import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
 import {
   mountWorkflowBuilderPane,
   mountWorkflowParkedRunPane,
@@ -72,6 +83,15 @@ describe("accessibility — the workflows surfaces", () => {
       it(`has no axe violation on ${surface.label} in the ${scheme} scheme`, async () => {
         await emulateSystemScheme(scheme);
         const mounted = await surface.mount();
+        await awaitPhaseGraphSettled(mounted.element);
+        // The subject, stated before it is read, so the wait above cannot be dropped
+        // in silence. Measured rather than hoped for: deleting that line turns BOTH
+        // parked-run cases red here, in either scheme — the fit has not landed at the
+        // mount helper's return whether the lazy chunk is cold or already cached. For
+        // the two surfaces that draw no graph the reading is true by construction,
+        // which is what lets one line cover the table rather than a per-surface
+        // exception the next row would have to remember.
+        expect(isPhaseGraphSettled(mounted.element)).toBe(true);
 
         expect(describeViolations(await runTierAxe(mounted.element))).toStrictEqual([]);
       });
@@ -79,7 +99,7 @@ describe("accessibility — the workflows surfaces", () => {
   }
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control for this file's own runs: the four cases above expect an
+    // Negative control for this file's own runs: the six cases above expect an
     // empty list, and a misconfigured run returns exactly the same empty list.
     const planted = plantAxeViolation();
     try {

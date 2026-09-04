@@ -1,14 +1,17 @@
-// What `phase-graph-settled.ts` is for, held to by the two surfaces it is used on.
+// What `test/console/phase-graph-settled.ts` is for, held to by the two surfaces it is
+// used on.
 //
-// The tier it supports takes images and asserts nothing else, so the readiness rule
-// itself has no other place to be checked: without this file the helper could return
-// on its first call for the rest of its life and every reference would still be
-// whatever frame the capture reached.
+// Neither tier that consumes the helper can check it. The screenshot tier takes images
+// and asserts nothing else, and the accessibility tier asserts an EMPTY violation list
+// — which is also what a run over a surface that never settled returns. So without
+// this file the helper could return on its first call for the rest of its life, and
+// every reference would still be whatever frame the capture reached while every audit
+// stayed green over a graph it never saw.
 
 import { describe, expect, it } from "vitest";
 
 import { mountWorkflowBuilderPane, mountWorkflowParkedRunPane } from "../workflow-surfaces.js";
-import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "./phase-graph-settled.js";
+import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
 
 describe("the capture's phase-graph readiness", () => {
   it("is not satisfied by the mount helper's own wait, and is after the fit", async () => {
