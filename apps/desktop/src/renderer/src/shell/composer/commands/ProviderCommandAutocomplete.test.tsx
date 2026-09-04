@@ -827,6 +827,115 @@ describe("ProviderCommandAutocomplete — the list activates its active row", ()
   });
 });
 
+describe("ProviderCommandAutocomplete — a declared disabled entry renders disabled", () => {
+  /** The scenario entry whose `enabled: true` these cases flip. */
+  const FLIPPED_ENTRY_NAME = "review";
+  /** A fragment of the state the row says in its own words. */
+  const UNAVAILABLE_FRAGMENT = "the provider published this entry as disabled";
+  /** A fragment of the sentence a press on a disabled row is answered with. */
+  const DISABLED_PRESS_FRAGMENT = "unavailable there as well as here";
+
+  /**
+   * The scenario's addressed group with one entry's `enabled` set as the case wants.
+   *
+   * Through the registered schema rather than by assembling a literal: the flag is a
+   * wire member, and a group these cases treat as enumerated must be one the wire
+   * would have produced.
+   */
+  function addressedGroupWithFlag(enabled: boolean): ProviderCommandBindingGroup {
+    const group = scenarioBindingGroups()[0];
+    if (group === undefined) {
+      throw new Error("the composer scenario enumerates no addressed group");
+    }
+    return ProviderCommandListResultSchema.parse({
+      bindings: [
+        {
+          ...group,
+          entries: group.entries.map((entry) =>
+            entry.name === FLIPPED_ENTRY_NAME ? { ...entry, enabled } : entry,
+          ),
+        },
+      ],
+    }).bindings[0]!;
+  }
+
+  /** The composer over that group, filtered to the one entry by its exact name. */
+  async function mountFilteredToFlippedEntry(enabled: boolean): Promise<MountedComposer> {
+    const mounted = await mountComposer({
+      bridge: bridgeEnumerating([addressedGroupWithFlag(enabled)]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    await typeIntoLine(mounted.line, `/${FLIPPED_ENTRY_NAME}`);
+    return mounted;
+  }
+
+  /** The one row that prefix leaves in the list. */
+  function soleRow(mounted: MountedComposer): HTMLElement {
+    const row = mounted.container.querySelector('[role="option"]');
+    if (!(row instanceof HTMLElement)) {
+      throw new Error("the surface rendered no row for the enumerated entry");
+    }
+    return row;
+  }
+
+  /** What the surface answered the last press with. */
+  function pressNotice(mounted: MountedComposer): string | undefined {
+    return (
+      mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent ??
+      undefined
+    );
+  }
+
+  it("marks the row the provider declared unavailable", async () => {
+    // The finding: `enabled: false` is returned precisely so a client can tell a
+    // disabled command from one that does not exist, and the row rendered it exactly
+    // like an available or unqualified entry — so the surface told a person the entry
+    // was among what the provider offers with no unavailable state anywhere on it.
+    const row = soleRow(await mountFilteredToFlippedEntry(false));
+
+    expect(row.getAttribute("aria-disabled")).toBe("true");
+    expect(row.classList.contains("meridian-command-discovery__row--unavailable")).toBe(true);
+    expect(
+      row.querySelector(".meridian-command-discovery__unavailable")?.textContent?.toLowerCase(),
+    ).toContain(UNAVAILABLE_FRAGMENT);
+  });
+
+  it("negative control: the same entry declared available carries none of it", async () => {
+    // Without this the case above would hold over a row that marked every provider
+    // entry — and an absent flag means the provider draws no such distinction, which
+    // is not a disabled state either.
+    const row = soleRow(await mountFilteredToFlippedEntry(true));
+
+    expect(row.getAttribute("aria-disabled")).toBeNull();
+    expect(row.classList.contains("meridian-command-discovery__row--unavailable")).toBe(false);
+    expect(row.querySelector(".meridian-command-discovery__unavailable")).toBeNull();
+  });
+
+  it("answers a press on it with the declared state rather than the standing rule", async () => {
+    // Not selectable for a send in either case — no provider entry is — but a person
+    // who reached this one is owed the reading the reply carried: it is disabled
+    // where it lives, which stays true wherever they try it next.
+    const mounted = await mountFilteredToFlippedEntry(false);
+    const list = await stepIntoList(mounted);
+
+    await pressOnList(list, "Enter");
+
+    expect(pressNotice(mounted)).toContain(DISABLED_PRESS_FRAGMENT);
+  });
+
+  it("negative control: the available entry answers the standing rule instead", async () => {
+    // Without this the case above would hold over a surface that had replaced the
+    // one sentence with the other for every provider row.
+    const mounted = await mountFilteredToFlippedEntry(true);
+    const list = await stepIntoList(mounted);
+
+    await pressOnList(list, "Enter");
+
+    expect(pressNotice(mounted)).toContain(NOT_RUNNABLE_FRAGMENT);
+    expect(pressNotice(mounted)).not.toContain(DISABLED_PRESS_FRAGMENT);
+  });
+});
+
 describe("ProviderCommandAutocomplete — the surface follows every write to the draft", () => {
   /** Whether the discovery popover is on screen at all. */
   function isPopoverOpen(container: HTMLElement): boolean {

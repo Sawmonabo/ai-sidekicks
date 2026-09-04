@@ -95,3 +95,18 @@
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
+
+/* An entry the provider declared disabled. Dimmed rather than hidden or struck
+   through: the entry IS part of what the binding published, and the driver returns
+   it precisely so a disabled command is distinguishable from one that does not
+   exist. The declared state itself keeps the secondary weight the binding line
+   uses — dimming the marker would hide the one thing this row is here to add. */
+.meridian-command-discovery__row--unavailable .meridian-command-discovery__name,
+.meridian-command-discovery__row--unavailable .meridian-command-discovery__description {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-command-discovery__unavailable {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}

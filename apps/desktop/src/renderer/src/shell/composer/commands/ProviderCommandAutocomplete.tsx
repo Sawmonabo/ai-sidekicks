@@ -64,13 +64,13 @@ import {
   DerivedFigure,
   InlineRefusal,
   Nothing,
-  WireFigure,
   formatCount,
 } from "../../../console/primitives/index.js";
 import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { useComposerAddress } from "../composer-address.js";
 import type { CommandOutcome } from "../router/command-executor.js";
 import { composerDraftKey } from "../router/draft-key.js";
+import { CatalogRow } from "./CatalogRow.js";
 import { createClientCommandExecutor } from "./client-command-executor.js";
 import { composerCommandSurface, type ComposerCommandSurface } from "./console-command-surface.js";
 import { useDirectiveLineDiscovery } from "./directive-line-observer.js";
@@ -78,9 +78,9 @@ import {
   addressedProviderBinding,
   composeCatalog,
   filterCatalog,
+  isDeclaredUnavailable,
   selectAddressedBindingGroup,
   type AddressedProviderBinding,
-  type CommandCatalogEntry,
 } from "./provider-command-catalog.js";
 import {
   useProviderCommandEnumeration,
@@ -151,6 +151,16 @@ export function ProviderCommandAutocomplete(
  */
 const PROVIDER_ENTRY_NOT_RUNNABLE =
   "Provider commands and skills are listed for reference. This console starts no turn from one, so there is nothing here to run.";
+
+/**
+ * The same press, on a row the provider declared unavailable.
+ *
+ * Its own sentence rather than the one above, because a person who pressed this row
+ * is owed the reading the reply actually carried: the entry is disabled where it
+ * lives, which stays true wherever they try it next.
+ */
+const PROVIDER_ENTRY_DISABLED =
+  "The provider published this entry as disabled, so it is unavailable there as well as here. Nothing was run.";
 
 interface CommandDiscoveryPopoverProps {
   readonly prefix: string;
@@ -254,7 +264,11 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
           runConsoleCommand(activeEntry.commandId);
           return;
         }
-        setActivationNotice(PROVIDER_ENTRY_NOT_RUNNABLE);
+        setActivationNotice(
+          isDeclaredUnavailable(activeEntry)
+            ? PROVIDER_ENTRY_DISABLED
+            : PROVIDER_ENTRY_NOT_RUNNABLE,
+        );
         return;
       }
       if (event.key === "Escape") {
@@ -327,73 +341,6 @@ function CommandDiscoveryPopover(props: CommandDiscoveryPopoverProps): React.JSX
  */
 function rowId(listId: string, index: number): string {
   return `${listId}-row-${String(index)}`;
-}
-
-interface CatalogRowProps {
-  readonly entry: CommandCatalogEntry;
-  readonly rowElementId: string;
-  readonly isActive: boolean;
-  readonly onSelect: () => void;
-  readonly onRun: (commandId: string) => void;
-}
-
-/**
- * One row: the name, what it does, and — for a console act only — the button.
- *
- * The provider row's absence of a button is the rule made visible. It is not a
- * disabled control: a disabled button asserts the act exists here and is momentarily
- * unavailable, and this console will not send a provider command from the line at
- * all.
- */
-function CatalogRow(props: CatalogRowProps): React.JSX.Element {
-  const { entry, rowElementId, isActive, onSelect, onRun } = props;
-  return (
-    <li
-      className={
-        isActive
-          ? "meridian-command-discovery__row meridian-command-discovery__row--active"
-          : "meridian-command-discovery__row"
-      }
-      id={rowElementId}
-      role="option"
-      aria-selected={isActive}
-      onMouseDown={onSelect}
-    >
-      <span className="meridian-command-discovery__name">
-        <WireFigure value={entry.name} />
-      </span>
-      {entry.source === "provider" ? (
-        <span className="meridian-command-discovery__binding">
-          {entry.kind} · <WireFigure value={entry.driverName} />
-        </span>
-      ) : null}
-      {entry.description === undefined ? (
-        // `empty` and not `not-checked`: the enumeration WAS read, and it came back
-        // carrying this entry without a description. Saying nobody asked would be
-        // false about a read that happened, and the entry is offered exactly as it
-        // was enumerated — nothing here supplies copy the provider did not.
-        <Nothing
-          kind="empty"
-          placement="inline"
-          title="The provider published no description"
-          detail="This entry was enumerated without one."
-        />
-      ) : (
-        <span className="meridian-command-discovery__description">{entry.description}</span>
-      )}
-      {entry.source === "console" ? (
-        <button
-          type="button"
-          className="meridian-command-discovery__run"
-          onClick={() => {
-            onRun(entry.commandId);
-          }}
-        >
-          Run this
-        </button>
-      ) : null}
-    </li>
-  );
 }
 
 /**
