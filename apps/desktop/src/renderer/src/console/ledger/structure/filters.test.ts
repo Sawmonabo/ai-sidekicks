@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import {
   UNFILTERED_LEDGER,
   applyLedgerFilter,
+  channelIdOfRow,
   deriveLedgerFacets,
   isLedgerFiltered,
   jumpToEventId,
@@ -341,6 +342,8 @@ describe("filters — a facet press narrows, and pressing it again widens back",
 describe("filters — a channel-scoped pane is a log of that channel", () => {
   const CHANNEL_ONE = "019b793b-7b60-7c11-8110-c4a11e10001a";
   const CHANNEL_TWO = "019b793b-7b60-7c11-8120-c4a11e10002b";
+  /** A channel no ROW names — only a boundary's own typed payload does. */
+  const CHANNEL_THREE = "019b793b-7b60-7c11-8130-c4a11e10003c";
 
   /**
    * One run that spoke in both channels, one that spoke only in the second, a
@@ -429,5 +432,85 @@ describe("filters — a channel-scoped pane is a log of that channel", () => {
     expect(
       scopeLedgerRowsToChannel(twoChannelWindow(), "019b793b-7b60-7c11-8130-000000000000"),
     ).toStrictEqual([]);
+  });
+
+  it("never lets a rollback boundary's own channel claim its run", () => {
+    // THE DEFECT: the row reader cast every payload to a bag, and the boundary arm
+    // carries the TYPED `run.rolled_back` event — which has a `channelId?` of its
+    // own. A boundary of a run that spoke in channel one, carrying channel two,
+    // therefore claimed the whole run into channel two: its chapter, its receipt
+    // and its boundary rendered there with none of its prose.
+    const rows = [
+      ...twoChannelWindow().filter((row) => row.id !== "a-boundary"),
+      rollbackBoundaryRow({
+        id: "a-boundary",
+        sequence: 4,
+        runId: "run-a",
+        position: 1,
+        channelId: CHANNEL_THREE,
+      }),
+    ];
+
+    expect(scopeLedgerRowsToChannel(rows, CHANNEL_THREE)).toStrictEqual([]);
+  });
+
+  it("still carries a boundary in with the run its rows claimed", () => {
+    // The other half, and the reason the boundary is not simply dropped: the second
+    // pass admits it for the run, so the rewind is still marked in the pane where
+    // the run's prose is.
+    const rows = [
+      ...twoChannelWindow().filter((row) => row.id !== "a-boundary"),
+      rollbackBoundaryRow({
+        id: "a-boundary",
+        sequence: 4,
+        runId: "run-a",
+        position: 1,
+        channelId: CHANNEL_THREE,
+      }),
+    ];
+
+    expect(scopeLedgerRowsToChannel(rows, CHANNEL_ONE).map((row) => row.id)).toStrictEqual([
+      "a-start",
+      "a-said-one",
+      "a-boundary",
+    ]);
+  });
+
+  it("negative control: the three open payload shapes still attribute", () => {
+    // Without this the fix could have been "read no channel at all", which would
+    // empty every channel pane — the reader has to keep seeing the shapes it is
+    // supposed to see and stop seeing the one it is not.
+    for (const row of twoChannelWindow()) {
+      if (row.id === "a-said-one") {
+        expect(channelIdOfRow(row)).toBe(CHANNEL_ONE);
+      }
+      if (row.id === "a-boundary") {
+        expect(channelIdOfRow(row)).toBeUndefined();
+      }
+    }
+    expect(
+      channelIdOfRow(
+        runRow({
+          id: "a-tool",
+          sequence: 7,
+          type: "tool.invoked",
+          category: "tool_activity",
+          runId: "run-a",
+          position: 3,
+          payload: { toolName: "read_file", channelId: CHANNEL_TWO },
+        }),
+      ),
+    ).toBe(CHANNEL_TWO);
+    expect(
+      channelIdOfRow(
+        generalRow({
+          id: "channel-made",
+          sequence: 8,
+          type: "channel.created",
+          category: "session_lifecycle",
+          payload: { channelId: CHANNEL_TWO },
+        }),
+      ),
+    ).toBe(CHANNEL_TWO);
   });
 });
