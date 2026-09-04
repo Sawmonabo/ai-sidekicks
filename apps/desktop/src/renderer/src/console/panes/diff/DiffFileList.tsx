@@ -95,7 +95,7 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
   });
   const { activeIndex, onKeyDown } = useRovingEntryFocus({
     entryWindow,
-    entryCount: entries.length,
+    entries,
     selectedIndex: openingIndex,
     scrollerRef,
   });
@@ -246,24 +246,36 @@ const ENTRY_MOVE_BY_KEY: Readonly<Record<string, "next" | "previous" | "first" |
  * list itself handled, so it cannot steal focus from elsewhere on the page: nothing
  * sets the pending flag but the handler, and the handler runs only on a key delivered
  * to this list.
+ *
+ * AND A MOVE BELONGS TO THE SEQUENCE IT WAS MADE IN, which is why the stored move
+ * carries that sequence with it.
  */
 function useRovingEntryFocus(options: {
   readonly entryWindow: RowWindow;
-  readonly entryCount: number;
+  /** The rows as drawn. Both the count and the identity a stored move is keyed to. */
+  readonly entries: readonly DiffFileListEntry[];
   readonly selectedIndex: number;
   readonly scrollerRef: React.RefObject<HTMLDivElement | null>;
 }): {
   readonly activeIndex: number;
   readonly onKeyDown: (keyEvent: React.KeyboardEvent<HTMLUListElement>) => void;
 } {
-  const { entryWindow, entryCount, selectedIndex, scrollerRef } = options;
-  const [movedToIndex, setMovedToIndex] = useState<number | undefined>(undefined);
+  const { entryWindow, entries, selectedIndex, scrollerRef } = options;
+  const entryCount = entries.length;
+  const [movedTo, setMovedTo] = useState<MovedEntry | undefined>(undefined);
   const pendingFocus = useRef(false);
 
   // The selection is where the keyboard starts, so a list reopened on a file puts its
-  // one tab stop on that file rather than at the top. A move supersedes it, and a
-  // move past the end of a filtered list falls back to the selection the same way.
-  const activeIndex = Math.min(movedToIndex ?? selectedIndex, Math.max(entryCount - 1, 0));
+  // one tab stop on that file rather than at the top. A move supersedes it — but only
+  // inside the sequence the move was made in.
+  //
+  // AN INDEX INTO A SEQUENCE THAT NO LONGER EXISTS ADDRESSES A DIFFERENT FILE, OR
+  // NONE. Clamping it to the shorter set was not enough: the stored move survived the
+  // filter, so clearing the filter restored a distant index while the window sat at
+  // the top, leaving every mounted button `tabIndex={-1}` and taking the whole list
+  // out of the page's tab order. Keyed to the sequence's own identity rather than
+  // clamped, because a clamp keeps a position the participant never moved to.
+  const activeIndex = (movedTo?.entries === entries ? movedTo.index : undefined) ?? selectedIndex;
 
   const virtualRows = entryWindow.getVirtualItems();
   useEffect(() => {
@@ -289,13 +301,19 @@ function useRovingEntryFocus(options: {
       keyEvent.preventDefault();
       const moved = movedEntryIndex(move, activeIndex, entryCount);
       pendingFocus.current = true;
-      setMovedToIndex(moved);
+      setMovedTo({ entries, index: moved });
       entryWindow.scrollToIndex(moved);
     },
-    [activeIndex, entryCount, entryWindow],
+    [activeIndex, entries, entryCount, entryWindow],
   );
 
   return { activeIndex, onKeyDown };
+}
+
+/** Where the keyboard moved to, and the drawn sequence that index addresses. */
+interface MovedEntry {
+  readonly entries: readonly DiffFileListEntry[];
+  readonly index: number;
 }
 
 /** Where one move lands. Clamped rather than wrapped: a list has two ends. */

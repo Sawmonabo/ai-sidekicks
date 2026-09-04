@@ -30,6 +30,22 @@ import { type ConsoleDiffModel } from "./diff-model.js";
 const EXTENDED_HEADER_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 const TEXTUAL_ONLY_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
+/**
+ * A repository-wide patch: five thousand files, one changed line each.
+ *
+ * Built once for the whole file, because two describes need it and a change set this
+ * size is the only subject a windowing claim can be made against at all.
+ */
+const REPOSITORY_WIDE_DIFF = buildDiffFixture({
+  fileCount: 5_000,
+  hunksPerFile: 1,
+  linesPerHunk: 1,
+  precedingContextPerHunk: 0,
+  agentAttributionEveryNthLine: 0,
+  extendedHeaderFiles: false,
+  terminalNewlineFile: false,
+});
+
 const layout = new DiffLayoutFixture();
 
 beforeEach(() => {
@@ -145,17 +161,6 @@ describe("diff file list — a change set too long to mount", () => {
     Math.ceil(DIFF_FIXTURE_VIEWPORT_HEIGHT_PX / DIFF_FILE_ROW_HEIGHT_PX) +
     DIFF_WINDOW_OVERSCAN_ROWS * 2 +
     2;
-
-  /** A repository-wide patch: five thousand files, one changed line each. */
-  const REPOSITORY_WIDE_DIFF = buildDiffFixture({
-    fileCount: 5_000,
-    hunksPerFile: 1,
-    linesPerHunk: 1,
-    precedingContextPerHunk: 0,
-    agentAttributionEveryNthLine: 0,
-    extendedHeaderFiles: false,
-    terminalNewlineFile: false,
-  });
 
   function mountedEntryCount(container: HTMLElement): number {
     return container.querySelectorAll(".meridian-diff-files__entry").length;
@@ -343,5 +348,46 @@ describe("diff file list — a narrowing this filter hides", () => {
     const current = container.querySelector('.meridian-diff-files__entry[aria-current="true"]');
     expect(current?.textContent).toContain(FIRST_FILE.path);
     expect(container.textContent).not.toContain(HIDDEN_SELECTION_COPY);
+  });
+});
+
+describe("diff file list — a move made in a list that then changed", () => {
+  /** The mounted entries the page can tab to, which is at most one of them. */
+  function tabbableEntryCount(container: HTMLElement): number {
+    return [...container.querySelectorAll(".meridian-diff-files__entry")].filter(
+      (entry) => entry.getAttribute("tabindex") === "0",
+    ).length;
+  }
+
+  function firstEntry(container: HTMLElement): HTMLElement {
+    const entry = container.querySelector<HTMLElement>(".meridian-diff-files__entry");
+    if (entry === null) {
+      throw new Error("the list drew no entry");
+    }
+    return entry;
+  }
+
+  it("keeps the list in the page's tab order after a filter comes and goes", () => {
+    // The whole defect: the move survived the filter that shrank the entry set, so
+    // clearing the filter restored an index a thousand rows below the window and left
+    // every mounted button `tabIndex={-1}` — a file list a keyboard could not enter.
+    const container = renderFileList(REPOSITORY_WIDE_DIFF);
+    fireEvent.keyDown(firstEntry(container), { key: "End" });
+
+    filterTo(container, "module-01");
+    filterTo(container, "");
+
+    expect(tabbableEntryCount(container)).toBe(1);
+  });
+
+  it("negative control: a move inside an unchanged list still stands", () => {
+    // Without this the case above would pass against a list that dropped the moved
+    // position on every render, which would put the keyboard back at the top after
+    // every arrow key.
+    const container = renderFileList(TEXTUAL_ONLY_DIFF);
+    fireEvent.keyDown(firstEntry(container), { key: "End" });
+
+    const tabbable = container.querySelector('.meridian-diff-files__entry[tabindex="0"]');
+    expect(tabbable?.getAttribute("data-entry-index")).toBe(String(SMALL_DIFF_SHAPE.fileCount));
   });
 });
