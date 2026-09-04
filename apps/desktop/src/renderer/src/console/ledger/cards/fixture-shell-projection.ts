@@ -217,9 +217,15 @@ function runIdOf(event: ConsoleSessionEvent): string | undefined {
  * and rows never cross between them; sequence-keyed because that is what the store
  * dedupes and detects gaps on, so two rows can share this key only if the store
  * admitted the same sequence twice, which it refuses.
+ *
+ * EXPORTED, and taken as the two identity parts rather than as an envelope, because
+ * the fixtures that drive this projection have to name a row by id and hold exactly
+ * those two values. A second spelling of the composition over there would drift from
+ * this one in silence: a case asking after a row nothing carries passes by finding
+ * nothing.
  */
-function shellRowId(event: ConsoleSessionEvent): string {
-  return `${event.sessionId}:${String(event.sequence)}`;
+export function shellRowId(sessionId: string, sequence: number): string {
+  return `${sessionId}:${String(sequence)}`;
 }
 
 /** How far one run has got: its next ordinal, and how many rewinds it has taken. */
@@ -252,7 +258,7 @@ function commonRowFields(
   readonly actor?: string;
 } {
   return {
-    id: shellRowId(event),
+    id: shellRowId(event.sessionId, event.sequence),
     sessionId: event.sessionId as SessionId,
     sequence: event.sequence,
     category,

@@ -9,6 +9,7 @@
 // EVERY EVENT CARRIES A REAL ROW ID. The hydrated-event read is keyed by it, so a
 // store seeded without one holds rows nothing could ever ask about.
 
+import { shellRowId } from "../../ledger/cards/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 
 export const SESSION_ID = "session-ledger-feed";
@@ -285,12 +286,14 @@ export const FILTERABLE_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 /**
  * The row id the projection mints for one sequence of a session's log.
  *
- * The projection's own composition, stated once here rather than in each file that
- * needs to ask about a row by id: two spellings of it would drift, and a case that
- * asked about a row nothing carries would pass by finding nothing.
+ * DELEGATED, not restated. `shellRowId` is the composition the shell keys its rows
+ * with, so asking it is what makes a case about a row and the projection that minted
+ * that row incapable of disagreeing; a copy of the template here would drift and the
+ * case would pass by finding nothing. The fixtures keep their own name for it because
+ * every case in this family reads in that vocabulary.
  */
 export function projectedRowId(sessionId: string, sequence: number): string {
-  return `${sessionId}:${String(sequence)}`;
+  return shellRowId(sessionId, sequence);
 }
 
 /** The row id the projection mints for one sequence of the filterable log. */
