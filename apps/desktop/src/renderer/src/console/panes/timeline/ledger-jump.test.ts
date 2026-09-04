@@ -164,6 +164,12 @@ describe("the act an absence offers", () => {
   });
 });
 
+/** What one rerender of the deferred jump moves — the window, and the question. */
+interface DeferredJumpProps {
+  readonly visibleRows: readonly TimelineRow[];
+  readonly questionRowId: string | undefined;
+}
+
 describe("the deferred jump", () => {
   const REQUESTED_ROW = FOLDED_ROW;
   const OTHER_ROW: TimelineRow = rowOf(projectedRowId(SESSION_ID, 2));
@@ -171,27 +177,20 @@ describe("the deferred jump", () => {
   /** The hook over a window a case widens by rerendering with more rows. */
   function mountDeferredJump(): {
     readonly jumps: string[];
-    readonly rerenderWith: (props: {
-      readonly visibleRows: readonly TimelineRow[];
-      readonly questionRowId: string | undefined;
-    }) => void;
+    readonly rerenderWith: (props: DeferredJumpProps) => void;
     readonly request: (rowId: string) => void;
   } {
     const jumps: string[] = [];
     const jumpToRow = vi.fn((rowId: string) => {
       jumps.push(rowId);
     });
+    const initialProps: DeferredJumpProps = {
+      visibleRows: [],
+      questionRowId: REQUESTED_ROW.id,
+    };
     const { result, rerender } = renderHook(
-      (props: {
-        readonly visibleRows: readonly TimelineRow[];
-        readonly questionRowId: string | undefined;
-      }) => useDeferredRowJump({ ...props, jumpToRow }),
-      {
-        initialProps: {
-          visibleRows: [] as readonly TimelineRow[],
-          questionRowId: REQUESTED_ROW.id,
-        },
-      },
+      (props: DeferredJumpProps) => useDeferredRowJump({ ...props, jumpToRow }),
+      { initialProps },
     );
     return {
       jumps,

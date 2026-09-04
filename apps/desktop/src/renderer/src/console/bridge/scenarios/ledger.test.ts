@@ -132,6 +132,29 @@ describe("the three-lane ledger scenario", () => {
     expect(typeof boundary.event.payload?.["targetPosition"]).toBe("number");
   });
 
+  it("gives a channel-addressed pane something to be a log of", () => {
+    // A timeline pane addressed to a channel is a log of THAT channel, and no beat
+    // of any shipped scenario named one — so every channel pane in the fixture
+    // bridge rendered its empty state and the composition could not be seen. One
+    // lane speaks in the channel and the other two do not, which is the whole point:
+    // the scope has to be visible as a difference.
+    const channelIds = new Set(
+      LEDGER_SCENARIO.beats
+        .map((beat) => beat.event.payload?.["channelId"])
+        .filter((channelId): channelId is string => typeof channelId === "string"),
+    );
+    expect(channelIds.size).toBe(1);
+    const [channelId] = [...channelIds];
+    const spokenIn = LEDGER_SCENARIO.beats.filter(
+      (beat) => beat.event.payload?.["channelId"] === channelId,
+    );
+    // The channel's own creation, and the turns spoken in it.
+    expect(spokenIn.some((beat) => beat.event.kind === "channel.created")).toBe(true);
+    expect(spokenIn.length).toBeGreaterThan(1);
+    // Negative control: the session is not one channel wearing a session's name.
+    expect(spokenIn.length).toBeLessThan(LEDGER_SCENARIO.beats.length);
+  });
+
   it("streams two agents' turns before either run reaches a terminal state", () => {
     const firstTerminalIndex = LEDGER_SCENARIO.beats.findIndex(
       (beat) => newStateOf(beat) === "completed",

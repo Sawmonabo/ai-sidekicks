@@ -42,7 +42,7 @@ export { LedgerRowGroup } from "./ErrorSlot.js";
 export { LedgerRowLeaseProvider, useLedgerRowLease } from "./RowLeaseProvider.js";
 export { LedgerRowRevealProvider, useLedgerRowReveal } from "./RowRevealProvider.js";
 export { useLedgerReveal } from "./reveal-binding.js";
-export { LedgerViewport, type LedgerRowRenderer } from "./LedgerViewport.js";
+export { LedgerViewport, type LedgerRowRenderer, type LedgerScope } from "./LedgerViewport.js";
 export { useLedgerViewport } from "./viewport-binding.js";
 export { type LedgerViewportRow } from "./viewport-snapshot.js";
 export { type LedgerRowLease } from "./window-cap.js";

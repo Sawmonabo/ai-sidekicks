@@ -171,6 +171,15 @@ export interface AssistantOutputInput {
   readonly contentType: string;
   /** Pre-truncation UTF-8 byte length of the body that was sealed. */
   readonly contentLength: number;
+  /**
+   * The channel this turn was spoken in, where the lane speaks in one.
+   *
+   * Optional because the member is optional on the registered shape, and carried at
+   * all because a channel-addressed pane is a log of the channel: with no beat in
+   * any scenario naming one, every channel pane in the fixture bridge rendered its
+   * empty state and no composition of that surface could be seen.
+   */
+  readonly channelId?: string;
 }
 
 /**
@@ -190,6 +199,7 @@ export function assistantOutputEntry(input: AssistantOutputInput): LedgerScriptE
     payload: {
       sessionId: input.sessionId,
       runId: input.runId,
+      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
       contentType: input.contentType,
       contentLength: input.contentLength,
     },
@@ -207,6 +217,8 @@ export interface ToolActivityInput {
   readonly toolName: string;
   /** Pairs an invocation with its settlement, which is what a tool card renders. */
   readonly toolCallId: string;
+  /** The channel the call was made in — `AssistantOutputInput.channelId`'s reason. */
+  readonly channelId?: string;
   readonly durationMs?: number;
   readonly contentLength?: number;
 }
@@ -221,6 +233,7 @@ export function toolActivityEntry(input: ToolActivityInput): LedgerScriptEntry {
       runId: input.runId,
       toolName: input.toolName,
       toolCallId: input.toolCallId,
+      ...(input.channelId === undefined ? {} : { channelId: input.channelId }),
       ...(input.durationMs === undefined ? {} : { durationMs: input.durationMs }),
       ...(input.contentLength === undefined ? {} : { contentLength: input.contentLength }),
     },
@@ -252,6 +265,14 @@ export interface LedgerOpeningInput {
   readonly cast: readonly (LedgerCastMember & { readonly attachedAtMs: number })[];
   /** When the second person joins, in scenario time. */
   readonly joinedAtMs: number;
+  /**
+   * The one named channel this session opens, where it opens one.
+   *
+   * Optional because most scenarios' lanes speak in the implicit main channel,
+   * which is unnamed on the wire and needs no beat; a scenario that wants a
+   * channel-addressed pane to be a log of something scripts one here.
+   */
+  readonly channel?: { readonly channelId: string; readonly name: string };
 }
 
 /**
@@ -275,6 +296,20 @@ export function ledgerOpeningEntries(input: LedgerOpeningInput): readonly Ledger
       // nothing in the corpus names a key inside either.
       payload: { sessionId: input.sessionId, config: {}, metadata: {} },
     },
+    ...(input.channel === undefined
+      ? []
+      : [
+          {
+            atMs: input.joinedAtMs,
+            kind: "channel.created",
+            actorId: input.openedBy,
+            // The registered shape is the id and an optional name, and nothing
+            // else: the implicit main channel is unnamed on the wire, so a named
+            // one is what a scenario has to script for a channel-addressed pane to
+            // be a log OF something.
+            payload: { channelId: input.channel.channelId, name: input.channel.name },
+          },
+        ]),
     {
       atMs: input.joinedAtMs,
       kind: "membership.created",

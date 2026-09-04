@@ -70,6 +70,18 @@ export const LEDGER_SCENARIO_ID = "ledger";
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 
 /**
+ * The named channel the implementer's lane speaks in.
+ *
+ * WHY ANY BEAT NAMES A CHANNEL AT ALL. A timeline pane addressed to a channel is a
+ * log of that channel, and no beat of any shipped scenario named one — so every
+ * channel-addressed pane in the fixture bridge rendered its empty state and the
+ * composition could not be seen. One lane speaks in it and the other two do not,
+ * which is what makes the scope visible: the channel pane is this run and the
+ * channel's own creation, and the session pane is still everything.
+ */
+const CHANNEL_IMPLEMENTATION = "019b793b-7b60-7c11-8110-c4a11e10001a";
+
+/**
  * The stem this scenario's row ids are minted from — its own namespace, not its
  * session's.
  *
@@ -150,6 +162,7 @@ const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
     membershipId: MEMBERSHIP_PRIYA,
     joinedAtMs: 40,
     cast: LEDGER_AGENTS,
+    channel: { channelId: CHANNEL_IMPLEMENTATION, name: "implementation" },
   }),
   {
     atMs: 280,
@@ -183,24 +196,28 @@ const LEDGER_SCRIPT: readonly LedgerScriptEntry[] = [
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 520,
+    channelId: CHANNEL_IMPLEMENTATION,
     kind: "assistant.thinking_update",
     contentType: "text/plain",
     contentLength: 412,
   }),
   lane.output(RUN_IMPLEMENTER, {
     atMs: 640,
+    channelId: CHANNEL_IMPLEMENTATION,
     kind: "assistant.message",
     contentType: "text/markdown",
     contentLength: 1_284,
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 760,
+    channelId: CHANNEL_IMPLEMENTATION,
     kind: "tool.invoked",
     toolName: "edit_file",
     toolCallId: "call-implementer-1",
   }),
   lane.tool(RUN_IMPLEMENTER, {
     atMs: 900,
+    channelId: CHANNEL_IMPLEMENTATION,
     kind: "tool.result",
     toolName: "edit_file",
     toolCallId: "call-implementer-1",

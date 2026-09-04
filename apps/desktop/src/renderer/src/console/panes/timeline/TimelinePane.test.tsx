@@ -25,7 +25,7 @@ import { registerTimelineRowRenderer, unregisterTimelineRowRenderer } from "../.
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
 // height would be measuring its own setup.
-import { withLaidOutViewport } from "./ledger-feed-fixtures.js";
+import { LEDGER_FACET_CHIP, withLaidOutViewport } from "./ledger-feed-fixtures.js";
 import { TIMELINE_ROW_SLOT, TimelinePane, type TimelinePaneContext } from "./TimelinePane.js";
 
 const SESSION_ID = "session-ledger";
@@ -263,16 +263,35 @@ describe("TimelinePane — a channel address is the pane's scope", () => {
   const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
   const SEAT_ROW = ".meridian-ledger-viewport__row";
 
-  /** Two runs talking in two channels, and one session row belonging to neither. */
-  function openSessionStoreWithTwoChannels(): SessionStore {
+  const CHANNEL_ONE_SPEAKER = "agent-alba";
+  const CHANNEL_TWO_SPEAKER = "agent-enzo";
+  /** A channel the log names nowhere, so its pane is a log of nothing. */
+  const SILENT_CHANNEL = "019b793b-7b60-7c11-8130-c4a11e10003c";
+
+  /**
+   * Two runs talking in two channels, and one session row belonging to neither.
+   *
+   * Each channel has a speaker of its own, which is what makes the facet bar a
+   * question about the scope rather than about the log: a bar derived from the
+   * whole session offers both speakers under a header naming one channel.
+   */
+  function openSessionStoreWithTwoChannels(
+    extraEvents: readonly ConsoleSessionEvent[] = [],
+  ): SessionStore {
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
-    const said = (sequence: number, runId: string, channelId: string): ConsoleSessionEvent => ({
+    const said = (
+      sequence: number,
+      runId: string,
+      channelId: string,
+      actorId: string,
+    ): ConsoleSessionEvent => ({
       id: `event-${String(sequence)}`,
       sessionId: SESSION_ID,
       sequence,
       kind: "assistant.message",
       occurredAt: `2026-01-01T11:05:0${String(sequence)}.000Z`,
+      actorId,
       payload: { sessionId: SESSION_ID, runId, channelId },
     });
     sessionStore.applyBatch([
@@ -284,24 +303,35 @@ describe("TimelinePane — a channel address is the pane's scope", () => {
         occurredAt: "2026-01-01T11:05:00.000Z",
         payload: { sessionId: SESSION_ID },
       },
-      said(1, RUN_ONE, CHANNEL_ONE),
-      said(2, RUN_ONE, CHANNEL_ONE),
-      said(3, RUN_TWO, CHANNEL_TWO),
+      said(1, RUN_ONE, CHANNEL_ONE, CHANNEL_ONE_SPEAKER),
+      said(2, RUN_ONE, CHANNEL_ONE, CHANNEL_ONE_SPEAKER),
+      said(3, RUN_TWO, CHANNEL_TWO, CHANNEL_TWO_SPEAKER),
+      ...extraEvents,
     ]);
     return sessionStore;
   }
 
   /** A pane addressed to one channel, with a real row renderer behind the seat. */
-  function renderChannelPane(channelId: string | undefined): HTMLElement {
+  function renderChannelPane(
+    channelId: string | undefined,
+    extraEvents: readonly ConsoleSessionEvent[] = [],
+  ): HTMLElement {
     withLaidOutViewport();
     registerTimelineRowRenderer("timeline-pane-channel-scope", () => null);
     return renderPane(
       <TimelinePane
         context={paneContext({
-          sessionStore: openSessionStoreWithTwoChannels(),
+          sessionStore: openSessionStoreWithTwoChannels(extraEvents),
           ...(channelId === undefined ? {} : { entity: { kind: "channel", id: channelId } }),
         } as Partial<TimelinePaneContext>)}
       />,
+    );
+  }
+
+  /** Every value the facet bar offers to narrow on, in the order it draws them. */
+  function facetValues(pane: HTMLElement): readonly string[] {
+    return [...pane.querySelectorAll<HTMLElement>(LEDGER_FACET_CHIP)].map(
+      (chip) => chip.querySelector(".meridian-ledger-filter__facet-value")?.textContent ?? "",
     );
   }
 
@@ -318,6 +348,55 @@ describe("TimelinePane — a channel address is the pane's scope", () => {
     // "Session timeline" over a channel window says the log is the session's.
     const feed = renderChannelPane(CHANNEL_ONE).querySelector(".meridian-ledger-viewport__surface");
     expect(feed?.getAttribute("aria-label")).toBe("Channel timeline");
+  });
+
+  it("offers only this channel's own participants and families to narrow on", () => {
+    // The seat-row counts above would pass over a filter applied at the VIEWPORT:
+    // the facet bar is derived from the unfurled projection, so a scope that
+    // reached only as far as the rows would leave the other channel's speaker and
+    // the session's own families on offer under a header naming this channel.
+    const offered = facetValues(renderChannelPane(CHANNEL_ONE));
+
+    expect(offered).toContain(CHANNEL_ONE_SPEAKER);
+    expect(offered).not.toContain(CHANNEL_TWO_SPEAKER);
+    expect(offered).not.toContain("session_lifecycle");
+    // And the session pane is the control: both speakers, both families.
+    const wholeSession = facetValues(renderChannelPane(undefined));
+    expect(wholeSession).toContain(CHANNEL_TWO_SPEAKER);
+    expect(wholeSession).toContain("session_lifecycle");
+  });
+
+  it("says an empty channel is empty, not that the session is", () => {
+    // "Nothing has happened in this session yet" over a channel pane is false about
+    // the session — and it fired for every channel pane in the shipped fixtures,
+    // because no scenario event carries a channel at all.
+    const pane = renderChannelPane(SILENT_CHANNEL);
+
+    expect(pane.textContent).toContain("Nothing has happened in this channel yet.");
+    expect(pane.textContent).not.toContain("Nothing has happened in this session yet.");
+  });
+
+  it("names the session when it reports an entry it could not place", () => {
+    // The count comes off the whole-log projection, before the scope can apply, and
+    // an event this build cannot place carries no channel it could be counted
+    // under — so a channel pane says whose fact it is rather than implying its own.
+    const unplaceable: ConsoleSessionEvent = {
+      id: "event-9",
+      sessionId: SESSION_ID,
+      sequence: 9,
+      kind: "nothing.this.build.registers",
+      occurredAt: "2026-01-01T11:05:09.000Z",
+      payload: { sessionId: SESSION_ID },
+    };
+
+    expect(renderChannelPane(CHANNEL_ONE, [unplaceable]).textContent).toContain(
+      "Some of the session's entries could not be placed.",
+    );
+    // The negative control: the session pane keeps the plain sentence, so the
+    // scoped wording is a scope decision rather than a rewrite of both.
+    expect(renderChannelPane(undefined, [unplaceable]).textContent).toContain(
+      "Some entries could not be placed.",
+    );
   });
 
   it("leaves a bare address a log of the whole session", () => {

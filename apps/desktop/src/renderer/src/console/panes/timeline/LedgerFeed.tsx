@@ -68,6 +68,7 @@ import {
   LedgerViewport,
   useLedgerReveal,
   useLedgerViewport,
+  type LedgerScope,
 } from "../../ledger/frame/index.js";
 import {
   FindInLedger,
@@ -124,6 +125,10 @@ export interface LedgerFeedProps {
 
 export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   const clock = useConsoleClock();
+  // WHAT THIS LEDGER IS A LOG OF, resolved once and handed to both surfaces that
+  // say something about the window as a whole. Every sentence either of them can
+  // print names a subject, and the subject is this.
+  const scope: LedgerScope = props.channelId === undefined ? "session" : "channel";
   // The fold is this MOUNT's, not the log's: which finished chapters a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
@@ -364,6 +369,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
               binding={viewport}
               renderRow={renderRow}
               feedLabel={props.feedLabel}
+              scope={scope}
               hasActiveTurn={ledgerWindow.hasActiveTurn}
             />
           </LedgerRowRevealProvider>
@@ -414,6 +420,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
           visible.withheldByReplayRows.length - replay.rowsAdmittedSinceReplayBegan
         }
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
+        scope={scope}
       />
     </div>
   );
