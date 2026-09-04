@@ -106,6 +106,15 @@ import { useLedgerProjection } from "./ledger-window.js";
 
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
+  /**
+   * The channel this feed is a log OF, when it is a log of one.
+   *
+   * Absent, the feed is the whole session — which is what a bare timeline address
+   * means. Present, it is applied inside the projection rather than beside it, so
+   * the facets, the chapters, the seams, the cap, replay, find and the rail are all
+   * facts about the channel and no piece below has to be told a scope exists.
+   */
+  readonly channelId?: string;
   /** The row body, from the seat. Resolved by the pane, so this file reads no seat. */
   readonly renderTimelineRow: TimelineRowRenderer;
   /** Names the feed for a screen reader walking the window. */
@@ -119,7 +128,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // derivation rather than folded into it.
   const chapterDisclosure = useChapterDisclosure();
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
-  const unfurledWindow = useLedgerProjection(props.sessionStore);
+  const unfurledWindow = useLedgerProjection(props.sessionStore, props.channelId);
   // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
   // below — the chapter fold, the replay engine, the viewport, the visible window,
   // find and the rail — is built over the narrowed model, so no piece has to

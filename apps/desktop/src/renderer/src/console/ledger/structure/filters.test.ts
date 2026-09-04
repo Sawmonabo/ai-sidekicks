@@ -16,6 +16,7 @@ import {
   deriveLedgerFacets,
   isLedgerFiltered,
   jumpToEventId,
+  scopeLedgerRowsToChannel,
   type LedgerJumpStages,
   withToggledCategory,
   withToggledParticipant,
@@ -334,5 +335,99 @@ describe("filters — a facet press narrows, and pressing it again widens back",
       "rb-b",
       "a2",
     ]);
+  });
+});
+
+describe("filters — a channel-scoped pane is a log of that channel", () => {
+  const CHANNEL_ONE = "019b793b-7b60-7c11-8110-c4a11e10001a";
+  const CHANNEL_TWO = "019b793b-7b60-7c11-8120-c4a11e10002b";
+
+  /**
+   * One run that spoke in both channels, one that spoke only in the second, a
+   * session row, and a boundary.
+   *
+   * Shaped so every clause of the scope is exercised by one window: only the two
+   * message rows carry a channel, so the run rows and the boundary can be admitted
+   * only through the claim, and run-a's second message is the row that proves a run
+   * claimed by one channel does not drag its other channel's prose along.
+   */
+  function twoChannelWindow(): readonly TimelineRow[] {
+    return [
+      runRow({ id: "a-start", sequence: 1, type: "run.running", runId: "run-a", position: 0 }),
+      runRow({
+        id: "a-said-one",
+        sequence: 2,
+        type: "assistant.message",
+        category: "assistant_output",
+        runId: "run-a",
+        position: 1,
+        payload: { channelId: CHANNEL_ONE },
+      }),
+      runRow({
+        id: "a-said-two",
+        sequence: 3,
+        type: "assistant.message",
+        category: "assistant_output",
+        runId: "run-a",
+        position: 2,
+        payload: { channelId: CHANNEL_TWO },
+      }),
+      rollbackBoundaryRow({ id: "a-boundary", sequence: 4, runId: "run-a", position: 1 }),
+      runRow({
+        id: "b-said",
+        sequence: 5,
+        type: "assistant.message",
+        category: "assistant_output",
+        runId: "run-b",
+        position: 0,
+        payload: { channelId: CHANNEL_TWO },
+      }),
+      generalRow({
+        id: "session-renamed",
+        sequence: 6,
+        type: "session.renamed",
+        category: "session_lifecycle",
+      }),
+    ];
+  }
+
+  it("keeps the channel's own rows and the runs that produced them", () => {
+    // The run row and the boundary name no channel — no run-lifecycle payload does
+    // — so without the claim a channel pane would show prose with no chapter to
+    // fold it into, no receipt, and no boundary marking a rewind.
+    const scoped = scopeLedgerRowsToChannel(twoChannelWindow(), CHANNEL_ONE);
+
+    expect(scoped.map((row) => row.id)).toStrictEqual(["a-start", "a-said-one", "a-boundary"]);
+  });
+
+  it("never carries one channel's prose into another's pane", () => {
+    // `run-a` spoke in both, and the claim admits its channel-less rows only.
+    const scoped = scopeLedgerRowsToChannel(twoChannelWindow(), CHANNEL_TWO);
+
+    expect(scoped.map((row) => row.id)).toStrictEqual([
+      "a-start",
+      "a-said-two",
+      "a-boundary",
+      "b-said",
+    ]);
+  });
+
+  it("leaves a session row to the session", () => {
+    // An absent channel member says the producer named no channel, not that it
+    // named this one — so a scope that admitted it would put every session-level
+    // row on every channel pane.
+    for (const channelId of [CHANNEL_ONE, CHANNEL_TWO]) {
+      expect(scopeLedgerRowsToChannel(twoChannelWindow(), channelId)).not.toContainEqual(
+        expect.objectContaining({ id: "session-renamed" }),
+      );
+    }
+  });
+
+  it("negative control: a channel nothing named admits nothing at all", () => {
+    // Without this the scope could be admitting on the claim alone, which would
+    // show every run's rows under a channel that never held one.
+    expect(
+      scopeLedgerRowsToChannel(twoChannelWindow(), "019b793b-7b60-7c11-8130-000000000000"),
+    ).toStrictEqual([]);
   });
 });

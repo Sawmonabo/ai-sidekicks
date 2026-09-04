@@ -19,13 +19,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
-import { FrameStore, SessionStore } from "../../store/index.js";
+import { FrameStore, SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
 import { registerTimelineRowRenderer, unregisterTimelineRowRenderer } from "../../seats/index.js";
+// The shared stub rather than a second one: `happy-dom` reports zero for both box
+// readings, and a viewport with no box holds no rows — a case that stubbed only the
+// height would be measuring its own setup.
+import { withLaidOutViewport } from "./ledger-feed-fixtures.js";
 import { TIMELINE_ROW_SLOT, TimelinePane, type TimelinePaneContext } from "./TimelinePane.js";
 
 const SESSION_ID = "session-ledger";
-const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 
 /**
  * The pane context, with the members this component reads real and the rest cast.
@@ -108,20 +111,6 @@ function openSessionStoreWithLog(): SessionStore {
     },
   ]);
   return sessionStore;
-}
-
-/**
- * Give every element a viewport height, for the length of one case.
- *
- * `happy-dom` reports zero for `clientHeight`, and the virtualizer treats a zero
- * outer size as no range at all — so without this a mounted feed would hold no
- * rows for a reason that has nothing to do with the projection under test. The
- * same stub `LedgerViewport.test.tsx` takes, for the same reason.
- */
-function withLaidOutViewport(): void {
-  vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
-    LAID_OUT_VIEWPORT_HEIGHT_PX,
-  );
 }
 
 afterEach(() => {
@@ -264,5 +253,82 @@ describe("TimelinePane — the row slot", () => {
     const pane = renderPane(<TimelinePane context={paneContext()} />);
     expect(pane.textContent).not.toContain(TIMELINE_ROW_SLOT.owningTask);
     expect(pane.textContent).not.toContain(TIMELINE_ROW_SLOT.deleteShellIn);
+  });
+});
+
+describe("TimelinePane — a channel address is the pane's scope", () => {
+  const CHANNEL_ONE = "019b793b-7b60-7c11-8110-c4a11e10001a";
+  const CHANNEL_TWO = "019b793b-7b60-7c11-8120-c4a11e10002b";
+  const RUN_ONE = "019b793b-7b60-740e-8110-d1a4c1150111";
+  const RUN_TWO = "019b793b-7b60-740e-8120-d1a4c1150112";
+  const SEAT_ROW = ".meridian-ledger-viewport__row";
+
+  /** Two runs talking in two channels, and one session row belonging to neither. */
+  function openSessionStoreWithTwoChannels(): SessionStore {
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    sessionStore.initialise({ cursor: -1, entities: [], participantJoinLog: [] });
+    const said = (sequence: number, runId: string, channelId: string): ConsoleSessionEvent => ({
+      id: `event-${String(sequence)}`,
+      sessionId: SESSION_ID,
+      sequence,
+      kind: "assistant.message",
+      occurredAt: `2026-01-01T11:05:0${String(sequence)}.000Z`,
+      payload: { sessionId: SESSION_ID, runId, channelId },
+    });
+    sessionStore.applyBatch([
+      {
+        id: "event-0",
+        sessionId: SESSION_ID,
+        sequence: 0,
+        kind: "session.created",
+        occurredAt: "2026-01-01T11:05:00.000Z",
+        payload: { sessionId: SESSION_ID },
+      },
+      said(1, RUN_ONE, CHANNEL_ONE),
+      said(2, RUN_ONE, CHANNEL_ONE),
+      said(3, RUN_TWO, CHANNEL_TWO),
+    ]);
+    return sessionStore;
+  }
+
+  /** A pane addressed to one channel, with a real row renderer behind the seat. */
+  function renderChannelPane(channelId: string | undefined): HTMLElement {
+    withLaidOutViewport();
+    registerTimelineRowRenderer("timeline-pane-channel-scope", () => null);
+    return renderPane(
+      <TimelinePane
+        context={paneContext({
+          sessionStore: openSessionStoreWithTwoChannels(),
+          ...(channelId === undefined ? {} : { entity: { kind: "channel", id: channelId } }),
+        } as Partial<TimelinePaneContext>)}
+      />,
+    );
+  }
+
+  it("shows only the addressed channel's rows", () => {
+    // The defect: a channel address reached the header's breadcrumb and stopped
+    // there, while the body was handed the whole session store — so a pane headed
+    // by one channel rendered every channel's rows.
+    expect(renderChannelPane(CHANNEL_ONE).querySelectorAll(SEAT_ROW)).toHaveLength(2);
+    expect(renderChannelPane(CHANNEL_TWO).querySelectorAll(SEAT_ROW)).toHaveLength(1);
+  });
+
+  it("names itself for what it is a log of", () => {
+    // The label is what a screen reader announces on entering the box, and
+    // "Session timeline" over a channel window says the log is the session's.
+    const feed = renderChannelPane(CHANNEL_ONE).querySelector(".meridian-ledger-viewport__surface");
+    expect(feed?.getAttribute("aria-label")).toBe("Channel timeline");
+  });
+
+  it("leaves a bare address a log of the whole session", () => {
+    // The negative control, and the compatibility claim in one: a timeline address
+    // with no entity is session-scoped, and every row — both channels' and the
+    // session's own — is on it.
+    const pane = renderChannelPane(undefined);
+
+    expect(pane.querySelectorAll(SEAT_ROW)).toHaveLength(4);
+    expect(
+      pane.querySelector(".meridian-ledger-viewport__surface")?.getAttribute("aria-label"),
+    ).toBe("Session timeline");
   });
 });
