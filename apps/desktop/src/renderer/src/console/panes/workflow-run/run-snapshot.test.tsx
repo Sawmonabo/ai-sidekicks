@@ -10,7 +10,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createFixtureBridge, type GrowthPort } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
-import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
+import {
+  WORKFLOWS_PARKED_RUN,
+  WORKFLOWS_SCENARIO_RUNS,
+} from "../../bridge/scenarios/workflow-fixture-runs.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
 
@@ -61,17 +64,59 @@ function observeSnapshot(
   growth: GrowthPort,
   workflowRunId: string | undefined,
 ): WorkflowRunSnapshotState[] {
+  return retargetableSnapshot(growth, workflowRunId).observed;
+}
+
+/**
+ * The same probe, with the handle a retarget needs.
+ *
+ * A pane is not remounted when the deck points it at another run — it is re-rendered
+ * with a different address, which is the whole subject of the retarget case below.
+ */
+function retargetableSnapshot(
+  growth: GrowthPort,
+  workflowRunId: string | undefined,
+): {
+  readonly observed: WorkflowRunSnapshotState[];
+  readonly retarget: (next: string) => void;
+} {
   const observed: WorkflowRunSnapshotState[] = [];
-  render(
-    <SnapshotProbe
-      growth={growth}
-      workflowRunId={workflowRunId}
-      onObserve={(state) => {
-        observed.push(state);
-      }}
-    />,
+  const collect = (state: WorkflowRunSnapshotState): void => {
+    observed.push(state);
+  };
+  const view = render(
+    <SnapshotProbe growth={growth} workflowRunId={workflowRunId} onObserve={collect} />,
   );
-  return observed;
+  return {
+    observed,
+    retarget: (next) => {
+      view.rerender(<SnapshotProbe growth={growth} workflowRunId={next} onObserve={collect} />);
+    },
+  };
+}
+
+/** The real port answering the run read from the fixture's own runs, by id. */
+function runReadingGrowthPort(): GrowthPort {
+  return {
+    ...createRefusingGrowthPort(),
+    workflowRunRead: async ({ workflowRunId }) => {
+      const run = WORKFLOWS_SCENARIO_RUNS.find(
+        (candidate) => candidate.workflowRunId === workflowRunId,
+      );
+      if (run === undefined) {
+        throw new Error(`no fixture run with id ${workflowRunId}`);
+      }
+      return { status: "served", value: run };
+    },
+  };
+}
+
+function firstState(observed: readonly WorkflowRunSnapshotState[]): WorkflowRunSnapshotState {
+  const state = observed[0];
+  if (state === undefined) {
+    throw new Error("the probe never rendered, so there is no state to read");
+  }
+  return state;
 }
 
 function lastState(observed: readonly WorkflowRunSnapshotState[]): WorkflowRunSnapshotState {
@@ -88,9 +133,44 @@ describe("useWorkflowRunSnapshot — one read, four answers", () => {
   });
 
   it("puts no question at all where the pane names no run", () => {
-    expect(lastState(observeSnapshot(createRefusingGrowthPort(), undefined)).status).toBe(
-      "unasked",
-    );
+    // `unasked` on the FIRST render as well as the last, so the arm that must stay
+    // unasked is held to the same moment as the arm below that must not be.
+    const observed = observeSnapshot(createRefusingGrowthPort(), undefined);
+    expect(firstState(observed).status).toBe("unasked");
+    expect(lastState(observed).status).toBe("unasked");
+  });
+
+  it("is already reading on the first render an addressed pane commits", () => {
+    // The state was initialised `unasked` and only became `reading` in the effect,
+    // which runs after the commit — so an addressed pane painted one frame reading
+    // "This run has not been read in this window" over a read it had already issued.
+    const observed = observeSnapshot(runReadingGrowthPort(), WORKFLOWS_PARKED_RUN.workflowRunId);
+    expect(firstState(observed).status).toBe("reading");
+  });
+
+  it("shows the previous run's phases nowhere once the pane is retargeted", async () => {
+    const [firstRun, secondRun] = WORKFLOWS_SCENARIO_RUNS;
+    if (firstRun === undefined || secondRun === undefined) {
+      throw new Error("the workflows fixture carries fewer than two runs");
+    }
+    const probe = retargetableSnapshot(runReadingGrowthPort(), firstRun.workflowRunId);
+    await settle();
+    expect(lastState(probe.observed).status).toBe("served");
+
+    act(() => {
+      probe.retarget(secondRun.workflowRunId);
+    });
+
+    // Reading, not run A's snapshot: before the stamp, A's phases and A's park cards
+    // stayed renderable under B's address until the effect got round to resetting.
+    expect(lastState(probe.observed).status).toBe("reading");
+
+    await settle();
+    const settled = lastState(probe.observed);
+    expect(settled.status).toBe("served");
+    if (settled.status === "served") {
+      expect(settled.snapshot.workflowRunId).toBe(secondRun.workflowRunId);
+    }
   });
 
   it("starts as a read in flight and settles on the scripted snapshot", async () => {
@@ -103,8 +183,8 @@ describe("useWorkflowRunSnapshot — one read, four answers", () => {
     }).growth;
 
     const observed = observeSnapshot(growth, WORKFLOWS_PARKED_RUN.workflowRunId);
-    // The state after the mount and before the answer. The first observation is the
-    // pre-effect `unasked` default, which says nothing about what the hook asked.
+    // The state after the mount and before the answer. Every render of it, first
+    // included, because the read is stamped with the run it is about.
     expect(lastState(observed).status).toBe("reading");
 
     await settle();

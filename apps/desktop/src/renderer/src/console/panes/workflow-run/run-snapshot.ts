@@ -24,17 +24,30 @@
 // inventing a refresh cadence for a stream it will later subscribe to, and holding
 // two answers to one question in the meantime.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
 import type { GrowthPort, WorkflowRunSnapshot } from "../../bridge/index.js";
+import {
+  subjectReadStart,
+  useSubjectStampedRead,
+  type SubjectStampedRead,
+} from "../../store/index.js";
 import { settleGrowthRead, type SettledReadRefusal } from "../../workflows/read-settlement.js";
 
-/** What the run pane knows about its run at one moment. */
-export type WorkflowRunSnapshotState =
-  | { readonly status: "unasked" }
-  | { readonly status: "reading" }
+/** What this read looks like once it has an answer, either kind. */
+type SettledRunSnapshot =
   | { readonly status: "served"; readonly snapshot: WorkflowRunSnapshot }
   | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
+
+/**
+ * What the run pane knows about its run at one moment.
+ *
+ * Four states and no others, and the two unsettled ones come from the shared shape in
+ * `store/subject-stamped-state.ts` rather than being spelled a third time here — so
+ * this hook, the runs directory and the definitions directory cannot drift about
+ * which frame is allowed to claim nobody asked.
+ */
+export type WorkflowRunSnapshotState = SubjectStampedRead<SettledRunSnapshot>;
 
 /**
  * Read one run once, for as long as the caller is mounted.
@@ -43,21 +56,28 @@ export type WorkflowRunSnapshotState =
  * therefore stable for the life of a window, so a re-render never re-reads, while a
  * bridge swapped underneath — the fixture's scenario switch — and a pane retargeted
  * at a different run both do.
+ *
+ * THE STATE IS STAMPED WITH THE RUN IT IS ABOUT, so a retarget is settled during the
+ * render that brings the new run rather than in the effect after the commit. Before
+ * that, an addressed pane committed one frame reading "This run has not been read in
+ * this window" over a read it had already issued, and a pane moved from run A to run
+ * B kept A's phases and A's park cards renderable under B's address.
  */
 export function useWorkflowRunSnapshot(
   growth: GrowthPort,
   workflowRunId: string | undefined,
 ): WorkflowRunSnapshotState {
-  const [state, setState] = useState<WorkflowRunSnapshotState>({ status: "unasked" });
+  const [state, setState] = useSubjectStampedRead<SettledRunSnapshot>(workflowRunId);
   useEffect(() => {
     if (workflowRunId === undefined) {
-      setState({ status: "unasked" });
+      // Nothing to reset: the stamp already put this read at `unasked` during the
+      // render that dropped the run, which is the honest state for a pane naming none.
       return;
     }
-    // Reset rather than leaving the previous run's snapshot on screen under a fresh
-    // subject: a stale run reads as the current one, and nothing about it says
-    // otherwise.
-    setState({ status: "reading" });
+    // The PORT can change under an unchanged run — the fixture's scenario switch swaps
+    // the bridge — and the subject stamp does not see that, so the reset is stated
+    // here for exactly that case, through the same rule rather than beside it.
+    setState(subjectReadStart(workflowRunId));
     let isMounted = true;
     void settleGrowthRead(growth.workflowRunRead({ workflowRunId })).then((outcome) => {
       if (!isMounted) {
@@ -75,6 +95,8 @@ export function useWorkflowRunSnapshot(
     return () => {
       isMounted = false;
     };
-  }, [growth, workflowRunId]);
+    // `setState` is the stamped read's own setter and is stable for the life of the
+    // hook; it is named so the dependency list is the whole of what this effect uses.
+  }, [growth, workflowRunId, setState]);
   return state;
 }
