@@ -17,7 +17,10 @@
 import { describe, expect, it } from "vitest";
 
 import { AttachSidekickForm, type AttachRequest } from "./attach-model.js";
-import { driverCapabilityFlags, DRIVER_CATALOG_FIXTURE } from "./driver-catalog-fixtures.js";
+import {
+  DRIVER_CATALOG_FIXTURE,
+  OVERLAPPING_DRIVER_CATALOG_FIXTURE,
+} from "./driver-catalog-fixtures.js";
 import type { DriverCatalogReading } from "./driver-catalog.js";
 
 const SESSION_ID = "session-9";
@@ -288,41 +291,13 @@ describe("attach form — notification", () => {
 });
 
 /**
- * Two drivers that OVERLAP on one model id and disagree about its effort levels.
+ * The overlapping reading, taken from the family fixture rather than built here.
  *
- * Built here rather than taken from `DRIVER_CATALOG_FIXTURE`, whose two drivers share
- * no model id at all — which makes it the right fixture for the axis controls and the
- * wrong one for a chain, where the whole question is what survives a driver change.
- * `shared-model` is carried by both; `claude-only` is carried by one; and the shared
- * model publishes a wider vocabulary under `claude` than under `codex`, so a level
- * can be retired by moving either the driver or the model.
+ * `DRIVER_CATALOG_FIXTURE`'s two drivers share no model id at all, which makes it the
+ * right fixture for the axis controls and the wrong one for a chain, where the whole
+ * question is what survives a change of driver or model.
  */
-const OVERLAPPING_CATALOG: DriverCatalogReading = {
-  models: {
-    drivers: [
-      {
-        driverName: "claude",
-        models: [
-          { id: "shared-model", name: "Shared", capabilities: [], effortLevels: ["low", "high"] },
-          { id: "claude-only", name: "Claude only", capabilities: [], effortLevels: ["low"] },
-        ],
-      },
-      {
-        driverName: "codex",
-        models: [{ id: "shared-model", name: "Shared", capabilities: [], effortLevels: ["low"] }],
-      },
-    ],
-  },
-  capabilities: {
-    drivers: ["claude", "codex"].map((driverName) => ({
-      driverName,
-      capabilities: {
-        flags: driverCapabilityFlags({ model_mutation: true }),
-        contractVersion: "1.0.0",
-      },
-    })),
-  },
-};
+const OVERLAPPING_CATALOG: DriverCatalogReading = OVERLAPPING_DRIVER_CATALOG_FIXTURE;
 
 /** An inline form filled top-down, the order a person fills the dialog in. */
 function inlineFormOver(
@@ -538,5 +513,91 @@ describe("attach form — readiness tests membership, never presence", () => {
     expect(readiness.status === "incomplete" ? readiness.missing : []).toContain(
       "a model this driver carries",
     );
+  });
+});
+
+describe("attach form — an override is validated against the chain it lands in", () => {
+  /** The definition the overlapping catalog vouches for as a whole. */
+  const OVERLAPPING_DEFINITION = {
+    definitionId: "definition-shared",
+    name: "Shared",
+    driverName: "claude",
+    modelId: "shared-model",
+    effort: "high",
+  } as const;
+
+  it("refuses an inherited model the overridden driver does not carry", () => {
+    // The defect: only the entered driver was examined, so the definition's own
+    // model and effort stayed valid on the form and the daemon merged them into a
+    // provider that publishes neither.
+    const form = namedForm();
+    form.selectDefinition({ ...OVERLAPPING_DEFINITION, modelId: "claude-only" });
+    form.setField("driverName", "codex", OVERLAPPING_CATALOG);
+    const readiness = form.readiness(SESSION_ID, OVERLAPPING_CATALOG);
+    expect(readiness.status).toBe("incomplete");
+    expect(readiness.status === "incomplete" ? readiness.missing : []).toContain(
+      "a model this driver carries",
+    );
+  });
+
+  it("refuses an inherited effort the overridden driver's reading of the model retires", () => {
+    // The model SURVIVES the override — both drivers carry `shared-model` — and only
+    // the effort does not, which is the case an entered-only check cannot see at all.
+    const form = namedForm();
+    form.selectDefinition(OVERLAPPING_DEFINITION);
+    form.setField("driverName", "codex", OVERLAPPING_CATALOG);
+    const readiness = form.readiness(SESSION_ID, OVERLAPPING_CATALOG);
+    expect(readiness.status).toBe("incomplete");
+    expect(readiness.status === "incomplete" ? readiness.missing : []).toEqual([
+      "an effort this model carries",
+    ]);
+  });
+
+  it("leaves the inherited axis showing, so the caller overrides what they can see", () => {
+    // An inherited axis is the DEFINITION's: clearing it here would edit a row the
+    // caller never chose to edit, and empty a field under their cursor.
+    const form = namedForm();
+    form.selectDefinition(OVERLAPPING_DEFINITION);
+    form.setField("driverName", "codex", OVERLAPPING_CATALOG);
+    expect(form.effectiveValue("effort")).toBe("high");
+    expect(form.isOverridden("effort")).toBe(false);
+  });
+
+  it("becomes ready once the incompatible axis is overridden with a compatible value", () => {
+    const form = namedForm();
+    form.selectDefinition(OVERLAPPING_DEFINITION);
+    form.setField("driverName", "codex", OVERLAPPING_CATALOG);
+    form.setField("effort", "low", OVERLAPPING_CATALOG);
+    const readiness = form.readiness(SESSION_ID, OVERLAPPING_CATALOG);
+    expect(readiness.status).toBe("ready");
+    expect(readiness.status === "ready" ? readiness.request : undefined).toEqual({
+      sessionId: SESSION_ID,
+      name: "Scout",
+      definitionId: "definition-shared",
+      driverName: "codex",
+      modelId: undefined,
+      providerAccountId: undefined,
+      effort: "low",
+    });
+  });
+
+  it("negative control: an override the whole inherited chain survives stays ready", () => {
+    // Without this the cases above would pass over a form that refused every
+    // definition arm carrying an override, which is a different defect wearing the
+    // same green: `claude-only` is `claude`'s own model and publishes `low`.
+    const form = namedForm();
+    form.selectDefinition({ ...OVERLAPPING_DEFINITION, effort: "low" });
+    form.setField("modelId", "claude-only", OVERLAPPING_CATALOG);
+    expect(form.readiness(SESSION_ID, OVERLAPPING_CATALOG).status).toBe("ready");
+  });
+
+  it("negative control: the untouched definition arm needs no catalog and no chain", () => {
+    // The whole chain is only in question once something is entered. A definition
+    // resolves coherently at the daemon, so an arm carrying no override stays
+    // submittable even while the catalog read is in flight.
+    const form = namedForm();
+    form.selectDefinition({ ...OVERLAPPING_DEFINITION, modelId: "claude-only" });
+    expect(form.readiness(SESSION_ID, OVERLAPPING_CATALOG).status).toBe("ready");
+    expect(form.readiness(SESSION_ID, undefined).status).toBe("ready");
   });
 });
