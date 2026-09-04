@@ -55,6 +55,18 @@ export interface DiffFixtureShape {
    * change set it was before this dimension existed.
    */
   readonly extendedHeaderFiles: boolean;
+  /**
+   * Whether the change set carries one file whose only change is its terminator.
+   *
+   * A DIMENSION OF ITS OWN for `extendedHeaderFiles`' reason and one more: this file
+   * DOES change lines — one deleted and one inserted, with identical text — so folding
+   * it into `fileCount` would move every existing shape's per-file arithmetic, and
+   * folding it into the header dimension would put a hunk inside a set documented as
+   * having none. It is the only subject in this module on which the two rendered rows
+   * are indistinguishable without the patch's own `\ No newline at end of file`
+   * marker, which is exactly why the surfaces need it.
+   */
+  readonly terminalNewlineFile: boolean;
 }
 
 /** The endurance tier's subject: forty files, five thousand changed lines. */
@@ -65,6 +77,7 @@ export const ENDURANCE_DIFF_SHAPE: DiffFixtureShape = {
   precedingContextPerHunk: 30,
   agentAttributionEveryNthLine: 7,
   extendedHeaderFiles: false,
+  terminalNewlineFile: false,
 };
 
 /**
@@ -85,6 +98,7 @@ export const SINGLE_LARGE_HUNK_DIFF_SHAPE: DiffFixtureShape = {
   precedingContextPerHunk: 30,
   agentAttributionEveryNthLine: 7,
   extendedHeaderFiles: false,
+  terminalNewlineFile: false,
 };
 
 /** A change set small enough to assert against row by row. */
@@ -95,6 +109,7 @@ export const SMALL_DIFF_SHAPE: DiffFixtureShape = {
   precedingContextPerHunk: 4,
   agentAttributionEveryNthLine: 3,
   extendedHeaderFiles: false,
+  terminalNewlineFile: false,
 };
 
 /**
@@ -110,6 +125,11 @@ export const SMALL_DIFF_SHAPE: DiffFixtureShape = {
 export const EXTENDED_HEADER_DIFF_SHAPE: DiffFixtureShape = {
   ...SMALL_DIFF_SHAPE,
   extendedHeaderFiles: true,
+  // And the file whose whole change is its terminating newline, for the same reason
+  // the four header files are here: two rows with identical text are what the two
+  // surfaces drew before the marker was carried, and what they draw now is a claim an
+  // image holds and a count assertion does not.
+  terminalNewlineFile: true,
 };
 
 /**
@@ -123,6 +143,18 @@ export const EXTENDED_HEADER_FIXTURE_FILES = {
   copied: { from: "config/base.yml", to: "config/staging.yml" },
   modeChanged: { path: "scripts/release.sh", from: "100644", to: "100755" },
   binary: { path: "assets/logo.png" },
+} as const;
+
+/**
+ * The file whose only change is whether its last line ends with a newline.
+ *
+ * Named once so a case addresses the file the fixture actually wrote, exactly as the
+ * four header files are. `lastLine` is the text BOTH the deleted and the inserted row
+ * carry — they are the same characters, which is the whole point of the subject.
+ */
+export const TERMINAL_NEWLINE_FIXTURE_FILE = {
+  path: "packages/contracts/src/tail.ts",
+  lastLine: "export const tail = terminate(entries);",
 } as const;
 
 /** The run-attributed arm, for the case the badge renders as accountable to a run. */
@@ -182,10 +214,21 @@ export function buildDiffFixture(
   };
 }
 
-/** How many lines a shape's hunks hold. The endurance tier's headline figure. */
+/**
+ * How many lines a shape's hunks hold. The endurance tier's headline figure.
+ *
+ * The terminator file's pair is counted because it IS a pair of changed lines; the
+ * four header files add none, which is why they need no term here.
+ */
 export function fixtureChangedLineCount(shape: DiffFixtureShape): number {
-  return shape.fileCount * shape.hunksPerFile * shape.linesPerHunk;
+  return (
+    shape.fileCount * shape.hunksPerFile * shape.linesPerHunk +
+    (shape.terminalNewlineFile ? TERMINAL_NEWLINE_CHANGED_LINE_COUNT : 0)
+  );
 }
+
+/** The deletion and the insertion the terminator file's one hunk carries. */
+const TERMINAL_NEWLINE_CHANGED_LINE_COUNT = 2;
 
 /** The whole change set as unified patch text, which is what a producer would send. */
 function buildPatchText(shape: DiffFixtureShape): string {
@@ -208,10 +251,41 @@ function buildPatchText(shape: DiffFixtureShape): string {
     }
     patches.push(lines.join("\n"));
   }
+  // BEFORE the header files, which is not arrangement: the binary file's patch is the
+  // one whose body a parser reads by looking at what follows it, and a plain unified
+  // patch appended after it is read as part of that file rather than as its own.
+  if (shape.terminalNewlineFile) {
+    patches.push(terminalNewlinePatch());
+  }
   if (shape.extendedHeaderFiles) {
     patches.push(...extendedHeaderPatches());
   }
   return `${patches.join("\n")}\n`;
+}
+
+/**
+ * One file that lost its terminating newline and changed nothing else.
+ *
+ * WRITTEN OUT RATHER THAN GENERATED, because the whole subject is one exact pair of
+ * lines: the deletion and the insertion carry the SAME text, and the only thing that
+ * tells them apart is the marker on the second. A generator parameterised over this
+ * would have one call site and would hide the one property the case is about.
+ *
+ * The marker is on the inserted side alone, which is what removing a newline looks
+ * like — a reader has to be able to see which side the file ends without one on.
+ */
+function terminalNewlinePatch(): string {
+  const { path, lastLine } = TERMINAL_NEWLINE_FIXTURE_FILE;
+  return [
+    `--- ${path}`,
+    `+++ ${path}`,
+    "@@ -1,3 +1,3 @@",
+    ' import { terminate } from "./terminate.js";',
+    " ",
+    `-${lastLine}`,
+    `+${lastLine}`,
+    "\\ No newline at end of file",
+  ].join("\n");
 }
 
 /**

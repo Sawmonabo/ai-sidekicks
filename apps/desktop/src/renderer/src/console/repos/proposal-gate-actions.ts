@@ -33,21 +33,30 @@
 // than ignored, because a press that produced nothing at all is the silent no-op
 // rule 8 forbids.
 //
-// SETTLED BY REQUEST IDENTITY, NOT MERELY BY LIVENESS. Every continuation checks the
-// id it was issued under before it writes: a reply for a request the register has
-// moved past describes a proposal a later act has already superseded, and writing it
-// would put the older payload back on the arm.
+// SETTLED BY REQUEST IDENTITY, NOT MERELY BY LIVENESS. Every continuation checks the id
+// it was issued under before it writes: a reply for a request the register has moved
+// past describes a proposal a later act superseded, and writing it puts that payload back.
 //
 // THE TARGET BRANCH IS THE CONTEXT'S AND NEVER A SELECTION. `branch-context-model.ts`
 // forbids inferring base or head from a pane, a tab, or a focused view; the
 // preparation call's `targetBranch` is read off the served context's `baseBranch` and
 // there is no parameter on this class through which a selection could reach it.
+//
+// AND A CALL THAT REJECTS IS AN ANSWER, WHICH IS WHY NO ACT HERE AWAITS THE PORT BARE.
+// The live bridge crosses a process boundary, so an IPC disconnect makes a call THROW
+// rather than answer a refusal, and a thrown act used to escape `request` entirely: the
+// `finally` gave the register back, so every control re-enabled, while nothing was
+// written beside the one that was pressed and the binding — which voids this promise —
+// left the rejection unhandled. Both wires reject the same way. So the dispatch is
+// wrapped, the rejection is read through the repos family's ONE normalizer, and it is
+// recorded BEFORE the register is released. `request` settles and never rejects.
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import type { BranchContextReading } from "./branch-context-model.js";
 import type { PreparedProposal } from "./prepared-proposal.js";
 import { gitActionExecuteRequest } from "./git-action-request.js";
+import { refusalFromRejection } from "./repo-reads.js";
 import {
   PROPOSAL_ACTION_HEAD_EFFECT,
   PROPOSAL_ACTION_PRESENTATION,
@@ -195,15 +204,23 @@ export class ProposalGateActions {
     this.#nextRequestId += 1;
     this.#holdFor(request);
     try {
-      // Routed by the table rather than by naming the act: `PROPOSAL_ACTION_WIRE` is
-      // where the two wires are declared, so a fourth act has to say which one it
-      // reaches before it can be sent from here — and the guard NARROWS, so the request
-      // builder below is handed an act the git action can actually take.
+      // Routed by the predicate rather than by naming the act, so a fourth act says
+      // which of the two wires it reaches before it can be sent — and the guard
+      // NARROWS, so the request builder is handed an act the git action can take.
       if (!reachesGitAction(action)) {
         await this.#prepareProposal(context, request);
         return;
       }
       await this.#executeGitAction(action, context, request);
+    } catch (rejection) {
+      // The identity check the settle paths make, for their reason: a rejection for a
+      // request the register has moved past describes an act a later press superseded.
+      if (this.#stillStandingFor(request)) {
+        this.#recordActionRefusal(
+          action,
+          refusalFromRejection(proposalActionWire(action), rejection),
+        );
+      }
     } finally {
       this.#release(request);
     }
@@ -368,4 +385,16 @@ export class ProposalGateActions {
     actionRefusals.set(action, refusal);
     this.#host.publish({ ...reading, actionRefusals });
   }
+}
+
+/**
+ * Which growth-port operation an act's press puts on the wire.
+ *
+ * Read off the SAME predicate the dispatch routes on rather than from a table of its
+ * own, so the wire a refusal names and the wire the act was sent on are one decision:
+ * a second routing could disagree with the first for a fourth act, and the sentence a
+ * participant reads would then name a call the console never made.
+ */
+function proposalActionWire(action: ProposalAction): string {
+  return reachesGitAction(action) ? "gitActionExecute" : "gitflowPrPrepare";
 }

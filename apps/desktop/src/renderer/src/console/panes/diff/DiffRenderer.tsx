@@ -32,7 +32,9 @@
 //
 // THE WINDOW IS THE ADOPTED VIRTUALIZER'S, AND THE FLATTENING IS OURS.
 // `Spec-023 §Console Libraries` ADOPTs `@tanstack/react-virtual` with constraints,
-// and this is the seam it is adopted at. `hunk-virtualization.ts` still answers
+// and `row-window.ts` is the one place it is configured — this family windows two
+// lists, the rows and the changed-file list beside them, and the bounds they share
+// are stated there once. `hunk-virtualization.ts` still answers
 // WHICH ROWS EXIST — a diff is a nested structure and no virtualizer's contract
 // starts from anything but a flat count — and the virtualizer answers which of
 // them a scroll position needs. The console carried both halves once, and the
@@ -59,19 +61,15 @@
 // commanded scroll — the console's scroll chokepoint owns "take me to X", and
 // nothing here asks for one.
 
-import { useVirtualizer, type Virtualizer } from "@tanstack/react-virtual";
 import { useLayoutEffect, useMemo, useRef } from "react";
 
 import { Nothing } from "../../primitives/index.js";
-import {
-  DIFF_ROW_HEIGHT_PX,
-  DIFF_VIEWPORT_FALLBACK_HEIGHT_PX,
-  DIFF_WINDOW_OVERSCAN_ROWS,
-} from "./diff-bounds.js";
+import { DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
 import type { ConsoleDiffModel, DiffViewMode } from "./diff-model.js";
 import { DiffRowView } from "./DiffRows.js";
 import { DiffRowIndex, type DiffGapExpansion } from "./hunk-virtualization.js";
 import { IntralineSegmentCache } from "./intraline-segments.js";
+import { useRowWindow, type RowWindow } from "./row-window.js";
 
 export interface DiffRendererProps {
   readonly model: ConsoleDiffModel;
@@ -117,10 +115,7 @@ export interface DiffRendererProps {
  * runs — so an unguarded reset would wipe exactly the measurements it was meant
  * to protect, and nothing would re-take them until a row resized.
  */
-function useMeasurementsScopedToWrap(
-  virtualizer: Virtualizer<HTMLDivElement, HTMLDivElement>,
-  wrapLongLines: boolean,
-): void {
+function useMeasurementsScopedToWrap(virtualizer: RowWindow, wrapLongLines: boolean): void {
   const measuredUnderWrap = useRef(wrapLongLines);
   useLayoutEffect(() => {
     if (measuredUnderWrap.current === wrapLongLines) {
@@ -150,19 +145,10 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   // every segmentation on a keystroke that moved nothing.
   const intraline = useMemo(() => new IntralineSegmentCache(props.model), [props.model]);
 
-  const virtualizer = useVirtualizer<HTMLDivElement, HTMLDivElement>({
-    count: index.rowCount,
+  const virtualizer = useRowWindow({
+    rowCount: index.rowCount,
     getScrollElement: () => scrollerRef.current,
-    estimateSize: () => DIFF_ROW_HEIGHT_PX,
-    overscan: DIFF_WINDOW_OVERSCAN_ROWS,
-    // A first paint happens before any layout callback runs, so the window has
-    // to be computed against something; this bound says which something, and
-    // the observed rect replaces it on the very next tick.
-    initialRect: { width: 0, height: DIFF_VIEWPORT_FALLBACK_HEIGHT_PX },
-    // React 19 warns when a virtualizer flushes synchronously from a lifecycle
-    // method, and the console has no frame where a scroll tick must land in the
-    // same commit as the event that caused it.
-    useFlushSync: false,
+    estimatedRowHeightPx: DIFF_ROW_HEIGHT_PX,
   });
 
   const { wrapLongLines } = props;

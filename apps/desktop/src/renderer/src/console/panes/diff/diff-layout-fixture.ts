@@ -20,7 +20,7 @@
 // global to the environment, so installing and restoring are one object's two
 // methods rather than a module-level flag two files could both flip.
 
-import { DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
+import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
 
 /** A row the wrap toggle grew, and how tall it turned out. */
 export interface DiffGrownRow {
@@ -81,13 +81,24 @@ export class DiffLayoutFixture {
 /**
  * The height one element reports.
  *
- * The scroller answers the viewport, a row answers its own, and everything else
- * answers the zero happy-dom answers anyway — so nothing outside the diff changes
- * behaviour under an installed fixture.
+ * Either scroller answers the viewport, a row of either list answers its own, and
+ * everything else answers the zero happy-dom answers anyway — so nothing outside the
+ * diff changes behaviour under an installed fixture.
+ *
+ * BOTH LISTS, because the pane windows two: the rows, and the changed-file list
+ * beside them. A fixture that knew only the first would leave every file-list case
+ * measuring a zero-height viewport, which is the state a window bound cannot be a
+ * bound in.
  */
 function laidOutHeightPx(element: HTMLElement, options: DiffLayoutFixtureOptions): number {
-  if (element.classList.contains("meridian-diff")) {
+  if (
+    element.classList.contains("meridian-diff") ||
+    element.classList.contains("meridian-diff-files__scroller")
+  ) {
     return options.viewportHeightPx;
+  }
+  if (element.classList.contains("meridian-diff-files__row")) {
+    return DIFF_FILE_ROW_HEIGHT_PX;
   }
   if (!element.classList.contains("meridian-diff__row")) {
     return 0;

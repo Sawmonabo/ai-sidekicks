@@ -15,7 +15,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ManualClock } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";
-import { offeredProposalActions, type ProposalAction } from "./proposal-actions.js";
+import {
+  PROPOSAL_ACTIONS,
+  offeredProposalActions,
+  type ProposalAction,
+} from "./proposal-actions.js";
 import {
   ACCEPTED_ACTION,
   type MovingPort,
@@ -29,6 +33,7 @@ import {
   bridgeWithMovingAnswers,
   publishedProposalOf,
   recordingPort,
+  rejectsWith,
   settle,
   settleAct,
 } from "./proposal-gate-scripted-port.js";
@@ -450,5 +455,103 @@ describe("ProposalGateActions — a served act the daemon did not take", () => {
     expect(detail).toBe(
       "The daemon answered this action without taking it, and named no reason. Nothing was sent.",
     );
+  });
+});
+
+describe("ProposalGateActions — a call that rejected rather than answering", () => {
+  /** What an IPC disconnect leaves in the caller's hands: a rejection, not an answer. */
+  const DISCONNECTED = new Error("the bridge went away mid-call");
+
+  /** The growth operation each act is sent on, so a case can read the wire it names. */
+  const WIRE_FOR_ACTION: Readonly<Record<ProposalAction, string>> = {
+    "prepare-proposal": "gitflowPrPrepare",
+    commit: "gitActionExecute",
+    push: "gitActionExecute",
+  };
+
+  /** Press one act against a gate whose act wires reject instead of answering. */
+  async function pressAgainstRejectingWire(action: ProposalAction): Promise<ProposalGateReader> {
+    const clock = new ManualClock();
+    const reader = readers.open(
+      bridgeAnswering({
+        branchContext: SERVED_CONTEXT,
+        prepare: rejectsWith(DISCONNECTED),
+        gitAction: rejectsWith(DISCONNECTED),
+      }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction(action);
+    await settleAct(clock, reader);
+    return reader;
+  }
+
+  it("publishes the rejection beside the control pressed, for every act there is", async () => {
+    // Over the closed set rather than three hand-written cases: prepare and the two
+    // git actions rejected identically and all three re-enabled their controls with
+    // nothing written anywhere, so a fourth act must not be able to join them quietly.
+    for (const action of PROPOSAL_ACTIONS) {
+      const reader = await pressAgainstRejectingWire(action);
+      const refusal = reader.snapshot.actionRefusals.get(action);
+
+      expect(refusal?.code).toBe("call-rejected");
+      // The sentence names the wire that rejected, so a participant can say which
+      // call did not come back rather than only that something did not.
+      expect(refusal?.detail).toContain(WIRE_FOR_ACTION[action]);
+      expect(refusal?.detail).toContain(DISCONNECTED.message);
+      // The register is given back, which is what re-enables the controls — and the
+      // whole defect was that this happened while nothing was written beside them.
+      expect(reader.snapshot.inFlightAction).toBeUndefined();
+    }
+  });
+
+  it("leaves the arm the last read published, because the act did not happen", async () => {
+    const clock = new ManualClock();
+    const reader = readers.open(
+      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: rejectsWith(DISCONNECTED) }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+    const armBefore = reader.snapshot.state;
+
+    await reader.requestAction("commit");
+    await settleAct(clock, reader);
+
+    expect(reader.snapshot.state).toStrictEqual(armBefore);
+  });
+
+  it("settles rather than rejecting, which the binding that voids the promise assumes", async () => {
+    const clock = new ManualClock();
+    const reader = readers.open(
+      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: rejectsWith(DISCONNECTED) }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    // `useProposalGate` discards this promise, so a rejection escaping here reaches
+    // nobody but the browser's unhandled-rejection report.
+    await expect(reader.requestAction("push")).resolves.toBeUndefined();
+  });
+
+  it("negative control: a refused ANSWER still carries the port's own code", async () => {
+    // Without this the cases above would pass against a catch that relabelled every
+    // unanswered act `call-rejected`, which would bury the refusal naming the wire
+    // this build does not carry — the ordinary V1 answer, and not a rejection at all.
+    const clock = new ManualClock();
+    const reader = readers.open(
+      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: WIRE_UNREGISTERED }),
+      clock,
+    );
+    reader.start();
+    await settle(clock, reader);
+
+    await reader.requestAction("push");
+    await settleAct(clock, reader);
+
+    expect(reader.snapshot.actionRefusals.get("push")?.code).toBe("wire-unregistered");
   });
 });

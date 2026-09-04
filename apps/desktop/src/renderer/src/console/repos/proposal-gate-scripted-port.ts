@@ -16,7 +16,7 @@
 // clock is manual, so "the gate never polls" is read off `pendingCount` rather than
 // asserted.
 
-import { type ConsoleBridge } from "../bridge/index.js";
+import { growthUnavailable, type ConsoleBridge, type GrowthUnavailable } from "../bridge/index.js";
 import { REPOS_SCENARIO } from "../bridge/scenarios/repos.js";
 import {
   GIT_MOUNT_ID,
@@ -44,13 +44,18 @@ export const SUBJECT: ProposalGateSubject = {
 /** A read-only subject on the mount whose mode produces no writable context. */
 export const READ_ONLY_SUBJECT: ProposalGateSubject = { ...SUBJECT, executionMode: "read-only" };
 
-/** The port's refusal for a wire nothing has registered, as the live bridge returns it. */
-export const WIRE_UNREGISTERED = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  origin: "growth-port",
-  detail: "Not checked — the branch-context read is not registered yet (Spec-011 owns it).",
-} as const;
+/**
+ * The port's refusal for a wire nothing has registered — taken from the port itself.
+ *
+ * COMPOSED RATHER THAN COPIED. This was a hand-written twin of a sentence the live
+ * bridge composes, and it had drifted into naming the governing document inside the
+ * words a person reads — which is exactly what `growth-port.ts` composes to avoid: the
+ * document travels on the refusal's own `owningDocument` member, for the ledger, and
+ * the sentence stays product vocabulary. Written twice, the copy is free to say
+ * something the live port never would, and every case here would still pass. Taken
+ * from `growthUnavailable`, it cannot.
+ */
+export const WIRE_UNREGISTERED: GrowthUnavailable = growthUnavailable("gitflowBranchContextRead");
 
 /** The port's other refusal class: the question was put and the answer never came. */
 export const REPLY_ABANDONED = {
@@ -121,6 +126,37 @@ export function servedContext(overrides: Partial<ProposalContextKey>): {
   };
 }
 
+/**
+ * A scripted answer that REJECTS rather than answering.
+ *
+ * THE SHAPE THE PORT'S OWN UNION CANNOT EXPRESS, which is why it is a marker class and
+ * not another `status` arm: the live bridge crosses a process boundary, so an IPC
+ * disconnect makes a call THROW, and a script whose every entry is a resolved value
+ * could not put a case on that path at all. Held as a class rather than a sentinel
+ * object so `instanceof` is the test and no scripted reply can be mistaken for one.
+ */
+export class ScriptedRejection {
+  public constructor(public readonly reason: unknown) {}
+}
+
+/** Script one operation to reject with `reason`, the way a disconnected bridge does. */
+export function rejectsWith(reason: unknown): ScriptedRejection {
+  return new ScriptedRejection(reason);
+}
+
+/**
+ * One scripted entry, answered or thrown.
+ *
+ * ONE DOOR FOR EVERY OPERATION on all three ports below, so a case can move any of
+ * them onto the rejection path without a second port shape to keep in step.
+ */
+async function scriptedAnswer(scripted: unknown): Promise<unknown> {
+  if (scripted instanceof ScriptedRejection) {
+    throw scripted.reason;
+  }
+  return scripted;
+}
+
 /** What each of the four growth operations answers, for one case. */
 export interface PortScript {
   readonly branchContext: unknown;
@@ -148,10 +184,11 @@ export interface PortScript {
 export function bridgeAnswering(script: PortScript): ConsoleBridge {
   return {
     growth: {
-      gitflowBranchContextRead: async () => script.branchContext,
-      gitflowPrPrepare: async () => script.prepare,
-      gitActionExecute: async () => script.gitAction,
-      callerParticipantRead: async () => script.callerParticipant ?? SERVED_CALLER_PARTICIPANT,
+      gitflowBranchContextRead: async () => scriptedAnswer(script.branchContext),
+      gitflowPrPrepare: async () => scriptedAnswer(script.prepare),
+      gitActionExecute: async () => scriptedAnswer(script.gitAction),
+      callerParticipantRead: async () =>
+        scriptedAnswer(script.callerParticipant ?? SERVED_CALLER_PARTICIPANT),
     },
   } as unknown as ConsoleBridge;
 }

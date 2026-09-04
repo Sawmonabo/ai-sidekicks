@@ -31,6 +31,7 @@ import { useEffect, useRef } from "react";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { RefusalCard, useAnnounce } from "../primitives/index.js";
 import type { SessionStore } from "../store/index.js";
+import type { ProposalState } from "./prepared-proposal.js";
 import { ProposalGate } from "./ProposalGate.js";
 import { useProposalGate } from "./proposal-gate-binding.js";
 import { SUBJECT_NOT_ADDRESSABLE, type ProposalGateSubject } from "./proposal-gate-model.js";
@@ -95,6 +96,23 @@ export function gateSummaryLine(reading: ProposalGateReading): string {
 }
 
 /**
+ * What the collapsed line says for each state a prepared proposal can be in.
+ *
+ * TOTAL OVER THE WIRE'S OWN VOCABULARY, which is why it is a table and not a
+ * conditional: the preparation reply's `state` is `draft | ready`
+ * (`docs/architecture/contracts/api-payload-contracts.md`, `PRPrepareResponse`), and
+ * the open gate already withholds the send on a draft. The collapsed line reported
+ * every present proposal as ready — and gates are collapsed by default, so a
+ * participant could be told an unfinished proposal was ready without ever opening the
+ * disclosure. A third state on the wire fails to compile here until somebody writes
+ * its line, rather than joining `ready` by default.
+ */
+const PROPOSAL_STATE_SUMMARY_LINE: Readonly<Record<ProposalState, string>> = {
+  draft: "proposal in draft",
+  ready: "proposal ready",
+};
+
+/**
  * One honest line per arm.
  *
  * Total over the five arms by construction rather than by a default branch: an arm
@@ -108,7 +126,9 @@ function armSummaryLine(state: ProposalGateState): string {
     case "preparing":
       return "reading";
     case "prepared":
-      return state.proposal === undefined ? "context read, no proposal" : "proposal ready";
+      return state.proposal === undefined
+        ? "context read, no proposal"
+        : PROPOSAL_STATE_SUMMARY_LINE[state.proposal.state];
     case "hosting-unavailable":
       return "hosting unavailable";
     case "refused":

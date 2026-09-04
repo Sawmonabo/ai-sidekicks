@@ -83,6 +83,18 @@ export const DIFF_VIEWPORT_FALLBACK_HEIGHT_PX = 640;
 export const DIFF_FILE_LIST_SCROLL_THRESHOLD = 12;
 
 /**
+ * The height of one changed-file entry, in CSS pixels.
+ *
+ * Spent twice, as `DIFF_ROW_HEIGHT_PX` is and for the same reason: the sheet paints
+ * every entry at exactly this height and the window takes it as the size it estimates
+ * an unmeasured row at, so the offsets and the painted rows stay in step to the pixel
+ * with nothing measured. The figure is WCAG 2.2's 2.5.8 target size — a row in a dense
+ * list is still a pointer target, and this list is the diff pane's only way to move
+ * between files — which the entry's padding alone did not reach at this text size.
+ */
+export const DIFF_FILE_ROW_HEIGHT_PX = 24;
+
+/**
  * The longest line an intraline word diff is computed for, in characters.
  *
  * jsdiff's word diff is O(n·m) in TOKENS, so the cost of one pair grows with the

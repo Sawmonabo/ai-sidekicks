@@ -73,6 +73,18 @@ const DIFF_GUTTER_GLYPH_SIZE = 10;
 const INTRALINE_SKIPPED_DETAIL =
   "This line is longer than the word-level comparison is run for, so the whole line is marked changed rather than the words within it.";
 
+/**
+ * What the patch's own terminator marker says, beside the line it annotates.
+ *
+ * THE PATCH'S SENTENCE WITHOUT THE FORMAT'S PREFIX. A unified patch writes
+ * `\ No newline at end of file`, where the leading `\` is the format's way of saying
+ * "this is an annotation and not a line" — a job the row already does by drawing it
+ * inside the line rather than under it. The words are kept because they are the ones
+ * every other diff tool a reader has used says, and because on a newline-only change
+ * they are the ONLY thing that distinguishes the two rows.
+ */
+const NO_NEWLINE_AT_END_LABEL = "No newline at end of file";
+
 export interface DiffRowViewProps {
   readonly rowIndex: number;
   readonly row: DiffRow;
@@ -360,6 +372,9 @@ function DiffLineText(props: {
           </span>
         ))}
       </code>
+      {props.line.noNewlineAtEnd === true ? (
+        <span className="meridian-diff__no-newline">{NO_NEWLINE_AT_END_LABEL}</span>
+      ) : null}
       {props.reading.skipped ? (
         <span className="meridian-diff__intraline-skipped">
           <Nothing

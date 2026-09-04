@@ -372,3 +372,66 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
     expect(parsePlain(created).files[0]?.modeChange).toBeUndefined();
   });
 });
+
+describe("parseUnifiedPatch — the marker that says a file has no final newline", () => {
+  /** Removing the terminator: the two rows carry the SAME text, and only one ends. */
+  const NEWLINE_REMOVED_PATCH = [
+    "--- packages/contracts/src/tail.ts",
+    "+++ packages/contracts/src/tail.ts",
+    "@@ -1,2 +1,2 @@",
+    " const kept = true;",
+    "-const tail = terminate(entries);",
+    "+const tail = terminate(entries);",
+    "\\ No newline at end of file",
+    "",
+  ].join("\n");
+
+  /** Both sides already ended without one, and the change is inside the line. */
+  const NEITHER_SIDE_TERMINATED_PATCH = [
+    "--- packages/contracts/src/tail.ts",
+    "+++ packages/contracts/src/tail.ts",
+    "@@ -1,2 +1,2 @@",
+    " const kept = true;",
+    "-const tail = terminate(previous);",
+    "\\ No newline at end of file",
+    "+const tail = terminate(next);",
+    "\\ No newline at end of file",
+    "",
+  ].join("\n");
+
+  it("carries the marker on both rows where the patch marked both", () => {
+    const lines = linesOfFirstHunk(NEITHER_SIDE_TERMINATED_PATCH);
+    expect(lines.map((line) => line.noNewlineAtEnd)).toStrictEqual([undefined, true, true]);
+  });
+
+  it("marks only the side the patch marked, which is what a newline-only change is", () => {
+    // The subject the marker exists for: the deleted and the inserted text are the
+    // same characters, so the marker on the insertion is the entire content of the
+    // change. A parser that dropped it left two rows nothing could tell apart.
+    const lines = linesOfFirstHunk(NEWLINE_REMOVED_PATCH);
+    const [, deleted, inserted] = lines;
+
+    expect(diffLineText(deleted!)).toBe(diffLineText(inserted!));
+    expect(deleted?.noNewlineAtEnd).toBeUndefined();
+    expect(inserted?.noNewlineAtEnd).toBe(true);
+  });
+
+  it("draws no row for the marker, because the file has no such line", () => {
+    // Three lines, not four: the marker annotates the line above it and the numbering
+    // of both sides is untouched by it.
+    const lines = linesOfFirstHunk(NEWLINE_REMOVED_PATCH);
+    expect(lines).toHaveLength(3);
+    expect(lines.map((line) => line.kind)).toStrictEqual(["context", "delete", "insert"]);
+    expect(lines.map((line) => line.baseLineNumber)).toStrictEqual([1, 2, undefined]);
+    expect(lines.map((line) => line.headLineNumber)).toStrictEqual([1, undefined, 2]);
+  });
+
+  it("negative control: an ordinary last-line change marks nothing", () => {
+    // Without this, a parser that stamped every hunk's last line would report that
+    // every file in a change set ends without a newline — which is the opposite
+    // error and just as unreadable.
+    for (const line of linesOfFirstHunk(PLAIN_PATCH)) {
+      expect(line.noNewlineAtEnd).toBeUndefined();
+    }
+  });
+});
