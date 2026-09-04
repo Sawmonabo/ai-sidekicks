@@ -15,7 +15,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { type GrowthPort } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { ManualClock } from "../core/index.js";
+import { LiveAnnouncer } from "../primitives/live-announcer.js";
+import { createRefusingGrowthPort, growthUnavailable } from "../bridge/growth-port.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
@@ -42,6 +44,14 @@ const SERVED_DEFINITION: WorkflowDefinitionRow = {
   contentHash: "b3:0f1e2d",
   resolvesAtThisContext: true,
   createdAt: "2026-01-01T10:00:00.000Z",
+};
+
+/** A second definition, so a continuation that lands moves the count it reports. */
+const SECOND_PAGE_DEFINITION: WorkflowDefinitionRow = {
+  ...SERVED_DEFINITION,
+  id: "deploy-checklist",
+  name: "Deploy checklist",
+  latestWorkflowVersionId: "deploy-checklist-version-3",
 };
 
 /** One settled page, derived from the port's own answer rather than restated. */
@@ -99,6 +109,67 @@ function politeAnnouncement(container: HTMLElement): string {
 async function settle(): Promise<void> {
   await act(async () => {
     await Promise.resolve();
+  });
+}
+
+/**
+ * The browser over an announcer whose every utterance is recorded.
+ *
+ * THE SENTENCES AND NOT THE REGION'S TEXT, because the two claims below turn on
+ * whether the browser SPOKE — and the announcer sheds a message identical to the one
+ * it is already holding, so a second utterance of the same count leaves the region
+ * reading exactly what a silent browser leaves it reading. The spy calls through, so
+ * the region is still driven by the real announcer for the case that reads it.
+ */
+function renderBrowserRecordingSpeech(growth: GrowthPort): {
+  readonly container: HTMLElement;
+  readonly spokenSentences: readonly string[];
+} {
+  const announcer = new LiveAnnouncer({ clock: new ManualClock() });
+  const spokenSentences: string[] = [];
+  const speak = announcer.announce;
+  vi.spyOn(announcer, "announce").mockImplementation((message, politeness) => {
+    spokenSentences.push(message);
+    speak(message, politeness);
+  });
+  const { container } = render(
+    <LiveAnnouncerProvider announcer={announcer}>
+      <WorkflowsBrowser growth={growth} sessionId={PROBE_SESSION_ID} />
+    </LiveAnnouncerProvider>,
+  );
+  return { container, spokenSentences };
+}
+
+/**
+ * A port whose first page hands back a cursor and whose second settles as given.
+ *
+ * The scenario engine matches a scripted reply on the call name alone, so a second
+ * page is unscriptable there; this answers per cursor from the real port, the shape
+ * `definition-directory.test.tsx` already uses.
+ */
+function twoPagePort(secondPage: SettledDefinitionPage): GrowthPort {
+  return {
+    ...createRefusingGrowthPort(),
+    workflowDefinitionList: async (request) =>
+      request.cursor === undefined
+        ? {
+            status: "served",
+            value: { definitions: [SERVED_DEFINITION], nextCursor: SECOND_PAGE_CURSOR },
+          }
+        : secondPage,
+  };
+}
+
+/** Press "Show more definitions", without letting the page it asks for settle. */
+function pressContinuation(container: HTMLElement): void {
+  const control = container.querySelector<HTMLButtonElement>(
+    ".meridian-definitions-continuation button",
+  );
+  if (control === null) {
+    throw new Error("the browser offered no continuation to press");
+  }
+  act(() => {
+    control.click();
   });
 }
 
@@ -304,6 +375,60 @@ describe("what the definitions browser says out loud", () => {
     // the console's own — which is the refusal's `detail`, the same member the banner
     // beside it renders.
     expect(politeAnnouncement(container)).toContain("is not registered on this build yet");
+  });
+
+  it("says nothing while a continuation is in flight, and the new count once it lands", async () => {
+    // Pressing the control leaves the pages `served` and moves the CONTINUATION to
+    // `reading`, which is a fresh state object carrying the old count — so the
+    // settlement hook spoke that count again as a completed read, before the page it
+    // was announcing had answered.
+    const probe = renderBrowserRecordingSpeech(
+      twoPagePort({ status: "served", value: { definitions: [SECOND_PAGE_DEFINITION] } }),
+    );
+    await settle();
+    expect(probe.spokenSentences).toStrictEqual(["Definitions visible from this session: 1."]);
+
+    pressContinuation(probe.container);
+
+    expect(probe.spokenSentences).toStrictEqual(["Definitions visible from this session: 1."]);
+
+    await settle();
+
+    expect(probe.spokenSentences).toStrictEqual([
+      "Definitions visible from this session: 1.",
+      "Definitions visible from this session: 2.",
+    ]);
+  });
+
+  it("announces a refused continuation with the refusal's own sentence", async () => {
+    // The arm that was silent entirely: this function handed back the count for every
+    // `served` directory, so the refusal appeared beside the rows and was spoken
+    // nowhere — and a person who cannot see the surface was told the list had settled
+    // at the size it had before they asked for more.
+    const probe = renderBrowserRecordingSpeech(
+      twoPagePort(growthUnavailable("workflowDefinitionList")),
+    );
+    await settle();
+    pressContinuation(probe.container);
+    await settle();
+
+    // The SENTENCE and not the region, because the announcer holds the first message
+    // for its own deadline and releases the queued second on the clock — which is its
+    // behaviour and its test, not this browser's.
+    expect(probe.spokenSentences.at(-1)).toContain("is not registered on this build yet");
+  });
+
+  it("negative control: a continuation that settles served says the count and not a refusal", async () => {
+    // Without this, the case above passes for a browser that announced a refusal
+    // whenever a continuation settled at all.
+    const probe = renderBrowserRecordingSpeech(
+      twoPagePort({ status: "served", value: { definitions: [SECOND_PAGE_DEFINITION] } }),
+    );
+    await settle();
+    pressContinuation(probe.container);
+    await settle();
+
+    expect(probe.spokenSentences.at(-1)).toBe("Definitions visible from this session: 2.");
   });
 
   it("says nothing at all while the read is still in flight", async () => {
