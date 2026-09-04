@@ -26,15 +26,24 @@
 //      session it was looking at — and it is the shape that never arrives as a
 //      deliberate decision.
 //
-// CLAIM 2 IS COARSE ON PURPOSE, and its false positives are named rather than tuned
-// away. It flags a `useState(() => new SomethingBoundTo(bridge))` even where that
-// something disposes itself correctly, and it flags a `useRef` holding a mutable
-// handle that is never rendered. Both are the class this file is about — a value
-// whose lifetime is a subject's, kept in a cell whose lifetime is a mount's — so the
-// answer is to go through the holder, or to name the module in ADMITTED_SUBJECT_CELLS
-// with the reason it is not that class. It is case-sensitive: `BridgeScopedLatch` in
-// an initialiser is a construction and not a captured subject, and only the lower-case
-// identifiers a component receives as props are the signature.
+// CLAIM 2 IS COARSE ON PURPOSE, and it offers NO EXEMPTION LIST. It flags a
+// `useState(() => new SomethingBoundTo(bridge))` even where that something disposes
+// itself correctly, and it flags a `useRef` holding a mutable handle that is never
+// rendered. Both are the class this file is about — a value whose lifetime is a
+// subject's kept in a cell whose lifetime is a mount's — so the only answer is to go
+// through the holder. It is case-sensitive: `BridgeScopedLatch` in an initialiser is a
+// construction and not a captured subject, and only the lower-case identifiers a
+// component receives as props are the signature.
+//
+// THE ONE MODULE THAT IS NOT SUBJECT TO IT is `bridge/BridgeProvider.tsx`, and it is
+// named a CHOKEPOINT rather than an exemption because that is what it is: it does not
+// hold a value addressed by a bridge, it RESOLVES the bridge every other module is
+// addressed by, from a prop that may be absent. There is no subject to key a holder
+// on there — resolving one is the work. Calling that an exemption would put it in the
+// same list a hand-rolled copy would be added to, so instead the check below asserts
+// STRUCTURALLY that it is the only module in the tree that constructs a bridge
+// resolution: a second bridge root cannot be admitted by adding a line, because there
+// is no line to add.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -81,23 +90,18 @@ const SECOND_IMPLEMENTATION_NAMES =
 const SUBJECT_IDENTIFIERS: readonly string[] = ["bridge", "sessionId"];
 
 /**
- * Modules whose subject-named cell is not this class, each with its reason.
+ * The one module that resolves the bridge rather than being addressed by one.
  *
- * Both entries are COMPOSITION ROOTS: each builds a window-lifetime resource from
- * the bridge it is handed at the top of the tree. They are not surfaces addressed by
- * a prop that can move, which is the class this file is about.
- *
- * An entry that stops tripping the checker fails the gate below rather than rotting
- * here, on the dead-code gate's own `@consumedBy` discipline: an exemption that
- * outlived its cause is deleted by the PR that removed the cause.
+ * A chokepoint on the same terms as the two above: the rule lives here, so the module
+ * that holds it is not breaking it. `SUBJECT_RESOLUTION_CONSTRUCTOR` is what keeps
+ * that from being a promise — the resolution class is constructed in exactly one
+ * module, asserted below, so this constant admits a position in the tree and not a
+ * module that put its name here.
  */
-const ADMITTED_SUBJECT_CELLS: Readonly<Record<string, string>> = {
-  [join("console", "bridge", "BridgeProvider.tsx")]:
-    "the console's single bridge chokepoint — it RESOLVES the bridge for the window " +
-    "and re-resolves it when the prop changes, rather than being addressed by one",
-  [join("console", "frame", "ui-state-lifecycle.ts")]:
-    "the window's one open UI-state database connection, on the same terms",
-};
+const SUBJECT_RESOLUTION_ROOT = join("console", "bridge", "BridgeProvider.tsx");
+
+/** The construction whose single site defines the bridge root, in source text. */
+const SUBJECT_RESOLUTION_CONSTRUCTOR = "new ResolvedConsoleBridge(";
 
 /** Every exported name in `source`, from a declaration or a re-export specifier. */
 export function exportedSymbolNames(source: string): readonly string[] {
@@ -273,11 +277,7 @@ describe("subject-scoped state — no state cell captures a subject by hand", ()
   const modules = scannedModules();
 
   it("no useState or useRef initialiser names a bridge or a session id", () => {
-    const admitted = new Set([
-      ...CHOKEPOINT_MODULES,
-      ...CHOKEPOINT_DOORS,
-      ...Object.keys(ADMITTED_SUBJECT_CELLS),
-    ]);
+    const admitted = new Set([...CHOKEPOINT_MODULES, ...CHOKEPOINT_DOORS, SUBJECT_RESOLUTION_ROOT]);
     const offenders = modules
       .filter((module) => !admitted.has(module))
       .map((module) => ({ module, captured: capturedSubjectIdentifiers(readModule(module)) }))
@@ -286,15 +286,45 @@ describe("subject-scoped state — no state cell captures a subject by hand", ()
     expect(offenders).toStrictEqual([]);
   });
 
-  it("every admitted cell still trips the checker, so no exemption outlives its cause", () => {
-    // The list is the only lever this gate offers and it is the one that rots.
-    // Asserting each entry still MATCHES turns a stale exemption into a red gate
-    // rather than a silent hole — and doubles as proof that the scanner bites on
-    // real console source, not only on the strings below.
-    const inert = Object.keys(ADMITTED_SUBJECT_CELLS).filter(
-      (module) => capturedSubjectIdentifiers(readModule(module)).length === 0,
+  it("the bridge root is the only module that constructs a bridge resolution", () => {
+    // What makes the one unchecked module a chokepoint rather than an exemption. A
+    // second module resolving a bridge would be a second answer to which bridge a
+    // window renders against, and it would be invisible to claim 2 the moment
+    // someone added its path beside this constant — so the position is asserted from
+    // the source instead: exactly one module constructs the resolution, and it is
+    // this one.
+    const constructors = modules.filter((module) =>
+      readModule(module).includes(SUBJECT_RESOLUTION_CONSTRUCTOR),
     );
-    expect(inert).toStrictEqual([]);
+    expect(constructors).toStrictEqual([SUBJECT_RESOLUTION_ROOT]);
+  });
+
+  it("the bridge root still trips the checker, so the constant cannot outlive its cause", () => {
+    // The constant is the only position this gate leaves unchecked, and it is the one
+    // that rots. Asserting it still MATCHES turns a stale admission into a red gate
+    // rather than a silent hole — and doubles as proof that the scanner bites on real
+    // console source, not only on the strings below.
+    expect(capturedSubjectIdentifiers(readModule(SUBJECT_RESOLUTION_ROOT))).not.toStrictEqual([]);
+  });
+
+  it("the two window-lifetime resources go through the holder rather than around it", () => {
+    // These two held a window's registry and its database connection in a `useState`
+    // initialiser keyed on nothing, so a replaced bridge left both bound to a retired
+    // transport. They were the gate's last two admissions; asserting the shape they
+    // moved to is what stops the fix being reverted into a fresh admission.
+    for (const module of [
+      join("console", "frame", "session-lifecycle.ts"),
+      join("console", "frame", "ui-state-lifecycle.ts"),
+    ]) {
+      const source = readModule(module);
+      expect(source, `${module} no longer holds its resource through the holder`).toContain(
+        "useSubjectScopedState",
+      );
+      expect(
+        capturedSubjectIdentifiers(source),
+        `${module} captures a subject by hand`,
+      ).toStrictEqual([]);
+    }
   });
 
   it("negative control: the scanner reads a real initialiser and bites on the shape", () => {
