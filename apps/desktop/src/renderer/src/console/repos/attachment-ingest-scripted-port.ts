@@ -75,6 +75,10 @@ export class ScriptedGrowthPort {
   #chunkRefusalCode: string | undefined;
   #completeRefusalCode: string | undefined;
   #abortRefusalCode: string | undefined;
+  #beginRejection: unknown;
+  #chunkRejection: unknown;
+  #completeRejection: unknown;
+  #abortRejection: unknown;
   #beginGate: Promise<void> | undefined;
   #chunkGate: Promise<void> | undefined;
 
@@ -109,6 +113,36 @@ export class ScriptedGrowthPort {
     this.#abortRefusalCode = code;
   }
 
+  /**
+   * Reject the next `begin` — and every later one — rather than answering it.
+   *
+   * A REJECTION IS NOT A REFUSAL, and the four setters below exist because the two
+   * arrive at the client through different doors. A refusal is an answer whose status
+   * says the daemon declined; a rejection is a call that never produced one, which is
+   * what an IPC disconnect and a vanished bridge namespace look like from here. A port
+   * that could only refuse could not drive the arm where the promise itself fails, and
+   * that arm is the one that used to escape as an unhandled rejection.
+   *
+   * The request is still RECORDED, on `refuseAbortsWith`'s reason: a rejected call was
+   * still put, and a port that dropped it could not tell a leg that failed from one
+   * that was never reached.
+   */
+  public rejectBeginWith(rejection: unknown): void {
+    this.#beginRejection = rejection;
+  }
+
+  public rejectChunksWith(rejection: unknown): void {
+    this.#chunkRejection = rejection;
+  }
+
+  public rejectCompletionWith(rejection: unknown): void {
+    this.#completeRejection = rejection;
+  }
+
+  public rejectAbortsWith(rejection: unknown): void {
+    this.#abortRejection = rejection;
+  }
+
   /** Hold the next `begin` until the returned gate is opened; later calls run free. */
   public holdBegin(): { readonly open: () => void } {
     const gate = manualGate();
@@ -130,6 +164,9 @@ export class ScriptedGrowthPort {
         const ingestId = `ingest-${String(this.#nextIngestNumber)}`;
         this.#nextIngestNumber += 1;
         await this.#beginGate;
+        if (this.#beginRejection !== undefined) {
+          throw this.#beginRejection;
+        }
         return this.#beginRefusalCode === undefined
           ? { status: "served", value: { ingestId } }
           : { status: "unavailable", code: this.#beginRefusalCode, detail: "scripted refusal" };
@@ -137,12 +174,18 @@ export class ScriptedGrowthPort {
       artifactIngestWriteChunk: async (request: RecordedChunk) => {
         this.chunkCalls.push(request);
         await this.#chunkGate;
+        if (this.#chunkRejection !== undefined) {
+          throw this.#chunkRejection;
+        }
         return this.#chunkRefusalCode === undefined
           ? { status: "served", value: undefined }
           : { status: "unavailable", code: this.#chunkRefusalCode, detail: "scripted refusal" };
       },
-      artifactIngestComplete: async () =>
-        this.#completeRefusalCode === undefined
+      artifactIngestComplete: async () => {
+        if (this.#completeRejection !== undefined) {
+          throw this.#completeRejection;
+        }
+        return this.#completeRefusalCode === undefined
           ? {
               status: "served",
               value: {
@@ -158,9 +201,13 @@ export class ScriptedGrowthPort {
               status: "unavailable",
               code: this.#completeRefusalCode,
               detail: "scripted refusal",
-            },
+            };
+      },
       artifactIngestAbort: async (request: { readonly ingestId: string }) => {
         this.abortedIngestIds.push(request.ingestId);
+        if (this.#abortRejection !== undefined) {
+          throw this.#abortRejection;
+        }
         return this.#abortRefusalCode === undefined
           ? { status: "served", value: undefined }
           : { status: "unavailable", code: this.#abortRefusalCode, detail: "scripted refusal" };
@@ -198,3 +245,31 @@ export function sourceOver(
 
 /** The attachment most cases attach: small enough to fit one chunk, declaring nothing. */
 export const SMALL_SOURCE: AttachmentSource = sourceOver("attachment-1", "notes.md", 300);
+
+/**
+ * One source whose bytes the browser refuses to hand over.
+ *
+ * A `Blob` off a picker is a HANDLE on a file the host still owns, so a participant who
+ * moves or deletes that file between two chunks gets a rejecting `arrayBuffer()` where
+ * every earlier read succeeded. No real `Blob` can be put in that state from a test, so
+ * the payload is scripted here — beside the sources every other case is driven with,
+ * because it is a collaborator of the client and not a stand-in for it.
+ */
+export function unreadableSourceOver(
+  localId: string,
+  declaredName: string,
+  byteLength: number,
+  rejection: unknown,
+): AttachmentSource {
+  const unreadableSlice = {
+    arrayBuffer: async (): Promise<ArrayBuffer> => {
+      await Promise.resolve();
+      throw rejection;
+    },
+  };
+  const payload = {
+    size: byteLength,
+    slice: (): unknown => unreadableSlice,
+  } as unknown as Blob;
+  return attachmentSourceFrom({ localId, declaredName, payload });
+}

@@ -36,6 +36,21 @@
 // resumes at the current offset. The two codes whose disposition differs are named and
 // classified in `attachment-model.ts`; this file acts on that and invents no policy.
 //
+// A REJECTION IS A REFUSAL, AT EVERY LEG. A growth call can REJECT rather than answer
+// — the bridge's namespace is gone on an IPC disconnect, and the participant's own
+// `Blob` stops being readable when the file behind it moves — and a rejection that
+// escaped a leg reached nobody: `attach` discards this client's promise, so the browser
+// reported an unhandled rejection and the ledger sat at `declared` or `ingesting`
+// forever, with no refusal to read and no retry to press. So each leg puts its call
+// through `#answer`, which turns a thrown rejection into the same unavailable answer a
+// refusal arrives as, through the repos family's own normalizer rather than a second
+// one: a value that already IS a refusal passes through with the origin it named, a
+// typed wire envelope keeps the daemon's code and message verbatim, and only the
+// remainder becomes `call-rejected`. `#drive` then carries a last catch of its own,
+// because a rejection past those four is a defect in this console rather than an
+// answer from anywhere — it reaches the diagnostic band and never the discarded
+// promise.
+//
 // A PARTICIPANT CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
 // ledger after its await and proceeds only if the entry still stands where it stood.
 // Abandonment makes this load-bearing: an upload stopped while Init was in flight
@@ -51,11 +66,13 @@
 // they press, because a console that retried a 429 on its own would hide the capacity
 // problem it exists to report.
 
+import { lossyStringify } from "../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import {
   ATTACHMENT_CHUNK_BYTE_CAP,
   RealClock,
   encodeBase64,
+  reportTripwire,
   type ConsoleClock,
   type Unsubscribe,
 } from "../core/index.js";
@@ -68,6 +85,22 @@ import {
   type AttachmentIngestEntry,
   type AttachmentSource,
 } from "./attachment-model.js";
+import { refusalFromRejection } from "./repo-reads.js";
+
+/** Where the protocol's own diagnostic reports from, so a firing names a module. */
+export const INGEST_MACHINE_SITE = "repos/attachment-ingest-machine.ts";
+
+/**
+ * What each leg is called in the one sentence that says which call failed.
+ *
+ * Named once rather than spelled at four call sites: `refusalFromRejection` puts this
+ * string in front of the rejection it rendered, so a leg whose wording drifted would
+ * name the wrong call in the only place a participant can read which one it was.
+ */
+const INGEST_OPEN_LEG = "The ingest open";
+const INGEST_PAYLOAD_READ_LEG = "The payload read";
+const INGEST_CHUNK_LEG = "The chunk send";
+const INGEST_COMPLETION_LEG = "The ingest completion";
 
 export interface AttachmentIngestClientOptions {
   readonly bridge: ConsoleBridge;
@@ -223,7 +256,25 @@ export class AttachmentIngestClient {
     this.#ledger.dispose();
   }
 
-  /** Begin or resume one stream: open it if it is not open, chunk it, then complete it. */
+  /**
+   * Begin or resume one stream: open it if it is not open, chunk it, then complete it.
+   *
+   * THIS PROMISE IS DISCARDED BY EVERY CALLER — `attach`, `retry`, and nothing else —
+   * so it may not reject: a rejection nobody awaits is an unhandled rejection in the
+   * page and a ledger entry frozen where it stood. Every call the three legs make is
+   * already normalized into an answer by `#answer`, so what remains here is the
+   * publication itself: `Emitter` re-raises a sink that threw, and the ledger's write
+   * has already landed by then, which is precisely why this catch REPORTS rather than
+   * writing again. The record advanced and the fan-out did not, so a second write
+   * would re-publish into the same throwing sink and lose the diagnostic too.
+   *
+   * `apply-chokepoint-bypass` is the kind for it, on the two sites that already report
+   * under it (`frame/session-event-binder.ts`, `bridge/scenario-engine.ts`): a store
+   * and the surfaces reading it are out of step because a delivery did not arrive. In
+   * a development build the registry throws after recording, which is the console's
+   * standing policy and the one arm where this promise does reject — loudly, at the
+   * defect, with the record already made.
+   */
   async #drive(localId: string): Promise<void> {
     if (this.#runningLocalIds.has(localId)) {
       return;
@@ -239,8 +290,46 @@ export class AttachmentIngestClient {
         return;
       }
       await this.#completeStream(localId);
+    } catch (escape) {
+      reportTripwire(
+        "apply-chokepoint-bypass",
+        INGEST_MACHINE_SITE,
+        `the ingest of ${localId} recorded its step and could not publish it (${lossyStringify(escape)}); the ledger holds the entry and every surface subscribed to it is now a step behind`,
+      );
     } finally {
       this.#runningLocalIds.delete(localId);
+    }
+  }
+
+  /**
+   * Put one leg's call and read what came back — INCLUDING a rejection.
+   *
+   * THE ONE DOOR ALL FOUR AWAITS GO THROUGH, because all four can fail in a way
+   * `PortAnswer` cannot express: three ask a bridge whose namespace disappears on an
+   * IPC disconnect, and the fourth reads a `Blob` whose backing file the participant
+   * may have moved. Both arrive as a throw and both mean the same thing to the entry —
+   * this leg did not happen — so both become the unavailable answer `#refuse` already
+   * knows how to record, and the retry the disposition offers is the participant's.
+   *
+   * THROUGH THE REPOS FAMILY'S NORMALIZER RATHER THAN A SECOND ONE, on the artifact
+   * pane's reason one directory over: `repo-reads.ts` owns turning a rejection into
+   * this console's one refusal shape, and its ordering is what matters — a value that
+   * already IS a `ConsoleRefusal` keeps the origin it named, a typed wire envelope
+   * keeps the daemon's code and message verbatim, and only the remainder becomes
+   * `call-rejected`. A copy here would relabel codes the console may not paraphrase.
+   *
+   * The THUNK rather than a promise: a bridge whose namespace is gone can throw
+   * synchronously, and a promise parameter would be built outside the `try`.
+   */
+  async #answer<TValue>(
+    leg: string,
+    call: () => Promise<PortAnswer<TValue>>,
+  ): Promise<PortAnswer<TValue>> {
+    try {
+      return await call();
+    } catch (rejection) {
+      const refusal = refusalFromRejection(leg, rejection);
+      return { status: "unavailable", code: refusal.code, detail: refusal.detail };
     }
   }
 
@@ -259,17 +348,21 @@ export class AttachmentIngestClient {
     // reported the same way: as an absent member.
     const declared = entry.declared.declaredMediaType;
     const declaredMediaType = declared === undefined || declared === "" ? undefined : declared;
-    const answer: PortAnswer<{ readonly ingestId: string }> =
-      await this.#bridge.growth.artifactIngestBegin({
-        sessionId: this.#sessionId,
-        fileName: entry.declared.declaredName,
-        // Spread rather than assigned, so a source that declared nothing sends a request
-        // with no `mediaType` key at all. The contract makes absence a first-class state
-        // and the daemon reads presence, so a key carrying `undefined` — or an empty
-        // string — would be this console declaring a type it was never told.
-        ...(declaredMediaType === undefined ? {} : { mediaType: declaredMediaType }),
-        declaredSizeBytes: entry.declared.byteLength,
-      });
+    const answer: PortAnswer<{ readonly ingestId: string }> = await this.#answer(
+      INGEST_OPEN_LEG,
+      async () =>
+        this.#bridge.growth.artifactIngestBegin({
+          sessionId: this.#sessionId,
+          fileName: entry.declared.declaredName,
+          // Spread rather than assigned, so a source that declared nothing sends a
+          // request with no `mediaType` key at all. The contract makes absence a
+          // first-class state and the daemon reads presence, so a key carrying
+          // `undefined` — or an empty string — would be this console declaring a type
+          // it was never told.
+          ...(declaredMediaType === undefined ? {} : { mediaType: declaredMediaType }),
+          declaredSizeBytes: entry.declared.byteLength,
+        }),
+    );
     const settled = this.#ledger.currentIfUnchanged(localId, stamp);
     if (settled === undefined) {
       // Abandoned, removed, or disposed while Init was in flight. The daemon opened a
@@ -310,20 +403,39 @@ export class AttachmentIngestClient {
       if (entry === undefined || stamp === undefined || entry.ingestId === undefined) {
         return false;
       }
+      // Bound outside the thunks below, because a narrowing this loop established does
+      // not follow a dotted name across a function boundary.
+      const ingestId = entry.ingestId;
       const offset = entry.receivedBytes;
       if (entry.declared.payload.size - offset <= 0) {
         return true;
       }
       const slice = entry.declared.payload.slice(offset, offset + ATTACHMENT_CHUNK_BYTE_CAP);
-      const bytes = new Uint8Array(await slice.arrayBuffer());
-      if (this.#ledger.currentIfUnchanged(localId, stamp) === undefined) {
+      // The read goes through the same door as the three calls, because it fails the
+      // same way: a `Blob` off a picker points at a file on disk, and a participant who
+      // moved or deleted it between two chunks gets a rejecting `arrayBuffer()` rather
+      // than an answer. Unhandled, that left an upload sitting at `ingesting` with the
+      // file already gone.
+      const read = await this.#answer(INGEST_PAYLOAD_READ_LEG, async () => ({
+        status: "served" as const,
+        value: new Uint8Array(await slice.arrayBuffer()),
+      }));
+      const readSettled = this.#ledger.currentIfUnchanged(localId, stamp);
+      if (readSettled === undefined) {
         return false;
       }
-      const answer: PortAnswer<void> = await this.#bridge.growth.artifactIngestWriteChunk({
-        ingestId: entry.ingestId,
-        sequenceNumber: Math.floor(offset / ATTACHMENT_CHUNK_BYTE_CAP),
-        chunk: encodeBase64(bytes),
-      });
+      if (read.status !== "served" || read.value === undefined) {
+        this.#refuse(localId, readSettled, read);
+        return false;
+      }
+      const bytes = read.value;
+      const answer: PortAnswer<void> = await this.#answer(INGEST_CHUNK_LEG, async () =>
+        this.#bridge.growth.artifactIngestWriteChunk({
+          ingestId,
+          sequenceNumber: Math.floor(offset / ATTACHMENT_CHUNK_BYTE_CAP),
+          chunk: encodeBase64(bytes),
+        }),
+      );
       const settled = this.#ledger.currentIfUnchanged(localId, stamp);
       if (settled === undefined) {
         // Abandoned or removed mid-chunk. `abandon` already asked for this spool back,
@@ -349,12 +461,15 @@ export class AttachmentIngestClient {
     if (entry === undefined || stamp === undefined || entry.ingestId === undefined) {
       return;
     }
+    const ingestId = entry.ingestId;
     const answer: PortAnswer<{
       readonly artifactId: string;
       readonly normalizedName: string;
       readonly derivedMediaType: string;
       readonly derivedSizeBytes: number;
-    }> = await this.#bridge.growth.artifactIngestComplete({ ingestId: entry.ingestId });
+    }> = await this.#answer(INGEST_COMPLETION_LEG, async () =>
+      this.#bridge.growth.artifactIngestComplete({ ingestId }),
+    );
     const settled = this.#ledger.currentIfUnchanged(localId, stamp);
     if (settled === undefined) {
       return;
