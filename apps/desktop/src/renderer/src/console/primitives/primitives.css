@@ -45,6 +45,7 @@
  * 3:1 against ADJACENT colours, and a ring drawn over a border has no adjacent.
  */
 .meridian-chip:focus-visible,
+.meridian-choice-list__choice:focus-visible,
 .meridian-chord :focus-visible,
 .meridian-nothing :focus-visible,
 .meridian-refusal :focus-visible,
@@ -195,11 +196,6 @@
 
 .meridian-choice-list__choice:hover {
   border-color: var(--meridian-edge-strong);
-}
-
-.meridian-choice-list__choice:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 /* ------------------------------------------------------------------- chips */
