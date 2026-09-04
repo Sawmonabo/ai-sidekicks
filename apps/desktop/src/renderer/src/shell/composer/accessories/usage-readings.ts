@@ -36,6 +36,18 @@
 // percentage and a surface that read one would be reading a member that does not
 // exist.
 //
+// AND EVERY READING IS ONE RUN'S. A session holds as many provider conversations as
+// it has runs, and a context window belongs to one of them: the newest row anywhere
+// in the session was answering "how full is that conversation" about whichever run
+// spoke last. So the context reading takes the ADDRESSED run as an input exactly as
+// the compaction fold does, and a row whose `runId` is absent, empty, or not a
+// string is read for no run at all — attributing an unattributed row to whichever
+// run the composer happens to point at is the same fabrication in the other
+// direction. `Spec-006 §Usage Telemetry (usage_telemetry)` types that member
+// `runId?`, so the absence is a shape the wire admits and this module answers with
+// no reading rather than with a guess. A composer addressed to a channel asks for
+// no reading at all.
+//
 // THE COUNTS TRAVEL AS A PAIR, and this reading requires both. A payload naming one
 // of them is an emitter bug by that spec's own words, and the reading it would
 // otherwise produce is worse than none: a numerator with no denominator renders as
@@ -108,19 +120,32 @@ export interface ContextWindowReading {
 }
 
 /**
- * The newest context-window reading in a timeline, or `undefined`.
+ * The newest context-window reading recorded for ONE run, or `undefined`.
  *
  * Newest by SEQUENCE and not by `occurredAt`: sequence is the session's own total
  * order and the store already dedupes and gap-checks on it, while two rows can
  * share a millisecond. The meter never redraws from a prediction, so it renders the
  * last thing it was told rather than the last thing that happened.
+ *
+ * The run filter is what makes the answer a reading of the conversation the
+ * composer is addressed to. Without it a session running two agents at once showed
+ * the composer addressed to one of them the other's fullness, and offered to
+ * compact on the strength of it.
  */
 export function newestContextWindowReading(
   timeline: readonly ConsoleSessionEvent[],
+  targetRunId: string | undefined,
 ): ContextWindowReading | undefined {
+  const addressedRunId = nonEmptyString(targetRunId);
+  if (addressedRunId === undefined) {
+    return undefined;
+  }
   let newest: ContextWindowReading | undefined;
   for (const event of timeline) {
     if (event.kind !== CONTEXT_WINDOW_EVENT_KIND) {
+      continue;
+    }
+    if (nonEmptyString(event.payload?.["runId"]) !== addressedRunId) {
       continue;
     }
     const reading = readContextWindow(event);

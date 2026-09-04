@@ -120,6 +120,38 @@ function mountRail(
   return container;
 }
 
+const AGENT_ID = "agent-implementer";
+const RUN_ID = "9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a";
+
+const AGENT: ConsoleEntity = {
+  kind: "agent",
+  id: AGENT_ID,
+  state: "running",
+  body: { name: "Ada", driverName: "claude" },
+};
+
+const RUNNING_RUN: ConsoleEntity = {
+  kind: "run",
+  id: RUN_ID,
+  state: "running",
+  touchedAt: "2026-01-01T11:05:00.000Z",
+  body: { agentId: AGENT_ID, runVersion: 4 },
+};
+
+const ON_THE_AGENT: ConsolePaneAddress = {
+  kind: "agent-console",
+  entity: { kind: "agent", id: AGENT_ID },
+};
+
+/**
+ * The addressing every meter case needs: a composer pointed at a run.
+ *
+ * Both usage folds are run-scoped, so an unaddressed rail reports no fullness at
+ * all — which is its own case below and not the state a case about the METER wants
+ * to be in.
+ */
+const ADDRESSED = { entities: [AGENT, RUNNING_RUN], focusedPane: ON_THE_AGENT } as const;
+
 function contextWindowEvent(sequence: number): ConsoleSessionEvent {
   return {
     // The event's own identifier, composed from the position so two rows of one
@@ -130,6 +162,7 @@ function contextWindowEvent(sequence: number): ConsoleSessionEvent {
     kind: CONTEXT_WINDOW_EVENT_KIND,
     occurredAt: "2026-01-01T00:00:10.000Z",
     payload: {
+      runId: RUN_ID,
       windowUsedTokens: 168_000,
       windowMaxTokens: 200_000,
       windowSource: "provider_reported",
@@ -140,32 +173,36 @@ function contextWindowEvent(sequence: number): ConsoleSessionEvent {
 
 describe("ComposerAccessoryRail — absence before assertion", () => {
   it("renders the not-checked meter when the daemon has reported nothing", () => {
-    const container = mountRail([]);
+    const container = mountRail([], ADDRESSED);
     expect(container.querySelector(".meridian-context-meter")).toBeNull();
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
   it("negative control: a session with a reading draws the meter instead", () => {
-    const container = mountRail([contextWindowEvent(1)]);
+    const container = mountRail([contextWindowEvent(1)], ADDRESSED);
     const meter = container.querySelector('[role="progressbar"]');
     expect(meter?.getAttribute("aria-valuenow")).toBe("84");
   });
 
   it("shows the compaction hint only above the threshold", () => {
-    const above = mountRail([contextWindowEvent(1)]);
+    const above = mountRail([contextWindowEvent(1)], ADDRESSED);
     expect(above.querySelector(".meridian-context-meter__hint")).not.toBeNull();
 
-    const below = mountRail([
-      {
-        ...contextWindowEvent(1),
-        payload: {
-          windowUsedTokens: 24_000,
-          windowMaxTokens: 200_000,
-          windowSource: "provider_reported",
-          exceeded: false,
+    const below = mountRail(
+      [
+        {
+          ...contextWindowEvent(1),
+          payload: {
+            runId: RUN_ID,
+            windowUsedTokens: 24_000,
+            windowMaxTokens: 200_000,
+            windowSource: "provider_reported",
+            exceeded: false,
+          },
         },
-      },
-    ]);
+      ],
+      ADDRESSED,
+    );
     expect(below.querySelector(".meridian-context-meter__hint")).toBeNull();
   });
 
@@ -173,12 +210,20 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
     // The meter draws the same bar for all three grades and says which one it is.
     // A bar whose numbers were estimated and a bar whose numbers the provider
     // measured are different readings, and the difference is invisible in the bar.
-    const container = mountRail([
-      {
-        ...contextWindowEvent(1),
-        payload: { windowUsedTokens: 24_000, windowMaxTokens: 200_000, windowSource: "estimated" },
-      },
-    ]);
+    const container = mountRail(
+      [
+        {
+          ...contextWindowEvent(1),
+          payload: {
+            runId: RUN_ID,
+            windowUsedTokens: 24_000,
+            windowMaxTokens: 200_000,
+            windowSource: "estimated",
+          },
+        },
+      ],
+      ADDRESSED,
+    );
 
     expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
       "estimated",
@@ -191,7 +236,7 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
   it("negative control: a provider-reported reading carries no grade sentence", () => {
     // Without this the case above would hold over a meter that explained itself on
     // every reading, which would make the two grades that matter invisible.
-    const container = mountRail([contextWindowEvent(1)]);
+    const container = mountRail([contextWindowEvent(1)], ADDRESSED);
     expect(container.querySelector(".meridian-context-meter__source-note")).toBeNull();
     expect(container.querySelector(".meridian-context-meter__source")?.textContent).toContain(
       "provider_reported",
@@ -201,17 +246,21 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
   it("replaces the near-full advice with the provider's own exhaustion statement", () => {
     // Advising someone to compact soon is the wrong sentence beside a window the
     // provider has already declared full, and both at once would be worse.
-    const container = mountRail([
-      {
-        ...contextWindowEvent(1),
-        payload: {
-          windowUsedTokens: 210_000,
-          windowMaxTokens: 200_000,
-          windowSource: "provider_reported",
-          exceeded: true,
+    const container = mountRail(
+      [
+        {
+          ...contextWindowEvent(1),
+          payload: {
+            runId: RUN_ID,
+            windowUsedTokens: 210_000,
+            windowMaxTokens: 200_000,
+            windowSource: "provider_reported",
+            exceeded: true,
+          },
         },
-      },
-    ]);
+      ],
+      ADDRESSED,
+    );
 
     const hints = container.querySelectorAll(".meridian-context-meter__hint");
     expect(hints).toHaveLength(1);
@@ -268,6 +317,97 @@ describe("ComposerAccessoryRail — absence before assertion", () => {
   });
 });
 
+describe("ComposerAccessoryRail — the meter reads the conversation it is addressed to", () => {
+  const SECOND_AGENT_ID = "agent-reviewer";
+  const SECOND_RUN_ID = "3c2b1a09-8f7e-4d6c-9b5a-4938271605fe";
+
+  const SECOND_AGENT: ConsoleEntity = {
+    kind: "agent",
+    id: SECOND_AGENT_ID,
+    state: "running",
+    body: { name: "Priya", driverName: "claude" },
+  };
+
+  const SECOND_RUN: ConsoleEntity = {
+    kind: "run",
+    id: SECOND_RUN_ID,
+    state: "running",
+    touchedAt: "2026-01-01T11:06:00.000Z",
+    body: { agentId: SECOND_AGENT_ID, runVersion: 2 },
+  };
+
+  /** Two conversations metered in one session, the SECOND run's row the newer. */
+  const BOTH_METERED: readonly ConsoleSessionEvent[] = [
+    {
+      ...contextWindowEvent(3),
+      payload: {
+        runId: RUN_ID,
+        windowUsedTokens: 20_000,
+        windowMaxTokens: 200_000,
+        windowSource: "provider_reported",
+        exceeded: false,
+      },
+    },
+    {
+      ...contextWindowEvent(12),
+      payload: {
+        runId: SECOND_RUN_ID,
+        windowUsedTokens: 180_000,
+        windowMaxTokens: 200_000,
+        windowSource: "provider_reported",
+        exceeded: false,
+      },
+    },
+  ];
+
+  const BOTH_AGENTS = [AGENT, RUNNING_RUN, SECOND_AGENT, SECOND_RUN];
+
+  function paneOn(agentId: string): ConsolePaneAddress {
+    return { kind: "agent-console", entity: { kind: "agent", id: agentId } };
+  }
+
+  it("draws the addressed run's fullness while another run meters later and higher", () => {
+    // The finding: the fold took the newest row anywhere in the session, so the
+    // composer addressed to Ada drew Priya's 90% and offered to compact the
+    // conversation the person was not writing to.
+    const container = mountRail(BOTH_METERED, {
+      entities: BOTH_AGENTS,
+      focusedPane: paneOn(AGENT_ID),
+    });
+
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "10",
+    );
+    expect(container.querySelector(".meridian-context-meter__hint")).toBeNull();
+  });
+
+  it("negative control: the other run's composer draws the higher reading and its hint", () => {
+    // Without this the case above would hold over a meter that had simply stopped
+    // reading the timeline at all.
+    const container = mountRail(BOTH_METERED, {
+      entities: BOTH_AGENTS,
+      focusedPane: paneOn(SECOND_AGENT_ID),
+    });
+
+    expect(container.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe(
+      "90",
+    );
+    expect(container.querySelector(".meridian-context-meter__hint")).not.toBeNull();
+  });
+
+  it("renders the not-checked absence rather than a session-wide figure when no run is addressed", () => {
+    // A composer addressed to a channel meters no provider conversation, so there is
+    // no fullness for it to report — and the session's newest row is some run's, not
+    // this composer's.
+    const container = mountRail(BOTH_METERED, { entities: BOTH_AGENTS });
+
+    expect(container.querySelector(".meridian-context-meter")).toBeNull();
+    expect(
+      container.querySelector(".meridian-composer__meters .meridian-nothing--not-checked"),
+    ).not.toBeNull();
+  });
+});
+
 describe("ComposerAccessoryRail — the reserved seats and the menu", () => {
   it("renders the edit-and-resend seat as reserved rather than as an editor", () => {
     const container = mountRail([]);
@@ -304,24 +444,6 @@ describe("ComposerAccessoryRail — the reserved seats and the menu", () => {
 });
 
 describe("ComposerAccessoryRail — the compaction control reaches the addressed run", () => {
-  const AGENT_ID = "agent-implementer";
-  const RUN_ID = "9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a";
-
-  const AGENT: ConsoleEntity = {
-    kind: "agent",
-    id: AGENT_ID,
-    state: "running",
-    body: { name: "Ada", driverName: "claude" },
-  };
-
-  const RUNNING_RUN: ConsoleEntity = {
-    kind: "run",
-    id: RUN_ID,
-    state: "running",
-    touchedAt: "2026-01-01T11:05:00.000Z",
-    body: { agentId: AGENT_ID, runVersion: 4 },
-  };
-
   /**
    * The meters row's own unanswered-question badge.
    *
@@ -329,11 +451,6 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
    * `not-checked` block, so a document-wide query would pass on either of theirs.
    */
   const METERS_NOT_CHECKED = ".meridian-composer__meters .meridian-nothing--not-checked";
-
-  const ON_THE_AGENT: ConsolePaneAddress = {
-    kind: "agent-console",
-    entity: { kind: "agent", id: AGENT_ID },
-  };
 
   /** One capability report per driver, total over the registered flag set. */
   function reportFor(driverName: string, declared: readonly DriverCapabilityFlag[]): unknown {
