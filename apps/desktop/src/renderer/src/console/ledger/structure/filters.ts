@@ -20,7 +20,13 @@
 // the better surface — a filter menu of twenty categories, eighteen of which match
 // nothing in this session, is a menu nobody reads.
 
-import type { EventCategory, TimelineRow } from "@ai-sidekicks/contracts";
+import type {
+  AssistantOutputPayload,
+  ChannelCreatedEvent,
+  EventCategory,
+  TimelineRow,
+  ToolActivityPayload,
+} from "@ai-sidekicks/contracts";
 
 /**
  * What a person has narrowed the ledger to.
@@ -80,13 +86,8 @@ export function deriveLedgerFacets(rows: readonly TimelineRow[]): LedgerFacets {
 /**
  * Apply a filter to one loaded window.
  *
- * Two passes, and the second is the boundary rule: the first admits rows on their
- * own merits and records which runs were admitted, and the second re-admits every
- * `rollback_boundary` belonging to one of those runs. A single pass could not do
- * it — a boundary earlier in the window than any admitted row of its run would
- * have to be judged before the run was known.
- *
- * Order is preserved throughout: this narrows, it never sorts.
+ * The narrowing itself is `narrowLedgerRows`', so the boundary rule this file
+ * exists to enforce is written once and every narrowing over this window gets it.
  */
 export function applyLedgerFilter(
   rows: readonly TimelineRow[],
@@ -97,15 +98,43 @@ export function applyLedgerFilter(
   }
   const admittedParticipants = new Set(filter.participantIds);
   const admittedCategories = new Set<EventCategory>(filter.categories);
-  const admittedRowIds = new Set<string>();
-  const admittedRunIds = new Set<string>();
-
-  for (const row of rows) {
+  return narrowLedgerRows(rows, (row) => {
     const participantAdmits =
       admittedParticipants.size === 0 ||
       (row.actor !== undefined && admittedParticipants.has(row.actor));
     const categoryAdmits = admittedCategories.size === 0 || admittedCategories.has(row.category);
-    if (!participantAdmits || !categoryAdmits) {
+    return participantAdmits && categoryAdmits;
+  });
+}
+
+/**
+ * Narrow one loaded window on a row predicate, boundary rule included.
+ *
+ * SHARED BY EVERY NARROWING OVER THIS WINDOW, and the sharing is the point rather
+ * than the saving: the boundary rule is the one that fails silently and
+ * expensively, so a second narrowing written beside this one would be a second
+ * chance to forget it. A channel scope is where that nearly happened — no rollback
+ * payload names a channel, so a bare predicate would have dropped every boundary
+ * in the window and rendered a history that had been corrected as though it never
+ * was.
+ *
+ * Two passes, and the second is that rule: the first admits rows on their own
+ * merits and records which runs were admitted, and the second re-admits every
+ * `rollback_boundary` belonging to one of those runs. A single pass could not do
+ * it — a boundary earlier in the window than any admitted row of its run would
+ * have to be judged before the run was known.
+ *
+ * Order is preserved throughout: this narrows, it never sorts.
+ */
+export function narrowLedgerRows(
+  rows: readonly TimelineRow[],
+  admits: (row: TimelineRow) => boolean,
+): readonly TimelineRow[] {
+  const admittedRowIds = new Set<string>();
+  const admittedRunIds = new Set<string>();
+
+  for (const row of rows) {
+    if (!admits(row)) {
       continue;
     }
     admittedRowIds.add(row.id);
@@ -124,37 +153,162 @@ export function applyLedgerFilter(
 }
 
 /**
+ * The payload member that names a row's channel.
+ *
+ * Wire truth, checked against the shapes that carry it rather than asserted: the
+ * three registered payloads with a channel — the assistant pair, the tool trio, and
+ * `channel.created` — all spell it this way, and `satisfies` makes a rename in the
+ * contracts a compile error here instead of a pane that silently shows nothing.
+ */
+const CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER = "channelId" satisfies keyof AssistantOutputPayload &
+  keyof ToolActivityPayload &
+  keyof ChannelCreatedEvent["payload"];
+
+/**
+ * The channel a row belongs to, or `undefined` where its payload names none.
+ *
+ * The payload is an open record by contract, so the member is read and narrowed
+ * rather than trusted — the same treatment the projection gives the run key.
+ */
+export function channelIdOfRow(row: TimelineRow): string | undefined {
+  const payload: unknown = row.payload;
+  if (typeof payload !== "object" || payload === null) {
+    return undefined;
+  }
+  const candidate: unknown = (payload as Record<string, unknown>)[
+    CHANNEL_ATTRIBUTION_PAYLOAD_MEMBER
+  ];
+  return typeof candidate === "string" && candidate.length > 0 ? candidate : undefined;
+}
+
+/**
+ * Narrow a window to one channel — the pane's scope, not a person's filter.
+ *
+ * NOT AN AXIS OF `LedgerFilter`, and the distinction is load-bearing: a filter is
+ * something a person turned on and can clear from the bar, and a channel-scoped
+ * pane's scope is what the pane IS. Folding it into the filter would put a chip on
+ * screen whose release turns a channel pane into a session pane while the header
+ * still names the channel.
+ *
+ * TWO PASSES, AND THE SECOND IS WHY THIS IS NOT ONE PREDICATE. Only the assistant
+ * pair, the tool trio and `channel.created` carry a channel at all; a run's own
+ * lifecycle rows — including the rollback boundaries — name none. Admitting on the
+ * member alone would therefore take a channel's prose and leave behind the run
+ * that produced it: no chapter to fold it into, no receipt saying how the run
+ * ended, no boundary marking the rows a rewind superseded, and a rail drawn over a
+ * window with no runs in it.
+ *
+ * So a run is CLAIMED by the channels its rows name, and a claimed run's
+ * channel-less rows ride in with it. A row naming a DIFFERENT channel never does,
+ * which is what keeps a run that spoke in two channels from leaking one into the
+ * other.
+ *
+ * A `general` row naming no channel is not admitted: absence on an optional wire
+ * member says the producer named no channel, not that it named this one, and a
+ * session-level row belongs to the session.
+ */
+export function scopeLedgerRowsToChannel(
+  rows: readonly TimelineRow[],
+  channelId: string,
+): readonly TimelineRow[] {
+  const claimedRunIds = new Set<string>();
+  for (const row of rows) {
+    if (row.kind !== "general" && channelIdOfRow(row) === channelId) {
+      claimedRunIds.add(row.runId);
+    }
+  }
+  return narrowLedgerRows(rows, (row) => {
+    const rowChannelId = channelIdOfRow(row);
+    if (rowChannelId !== undefined) {
+      return rowChannelId === channelId;
+    }
+    return row.kind !== "general" && claimedRunIds.has(row.runId);
+  });
+}
+/**
+ * The narrowings a row passes through between the loaded log and the viewport, in
+ * the order the feed applies them.
+ *
+ * DECLARED AS A TUPLE BECAUSE THE ORDER IS THE VALUE. A row absent from the
+ * viewport is absent for exactly one reason — the FIRST stage that did not admit
+ * it — and the stages are strictly nested, so any other order would report a later
+ * cause for an earlier one. The set the classifier walks and the set a renderer
+ * must have words for are therefore the same set, derived from this line rather
+ * than restated beside it.
+ */
+export const LEDGER_JUMP_ABSENCES = [
+  "hidden-by-filter",
+  "folded-into-chapter",
+  "withheld-by-replay",
+  "outside-window",
+] as const;
+
+/** Which narrowing took a row out of the viewport. */
+export type LedgerJumpAbsence = (typeof LEDGER_JUMP_ABSENCES)[number];
+
+/**
+ * What one stage kept, asked by row id.
+ *
+ * An interface rather than `ReadonlySet<string>` so a caller passes whichever
+ * lookup it already holds — the projection's `rowsByKey` map, the viewport's key
+ * set — instead of copying one into the other shape on every keystroke.
+ */
+export interface LedgerRowIdMembership {
+  readonly has: (rowId: string) => boolean;
+}
+
+/**
+ * What each stage admitted, for one classification.
+ *
+ * Total over the absence tuple by construction: a fifth narrowing added to
+ * `LEDGER_JUMP_ABSENCES` fails to compile at every caller until that caller says
+ * what the new stage kept, which is the whole reason the stages arrive as a record
+ * rather than as an array a caller could pass short or out of order.
+ */
+export type LedgerJumpStages = Readonly<Record<LedgerJumpAbsence, LedgerRowIdMembership>>;
+
+/**
  * Where a jump lands, or why it did not.
  *
- * A discriminated result rather than `TimelineRow | undefined`, because the two
- * failures call for different words: an id nobody in this window carries may still
- * be a real event earlier in the session ("load earlier"), while an id the filter
- * is currently hiding is reachable by clearing the filter. Collapsing them would
- * tell a person to load rows they already have.
+ * A discriminated result rather than `TimelineRow | undefined`, because each
+ * failure calls for different words AND a different act: a narrowed-away row is
+ * reached by clearing the filter, a folded one by opening its chapter, a withheld
+ * one by leaving the replay, and a row the cap took by nothing this build can
+ * press. Collapsing any two tells somebody to perform an act that cannot reach the
+ * row they asked for — which is what one arm for every absence after the filter
+ * did: it read "clear a filter" over a ledger with no filter on it.
+ *
+ * `not-in-loaded-log` is the one absence that is not a stage of the pipeline: no
+ * narrowing dropped the row, because this window never held it.
  */
 export type LedgerJumpOutcome =
   | { readonly status: "found"; readonly row: TimelineRow }
-  | { readonly status: "hidden-by-filter"; readonly row: TimelineRow }
-  | { readonly status: "outside-window" };
+  | { readonly status: LedgerJumpAbsence; readonly row: TimelineRow }
+  | { readonly status: "not-in-loaded-log" };
 
 /**
  * Jump to an event by id — the design's second offer over this window.
  *
- * Takes the whole window and the filtered view so it can tell the two failures
- * apart — which is the only reason it takes both.
+ * Takes the loaded rows and what every stage between them and the viewport kept,
+ * which is the only reason it takes more than one window: the answer is not
+ * whether the row is on screen but WHICH narrowing is the reason it is not, and
+ * that is a question about the stages rather than about either end of them.
  */
 export function jumpToEventId(
-  rows: readonly TimelineRow[],
-  visibleRows: readonly TimelineRow[],
+  loadedRows: readonly TimelineRow[],
+  stages: LedgerJumpStages,
   eventId: string,
 ): LedgerJumpOutcome {
-  const row = rows.find((candidate) => candidate.id === eventId);
+  const row = loadedRows.find((candidate) => candidate.id === eventId);
   if (row === undefined) {
-    return { status: "outside-window" };
+    return { status: "not-in-loaded-log" };
   }
-  return visibleRows.some((candidate) => candidate.id === eventId)
-    ? { status: "found", row }
-    : { status: "hidden-by-filter", row };
+  for (const absence of LEDGER_JUMP_ABSENCES) {
+    if (!stages[absence].has(eventId)) {
+      return { status: absence, row };
+    }
+  }
+  return { status: "found", row };
 }
 
 /**

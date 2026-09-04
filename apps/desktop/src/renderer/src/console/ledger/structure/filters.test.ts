@@ -16,6 +16,8 @@ import {
   deriveLedgerFacets,
   isLedgerFiltered,
   jumpToEventId,
+  scopeLedgerRowsToChannel,
+  type LedgerJumpStages,
   withToggledCategory,
   withToggledParticipant,
 } from "./filters.js";
@@ -215,25 +217,84 @@ describe("filters — the menu is derived from the window, never from a hand-wri
   });
 });
 
-describe("filters — jump by id tells the two failures apart", () => {
+describe("filters — jump by id names which narrowing is hiding the row", () => {
   const rows = twoRunWindow();
-  const visible = applyLedgerFilter(rows, { participantIds: ["agent-one"], categories: [] });
+  const narrowed = applyLedgerFilter(rows, { participantIds: ["agent-one"], categories: [] });
 
-  it("finds a row the view is showing", () => {
-    const outcome = jumpToEventId(rows, visible, "a1");
-    expect(outcome.status).toBe("found");
+  /**
+   * The four stages, each admitting whatever it is handed.
+   *
+   * Built from row lists rather than from a window model, because the classifier's
+   * whole claim is that it answers from the STAGES and not from either end of
+   * them — a case that had to build a feed to exercise one arm would be testing
+   * the feed.
+   */
+  function stagesOver(admissions: {
+    filter?: readonly TimelineRow[];
+    fold?: readonly TimelineRow[];
+    replay?: readonly TimelineRow[];
+    viewport?: readonly TimelineRow[];
+  }): LedgerJumpStages {
+    const idsOf = (admitted: readonly TimelineRow[] | undefined): ReadonlySet<string> =>
+      new Set((admitted ?? rows).map((row) => row.id));
+    return {
+      "hidden-by-filter": idsOf(admissions.filter),
+      "folded-into-chapter": idsOf(admissions.fold),
+      "withheld-by-replay": idsOf(admissions.replay),
+      "outside-window": idsOf(admissions.viewport),
+    };
+  }
+
+  it("finds a row every stage admitted", () => {
+    expect(jumpToEventId(rows, stagesOver({}), "a1").status).toBe("found");
   });
 
-  it("distinguishes a row the filter is hiding from one the window does not hold", () => {
-    // Collapsing these two would tell a person to load rows they already have.
-    expect(jumpToEventId(rows, visible, "b1").status).toBe("hidden-by-filter");
-    expect(jumpToEventId(rows, visible, "an-id-from-earlier-in-the-session").status).toBe(
+  it("names the filter for a row the narrowing dropped", () => {
+    expect(jumpToEventId(rows, stagesOver({ filter: narrowed }), "b1").status).toBe(
+      "hidden-by-filter",
+    );
+  });
+
+  it("names the chapter fold, the replay and the cap, each for its own stage", () => {
+    // The three arms that used to be reported as the filter's. Each stage is the
+    // only one narrowed in its case, so the answer can come from nowhere else.
+    const foldedAway = rows.filter((row) => row.id !== "b1");
+    expect(jumpToEventId(rows, stagesOver({ fold: foldedAway }), "b1").status).toBe(
+      "folded-into-chapter",
+    );
+    expect(jumpToEventId(rows, stagesOver({ replay: foldedAway }), "b1").status).toBe(
+      "withheld-by-replay",
+    );
+    expect(jumpToEventId(rows, stagesOver({ viewport: foldedAway }), "b1").status).toBe(
       "outside-window",
     );
   });
 
-  it("negative control: over an unfiltered view nothing is ever hidden-by-filter", () => {
-    expect(jumpToEventId(rows, rows, "b1").status).toBe("found");
+  it("names the earliest stage that dropped the row, not the last", () => {
+    // The stages nest, so a row the filter dropped is absent from every stage after
+    // it. Reading the last would report the cap for a row a narrowing removed —
+    // and offer an act that does nothing about the filter still on the ledger.
+    const withoutB1 = rows.filter((row) => row.id !== "b1");
+    const outcome = jumpToEventId(
+      rows,
+      stagesOver({ filter: withoutB1, fold: withoutB1, replay: withoutB1, viewport: withoutB1 }),
+      "b1",
+    );
+    expect(outcome.status).toBe("hidden-by-filter");
+  });
+
+  it("separates an id this window never held from every narrowing", () => {
+    expect(jumpToEventId(rows, stagesOver({}), "an-id-from-earlier-in-the-session").status).toBe(
+      "not-in-loaded-log",
+    );
+  });
+
+  it("negative control: with every stage admitting everything nothing is ever absent", () => {
+    // Without this the cases above would pass over a classifier that reported an
+    // absence for every id, which would put a permanent notice on a whole ledger.
+    for (const row of rows) {
+      expect(jumpToEventId(rows, stagesOver({}), row.id).status).toBe("found");
+    }
   });
 });
 
@@ -274,5 +335,99 @@ describe("filters — a facet press narrows, and pressing it again widens back",
       "rb-b",
       "a2",
     ]);
+  });
+});
+
+describe("filters — a channel-scoped pane is a log of that channel", () => {
+  const CHANNEL_ONE = "019b793b-7b60-7c11-8110-c4a11e10001a";
+  const CHANNEL_TWO = "019b793b-7b60-7c11-8120-c4a11e10002b";
+
+  /**
+   * One run that spoke in both channels, one that spoke only in the second, a
+   * session row, and a boundary.
+   *
+   * Shaped so every clause of the scope is exercised by one window: only the two
+   * message rows carry a channel, so the run rows and the boundary can be admitted
+   * only through the claim, and run-a's second message is the row that proves a run
+   * claimed by one channel does not drag its other channel's prose along.
+   */
+  function twoChannelWindow(): readonly TimelineRow[] {
+    return [
+      runRow({ id: "a-start", sequence: 1, type: "run.running", runId: "run-a", position: 0 }),
+      runRow({
+        id: "a-said-one",
+        sequence: 2,
+        type: "assistant.message",
+        category: "assistant_output",
+        runId: "run-a",
+        position: 1,
+        payload: { channelId: CHANNEL_ONE },
+      }),
+      runRow({
+        id: "a-said-two",
+        sequence: 3,
+        type: "assistant.message",
+        category: "assistant_output",
+        runId: "run-a",
+        position: 2,
+        payload: { channelId: CHANNEL_TWO },
+      }),
+      rollbackBoundaryRow({ id: "a-boundary", sequence: 4, runId: "run-a", position: 1 }),
+      runRow({
+        id: "b-said",
+        sequence: 5,
+        type: "assistant.message",
+        category: "assistant_output",
+        runId: "run-b",
+        position: 0,
+        payload: { channelId: CHANNEL_TWO },
+      }),
+      generalRow({
+        id: "session-renamed",
+        sequence: 6,
+        type: "session.renamed",
+        category: "session_lifecycle",
+      }),
+    ];
+  }
+
+  it("keeps the channel's own rows and the runs that produced them", () => {
+    // The run row and the boundary name no channel — no run-lifecycle payload does
+    // — so without the claim a channel pane would show prose with no chapter to
+    // fold it into, no receipt, and no boundary marking a rewind.
+    const scoped = scopeLedgerRowsToChannel(twoChannelWindow(), CHANNEL_ONE);
+
+    expect(scoped.map((row) => row.id)).toStrictEqual(["a-start", "a-said-one", "a-boundary"]);
+  });
+
+  it("never carries one channel's prose into another's pane", () => {
+    // `run-a` spoke in both, and the claim admits its channel-less rows only.
+    const scoped = scopeLedgerRowsToChannel(twoChannelWindow(), CHANNEL_TWO);
+
+    expect(scoped.map((row) => row.id)).toStrictEqual([
+      "a-start",
+      "a-said-two",
+      "a-boundary",
+      "b-said",
+    ]);
+  });
+
+  it("leaves a session row to the session", () => {
+    // An absent channel member says the producer named no channel, not that it
+    // named this one — so a scope that admitted it would put every session-level
+    // row on every channel pane.
+    for (const channelId of [CHANNEL_ONE, CHANNEL_TWO]) {
+      expect(scopeLedgerRowsToChannel(twoChannelWindow(), channelId)).not.toContainEqual(
+        expect.objectContaining({ id: "session-renamed" }),
+      );
+    }
+  });
+
+  it("negative control: a channel nothing named admits nothing at all", () => {
+    // Without this the scope could be admitting on the claim alone, which would
+    // show every run's rows under a channel that never held one.
+    expect(
+      scopeLedgerRowsToChannel(twoChannelWindow(), "019b793b-7b60-7c11-8130-000000000000"),
+    ).toStrictEqual([]);
   });
 });

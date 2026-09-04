@@ -39,6 +39,10 @@ describe("the walk when the result moves under it", () => {
       prunedAwayRows: [],
       withheldByReplayRows: [],
       hasEarlierRows: false,
+      // Nothing outside this window, so both stage memberships are the rows
+      // themselves — the identity the partition would have produced.
+      revealedRowKeys: new Set(rows.map((row) => row.id)),
+      heldRowKeys: new Set(rows.map((row) => row.id)),
       railModel: new ProvenanceRailModel({ rows, hasEarlierRows: false }),
     };
   }

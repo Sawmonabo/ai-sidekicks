@@ -282,9 +282,20 @@ export function openSessionStoreWithSeam(): SessionStore {
  */
 export const FILTERABLE_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";
 
-/** The row id the projection mints for one sequence of that log. */
+/**
+ * The row id the projection mints for one sequence of a session's log.
+ *
+ * The projection's own composition, stated once here rather than in each file that
+ * needs to ask about a row by id: two spellings of it would drift, and a case that
+ * asked about a row nothing carries would pass by finding nothing.
+ */
+export function projectedRowId(sessionId: string, sequence: number): string {
+  return `${sessionId}:${String(sequence)}`;
+}
+
+/** The row id the projection mints for one sequence of the filterable log. */
 export function filterableRowId(sequence: number): string {
-  return `${FILTERABLE_SESSION_ID}:${String(sequence)}`;
+  return projectedRowId(FILTERABLE_SESSION_ID, sequence);
 }
 
 export function openSessionStoreWithFilterableLog(): SessionStore {

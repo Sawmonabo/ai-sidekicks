@@ -59,6 +59,8 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 
+import { type TimelineRow } from "@ai-sidekicks/contracts";
+
 import { useConsoleClock } from "../../bridge/index.js";
 import {
   LedgerRowLeaseProvider,
@@ -72,13 +74,13 @@ import {
   LedgerFilterBar,
   ProvenanceRail,
   ReplayControls,
-  jumpToEventId,
-  type LedgerJumpOutcome,
+  UNFILTERED_LEDGER,
 } from "../../ledger/structure/index.js";
 import {
   LedgerEventIdJump,
   LedgerMatchesNotYetReplayedNotice,
   LedgerMatchesOutsideWindowNotice,
+  LedgerRowsAdmittedDuringReplayNotice,
   LedgerWindowAbsences,
 } from "./LedgerFeedNotices.js";
 import { useLedgerRowRenderer } from "./LedgerFeedRow.js";
@@ -87,6 +89,12 @@ import { type TimelineRowRenderer } from "../../seats/index.js";
 import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
 import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
 import { useLedgerFind } from "./ledger-find.js";
+import {
+  chapterRunIdOf,
+  useDeferredRowJump,
+  useEventIdJumpOutcome,
+  useLedgerJumpReach,
+} from "./ledger-jump.js";
 import { useFilteredLedgerWindow, useLedgerFilter } from "./ledger-narrowing.js";
 import {
   useLedgerReplay,
@@ -98,6 +106,15 @@ import { useLedgerProjection } from "./ledger-window.js";
 
 export interface LedgerFeedProps {
   readonly sessionStore: SessionStore;
+  /**
+   * The channel this feed is a log OF, when it is a log of one.
+   *
+   * Absent, the feed is the whole session — which is what a bare timeline address
+   * means. Present, it is applied inside the projection rather than beside it, so
+   * the facets, the chapters, the seams, the cap, replay, find and the rail are all
+   * facts about the channel and no piece below has to be told a scope exists.
+   */
+  readonly channelId?: string;
   /** The row body, from the seat. Resolved by the pane, so this file reads no seat. */
   readonly renderTimelineRow: TimelineRowRenderer;
   /** Names the feed for a screen reader walking the window. */
@@ -111,7 +128,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // derivation rather than folded into it.
   const chapterDisclosure = useChapterDisclosure();
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
-  const unfurledWindow = useLedgerProjection(props.sessionStore);
+  const unfurledWindow = useLedgerProjection(props.sessionStore, props.channelId);
   // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
   // below — the chapter fold, the replay engine, the viewport, the visible window,
   // find and the rail — is built over the narrowed model, so no piece has to
@@ -166,17 +183,16 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
     viewport.snapshot.rows,
   );
   const find = useLedgerFind(visible);
-  // Memoized and short-circuited on an empty query: this is a scan of the whole
-  // loaded window, and the field is closed — with an empty query — for most of a
-  // ledger's life.
-  const findQuery = find.query.trim();
-  const eventIdJump = useMemo<LedgerJumpOutcome>(
-    () =>
-      findQuery.length === 0
-        ? { status: "outside-window" }
-        : jumpToEventId(unfurledWindow.rows, visible.rows, findQuery),
-    [unfurledWindow, visible, findQuery],
-  );
+  // Classified against every stage between the log and the screen rather than
+  // against the rows on it, so an id the fold, the replay or the cap took is not
+  // reported as one the filter is hiding.
+  const eventIdJump = useEventIdJumpOutcome({
+    unfurledWindow,
+    narrowedWindow,
+    foldedWindow: ledgerWindow,
+    visible,
+    query: find.query.trim(),
+  });
 
   // The STORE's wheel, which is the one the cast bar reads, handed to both surfaces
   // that colour by actor — the rows and the rail's marks — so one person wears one
@@ -217,6 +233,37 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // the box, off the same range the rail's thumb is sized from.
   const replayAnchorRowId = useReplayAnchorRowId(viewport.visibleRange, viewport.snapshot.rows);
   const jumpToRow = viewport.jumpToRow;
+  // The act each absence deserves cannot itself jump — every one of them widens the
+  // window on the next render — so the jump is requested and spent when the row is
+  // one the viewport holds.
+  const requestJump = useDeferredRowJump(visible.rows, jumpToRow);
+  const setLedgerFilter = ledgerFilter.setFilter;
+  const clearLedgerFilter = useCallback(() => {
+    setLedgerFilter(UNFILTERED_LEDGER);
+  }, [setLedgerFilter]);
+  const openChapterOfRow = useCallback(
+    (row: TimelineRow) => {
+      const chapterRunId = chapterRunIdOf(row, ledgerWindow);
+      const chapter =
+        chapterRunId === undefined ? undefined : ledgerWindow.chapterByHeaderKey.get(chapterRunId);
+      if (chapter !== undefined) {
+        // A toggle, and the arm that offers this act is only reachable while the
+        // chapter is shut — `useLedgerJumpReach` withholds the offer otherwise, so
+        // this never closes one.
+        toggleChapter(chapter);
+      }
+    },
+    [ledgerWindow, toggleChapter],
+  );
+  const eventIdJumpReach = useLedgerJumpReach({
+    outcome: eventIdJump,
+    foldedWindow: ledgerWindow,
+    openedTerminalRunIds,
+    clearFilter: clearLedgerFilter,
+    openChapterOfRow,
+    endReplay: replay.end,
+    requestJump,
+  });
   const onStepFind = useCallback(
     (direction: "next" | "previous") => {
       const step = find.step(direction);
@@ -295,9 +342,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
         filter={ledgerFilter.filter}
         onFilterChange={ledgerFilter.setFilter}
       />
-      <LedgerEventIdJump outcome={eventIdJump} onJumpToRow={jumpToRow} />
+      <LedgerEventIdJump outcome={eventIdJump} reach={eventIdJumpReach} onJumpToRow={jumpToRow} />
       <LedgerMatchesOutsideWindowNotice count={find.beyondWindowMatchCount} />
       <LedgerMatchesNotYetReplayedNotice count={find.notYetReplayedMatchCount} />
+      <LedgerRowsAdmittedDuringReplayNotice
+        count={replay.rowsAdmittedSinceReplayBegan}
+        onEndReplay={replay.end}
+      />
       <div className="meridian-ledger__body">
         <LedgerRowLeaseProvider channel={rowLeaseChannel}>
           <LedgerRowRevealProvider channel={reveal.channel}>
@@ -347,7 +398,13 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
       <LedgerWindowAbsences
         unprojectableEventCount={ledgerWindow.unprojectableEventCount}
         droppedRowCount={visible.prunedAwayRows.length}
-        withheldByReplayRowCount={visible.withheldByReplayRows.length}
+        // The rows a walk began after are a SUBSET of what replay is withholding —
+        // they are in no revealed set at any position — so they are subtracted here
+        // and reported above under their own exit. Leaving them in would tell
+        // somebody to scrub forward for rows scrubbing cannot reach.
+        withheldByReplayRowCount={
+          visible.withheldByReplayRows.length - replay.rowsAdmittedSinceReplayBegan
+        }
         hasUnreceivedEntries={ledgerWindow.hasUnreceivedEntries}
       />
     </div>

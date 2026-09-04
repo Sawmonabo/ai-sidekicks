@@ -74,6 +74,11 @@ interface PaneFocusStyle extends React.CSSProperties {
  * nothing, and an artifact or a run reference is not representable here. The narrowing
  * is the type's whole purpose — a body handed an address it cannot serve would query a
  * partition that has never held the row and render as permanently missing.
+ *
+ * AND THE ENTITY IS THE PANE'S SCOPE, NOT DECORATION. A channel address used to
+ * reach the header's breadcrumb and stop there, while the body below it was handed
+ * the whole session store — so a pane headed by one channel rendered every
+ * channel's rows, and the header was the only thing on screen saying otherwise.
  */
 export type TimelinePaneContext = Extract<ConsolePaneContext, { readonly kind: "timeline" }>;
 
@@ -118,6 +123,7 @@ export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
         contract={TIMELINE_ROW_SLOT}
         body={timelineRowRenderer()}
         sessionStore={context.sessionStore}
+        {...(context.entity === undefined ? {} : { channelId: context.entity.id })}
       />
     </section>
   );
@@ -140,6 +146,7 @@ export function TimelinePane(props: TimelinePaneProps): React.JSX.Element {
 function TimelineRowHost(
   props: OwnerSlotProps<TimelineRowRenderer> & {
     readonly sessionStore: SessionStore | undefined;
+    readonly channelId?: string;
   },
 ): React.JSX.Element {
   const body = props.body;
@@ -172,7 +179,11 @@ function TimelineRowHost(
       <LedgerFeed
         sessionStore={props.sessionStore}
         renderTimelineRow={body}
-        feedLabel="Session timeline"
+        // Named for what the feed is a log of, because the label is what a screen
+        // reader announces when it enters the box — and "Session timeline" over a
+        // channel-scoped window says the log is the session's when it is not.
+        feedLabel={props.channelId === undefined ? "Session timeline" : "Channel timeline"}
+        {...(props.channelId === undefined ? {} : { channelId: props.channelId })}
       />
     </div>
   );
