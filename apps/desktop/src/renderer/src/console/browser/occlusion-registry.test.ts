@@ -17,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ManualClock } from "../core/index.js";
 import { installFakeResizeObserver } from "../primitives/element-resize.test-support.js";
+import { fakeAnimationOf, withAnimations } from "./element-motion.test-support.js";
 import { OVERLAY_KINDS, PaneOcclusionRegistry } from "./occlusion-registry.js";
 import type { PaneRect } from "./pane-geometry.js";
 
@@ -276,5 +277,98 @@ describe("PaneOcclusionRegistry — source 3, motion", () => {
     ancestor.dispatchEvent(new Event("transitionrun", { bubbles: true }));
 
     expect(clock.pendingFrameCount).toBe(0);
+  });
+});
+
+// The paint-only bound, reached through the OVERLAY door.
+//
+// Every read in flight in this console renders the `not-loaded` skeleton, and that
+// primitive runs an infinite opacity pulse. So a dialog or a popover holding one is
+// the common case rather than a contrived one, and while the overlay-scoped reading
+// was unfiltered it armed this registry's frame sampler for as long as the read was
+// out — one occlusion change per animation frame, over an animation that cannot move
+// a box at all. The document-wide reading was already filtered; this is the same
+// bound on the other door, through the same filter function.
+describe("PaneOcclusionRegistry — source 3, what is animating", () => {
+  /** An overlay holding one running animation over the properties a case names. */
+  function overlayAnimating(properties: readonly string[]): {
+    readonly ancestor: HTMLElement;
+    readonly element: HTMLElement;
+    readonly moving: HTMLElement;
+  } {
+    const { ancestor, element } = attachedPair();
+    const moving = document.createElement("div");
+    element.append(moving);
+    const animation = fakeAnimationOf({ playState: "running", properties, target: moving });
+    // The subtree read is what the registry takes, so the animation is reported by
+    // the overlay itself; the ancestors report none, which is the shape a skeleton
+    // inside a dialog actually has.
+    withAnimations(element, [animation]);
+    withAnimations(ancestor, []);
+    withAnimations(moving, [animation]);
+    return { ancestor, element, moving };
+  }
+
+  it("arms no frame for an overlay holding a loading skeleton's opacity pulse", () => {
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const registry = new PaneOcclusionRegistry({ clock });
+    const { element } = overlayAnimating(["opacity"]);
+    const observer = vi.fn();
+    registry.subscribeToChanges(observer);
+
+    registry.register("dialog", () => SOMEWHERE, element);
+    observer.mockClear();
+
+    // Registering mid-pulse is the case a dialog opened over a read in flight
+    // actually is, and it arms nothing at all.
+    expect(registry.samplingOverlayCount).toBe(0);
+    expect(clock.pendingFrameCount).toBe(0);
+    expect(observer).not.toHaveBeenCalled();
+  });
+
+  it("stops on the first frame when a paint-only animation announces itself", () => {
+    // The announcement still arms one frame, and that is deliberate: a
+    // `transitionrun` fires at the start of the delay phase, so refusing to arm on
+    // an announcement the animation reading cannot corroborate yet would drop the
+    // overlay's first movement. What the filter buys is that the frame is the LAST
+    // one — the loop finds nothing that could move a box and does not re-arm, where
+    // unfiltered it re-armed on every frame for as long as the read was out.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const registry = new PaneOcclusionRegistry({ clock });
+    const { element, moving } = overlayAnimating(["opacity"]);
+    const observer = vi.fn();
+    registry.subscribeToChanges(observer);
+    registry.register("dialog", () => SOMEWHERE, element);
+    observer.mockClear();
+
+    moving.dispatchEvent(new Event("animationstart", { bubbles: true }));
+    expect(registry.samplingOverlayCount).toBe(1);
+
+    clock.runFrame();
+
+    expect(observer).toHaveBeenCalledTimes(1);
+    expect(registry.samplingOverlayCount).toBe(0);
+    expect(clock.pendingFrameCount).toBe(0);
+  });
+
+  it("negative control: an overlay carrying a real transform animation still samples", () => {
+    // Without this, a filter that refused every animation would satisfy the case
+    // above and would leave the native view painted over a dialog for the whole of
+    // its slide-in — the failure the sampler exists to prevent.
+    installFakeResizeObserver();
+    const clock = new ManualClock();
+    const registry = new PaneOcclusionRegistry({ clock });
+    const { element } = overlayAnimating(["transform"]);
+    const observer = vi.fn();
+    registry.subscribeToChanges(observer);
+
+    registry.register("dialog", () => SOMEWHERE, element);
+    observer.mockClear();
+
+    expect(registry.samplingOverlayCount).toBe(1);
+    clock.runFrame();
+    expect(observer).toHaveBeenCalledTimes(1);
   });
 });

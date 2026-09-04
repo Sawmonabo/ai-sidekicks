@@ -95,13 +95,28 @@ export function sharesMotionWith(element: Element, movingNode: Node): boolean {
  * walk early is exactly the one whose collapse moved the overlay. The walk only runs
  * while something is already known to be animating or has just started, so it costs
  * nothing at rest.
+ *
+ * FILTERED BY THE SAME BOUND AS THE DOCUMENT READING, and it used to be unfiltered.
+ * The overlay registry arms its frame sampler on this predicate, so a `not-loaded`
+ * skeleton inside a dialog or a popover — an infinite opacity pulse, which
+ * `primitives/primitives.css` gives every read in flight — held it true for as long
+ * as the read was out, and the sampler emitted an occlusion change on every animation
+ * frame. That is the permanent RAF loop the document path already closed, reached
+ * through the other door. Both doors now run `animation-motion.ts`'s one filter.
+ *
+ * The containment half is supplied and is not redundant even though every animation
+ * this function reads is already on the element, inside it, or above it: an animation
+ * whose effect names a DIFFERENT target than the node it was read from would
+ * otherwise be judged on its flow alone, and the callback answers the question this
+ * family answers everywhere else rather than a second version of it.
  */
 export function hasRunningMotion(element: Element): boolean {
-  if (isAnyRunning(readAnimations(element, { subtree: true }))) {
+  const carriesSubject = (target: Element): boolean => sharesMotionWith(element, target);
+  if (isAnyMoving(readAnimations(element, { subtree: true }), carriesSubject)) {
     return true;
   }
   for (let ancestor = element.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
-    if (isAnyRunning(readAnimations(ancestor))) {
+    if (isAnyMoving(readAnimations(ancestor), carriesSubject)) {
       return true;
     }
   }
@@ -133,12 +148,7 @@ export function hasRunningDocumentMotion(element: Element): boolean {
     return false;
   }
   const carriesSubject = (target: Element): boolean => sharesMotionWith(element, target);
-  return document
-    .getAnimations()
-    .some(
-      (animation) =>
-        animation.playState === "running" && couldAnimationMove(animation, carriesSubject),
-    );
+  return isAnyMoving(document.getAnimations(), carriesSubject);
 }
 
 export interface ElementPositionObserverOptions {
@@ -370,6 +380,20 @@ function readAnimations(element: Element, options?: GetAnimationsOptions): reado
   return typeof element.getAnimations === "function" ? element.getAnimations(options) : [];
 }
 
-function isAnyRunning(animations: readonly Animation[]): boolean {
-  return animations.some((animation) => animation.playState === "running");
+/**
+ * Whether any of these animations is running AND could move the caller's subject.
+ *
+ * The one filter both readings run, rather than a play-state check on one path and a
+ * discriminated one on the other: the two answers are the same question asked of a
+ * different animation set, and the moment they are written twice one of them keeps
+ * arming a frame loop over a loading skeleton.
+ */
+function isAnyMoving(
+  animations: readonly Animation[],
+  carriesSubject: (target: Element) => boolean,
+): boolean {
+  return animations.some(
+    (animation) =>
+      animation.playState === "running" && couldAnimationMove(animation, carriesSubject),
+  );
 }
