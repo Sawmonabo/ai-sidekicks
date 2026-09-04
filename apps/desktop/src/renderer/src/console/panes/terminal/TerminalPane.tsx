@@ -56,6 +56,7 @@ import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import {
   useCallerMembershipRole,
   useSessionStore,
+  type CallerParticipantReader,
   type SessionStore,
   type SessionStoreState,
 } from "../../store/index.js";
@@ -125,7 +126,7 @@ function BoundTerminalPane(props: {
   // because `store/` sits below `bridge/` on the console's DAG and may not reach a
   // port; the served arm hands over the participant id and the refusing arm travels
   // as the `ConsoleRefusal` it already is.
-  const readCallerParticipant = useCallback(async () => {
+  const readCallerParticipant: CallerParticipantReader = useCallback(async () => {
     const outcome = await bridge.growth.callerParticipantRead({
       sessionId: sessionStore.sessionId,
     });
