@@ -249,10 +249,13 @@ export const PARTITION_FOLD_THRESHOLD = 10;
 //     the event log's content ceiling, so it is that constant rather than a copy of
 //     its digits — which is what makes "a snapshot result seals into the content
 //     column without truncation" a fact rather than a hope.
-//   • **Nothing is scaled.** The surface puts every figure through `formatCount`,
-//     the console's one quantity formatter, and carries its unit as a word. Scaling
-//     a byte ceiling to a binary unit would be the second byte formatter
-//     `apps/desktop/AGENTS.md` names a chokepoint breach.
+//   • **Every figure goes through a chokepoint, and WHICH one is declared here.** A
+//     counted ceiling renders through `formatCount` with its unit as a word; a
+//     byte-valued one renders through `formatByteQuantity`, the console's single
+//     byte-scaling site, in binary units. The unit set below says which of the two a
+//     bound is, so the surface dispatches on a declaration rather than deciding for
+//     itself — and a `bytes` ceiling printed as a raw decimal figure disagrees with
+//     every other byte quantity the console shows.
 
 /**
  * Every bound, by the constant name 12.10 gives it. Closed, and the tuple is the
@@ -285,11 +288,59 @@ export const BROWSER_BOUND_NAMES = [
 export type BrowserBoundName = (typeof BROWSER_BOUND_NAMES)[number];
 
 /**
+ * Every unit a scalar bound is measured in. Closed, and the tuple is the declaration:
+ * the qualifier map below is total over it, so a unit added here does not compile
+ * until it has said whether it counts things or measures bytes.
+ */
+export const BROWSER_SCALAR_UNITS = [
+  "pages",
+  "views",
+  "partitions",
+  "elements",
+  "entries",
+  "bytes",
+  "bytes per entry",
+  "ms",
+  "MB per view",
+] as const;
+
+/** One unit a scalar bound carries. Derived from the tuple, never restated. */
+export type BrowserScalarUnit = (typeof BROWSER_SCALAR_UNITS)[number];
+
+/**
+ * Which chokepoint a unit's figure renders through, and what is left of the unit
+ * once it has.
+ *
+ * `undefined` means the figure is a COUNT: it goes through `formatCount` and the
+ * unit rides beside it as a word. A string means the figure is a BYTE quantity: it
+ * goes through `formatByteQuantity`, which supplies its own binary unit label, and
+ * this is whatever the unit still says after `bytes` has been replaced by `KiB` —
+ * empty for a bare byte ceiling, `per entry` for a per-entry one.
+ *
+ * A map rather than a predicate over a substring, because "bytes" appearing inside a
+ * unit word is a guess and this is a declaration; total over the unit set rather
+ * than partial, so the answer cannot be missing for a unit somebody adds.
+ */
+export const BROWSER_SCALAR_UNIT_BYTE_QUALIFIER: Readonly<
+  Record<BrowserScalarUnit, string | undefined>
+> = {
+  pages: undefined,
+  views: undefined,
+  partitions: undefined,
+  elements: undefined,
+  entries: undefined,
+  ms: undefined,
+  "MB per view": undefined,
+  bytes: "",
+  "bytes per entry": "per entry",
+};
+
+/**
  * How a bound is measured. Three kinds, because three genuinely different things are
  * being said: one number, a pixel box, or "this ceiling belongs to somebody else".
  */
 export type BrowserBoundMeasure =
-  | { readonly kind: "scalar"; readonly value: number; readonly unit: string }
+  | { readonly kind: "scalar"; readonly value: number; readonly unit: BrowserScalarUnit }
   | { readonly kind: "extent"; readonly widthPx: number; readonly heightPx: number }
   | { readonly kind: "deferred"; readonly owner: string };
 
@@ -299,7 +350,7 @@ export interface BrowserBound {
   readonly derivation: string;
 }
 
-function scalarBound(value: number, unit: string, derivation: string): BrowserBound {
+function scalarBound(value: number, unit: BrowserScalarUnit, derivation: string): BrowserBound {
   return { measure: { kind: "scalar", value, unit }, derivation };
 }
 

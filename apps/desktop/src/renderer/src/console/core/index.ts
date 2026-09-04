@@ -13,6 +13,7 @@ export {
   APPLY_COALESCE_MS,
   BROWSER_BOUNDS,
   BROWSER_BOUND_NAMES,
+  BROWSER_SCALAR_UNIT_BYTE_QUALIFIER,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
   MAX_REPAIRABLE_SEQUENCE_GAP,
@@ -33,6 +34,7 @@ export {
   WHEN_CLAUSE_MAX_DEPTH,
   type BrowserBoundMeasure,
   type BrowserBoundName,
+  type BrowserScalarUnit,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so
