@@ -57,6 +57,7 @@ import {
   FrameWitness,
   type RendererFrameSource,
 } from "./frame-witness.js";
+import { composeLaunchArgs } from "./launch-args.js";
 import {
   CLEANUP_BUDGET_MS,
   LAUNCH_BUDGET_MS,
@@ -172,6 +173,22 @@ export interface LaunchConsoleOptions {
    * is playing the RIGHT one worth making.
    */
   readonly scenarioId?: string;
+  /**
+   * Extra command-line switches for the launched Electron.
+   *
+   * APPENDED to the two the harness owns — the private `--user-data-dir` and the
+   * built main entry — never merged with them and never able to replace them, so
+   * a tier can add a switch and cannot drop the profile isolation that keeps a
+   * launch off Electron's machine-wide `SingletonLock` (see `launch-args.ts`).
+   *
+   * For the switches that are a property of the RUNNER rather than of the
+   * console: forcing ANGLE onto SwiftShader on a headless GPU-less runner, for
+   * instance, so a tier can tell a real WebGL renderer tier from a silent canvas
+   * fallback. Chromium reads switches from the whole command line, so appending
+   * reaches the GPU process; they also land in the launched app's own
+   * `process.argv`, which this fixture parses not at all.
+   */
+  readonly launchArgs?: readonly string[];
 }
 
 /**
@@ -203,7 +220,7 @@ export async function launchConsole(
   let application: ElectronApplication;
   try {
     application = await electron.launch({
-      args: [`--user-data-dir=${userDataDirectory}`, MAIN_ENTRY_PATH],
+      args: composeLaunchArgs(userDataDirectory, MAIN_ENTRY_PATH, options.launchArgs),
       env: {
         ...process.env,
         ...options.env,
