@@ -171,8 +171,12 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleR
  * the arm that carries a vocabulary is the port's own value and only the two-member
  * served arm is restated — and a served arm that lost `value` would fail to assign at
  * every call site rather than drifting quietly.
+ *
+ * Exported because the ACT half holds one of these across a `try`: a call that
+ * REJECTS never produces an answer at all, and the module that turns the rejection
+ * into a refusal has to name the type of the value it would otherwise have had.
  */
-type GrowthAnswer<TValue> =
+export type GrowthAnswer<TValue> =
   | { readonly status: "served"; readonly value: TValue }
   | GrowthUnavailable;
 

@@ -45,10 +45,22 @@
 // the pending one MINE", because a reply for a request the register has moved past
 // describes bytes a later act has already superseded, and writing it would put the
 // older payload back on the reading.
+//
+// AND A CALL THAT REJECTS IS AN ANSWER, WHICH IS WHY NO ACT HERE AWAITS THE PORT
+// BARE. The live bridge crosses a process boundary, so an IPC disconnect makes the
+// call THROW rather than answer a refusal — and a thrown fetch never reached
+// `growthAnswerReading` at all: the `finally` gave the register back while the
+// reading stayed on `{ status: "fetching" }`, which is the arm the pane holds its
+// control by and the arm a scheduled list read deliberately carries forward. The
+// pane was then stuck until it was remounted. Every act goes through `#answer`
+// below, which reads a rejection as the refusal it is through the repos family's
+// one rejection normalizer, so a disconnect lands on the same refused arm a typed
+// wire refusal does and the control comes back.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { artifactManifestRowFromSummary } from "../../repos/artifact-model.js";
+import { refusalFromRejection } from "../../repos/repo-reads.js";
 import {
   growthAnswerReading,
   payloadFetchInFlightRefusal,
@@ -59,6 +71,8 @@ import {
   type ArtifactDeleteOutcome,
   type ArtifactPaneReading,
   type ArtifactRowActOutcome,
+  type GrowthAnswer,
+  type GrowthAnswerReading,
 } from "./artifact-pane-reading.js";
 import { artifactPayloadReadingFrom, type ArtifactPayloadOutcome } from "./artifact-payload.js";
 
@@ -145,9 +159,8 @@ export class ArtifactPaneActions {
    */
   public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
     const generation = this.#host.scheduledReadGeneration();
-    const answer = growthAnswerReading(
-      "The manifest re-read",
-      await this.#bridge.growth.artifactRead({ artifactId }),
+    const answer = await this.#answer("The manifest re-read", () =>
+      this.#bridge.growth.artifactRead({ artifactId }),
     );
     if (generation !== this.#host.scheduledReadGeneration()) {
       return { status: "superseded" };
@@ -253,9 +266,8 @@ export class ArtifactPaneActions {
    */
   public async deleteArtifact(artifactId: string): Promise<ArtifactDeleteOutcome> {
     const generation = this.#host.scheduledReadGeneration();
-    const answer = growthAnswerReading(
-      "The delete",
-      await this.#bridge.growth.artifactDelete({ artifactId }),
+    const answer = await this.#answer("The delete", () =>
+      this.#bridge.growth.artifactDelete({ artifactId }),
     );
     if (answer.status === "refused") {
       // A refusal records an act that did NOT happen, so a stamp that moved under it
@@ -299,9 +311,8 @@ export class ArtifactPaneActions {
   /** The call, and what its answer writes if this request still holds the register. */
   async #awaitPayload(request: InFlightPayloadFetch): Promise<ArtifactPayloadOutcome> {
     const { artifactId } = request;
-    const answer = growthAnswerReading(
-      "The payload fetch",
-      await this.#bridge.growth.artifactRead({ artifactId, includePayload: true }),
+    const answer = await this.#answer("The payload fetch", () =>
+      this.#bridge.growth.artifactRead({ artifactId, includePayload: true }),
     );
     if (!this.#stillStandingFor(request)) {
       return { status: "superseded" };
@@ -328,6 +339,42 @@ export class ArtifactPaneActions {
       refusalByArtifactId: withoutRowRefusal(reading.refusalByArtifactId, artifactId),
     });
     return { status: "settled", payload };
+  }
+
+  /**
+   * Put one call to the port and read what came back — including a rejection.
+   *
+   * THE ONE DOOR ALL THREE ACTS GO THROUGH, because all three ask the same live
+   * bridge and a live bridge can fail in a way the port's own union cannot express.
+   * `growthAnswerReading` is total over what a call ANSWERS; it is never reached by a
+   * call that threw. On the fetch that was the whole defect: the thrown rejection
+   * propagated out of the `await`, `finally` released the register, and the reading
+   * kept the `fetching` arm forever — control held, refresh reads carrying it
+   * forward, nothing left to settle it. So the rejection is read here instead, and
+   * every act ends on one of the two arms a caller already handles.
+   *
+   * THROUGH THE REPOS FAMILY'S NORMALIZER RATHER THAN A SECOND ONE. `repo-reads.ts`
+   * already owns turning a rejection into this console's one refusal shape, and its
+   * ordering is what matters: a value that already IS a `ConsoleRefusal` — which the
+   * fixture bridge throws — passes through with the origin it named, a typed wire
+   * envelope keeps the daemon's own code and message verbatim, and only the
+   * remainder becomes `call-rejected`. A pane-local rewrite of that would be the
+   * second implementation `apps/desktop/AGENTS.md` rejects, and would relabel codes
+   * the console is not allowed to paraphrase.
+   *
+   * The THUNK rather than a promise: a bridge whose namespace is gone can throw
+   * synchronously, and a promise parameter would have to be built outside the `try`
+   * to be passed in.
+   */
+  async #answer<TValue>(
+    operation: string,
+    call: () => Promise<GrowthAnswer<TValue>>,
+  ): Promise<GrowthAnswerReading<TValue>> {
+    try {
+      return growthAnswerReading(operation, await call());
+    } catch (rejection) {
+      return { status: "refused", refusal: refusalFromRejection(operation, rejection) };
+    }
   }
 
   /**
