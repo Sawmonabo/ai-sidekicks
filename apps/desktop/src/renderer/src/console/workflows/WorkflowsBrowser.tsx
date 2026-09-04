@@ -14,10 +14,16 @@
 // mounted inside a session does put the question and shows what came back.
 //
 // WHY THE MAPPING FROM READ STATE TO CHROME STATE LIVES HERE. The chrome is told
-// about rows, pending scopes, and which of the absence grammars to reach for; the
-// port answers with ONE outcome for the whole enumeration. Turning one answer into
-// what the surface shows is a decision, and it is made once here rather than inside
-// the chrome, which would then have two ways to be told the same thing.
+// about rows and which of the absence grammars to reach for; the port answers with ONE
+// outcome for the whole enumeration. Turning one answer into what the surface shows is
+// a decision, and it is made once here rather than inside the chrome, which would then
+// have two ways to be told the same thing.
+//
+// WHAT EACH SCOPE GROUP MAY CLAIM IS NOT DECIDED HERE. It is projected by
+// `definition-directory.ts` from the continuation that read already carries, and
+// threaded through untouched. Deriving it here as well — a pending tuple from the
+// directory's status and an exhaustion answer from the control's presence — is how the
+// groups came to assert `No shared definitions` over an enumeration with pages left.
 //
 // A REFUSED ENUMERATION IS ONE REFUSAL AND NOT THREE EMPTY GROUPS. A wait does belong
 // to all three scopes — one read serves them all, so all three are pending together
@@ -39,15 +45,9 @@
 // console can raise is a seam that reads as coverage and has no producer, so the
 // browser passes none and the surface below declares none.
 
-import { useMemo } from "react";
-
 import type { GrowthPort } from "../bridge/index.js";
 import type { ConsoleRefusal } from "../core/index.js";
-import {
-  WORKFLOW_DEFINITION_SCOPES,
-  type WorkflowDefinitionRow,
-  type WorkflowDefinitionScope,
-} from "./DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { useReadSettlementAnnouncement } from "./read-announcement.js";
 import { refusedWorkflowChrome, type WorkflowChromeState } from "./chrome-state.js";
@@ -138,13 +138,6 @@ function directorySentence(directory: WorkflowDefinitionDirectoryState): string 
     : `Definitions visible from this session: ${String(directory.definitions.length)}.`;
 }
 
-/** The scopes whose page is still in flight, given one read state. */
-function pendingScopesFor(
-  directory: WorkflowDefinitionDirectoryState,
-): readonly WorkflowDefinitionScope[] | undefined {
-  return directory.status === "reading" ? WORKFLOW_DEFINITION_SCOPES : undefined;
-}
-
 export interface WorkflowsBrowserProps {
   readonly growth: GrowthPort;
   /** The session the enumeration is scoped to, or nothing where none is in scope. */
@@ -164,11 +157,10 @@ export interface WorkflowsBrowserProps {
 
 /** The definitions browser, reading the definitions it shows. */
 export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Element {
-  const { state, continueReading } = useWorkflowDefinitionDirectory(props.growth, props.sessionId);
-  // Memoized on the read state alone: the derivation is a pure function of it, and
-  // rebuilding the scope tuple every render would hand the browser a fresh object
-  // identity each time and defeat the row memoization underneath it.
-  const pendingScopes = useMemo(() => pendingScopesFor(state), [state]);
+  const { state, scopeResolution, continueReading } = useWorkflowDefinitionDirectory(
+    props.growth,
+    props.sessionId,
+  );
   useReadSettlementAnnouncement(state, directorySentence(state));
   return (
     <WorkflowsSurface
@@ -179,7 +171,8 @@ export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Elemen
       // nothing would leave the body with no subject on the very arm that has one.
       sessionId={props.sessionId}
       definitions={state.status === "served" ? state.definitions : undefined}
-      pendingScopes={pendingScopes}
+      pendingScopes={scopeResolution.pendingScopes}
+      hasUnreadPages={scopeResolution.hasUnreadPages}
       onContinueReading={continuationActionFor(state, continueReading)}
       isContinuing={state.status === "served" && state.continuation.status === "reading"}
       continuationRefusal={continuationRefusalFor(state)}
