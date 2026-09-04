@@ -70,3 +70,15 @@ export {
   useSessionInitialised,
   useSessionPartition,
 } from "./hooks.js";
+
+// The wall-clock wake-up. In this family rather than in `primitives/` because it is
+// a scheduling decision — the console's other one, `scheduling.ts`, is its neighbour
+// — and because what it publishes is state a surface renders against rather than
+// anything it draws. It arms the only timer in the console outside those two
+// schedulers and the live announcer's hold.
+export {
+  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
+  earliestFutureDeadline,
+  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
+  useDeadlineWake,
+} from "./deadline-wake.js";
