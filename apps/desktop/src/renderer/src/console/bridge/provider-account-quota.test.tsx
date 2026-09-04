@@ -1,9 +1,14 @@
 // The account-plane quota reading, asserted where it decides something.
 //
-// FOUR CLAIMS, and each one is a place the console could start showing a figure the
+// FIVE CLAIMS, and each one is a place the console could start showing a figure the
 // registry never sent: the READ is what seeds the chips, the TAIL is what moves one
-// of them, a reading behind its own account's generation is marked stale, and a frame
-// the registered union does not admit moves nothing at all.
+// of them, a reading behind its own account's generation is marked stale, a frame
+// the registered union does not admit moves nothing at all, and a same-window reading
+// that moved BACKWARD is held here as it is in the fold.
+//
+// The supersession rules themselves are asserted in `provider-quota-fold.test.ts`,
+// where the disposition is readable directly. What is claimed here is the WIRING —
+// that a reading arriving off the tail actually reaches that rule.
 //
 // The fourth is the defect this module replaced, stated as its own case. The chips
 // used to be folded out of `usage.rate_limit_update` rows in a session's timeline —
@@ -20,7 +25,8 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { useProviderQuotas, type ProviderQuotaReading } from "./provider-account-quota.js";
+import { useProviderQuotas } from "./provider-account-quota.js";
+import type { ProviderQuotaReading } from "./provider-quota-fold.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
 const ACCOUNT_ID = "acct-team";
@@ -303,6 +309,59 @@ describe("useProviderQuotas — the tail moves one reading", () => {
     });
 
     expect(readingAt(mounted.readingsNow(), "weekly-all").usedPercent).toBe(62);
+  });
+
+  it("holds the high-water figure when the tail sends a lower one for the same window", async () => {
+    // Consumption does not fall inside one window, so a 90%-consumed account must not
+    // regress to 20% on a newer timestamp and hide imminent exhaustion until the
+    // window actually resets.
+    const plane = new AccountPlaneBridge(
+      listReply(
+        [account()],
+        [usageWindow({ usedPercent: 90, resetsAt: "2026-01-08T00:00:00.000Z" })],
+      ),
+    );
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      plane.deliver({
+        kind: "usage_window_updated",
+        accountId: ACCOUNT_ID,
+        window: usageWindow({
+          usedPercent: 20,
+          resetsAt: "2026-01-08T00:00:00.000Z",
+          observedAt: "2026-01-01T13:00:00.000Z",
+        }),
+      });
+    });
+
+    expect(readingAt(mounted.readingsNow(), "weekly-all").usedPercent).toBe(90);
+  });
+
+  it("takes the lower figure once the window's own reset horizon has moved", async () => {
+    // Negative control on the guard above: a reset horizon that moved IS a new window,
+    // so the same lower reading is the ordinary case and must be seated.
+    const plane = new AccountPlaneBridge(
+      listReply(
+        [account()],
+        [usageWindow({ usedPercent: 90, resetsAt: "2026-01-08T00:00:00.000Z" })],
+      ),
+    );
+    const mounted = await mountQuotas(plane.bridge);
+
+    await act(async () => {
+      plane.deliver({
+        kind: "usage_window_updated",
+        accountId: ACCOUNT_ID,
+        window: usageWindow({
+          usedPercent: 20,
+          resetsAt: "2026-01-15T00:00:00.000Z",
+          observedAt: "2026-01-01T13:00:00.000Z",
+        }),
+      });
+    });
+
+    expect(readingAt(mounted.readingsNow(), "weekly-all").usedPercent).toBe(20);
   });
 
   it("negative control: the same reading DOES move on the registered notification", async () => {

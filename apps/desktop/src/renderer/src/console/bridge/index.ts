@@ -86,13 +86,16 @@ export type { QueueFeed, QueueReadPhase } from "./queue-reading.js";
 // so no session store ever held one and the composer's timeline fold could only ever
 // have rendered a fixture. A settings surface listing accounts asks the same
 // question of the same registry, so the read lives at the bridge where both reach it.
-export { remainingPercentOf, useProviderQuotas } from "./provider-account-quota.js";
-export type {
-  ProviderQuotaReadPhase,
-  ProviderQuotaReadout,
-  ProviderQuotaReading,
-} from "./provider-account-quota.js";
+//
+// The reading and the fold are two modules and the door re-exports each symbol from
+// the one that DECLARES it: `provider-quota-fold.ts` owns which reading is current
+// and what a surface renders for it, `provider-account-quota.ts` owns the wire that
+// feeds it.
+export { useProviderQuotas } from "./provider-account-quota.js";
+export type { ProviderQuotaReadPhase, ProviderQuotaReadout } from "./provider-account-quota.js";
 export { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-account-quota.js";
+export { remainingPercentOf } from "./provider-quota-fold.js";
+export type { ProviderQuotaReading } from "./provider-quota-fold.js";
 
 export {
   SidekicksBridgeProvider,

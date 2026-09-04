@@ -22,26 +22,28 @@
 // — the stream closes with the last watcher, and a surface that mounts later reads
 // afresh rather than being handed a list that stopped being updated.
 //
-// THE FOLD IS THE ONE THE TIMELINE VERSION HAD, MOVED RATHER THAN REWRITTEN: newest
-// `observedAt` per `(accountId, limitId)`, with arrival order breaking an exact tie.
-// The key is the pair and not the window's duration, because a pinned provider
-// surface publishes three distinct windows of the same length and a duration key
-// silently collapses them into whichever arrived last.
+// THE FOLD ITSELF LIVES BESIDE THIS FILE. `provider-quota-fold.ts` owns which reading
+// is current for each `(accountId, limitId)` and what a surface renders for it; this
+// module owns the wire that feeds it and what the console says when the wire could not
+// be read. The split is what lets the supersession rules be driven from a test with no
+// bridge and no React.
 //
-// AND SUPERSESSION IS NOW A COMPARISON THE WIRE ACTUALLY SUPPORTS. The timeline fold
-// could only call a reading stale relative to other readings the same session had
-// seen. Every quota row carries the `credentialGeneration` it was observed under and
-// every account carries the generation it is on now, so a reading behind its own
-// account's current generation is stale as a fact rather than as an inference — which
-// is what the account plane's own contract asks a renderer to do, because a
-// credential-home rebuild does not clear stored readings.
+// A READING HELD BY THE MONOTONICITY GUARD IS RECORDED, NOT RENDERED. A same-window
+// reading below the high-water mark is a reading the account plane should not have
+// sent, so it earns a diagnostic line — but not a refusal on screen, because the
+// figure a person is looking at is CORRECT and is correct precisely because the guard
+// dropped the lower one. There is nothing for them to act on. It is not a tripwire
+// either: `TRIPWIRE_KINDS` names console-invariant breaches, none of which this is,
+// and a development registry throws on report — which would turn a daemon's
+// out-of-order tail into a crashed console. The line is emitted ONCE for the life of
+// the reading, on the same reasoning `TRIPWIRE_REPORT_CAP` records: a wire that keeps
+// sending regressive readings is one condition, not thousands.
 
 import { useCallback, useSyncExternalStore } from "react";
 import {
   ProviderAccountListResponseSchema,
   ProviderAccountNotificationSchema,
   ProviderAccountSubscribeRequestSchema,
-  type ProviderAccount,
   type ProviderAccountUsageWindow,
 } from "@ai-sidekicks/contracts";
 
@@ -53,6 +55,7 @@ import {
   callDaemon,
   subscribeNodeDaemon,
 } from "./daemon-calls.js";
+import { ProviderQuotaFold, type ProviderQuotaReading } from "./provider-quota-fold.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -60,38 +63,6 @@ export const PROVIDER_QUOTA_REFUSAL_ORIGIN = "provider-account-quota";
 
 /** How the registry read has gone. Three answers, and none of them is an empty list. */
 export type ProviderQuotaReadPhase = "reading" | "read" | "refused";
-
-/** One provider account's quota in one limit window, as a surface renders it. */
-export interface ProviderQuotaReading {
-  readonly accountId: string;
-  readonly limitId: string;
-  /** The account's operator-chosen label. A chip that named no account names nothing. */
-  readonly accountLabel: string;
-  /**
-   * The window's own label where the provider publishes one, and its `limitId`
-   * verbatim where it does not.
-   *
-   * The fallback is the wire's own identifier rather than composed prose: the id is
-   * what the provider calls this window, so it is the most specific true thing the
-   * console holds, and inventing a name would put a word on screen no provider used.
-   */
-  readonly limitLabel: string;
-  /** Utilization as sent. NOT clamped: a soft limit can genuinely be over-consumed. */
-  readonly usedPercent: number;
-  /** RFC 3339 where the provider supplied one. A countdown renders only if it did. */
-  readonly resetsAt: string | undefined;
-  /** RFC 3339 observation instant — the merge key. */
-  readonly observedAt: string;
-  /**
-   * True when this reading was observed under an older credential generation than
-   * its own account is on now.
-   *
-   * A credential-home rebuild does not clear stored readings — the provider-side
-   * allowance keeps running while the home is empty — so the reading stays the best
-   * figure available and is presented as one taken before the current credential.
-   */
-  readonly isStale: boolean;
-}
 
 /** What the account plane answered, and why it did not where it did not. */
 export interface ProviderQuotaReadout {
@@ -108,22 +79,6 @@ export interface ProviderQuotaReadout {
   readonly readRefusal: ConsoleRefusal | undefined;
 }
 
-/** Remaining quota, from the consumed figure the wire supplies. Never sent as such. */
-export function remainingPercentOf(reading: ProviderQuotaReading): number {
-  // Floored at zero for the same reason the used figure is NOT clamped: the wire may
-  // report over-consumption against a soft limit, which is a true reading to show,
-  // while a negative remainder is an arithmetic artefact rather than a quota.
-  return Math.max(0, 100 - reading.usedPercent);
-}
-
-const NO_READINGS: readonly ProviderQuotaReading[] = Object.freeze([]);
-
-/** One quota row with the arrival ordinal that breaks an exact `observedAt` tie. */
-interface HeldQuotaWindow {
-  readonly usageWindow: ProviderAccountUsageWindow;
-  readonly arrivalOrdinal: number;
-}
-
 /**
  * One bridge's live account-plane reading, and everyone watching it.
  *
@@ -135,11 +90,10 @@ class NodeProviderQuotaReading {
   readonly #bridge: ConsoleBridge;
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
-  readonly #accountsById = new Map<string, ProviderAccount>();
-  readonly #windowsByKey = new Map<string, HeldQuotaWindow>();
+  readonly #fold = new ProviderQuotaFold();
   #closeStream: (() => void) | undefined = undefined;
   #isOpen = false;
-  #nextArrivalOrdinal = 0;
+  #hasReportedHighWaterDrop = false;
   #phase: ProviderQuotaReadPhase = "reading";
   #readRefusal: ConsoleRefusal | undefined = undefined;
   #readout: ProviderQuotaReadout;
@@ -220,7 +174,7 @@ class NodeProviderQuotaReading {
           return;
         }
         for (const account of parsed.data.accounts) {
-          this.#accountsById.set(account.accountId, account);
+          this.#fold.seatAccount(account);
         }
         for (const usageWindow of parsed.data.usageWindows) {
           this.#mergeWindow(usageWindow);
@@ -265,10 +219,10 @@ class NodeProviderQuotaReading {
     const notification = parsed.data;
     switch (notification.kind) {
       case "account_changed":
-        this.#accountsById.set(notification.account.accountId, notification.account);
+        this.#fold.seatAccount(notification.account);
         break;
       case "account_removed":
-        this.#forgetAccount(notification.accountId);
+        this.#fold.forgetAccount(notification.accountId);
         break;
       case "usage_window_updated":
         this.#mergeWindow(notification.window);
@@ -282,32 +236,16 @@ class NodeProviderQuotaReading {
     this.#publish();
   }
 
-  /**
-   * Drop an account and every reading filed under it.
-   *
-   * The readings go with the account rather than being left keyed to an id nothing
-   * can label: `accountId` is daemon-minted and immutable, so a re-registration
-   * mints a NEW one and these rows could never be claimed again — they would sit in
-   * the fold for the life of the window describing an account that has left.
-   */
-  #forgetAccount(accountId: string): void {
-    this.#accountsById.delete(accountId);
-    for (const [key, held] of this.#windowsByKey) {
-      if (held.usageWindow.accountId === accountId) {
-        this.#windowsByKey.delete(key);
-      }
-    }
-  }
-
-  /** Newest `observedAt` per `(accountId, limitId)`, arrival order breaking a tie. */
+  /** Merge one reading, and say so once if the monotonicity guard had to hold it. */
   #mergeWindow(usageWindow: ProviderAccountUsageWindow): void {
-    const key = quotaKey(usageWindow.accountId, usageWindow.limitId);
-    const held = this.#windowsByKey.get(key);
-    const arrival = { usageWindow, arrivalOrdinal: this.#nextArrivalOrdinal };
-    this.#nextArrivalOrdinal += 1;
-    if (held === undefined || supersedes(arrival, held)) {
-      this.#windowsByKey.set(key, arrival);
+    const disposition = this.#fold.mergeWindow(usageWindow);
+    if (disposition !== "dropped-below-high-water" || this.#hasReportedHighWaterDrop) {
+      return;
     }
+    this.#hasReportedHighWaterDrop = true;
+    console.warn(
+      `${PROVIDER_QUOTA_REFUSAL_ORIGIN}: dropped-below-high-water: account ${usageWindow.accountId} limit "${usageWindow.limitId}" reported ${String(usageWindow.usedPercent)}% used inside a window already observed higher; consumption does not fall inside one window, so the higher reading stands. Further such readings are dropped without another line.`,
+    );
   }
 
   #settleRefused(readRefusal: ConsoleRefusal): void {
@@ -317,19 +255,8 @@ class NodeProviderQuotaReading {
   }
 
   #composeReadout(): ProviderQuotaReadout {
-    const readings: ProviderQuotaReading[] = [];
-    for (const held of this.#windowsByKey.values()) {
-      const account = this.#accountsById.get(held.usageWindow.accountId);
-      if (account === undefined) {
-        // A reading whose account the registry does not carry is dropped rather than
-        // rendered under its opaque id: the chip's first word is whose quota this is,
-        // and an id nobody chose answers that question with a value nobody recognises.
-        continue;
-      }
-      readings.push(readingFor(held.usageWindow, account));
-    }
     return {
-      readings: readings.length === 0 ? NO_READINGS : readings.sort(compareByLabels),
+      readings: this.#fold.readings(),
       phase: this.#phase,
       readRefusal: this.#readRefusal,
     };
@@ -341,46 +268,6 @@ class NodeProviderQuotaReading {
       listener();
     }
   }
-}
-
-/** One window and its account, as a surface renders the pair. */
-function readingFor(
-  usageWindow: ProviderAccountUsageWindow,
-  account: ProviderAccount,
-): ProviderQuotaReading {
-  return {
-    accountId: usageWindow.accountId,
-    limitId: usageWindow.limitId,
-    accountLabel: account.displayLabel,
-    limitLabel: usageWindow.label ?? usageWindow.limitId,
-    usedPercent: usageWindow.usedPercent,
-    resetsAt: usageWindow.resetsAt,
-    observedAt: usageWindow.observedAt,
-    isStale: usageWindow.observedCredentialGeneration < account.credentialGeneration,
-  };
-}
-
-/** The `(accountId, limitId)` pair, spelled once. */
-function quotaKey(accountId: string, limitId: string): string {
-  return `${accountId} ${limitId}`;
-}
-
-function supersedes(candidate: HeldQuotaWindow, held: HeldQuotaWindow): boolean {
-  if (candidate.usageWindow.observedAt === held.usageWindow.observedAt) {
-    return candidate.arrivalOrdinal > held.arrivalOrdinal;
-  }
-  return candidate.usageWindow.observedAt > held.usageWindow.observedAt;
-}
-
-/**
- * Ordered by label so two renders of one reading place a chip in the same position.
- *
- * Deliberately NOT by urgency: a chip that moves when its own number moves is a chip
- * a person has to re-find at the moment they most need to read it.
- */
-function compareByLabels(left: ProviderQuotaReading, right: ProviderQuotaReading): number {
-  const byAccount = left.accountLabel.localeCompare(right.accountLabel);
-  return byAccount === 0 ? left.limitLabel.localeCompare(right.limitLabel) : byAccount;
 }
 
 /**
