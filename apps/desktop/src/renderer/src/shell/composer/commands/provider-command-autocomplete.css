@@ -86,3 +86,12 @@
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
+
+/* The provider cut its own enumeration at the registered cap. Said in the muted
+   secondary voice the lede uses: it qualifies what is on screen rather than
+   reporting a failure of the read, which succeeded. */
+.meridian-command-discovery__truncated {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
