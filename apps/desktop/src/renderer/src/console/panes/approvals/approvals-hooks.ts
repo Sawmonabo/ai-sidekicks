@@ -33,7 +33,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { consoleClockFor, useSessionScopedState, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  SessionRepairWatcher,
+  consoleClockFor,
+  useSessionScopedState,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
 import {
   useSessionDegradedCause,
   useSessionStore,
@@ -98,31 +103,6 @@ class ApprovalSignalCursor {
     }
     this.#requestedThroughSequence = this.#latestSignalSequence;
     return true;
-  }
-}
-
-/**
- * Whether the session store just came back from a degraded stream.
- *
- * A class with a private field rather than a bare ref because the reading is a
- * TRANSITION and not a value: only the move from a standing cause to none is a
- * reconnect, and a component holding the current cause alone would either re-read on
- * every render while degraded or never read at all.
- *
- * Presence is the whole reading. The cause vocabulary is the store's, and nothing
- * here branches on a member of it — a stream that diverged and a subscription that
- * closed are repaired by the same completed re-pull, and this surface's answer to
- * both is the same read.
- */
-class SessionRepairWatcher {
-  #wasDegraded = false;
-
-  /** True exactly on the pass where a standing cause became none. */
-  public observe(degradedCause: string | undefined): boolean {
-    const isDegraded = degradedCause !== undefined;
-    const isRepaired = this.#wasDegraded && !isDegraded;
-    this.#wasDegraded = isDegraded;
-    return isRepaired;
   }
 }
 

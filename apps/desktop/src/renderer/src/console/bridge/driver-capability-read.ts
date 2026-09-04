@@ -36,14 +36,44 @@
 // A reply naming NO driver is deliberately not a refusal. It is an answered read
 // whose answer is that this node has no driver to declare anything, which is a fact
 // and not a failure.
+//
+// AND NO SETTLEMENT IS TERMINAL FOR A BRIDGE. The read used to be latched: one call
+// was placed per bridge and the answer, whatever it was, stood for the life of the
+// window. A single transient refusal therefore hid Steer, Rewind, and the compaction
+// control until the window was closed and reopened, and a report that was true when
+// it landed went on gating controls after a driver was installed, upgraded, or
+// removed. So the entry is retained per bridge — one read still serves every family
+// — and refresh goes through `store/scheduling.ts`'s `RefreshScheduler`, on exactly
+// the reasons `Spec-023 §Rules every console surface obeys` names: subscribe, window
+// focus, and reconnect. There is no interval and no retry loop; a refusal is simply
+// re-asked at the next reason, like every other read in this console.
+//
+// WHAT THE REFRESH DOES NOT DO IS RE-ENTER AN ABSENCE. A settled readout stays on
+// screen while the next read is in flight, because rule 8's `not-loaded` is entered
+// once and never re-entered on a refresh — a control that vanished and came back on
+// every window focus would be a worse reading than a slightly stale one.
+//
+// THE RECONNECT REASON IS A SESSION'S, AND THIS READ IS A NODE'S. Nothing on this
+// bridge carries a connection state to watch, so `useDriverCapabilityRepairRead`
+// below is a second, deliberately separate entry point for a caller that HOLDS a
+// session: the session store's degraded flag clearing is the console's one honest
+// reading of "the daemon went away and came back", and that is exactly the transient
+// that leaves a stale or refused capability set standing.
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 import { ListCapabilitiesResultSchema, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection } from "../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
+import {
+  RefreshScheduler,
+  useSessionDegradedCause,
+  type RefreshReason,
+  type SessionStore,
+} from "../store/index.js";
 import { DRIVER_LIST_CAPABILITIES_METHOD, callDaemon } from "./daemon-calls.js";
-import type { ConsoleBridge } from "./console-bridge.js";
+import { SessionRepairWatcher } from "./session-repair-watcher.js";
+import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 
 /** The subsystem name every refusal this module raises carries. */
 const DRIVER_CAPABILITY_REFUSAL_ORIGIN = "driver-capabilities";
@@ -89,122 +119,136 @@ const NO_DECLARATIONS: ReadonlyMap<string, DeclaredDriverFlags> = new Map<
   DeclaredDriverFlags
 >();
 
-/** One bridge's reading, and everyone waiting on it. */
-interface CapabilityReadEntry {
-  /** The settled readout, or `undefined` while the read is outstanding or failed. */
-  readout: DriverCapabilityReadout | undefined;
-  /** Whether the one call has been placed. Set before the await, never cleared. */
-  hasAsked: boolean;
-  readonly listeners: Set<() => void>;
+/**
+ * One bridge's reading, everyone waiting on it, and the scheduler that refreshes it.
+ *
+ * A class with private fields rather than a mutable record, because the three are
+ * one invariant: the readout is what the scheduler's last completed read settled,
+ * the listeners are told exactly when that happens, and the scheduler is the only
+ * thing that may put a call on the wire. A caller that could move one without the
+ * others is how a latch gets reintroduced.
+ */
+class BridgeCapabilityRead {
+  readonly #bridge: ConsoleBridge;
+  readonly #scheduler: RefreshScheduler;
+  readonly #listeners = new Set<() => void>();
+  #readout: DriverCapabilityReadout | undefined;
+
+  public constructor(bridge: ConsoleBridge) {
+    this.#bridge = bridge;
+    this.#scheduler = new RefreshScheduler({
+      // The fixture's frozen clock wherever a scenario is playing and the real one
+      // otherwise, resolved once per bridge — §The fixture bridge makes the frozen
+      // clock the only clock the renderer reads in fixture mode.
+      clock: consoleClockFor(bridge),
+      perform: async () => {
+        await this.#read();
+      },
+      // A read that fails is already recorded as the readout's own refusal, so
+      // re-throwing here would surface the same fact a second time as an unhandled
+      // rejection.
+      onError: () => undefined,
+    });
+  }
+
+  /** The settled readout, or `undefined` until the first read answers. */
+  public get readout(): DriverCapabilityReadout | undefined {
+    return this.#readout;
+  }
+
+  /**
+   * Ask for a read.
+   *
+   * Coalesced by the scheduler, so the four surfaces that mount together on one
+   * session still cost one call — which is the property the old latch was reaching
+   * for, obtained without making the answer permanent.
+   */
+  public requestRead(reason: RefreshReason): void {
+    this.#scheduler.request(reason);
+  }
+
+  /** Watch this bridge's reading. Returns an idempotent unwatch. */
+  public watch(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => {
+      this.#listeners.delete(listener);
+    };
+  }
+
+  async #read(): Promise<void> {
+    try {
+      const parsed = ListCapabilitiesResultSchema.safeParse(
+        await callDaemon(this.#bridge, DRIVER_LIST_CAPABILITIES_METHOD, {}),
+      );
+      if (!parsed.success) {
+        // A reply the registered schema will not accept resolves no binding. The
+        // flags stay absent — the fail-closed direction — and the reading says why.
+        this.#settle(
+          refusedReadout(
+            refuse(
+              DRIVER_CAPABILITY_REFUSAL_ORIGIN,
+              "reply-unreadable",
+              "The capability reply did not match the registered shape, so the console read no declarations out of it.",
+            ),
+          ),
+        );
+        return;
+      }
+      const flagsByDriverName = new Map<string, DeclaredDriverFlags>();
+      for (const report of parsed.data.drivers) {
+        flagsByDriverName.set(report.driverName, report.capabilities.flags);
+      }
+      // A reply naming no driver settles with no entries and no refusal: nothing
+      // failed, and this node declares nothing.
+      this.#settle({
+        flagsByDriverName,
+        driverNameByRunId: NO_RUN_BINDINGS,
+        readRefusal: undefined,
+      });
+    } catch (rejection: unknown) {
+      const wireError = normalizeWireRejection(rejection, { total: true });
+      this.#settle(
+        refusedReadout(refuse(DRIVER_CAPABILITY_REFUSAL_ORIGIN, wireError.name, wireError.message)),
+      );
+    }
+  }
+
+  #settle(readout: DriverCapabilityReadout): void {
+    this.#readout = readout;
+    for (const listener of this.#listeners) {
+      listener();
+    }
+  }
+}
+
+/** A reading that declares nothing, carrying the reason it declares nothing. */
+function refusedReadout(readRefusal: ConsoleRefusal): DriverCapabilityReadout {
+  return {
+    flagsByDriverName: NO_DECLARATIONS,
+    driverNameByRunId: NO_RUN_BINDINGS,
+    readRefusal,
+  };
 }
 
 /**
- * The one read per bridge, and everything that shares it.
+ * The one reading per bridge, and everything that shares it.
  *
- * A class with private fields rather than module-level maps, per this package's
+ * A class with a private field rather than a module-level map, per this package's
  * structure rules — and a `WeakMap` rather than a `Map` because the key is a live
  * object: an entry outlives nothing, a closed window's bridge is collectable, and a
  * test's fixture bridge cannot serve a later test its reply.
  */
 class DriverCapabilityReadCache {
-  readonly #entriesByBridge = new WeakMap<ConsoleBridge, CapabilityReadEntry>();
+  readonly #readingByBridge = new WeakMap<ConsoleBridge, BridgeCapabilityRead>();
 
-  /** The settled readout for one bridge, or `undefined`. Stable between changes. */
-  public snapshot(bridge: ConsoleBridge): DriverCapabilityReadout | undefined {
-    return this.#entriesByBridge.get(bridge)?.readout;
-  }
-
-  /** Watch one bridge's reading. */
-  public subscribe(bridge: ConsoleBridge, listener: () => void): () => void {
-    const entry = this.#entryFor(bridge);
-    entry.listeners.add(listener);
-    return () => {
-      entry.listeners.delete(listener);
-    };
-  }
-
-  /**
-   * Place the read if nobody has.
-   *
-   * Idempotent on `hasAsked` rather than on the readout, so a read that failed or
-   * answered with no driver is still one read: retrying on every mount would put a
-   * call on the wire for each surface, which is the state this cache exists to end.
-   */
-  public ask(bridge: ConsoleBridge): void {
-    const entry = this.#entryFor(bridge);
-    if (entry.hasAsked) {
-      return;
+  public reading(bridge: ConsoleBridge): BridgeCapabilityRead {
+    const held = this.#readingByBridge.get(bridge);
+    if (held !== undefined) {
+      return held;
     }
-    entry.hasAsked = true;
-    void callDaemon(bridge, DRIVER_LIST_CAPABILITIES_METHOD, {})
-      .then((reply) => {
-        const parsed = ListCapabilitiesResultSchema.safeParse(reply);
-        if (!parsed.success) {
-          // A reply the registered schema will not accept resolves no binding. The
-          // flags stay absent — the fail-closed direction — and the reading says why.
-          this.#settle(
-            entry,
-            this.#refused(
-              refuse(
-                DRIVER_CAPABILITY_REFUSAL_ORIGIN,
-                "reply-unreadable",
-                "The capability reply did not match the registered shape, so the console read no declarations out of it.",
-              ),
-            ),
-          );
-          return;
-        }
-        const flagsByDriverName = new Map<string, DeclaredDriverFlags>();
-        for (const report of parsed.data.drivers) {
-          flagsByDriverName.set(report.driverName, report.capabilities.flags);
-        }
-        // A reply naming no driver settles with no entries and no refusal: nothing
-        // failed, and this node declares nothing.
-        this.#settle(entry, {
-          flagsByDriverName,
-          driverNameByRunId: NO_RUN_BINDINGS,
-          readRefusal: undefined,
-        });
-      })
-      .catch((rejection: unknown) => {
-        const wireError = normalizeWireRejection(rejection, { total: true });
-        this.#settle(
-          entry,
-          this.#refused(
-            refuse(DRIVER_CAPABILITY_REFUSAL_ORIGIN, wireError.name, wireError.message),
-          ),
-        );
-      });
-  }
-
-  #entryFor(bridge: ConsoleBridge): CapabilityReadEntry {
-    const existing = this.#entriesByBridge.get(bridge);
-    if (existing !== undefined) {
-      return existing;
-    }
-    const created: CapabilityReadEntry = {
-      readout: undefined,
-      hasAsked: false,
-      listeners: new Set(),
-    };
-    this.#entriesByBridge.set(bridge, created);
+    const created = new BridgeCapabilityRead(bridge);
+    this.#readingByBridge.set(bridge, created);
     return created;
-  }
-
-  /** A reading that declares nothing, carrying the reason it declares nothing. */
-  #refused(readRefusal: ConsoleRefusal): DriverCapabilityReadout {
-    return {
-      flagsByDriverName: NO_DECLARATIONS,
-      driverNameByRunId: NO_RUN_BINDINGS,
-      readRefusal,
-    };
-  }
-
-  #settle(entry: CapabilityReadEntry, readout: DriverCapabilityReadout): void {
-    entry.readout = readout;
-    for (const listener of entry.listeners) {
-      listener();
-    }
   }
 }
 
@@ -214,22 +258,75 @@ const driverCapabilityReads = new DriverCapabilityReadCache();
 /**
  * Read the bound drivers' declared capability flags.
  *
- * Every consumer on one bridge is served by one call. The snapshot is the stored
+ * Every consumer on one bridge is served by one reading. The snapshot is the stored
  * readout object, so `useSyncExternalStore` compares a pointer and a surface that
  * asked second re-renders once, when the answer lands, and never on a poll.
+ *
+ * Two of the three refresh reasons are wired here, because both are properties of
+ * this window rather than of a session: a surface mounting is `subscribe`, and the
+ * window regaining focus is `window-focus`. The third is
+ * `useDriverCapabilityRepairRead` below.
  */
 export function useDriverCapabilities(bridge: ConsoleBridge): DriverCapabilityReadout | undefined {
+  const reading = driverCapabilityReads.reading(bridge);
   const subscribe = useCallback(
-    (onReadoutChanged: () => void) => driverCapabilityReads.subscribe(bridge, onReadoutChanged),
-    [bridge],
+    (onReadoutChanged: () => void) => reading.watch(onReadoutChanged),
+    [reading],
   );
-  const readSnapshot = useCallback(() => driverCapabilityReads.snapshot(bridge), [bridge]);
+  const readSnapshot = useCallback(() => reading.readout, [reading]);
   useEffect(() => {
     // In an effect and not in the render body: a render React discards would
     // otherwise put a call on the wire for a surface nobody ever saw.
-    driverCapabilityReads.ask(bridge);
-  }, [bridge]);
+    reading.requestRead("subscribe");
+  }, [reading]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const onFocus = (): void => {
+      reading.requestRead("window-focus");
+    };
+    window.addEventListener("focus", onFocus);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+    };
+  }, [reading]);
+
   return useSyncExternalStore(subscribe, readSnapshot, readSnapshot);
+}
+
+/**
+ * Re-read this node's declarations when a session's stream is repaired.
+ *
+ * Separate from the hook above, and deliberately so: `driver.listCapabilities` is
+ * addressed at the NODE, and a node-scoped read has no connection state of its own
+ * to watch. What the console has is the session store's sticky degraded flag, whose
+ * CLEARING says a stream stopped and a completed re-pull has since re-established
+ * it — the nearest honest reading of a daemon that went away and came back, which is
+ * exactly the transient that leaves a refused or stale capability set standing.
+ *
+ * A caller that holds a session calls this beside `useDriverCapabilities`; one that
+ * does not still re-reads on mount and on focus.
+ */
+export function useDriverCapabilityRepairRead(
+  bridge: ConsoleBridge,
+  sessionStore: SessionStore,
+): void {
+  const reading = driverCapabilityReads.reading(bridge);
+  // Minted per subject, so a pane rebound to another session does not carry the
+  // previous one's standing degraded flag into the new one's first pass — where it
+  // would read as a repair nothing repaired.
+  const repairWatcher = useMemo(() => new SessionRepairWatcher(), [sessionStore]);
+  // Subscribed to in the render body like any other store read, and EXAMINED in an
+  // effect: advancing the watcher is a mutation, and a mutation in a render body
+  // runs twice under React's strict double-invoke.
+  const degradedCause = useSessionDegradedCause(sessionStore);
+  useEffect(() => {
+    if (repairWatcher.observe(degradedCause)) {
+      reading.requestRead("reconnect");
+    }
+  }, [degradedCause, reading, repairWatcher]);
 }
 
 /**
