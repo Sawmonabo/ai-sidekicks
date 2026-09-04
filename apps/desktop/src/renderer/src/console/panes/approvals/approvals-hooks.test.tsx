@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
-import { useApprovalsReader } from "./approvals-hooks.js";
+import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
 import { APPROVAL_PROJECTION_READ_METHOD } from "./approvals-wire.js";
 
@@ -310,5 +310,154 @@ describe("the reader is bound to the session it reads", () => {
       second.initialise({ cursor: 4, entities: [], participantJoinLog: [] });
     });
     expect(requestRead).not.toHaveBeenCalledWith("reconnect");
+  });
+});
+
+// The goal mutation's subject. `session.goalUpdate` names the session it mutates, so
+// everything this hook holds — the in-flight latch and the two readings — belongs to
+// the `(bridge, sessionId)` the call was issued under, and the component outlives a
+// change of that pair.
+describe("the goal mutation is keyed to the session it mutates", () => {
+  /** A bridge whose goal call is settled by the test rather than by a timer. */
+  function deferredGoalBridge(): {
+    readonly bridge: ConsoleBridge;
+    readonly rejectFor: (sessionId: string, rejection: unknown) => void;
+    readonly sessionIdsCalled: readonly string[];
+  } {
+    const rejectBySessionId = new Map<string, (rejection: unknown) => void>();
+    const sessionIdsCalled: string[] = [];
+    const bridge = {
+      sidekicks: {
+        daemon: {
+          call: async (_method: string, params: unknown): Promise<unknown> => {
+            const { sessionId } = params as { readonly sessionId: string };
+            sessionIdsCalled.push(sessionId);
+            return new Promise<unknown>((_resolve, reject) => {
+              rejectBySessionId.set(sessionId, reject);
+            });
+          },
+          subscribe: () => () => undefined,
+        },
+      },
+      growth: {},
+      source: "fixture",
+      scenarioEngine: undefined,
+    } as unknown as ConsoleBridge;
+    return {
+      bridge,
+      rejectFor: (sessionId, rejection) => {
+        const reject = rejectBySessionId.get(sessionId);
+        if (reject === undefined) {
+          throw new Error(`no goal call is outstanding for ${sessionId}`);
+        }
+        reject(rejection);
+      },
+      sessionIdsCalled,
+    };
+  }
+
+  type GoalMutation = ReturnType<typeof useSessionGoalMutation>;
+
+  function GoalHarness(props: {
+    readonly bridge: ConsoleBridge;
+    readonly sessionId: string;
+    readonly onMutation: (mutation: GoalMutation) => void;
+  }): React.JSX.Element | null {
+    const mutation = useSessionGoalMutation(props.bridge, props.sessionId);
+    props.onMutation(mutation);
+    return null;
+  }
+
+  /** Mount against one session, then rebind the mounted card to another. */
+  function mountGoalCard(bridge: ConsoleBridge): {
+    readonly latest: () => GoalMutation;
+    readonly rebindTo: (sessionId: string) => void;
+  } {
+    let latest: GoalMutation | undefined;
+    const onMutation = (mutation: GoalMutation): void => {
+      latest = mutation;
+    };
+    const view = render(
+      <GoalHarness bridge={bridge} sessionId={SESSION_ID} onMutation={onMutation} />,
+    );
+    return {
+      latest: () => {
+        if (latest === undefined) {
+          throw new Error("the hook handed back no mutation");
+        }
+        return latest;
+      },
+      rebindTo: (sessionId) => {
+        act(() => {
+          view.rerender(
+            <GoalHarness bridge={bridge} sessionId={sessionId} onMutation={onMutation} />,
+          );
+        });
+      },
+    };
+  }
+
+  it("frees the new session's controls while the old session's change is settling", () => {
+    const { bridge, sessionIdsCalled } = deferredGoalBridge();
+    const card = mountGoalCard(bridge);
+    act(() => {
+      card.latest().update("the first session's goal");
+    });
+    expect(card.latest().isMutating).toBe(true);
+
+    card.rebindTo(SECOND_SESSION_ID);
+    // The first session's call is still outstanding and this session has none, so
+    // this session's controls are its own.
+    expect(card.latest().isMutating).toBe(false);
+    expect(card.latest().refusal).toBeUndefined();
+
+    act(() => {
+      card.latest().update("the second session's goal");
+    });
+    expect(sessionIdsCalled).toStrictEqual([SESSION_ID, SECOND_SESSION_ID]);
+    expect(card.latest().refusal).toBeUndefined();
+  });
+
+  it("installs nothing from a rejection that answers a session the card left", async () => {
+    const { bridge, rejectFor } = deferredGoalBridge();
+    const card = mountGoalCard(bridge);
+    act(() => {
+      card.latest().update("the first session's goal");
+    });
+    card.rebindTo(SECOND_SESSION_ID);
+
+    await act(async () => {
+      rejectFor(SESSION_ID, new Error("the first session refused"));
+      await Promise.resolve();
+    });
+    // The rejection belongs to a session this card is no longer addressed to, so
+    // rendering it here would put one session's refusal beside another's goal.
+    expect(card.latest().refusal).toBeUndefined();
+    expect(card.latest().isMutating).toBe(false);
+  });
+
+  it("keeps the pending reading across a re-render that changes no subject", () => {
+    const { bridge } = deferredGoalBridge();
+    const card = mountGoalCard(bridge);
+    act(() => {
+      card.latest().update("the first session's goal");
+    });
+    card.rebindTo(SESSION_ID);
+    expect(card.latest().isMutating).toBe(true);
+  });
+
+  it("negative control: a second change to the SAME session is still refused", () => {
+    // Without this, a latch that had simply stopped guarding anything would pass
+    // every case above while sending two mutations for one session.
+    const { bridge, sessionIdsCalled } = deferredGoalBridge();
+    const card = mountGoalCard(bridge);
+    act(() => {
+      card.latest().update("the first goal");
+    });
+    act(() => {
+      card.latest().update("a second goal, sent before the first landed");
+    });
+    expect(sessionIdsCalled).toStrictEqual([SESSION_ID]);
+    expect(card.latest().refusal?.code).toBe("goal_mutation_in_flight");
   });
 });
