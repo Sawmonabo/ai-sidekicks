@@ -25,7 +25,11 @@ export { TRIPWIRE_FIXTURE_GLOBAL } from "../../src/renderer/src/console/core/tri
  * The scenario control, and its shape.
  *
  * Reached directly rather than through `console/bridge/index.js`, because that
- * barrel pulls the provider's `.tsx` in and this program has no JSX.
+ * barrel re-exports the provider component and would drag the console's whole
+ * React graph into a driver process that renders nothing. Not a syntax
+ * constraint: `tsconfig.console-electron-test.json` sets `jsx: react-jsx`
+ * explicitly, and says why — a family barrel already puts the console's React
+ * modules in this program. The reason is the graph, not the JSX.
  */
 export {
   SCENARIO_FIXTURE_GLOBAL,
