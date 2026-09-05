@@ -173,6 +173,15 @@ const RENDERER_RESTRICTED_PATTERNS = [
   },
 ];
 
+/**
+ * How the corpus spells a WIRE instant, as a regular-expression source.
+ *
+ * One declaration for every selector below that keys on the name of a stamp, because
+ * the alternative is the same suffix written five times and drifting on the day a
+ * sixth spelling arrives.
+ */
+const WIRE_STAMP_NAME_SUFFIX = "(?:At|Iso)$";
+
 export default [
   ...root,
   // `src/shared/**` is imported by BOTH processes (see
@@ -460,17 +469,42 @@ export default [
           // its suite asserts it. A list sorted this way is not approximately right; it is
           // wrong at exactly the rows whose order a reader would check.
           //
-          // Both sides are keyed, receiver and argument, and each arm is written twice
-          // because a stamp reaches the call either as a member (`row.createdAt`) or as a
-          // bare name (`createdAt`). The call is the match, not the identifier, so an
-          // offending comparison is reported once rather than once per side.
+          // The CALL is the match and the stamp is looked for ANYWHERE inside it, which is
+          // what the four operand-keyed selectors this replaces could not do: they required
+          // the receiver and the argument to be an identifier or a member, so
+          // `(row.touchedAt ?? "").localeCompare(...)` — a `LogicalExpression` receiver, and
+          // what a caller writes for a `string | undefined` stamp — passed, and so did
+          // `String(row.touchedAt).localeCompare(...)`. Both were measured.
           //
           // `localeCompare` on anything else is untouched: sorting a display path, a repo
           // name, or a participant handle is what it is for.
-          selector:
-            ':matches(CallExpression[callee.property.name="localeCompare"][callee.object.property.name=/(?:At|Iso)$/], CallExpression[callee.property.name="localeCompare"][callee.object.name=/(?:At|Iso)$/], CallExpression[callee.property.name="localeCompare"][arguments.0.property.name=/(?:At|Iso)$/], CallExpression[callee.property.name="localeCompare"][arguments.0.name=/(?:At|Iso)$/])',
+          selector: `CallExpression[callee.property.name="localeCompare"]:has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))`,
           message:
             "Two RFC 3339 stamps are not lexically ordered: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `console/core/instant.ts`, which compares the moments; `localeCompare` on a name, a path, or a handle is untouched.",
+        },
+        {
+          // The SHORTER spelling of the same defect, which `core/instant.ts` names in the
+          // same breath as `localeCompare` ("`localeCompare`, `<`, `>`") and which nothing
+          // banned: `<` is what a comparator reaches for first.
+          //
+          // BOTH SIDES have to name a stamp, and that is precision rather than caution.
+          // This tree carries two `…At` figures that are NUMBERS — `dueAt` on the frozen
+          // clock's entries (`core/clock.ts`) and `updatedAt` on a persistence record
+          // (`persistence/adapter.ts`) — and both are compared against a plain identifier
+          // (`entry.dueAt <= target`, `entry.updatedAt < oldestUpdatedAt`). A one-sided
+          // name key would fail those two, and a ban whose first two findings are false is
+          // a ban somebody turns off. The comparator shape the defect actually takes names
+          // the stamp on both sides.
+          //
+          // The third arm is the wrapped form, one side being enough there: a stamp reached
+          // through `?? ""` or `String(...)` inside a comparison is a stamp being ordered
+          // as text whatever sits opposite it, and no numeric figure in this tree is
+          // written that way. It is keyed on the DIRECT child so a comparison that merely
+          // contains a stamp somewhere — `rows.filter((row) => row.createdAt).length > 0` —
+          // is not swept in.
+          selector: `:matches(BinaryExpression[operator=/^[<>]=?$/][left.property.name=/${WIRE_STAMP_NAME_SUFFIX}/][right.property.name=/${WIRE_STAMP_NAME_SUFFIX}/], BinaryExpression[operator=/^[<>]=?$/][left.name=/${WIRE_STAMP_NAME_SUFFIX}/][right.name=/${WIRE_STAMP_NAME_SUFFIX}/], BinaryExpression[operator=/^[<>]=?$/]:has(> :matches(LogicalExpression, CallExpression):has(:matches(MemberExpression[property.name=/${WIRE_STAMP_NAME_SUFFIX}/], Identifier[name=/${WIRE_STAMP_NAME_SUFFIX}/]))))`,
+          message:
+            "Ordering two RFC 3339 stamps with `<` or `>` compares their TEXT: an offset form and a `Z` form naming the same moment differ, and a `+01:00` stamp sorts AFTER the `Z` stamp it PRECEDES. Order them with `compareInstants` from `console/core/instant.ts`, which compares the moments; comparing two numeric figures is untouched.",
         },
         {
           // Any `String(...)` inside a `catch`, not only one applied to the binding:
