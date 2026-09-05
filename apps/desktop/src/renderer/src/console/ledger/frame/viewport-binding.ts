@@ -23,7 +23,7 @@ import { type ConsoleClock } from "../../core/index.js";
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "../../primitives/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "./frame-bounds.js";
 import { LedgerViewportController } from "./viewport-controller.js";
-import { type LedgerRowLease } from "./window-cap.js";
+import { type LedgerRowLease } from "./row-lease-table.js";
 import { type LedgerViewportConditions, type LedgerViewportSnapshot } from "./viewport-snapshot.js";
 
 /**

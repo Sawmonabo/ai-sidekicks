@@ -33,7 +33,8 @@ export { LedgerFilterBar } from "./LedgerFilterBar.js";
 export { ProvenanceRail } from "./ProvenanceRail.js";
 export { ReplayControls } from "./ReplayControls.js";
 export { SeamRow } from "./SeamRow.js";
-export { ChapterCollapseState, LedgerChapterIndex, type LedgerChapter } from "./chapters.js";
+export { ChapterCollapseState } from "./chapter-collapse.js";
+export { LedgerChapterIndex, type LedgerChapter } from "./chapters.js";
 export { CHAPTER_VISIBLE_ROW_CAP } from "./structure-bounds.js";
 export {
   UNFILTERED_LEDGER,
@@ -63,7 +64,8 @@ export {
   type LedgerFindResult,
 } from "./find-model.js";
 export { useMountedLedger, type LedgerStructureActs } from "./mounted-ledger.js";
-export { ProvenanceRailModel, railViewportBand, type RailViewportBand } from "./rail-model.js";
+export { railViewportBand, type RailViewportBand } from "./rail-bands.js";
+export { ProvenanceRailModel } from "./rail-model.js";
 export {
   ReplayEngine,
   type ReplayPosition,

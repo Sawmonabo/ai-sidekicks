@@ -32,16 +32,16 @@
 //     orphan this property exists to make unrepresentable.
 //   • **Held rows are never pruned**, however old, and the drop stops at the row
 //     the reader is on. The reading anchor decides both; the window only obeys.
-//   • **Leases are parked, not dropped.** A row a person had expanded comes back
-//     expanded when they page to it again, because its state was re-parked under a
-//     synthetic key rather than deleted with the row.
+//   • **A dropped row's lease is parked, not lost.** What parking means, and the
+//     bound it is held to, are `row-lease-table.ts`'s — the cap names a key it is
+//     about to drop and reads nothing back.
 //
 // The window is a ceiling for a mechanical reason as well as a memory one:
 // `LEDGER_MAX_ELEMENT_HEIGHT_PX` is where a browser stops being able to place a
 // virtual list's total-size spacer, and an uncapped log reaches it.
 
-import { type TimelineRowDensity } from "../../seats/index.js";
-import { LEDGER_PARKED_LEASE_CAP, LEDGER_WINDOW_ROW_CAP } from "./frame-bounds.js";
+import { LEDGER_WINDOW_ROW_CAP } from "./frame-bounds.js";
+import { LedgerRowLeaseTable, type LedgerRowLease } from "./row-lease-table.js";
 
 /** One row as the window sees it. The body is nobody's business here. */
 export interface LedgerWindowRow {
@@ -50,19 +50,6 @@ export interface LedgerWindowRow {
   readonly parentKey: string | undefined;
   /** The `timeline.read` cursor this row was read at — the unit a pin cuts by. */
   readonly rootCursor: string;
-}
-
-/**
- * Renderer-local state a row body leases from the list.
- *
- * `density` is the seat's own vocabulary rather than a second collapse enumeration
- * (`seats/timeline-row-slot.ts`): the list decides a row's collapse state
- * and hands it down, so the window parking that decision has to park the same type.
- */
-export interface LedgerRowLease {
-  readonly density: TimelineRowDensity;
-  /** Offset inside the row's own clamped body, so a re-shown row reopens where it was. */
-  readonly innerScrollTopPx: number;
 }
 
 /**
@@ -121,13 +108,10 @@ export interface LedgerWindowOptions {
 
 export class LedgerWindow {
   readonly #topLevelCap: number;
-  readonly #parkedLeaseCap: number;
   readonly #childKeysByParentKey = new Map<string, string[]>();
   /** Every retained row key, so "is this row's parent here?" costs no scan. */
   readonly #presentRowKeys = new Set<string>();
-  readonly #leaseByRowKey = new Map<string, LedgerRowLease>();
-  /** Insertion-ordered, so the cap evicts the least recently parked. */
-  readonly #parkedLeaseBySyntheticKey = new Map<string, LedgerRowLease>();
+  readonly #leaseTable: LedgerRowLeaseTable;
 
   /**
    * The adopted log, oldest first — which is also prune order.
@@ -144,7 +128,7 @@ export class LedgerWindow {
 
   public constructor(options: LedgerWindowOptions = {}) {
     this.#topLevelCap = options.topLevelCap ?? LEDGER_WINDOW_ROW_CAP;
-    this.#parkedLeaseCap = options.parkedLeaseCap ?? LEDGER_PARKED_LEASE_CAP;
+    this.#leaseTable = new LedgerRowLeaseTable(options.parkedLeaseCap);
   }
 
   /**
@@ -207,16 +191,13 @@ export class LedgerWindow {
     return this.#rows.length;
   }
 
-  /** A row body's leased state, live rather than parked. */
+  /** A row body's leased state, live or parked. `row-lease-table.ts` owns which. */
   public lease(rowKey: string): LedgerRowLease | undefined {
-    return (
-      this.#leaseByRowKey.get(rowKey) ??
-      this.#parkedLeaseBySyntheticKey.get(this.#syntheticKeyFor(rowKey))
-    );
+    return this.#leaseTable.lease(rowKey);
   }
 
   public setLease(rowKey: string, lease: LedgerRowLease): void {
-    this.#leaseByRowKey.set(rowKey, lease);
+    this.#leaseTable.setLease(rowKey, lease);
   }
 
   /**
@@ -264,7 +245,7 @@ export class LedgerWindow {
           continue;
         }
         removedKeys.add(closedKey);
-        this.#park(closedKey);
+        this.#leaseTable.park(closedKey);
         prunedKeys.push(closedKey);
       }
       remainingToDrop -= 1;
@@ -362,40 +343,5 @@ export class LedgerWindow {
       }
     }
     return keysFromFloor;
-  }
-
-  /**
-   * Move a lease from the live table to the parked one, under a synthetic key.
-   *
-   * Bounded, and evicting the least recently parked: a person paging back expects
-   * the row they had open to still be open, and nobody expects that of a row pruned
-   * an hour ago.
-   */
-  #park(rowKey: string): void {
-    const lease = this.#leaseByRowKey.get(rowKey);
-    if (lease === undefined) {
-      return;
-    }
-    this.#leaseByRowKey.delete(rowKey);
-    const syntheticKey = this.#syntheticKeyFor(rowKey);
-    this.#parkedLeaseBySyntheticKey.delete(syntheticKey);
-    this.#parkedLeaseBySyntheticKey.set(syntheticKey, lease);
-    while (this.#parkedLeaseBySyntheticKey.size > this.#parkedLeaseCap) {
-      const oldestKey = this.#parkedLeaseBySyntheticKey.keys().next().value;
-      if (oldestKey === undefined) {
-        break;
-      }
-      this.#parkedLeaseBySyntheticKey.delete(oldestKey);
-    }
-  }
-
-  /**
-   * The parked key.
-   *
-   * Prefixed rather than reusing the row key, so a parked lease can never be
-   * mistaken for a live one by a lookup that forgot which table it was reading.
-   */
-  #syntheticKeyFor(rowKey: string): string {
-    return `parked:${rowKey}`;
   }
 }

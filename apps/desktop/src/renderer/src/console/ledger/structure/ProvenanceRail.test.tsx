@@ -6,61 +6,21 @@
 // drives is the layer that survives them — the slider, the keyboard walk, the clip
 // affordance, and the preview grace on the frozen clock. Geometry belongs to the
 // browser tier, which has a real box to measure.
+//
+// The preview grace is `ProvenanceRail.preview.test.tsx`', which mounts the same
+// rail through the same harness.
 
-import type { TimelineRow } from "@ai-sidekicks/contracts";
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { type ReactElement } from "react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
-import { RAIL_PREVIEW_GRACE_MS } from "./structure-bounds.js";
-import { ProvenanceRail } from "./ProvenanceRail.js";
 import { ProvenanceRailModel } from "./rail-model.js";
-import { generalRow, runRow } from "./timeline-rows.test-support.js";
-
-/** Four marks: a message, an approval, a tool error, and a handoff. */
-function storyRows(): readonly TimelineRow[] {
-  return [
-    generalRow({
-      id: "m1",
-      sequence: 1,
-      type: "user.message",
-      category: "interactive_request",
-      summary: "asked for the deploy plan",
-    }),
-    runRow({
-      id: "ap",
-      sequence: 2,
-      type: "approval.requested",
-      category: "approval_flow",
-      runId: "run-a",
-      position: 1,
-      summary: "wants to write outside the worktree",
-    }),
-    runRow({
-      id: "te",
-      sequence: 3,
-      type: "tool.error",
-      category: "tool_activity",
-      runId: "run-a",
-      position: 2,
-      summary: "the build step exited 1",
-    }),
-    runRow({
-      id: "ha",
-      sequence: 4,
-      type: "agent.attached",
-      category: "membership_change",
-      runId: "run-a",
-      position: 3,
-      summary: "a second agent joined",
-    }),
-  ];
-}
-
-function railModel(hasEarlierRows = false): ProvenanceRailModel {
-  return new ProvenanceRailModel({ hasEarlierRows, rows: storyRows() });
-}
+import {
+  emptyRail,
+  railModel,
+  renderRail,
+  storyRows,
+  type RailHarness,
+} from "./ProvenanceRail.test-support.js";
 
 /**
  * The same rail over a subset of its rows — what replay, a filter, or the cap
@@ -74,62 +34,6 @@ function railModelOver(rowIds: readonly string[]): ProvenanceRailModel {
     retainedRowKeys: rows.map((row) => row.id),
     hasEarlierRows: false,
   });
-}
-
-/** A rail over a session that has produced nothing yet. Built per case: the
- * model memoizes on first read, and two cases sharing one memo would share a
- * cache rather than a fixture. */
-function emptyRail(): ProvenanceRailModel {
-  return new ProvenanceRailModel({ rows: [], hasEarlierRows: false });
-}
-
-/** What a mounted rail lets a case observe. */
-interface RailHarness {
-  readonly slider: HTMLElement;
-  /** Row ids the rail asked the ledger to scroll to, in press order. */
-  readonly jumps: readonly string[];
-  /** How many times it asked for earlier rows. */
-  loadEarlierCount(): number;
-  /** Hand the SAME mounted rail a different model — a replay, a filter, a prune. */
-  showModel(model: ProvenanceRailModel): void;
-}
-
-function renderRail(
-  options: {
-    readonly model?: ProvenanceRailModel;
-    readonly clock?: ManualClock;
-    /** Whether a caller can page earlier rows at all. Absent, no affordance is drawn. */
-    readonly canLoadEarlier?: boolean;
-    /** The viewport band the thumb draws. The head quarter of the rail by default. */
-    readonly viewport?: { readonly position: number; readonly extent: number };
-  } = {},
-): RailHarness {
-  const jumps: string[] = [];
-  let loadEarlierCount = 0;
-  const loadEarlier = (): void => {
-    loadEarlierCount += 1;
-  };
-  const clock = options.clock ?? new ManualClock();
-  const railOver = (model: ProvenanceRailModel): ReactElement => (
-    <ProvenanceRail
-      model={model}
-      viewportPosition={options.viewport?.position ?? 0}
-      viewportExtent={options.viewport?.extent ?? 0.25}
-      isFollowing={false}
-      onJumpToRow={(rowId) => jumps.push(rowId)}
-      {...(options.canLoadEarlier === false ? {} : { onLoadEarlier: loadEarlier })}
-      clock={clock}
-    />
-  );
-  const view = render(railOver(options.model ?? railModel()));
-  return {
-    slider: screen.getByRole("slider"),
-    jumps,
-    loadEarlierCount: () => loadEarlierCount,
-    showModel: (model) => {
-      view.rerender(railOver(model));
-    },
-  };
 }
 
 /** The thumb's top and height, in percent of the rail. */
@@ -365,51 +269,5 @@ describe("rail — clip honesty is rendered, not implied", () => {
     const { slider } = renderRail({ model: railModel(true), canLoadEarlier: false });
     expect(screen.queryByRole("button", { name: "Load earlier" })).toBeNull();
     expect(slider.querySelector(".meridian-rail__unloaded")).not.toBeNull();
-  });
-});
-
-describe("rail — the preview opens after a grace, measured on the injected clock", () => {
-  it("opens no card before the grace has elapsed", () => {
-    const clock = new ManualClock();
-    const { slider } = renderRail({ clock });
-    fireEvent.pointerMove(slider, { clientY: 0 });
-    act(() => {
-      clock.advance(RAIL_PREVIEW_GRACE_MS - 1);
-    });
-    expect(screen.queryByRole("status")).toBeNull();
-  });
-
-  it("opens the card the pointer was over once the grace elapses", () => {
-    const clock = new ManualClock();
-    const { slider } = renderRail({ clock });
-    fireEvent.pointerMove(slider, { clientY: 0 });
-    act(() => {
-      clock.advance(RAIL_PREVIEW_GRACE_MS);
-    });
-    expect(screen.getByRole("status").textContent).toContain("asked for the deploy plan");
-  });
-
-  it("reads no wall clock: with the frozen clock never advanced, no card ever opens", () => {
-    // Which is the whole reason the grace takes a `ConsoleClock`. A rail that
-    // reached past it to `setTimeout` would open this card on its own, and the
-    // armed count is what says one grace — not none, and not one per tick — is
-    // waiting.
-    const clock = new ManualClock();
-    const { slider } = renderRail({ clock });
-    fireEvent.pointerMove(slider, { clientY: 0 });
-    fireEvent.pointerMove(slider, { clientY: 0 });
-    fireEvent.pointerMove(slider, { clientY: 0 });
-    expect(screen.queryByRole("status")).toBeNull();
-    expect(clock.pendingCount).toBe(1);
-  });
-
-  it("negative control: a rail with no marks arms no grace at all", () => {
-    // `tickNearest` answers `undefined` over an empty rail, and the grace shows
-    // the absence immediately rather than scheduling a card with nothing in it.
-    const clock = new ManualClock();
-    const { slider } = renderRail({ clock, model: emptyRail() });
-    fireEvent.pointerMove(slider, { clientY: 0 });
-    expect(clock.pendingCount).toBe(0);
-    expect(screen.queryByRole("status")).toBeNull();
   });
 });

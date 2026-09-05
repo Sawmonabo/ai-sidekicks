@@ -46,4 +46,4 @@ export { LedgerViewport, type LedgerScope } from "./LedgerViewport.js";
 export { type LedgerRowRenderer } from "./LedgerRowMount.js";
 export { useLedgerViewport } from "./viewport-binding.js";
 export { type LedgerViewportRow } from "./viewport-snapshot.js";
-export { type LedgerRowLease } from "./window-cap.js";
+export { type LedgerRowLease } from "./row-lease-table.js";

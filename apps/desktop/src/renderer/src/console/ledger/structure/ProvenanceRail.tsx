@@ -50,15 +50,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RealClock, type ConsoleClock } from "../../core/index.js";
 import { Glyph } from "../../primitives/index.js";
-import { RAIL_HIT_STRIP_WIDTH_PX, RAIL_PREVIEW_GRACE_MS } from "./structure-bounds.js";
-import {
-  clampRailViewportBand,
-  RAIL_TICK_KINDS,
-  type ProvenanceRailModel,
-  type RailTick,
-  type RailTickKind,
-} from "./rail-model.js";
+import { RAIL_HIT_STRIP_WIDTH_PX } from "./structure-bounds.js";
+import { clampRailViewportBand } from "./rail-bands.js";
+import { type ProvenanceRailModel, type RailTick } from "./rail-model.js";
+import { RAIL_TICK_KINDS, type RailTickKind } from "./rail-ticks.js";
 import { RailPainter, type RailActorHueLookup } from "./rail-painter.js";
+import { PreviewGrace, type RailPreview } from "./rail-preview.js";
 import { useRailSurfaceRevision } from "./rail-surface.js";
 
 export interface ProvenanceRailProps {
@@ -93,12 +90,6 @@ export interface ProvenanceRailProps {
   readonly hueForActor?: RailActorHueLookup;
   /** The clock the preview grace is measured on. The fixture's frozen clock in a story. */
   readonly clock?: ConsoleClock;
-}
-
-/** The one preview card open at a time, or none. */
-interface RailPreview {
-  readonly tick: RailTick;
-  readonly offsetFraction: number;
 }
 
 export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
@@ -379,52 +370,3 @@ function railPercent(fraction: number): string {
  * rail — below the device pixel on any display — and short enough to read.
  */
 const RAIL_PERCENT_FRACTION_DIGITS = 4;
-
-/**
- * The grace before a preview card opens.
- *
- * A class holding the one armed handle, so a pointer crossing the rail arms and
- * cancels rather than opening a card per tick — and so the component's unmount has
- * exactly one thing to cancel. The rail's "no debounce on the read" is why the tick is
- * captured at `open` time and not re-read when the timeout fires.
- */
-class PreviewGrace {
-  readonly #clock: ConsoleClock;
-  #armedHandle: number | undefined;
-
-  public constructor(clock: ConsoleClock) {
-    this.#clock = clock;
-  }
-
-  public open(
-    tick: RailTick | undefined,
-    offsetFraction: number,
-    show: (preview: RailPreview | undefined) => void,
-  ): void {
-    this.#cancel();
-    if (tick === undefined) {
-      show(undefined);
-      return;
-    }
-    this.#armedHandle = this.#clock.scheduleTimeout(() => {
-      this.#armedHandle = undefined;
-      show({ tick, offsetFraction });
-    }, RAIL_PREVIEW_GRACE_MS);
-  }
-
-  public close(show: (preview: RailPreview | undefined) => void): void {
-    this.#cancel();
-    show(undefined);
-  }
-
-  public dispose(): void {
-    this.#cancel();
-  }
-
-  #cancel(): void {
-    if (this.#armedHandle !== undefined) {
-      this.#clock.cancel(this.#armedHandle);
-      this.#armedHandle = undefined;
-    }
-  }
-}
