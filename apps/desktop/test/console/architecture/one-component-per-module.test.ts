@@ -23,13 +23,14 @@
 // Claim 1 is what keeps that honest — every `.tsx` module resolves at least one
 // component, so a predicate that had gone blind fails there rather than passing here.
 //
-// AND THE INVENTORY IS A RATCHET, NOT AN EXEMPTION. Eight console modules declared
-// more than one component before this gate existed, in three families this lane does
-// not own. They are listed by path and the list is asserted EXACTLY, so a ninth
-// module fails on the day it lands and a listed module that is split also fails —
-// its entry has to come out in the same commit. The list only ever shrinks, and it is
-// the reason this gate could land at all rather than waiting on eight splits nobody
-// had asked for.
+// AND THERE IS NO INVENTORY. Eight console modules in three families declared more
+// than one component when this gate landed. They were listed by path and asserted
+// exactly — a ratchet that could only shrink, and the reason the gate could land at
+// all rather than waiting on eight splits nobody had asked for. All eight are split,
+// so the list is gone and the offender set is asserted against the empty set
+// directly. That is not a tidy-up: a list of known violations is a catalog, and
+// `apps/desktop/AGENTS.md` admits none — a rule with a standing list of the places it
+// does not hold is a rule that has already been negotiated with once.
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -40,24 +41,6 @@ import {
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
-
-/**
- * The modules that declared more than one component before this gate existed.
- *
- * Inherited, not excused: each is a real instance of the rule AGENTS.md states, in a
- * family this gate's own lane does not own. Asserted exactly, so the set can only
- * shrink — see this file's header.
- */
-const MODULES_DECLARING_MORE_THAN_ONE_COMPONENT: readonly string[] = [
-  "console/frame/AppFrame.tsx",
-  "console/frame/ConsoleRoot.tsx",
-  "console/frame/RouteSurface.tsx",
-  "console/frame/SessionsSurface.tsx",
-  "console/palette/PaletteAbsence.tsx",
-  "console/primitives/Figure.tsx",
-  "console/primitives/LiveAnnouncerProvider.tsx",
-  "console/primitives/Refusal.tsx",
-];
 
 /**
  * How a component that renders through helpers still says it is one.
@@ -170,14 +153,14 @@ describe("one component per module — the console's .tsx modules", () => {
     expect(silent).toStrictEqual([]);
   });
 
-  it("declares one component each, beyond the inventory this gate inherited", () => {
+  it("declares one component each, with no inventory of exceptions", () => {
     const offenders = componentModules
       .filter(
         (module) =>
           componentNamesIn(readConsoleSourceModule(module), module.displayPath).length > 1,
       )
       .map((module) => module.displayPath);
-    expect(offenders).toStrictEqual(MODULES_DECLARING_MORE_THAN_ONE_COMPONENT);
+    expect(offenders).toStrictEqual([]);
   });
 });
 
