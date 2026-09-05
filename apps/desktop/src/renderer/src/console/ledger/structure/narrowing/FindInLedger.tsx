@@ -25,6 +25,7 @@
 import { useEffect, useRef, type RefObject } from "react";
 
 import { DerivedFigure, Glyph } from "../../../primitives/index.js";
+import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
 import {
   LEDGER_FIND_CAP_NOTE,
   LEDGER_FIND_SCOPE_NOTE,
@@ -63,8 +64,6 @@ export interface FindInLedgerProps {
   readonly onClose: () => void;
 }
 
-const FIND_GLYPH_SIZE = 14;
-
 /**
  * Take the caret every time the field is asked for, and select what is in it.
  *
@@ -95,7 +94,7 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
   return (
     <div className="meridian-find" role="search">
       <label className="meridian-find__field">
-        <Glyph name="search" size={FIND_GLYPH_SIZE} />
+        <Glyph name="search" size={GLYPH_SIZE_CHROME} />
         <span className="meridian-find__label">Find in ledger</span>
         <input
           ref={inputRef}
@@ -138,7 +137,7 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
         disabled={!hasMatches}
         aria-label="Previous match"
       >
-        <Glyph name="chevron-down" size={FIND_GLYPH_SIZE} />
+        <Glyph name="chevron-down" size={GLYPH_SIZE_CHROME} />
       </button>
       <button
         type="button"
@@ -149,7 +148,7 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
         disabled={!hasMatches}
         aria-label="Next match"
       >
-        <Glyph name="chevron-right" size={FIND_GLYPH_SIZE} />
+        <Glyph name="chevron-right" size={GLYPH_SIZE_CHROME} />
       </button>
 
       <p className="meridian-find__scope">
@@ -171,7 +170,7 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
         onClick={props.onClose}
         aria-label="Close find"
       >
-        <Glyph name="close" size={FIND_GLYPH_SIZE} />
+        <Glyph name="close" size={GLYPH_SIZE_CHROME} />
       </button>
 
       {hasQuery && !hasMatches ? (

@@ -20,6 +20,7 @@
 
 import { WireFigure, formatClockTime } from "../../../primitives/index.js";
 import { Glyph } from "../../../primitives/index.js";
+import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
 import { REPLAY_SPEEDS, type ReplayPosition, type ReplaySpeed } from "./replay-model.js";
 
 export interface ReplayControlsProps {
@@ -50,8 +51,6 @@ export interface ReplayControlsProps {
    */
   readonly onReplayFromRowInView: () => void;
 }
-
-const REPLAY_GLYPH_SIZE = 14;
 
 /** What each state's primary control offers. Total over the four states. */
 const PRIMARY_ACTION_BY_STATE: Readonly<
@@ -86,7 +85,7 @@ export function ReplayControls(props: ReplayControlsProps): React.JSX.Element {
         onClick={position.state === "playing" ? props.onPause : props.onPlay}
         aria-label={primary.label}
       >
-        <Glyph name={primary.glyph} size={REPLAY_GLYPH_SIZE} />
+        <Glyph name={primary.glyph} size={GLYPH_SIZE_CHROME} />
       </button>
 
       <div className="meridian-replay__speeds" role="group" aria-label="Replay speed">
@@ -130,7 +129,7 @@ export function ReplayControls(props: ReplayControlsProps): React.JSX.Element {
         onClick={props.onJumpToNextSeam}
         aria-label="Jump to the next seam"
       >
-        <Glyph name="chevron-right" size={REPLAY_GLYPH_SIZE} />
+        <Glyph name="chevron-right" size={GLYPH_SIZE_CHROME} />
       </button>
 
       {/* A button and deliberately not a second scrubber: the position has one
@@ -142,7 +141,7 @@ export function ReplayControls(props: ReplayControlsProps): React.JSX.Element {
         onClick={props.onReplayFromRowInView}
         aria-label="Replay from the row in view"
       >
-        <Glyph name="rewind" size={REPLAY_GLYPH_SIZE} />
+        <Glyph name="rewind" size={GLYPH_SIZE_CHROME} />
       </button>
 
       <span className="meridian-replay__granularity">{granularityNote(position)}</span>
