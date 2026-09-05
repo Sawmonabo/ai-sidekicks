@@ -330,3 +330,56 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     expect(reader.snapshot.pendingModeByWorkspaceId[PLAIN_WORKSPACE_ID]).toBe(BRANCH_MODE);
   });
 });
+
+describe("ExecutionModeSelections — the register empties on every arm", () => {
+  it("holds one key while a switch is on the wire and none once it settles", async () => {
+    const { reader, port } = await openWithHeldSelect();
+    expect(reader.inFlightSelectionCount).toBe(0);
+
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    expect(reader.inFlightSelectionCount).toBe(1);
+
+    port.release();
+    await drain();
+
+    // A give-back that misses on one arm leaks a key, and the row it belongs to then
+    // refuses every later press for the life of the section while every case above
+    // goes on passing. That is the property a hand-rolled register loses first.
+    expect(reader.inFlightSelectionCount).toBe(0);
+  });
+
+  it("gives the key back on the refused arm too, and after a refused second press", async () => {
+    const { reader, port } = await openWithHeldSelect("rejected");
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    // The refused second press takes no key, so it has none to leak either.
+    void reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
+    await drain();
+    expect(reader.inFlightSelectionCount).toBe(1);
+
+    port.release();
+    await drain();
+
+    expect(reader.inFlightSelectionCount).toBe(0);
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+      "workspace.busy",
+    );
+  });
+
+  it("negative control: two workspaces in flight hold two keys, and each is its own", async () => {
+    // Without this a register that held one key for the whole section would satisfy
+    // both cases above while refusing a press on a row that cannot collide.
+    const { reader, port } = await openWithHeldSelect();
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
+    await drain();
+
+    expect(reader.inFlightSelectionCount).toBe(2);
+
+    port.release();
+    await drain();
+    expect(reader.inFlightSelectionCount).toBe(0);
+  });
+});

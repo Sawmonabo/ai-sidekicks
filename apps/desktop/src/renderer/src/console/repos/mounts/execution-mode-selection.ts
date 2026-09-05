@@ -23,18 +23,29 @@
 // picker because another row is waiting would refuse a press for a reason that is not
 // about it.
 //
-// SETTLED BY LIVENESS AND BY REQUEST IDENTITY, WHICH ARE TWO QUESTIONS. A continuation
-// that wrote on liveness alone would publish onto a section that had unmounted while
-// its call was on the wire — the reachable failure, and the one the tests drive. The
-// identity half is what makes the register's own bookkeeping safe: `#release` must not
-// give back an entry that is not its own, and if a second switch per workspace ever
-// becomes reachable, a reply for a request the register has moved past would otherwise
-// write over the newer answer. Both halves are asked in one place, so neither can be
-// asked without the other.
+// THE REGISTER IS `store/generation-latch.ts`, NOT A SECOND COPY OF IT. This class had
+// grown its own: a map of in-flight requests, a monotonic request id, a liveness flag,
+// an identity check before every settle, and a guarded give-back — which is, line for
+// line, what that latch already is, and it is the sixth family that had written one.
+// The place copies of a guard drift is the predicate, and a drifted predicate is a
+// stale value on screen that every test still passes. So the rules map onto its three
+// entry points and nothing here re-derives them: `claim` IS the refuse-the-second-press
+// rule, because it answers `undefined` rather than a claim that reports itself stale;
+// `settle` is the liveness-and-identity check, asked in one place because the latch
+// asks it in one place; `release` in the `finally` is the give-back, guarded by serial
+// so an abandoned call cannot free its successor's key; and `supersedeAll` on dispose
+// is what makes a reply landing after teardown install nothing.
+//
+// THE MODE THE ROW IS WAITING FOR LIVES ON THE READING, WHICH IS WHERE IT WAS ALREADY.
+// The latch holds keys and no payload, and that is the right shape here rather than a
+// missing feature: `pendingModeByWorkspaceId` is what the picker renders, so reading
+// the sentence's mode from anywhere else would be a second record of one fact — the
+// defect this file is being cut down for.
 
 import type { ExecutionMode, WorkspaceId } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { GenerationLatch } from "../../store/index.js";
 import type { RepoMountsReading } from "./repo-mounts-model.js";
 import { REPO_READS_REFUSAL_ORIGIN, selectExecutionMode } from "../repo-reads.js";
 
@@ -58,9 +69,16 @@ export type ExecutionModeSelectionRefusalCode =
  * a participant told "something is in flight" cannot tell what, and the row above is
  * still showing the mode the workspace is bound as NOW, which is the one mode the
  * sentence must not be read as.
+ *
+ * TOTAL IN THE MODE, because the flight rule and the mode are held by two different
+ * objects: the latch says a switch is outstanding and the reading says which one. The
+ * two are written in one act, so the unnamed arm is the degrade-honestly floor rather
+ * than a state this class produces — and an unnamed switch is still a true sentence,
+ * where naming the mode just pressed would be a false one.
  */
-export function selectionInFlightCopy(pendingMode: ExecutionMode): string {
-  return `A switch to ${pendingMode} has been sent for this workspace and the daemon has not answered yet. Nothing else is sent until it settles.`;
+export function selectionInFlightCopy(pendingMode: ExecutionMode | undefined): string {
+  const subject = pendingMode === undefined ? "A switch" : `A switch to ${pendingMode}`;
+  return `${subject} has been sent for this workspace and the daemon has not answered yet. Nothing else is sent until it settles.`;
 }
 
 /** What an act needs from the half of the section that reads. */
@@ -72,17 +90,6 @@ export interface ExecutionModeSelectionHost {
   requestRefreshAfterSelect(): void;
 }
 
-/**
- * One switch awaiting the bridge, and the identity that tells it from its successor.
- *
- * The mode is held because the picker has to name it; the id is what makes a
- * settlement attributable.
- */
-interface InFlightModeSelection {
-  readonly executionMode: ExecutionMode;
-  readonly requestId: number;
-}
-
 export interface ExecutionModeSelectionsOptions {
   readonly bridge: ConsoleBridge;
   readonly host: ExecutionModeSelectionHost;
@@ -92,11 +99,14 @@ export interface ExecutionModeSelectionsOptions {
 export class ExecutionModeSelections {
   readonly #bridge: ConsoleBridge;
   readonly #host: ExecutionModeSelectionHost;
-  /** The switch awaiting the bridge on each workspace. One at a time, and the row says which. */
-  readonly #inFlightByWorkspaceId = new Map<string, InFlightModeSelection>();
-  /** Monotonic across the section, so a superseded continuation matches no standing request. */
-  #nextRequestId = 1;
-  #disposed = false;
+  /**
+   * Which workspaces have a switch outstanding, keyed by workspace id.
+   *
+   * The subject is THIS object, so the register empties with the section rather than
+   * with the bridge, and the key is the workspace because two workspaces switching are
+   * two mutations on two rows that cannot collide.
+   */
+  readonly #inFlight = new GenerationLatch();
 
   public constructor(options: ExecutionModeSelectionsOptions) {
     this.#bridge = options.bridge;
@@ -113,85 +123,78 @@ export class ExecutionModeSelections {
    * existing id and the row has to follow it.
    */
   public async request(workspaceId: WorkspaceId, executionMode: ExecutionMode): Promise<void> {
-    const pending = this.#inFlightByWorkspaceId.get(workspaceId);
-    if (pending !== undefined) {
+    const claim = this.#inFlight.claim(this, workspaceId);
+    if (claim === undefined) {
+      // `claim` REFUSING IS THE RULE, not a value this method then acts on: it answers
+      // `undefined` rather than a claim reporting itself stale, so there is no way to
+      // dispatch first and discover afterwards that this press was not admitted.
       this.#recordRefusal(
         workspaceId,
         refuse(
           REPO_READS_REFUSAL_ORIGIN,
           "selection-in-flight" satisfies ExecutionModeSelectionRefusalCode,
-          selectionInFlightCopy(pending.executionMode),
+          selectionInFlightCopy(this.#host.currentReading().pendingModeByWorkspaceId[workspaceId]),
         ),
       );
       return;
     }
-    const request: InFlightModeSelection = { executionMode, requestId: this.#nextRequestId };
-    this.#nextRequestId += 1;
-    this.#hold(workspaceId, request);
+    this.#publishPending(workspaceId, executionMode);
     try {
       const outcome = await selectExecutionMode(this.#bridge, workspaceId, executionMode);
-      if (!this.#stillStandingFor(workspaceId, request)) {
-        return;
-      }
-      if (outcome.status === "refused") {
-        this.#recordRefusal(workspaceId, outcome.refusal);
-        return;
-      }
-      this.#host.requestRefreshAfterSelect();
+      // ONE SETTLE FOR BOTH ARMS, because liveness is one question however the daemon
+      // answered: a reply reaching a section that has been torn down installs nothing,
+      // and the latch is what decides that rather than a flag this class keeps.
+      claim.settle(() => {
+        if (outcome.status === "refused") {
+          this.#recordRefusal(workspaceId, outcome.refusal);
+          return;
+        }
+        this.#host.requestRefreshAfterSelect();
+      });
     } finally {
-      this.#release(workspaceId, request);
+      // READ BEFORE THE RELEASE, because releasing is what makes it false — and asked
+      // at all because the picker must come back for a switch that is over and must
+      // NOT be published onto a section that is gone. The release itself is guarded by
+      // serial, so an abandoned call cannot free the key its successor holds.
+      const stillStanding = claim.isCurrent;
+      claim.release();
+      if (stillStanding) {
+        this.#publishPending(workspaceId, undefined);
+      }
     }
+  }
+
+  /**
+   * How many workspaces hold a switch right now — the register's bound, observable.
+   *
+   * Read by the assertion that a settled-and-released key leaves NOTHING behind, which
+   * is the one property a hand-rolled register loses first: a give-back that misses on
+   * one arm leaks a key, and the row it belongs to refuses every later press for the
+   * life of the section while every existing case goes on passing.
+   */
+  public get inFlightCount(): number {
+    return this.#inFlight.heldKeyCount(this);
   }
 
   /** Terminal. A call still on the wire settles into nothing rather than onto a section that unmounted. */
   public dispose(): void {
-    this.#disposed = true;
-    this.#inFlightByWorkspaceId.clear();
-  }
-
-  /** Take this workspace's register, and redraw so its picker holds. */
-  #hold(workspaceId: string, request: InFlightModeSelection): void {
-    this.#inFlightByWorkspaceId.set(workspaceId, request);
-    this.#publishPending(workspaceId, request.executionMode);
-  }
-
-  /**
-   * Give the register back, but only where it is still this request's to give.
-   *
-   * A disposal clears the register out from under a continuation, and a request that no
-   * longer holds it must not clear a successor's — which is the same identity check the
-   * settle path makes before it writes.
-   */
-  #release(workspaceId: string, request: InFlightModeSelection): void {
-    if (this.#inFlightByWorkspaceId.get(workspaceId)?.requestId !== request.requestId) {
-      return;
-    }
-    this.#inFlightByWorkspaceId.delete(workspaceId);
-    this.#publishPending(workspaceId, undefined);
-  }
-
-  /** Whether a settled call still speaks for the switch this workspace's register holds. */
-  #stillStandingFor(workspaceId: string, request: InFlightModeSelection): boolean {
-    return (
-      !this.#disposed &&
-      this.#inFlightByWorkspaceId.get(workspaceId)?.requestId === request.requestId
-    );
+    this.#inFlight.supersedeAll();
   }
 
   /**
    * Publish the pending map with one workspace's entry set, or removed where absent.
    *
    * THE TWO BRANCHES ARE THE TWO MOMENTS, and the second one carries the refusal rule.
-   * A defined mode reaches this only from `#hold`, which runs when a NEW request takes
-   * the register — so that is exactly the moment this workspace's previous selection
-   * refusal stops describing anything. Left standing, the picker showed the failure the
-   * participant had just retried away from beside "Switching to …" for the whole flight
-   * and, on an accepted switch, until the follow-up read replaced the reading. Cleared
-   * here rather than in `#hold` so it is ONE publish: two would put the stale refusal
-   * and the new pending mode on screen together for a frame.
+   * A defined mode reaches this only from the admitted press, which is exactly the
+   * moment this workspace's previous selection refusal stops describing anything. Left
+   * standing, the picker showed the failure the participant had just retried away from
+   * beside "Switching to …" for the whole flight and, on an accepted switch, until the
+   * follow-up read replaced the reading. Cleared in the SAME publish as the pending
+   * mode: two would put the stale refusal and the new pending mode on screen together
+   * for a frame.
    *
    * The release path must NOT clear, and that is the whole reason the rule is keyed on
-   * the mode rather than on a flag: `#release` runs inside the `finally` that follows
+   * the mode rather than on a flag: the release runs inside the `finally` that follows
    * the settle, so clearing there would erase the daemon's own refusal a moment after
    * recording it. A refused retry therefore records its own result and keeps it.
    */

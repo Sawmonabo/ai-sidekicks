@@ -170,6 +170,11 @@ export class RepoMountsReader {
     return this.#reading;
   }
 
+  /** How many workspaces hold a mode switch right now. The act half's own bound. */
+  public get inFlightSelectionCount(): number {
+    return this.#selections.inFlightCount;
+  }
+
   /** How many reads have actually run — the coalescing assertion, not an inference. */
   public get performCount(): number {
     return this.#scheduler.performCount;
