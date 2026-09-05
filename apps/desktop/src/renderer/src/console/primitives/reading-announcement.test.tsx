@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock, refuse } from "../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
+import { liveRegionText, politeText } from "./live-region.test-support.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";
 import { useReadingAnnouncement } from "./reading-announcement.js";
 import { uncheckedCoverageReading, type ReadingState } from "./partial-read.js";
@@ -40,11 +41,9 @@ function renderAnnouncing(states: readonly ReadingState[]): {
       <AnnouncingSurface states={states} />
     </LiveAnnouncerProvider>,
   );
-  const regionText = (lane: string): string =>
-    container.querySelector(`[data-live-region="${lane}"]`)?.textContent ?? "";
   return {
-    polite: () => regionText("polite"),
-    assertive: () => regionText("assertive"),
+    polite: () => politeText(container),
+    assertive: () => liveRegionText(container, "assertive"),
     rerender: (next) => {
       rerender(
         <LiveAnnouncerProvider announcer={announcer}>
