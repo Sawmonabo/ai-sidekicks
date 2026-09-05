@@ -68,9 +68,6 @@ import {
   SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT,
   SidekickDefinitionRecordEditorMount,
 } from "./SidekickDefinitionRecordEditorMount.js";
-
-import "./definitions-page.css";
-
 /** One standing fact about the registry, in the two halves a description list wants. */
 interface SidekickRegistryRule {
   readonly term: string;

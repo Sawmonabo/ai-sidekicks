@@ -1,4 +1,17 @@
-/* The agents subtree's own styles: the card, the two forms, and the linkage list.
+/* The agents family's own styles: the card, the shared composition, and the grant.
+ *
+ * WHAT IS HERE AND WHAT IS NOT. Three sub-modules carry their own sheets beside
+ * their components — `provider-switch/provider-switch.css`,
+ * `run-console/run-console.css`, and `definitions/definitions-page.css` — so a
+ * reader looking for one surface's rules is not scrolling past three others'. What
+ * stays here is the family's: the agent card, the axis field both forms draw, the
+ * attach dialog, the peer-invocation grant, and the grouped rules that give the
+ * card, both forms, and the linkage one button and one label.
+ *
+ * Those grouped rules are deliberately NOT split along with their surfaces. A
+ * selector list naming a card action, an attach arm, a switch apply, and a linkage
+ * open is one decision about how a control in this family looks; copying it into
+ * four sheets is four decisions that agree until one of them stops.
  *
  * Hand-authored composition over generated values, like every other console sheet —
  * no literal colour below, and the only literal lengths are the hairlines that
@@ -345,41 +358,6 @@
   align-items: baseline;
 }
 
-/* ------------------------------------------------------------------ switching */
-
-.meridian-switch {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  min-width: 0;
-}
-
-.meridian-switch__supersedes,
-.meridian-switch__driver-move {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-amber-text);
-}
-
-/* ---------------------------------------------------------------- settlement */
-
-.meridian-settlement {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  padding-inline-start: var(--meridian-space-3);
-  border-inline-start: 2px solid var(--meridian-edge-strong);
-}
-
-.meridian-settlement--caution {
-  border-inline-start-color: var(--meridian-red-mark);
-}
-
-.meridian-settlement__continuity,
-.meridian-settlement__losses,
-.meridian-settlement__superseded {
-  color: var(--meridian-text-muted);
-}
-
 /* ----------------------------------------------------------- peer invocation */
 
 .meridian-peer {
@@ -411,173 +389,4 @@
   display: flex;
   align-items: baseline;
   gap: var(--meridian-space-2);
-}
-
-/* --------------------------------------------------------------- run linkage */
-
-.meridian-linkage {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  min-width: 0;
-}
-
-.meridian-linkage__link {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  padding-block: var(--meridian-space-2);
-  border-block-end: 1px solid var(--meridian-edge);
-}
-
-.meridian-linkage__link:last-child {
-  border-block-end: 0;
-}
-
-/* De-emphasized and never ejected: a helper row stays in audit history. */
-.meridian-linkage__link--helper {
-  color: var(--meridian-text-muted);
-}
-
-.meridian-linkage__link-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--meridian-space-2);
-  flex-wrap: wrap;
-}
-
-.meridian-linkage__link-meaning,
-.meridian-linkage__last-known,
-.meridian-linkage__refusal-depth,
-.meridian-linkage__refusal-detail,
-.meridian-linkage__refusal-target {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-linkage__refusals {
-  border-block-start: 1px solid var(--meridian-edge);
-  padding-block-start: var(--meridian-space-2);
-}
-
-.meridian-linkage__refusals-summary {
-  cursor: pointer;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-linkage__refusal-list {
-  max-height: 22rem;
-  overflow-y: auto;
-  margin-block-start: var(--meridian-space-2);
-}
-
-.meridian-linkage__refusal {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-1);
-  align-items: baseline;
-  padding-block: var(--meridian-space-1);
-}
-
-/* ---------------------------------------------------------- the sidekicks page */
-
-/* A page rather than a section: it stands alone, so it carries its own measure and
- * its own padding instead of inheriting a sidebar's. The two columns are the design's
- * "one row per definition with the full record open beside it" — expressed as a grid
- * that collapses to one column under the narrow measure, because the detail side is
- * the wider of the two and a 2-up layout in a torn-off window would leave both
- * unreadable. */
-
-.meridian-sidekicks {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-5);
-  padding: var(--meridian-space-6);
-  min-width: 0;
-}
-
-.meridian-sidekicks__head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  max-width: 68ch;
-}
-
-.meridian-sidekicks__title {
-  margin: 0;
-  font-size: var(--meridian-text-xl);
-  font-weight: 500;
-  color: var(--meridian-text);
-}
-
-.meridian-sidekicks__lede {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
-}
-
-/* The standing facts read as a ledger, not as a callout: a hairline between rows,
- * no fill, no border box. They are things that are true rather than things that
- * need attention, and a tinted panel would spend colour saying otherwise. */
-
-.meridian-sidekicks__rules {
-  display: grid;
-  grid-template-columns: minmax(10rem, auto) minmax(0, 1fr);
-  gap: 0 var(--meridian-space-4);
-  margin: 0;
-  max-width: 76ch;
-}
-
-.meridian-sidekicks__rule {
-  display: contents;
-}
-
-.meridian-sidekicks__rule-term,
-.meridian-sidekicks__rule-statement {
-  padding-block: var(--meridian-space-2);
-  border-block-start: 1px solid var(--meridian-edge);
-}
-
-.meridian-sidekicks__rule-term {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-sidekicks__rule-statement {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text);
-}
-
-.meridian-sidekicks__columns {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
-  gap: var(--meridian-space-5);
-  align-items: start;
-}
-
-@media (width <= 60rem) {
-  .meridian-sidekicks__columns {
-    grid-template-columns: minmax(0, 1fr);
-  }
-}
-
-.meridian-sidekicks__column {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  min-width: 0;
-}
-
-/* The same treatment the agent console gives its column titles, because it is the
- * same construct — a quiet label over a column, not a heading competing with the
- * page's own. A third uppercase scale in one family would be a third for no reason. */
-.meridian-sidekicks__column-title {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--meridian-text-faint);
 }
