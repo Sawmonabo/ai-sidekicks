@@ -6,7 +6,7 @@ import { SessionStore } from "../../store/index.js";
 import { type WorkspaceId, type ExecutionMode } from "@ai-sidekicks/contracts";
 import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
 
-export function MountList(props: MountListProps): React.JSX.Element {
+export function MountList(props: MountListProps): React.JSX.Element | null {
   const { reading } = props;
   if (reading.mounts.length > 0) {
     return (
@@ -31,9 +31,24 @@ export function MountList(props: MountListProps): React.JSX.Element {
       </>
     );
   }
-  if (reading.status === "read" && reading.refusal === undefined) {
-    // The read succeeded and found none. Rule 8's `empty`, and never `not-checked`:
-    // the question WAS put.
+  if (reading.status === "reading") {
+    // AHEAD OF THE REFUSAL ARM, because a re-read standing over a stale refusal is a
+    // question being put again — the card above still carries what the last answer was,
+    // and reporting the read in flight is the fact this row is for.
+    return <Nothing kind="computing" placement="surface" title="Reading repo mounts." />;
+  }
+  if (reading.refusal !== undefined) {
+    // NOTHING, BECAUSE THE SENTENCE IS ALREADY ON SCREEN. `RepoSection` renders a
+    // `RefusalCard` from this same `reading.refusal` directly above this list, so an
+    // absence card here would put the identical code and detail in the same column
+    // twice. What this arm exists to stop is the fall-through below it, which reported
+    // "have not been read" over a read that WAS made and refused — rule 8's
+    // `not-checked` standing in for a refusal, the one substitution it names outright.
+    return null;
+  }
+  if (reading.status === "read") {
+    // The read succeeded and found none — the arm above has already taken every
+    // refused reading. Rule 8's `empty`, and never `not-checked`: the question WAS put.
     return (
       <Nothing
         kind="empty"
@@ -42,9 +57,6 @@ export function MountList(props: MountListProps): React.JSX.Element {
         detail="Attaching is deliberate — nothing is attached automatically. Attach is reached through the command-line and SDK surfaces today; once a repository is attached, this section names each mount's resolved root, the node that owns it, and whether it is still the repository it was attached as."
       />
     );
-  }
-  if (reading.status === "reading") {
-    return <Nothing kind="computing" placement="surface" title="Reading repo mounts." />;
   }
   return (
     <Nothing

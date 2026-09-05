@@ -19,6 +19,7 @@ import { SessionStore } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
 import { RepoSection } from "./RepoSection.js";
+import { NOT_READ_TITLE } from "./repo-mounts-copy.js";
 import { CLONE_EXPIRY_COPY } from "./worktree-model.js";
 
 /** The clone list's own container, which is what separates it from the mount list. */
@@ -319,5 +320,39 @@ describe("RepoSection — a clone root is a writable root, so it carries a gate"
     for (const gate of worktreeGates) {
       expect(gate.textContent).not.toContain("subject-not-addressable");
     }
+  });
+});
+
+describe("RepoSection — a refused read says so once, and never says it was not made", () => {
+  it("draws the refusal card and no unread line when the roster read refuses", async () => {
+    // The roster is the read every other one hangs off, so refusing it is the shape
+    // that leaves the section with a refusal and nothing else. The list used to fall
+    // through its own absence ladder to `not-checked` here and report "have not been
+    // read" underneath the card explaining what the read answered — rule 8's
+    // `not-checked` standing in for a refusal, one line below the refusal itself.
+    const section = renderSection({
+      ...REPOS_SCENARIO,
+      id: "repos-workspace-list-refused",
+      replies: REPOS_SCENARIO.replies.filter((reply) => reply.call !== "repo.workspaceList"),
+    });
+
+    await section.advanceUntil(() => {
+      expect(section.container.querySelector(".meridian-refusal--card")).not.toBeNull();
+    });
+    expect(section.container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(0);
+    expect(section.container.textContent).not.toContain(NOT_READ_TITLE);
+    // And the refusal is said ONCE: the card above the list carries it, so the list
+    // renders nothing rather than a second copy of the same code and detail.
+    expect(section.container.querySelectorAll(".meridian-refusal--card")).toHaveLength(1);
+  });
+
+  it("negative control: a section whose reads have not settled does say it has not read", async () => {
+    // Without this the assertion above would pass on a section that had simply stopped
+    // rendering that sentence anywhere, rather than on one that stopped rendering it
+    // where a refusal already stood. Nothing is advanced, so the read is still unmade.
+    const section = renderSection(REPOS_SCENARIO);
+
+    expect(section.container.textContent).toContain(NOT_READ_TITLE);
+    expect(section.container.querySelector(".meridian-refusal--card")).toBeNull();
   });
 });
