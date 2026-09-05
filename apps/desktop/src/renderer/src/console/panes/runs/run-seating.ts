@@ -32,6 +32,7 @@
 // count, and never a list presented as current while a run the session knows is
 // missing from it.
 
+import { compareInstants, parseInstant } from "../../core/index.js";
 import type { ConsoleEntity } from "../../store/index.js";
 import type { RunProjection } from "./run-state-projection.js";
 
@@ -148,18 +149,25 @@ function readNumber(body: Readonly<Record<string, unknown>>, member: string): nu
 
 /**
  * Newest activity first, with the run id breaking an exact tie deterministically —
- * the ordering `run-state-feed.ts` gives its own projections, so the two halves of
- * the seated list read in one direction.
+ * the ordering `run-state-projection.ts` gives its own projections through the same
+ * two functions, so the two halves of the seated list read in one direction.
  *
- * A run the partition carries no instant for sorts last: it has no reading to rank,
- * and treating its absent instant as the epoch would be a comparison against a
- * value nothing supplied.
+ * THROUGH THE PARSER, NEVER AS TEXT. `ConsoleEntity.touchedAt` is a wire instant and
+ * an RFC 3339 stamp carries an offset: `2026-01-01T10:00:00+01:00` names 09:00Z and
+ * sorts AFTER `2026-01-01T09:30:00Z` lexically while naming an EARLIER moment, so a
+ * text comparison seats the older run above the newer one, stably and silently.
+ * `core/instant.ts` exists for exactly this, and hoisting the two operands into
+ * locals named for neither `At` nor `Iso` is what had turned the syntax ban off.
+ *
+ * A run the partition carries no instant for sorts last: an absent stamp reads as
+ * malformed, and a malformed reading sorts last in BOTH directions rather than being
+ * given a sentinel that would be first in one of them.
  */
 function byNewestTouched(left: KnownRun, right: KnownRun): number {
-  const leftInstant = left.touchedAtIso ?? "";
-  const rightInstant = right.touchedAtIso ?? "";
-  if (leftInstant === rightInstant) {
-    return left.runId.localeCompare(right.runId);
-  }
-  return leftInstant < rightInstant ? 1 : -1;
+  const ranked = compareInstants(
+    parseInstant(left.touchedAtIso ?? ""),
+    parseInstant(right.touchedAtIso ?? ""),
+    "newest-first",
+  );
+  return ranked === 0 ? left.runId.localeCompare(right.runId) : ranked;
 }
