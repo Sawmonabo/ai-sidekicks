@@ -20,6 +20,7 @@ import {
   REPOS_SESSION_ID,
   REPOS_VIEWING_PARTICIPANT_ID,
 } from "./repos.js";
+import { REPOS_SCENARIO_STARTED_AT_ISO, scenarioInstant } from "./repos-beats.js";
 import {
   GIT_MOUNT_ID,
   GIT_WORKSPACE_ID,
@@ -42,6 +43,15 @@ function payloadMember(event: ConsoleScenario["beats"][number]["event"], member:
 }
 
 describe("the repos scenario — every beat is a wire the daemon can emit", () => {
+  it("writes its base instant the same way twice", () => {
+    // The base is spelled as an ISO string for the wire and as parts for the
+    // arithmetic, and every beat's stamp is derived from the second. Reading either
+    // through a parser to check the other would put the console's own stamp reader
+    // under a fixture that exists to drive it, so the two are compared where they
+    // meet: the stamp the beat builder renders at offset zero.
+    expect(scenarioInstant(0)).toBe(REPOS_SCENARIO_STARTED_AT_ISO);
+  });
+
   it("contradicts the shipped contract nowhere", () => {
     expect(findScenarioWireTruthDefects([REPOS_SCENARIO])).toStrictEqual([]);
   });

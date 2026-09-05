@@ -20,7 +20,7 @@ import {
 } from "./proposal-gate-model.js";
 import type { EphemeralCloneStatusRecord } from "./worktree-model.js";
 
-const NOW = Date.parse("2026-01-01T09:30:00.000Z");
+const NOW = Date.UTC(2026, 0, 1, 9, 30, 0);
 
 const CLONE: EphemeralCloneStatusRecord = {
   cloneId: "clone-01",

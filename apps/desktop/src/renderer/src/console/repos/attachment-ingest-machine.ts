@@ -100,7 +100,7 @@ import {
   type AttachmentIngestEntry,
   type AttachmentSource,
 } from "./attachment-shapes.js";
-import { refusalFromRejection } from "./repo-reads.js";
+import { repoCallRefusal } from "./repo-reads.js";
 
 /** Where the protocol's own diagnostic reports from, so a firing names a module. */
 export const INGEST_MACHINE_SITE = "repos/attachment-ingest-machine.ts";
@@ -108,7 +108,7 @@ export const INGEST_MACHINE_SITE = "repos/attachment-ingest-machine.ts";
 /**
  * What each leg is called in the one sentence that says which call failed.
  *
- * Named once rather than spelled at four call sites: `refusalFromRejection` puts this
+ * Named once rather than spelled at four call sites: `repoCallRefusal` puts this
  * string in front of the rejection it rendered, so a leg whose wording drifted would
  * name the wrong call in the only place a participant can read which one it was.
  */
@@ -350,7 +350,7 @@ export class AttachmentIngestClient {
     try {
       return await call();
     } catch (rejection) {
-      const refusal = refusalFromRejection(leg, rejection);
+      const refusal = repoCallRefusal(leg, rejection);
       return { status: "unavailable", code: refusal.code, detail: refusal.detail };
     }
   }

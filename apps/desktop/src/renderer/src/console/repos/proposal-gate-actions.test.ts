@@ -502,7 +502,10 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
       // The sentence names the wire that rejected, so a participant can say which
       // call did not come back rather than only that something did not.
       expect(refusal?.detail).toContain(WIRE_FOR_ACTION[action]);
-      expect(refusal?.detail).toContain(DISCONNECTED.message);
+      // And it does NOT quote the rejected value. A rejection off the wire can carry
+      // participant content as readily as a schema failure can, which is why the
+      // console's normalizer composes its own sentence from the leg alone.
+      expect(refusal?.detail).not.toContain(DISCONNECTED.message);
       // The register is given back, which is what re-enables the controls — and the
       // whole defect was that this happened while nothing was written beside them.
       expect(reader.snapshot.inFlightAction).toBeUndefined();

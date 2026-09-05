@@ -16,8 +16,10 @@ import {
 } from "./worktree-model.js";
 
 const EXPIRES_AT = "2026-01-01T12:00:00.000Z";
-const BEFORE_EXPIRY = Date.parse("2026-01-01T09:30:00.000Z");
-const AFTER_EXPIRY = Date.parse("2026-01-01T13:00:00.000Z");
+// Built rather than parsed: a fixture instant is this suite's own decision, and the
+// console's one reader of a wire stamp is `parseInstant`, not these two lines.
+const BEFORE_EXPIRY = Date.UTC(2026, 0, 1, 9, 30, 0);
+const AFTER_EXPIRY = Date.UTC(2026, 0, 1, 13, 0, 0);
 
 /** The sweep's own stamp, in the one arm where it decides what the row says. */
 const CLEANED_AT = "2026-01-01T09:45:00.000Z";

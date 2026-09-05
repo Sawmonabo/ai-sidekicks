@@ -19,7 +19,9 @@ import {
   type ArtifactManifestRow,
 } from "./artifact-model.js";
 
-const NOW_MILLISECONDS = Date.parse("2026-01-01T09:30:00.000Z");
+// Built rather than parsed: a fixture instant is this suite's own decision, and the
+// console's one reader of a wire stamp is `parseInstant`, not this line.
+const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
 
 function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
   return {

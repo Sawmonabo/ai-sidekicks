@@ -238,8 +238,8 @@ export type GrowthAnswerReading<TValue> =
  * `read-threw` carrying a `TypeError` sentence, which made a wire that is simply not
  * registered read as the console breaking, and buried the refusal that said so.
  *
- * MOST SPECIFIC FIRST, which is `repos/repo-reads.ts`'s `refusalFromRejection`
- * ordering: a reply that already IS the console's one refusal shape is one, and
+ * MOST SPECIFIC FIRST, which is `core/wire-rejection.ts`'s own arm ordering: a reply
+ * that already IS the console's one refusal shape is one, and
  * `GrowthUnavailable` extends that shape, so the port's own refusal and a bare
  * `refuse(...)` are recognised by the same test and neither reaches the value branch.
  * A served answer carries no `code`, `detail`, or `origin`, so it cannot be mistaken

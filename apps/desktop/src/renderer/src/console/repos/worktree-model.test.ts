@@ -155,8 +155,11 @@ describe("worktree-model — the disk disposition", () => {
 });
 
 describe("worktree-model — clone expiry", () => {
+  // One instant written twice — the stamp the record carries and the parts the
+  // arithmetic reads — rather than one derived from the other through the reader this
+  // suite is driving.
   const expiresAt = "2026-01-01T12:00:00.000Z";
-  const expiryMilliseconds = Date.parse(expiresAt);
+  const expiryMilliseconds = Date.UTC(2026, 0, 1, 12, 0, 0);
 
   it("classifies against the caller's instant and nothing else", () => {
     expect(cloneExpiryReading(cloneRecord({ expiresAt }), expiryMilliseconds - 1)).toBe(

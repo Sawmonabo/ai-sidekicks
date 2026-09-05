@@ -42,6 +42,7 @@ import type {
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
 
+import { parseInstant } from "../core/index.js";
 import type { ChipTone } from "../primitives/index.js";
 
 /** One worktree row of `repo.worktreeStatusRead`. */
@@ -238,8 +239,8 @@ export function cloneExpiryAtMs(record: EphemeralCloneStatusRecord): number | un
   if (record.cleanedAt !== undefined) {
     return undefined;
   }
-  const expiresAtMilliseconds = Date.parse(record.expiresAt);
-  return Number.isNaN(expiresAtMilliseconds) ? undefined : expiresAtMilliseconds;
+  const reading = parseInstant(record.expiresAt);
+  return reading.kind === "instant" ? reading.epochMilliseconds : undefined;
 }
 
 /**

@@ -39,7 +39,7 @@ const ROOT: WorktreeStatusRecord = {
   updatedAt: "2026-01-01T09:05:00.700Z",
 } as WorktreeStatusRecord;
 
-const NOW = Date.parse("2026-01-01T09:06:00.000Z");
+const NOW = Date.UTC(2026, 0, 1, 9, 6, 0);
 
 /** A bridge whose gate read refuses the way the live bridge refuses it. */
 function bridgeAnswering(branchContext: unknown): ConsoleBridge {

@@ -397,7 +397,9 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
       artifactId: SERVED_SUMMARY.artifactId,
       refusal: {
         code: "call-rejected",
-        detail: "The payload fetch was rejected: Error: the daemon channel closed",
+        // The leg, and NOT the rejected value: a rejection off the wire can carry
+        // participant content as readily as a schema failure can.
+        detail: "The payload fetch was rejected.",
         origin: "repos",
       },
     });

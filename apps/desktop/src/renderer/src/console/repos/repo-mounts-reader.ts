@@ -75,7 +75,7 @@ import {
   readRepoMount,
   readSessionWorkspaces,
   readWorktreeStatus,
-  refusalFromRejection,
+  repoCallRefusal,
 } from "./repo-reads.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
@@ -137,7 +137,7 @@ export class RepoMountsReader {
         this.#publish({
           ...this.#reading,
           status: "read",
-          refusal: refusalFromRejection("repo.workspaceList", error),
+          refusal: repoCallRefusal("repo.workspaceList", error),
         });
       },
     });

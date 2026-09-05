@@ -23,7 +23,7 @@
 // anywhere saying so. Fired and not awaited, a rejection here reached no `catch` at
 // all, so it became an unhandled rejection in the page and skipped the one diagnostic
 // this module exists to write. It is caught and normalized through the repos family's
-// own `refusalFromRejection` — the same normalizer the protocol's legs use, so a
+// own `repoCallRefusal` — the same normalizer the protocol's legs use, so a
 // rejection carrying a daemon code keeps it — and then reported down the same path as
 // a refused answer, because to the spool the two mean one thing: nobody released it.
 //
@@ -39,7 +39,7 @@
 import type { ConsoleBridge } from "../bridge/index.js";
 import { reportTripwire } from "../core/index.js";
 import type { PortAnswer } from "./attachment-ingest-answer.js";
-import { refusalFromRejection } from "./repo-reads.js";
+import { repoCallRefusal } from "./repo-reads.js";
 
 /** Where the unreclaimed-spool tripwire reports from, so a firing names a module. */
 export const INGEST_ABORT_SITE = "repos/attachment-ingest-abort.ts";
@@ -96,7 +96,7 @@ export class AttachmentSpoolReclaimer {
     try {
       answer = await this.#bridge.growth.artifactIngestAbort({ ingestId });
     } catch (rejection) {
-      const refusal = refusalFromRejection(INGEST_ABORT_LEG, rejection);
+      const refusal = repoCallRefusal(INGEST_ABORT_LEG, rejection);
       answer = { status: "unavailable", code: refusal.code, detail: refusal.detail };
     }
     if (answer.status === "served") {

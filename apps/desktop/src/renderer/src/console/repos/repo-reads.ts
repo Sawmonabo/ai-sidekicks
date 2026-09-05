@@ -26,8 +26,7 @@ import type {
   WorkspaceListResponse,
   WorktreeStatusReadResponse,
 } from "@ai-sidekicks/contracts";
-import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
-import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
 import {
   callDaemon,
   type ConsoleBridge,
@@ -126,35 +125,26 @@ export async function readWorktreeStatus(
 }
 
 /**
- * Turn a rejection into the console's one refusal shape, keeping the daemon's own
- * code wherever the rejection carries one.
+ * Say that one repos call was rejected, in the console's one refusal shape.
  *
- * Three arms, most specific first:
- *   1. A value that already IS a `ConsoleRefusal`, or an error carrying one — the
- *      fixture bridge's `FixtureBridgeError` and every other `ConsoleRefusalError`
- *      arrive this way, and re-labelling them would lose the origin they name.
- *   2. A typed wire envelope — `repo.not_found`, `repo.outside_trust_envelope`,
- *      `workspace.busy`, and every other daemon code. The code and the message pass
- *      through VERBATIM (rule 9: the console never paraphrases the daemon), and the
- *      origin becomes this family so a refusal three layers from here still names
- *      where it surfaced.
- *   3. Anything else, rendered through the total stringifier, under the one code the
- *      console owns for "the call was rejected and said nothing machine-readable".
+ * A DELEGATION, NOT A NORMALIZER. `core/wire-rejection.ts` holds the console's only
+ * reading of a rejected promise — the carried-refusal unwrap that survives a realm
+ * crossing, the JSON-RPC `data.type` arm whose dotted code a `{ code: string }` guard
+ * cannot see, the flat envelope that keeps the daemon's code and sentence verbatim,
+ * and the retry hint a rate-limit envelope registers. This module's three-arm copy of
+ * that reading dropped the first two of those, so a rejection carrying a project code
+ * arrived as `call-rejected`. What is left here is the pair that IS this family's: the
+ * origin its refusals carry, and the sentence for a rejection that said nothing
+ * machine-readable.
+ *
+ * THE REJECTED VALUE IS NOT QUOTED INTO THE SENTENCE. It names the leg and stops
+ * there — a rejection off the wire can carry participant content as readily as a
+ * schema failure can, which is the rule `Spec-023 §Console Design (Meridian)` rule 9
+ * sets and which the copy this replaces broke by stringifying the rejection into it.
  */
-export function refusalFromRejection(method: string, rejection: unknown): ConsoleRefusal {
-  const carried: unknown =
-    rejection instanceof Error && "refusal" in rejection
-      ? (rejection as { readonly refusal: unknown }).refusal
-      : rejection;
-  if (isConsoleRefusal(carried)) {
-    return carried;
-  }
-  if (isWireErrorEnvelope(rejection)) {
-    return refuse(REPO_READS_REFUSAL_ORIGIN, rejection.code, rejection.message);
-  }
-  return refuse(
-    REPO_READS_REFUSAL_ORIGIN,
-    "call-rejected" satisfies DaemonReplyRefusalCode,
-    `${method} was rejected: ${lossyStringify(rejection)}`,
-  );
+export function repoCallRefusal(leg: string, rejection: unknown): ConsoleRefusal {
+  return normalizeWireRejection(REPO_READS_REFUSAL_ORIGIN, rejection, {
+    code: "call-rejected" satisfies DaemonReplyRefusalCode,
+    detail: `${leg} was rejected.`,
+  });
 }

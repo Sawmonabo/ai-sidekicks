@@ -63,7 +63,7 @@ import { refuse, type ConsoleRefusal } from "../core/index.js";
 import type { BranchContextReading } from "./branch-context-model.js";
 import { proposalContextKeysMatch, type PreparedProposal } from "./prepared-proposal.js";
 import { gitActionExecuteRequest } from "./git-action-request.js";
-import { refusalFromRejection } from "./repo-reads.js";
+import { repoCallRefusal } from "./repo-reads.js";
 import {
   PROPOSAL_ACTION_HEAD_EFFECT,
   PROPOSAL_ACTION_PRESENTATION,
@@ -223,10 +223,7 @@ export class ProposalGateActions {
       // The identity check the settle paths make, for their reason: a rejection for a
       // request the register has moved past describes an act a later press superseded.
       if (this.#stillStandingFor(request)) {
-        this.#recordActionRefusal(
-          action,
-          refusalFromRejection(proposalActionWire(action), rejection),
-        );
+        this.#recordActionRefusal(action, repoCallRefusal(proposalActionWire(action), rejection));
       }
     } finally {
       this.#release(request);

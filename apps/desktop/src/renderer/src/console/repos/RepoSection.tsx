@@ -59,7 +59,7 @@ import { EphemeralCloneGateRow } from "./EphemeralCloneGateRow.js";
 import { MountCard } from "./MountCard.js";
 import { ephemeralCloneGateSubject } from "./proposal-gate-model.js";
 import { useRepoMounts, type RepoMountsReading } from "./repo-mounts-reader.js";
-import { refusalFromRejection } from "./repo-reads.js";
+import { repoCallRefusal } from "./repo-reads.js";
 
 export interface RepoSectionProps {
   readonly context: SidebarSectionContext;
@@ -95,7 +95,7 @@ export function RepoSection(props: RepoSectionProps): React.JSX.Element {
         // The host refused the clipboard. Rendered rather than swallowed: the root is
         // still on screen and still recoverable through the element's title, so the
         // person needs to know the copy did not happen, not be told it did.
-        setCopyRefusal(refusalFromRejection("native.copyToClipboard", rejection));
+        setCopyRefusal(repoCallRefusal("native.copyToClipboard", rejection));
       });
     },
     [bridge],

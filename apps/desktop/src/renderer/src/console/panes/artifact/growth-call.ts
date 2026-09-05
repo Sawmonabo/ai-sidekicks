@@ -13,18 +13,19 @@
 // twice. Written twice, the two copies would be two chances to relabel a code the
 // console is not allowed to paraphrase.
 //
-// THROUGH THE REPOS FAMILY'S NORMALIZER RATHER THAN A SECOND ONE. `repo-reads.ts`
-// already owns turning a rejection into this console's one refusal shape, and its
-// ordering is what matters: a value that already IS a `ConsoleRefusal` — which the
-// fixture bridge throws — passes through with the origin it named, a typed wire
-// envelope keeps the daemon's own code and message verbatim, and only the remainder
-// becomes `call-rejected`.
+// THROUGH THE CONSOLE'S NORMALIZER RATHER THAN A SECOND ONE. `core/wire-rejection.ts`
+// owns turning a rejection into this console's one refusal shape, and its arm ordering
+// is what matters: a value that already IS a `ConsoleRefusal` — which the fixture
+// bridge throws — passes through with the origin it named, a JSON-RPC envelope's dotted
+// project code and a flat envelope's code and message are kept verbatim, and only the
+// remainder becomes `call-rejected`. `repo-reads.ts` supplies the two things that are
+// this family's — the origin and the sentence — and reads nothing itself.
 //
 // THE THUNK RATHER THAN A PROMISE: a bridge whose namespace is gone can throw
 // synchronously, and a promise parameter would have to be built outside the `try` to
 // be passed in — which is exactly the call this exists to catch.
 
-import { refusalFromRejection } from "../../repos/repo-reads.js";
+import { repoCallRefusal } from "../../repos/repo-reads.js";
 import {
   growthAnswerReading,
   type GrowthAnswer,
@@ -39,6 +40,6 @@ export async function readGrowthAnswer<TValue>(
   try {
     return growthAnswerReading(operation, await call());
   } catch (rejection) {
-    return { status: "refused", refusal: refusalFromRejection(operation, rejection) };
+    return { status: "refused", refusal: repoCallRefusal(operation, rejection) };
   }
 }

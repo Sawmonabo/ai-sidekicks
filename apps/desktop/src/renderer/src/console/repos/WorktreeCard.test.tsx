@@ -19,7 +19,9 @@ import {
   type WorktreeStatusRecord,
 } from "./worktree-model.js";
 
-const NOW_MILLISECONDS = Date.parse("2026-01-01T09:30:00.000Z");
+// Built rather than parsed: a fixture instant is this suite's own decision, and the
+// console's one reader of a wire stamp is `parseInstant`, not this line.
+const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
 
 function worktreeRecord(overrides: Partial<WorktreeStatusRecord> = {}): WorktreeStatusRecord {
   return {
@@ -76,7 +78,7 @@ describe("WorktreeCard — the face", () => {
     const record = worktreeRecord();
     const early = render(<WorktreeCard record={record} nowMilliseconds={NOW_MILLISECONDS} />);
     const late = render(
-      <WorktreeCard record={record} nowMilliseconds={Date.parse("2026-01-04T09:00:00.000Z")} />,
+      <WorktreeCard record={record} nowMilliseconds={Date.UTC(2026, 0, 4, 9, 0, 0)} />,
     );
     expect(early.container.textContent).not.toBe(late.container.textContent);
   });

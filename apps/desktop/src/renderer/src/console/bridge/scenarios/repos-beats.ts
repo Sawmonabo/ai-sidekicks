@@ -53,7 +53,13 @@ function reposEventId(sequence: number): string {
  */
 export const REPOS_SCENARIO_STARTED_AT_ISO = "2026-01-01T09:05:00.000Z";
 
-const REPOS_SCENARIO_STARTED_AT_MILLISECONDS = Date.parse(REPOS_SCENARIO_STARTED_AT_ISO);
+// ONE INSTANT WRITTEN TWICE, BUILT RATHER THAN PARSED. The scenario's base is a
+// fixture's own decision and not a wire reading, so composing it from its parts is
+// exact; reading it back through a parser would make every beat derived from it assert
+// against whatever that parser answered, and the console's one reader of a wire stamp
+// is the thing the cases built on this base are measuring. The two spellings are
+// asserted equal by `repos.test.ts`, so the pair cannot drift.
+const REPOS_SCENARIO_STARTED_AT_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 5, 0);
 
 /**
  * The wire stamp for one tick of scenario time.

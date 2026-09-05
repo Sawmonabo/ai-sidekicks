@@ -91,7 +91,7 @@ import {
   type ProposalContextKey,
 } from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
-import { refusalFromRejection } from "./repo-reads.js";
+import { repoCallRefusal } from "./repo-reads.js";
 import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
 
 /**
@@ -191,7 +191,7 @@ export class ProposalGateReader {
           ...this.#reading,
           state: {
             kind: "refused",
-            message: refusalFromRejection(BRANCH_CONTEXT_READ_CALL, error).detail,
+            message: repoCallRefusal(BRANCH_CONTEXT_READ_CALL, error).detail,
           },
           refusal: undefined,
           settlement: GATE_SETTLEMENT_COPY.refused,

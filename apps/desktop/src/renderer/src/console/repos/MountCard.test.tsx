@@ -77,7 +77,7 @@ function renderCard(
         pendingModeByWorkspaceId={{}}
         worktrees={[]}
         worktreeRefusal={undefined}
-        nowMilliseconds={Date.parse("2026-01-01T09:05:02.000Z")}
+        nowMilliseconds={Date.UTC(2026, 0, 1, 9, 5, 2)}
         bridge={REFUSING_BRIDGE}
         sessionStore={new SessionStore({ sessionId: "session-repos" })}
         onCopyCanonicalRoot={() => undefined}

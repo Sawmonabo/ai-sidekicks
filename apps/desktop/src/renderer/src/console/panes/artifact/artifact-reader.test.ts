@@ -550,7 +550,10 @@ describe("artifact pane reader — one leg that did not come back", () => {
     expect(reading.allowlist.source).toBe("shipped-default");
     expect(reading.allowlist.mediaTypes).toStrictEqual(ATTACHMENT_ALLOWLIST_DEFAULT);
     expect(reading.allowlist.refusal?.code).toBe("call-rejected");
-    expect(reading.allowlist.refusal?.detail).toContain(DISCONNECTED.message);
+    // The leg that did not come back is named; the rejected value is not quoted into
+    // the sentence, because a rejection off the wire can carry participant content.
+    expect(reading.allowlist.refusal?.detail).toContain("The attachment allow-list read");
+    expect(reading.allowlist.refusal?.detail).not.toContain(DISCONNECTED.message);
   });
 
   it("keeps the bounds a rejected list read has nothing to say about", async () => {
