@@ -66,6 +66,14 @@ export function ComposerHarness(props: {
   readonly calls: RecordedDaemonCall[];
   readonly answer: ScriptedAnswer;
   readonly onDismiss: () => void;
+  /**
+   * The run to compose against, for the case that re-targets one mounted form.
+   *
+   * Deliberately WITHOUT a React key, which is the documented keyless path: the pane
+   * supplies one and this parameter is how a case reaches the composer's own second
+   * defence against a caller that does not.
+   */
+  readonly run?: RunProjection;
 }): React.JSX.Element {
   // Pinned for the harness's whole life: the surface keys its holders on the
   // bridge, so a stub rebuilt on every render would be a new transport each pass.
@@ -73,7 +81,8 @@ export function ComposerHarness(props: {
   const surface = useRunControlSurface(bridge);
   return (
     <RunInterventionComposer
-      run={runAt("paused")}
+      bridge={bridge}
+      run={props.run ?? runAt("paused")}
       control={props.control}
       surface={surface}
       onDismiss={props.onDismiss}

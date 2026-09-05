@@ -157,6 +157,7 @@ export function RunsPaneBody(props: {
             // from the inside — see its own identity effect — so a later caller
             // that drops this key does not silently reintroduce the leak.
             key={`${composerTarget.runId}:${composerTarget.control}`}
+            bridge={context.bridge}
             run={composedRun}
             control={composerTarget.control}
             surface={surface}

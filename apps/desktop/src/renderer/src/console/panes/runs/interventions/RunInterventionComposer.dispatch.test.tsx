@@ -7,7 +7,7 @@
 // a dispatch it did not make, or sent a comparand it had already been told was
 // stale, would be wrong in exactly this interval and nowhere else.
 
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../../../bridge/index.js";
@@ -108,6 +108,7 @@ describe("the comparand is the newer of the two readings", () => {
     return (
       <RunInterventionComposer
         key={props.runVersion}
+        bridge={props.bridge}
         run={runAt("paused", props.runVersion)}
         control="rollback"
         surface={surface}
@@ -157,23 +158,52 @@ describe("the form is keyed by what it is composing against", () => {
    * what a later caller that drops the key would render — the arm the component's
    * own reset has to hold on its own.
    */
+  /**
+   * What the DOM held at COMMIT time, before any passive effect could correct it.
+   *
+   * A layout effect, which is the only moment that answers this question: React has
+   * written the frame and no passive effect has run, so a reset implemented as a
+   * `useEffect` has not happened yet and whatever this reads is what a person could
+   * see and press. Mounted after the form so the form's own frame is already there.
+   */
+  function CommitProbe(props: {
+    readonly record: (committed: { body: string; isConfirmDisabled: boolean }) => void;
+  }): null {
+    const { record } = props;
+    useLayoutEffect(() => {
+      const body = document.querySelector(".meridian-run-composer__body");
+      const confirm = document.querySelector(".meridian-run-composer__confirm");
+      record({
+        body: body instanceof HTMLTextAreaElement ? body.value : "<the form drew no body>",
+        isConfirmDisabled: confirm instanceof HTMLButtonElement ? confirm.disabled : false,
+      });
+    });
+    return null;
+  }
+
   function TargetSwitchHarness(props: {
     readonly runId: string;
     readonly control: ComposedControl;
     readonly keyed: boolean;
     readonly answer: ScriptedAnswer;
+    readonly onCommit?: (committed: { body: string; isConfirmDisabled: boolean }) => void;
   }): React.JSX.Element {
     const [bridge] = useState(() => stubBridge([], props.answer));
     const surface = useRunControlSurface(bridge);
     const identity = `${props.runId}:${props.control}`;
+    const { onCommit } = props;
     return (
-      <RunInterventionComposer
-        key={props.keyed ? identity : "fixed"}
-        run={runAt("paused", 8, props.runId)}
-        control={props.control}
-        surface={surface}
-        onDismiss={() => undefined}
-      />
+      <>
+        <RunInterventionComposer
+          key={props.keyed ? identity : "fixed"}
+          bridge={bridge}
+          run={runAt("paused", 8, props.runId)}
+          control={props.control}
+          surface={surface}
+          onDismiss={() => undefined}
+        />
+        {onCommit === undefined ? null : <CommitProbe record={onCommit} />}
+      </>
     );
   }
 
@@ -235,6 +265,46 @@ describe("the form is keyed by what it is composing against", () => {
     expect(bodyValue(container)).toBe("");
   });
 
+  it("shows the new target's own empty form in the commit that re-addresses", async () => {
+    // The commit itself, not the settled state after it. A reset implemented as a
+    // passive effect is one commit late by construction: the render that first sees
+    // the new run read the PREVIOUS run's body, target position, refusal and pending
+    // dispatch, nothing disabled the form for that commit, and a submit in it
+    // dispatched text authored for one run against another's comparand.
+    const committed: { body: string; isConfirmDisabled: boolean }[] = [];
+    const { container, rerender } = render(
+      <TargetSwitchHarness
+        runId={RUN_ID}
+        control="steer"
+        keyed={false}
+        answer={NEVER_SETTLES}
+        onCommit={(reading) => committed.push(reading)}
+      />,
+    );
+    typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
+    await submit(container);
+    // The old target's dispatch is parked, so its confirm is latched — which is what
+    // makes the reading after the switch decisive rather than incidental.
+    expect(committed.at(-1)).toStrictEqual({
+      body: "stop and re-read the diff",
+      isConfirmDisabled: true,
+    });
+
+    committed.length = 0;
+    await act(async () => {
+      rerender(
+        <TargetSwitchHarness
+          runId={SECOND_RUN_ID}
+          control="steer"
+          keyed={false}
+          answer={NEVER_SETTLES}
+          onCommit={(reading) => committed.push(reading)}
+        />,
+      );
+    });
+    expect(committed[0]).toStrictEqual({ body: "", isConfirmDisabled: false });
+  });
+
   it("negative control: a re-render at the same target keeps what was typed", () => {
     // Without this every case above would pass over a form that cleared itself on
     // every render, which would make it impossible to type into at all.
@@ -277,6 +347,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
     return (
       <RunInterventionComposer
         key={props.formKey}
+        bridge={bridge}
         run={runAt("paused")}
         control="steer"
         surface={surface}

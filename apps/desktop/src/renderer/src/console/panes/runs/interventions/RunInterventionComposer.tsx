@@ -42,9 +42,20 @@
 // then sent text authored for A to B, or left B waiting on A's settlement. The pane
 // keys the element by `<runId>:<control>` so a change of identity remounts it, and
 // this file holds the same rule a second time — the identity travels ON the pending
-// dispatch, so a settlement raised under one identity is never read under another,
-// and an identity change clears the fields outright. A caller that drops the key
-// cannot silently reintroduce the leak.
+// dispatch, so a settlement raised under one identity is never read under another.
+// A caller that drops the key cannot silently reintroduce the leak.
+//
+// AND THE SECOND HALF IS A HOLDER RATHER THAN AN EFFECT. The reset used to be a ref
+// compared in a passive effect, which is one commit late by construction: on the
+// render that first saw a new run, the body, the target position, the local refusal
+// and the pending dispatch were still the PREVIOUS run's, nothing disabled the form
+// for that commit, and a submit in it dispatched text authored for one run against
+// another's comparand. An effect cannot be the reset for a value read during the
+// render that changed the identity. The whole form is therefore held in one
+// `useSubjectScopedState(bridge, composedIdentity, …)`, which re-seeds DURING that
+// render — so the pass that first sees a new target already reads that target's own
+// empty form, and the one-way close flag is re-seeded with it rather than surviving
+// as a ref that would keep the next target's landed settlement from closing at all.
 //
 // AND IT WAITS ON ITS OWN DISPATCH AND NO OTHER. The form used to mark itself
 // pending BEFORE calling `surface.dispatch`, and identify its settlement as
@@ -74,9 +85,11 @@
 // renders) closes this form. Everything else keeps the body on screen beside the
 // daemon's own code.
 
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo } from "react";
 
+import type { ConsoleBridge } from "../../../bridge/index.js";
 import { InlineRefusal } from "../../../primitives/index.js";
+import { useSubjectScopedState } from "../../../store/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import { admissionRefusal, readComposerSettlement } from "./composer-settlement.js";
 import type { ComposerSettlement } from "./composer-settlement.js";
@@ -93,6 +106,14 @@ import type { RunProjection } from "../run-state-projection.js";
 export type ComposedControl = "steer" | "rollback";
 
 export interface RunInterventionComposerProps {
+  /**
+   * The transport this form's state belongs to, and the surface's own subject.
+   *
+   * Present for the holder and for nothing else: this component makes no call of its
+   * own — `surface.dispatch` does — but its state is about one transport and one
+   * target, and a replacement retires both.
+   */
+  readonly bridge: ConsoleBridge;
   readonly run: RunProjection;
   readonly control: ComposedControl;
   readonly surface: RunControlSurface;
@@ -119,16 +140,69 @@ function composedIdentityFor(runId: string, control: ComposedControl): string {
   return `${runId}:${control}`;
 }
 
+/**
+ * Everything this form holds about ONE target, in one value.
+ *
+ * One record rather than five hooks because they are reset by one fact — the target
+ * changed — and five holders would be five chances for one of them to be forgotten,
+ * which is exactly what the ref-and-effect reset was.
+ */
+interface ComposedForm {
+  readonly body: string;
+  readonly targetPosition: string;
+  readonly localRefusal: ConsoleRefusal | undefined;
+  readonly pendingDispatch: PendingDispatch | undefined;
+  /**
+   * Whether this form has already asked to be closed.
+   *
+   * Closing is one-way. The ledger this settlement is read from goes on changing —
+   * another run's dispatch appends to it — so a form that asked to be closed on every
+   * pass that recomputed its settlement would keep asking a parent that had already
+   * stopped rendering it. Held here rather than in a ref so a new target starts able
+   * to close again.
+   */
+  readonly hasAskedToClose: boolean;
+}
+
+const EMPTY_FORM: ComposedForm = Object.freeze({
+  body: "",
+  targetPosition: "",
+  localRefusal: undefined,
+  pendingDispatch: undefined,
+  hasAskedToClose: false,
+});
+
 export function RunInterventionComposer(props: RunInterventionComposerProps): React.JSX.Element {
-  const { run, control, surface, onDismiss } = props;
-  const [body, setBody] = useState("");
-  const [targetPosition, setTargetPosition] = useState("");
-  const [localRefusal, setLocalRefusal] = useState<ConsoleRefusal | undefined>(undefined);
-  const [pendingDispatch, setPendingDispatch] = useState<PendingDispatch | undefined>(undefined);
+  const { bridge, run, control, surface, onDismiss } = props;
   const bodyId = useId();
   const positionId = useId();
   const comparand = surface.dispatcher.comparandFor(run.runId, run.runVersion);
   const composedIdentity = composedIdentityFor(run.runId, control);
+  const { value: form, publish: publishForm } = useSubjectScopedState<ComposedForm>(
+    bridge,
+    composedIdentity,
+    () => EMPTY_FORM,
+  );
+  const { body, targetPosition, localRefusal, pendingDispatch } = form;
+
+  const publishBody = useCallback(
+    (next: string) => {
+      publishForm((held) => ({ ...held, body: next }));
+    },
+    [publishForm],
+  );
+  const publishTargetPosition = useCallback(
+    (next: string) => {
+      publishForm((held) => ({ ...held, targetPosition: next }));
+    },
+    [publishForm],
+  );
+  const publishLocalRefusal = useCallback(
+    (next: ConsoleRefusal) => {
+      publishForm((held) => ({ ...held, localRefusal: next }));
+    },
+    [publishForm],
+  );
 
   // The dispatcher's answer, read off the record the surface appended for THIS
   // dispatch. The token is what makes that exact: it is minted at admission and is
@@ -145,35 +219,13 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
   const isSending = pendingDispatch !== undefined && settlement === undefined;
   const isConfirmLatched = isSending || settlement?.kind === "recorded";
 
-  // Closing is one-way. The ledger this settlement is read from goes on changing —
-  // another run's dispatch appends to it — so a form that asked to be closed on
-  // every pass that recomputed its settlement would keep asking a parent that had
-  // already stopped rendering it.
-  const hasAskedToClose = useRef(false);
-
-  // The second half of the reset, for a caller that renders this form without the
-  // key the pane gives it. Held against the identity the last commit rendered rather
-  // than fired on every pass, so a mount clears nothing and only an actual change of
-  // target does — a `setState` on every render would be a loop.
-  const renderedIdentity = useRef(composedIdentity);
+  const hasAskedToClose = form.hasAskedToClose;
   useEffect(() => {
-    if (renderedIdentity.current === composedIdentity) {
-      return;
-    }
-    renderedIdentity.current = composedIdentity;
-    setBody("");
-    setTargetPosition("");
-    setLocalRefusal(undefined);
-    setPendingDispatch(undefined);
-    hasAskedToClose.current = false;
-  }, [composedIdentity]);
-
-  useEffect(() => {
-    if (settlement?.kind === "landed" && !hasAskedToClose.current) {
-      hasAskedToClose.current = true;
+    if (settlement?.kind === "landed" && !hasAskedToClose) {
+      publishForm((held) => ({ ...held, hasAskedToClose: true }));
       onDismiss();
     }
-  }, [settlement, onDismiss]);
+  }, [settlement, hasAskedToClose, publishForm, onDismiss]);
 
   const onSubmit = useCallback(
     (event: React.FormEvent<HTMLFormElement>) => {
@@ -191,15 +243,18 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       ): void => {
         const admission = surface.dispatch(run.runId, control, perform);
         if (!admission.admitted) {
-          setLocalRefusal(admissionRefusal(admission.reason));
+          publishForm((held) => ({ ...held, localRefusal: admissionRefusal(admission.reason) }));
           return;
         }
-        setLocalRefusal(undefined);
-        setPendingDispatch({ dispatchToken: admission.dispatchToken, composedIdentity });
+        publishForm((held) => ({
+          ...held,
+          localRefusal: undefined,
+          pendingDispatch: { dispatchToken: admission.dispatchToken, composedIdentity },
+        }));
       };
       if (control === "steer") {
         if (body.trim().length === 0) {
-          setLocalRefusal(
+          publishLocalRefusal(
             refuse(
               RUN_CONTROL_REFUSAL_ORIGIN,
               "empty-directive",
@@ -215,7 +270,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       }
       const reading = parseRewindPosition(targetPosition);
       if (reading.status !== "named") {
-        setLocalRefusal(
+        publishLocalRefusal(
           reading.status === "unnamed"
             ? refuse(
                 RUN_CONTROL_REFUSAL_ORIGIN,
@@ -236,7 +291,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       // point of writing it that way.
       const isReplacementBlank = body.trim().length === 0;
       if (body.length > 0 && isReplacementBlank) {
-        setLocalRefusal(
+        publishLocalRefusal(
           refuse(
             RUN_CONTROL_REFUSAL_ORIGIN,
             "empty-replacement",
@@ -263,6 +318,8 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
       comparand,
       isConfirmLatched,
       composedIdentity,
+      publishForm,
+      publishLocalRefusal,
     ],
   );
 
@@ -283,7 +340,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
             inputMode="numeric"
             value={targetPosition}
             onChange={(event) => {
-              setTargetPosition(event.target.value);
+              publishTargetPosition(event.target.value);
             }}
           />
           <p className="meridian-run-composer__preview">
@@ -302,7 +359,7 @@ export function RunInterventionComposer(props: RunInterventionComposerProps): Re
         value={body}
         rows={3}
         onChange={(event) => {
-          setBody(event.target.value);
+          publishBody(event.target.value);
         }}
       />
       {control === "rollback" && body.trim().length > 0 ? (
