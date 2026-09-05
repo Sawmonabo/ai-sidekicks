@@ -8,12 +8,9 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { GrowthPort } from "../../../bridge/index.js";
+import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../constants.js";
 import { OperatorControls, type OperatorControlsProps } from "./OperatorControls.js";
-import {
-  WORKFLOW_CANCEL_REASON_BYTE_CAP,
-  unregisteredRunControl,
-  type WorkflowVersionChoice,
-} from "./run-controls.js";
+import { unregisteredRunControl, type WorkflowVersionChoice } from "./run-controls.js";
 
 /**
  * The address the controls hold their two fields against.

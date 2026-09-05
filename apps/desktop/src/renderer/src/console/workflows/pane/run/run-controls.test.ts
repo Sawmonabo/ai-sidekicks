@@ -10,8 +10,8 @@
 import { describe, expect, it } from "vitest";
 
 import { measureUtf8ByteLength } from "../../../persistence/index.js";
+import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../constants.js";
 import {
-  WORKFLOW_CANCEL_REASON_BYTE_CAP,
   WORKFLOW_RUN_CONTROL_ACTIONS,
   WORKFLOW_RUN_CONTROL_ORIGIN,
   cancelReasonBudget,
