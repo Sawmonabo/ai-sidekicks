@@ -43,7 +43,7 @@
 // instant is held per clock through `subject-scoped-state.ts` and re-seeded during
 // the render that first sees a replacement rather than one frame later.
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 
 import type { ConsoleClock, ScheduledHandle } from "../core/index.js";
 import { useSubjectScopedState } from "./subject-scoped-state.js";
@@ -79,6 +79,39 @@ const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
  * finite instant is skipped rather than armed for, because a timer scheduled against
  * `NaN` fires immediately and forever.
  */
+/**
+ * The LATEST deadline at or behind `nowMilliseconds`, or `undefined`.
+ *
+ * The catch-up half of the rule above, and the reason it exists: a wake-up that
+ * arrives long after the deadline it was armed for has usually crossed several, and
+ * publishing only the earliest of them settles one boundary per render — the next
+ * pass arms for the next crossed deadline, finds it already behind, and publishes
+ * again. A host that slept, a tab that was backgrounded, and a scenario advanced by
+ * three quarters of an hour all reach that shape, and the last of them reaches
+ * React's nested-update ceiling before the figure on screen is current.
+ *
+ * The published instant is still a deadline the caller's own list carries and still
+ * one the clock has passed, so nothing here renders an instant no threshold
+ * corresponds to — the property the arming comment states. It renders the LAST one
+ * crossed instead of the first, which is the reading a person looking at the surface
+ * after the sleep is owed.
+ */
+export function latestPassedDeadline(
+  deadlines: readonly number[],
+  nowMilliseconds: number,
+): number | undefined {
+  let latestMilliseconds: number | undefined;
+  for (const deadline of deadlines) {
+    if (!Number.isFinite(deadline) || deadline > nowMilliseconds) {
+      continue;
+    }
+    if (latestMilliseconds === undefined || deadline > latestMilliseconds) {
+      latestMilliseconds = deadline;
+    }
+  }
+  return latestMilliseconds;
+}
+
 export function earliestFutureDeadline(
   deadlines: readonly number[],
   nowMilliseconds: number,
@@ -125,6 +158,12 @@ export function useDeadlineWake(clock: ConsoleClock, deadlines: readonly number[
     () => clock.now(),
   );
   const dueAtMilliseconds = earliestFutureDeadline(deadlines, wokeAtMilliseconds);
+  // The live list, reachable from inside the effect without joining its dependencies.
+  // The effect deliberately depends on the earliest deadline as a NUMBER, so an array
+  // rebuilt with the same contents re-arms nothing; a ref is what lets the catch-up
+  // below read every deadline without giving that property up.
+  const deadlinesRef = useRef(deadlines);
+  deadlinesRef.current = deadlines;
 
   useEffect(() => {
     if (dueAtMilliseconds === undefined) {
@@ -139,12 +178,17 @@ export function useDeadlineWake(clock: ConsoleClock, deadlines: readonly number[
       const remainingMilliseconds = dueAtMilliseconds - clock.now();
       if (remainingMilliseconds <= 0) {
         armedHandle = undefined;
-        // The deadline itself, and never the clock's reading of now: the caller's
-        // rows turn on whether that instant has passed, and waking to a later one
-        // would cross thresholds nobody in the list is measured against. `Math.max`
-        // rather than a bare assignment because two consumers of one clock can
-        // settle out of order and the instant is monotone by construction.
-        publishInstant((heldMilliseconds) => Math.max(heldMilliseconds, dueAtMilliseconds));
+        // A deadline the caller's own list carries, and never the clock's reading of
+        // now: the caller's rows turn on whether that instant has passed, and waking
+        // to one nothing is measured against would cross no threshold in the list.
+        // The LAST one crossed rather than the first, because a wake-up that arrives
+        // after several settles all of them here or settles one per render until the
+        // ceiling. `Math.max` rather than a bare assignment because two consumers of
+        // one clock can settle out of order and the instant is monotone by
+        // construction.
+        const crossedMilliseconds =
+          latestPassedDeadline(deadlinesRef.current, clock.now()) ?? dueAtMilliseconds;
+        publishInstant((heldMilliseconds) => Math.max(heldMilliseconds, crossedMilliseconds));
         return;
       }
       armedHandle = clock.scheduleTimeout(
