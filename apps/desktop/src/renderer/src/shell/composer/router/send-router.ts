@@ -14,14 +14,17 @@
 //      a test without a bridge, and it is what lets the surface render the path
 //      label ("new turn" / "steer") from the same decision that performs it rather
 //      than from a second guess beside it.
-//   2. **Every identifier is parsed through the registered schema.** The store
+//   2. **Every identifier is read through the bridge family's reader.** The store
 //      holds wire-verbatim strings; `run.queueCreate` and `run.intervene` take
-//      branded ids. Parsing here means the console never dispatches a shape the
-//      daemon would refuse, and an unparseable id becomes a rendered refusal
-//      instead of a rejected round trip. The REQUEST as a whole, and every reply,
-//      are parsed by `callDaemon` rather than here: this module resolves identifiers
-//      because the resolution is pure and testable without a bridge, and the door
-//      one layer down is what makes the parse unskippable.
+//      branded ids. Reading here means the console never dispatches a shape the
+//      daemon would refuse, and an unreadable id becomes a rendered refusal
+//      instead of a rejected round trip — with a sentence that names WHICH
+//      identifier, which is the whole reason the reading happens here at all.
+//      The schema itself is imported at the wire's edge and nowhere else, so this
+//      module consumes a typed answer and never a validator. The REQUEST as a
+//      whole, and every reply, are parsed again by `callDaemon`: this module
+//      resolves identifiers because the resolution is pure and testable without a
+//      bridge, and the door one layer down is what makes the parse unskippable.
 //   3. **A missing comparand refuses.** `expectedRunVersion` is MANDATORY and
 //      fail-closed on the wire (D-004-2). The console has no `run.subscribeState`
 //      projection yet, so the comparand is routinely absent — and the answer to an
@@ -55,21 +58,24 @@
 // eligibility is the daemon's and reaches the surface as a typed refusal, which
 // this module carries through verbatim rather than re-deriving.
 
-import {
-  ChannelIdSchema,
-  InterruptRunParamsSchema,
-  InterventionRequestPayloadSchema,
-  QueueItemCreateRequestSchema,
-  RunIdSchema,
-  SessionIdSchema,
-  WorkspaceIdSchema,
-  type InterruptRunParams,
-  type InterventionRequestPayload,
-  type InterventionState,
-  type QueueItemCreateRequest,
+import type {
+  InterruptRunParams,
+  InterventionRequestPayload,
+  InterventionState,
+  QueueItemCreateRequest,
 } from "@ai-sidekicks/contracts";
 
-import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
+import {
+  callDaemon,
+  readChannelId,
+  readInterruptRunParams,
+  readInterventionRequest,
+  readQueueItemCreateRequest,
+  readRunId,
+  readSessionId,
+  readWorkspaceId,
+  type ConsoleBridge,
+} from "../../../console/bridge/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import {
   LITERAL_SLASH_ESCAPE,
@@ -203,17 +209,15 @@ export class ComposerSendRouter {
         ),
       };
     }
-    const runId = RunIdSchema.safeParse(target.targetRunId);
-    if (!runId.success) {
+    const runId = readRunId(target.targetRunId);
+    if (runId === undefined) {
       return { status: "refused", refusal: unparseableIdentifier("the run") };
     }
-    const params = InterruptRunParamsSchema.safeParse({
-      runId: runId.data,
-    } satisfies InterruptRunParams);
-    if (!params.success) {
+    const params = readInterruptRunParams({ runId } satisfies InterruptRunParams);
+    if (params === undefined) {
       return { status: "refused", refusal: unparseableIdentifier("the run") };
     }
-    return await this.#dispatchInterrupt(params.data);
+    return await this.#dispatchInterrupt(params);
   }
 
   /**
@@ -292,32 +296,29 @@ export class ComposerSendRouter {
     if (target.path !== "channel-message") {
       return refused("identifier-unparseable", "This message is not addressed to a channel.");
     }
-    const sessionId = SessionIdSchema.safeParse(target.sessionId);
-    if (!sessionId.success) {
+    const sessionId = readSessionId(target.sessionId);
+    if (sessionId === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier("the session") };
     }
-    const channelId =
-      target.channelId === undefined ? undefined : ChannelIdSchema.safeParse(target.channelId);
-    if (channelId !== undefined && !channelId.success) {
+    const channelId = target.channelId === undefined ? undefined : readChannelId(target.channelId);
+    if (target.channelId !== undefined && channelId === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier("the channel") };
     }
     const workspaceId =
-      target.workspaceId === undefined
-        ? undefined
-        : WorkspaceIdSchema.safeParse(target.workspaceId);
-    if (workspaceId !== undefined && !workspaceId.success) {
+      target.workspaceId === undefined ? undefined : readWorkspaceId(target.workspaceId);
+    if (target.workspaceId !== undefined && workspaceId === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier("the workspace") };
     }
-    const request = QueueItemCreateRequestSchema.safeParse({
-      sessionId: sessionId.data,
-      ...(channelId === undefined ? {} : { channelId: channelId.data }),
-      ...(workspaceId === undefined ? {} : { workspaceId: workspaceId.data }),
+    const request = readQueueItemCreateRequest({
+      sessionId,
+      ...(channelId === undefined ? {} : { channelId }),
+      ...(workspaceId === undefined ? {} : { workspaceId }),
       payload: { content: body },
     } satisfies QueueItemCreateRequest);
-    if (!request.success) {
+    if (request === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier("this message") };
     }
-    return { outcome: "new-turn", request: request.data };
+    return { outcome: "new-turn", request };
   }
 
   #resolveSteer(body: string, target: ComposerTarget): ComposerSendResolution {
@@ -337,21 +338,21 @@ export class ComposerSendRouter {
         "The console has not read this run's current version, so a steer cannot be guarded against a turn that has already moved on. Reopen the run and try again.",
       );
     }
-    const runId = RunIdSchema.safeParse(target.targetRunId);
-    if (!runId.success) {
+    const runId = readRunId(target.targetRunId);
+    if (runId === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier("the run") };
     }
-    const request = InterventionRequestPayloadSchema.safeParse({
+    const request = readInterventionRequest({
       type: "steer",
-      targetRunId: runId.data,
+      targetRunId: runId,
       expectedRunVersion,
       clientIdempotencyKey: this.#mintIdempotencyKey(),
       content: body,
     } satisfies InterventionRequestPayload);
-    if (!request.success) {
+    if (request === undefined) {
       return { outcome: "refused", refusal: unparseableIdentifier("this steer") };
     }
-    return { outcome: "steer", request: request.data };
+    return { outcome: "steer", request };
   }
 
   /**

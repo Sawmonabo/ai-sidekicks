@@ -37,17 +37,13 @@
 // the pane never needs to know what time it is now.
 
 import { useEffect, useMemo } from "react";
-import {
-  RunRolledBackEventSchema,
-  RunStateChangeEventSchema,
-  RunStateSubscribeRequestSchema,
-  type RunRolledBackEvent,
-  type RunState,
-  type RunStateChangeEvent,
-} from "@ai-sidekicks/contracts";
+import type { RunRolledBackEvent, RunState, RunStateChangeEvent } from "@ai-sidekicks/contracts";
 
 import {
   RUN_STATE_SUBSCRIBE_STREAM,
+  readRunRolledBack,
+  readRunStateChange,
+  readSessionId,
   subscribeDaemon,
   type ConsoleBridge,
 } from "../../bridge/index.js";
@@ -146,14 +142,14 @@ export class RunStateProjection {
 
   /** Fold one delivered payload. Answers whether it was readable. */
   public accept(payload: unknown): boolean {
-    const transition = RunStateChangeEventSchema.safeParse(payload);
-    if (transition.success) {
-      this.#acceptTransition(transition.data);
+    const transition = readRunStateChange(payload);
+    if (transition !== undefined) {
+      this.#acceptTransition(transition);
       return true;
     }
-    const rewind = RunRolledBackEventSchema.safeParse(payload);
-    if (rewind.success) {
-      this.#acceptRewind(rewind.data);
+    const rewind = readRunRolledBack(payload);
+    if (rewind !== undefined) {
+      this.#acceptRewind(rewind);
       return true;
     }
     this.#unreadableDeliveryCount += 1;
@@ -357,11 +353,12 @@ export function useRunFeed(bridge: ConsoleBridge, sessionStore: SessionStore): R
     const fold = new RunStateProjection();
     let isMounted = true;
 
-    // The stream's own registered request, parsed here rather than assembled at
-    // the wrapper: an id the wire's `SessionId` brand refuses is a refusal this
-    // surface renders, not an unscoped subscription it opens anyway.
-    const subscribeRequest = RunStateSubscribeRequestSchema.safeParse({ sessionId });
-    if (!subscribeRequest.success) {
+    // The stream's own scope, read through the bridge family's identifier reader
+    // rather than assembled at the wrapper: an id the wire's `SessionId` brand
+    // refuses is a refusal this surface renders, not an unscoped subscription it
+    // opens anyway.
+    const scopedSessionId = readSessionId(sessionId);
+    if (scopedSessionId === undefined) {
       setFeed({
         ...EMPTY_FEED,
         openRefusal: refuse(
@@ -382,7 +379,7 @@ export function useRunFeed(bridge: ConsoleBridge, sessionStore: SessionStore): R
     try {
       unsubscribe = subscribeDaemon(
         bridge,
-        { method: RUN_STATE_SUBSCRIBE_STREAM, request: subscribeRequest.data },
+        { method: RUN_STATE_SUBSCRIBE_STREAM, request: { sessionId: scopedSessionId } },
         (payload) => {
           // EVERY delivery publishes, readable or not. An unreadable one raises the
           // fold's counter, and a counter that never reached a render could not be

@@ -58,6 +58,25 @@ export {
   subscribeNodeDaemon,
 } from "./daemon-streams.js";
 
+// The wire's own readings of an identifier and of a run-state frame. Here because a
+// schema is the wire's and `console/bridge/**` is the wire's edge: a family above
+// this one consumes a typed reader that answers the value or `undefined`, and never
+// a validator. Seven surfaces used to reach for the schema themselves, which is one
+// parse per call site of exactly the kind the call door next door exists to end.
+export {
+  readChannelId,
+  readRunId,
+  readRunState,
+  readSessionId,
+  readWorkspaceId,
+} from "./wire-identifiers.js";
+export { readRunRolledBack, readRunStateChange } from "./run-state-events.js";
+export {
+  readInterruptRunParams,
+  readInterventionRequest,
+  readQueueItemCreateRequest,
+} from "./wire-requests.js";
+
 // The approvals surface's wire readings: the two reply narrowings, the resolve
 // request they pair with, and the vocabulary that classifies the wire strings both
 // carry. Here rather than beside the pane because `packages/contracts` publishes no

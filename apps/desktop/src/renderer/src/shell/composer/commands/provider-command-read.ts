@@ -16,10 +16,10 @@
 // parsed through their registered schemas, and the three settled states a surface
 // renders.
 
-import { SessionIdSchema, type ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
-import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
+import { callDaemon, readSessionId, type ConsoleBridge } from "../../../console/bridge/index.js";
 
 /** The subsystem name every refusal this read raises carries. */
 export const PROVIDER_COMMAND_READ_ORIGIN = "composer-command-discovery";
@@ -57,12 +57,12 @@ export async function settleEnumeration(
   sessionId: string,
   agentId: string,
 ): Promise<ProviderCommandReadState> {
-  const parsedSessionId = SessionIdSchema.safeParse(sessionId);
-  if (!parsedSessionId.success) {
+  const parsedSessionId = readSessionId(sessionId);
+  if (parsedSessionId === undefined) {
     return { phase: "refused", refusal: unparseableAddress() };
   }
   const reply = await callDaemon(bridge, "driver.listProviderCommands", {
-    sessionId: parsedSessionId.data,
+    sessionId: parsedSessionId,
     agentId,
   });
   // The daemon's own refusal reads as itself. `driver.unavailable` is the ordinary

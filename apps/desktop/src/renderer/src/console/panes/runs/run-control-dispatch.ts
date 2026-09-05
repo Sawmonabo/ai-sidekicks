@@ -44,15 +44,15 @@
 // wire member anywhere backgrounds a run, so a control for it would be an offer the
 // daemon could not answer.
 
-import {
-  InterventionRequestPayloadSchema,
-  RunIdSchema,
-  type InterventionRequestResponse,
-  type RunControlAck,
-} from "@ai-sidekicks/contracts";
+import type { InterventionRequestResponse, RunControlAck } from "@ai-sidekicks/contracts";
 
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
-import { callDaemon, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  callDaemon,
+  readInterventionRequest,
+  readRunId,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const RUN_CONTROL_REFUSAL_ORIGIN = "run-controls";
@@ -213,12 +213,12 @@ export class RunControlDispatcher {
     method: "run.pause" | "run.resume",
     target: RunControlTarget,
   ): Promise<RunControlOutcome> {
-    const runId = RunIdSchema.safeParse(target.runId);
-    if (!runId.success) {
+    const runId = readRunId(target.runId);
+    if (runId === undefined) {
       return this.#unparseableRun(control);
     }
     const reply = await callDaemon(this.#bridge, method, {
-      targetRunId: runId.data,
+      targetRunId: runId,
       expectedRunVersion: target.expectedRunVersion,
     });
     if (reply.status === "refused") {
@@ -231,29 +231,31 @@ export class RunControlDispatcher {
   /**
    * Steer, interrupt, cancel, rollback: one method, four arms.
    *
-   * The ARM is built and parsed here rather than at the door, because the union's
+   * The ARM is built and READ here rather than at the door, because the union's
    * discriminant decides which members are required and this is the only place that
    * knows which control was pressed. The door parses the whole request again before
    * sending it, which costs nothing and is what makes the parse unskippable; what
-   * this parse buys is a refusal that names the CONTROL rather than the method.
+   * this reading buys is a refusal that names the CONTROL rather than the method.
+   * The reader is the bridge family's — a schema is the wire's and is imported at the
+   * wire's edge, so this pane consumes a typed answer and never a validator.
    */
   async #dispatchIntervention(
     control: RunControl,
     target: RunControlTarget,
     arm: Readonly<Record<string, unknown>>,
   ): Promise<RunControlOutcome> {
-    const runId = RunIdSchema.safeParse(target.runId);
-    if (!runId.success) {
+    const runId = readRunId(target.runId);
+    if (runId === undefined) {
       return this.#unparseableRun(control);
     }
-    const request = InterventionRequestPayloadSchema.safeParse({
+    const request = readInterventionRequest({
       type: control,
-      targetRunId: runId.data,
+      targetRunId: runId,
       expectedRunVersion: target.expectedRunVersion,
       clientIdempotencyKey: this.#mintIdempotencyKey(),
       ...arm,
     });
-    if (!request.success) {
+    if (request === undefined) {
       return {
         kind: "refused",
         control,
@@ -264,7 +266,7 @@ export class RunControlDispatcher {
         ),
       };
     }
-    const reply = await callDaemon(this.#bridge, "run.intervene", request.data);
+    const reply = await callDaemon(this.#bridge, "run.intervene", request);
     if (reply.status === "refused") {
       return { kind: "refused", control, refusal: reply.refusal };
     }

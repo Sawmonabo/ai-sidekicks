@@ -21,9 +21,8 @@
 // floor still has to ask for the terminal.
 
 import { useCallback, useRef, useState } from "react";
-import { RunIdSchema } from "@ai-sidekicks/contracts";
 import { refuse } from "../../../console/core/index.js";
-import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
+import { callDaemon, readRunId, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { Glyph } from "../../../console/primitives/index.js";
 import { StepInReceipt } from "./StepInReceipt.js";
 import { STEP_IN_REFUSAL_ORIGIN, type StepInState } from "./step-in-state.js";
@@ -58,8 +57,8 @@ export function StepIn(props: StepInProps): React.JSX.Element {
     if (isInFlight.current) {
       return;
     }
-    const parsedRunId = RunIdSchema.safeParse(targetRunId);
-    if (!parsedRunId.success) {
+    const parsedRunId = readRunId(targetRunId);
+    if (parsedRunId === undefined) {
       setState({
         phase: "refused",
         refusal: refuse(
@@ -77,7 +76,7 @@ export function StepIn(props: StepInProps): React.JSX.Element {
     // — renders verbatim, and a served acknowledgment is what the receipt is composed
     // from. The floor moves only on the served arm.
     void callDaemon(bridge, "run.pause", {
-      targetRunId: parsedRunId.data,
+      targetRunId: parsedRunId,
       expectedRunVersion,
     }).then((reply) => {
       isInFlight.current = false;

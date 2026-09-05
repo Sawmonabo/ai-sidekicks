@@ -50,9 +50,14 @@
 // answered and stops there.
 
 import { useCallback } from "react";
-import { RunIdSchema, SessionIdSchema, type DriverCompactionResult } from "@ai-sidekicks/contracts";
+import type { DriverCompactionResult } from "@ai-sidekicks/contracts";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
-import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
+import {
+  callDaemon,
+  readRunId,
+  readSessionId,
+  type ConsoleBridge,
+} from "../../../console/bridge/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
@@ -229,14 +234,14 @@ export async function settleCompaction(
   sessionId: string,
   targetRunId: string,
 ): Promise<CompactionDispatchState> {
-  const parsedSessionId = SessionIdSchema.safeParse(sessionId);
-  const parsedRunId = RunIdSchema.safeParse(targetRunId);
-  if (!parsedSessionId.success || !parsedRunId.success) {
+  const parsedSessionId = readSessionId(sessionId);
+  const parsedRunId = readRunId(targetRunId);
+  if (parsedSessionId === undefined || parsedRunId === undefined) {
     return { phase: "rejected", refusal: unparseableAddress() };
   }
   const reply = await callDaemon(bridge, "driver.compactContext", {
-    sessionId: parsedSessionId.data,
-    runId: parsedRunId.data,
+    sessionId: parsedSessionId,
+    runId: parsedRunId,
   });
   // A refusal renders under its own code — `driver.capability_unsupported`,
   // `session.not_found`, or the door's own `reply-unreadable` — and its own

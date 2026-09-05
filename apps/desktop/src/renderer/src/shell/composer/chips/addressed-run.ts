@@ -19,8 +19,9 @@
 // state added to `packages/contracts` fails to compile here rather than falling
 // into whichever half a default happened to pick.
 
-import { RunStateSchema, type RunState } from "@ai-sidekicks/contracts";
+import type { RunState } from "@ai-sidekicks/contracts";
 
+import { readRunState } from "../../../console/bridge/index.js";
 import { compareInstants, parseInstant } from "../../../console/core/index.js";
 import type { ConsoleEntity } from "../../../console/store/index.js";
 
@@ -51,8 +52,8 @@ export const RUN_STATE_ADMITS_STEER: Readonly<Record<RunState, boolean>> = {
 /**
  * Whether one wire-verbatim state string admits a steer.
  *
- * Parsed through the registered schema rather than compared against a copy of the
- * vocabulary: the store holds whatever the daemon said, so a value outside the
+ * Read through the bridge family's reader rather than compared against a copy of
+ * the vocabulary: the store holds whatever the daemon said, so a value outside the
  * union is a state this console cannot read — and an unreadable state is not one
  * a steer gets addressed to. Absent is the same answer for the same reason.
  */
@@ -60,8 +61,8 @@ export function stateAdmitsSteer(state: string | undefined): boolean {
   if (state === undefined) {
     return false;
   }
-  const parsed = RunStateSchema.safeParse(state);
-  return parsed.success && RUN_STATE_ADMITS_STEER[parsed.data];
+  const parsed = readRunState(state);
+  return parsed !== undefined && RUN_STATE_ADMITS_STEER[parsed];
 }
 
 /**
