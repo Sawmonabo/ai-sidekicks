@@ -148,6 +148,21 @@ export const PROOF_TREE: PlantedTree = {
 };
 
 /**
+ * A view family's SUB-DIRECTORY reaching a layer family's module, past that door.
+ *
+ * The shape found in production and cruised clean before this rule existed: a pane body
+ * two directories deep inside its family reaching `bridge/node-state-read.js` rather
+ * than `bridge/index.js`. Planted beside the family-root case because the source's DEPTH
+ * is the thing that could be got wrong — the rule captures the owning family from the
+ * first path segment, so a source one directory deeper has to resolve to the same owner
+ * and be held to the same target set.
+ */
+export const DEEP_SOURCE_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "repos/pane/node-presence-model.ts": `import type { GrowthSessionSummary } from "../../bridge/growth-signatures.js";\n\nexport type PresentNode = GrowthSessionSummary;\n`,
+};
+
+/**
  * The door rule's ONE subtraction, planted so that widening it goes red.
  *
  * `.test-support.*` is subtracted from the door rule alone — a harness reaches for the
@@ -202,7 +217,7 @@ export const CONSOLE_ROOT_TREE: PlantedTree = {
 };
 
 /**
- * Every tree that carries a rule control — the clean shape and the nine that offend.
+ * Every tree that carries a rule control — the clean shape and the ten that offend.
  *
  * The aggregate case below reads this rather than naming three of them, so a control
  * added for a fifth rule joins that case's quantifier by construction. `PROOF_TREE` is
@@ -217,6 +232,7 @@ export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   SUB_MODULE_DOOR_TREE,
   PANE_BOARD_SUBDIRECTORY_TREE,
   PANE_BOARD_DEEP_IMPORT_TREE,
+  DEEP_SOURCE_TREE,
   TEST_SUPPORT_SUBTRACTION_TREE,
   OUTSIDE_RENDERER_TREE,
   CONSOLE_ROOT_TREE,

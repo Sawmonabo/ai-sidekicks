@@ -16,7 +16,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { paneBodyForKind } from "./ConsolePaneChrome.js";
+import { paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 import { type ConsolePaneContext } from "./pane-registry.js";
 
 describe("paneBodyForKind — a mismatched address is refused, not thrown", () => {
@@ -62,5 +62,58 @@ describe("paneBodyForKind — a mismatched address is refused, not thrown", () =
     const body = paneBodyForKind("inspector", () => <p>the inspector body</p>);
     const { container } = render(<>{body(addressedAt("inspector"))}</>);
     expect(container.querySelector(".meridian-refusal")).toBeNull();
+  });
+});
+
+describe("paneBodyForKind — a body takes its own kind's context, not a shape like it", () => {
+  // THESE CASES ARE CHECKED BY `tsc`, NOT BY VITEST. The registry stores one render over
+  // the whole context union and the adapter narrows it, so a body annotated with a WIDER
+  // type than its kind's context is assignable — a parameter is contravariant — and
+  // compiles in silence. That is how one pane body came to declare its own props type
+  // while its sibling used the seat's, with both green and the seat's contract restated
+  // per family. The directives below fail the typecheck the moment the exactness check
+  // stops holding, because an unused `@ts-expect-error` is itself an error.
+
+  it("accepts a body annotated with exactly its kind's context", () => {
+    const body = paneBodyForKind("inspector", (context: PaneContextOf<"inspector">) => (
+      <p>{context.kind}</p>
+    ));
+    expect(body).toBeTypeOf("function");
+  });
+
+  it("accepts a body that declares no parameter, and one that infers it", () => {
+    // Ignoring the context is not restating it — there is no second spelling to drift
+    // from — and an inline arrow takes its parameter type from the seat by inference,
+    // which is the shape most bodies in the tree are written in.
+    const ignoring = paneBodyForKind("inspector", () => <p>ignored</p>);
+    const inferring = paneBodyForKind("inspector", (context) => <p>{context.kind}</p>);
+    expect([ignoring, inferring]).toHaveLength(2);
+  });
+
+  it("refuses a body annotated with a subset of its kind's context", () => {
+    // The exact shape the finding named: a `Pick` is WIDER than the context — fewer
+    // required members means more values satisfy it — so contravariance admits it and
+    // only mutual assignability separates "safe" from "the same type".
+    const refused = paneBodyForKind(
+      "inspector",
+      // @ts-expect-error a pane body takes its own kind's context, not a subset of it
+      (context: Pick<PaneContextOf<"inspector">, "kind">) => <p>{context.kind}</p>,
+    );
+    expect(refused).toBeTypeOf("function");
+  });
+
+  it("refuses a body annotated with a hand-written props type", () => {
+    // The second spelling, which is what actually shipped: a family declares its own
+    // interface, it happens to be satisfied by the context, and the seat's contract now
+    // has two homes that drift independently.
+    interface InspectorPaneProps {
+      readonly kind: "inspector";
+    }
+    const refused = paneBodyForKind(
+      "inspector",
+      // @ts-expect-error a pane body takes its own kind's context, not a shape like it
+      (context: InspectorPaneProps) => <p>{context.kind}</p>,
+    );
+    expect(refused).toBeTypeOf("function");
   });
 });

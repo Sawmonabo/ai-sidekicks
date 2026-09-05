@@ -136,6 +136,46 @@ const PANE_COMPOSITION_ORIGIN = "pane-composition";
 export type PaneContextOf<TKind extends PaneKind> = Extract<ConsolePaneContext, { kind: TKind }>;
 
 /**
+ * What a body that does not take its own kind's context resolves to.
+ *
+ * A UNIQUE SYMBOL SO THE FAILURE NAMES THE RULE. The mechanism is an intersection the
+ * argument cannot satisfy, and without a distinctive member the compiler reports it as
+ * an unassignable anonymous object — a reader would see a type error and not the
+ * standard it broke.
+ */
+declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
+
+/**
+ * Nothing, for a body whose parameter is EXACTLY this kind's context; a refusal
+ * otherwise.
+ *
+ * WHY EXACTNESS AND NOT ASSIGNABILITY. A function parameter is checked
+ * contravariantly, so a body annotated with a WIDER type than the context — a
+ * `Pick<…>` of two members, a hand-written props interface naming a subset — is
+ * assignable and compiled silently. That is how one pane body came to declare its own
+ * props type while its sibling used the seat's: both compiled, and the seat's contract
+ * was restated per family with nothing reporting the divergence. Mutual assignability
+ * is what separates "safe" from "the same type".
+ *
+ * A BODY THAT DECLARES NO PARAMETER IS ADMITTED. Ignoring the context is not restating
+ * it — there is no second spelling of the contract to drift from — and most pane
+ * bodies in the tree take nothing at all.
+ *
+ * The tuple wrappers stop both checks distributing over the context union, which would
+ * ask the question arm by arm and answer it for a kind nobody named.
+ */
+type ExactPaneBody<
+  TKind extends PaneKind,
+  TBody extends (context: PaneContextOf<TKind>) => React.ReactNode,
+> = Parameters<TBody>["length"] extends 0
+  ? unknown
+  : [Parameters<TBody>[0]] extends [PaneContextOf<TKind>]
+    ? [PaneContextOf<TKind>] extends [Parameters<TBody>[0]]
+      ? unknown
+      : { readonly [PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT]: TKind }
+    : { readonly [PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT]: TKind };
+
+/**
  * Adapt a body written for ONE pane kind into the render the registry stores.
  *
  * `ConsolePaneDescriptor.render` takes the whole `ConsolePaneContext` union, because
@@ -152,9 +192,12 @@ export type PaneContextOf<TKind extends PaneKind> = Extract<ConsolePaneContext, 
  * the whole window down for a pane; the refusal keeps the frame and names what was
  * asked for.
  */
-export function paneBodyForKind<TKind extends PaneKind>(
+export function paneBodyForKind<
+  TKind extends PaneKind,
+  TBody extends (context: PaneContextOf<TKind>) => React.ReactNode,
+>(
   kind: TKind,
-  renderBody: (context: PaneContextOf<TKind>) => React.ReactNode,
+  renderBody: TBody & ExactPaneBody<TKind, TBody>,
 ): (context: ConsolePaneContext) => React.ReactNode {
   return (context) =>
     context.kind === kind ? (

@@ -49,6 +49,7 @@ import {
   CLEAN_TREE,
   CONSOLE_ROOT_TREE,
   DEEP_IMPORT_TREE,
+  DEEP_SOURCE_TREE,
   EVERY_PLANTED_TREE,
   OUTSIDE_RENDERER_TREE,
   PANE_BOARD_DEEP_IMPORT_TREE,
@@ -191,6 +192,20 @@ describe("console layering rules", () => {
       ]);
     },
     EVERY_TREE_MS,
+  );
+
+  it(
+    "fails a deep import written from inside a family's own sub-directory",
+    async () => {
+      // The production shape this rule was written for, and the one whose SOURCE depth
+      // could be got wrong: the rule captures the owning family from the first path
+      // segment, so a body two directories in has to resolve to the same owner and be
+      // held to the same target set as one at the family root.
+      expect(await cruiseCache.violationsFor(DEEP_SOURCE_TREE)).toEqual([
+        `${DEEP_IMPORT_RULE}: ${join(CONSOLE_ROOT, "repos/pane/node-presence-model.ts")} → ${join(CONSOLE_ROOT, "bridge/growth-signatures.ts")}`,
+      ]);
+    },
+    ONE_TREE_MS,
   );
 
   it(
