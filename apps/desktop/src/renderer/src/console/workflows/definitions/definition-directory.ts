@@ -62,14 +62,13 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 
-import type { GrowthPort } from "../../bridge/index.js";
+import { settleGrowthRead, type GrowthPort, type SettledReadRefusal } from "../../bridge/index.js";
 import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../../store/index.js";
 import {
   WORKFLOW_DEFINITION_SCOPES,
   type WorkflowDefinitionRow,
   type WorkflowDefinitionScope,
 } from "./DefinitionsBrowser.js";
-import { settleGrowthRead, type SettledReadRefusal } from "../read-settlement.js";
 
 /** What one settled page of the enumeration is, derived from the port's own answer. */
 type SettledDefinitionPage =

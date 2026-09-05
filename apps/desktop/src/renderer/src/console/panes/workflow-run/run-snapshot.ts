@@ -15,8 +15,9 @@
 // scenario that scripts a daemon refusal throws it verbatim, and the live seam will
 // throw the same shape once the wire lands — so a fulfilment handler alone left the
 // rejection unhandled and this pane spinning on an answer that had already arrived.
-// `read-settlement.ts` is reached deep and intra-family, as this family's own barrel
-// licenses: `panes/workflow-run/` and `workflows/` are one family under one task.
+// `bridge/read-settlement.ts` owns that settlement and is reached through the bridge
+// door, which is where it lives: it settles a promise the growth port returned and
+// knows nothing about a run.
 //
 // ONE READ PER MOUNT, AND NO POLLING. `Spec-017`'s run lifecycle is evented, and the
 // event types that would carry it are registered nowhere yet, so this hook reads
@@ -26,9 +27,13 @@
 
 import { useEffect } from "react";
 
-import type { GrowthPort, WorkflowRunSnapshot } from "../../bridge/index.js";
+import {
+  settleGrowthRead,
+  type GrowthPort,
+  type SettledReadRefusal,
+  type WorkflowRunSnapshot,
+} from "../../bridge/index.js";
 import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../../store/index.js";
-import { settleGrowthRead, type SettledReadRefusal } from "../../workflows/read-settlement.js";
 
 /** What this read looks like once it has an answer, either kind. */
 type SettledRunSnapshot =

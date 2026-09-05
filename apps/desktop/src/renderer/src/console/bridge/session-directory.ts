@@ -38,56 +38,74 @@
 //
 // `reading` is a read in flight — the `not-loaded` kind of nothing. `served` is an
 // answer, and an answer with no rows is genuinely `empty`. `unavailable` carries
-// the port's refusal, which a surface renders as `not-checked`: the console did not
-// ask, because no wire answers. Collapsing any two of them is exactly the
-// conflation `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to
-// prevent.
+// the refusal, which a surface renders as `not-checked`: the console did not ask,
+// because no wire answers. Collapsing any two of them is exactly the conflation
+// `Spec-023 §Console Design (Meridian)`'s five kinds of nothing exist to prevent.
+//
+// THE STATE IS HELD AGAINST THE PORT IT IS ABOUT, so a bridge swapped underneath is
+// settled during the render that brings it rather than in an effect after the commit.
+// This hook held its answer in a `useState` and cleared it from a mount effect, which
+// narrows that window rather than closing it: the first COMMITTED render under the new
+// port still carried the old one's session list, and a click landing in that frame
+// chose a session the new bridge has never heard of. `store/subject-scoped-holder.ts`
+// is the console's one answer to that, and the three workflow reads on this same seam
+// were bound onto it; this one — which the scope picker's choice list depends on — was
+// not. The port is the whole subject: the directory read is addressed by nothing else.
+//
+// THE READ IS SETTLED RATHER THAN MERELY AWAITED. Two different failures reach this
+// hook and both are refusals a person should read: the port's own `wire-unregistered`
+// outcome, and a DAEMON refusal, which the scripted-reply seam throws verbatim rather
+// than folding into the outcome union — deliberately, so a fixture never paraphrases a
+// daemon's `{code, message}` into a growth vocabulary. A fulfilment handler alone left
+// the second one unhandled and the picker in `reading` for the life of the window,
+// offering nothing and promising an answer that had already arrived.
+// `read-settlement.ts` next door turns every ending into one value.
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
-import type { GrowthUnavailable } from "./growth-outcome.js";
+import { useSubjectScopedState } from "../store/index.js";
 import type { GrowthPort } from "./growth-port.js";
 import type { GrowthSessionSummary } from "./growth-values/sessions.js";
+import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What a surface knows about the node's sessions at one moment. */
 export type SessionDirectoryState =
   | { readonly status: "reading" }
   | { readonly status: "served"; readonly sessions: readonly GrowthSessionSummary[] }
-  | { readonly status: "unavailable"; readonly refusal: GrowthUnavailable };
+  | { readonly status: "unavailable"; readonly refusal: SettledReadRefusal };
 
 /**
  * Read the node's session directory once, for as long as the caller is mounted.
  *
- * The effect is keyed on the port, which is minted once per bridge and therefore
- * stable for the life of a window — so a re-render never re-reads, and a bridge
- * swapped underneath (the fixture's scenario switch) does.
+ * Keyed on the port and nothing else, which is the whole of what this read is
+ * addressed by: the port is minted once per bridge and is stable for the life of a
+ * window, so a re-render never re-reads, while a bridge swapped underneath — the
+ * fixture's scenario switch — re-seeds during the render that brings it and reads
+ * again.
  */
 export function useSessionDirectory(growth: GrowthPort): SessionDirectoryState {
-  const [state, setState] = useState<SessionDirectoryState>({ status: "reading" });
+  const { value: state, publish } = useSubjectScopedState<SessionDirectoryState>(
+    growth,
+    undefined,
+    () => ({ status: "reading" }),
+  );
   useEffect(() => {
-    // Reset on a port change rather than leaving the previous bridge's answer on
-    // screen while the new one is read: a stale list under a fresh source reads as
-    // a current one, and nothing about it says otherwise.
-    setState({ status: "reading" });
-    let isMounted = true;
-    void growth.sessionList({}).then((outcome) => {
-      if (!isMounted) {
-        // The unmount already happened. Dropping the answer is the whole point:
-        // `setState` on an unmounted caller is the leak this tier's endurance run
-        // exists to catch, and a directory read outliving its surface by one
-        // navigation is the ordinary case rather than the rare one.
-        return;
-      }
-      setState(
+    // No reset here, and no mount flag beside the settlement. The holder above put
+    // this read back at `reading` during the render that changed the port, and
+    // `publish` carries the addressing it was captured under — so an answer arriving
+    // after the port moved, or after the surface went away, writes nowhere. Both were
+    // stated by hand before, one commit too late and with nothing holding them to the
+    // holder's own reading of when a value stops belonging to its subject.
+    void settleGrowthRead(growth.sessionList({})).then((outcome) => {
+      publish(
         outcome.status === "served"
           ? { status: "served", sessions: outcome.value }
           : { status: "unavailable", refusal: outcome },
       );
     });
-    return () => {
-      isMounted = false;
-    };
-  }, [growth]);
+    // `publish` re-identifies exactly when the holder is re-addressed, so it is both the
+    // guard on this read's answer and the whole of what tells this effect to run again.
+  }, [growth, publish]);
   return state;
 }
 

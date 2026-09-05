@@ -1,14 +1,27 @@
-// The directory read has three answers, and a surface must be able to tell them apart.
+// The directory read has three answers, a surface must be able to tell them apart, and
+// a replaced bridge is a different read.
 //
-// Every case here drives the REAL growth port — the fixture's for a served answer,
-// the refusing one for a refused answer — rather than a hand-written promise
-// shaped like one. The hook's whole job is to turn one port call into the three
-// facts a surface renders, and a stand-in port would agree with whatever the hook
-// did with it.
+// Every case here drives the REAL growth port — the fixture's for a served answer, the
+// refusing one for a refused answer, one that REJECTS for the seam's fourth settlement
+// — rather than a hand-written promise shaped like one. The hook's whole job is to turn
+// one port call into the three facts a surface renders, and a stand-in port would agree
+// with whatever the hook did with it.
+//
+// THE CASES READ WHAT EACH COMMIT CARRIED, never what a render call saw.
+// `store/subject-read-commits.test-support.tsx` owns that probe and states why: this
+// hook re-addresses DURING the render, and a render React discards still ran, so a log
+// written from a render body shows a value no commit ever carried — under a correct
+// hook as readily as under a broken one. The port-swap case below is the one input the
+// previous hook got wrong, and it is a claim about a committed frame or it is nothing.
 
-import { act, cleanup, render } from "@testing-library/react";
+import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  latestCommitted,
+  observeSubjectRead,
+  type ObservedSubjectRead,
+} from "../store/subject-read-commits.test-support.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { createRefusingGrowthPort, type GrowthPort } from "./growth-port.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
@@ -18,12 +31,55 @@ import {
   type SessionDirectoryState,
 } from "./session-directory.js";
 
-function DirectoryProbe(props: {
-  readonly growth: GrowthPort;
-  readonly onObserve: (state: SessionDirectoryState) => void;
-}): React.JSX.Element {
-  props.onObserve(useSessionDirectory(props.growth));
-  return <></>;
+/** The daemon refusal the rejecting port below throws, in the envelope a daemon sends. */
+const SCRIPTED_DAEMON_REFUSAL = {
+  code: "session.list_unavailable",
+  message: "This node is not serving a session list right now.",
+} as const;
+
+/**
+ * The read, driven through the commit-recording probe.
+ *
+ * The hook takes only a port, so the probe's subject is passed and ignored: what this
+ * read is addressed by IS the port, and the probe's second axis exists for the reads
+ * that also carry a session id.
+ */
+function observeDirectory(
+  growth: GrowthPort,
+): ObservedSubjectRead<GrowthPort, SessionDirectoryState> {
+  return observeSubjectRead((source: GrowthPort) => useSessionDirectory(source), {
+    source: growth,
+    subject: undefined,
+  });
+}
+
+/** The real port serving one scenario's worth of sessions, and nothing else changed. */
+function portServing(sessionId: string): GrowthPort {
+  return {
+    ...createRefusingGrowthPort(),
+    sessionList: async () => ({ status: "served", value: [{ sessionId, state: "active" }] }),
+  };
+}
+
+/**
+ * The real port REJECTING the directory read, which is the seam's fourth settlement.
+ *
+ * `fixture-session-directory.ts` throws for a scenario whose session state is outside
+ * the registered six, and a scripted daemon refusal is thrown verbatim by design — so a
+ * rejection is what this operation can really do rather than a shape invented here.
+ */
+function portRejecting(): GrowthPort {
+  return {
+    ...createRefusingGrowthPort(),
+    sessionList: () => Promise.reject(SCRIPTED_DAEMON_REFUSAL),
+  };
+}
+
+/** Every session id a committed render offered, oldest commit first. */
+function committedSessionIds(committed: readonly SessionDirectoryState[]): readonly string[] {
+  return committed.flatMap((state) =>
+    state.status === "served" ? state.sessions.map((session) => session.sessionId) : [],
+  );
 }
 
 async function settle(): Promise<void> {
@@ -32,41 +88,20 @@ async function settle(): Promise<void> {
   });
 }
 
-function observeDirectory(growth: GrowthPort): SessionDirectoryState[] {
-  const observed: SessionDirectoryState[] = [];
-  render(
-    <DirectoryProbe
-      growth={growth}
-      onObserve={(state) => {
-        observed.push(state);
-      }}
-    />,
-  );
-  return observed;
-}
-
-function lastState(observed: readonly SessionDirectoryState[]): SessionDirectoryState {
-  const state = observed.at(-1);
-  if (state === undefined) {
-    throw new Error("the probe never rendered, so there is no state to read");
-  }
-  return state;
-}
-
 describe("useSessionDirectory — one read, three answers", () => {
   afterEach(() => {
     cleanup();
   });
 
   it("starts as a read in flight and settles on the node's sessions", async () => {
-    const observed = observeDirectory(createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }).growth);
+    const probe = observeDirectory(createFixtureBridge({ scenario: FLAGSHIP_SCENARIO }).growth);
 
-    // The first state is load-bearing: a hook that started at `served` with no rows
-    // would report an empty node for a read that had not happened.
-    expect(observed[0]?.status).toBe("reading");
+    // The first COMMITTED state is load-bearing: a hook that started at `served` with
+    // no rows would report an empty node for a read that had not happened.
+    expect(probe.committed[0]?.status).toBe("reading");
 
     await settle();
-    const settled = lastState(observed);
+    const settled = latestCommitted(probe.committed);
     expect(settled.status).toBe("served");
     if (settled.status === "served") {
       expect(settled.sessions.map((session) => session.sessionId)).toStrictEqual([
@@ -76,17 +111,33 @@ describe("useSessionDirectory — one read, three answers", () => {
   });
 
   it("carries the refusal itself when the bridge does not serve the read", async () => {
-    const observed = observeDirectory(createRefusingGrowthPort());
+    const probe = observeDirectory(createRefusingGrowthPort());
 
     await settle();
-    const settled = lastState(observed);
+    const settled = latestCommitted(probe.committed);
     expect(settled.status).toBe("unavailable");
     if (settled.status === "unavailable") {
       // The refusal names who owes the wire. A boolean here would leave the surface
       // to invent the sentence, which is how two answers to one question start.
-      expect(settled.refusal.operationId).toBe("sessionList");
-      expect(settled.refusal.slateRow).toBe("session-directory-read");
+      expect(settled.refusal.code).toBe("wire-unregistered");
       expect(settled.refusal.detail).toContain("Not checked");
+    }
+  });
+
+  it("settles a REJECTING read as the daemon's own refusal rather than reading forever", async () => {
+    // The defect: the read attached a fulfilment handler alone, so a rejection went
+    // unhandled and the state stayed `reading` for the life of the window — a spinner
+    // over an answer that had already arrived, with no session ever offered.
+    const probe = observeDirectory(portRejecting());
+
+    await settle();
+    const settled = latestCommitted(probe.committed);
+    expect(settled.status).toBe("unavailable");
+    if (settled.status === "unavailable") {
+      // The daemon's own code, verbatim: the settlement adds an arm, never a
+      // vocabulary, so a refusal a daemon raised reaches the surface as its own.
+      expect(settled.refusal.code).toBe(SCRIPTED_DAEMON_REFUSAL.code);
+      expect(settled.refusal.detail).toBe(SCRIPTED_DAEMON_REFUSAL.message);
     }
   });
 
@@ -102,28 +153,65 @@ describe("useSessionDirectory — one read, three answers", () => {
         return port.sessionList(request);
       },
     };
-    const observed: SessionDirectoryState[] = [];
-    const view = render(
-      <DirectoryProbe
-        growth={counting}
-        onObserve={(state) => {
-          observed.push(state);
-        }}
-      />,
-    );
+    const probe = observeDirectory(counting);
     await settle();
-    view.rerender(
-      <DirectoryProbe
-        growth={counting}
-        onObserve={(state) => {
-          observed.push(state);
-        }}
-      />,
-    );
+    probe.readdress({ source: counting, subject: undefined });
     await settle();
 
     expect(readCount).toBe(1);
-    expect(lastState(observed).status).toBe("served");
+    expect(latestCommitted(probe.committed).status).toBe("served");
+  });
+});
+
+describe("useSessionDirectory — the port is the whole of what the read is about", () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  it("commits no session from the previous bridge once the port is replaced", async () => {
+    // The defect, on the one input the hand-rolled holder got wrong: the fixture's
+    // scenario switch mints a new bridge, and with the answer held in a `useState`
+    // cleared from a mount effect, the render under the NEW port committed the
+    // previous scenario's sessions. A click landing in that frame chose a session the
+    // new bridge has never heard of, and the destination then scoped both workflow
+    // reads to it.
+    const probe = observeDirectory(portServing("session-first-scenario"));
+    await settle();
+    expect(committedSessionIds(probe.committed)).toStrictEqual(["session-first-scenario"]);
+    const commitsBeforeSwap = probe.committed.length;
+
+    probe.readdress({ source: portServing("session-second-scenario"), subject: undefined });
+
+    expect(committedSessionIds(probe.committed.slice(commitsBeforeSwap))).toStrictEqual([]);
+    expect(latestCommitted(probe.committed).status).toBe("reading");
+  });
+
+  it("reads the replacement bridge rather than sitting on the reset", async () => {
+    // The reset is only half the claim: a hook that reset and never re-read would pass
+    // the case above and leave the picker reading forever.
+    const probe = observeDirectory(portServing("session-first-scenario"));
+    await settle();
+
+    probe.readdress({ source: portServing("session-second-scenario"), subject: undefined });
+    await settle();
+
+    expect(committedSessionIds([latestCommitted(probe.committed)])).toStrictEqual([
+      "session-second-scenario",
+    ]);
+  });
+
+  it("negative control: a re-render at the SAME port keeps the sessions it settled on", async () => {
+    // Without this, the cases above pass for a hook that reset on every render, which
+    // would re-read the directory forever and never show an answer at all.
+    const growth = portServing("session-first-scenario");
+    const probe = observeDirectory(growth);
+    await settle();
+
+    probe.readdress({ source: growth, subject: undefined });
+
+    expect(committedSessionIds([latestCommitted(probe.committed)])).toStrictEqual([
+      "session-first-scenario",
+    ]);
   });
 });
 

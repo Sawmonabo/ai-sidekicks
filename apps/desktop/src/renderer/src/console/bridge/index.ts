@@ -95,6 +95,16 @@ export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
 
+// How a growth read ENDS when its seam can also REJECT. It lives in this family
+// because it settles a promise the growth port returned and knows nothing about any
+// surface — and it leaves through this door because three view-family reads and the
+// run pane's snapshot read consume it, while the directory read next door reaches it
+// directly. `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door: its
+// only readers are the two suites that assert who a synthesized refusal names, and a
+// door line no production reader uses is a dead export rather than a convenience.
+export { settleGrowthRead } from "./read-settlement.js";
+export type { SettledReadRefusal } from "./read-settlement.js";
+
 // The node's session directory, read through that port. It lives in this family
 // rather than in the frame that first needed it because this is the lowest family
 // that owns its input: the hook calls the growth port, and a view family asking the

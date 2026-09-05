@@ -12,14 +12,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { WireErrorEnvelope } from "../../../../shared/wire-errors.js";
-import { growthUnavailable } from "../bridge/index.js";
-import type { GrowthOutcome } from "../bridge/growth-outcome.js";
-import type { GrowthOperationSignatures } from "../bridge/growth-signatures.js";
-import { ScenarioEngine } from "../bridge/scenario-engine.js";
-import type { ConsoleScenario } from "../bridge/scenario.js";
-import { answerFromScriptedReply } from "../bridge/fixture-scripted-answer.js";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
+import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
+import type { GrowthOutcome } from "./growth-outcome.js";
+import { growthUnavailable } from "./growth-port.js";
+import type { GrowthOperationSignatures } from "./growth-signatures.js";
+import { ScenarioEngine } from "./scenario-engine.js";
 import { READ_SETTLEMENT_REFUSAL_ORIGIN, settleGrowthRead } from "./read-settlement.js";
+import type { ConsoleScenario } from "./scenario.js";
 
 const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";

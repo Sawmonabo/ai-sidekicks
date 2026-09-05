@@ -1,9 +1,9 @@
 // How a growth read ENDS, when the seam it travels can also REJECT.
 //
-// A growth operation answers with an outcome a surface narrows on, and both workflow
-// reads were written as though that were the only way one could finish. It is not.
-// The scripted-reply seam has a fourth settlement the outcome union deliberately has
-// no arm for: a scenario that scripts a DAEMON refusal is thrown verbatim and
+// A growth operation answers with an outcome a surface narrows on, and the reads
+// built on it were written as though that were the only way one could finish. It is
+// not. The scripted-reply seam has a fourth settlement the outcome union deliberately
+// has no arm for: a scenario that scripts a DAEMON refusal is thrown verbatim and
 // unwrapped, because a growth-scoped code for it would paraphrase the daemon's own
 // envelope — and the live seam will throw the same shape the day the wire lands and
 // the operation becomes an ordinary bridge call.
@@ -12,6 +12,16 @@
 // surface in `reading` for the life of the window: a spinner over an answer that had
 // already arrived. That is the one shape a read must never take, because rule 8's
 // `not-loaded` promises an answer that is still coming, and here none is.
+//
+// WHY IT LIVES IN `bridge/` RATHER THAN IN THE FAMILY THAT FIRST NEEDED IT. It is
+// generic over the whole outcome and knows nothing about workflows: what it settles
+// is a promise the GROWTH PORT returned, so `bridge/` is the lowest family on the
+// console's DAG that owns its input. It was written inside `workflows/`, which made
+// it unreachable to `bridge/session-directory.ts` — the fourth read on this same
+// seam, one family below — and that read went without it, attaching a fulfilment
+// handler alone and leaving a rejecting directory reading forever. A view family
+// reaches it through this family's door; the two modules inside `bridge/` that need
+// it reach it directly.
 //
 // WHAT IS LEFT HERE IS THE SETTLEMENT, AND THE CLASSIFICATION IS NOT. This module
 // used to carry its own four-armed reading of a thrown value — a bare refusal, one

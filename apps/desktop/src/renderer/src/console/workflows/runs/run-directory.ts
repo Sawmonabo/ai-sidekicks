@@ -44,9 +44,13 @@ import { useEffect } from "react";
 // the enumeration carries each run's definition name and that definition's newest
 // version id, which is what lets a row read as more than an id and lets the frozen
 // pin be an inequality rather than a guess.
-import type { GrowthPort, WorkflowRunListEntry } from "../../bridge/index.js";
+import {
+  settleGrowthRead,
+  type GrowthPort,
+  type SettledReadRefusal,
+  type WorkflowRunListEntry,
+} from "../../bridge/index.js";
 import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../../store/index.js";
-import { settleGrowthRead, type SettledReadRefusal } from "../read-settlement.js";
 
 /** What this read looks like once it has an answer, either kind. */
 type SettledRunDirectory =
