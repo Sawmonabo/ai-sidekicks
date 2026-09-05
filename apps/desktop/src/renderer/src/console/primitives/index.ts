@@ -221,10 +221,7 @@ export type {
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  DerivedFigure,
-} from "./DerivedFigure.js";
+export { DerivedFigure } from "./DerivedFigure.js";
 export {
   // No marker: `WireFigure` has its consumers — `frame/ContextPicker.tsx` and
   // `frame/WireChoiceList.tsx` both render identifiers through it — so the tag that

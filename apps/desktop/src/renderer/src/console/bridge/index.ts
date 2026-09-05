@@ -81,15 +81,15 @@ export type {
 // preload contract rather than reading `window.sidekicks` themselves.
 export { createLiveBridge } from "./live-bridge.js";
 
-// 12.11's scripted view host. It leaves through this door because the browser
-// family wraps one into the host a pane publishes through, and the type has to be
-// nameable there: the wiring table sits in a view family and the seam it selects on
-// is declared down here, which is the only place a bridge can hold it.
-export {
-  createScriptedPaneViewHost,
-  SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
-} from "./pane-view-host-script.js";
-export type { ScriptedPaneHolding, ScriptedPaneViewHost } from "./pane-view-host-script.js";
+// 12.11's scripted view host. The TYPE leaves through this door because the browser
+// family wraps one into the host a pane publishes through and has to be able to name
+// it: the wiring table sits in a view family and the seam it selects on is declared
+// down here, which is the only place a bridge can hold it. The factory and the
+// transport marker deliberately do NOT — the fixture bridge builds one and the two
+// suites that assert on the marker read the module that declares it, which is what
+// `test/console/architecture/barrel-census.test.ts` names for a door line no
+// production module would ever import.
+export type { ScriptedPaneViewHost } from "./pane-view-host-script.js";
 
 // The growth port's public face. The composition root builds a session-snapshot
 // read over it and two surfaces read the session directory through it, so the

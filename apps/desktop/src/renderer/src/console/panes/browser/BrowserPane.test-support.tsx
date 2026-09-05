@@ -11,12 +11,8 @@ import { act, render, screen, waitFor, type RenderResult } from "@testing-librar
 import { expect } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
-import {
-  createFixtureBridge,
-  createLiveBridge,
-  SCRIPTED_PANE_VIEW_HOST_TRANSPORT,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+import { createFixtureBridge, createLiveBridge, type ConsoleBridge } from "../../bridge/index.js";
+import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/pane-view-host-script.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { FrameStore } from "../../store/index.js";
 import type { ConsolePaneContext } from "../../seats/index.js";

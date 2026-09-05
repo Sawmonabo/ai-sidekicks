@@ -19,7 +19,7 @@ import { screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/index.js";
+import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/pane-view-host-script.js";
 import {
   DEFAULT_TEST_PANE_ID,
   fixtureBrowserBridge,
