@@ -15,17 +15,16 @@
 //
 // The tier's fail-closed guard and its missing-reference probe are asserted once
 // for the whole tier by `frame.test.tsx`; `baseline-platform.ts` says why they are
-// not repeated here.
+// not repeated here, and holds the one decision about which hosts may compare — a
+// RUNNER rather than a platform. The three lines below read this host's declaration
+// and ask it.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { server } from "vitest/browser";
 import { act } from "@testing-library/react";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
-import {
-  OFF_PLATFORM_REASON,
-  isOffPinnedPlatform,
-  skipOffPinnedPlatform,
-} from "./baseline-platform.js";
+import { baselineSkipReason, comparesBaselines, readBaselineHost } from "./baseline-platform.js";
 
 import {
   ConsoleRoot,
@@ -37,6 +36,19 @@ import {
   LEDGER_QUIET_SCENARIO,
   LEDGER_QUIET_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/ledger-quiet.js";
+
+/**
+ * What this host declared about itself, and whether its comparisons mean anything.
+ *
+ * Off `server.config.env` rather than `process.env`, which does not exist in the
+ * page: this tier runs inside a real browser and the environment reaches it as
+ * Vite's resolved env. The verdict and the sentence both come from
+ * `baseline-platform.ts`, so a suite never decides for itself where a comparison
+ * is meaningful — it reads its host and asks.
+ */
+const baselineHost = readBaselineHost(server.config.env);
+const comparesHere = comparesBaselines(baselineHost);
+const SKIP_REASON = baselineSkipReason(baselineHost);
 
 /**
  * The workspace with its sidebar mounted, or a throw.
@@ -90,13 +102,13 @@ afterEach(async () => {
 
 describe("screenshot — the session workspace and its sidebar", () => {
   // Said once at collection, on the one channel the terminal reporter forwards.
-  if (isOffPinnedPlatform) {
-    console.warn(OFF_PLATFORM_REASON);
+  if (!comparesHere) {
+    console.warn(SKIP_REASON);
   }
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the sidebar expanded in the ${scheme} scheme`, async (context) => {
-      skipOffPinnedPlatform(context);
+      context.skip(!comparesHere, SKIP_REASON);
       await emulateSystemScheme(scheme);
       const frame = await openWorkspace();
 
@@ -104,7 +116,7 @@ describe("screenshot — the session workspace and its sidebar", () => {
     });
 
     it(`renders the sidebar collapsed in the ${scheme} scheme`, async (context) => {
-      skipOffPinnedPlatform(context);
+      context.skip(!comparesHere, SKIP_REASON);
       await emulateSystemScheme(scheme);
       const frame = await openWorkspace();
       collapseSidebar(frame);
