@@ -144,8 +144,10 @@ export async function mountComposerChannelAddressed(): Promise<MountedFamilySurf
     focusedPane: {
       kind: "timeline",
       // A channel the store holds no entity for, which is the ordinary case on this
-      // branch: no channel projector is registered, so the chip names the id it was
-      // given and states that it read no label — rather than inventing one.
+      // branch: no channel projector is registered, so the chip states that it read
+      // no label for the channel it is addressed at. It neither invents a label nor
+      // prints the id, and — the reason this surface is pinned beside the default
+      // one — it does not fall through to the words the unaddressed arm uses.
       entity: { kind: "channel", id: `${COMPOSER_SCENARIO.sessionId}-main` },
     },
   });

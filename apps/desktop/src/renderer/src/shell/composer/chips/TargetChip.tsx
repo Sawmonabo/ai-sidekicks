@@ -95,11 +95,22 @@ export function TargetChip(props: TargetChipProps): React.JSX.Element {
  * Never an opaque id: an id in a chip is an internal handle a person cannot act on.
  * An unnamed agent or channel is described rather than identified, and the state
  * chip beside it is what carries the wire-verbatim fact.
+ *
+ * THE CHANNEL ARM BRANCHES ON THE ID BEFORE THE LABEL, which is the whole of this
+ * function's correctness. A pane addressed at a channel whose label the store has
+ * not read fell through `?? "This session"` — the words the UNADDRESSED arm uses,
+ * and the unaddressed arm omits `channelId` entirely. So two different destinations
+ * rendered identically and the chip named the one that was not happening. An
+ * addressed channel with no label is a channel whose label was not read, which is
+ * the console's own `not-checked` fact rather than "there is no channel".
  */
 function targetName(model: TargetChipModel): string {
   const { target } = model;
   if (target.path === "provider-bound") {
     return target.agentName ?? "This agent's running turn";
   }
-  return target.channelLabel ?? "This session";
+  if (target.channelLabel !== undefined) {
+    return target.channelLabel;
+  }
+  return target.channelId === undefined ? "This session" : "This channel, name not read";
 }

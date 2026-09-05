@@ -197,6 +197,34 @@ describe("TargetChip — every fact on it came from the wire", () => {
     expect(container.textContent).toContain("This session");
     expect(container.textContent).not.toContain(CHANNEL_TARGET.sessionId);
   });
+
+  it("names an addressed channel differently from the session's own default", () => {
+    const addressedChannelId = "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0";
+    const addressed = render(
+      <TargetChip
+        model={{
+          target: { ...CHANNEL_TARGET, channelId: addressedChannelId, channelLabel: undefined },
+          bindingClause: undefined,
+        }}
+        binding={NOTHING_ASKED}
+      />,
+    );
+    const unaddressed = render(
+      <TargetChip
+        model={{
+          target: { ...CHANNEL_TARGET, channelId: undefined, channelLabel: undefined },
+          bindingClause: undefined,
+        }}
+        binding={NOTHING_ASKED}
+      />,
+    );
+
+    // The negative control on the same defect the placeholder carried: falling
+    // through an unread label to the unaddressed words rendered these identically.
+    expect(addressed.container.textContent).not.toBe(unaddressed.container.textContent);
+    expect(addressed.container.textContent).not.toContain(addressedChannelId);
+    expect(unaddressed.container.textContent).toContain("This session");
+  });
 });
 
 describe("PostureChip — the posture the run got, or the reason there is none", () => {
