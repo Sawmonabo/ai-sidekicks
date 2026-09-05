@@ -22,6 +22,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 import type { ZodType } from "zod";
 
+import { readWireString } from "../core/index.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 
 /** One registered payload a narrowed run stream delivers. */
@@ -68,7 +69,7 @@ export function refuseSessionDisagreement(
   event: ConsoleSessionEvent,
   payload: Readonly<Record<string, unknown>>,
 ): RunStreamProjection | undefined {
-  const statedSessionId = readWireString(payload, "sessionId");
+  const statedSessionId = readWireString(payload["sessionId"]);
   if (statedSessionId === undefined) {
     return unprojectableFor(
       event,
@@ -129,21 +130,6 @@ export function carriedOptionalMembers(
     }
   }
   return carried;
-}
-
-/**
- * One member as a non-empty string, or `undefined` when it is not one.
- *
- * The two jobs a value has to do BEFORE the parse can run: key a lookup, and be
- * compared against another source. Every member that only has to be delivered is
- * carried raw and left to the schema.
- */
-export function readWireString(
-  source: Readonly<Record<string, unknown>>,
-  member: string,
-): string | undefined {
-  const value = source[member];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 /** A refusal naming the beat it is about, so a scenario author can find it. */

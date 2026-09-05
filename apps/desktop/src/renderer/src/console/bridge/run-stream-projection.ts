@@ -62,9 +62,11 @@
 // asserts it.
 //
 // WHAT THE SIBLING HOLDS. `run-stream-shapes.ts` carries the outcome type these arms
-// return and the four things all of them do identically — the session cross-check,
-// the registered-shape parse, the wire-string read, and the refusal constructors.
-// This file is the arms and the table they read; that one is what an arm is made of.
+// return and the three things all of them do identically — the session cross-check,
+// the registered-shape parse, and the refusal constructors. This file is the arms and
+// the table they read; that one is what an arm is made of. The fourth, reading a wire
+// member as a string, is `core/wire-strings.ts`, which is one rule wider than this
+// family and had four spellings across the tree before it had a home.
 
 import {
   QueueItemSummarySchema,
@@ -73,12 +75,12 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { RunStateChangeEvent } from "@ai-sidekicks/contracts";
 
+import { readWireString } from "../core/index.js";
 import type { ConsoleSessionEvent } from "../store/index.js";
 import { RUN_QUEUE_ROW_READ, scriptedQueueRowFor } from "./queue-row-source.js";
 import {
   carriedOptionalMembers,
   projectThroughRegisteredShape,
-  readWireString,
   refuseSessionDisagreement,
   unprojectable,
   unprojectableFor,
@@ -227,7 +229,7 @@ function projectRollback(event: ConsoleSessionEvent): RunStreamProjection {
   if (sessionDisagreement !== undefined) {
     return sessionDisagreement;
   }
-  const channelId = readWireString(payload, "channelId");
+  const channelId = readWireString(payload["channelId"]);
   return projectThroughRegisteredShape(RunRolledBackEventSchema, event, {
     // The PAYLOAD's session, checked equal to the envelope's just above and then
     // carried untouched. Copying the envelope's here instead would make that check
@@ -260,7 +262,7 @@ function projectRunQueueStreamBeat(
   if (sessionDisagreement !== undefined) {
     return sessionDisagreement;
   }
-  const queueItemId = readWireString(payload, "queueItemId");
+  const queueItemId = readWireString(payload["queueItemId"]);
   if (queueItemId === undefined) {
     return unprojectableFor(event, "names no `queueItemId` to find its queue row by");
   }
@@ -294,8 +296,8 @@ function projectRunQueueStreamBeat(
       `is about queue item "${queueItemId}", for which the scenario's \`${RUN_QUEUE_ROW_READ}\` reply carries no row — and the row is where \`priority\` and \`createdAt\` live`,
     );
   }
-  const channelId = readWireString(queueRow, "channelId");
-  const announcedChannelId = readWireString(payload, "channelId");
+  const channelId = readWireString(queueRow["channelId"]);
+  const announcedChannelId = readWireString(payload["channelId"]);
   if (announcedChannelId !== undefined && announcedChannelId !== channelId) {
     return unprojectableFor(
       event,
