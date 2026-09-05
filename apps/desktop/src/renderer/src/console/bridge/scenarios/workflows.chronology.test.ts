@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 
+import { compareInstants, parseInstant, type InstantReading } from "../../core/index.js";
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
 import { WORKFLOWS_SCENARIO_PHASE_OUTPUTS } from "./workflow-fixture-phase-outputs.js";
 import { WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
@@ -21,12 +22,12 @@ describe("the workflows scenario — the session exists before what it owns", ()
    * origin. The case below asserts the two agree, so the ordering rule is checked
    * against the event and not against the clock that happens to play it.
    */
-  function sessionCreationInstant(): number {
+  function sessionCreationInstant(): InstantReading {
     const created = WORKFLOWS_SCENARIO.beats.find((beat) => beat.event.kind === "session.created");
     if (created === undefined) {
       throw new Error("the scenario plays no `session.created` beat");
     }
-    return Date.parse(created.event.occurredAt);
+    return parseInstant(created.event.occurredAt);
   }
 
   /**
@@ -60,17 +61,34 @@ describe("the workflows scenario — the session exists before what it owns", ()
     ];
   }
 
-  /** Those of them a given creation instant would put in the impossible past. */
-  function recordsBefore(creationInstant: number): readonly string[] {
+  /**
+   * Those of them a given creation instant would put in the impossible past.
+   *
+   * Ordered by the console's own comparator rather than by subtracting two host
+   * parses, so an instant this console cannot read lands LAST and is never counted as
+   * before anything. That is the honest disposition for this suite: an unreadable
+   * fixture instant is a shape defect the wire-truth tier reports, and folding it in
+   * here would let a fixture fail the ordering claim for a reason that is not about
+   * order at all.
+   */
+  function recordsBefore(creation: InstantReading): readonly string[] {
     return sessionOwnedInstants()
-      .filter((record) => Date.parse(record.instant) < creationInstant)
+      .filter(
+        (record) => compareInstants(parseInstant(record.instant), creation, "oldest-first") < 0,
+      )
       .map((record) => `${record.label} — ${record.instant}`);
   }
 
   it("plays the creation beat at the instant the frozen clock starts from", () => {
     // The two are one fact written twice, and a drift between them would make the
     // case below check the wrong instant while still passing.
-    expect(sessionCreationInstant()).toBe(Date.parse(WORKFLOWS_SCENARIO.startedAtIso));
+    const creation = sessionCreationInstant();
+    // Readable first, else the equality below would hold between two absent numbers
+    // and say nothing at all about either instant.
+    expect(creation.kind).toBe("instant");
+    expect(creation.epochMilliseconds).toBe(
+      parseInstant(WORKFLOWS_SCENARIO.startedAtIso).epochMilliseconds,
+    );
   });
 
   it("dates every session-owned record at or after the session's own creation", () => {
@@ -84,7 +102,7 @@ describe("the workflows scenario — the session exists before what it owns", ()
     // The scenario used to open at 10:00 with its runs spread from 07:12 and its
     // session-scoped definition dated a fortnight earlier. Without this the case
     // above would hold over a helper that collected nothing at all.
-    const supersededCreation = Date.parse("2026-01-01T10:00:00.000Z");
+    const supersededCreation = parseInstant("2026-01-01T10:00:00.000Z");
     const impossible = recordsBefore(supersededCreation);
 
     expect(impossible.length).toBeGreaterThan(0);

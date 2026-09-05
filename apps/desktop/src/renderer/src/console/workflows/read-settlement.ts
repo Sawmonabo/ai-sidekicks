@@ -13,56 +13,44 @@
 // already arrived. That is the one shape a read must never take, because rule 8's
 // `not-loaded` promises an answer that is still coming, and here none is.
 //
-// THREE CLASSES OF REJECTION, AND THEY ARE THREE BECAUSE THREE DIFFERENT AUTHORS
-// RAISE THEM. `origin` exists so a refusal surfacing three layers from where it was
-// raised still names its author, and collapsing these would throw that away:
+// WHAT IS LEFT HERE IS THE SETTLEMENT, AND THE CLASSIFICATION IS NOT. This module
+// used to carry its own four-armed reading of a thrown value — a bare refusal, one
+// carried inside a `ConsoleRefusalError`, a flat wire envelope, and everything else —
+// and it is one of six families that each wrote that reading down. `core/
+// wire-rejection.ts` is now the one that runs, and it is strictly better on two
+// counts this copy got wrong: it recovers the dotted project code the JSON-RPC
+// envelope carries at `data.type`, which this copy dropped on the floor, and it
+// rebuilds every arm from bounded strings rather than letting the thrown value ride
+// onto the refusal, where its next property access is a throw outside every `catch`.
 //
-//   • A `ConsoleRefusal` — thrown bare, or carried by a `ConsoleRefusalError` — is
-//     already the console's one refusal shape. It travels verbatim, its own origin
-//     included, and this module adds nothing to it.
-//   • A wire envelope is the DAEMON's refusal. Its `code` is the string a person
-//     pastes into a search and its `message` is the text rule 9 forbids paraphrasing,
-//     so both are carried unreworded and the origin says the daemon refused.
-//   • Anything else is a read that failed before it produced an answer at all. It
-//     refuses BY NAME rather than being swallowed: a caught-and-dropped rejection is
-//     how a surface ends up drawing an empty list for a read that never ran.
+// ONE ORIGIN, WHERE THIS MODULE USED TO NAME TWO. A wire envelope was attributed to
+// `daemon` and everything else to this seam, and the distinction does not need the
+// origin to carry it: the daemon's own CODE arrives verbatim under rule 9 and a
+// synthesized one is built from the origin, so `workflow.session_not_found` and
+// `growth-read-call-failed` are already the two different things a reader is being
+// told. What the origin says now is which seam the refusal surfaced at, which is what
+// it says everywhere else in the console.
 //
 // WHY THIS IS NOT A SECOND REFUSAL VOCABULARY. `GrowthUnavailable` already extends
 // `ConsoleRefusal`, so an outcome the port itself refused passes through untouched and
 // both arms reach one `RefusalBanner` with no translation between them. What this adds
 // is the settlement, not a shape.
-//
-// WHY NOT `normalizeWireRejection`. That helper answers a different question — how to
-// render an arbitrary rejection as an `Error` — and it folds the wire code into
-// `Error.name`, where a renderer can no longer tell a code from a class name. Its
-// stringifier is reused here for exactly the arm that needs one, so the totality rule
-// (a null-prototype object's `String(...)` can itself throw) has one implementation.
 
-import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
-import {
-  ConsoleRefusalError,
-  isConsoleRefusal,
-  refuse,
-  type ConsoleRefusal,
-} from "../core/index.js";
+import { normalizeWireRejection, type WireRefusal } from "../core/index.js";
 
-/** The origin on a refusal this module composes, rather than relays. */
+/** The origin on a refusal this seam composes, and the one it relays under. */
 export const READ_SETTLEMENT_REFUSAL_ORIGIN = "growth-read";
 
-/** The origin on a refusal the daemon itself raised, so the relay keeps its author. */
-export const DAEMON_REFUSAL_ORIGIN = "daemon";
-
-/** The code a read that rejected carrying no refusal of its own refuses with. */
-export const READ_REJECTED_REFUSAL_CODE = "read-rejected";
-
 /**
- * A refusal a settled read carries, whichever of the three authors raised it.
+ * A refusal a settled read carries, whoever raised it.
  *
  * The console's one refusal shape plus the discriminant the outcome union narrows on,
  * and nothing more: `GrowthUnavailable` widens this same shape with what the growth
- * port knows, so a port refusal satisfies it without being rebuilt.
+ * port knows, so a port refusal satisfies it without being rebuilt. `WireRefusal` and
+ * not `ConsoleRefusal`, so the retry bound a rate-limited refusal carries is on the
+ * type a surface reads rather than riding along unannounced.
  */
-export type SettledReadRefusal = ConsoleRefusal & { readonly status: "unavailable" };
+export type SettledReadRefusal = WireRefusal & { readonly status: "unavailable" };
 
 /**
  * Settle a growth read, so its caller has one value to narrow on.
@@ -72,6 +60,13 @@ export type SettledReadRefusal = ConsoleRefusal & { readonly status: "unavailabl
  * takes. Typed the other way it would have to name `GrowthOutcome`, which does not
  * leave the bridge's door, and a second declaration of the served arm here would be
  * one closed shape with two homes.
+ *
+ * No fallback is supplied, and that is the reading rather than an omission: the
+ * fallback arm answers a FIXED sentence, and the text a rejection carried is the only
+ * account of what happened. The normalizer's terminal arm keeps it — an `Error` gives
+ * up its message and anything else goes through the total stringifier — under a code
+ * built from the origin above, so a read that failed for a reason nobody can read is
+ * still distinguishable from one that was never put.
  */
 export async function settleGrowthRead<TOutcome>(
   read: Promise<TOutcome>,
@@ -79,44 +74,9 @@ export async function settleGrowthRead<TOutcome>(
   try {
     return await read;
   } catch (rejection) {
-    return refusalFromRejection(rejection);
-  }
-}
-
-/**
- * The refusal one rejection becomes.
- *
- * Ordered from the most specific author to the least, and the order is load-bearing
- * only at the last step: an `Error` carrying a refusal is not structurally a refusal,
- * a refusal is not structurally a wire envelope, and a wire envelope is not
- * structurally a refusal — the three guards are disjoint, and the terminal arm is
- * what everything else falls to.
- */
-function refusalFromRejection(rejection: unknown): SettledReadRefusal {
-  if (rejection instanceof ConsoleRefusalError) {
-    return { ...rejection.refusal, status: "unavailable" };
-  }
-  if (isConsoleRefusal(rejection)) {
-    return { ...rejection, status: "unavailable" };
-  }
-  if (isWireErrorEnvelope(rejection)) {
-    // The daemon's own code and its own sentence, neither reworded. Rule 9 puts the
-    // code in mono and the message verbatim, and a console that composed its own
-    // sentence here would be quoting a refusal it had edited.
     return {
-      ...refuse(DAEMON_REFUSAL_ORIGIN, rejection.code, rejection.message),
+      ...normalizeWireRejection(READ_SETTLEMENT_REFUSAL_ORIGIN, rejection),
       status: "unavailable",
     };
   }
-  return {
-    ...refuse(
-      READ_SETTLEMENT_REFUSAL_ORIGIN,
-      READ_REJECTED_REFUSAL_CODE,
-      // The thrown text is carried rather than summarized: it is the only account of
-      // what happened, and a read that failed for a reason nobody can read is
-      // indistinguishable from one that was never put.
-      `The read failed before it produced an answer — ${lossyStringify(rejection)}`,
-    ),
-    status: "unavailable",
-  };
 }

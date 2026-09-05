@@ -19,12 +19,7 @@ import { ScenarioEngine } from "../bridge/scenario-engine.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import { answerFromScriptedReply } from "../bridge/fixture-scripted-answer.js";
 import { ConsoleRefusalError, refuse } from "../core/index.js";
-import {
-  DAEMON_REFUSAL_ORIGIN,
-  READ_REJECTED_REFUSAL_CODE,
-  READ_SETTLEMENT_REFUSAL_ORIGIN,
-  settleGrowthRead,
-} from "./read-settlement.js";
+import { READ_SETTLEMENT_REFUSAL_ORIGIN, settleGrowthRead } from "./read-settlement.js";
 
 const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
@@ -97,12 +92,14 @@ describe("settleGrowthRead — a rejection becomes a refusal, and names its auth
     const settled = await settleGrowthRead(enumerationThroughTheSeam(engine));
 
     // Verbatim on both halves. A console that composed its own sentence here would be
-    // quoting a refusal it had edited, which rule 9 forbids.
+    // quoting a refusal it had edited, which rule 9 forbids. The origin names the seam
+    // the refusal surfaced at rather than the daemon: what says the daemon refused is
+    // the dotted code, which no synthesized refusal from this seam can spell.
     expect(settled).toStrictEqual({
       status: "unavailable",
       code: SCRIPTED_DAEMON_REFUSAL.code,
       detail: SCRIPTED_DAEMON_REFUSAL.message,
-      origin: DAEMON_REFUSAL_ORIGIN,
+      origin: READ_SETTLEMENT_REFUSAL_ORIGIN,
     });
     engine.dispose();
   });
@@ -141,11 +138,30 @@ describe("settleGrowthRead — a rejection becomes a refusal, and names its auth
   it("names a rejection that carries no refusal, rather than swallowing it", async () => {
     const settled = await settleGrowthRead(Promise.reject(new Error("the bridge closed mid-read")));
 
-    expect(settled.code).toBe(READ_REJECTED_REFUSAL_CODE);
+    // The synthesized code is built from the origin, so a refusal this seam composed
+    // reads as this seam's even where the thrown value said nothing machine-readable.
+    expect(settled.code).toBe(`${READ_SETTLEMENT_REFUSAL_ORIGIN}-call-failed`);
     expect(settled.origin).toBe(READ_SETTLEMENT_REFUSAL_ORIGIN);
     // The thrown text is carried: a read that failed for a reason nobody can read is
     // indistinguishable from one that was never put.
     expect(settled.detail).toContain("the bridge closed mid-read");
+  });
+
+  it("recovers the dotted project code a JSON-RPC envelope carries beside its message", async () => {
+    // The arm the family copy this replaced dropped on the floor. A daemon rejection
+    // that arrives as a JSON-RPC error carries its project code at `data.type`, and a
+    // reader that only knew the flat `{ code, message }` envelope synthesized a code
+    // of its own over a refusal that had already named itself.
+    const settled = await settleGrowthRead(
+      Promise.reject({
+        code: -32000,
+        message: "No session with that id is open on this node.",
+        data: { type: "workflow.session_not_found" },
+      }),
+    );
+
+    expect(settled.code).toBe("workflow.session_not_found");
+    expect(settled.detail).toBe("No session with that id is open on this node.");
   });
 
   it("renders a rejection whose own stringification throws, instead of throwing with it", async () => {
@@ -156,7 +172,7 @@ describe("settleGrowthRead — a rejection becomes a refusal, and names its auth
 
     const settled = await settleGrowthRead(Promise.reject(unrepresentable));
 
-    expect(settled.code).toBe(READ_REJECTED_REFUSAL_CODE);
+    expect(settled.code).toBe(`${READ_SETTLEMENT_REFUSAL_ORIGIN}-call-failed`);
     expect(settled.status).toBe("unavailable");
   });
 });

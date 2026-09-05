@@ -24,7 +24,7 @@ import {
 } from "../bridge/scenarios/workflow-fixture-runs.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import { READ_REJECTED_REFUSAL_CODE } from "./read-settlement.js";
+import { READ_SETTLEMENT_REFUSAL_ORIGIN } from "./read-settlement.js";
 import { WorkflowRuns } from "./WorkflowRuns.js";
 
 /** The fixture port for one scenario, which is what a fixture console runs on. */
@@ -233,7 +233,7 @@ describe("the runs the session holds", () => {
 
     const refusal = container.querySelector(".meridian-refusal");
 
-    expect(refusal?.textContent ?? "").toContain(READ_REJECTED_REFUSAL_CODE);
+    expect(refusal?.textContent ?? "").toContain(`${READ_SETTLEMENT_REFUSAL_ORIGIN}-call-failed`);
     expect(refusal?.textContent ?? "").toContain("the bridge closed mid-read");
   });
 

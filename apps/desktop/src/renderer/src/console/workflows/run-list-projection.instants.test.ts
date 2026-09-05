@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { RunListProjection } from "./run-list-projection.js";
+import { workflowInstant } from "./run-list-rows.js";
 import { phase, run } from "./run-list-projection.test-support.js";
 
 /**
@@ -20,10 +21,13 @@ import { phase, run } from "./run-list-projection.test-support.js";
 const UNREADABLE_INSTANT = "2026-09-01T99:99:99.000Z";
 
 describe("an instant the console cannot read", () => {
-  it("negative control: the fixture really is unparseable", () => {
+  it("negative control: the fixture really is unreadable", () => {
     // Every case below rests on this. A fixture that quietly parsed would make them
-    // all pass over a projection that compared it like any other instant.
-    expect(Number.isNaN(Date.parse(UNREADABLE_INSTANT))).toBe(true);
+    // all pass over a projection that compared it like any other instant. Asserted
+    // against the reading the plane declares rather than against the host parser,
+    // because unreadable HERE means unreadable by that reader — and the two disagree
+    // in both directions, which is why the reader exists.
+    expect(workflowInstant(UNREADABLE_INSTANT).kind).toBe("malformed");
   });
 
   it("picks the valid armed resume when another park armed one it cannot read", () => {
@@ -88,7 +92,7 @@ describe("an instant the console cannot read", () => {
     expect(projection.rows[0]?.parkedPhases[0]?.schedule).toStrictEqual({
       kind: "armed",
       autoResumeAt: "2026-09-01T11:30:00.000Z",
-      atMilliseconds: Date.parse("2026-09-01T11:30:00.000Z"),
+      atMilliseconds: Date.UTC(2026, 8, 1, 11, 30, 0, 0),
     });
   });
 

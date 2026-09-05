@@ -25,7 +25,7 @@ import type {
   WorkflowPhaseState,
   WorkflowRunSnapshot as WorkflowWireRunSnapshot,
 } from "../bridge/index.js";
-import { parseInstant } from "../core/index.js";
+import { parseInstant, type InstantReading } from "../core/index.js";
 
 /**
  * What this console does with one member of a wire shape.
@@ -248,13 +248,21 @@ export interface WorkflowParkedPhase {
  * floor that sends an unreadable value last in one sends it first in the other. Each
  * caller states its own rule against this `undefined` instead.
  *
- * Exported because the park classification below and the run sort next door are the
- * only two readers of a wire instant in this family, and the plane's `"utc-only"`
- * declaration said at two call sites is one rule with two homes — which is how a
- * console comes to refuse an encoding on one surface and accept it on the next.
+ * IT ANSWERS THE READING RATHER THAN THE NUMBER, because its two callers want two
+ * different halves of it. The park classification wants the milliseconds, which the
+ * reading carries on both arms so no narrowing ceremony is needed to take them; the
+ * run sort wants the reading itself, because `compareInstants` orders readings and is
+ * what puts an unreadable start last in BOTH directions — a rule a number and a
+ * sentinel cannot express, since the sentinel that sorts last ascending sorts first
+ * descending.
+ *
+ * Exported because those two are the only readers of a wire instant in this family,
+ * and the plane's `"utc-only"` declaration said at two call sites is one rule with two
+ * homes — which is how a console comes to refuse an encoding on one surface and accept
+ * it on the next.
  */
-export function instantMilliseconds(iso: string): number | undefined {
-  return parseInstant(iso, "utc-only").epochMilliseconds;
+export function workflowInstant(iso: string): InstantReading {
+  return parseInstant(iso, "utc-only");
 }
 
 /**
@@ -307,7 +315,7 @@ export function parkSchedule(park: WorkflowPhasePark): WorkflowParkSchedule {
   if (armed === undefined) {
     return { kind: "unscheduled" };
   }
-  const atMilliseconds = instantMilliseconds(armed);
+  const atMilliseconds = workflowInstant(armed).epochMilliseconds;
   return atMilliseconds === undefined
     ? { kind: "unreadable", autoResumeAt: armed }
     : { kind: "armed", autoResumeAt: armed, atMilliseconds };

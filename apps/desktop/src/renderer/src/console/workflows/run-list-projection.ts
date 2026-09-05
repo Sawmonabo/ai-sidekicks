@@ -32,13 +32,14 @@
 // TWO COMPARISONS, TWO DIRECTIONS, AND NO SHARED SENTINEL. Both orderings below read
 // an RFC 3339 string a daemon sent, and each has to say what an UNPARSEABLE one means
 // — but they mean opposite things, so one sentinel cannot serve both. The run sort is
-// DESCENDING, and an unreadable `startedAt` takes a fixed position last inside its
-// band. A POSITION rather than a numeric floor: two floors subtract to `NaN`, and a
-// comparator answering `NaN` leaves the pair in whatever order the enumeration
-// supplied. The earliest-resume pick is ASCENDING, and a floor would have made an
-// unreadable `autoResumeAt` beat every real one, so the row would report a resume
-// nobody can read in place of the one that is actually next. An unreadable resume
-// instant is therefore not compared at all.
+// DESCENDING and hands its readings to `compareInstants`, which puts an unreadable
+// start LAST in both directions: a numeric floor cannot, because the value that sorts
+// last ascending sorts first descending, and two floors subtract to `NaN`, which a
+// comparator may answer and `Array.prototype.sort` may read as anything it likes. The
+// earliest-resume pick is ASCENDING over instants already known to be readable — the
+// classification parsed them to reach the armed arm — so an unreadable
+// `autoResumeAt` is not compared at all rather than floored into first place, where
+// it would report a resume nobody can read in place of the one that is actually next.
 //
 // AND THE SORT ENDS ON THE RUN'S OWN IDENTITY. Band, then start, then `workflowRunId`
 // — because the first two both admit ties (two runs started in the same millisecond,
@@ -65,10 +66,11 @@
 // projects a run LIST, and a second import edge into the family for the same fact is
 // the thing that drifts.
 
+import { compareInstants, type InstantReading } from "../core/index.js";
 import {
-  instantMilliseconds,
   parkSchedule,
   phasePark,
+  workflowInstant,
   type WorkflowParkedPhase,
   type WorkflowRunSnapshot,
   type WorkflowRunState,
@@ -146,33 +148,8 @@ export interface WorkflowRunListRow {
 /** One row beside the reading of its own start, so the sort parses each run once. */
 interface SortableRunRow {
   readonly row: WorkflowRunListRow;
-  /** The run's start in milliseconds, or nothing where the wire's value is not one. */
-  readonly startedAtMilliseconds: number | undefined;
-}
-
-/**
- * Newest first, with an unreadable start LAST — and never a subtraction of two floors.
- *
- * An unreadable start takes a FIXED POSITION rather than a numeric floor, which is the
- * whole of this function. Floored to negative infinity and subtracted, two unreadable
- * starts give `-Infinity - -Infinity`, which is `NaN` — and a comparator that answers
- * `NaN` is one `Array.prototype.sort` may read as "equal" or as anything else it
- * likes. Two runs neither of whose starts parse would then hold whatever order the
- * enumeration happened to supply, which is the opposite of the claim the sort makes.
- *
- * Below every legible start, because a run nothing can be said about belongs under
- * every run that carries a start a person can read.
- */
-function startedAtDescending(left: SortableRunRow, right: SortableRunRow): number {
-  const leftMilliseconds = left.startedAtMilliseconds;
-  const rightMilliseconds = right.startedAtMilliseconds;
-  if (leftMilliseconds === undefined || rightMilliseconds === undefined) {
-    if (leftMilliseconds === rightMilliseconds) {
-      return 0;
-    }
-    return leftMilliseconds === undefined ? 1 : -1;
-  }
-  return rightMilliseconds - leftMilliseconds;
+  /** The run's start as this plane reads it, malformed included. */
+  readonly startedAt: InstantReading;
 }
 
 /**
@@ -276,10 +253,7 @@ export class RunListProjection {
       // log n` occasions and — the reason that matters here — gives the sort a place
       // to disagree with itself if the reading ever stopped being a pure function of
       // the string.
-      .map((run) => ({
-        row: projectRun(run),
-        startedAtMilliseconds: instantMilliseconds(run.startedAt),
-      }))
+      .map((run) => ({ row: projectRun(run), startedAt: workflowInstant(run.startedAt) }))
       .sort((left, right) => {
         const bandDelta =
           WORKFLOW_RUN_ATTENTION_BANDS.indexOf(left.row.attentionBand) -
@@ -288,8 +262,12 @@ export class RunListProjection {
           return bandDelta;
         }
         // Newest first inside a band: a run started a minute ago is the one an
-        // operator scanning a band is looking for.
-        const startDelta = startedAtDescending(left, right);
+        // operator scanning a band is looking for. An unreadable start lands last
+        // here as it does in every other direction, because the console's one
+        // comparator holds that arm before it compares numbers at all — below every
+        // legible start, since a run nothing can be said about belongs under every
+        // run that carries a start a person can read.
+        const startDelta = compareInstants(left.startedAt, right.startedAt, "newest-first");
         // And then the run's own id, which is what makes the claim above TRUE rather
         // than usually true. Two runs started in the same millisecond, and two whose
         // starts are both unreadable, compare equal on every key before this one — so

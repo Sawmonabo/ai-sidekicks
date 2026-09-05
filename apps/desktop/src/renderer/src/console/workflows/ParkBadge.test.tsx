@@ -126,12 +126,13 @@ describe("an armed instant that falls on another day", () => {
 });
 
 describe("a park whose armed instant this console cannot read", () => {
-  it("negative control: the fixture really is unparseable", () => {
+  it("negative control: the fixture really is unreadable", () => {
     // Both cases below rest on this. A fixture that quietly parsed would make them
-    // pass over a badge that treated it as an ordinary schedule.
-    expect(Number.isNaN(Date.parse(CAPACITY_WITH_AN_UNREADABLE_BOUNDARY.autoResumeAt ?? ""))).toBe(
-      true,
-    );
+    // pass over a badge that treated it as an ordinary schedule. Asserted through the
+    // family's own classification rather than the host parser, because what the badge
+    // acts on is that reading — the host parser accepts values it refuses and refuses
+    // values it accepts, so agreeing with it proves nothing about this surface.
+    expect(parkSchedule(CAPACITY_WITH_AN_UNREADABLE_BOUNDARY).kind).toBe("unreadable");
   });
 
   it("is drawn as unscheduled rather than as a resume with no time in it", () => {

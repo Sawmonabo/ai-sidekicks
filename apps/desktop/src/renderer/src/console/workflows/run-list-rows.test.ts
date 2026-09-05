@@ -13,7 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowPhaseState } from "../bridge/index.js";
-import { instantMilliseconds, parkSchedule, phasePark } from "./run-list-rows.js";
+import { parkSchedule, phasePark, workflowInstant } from "./run-list-rows.js";
 import { phase } from "./run-list-projection.test-support.js";
 
 describe("the park discriminator", () => {
@@ -94,9 +94,10 @@ describe("the rows are a narrowing of the wire shape, not a second one", () => {
  * THAT THE HOST PARSER ACCEPTS THEM IS ASSERTED ONCE, in `core/instant.test.ts`,
  * which is one of the two files the syntax bans excuse for exactly that purpose. The
  * cases below make this family's own claim instead: `parkSchedule`, where the
- * consequence lands, and `instantMilliseconds`, the single reading both this
- * classification and the run sort take, refuse each of those shapes — and admit the
- * spellings the plane does declare, which is the control the refusals need.
+ * consequence lands, and `workflowInstant`, the single reading both this
+ * classification and the reading both this family's surfaces take, refuse each of
+ * those shapes — and admit the spellings the plane does declare, which is the control
+ * the refusals need.
  */
 describe("an armed boundary is an instant or it is unreadable", () => {
   function scheduleFor(autoResumeAt: string): ReturnType<typeof parkSchedule> {
@@ -115,7 +116,7 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     // The schedule case above would pass over a classification that refused the value
     // for some other reason. This is the reading it refuses it BY, and it is the same
     // one the run sort takes, so the two surfaces cannot disagree about the shape.
-    expect(instantMilliseconds("2026-01-01T10:00:00")).toBeUndefined();
+    expect(workflowInstant("2026-01-01T10:00:00").kind).toBe("malformed");
   });
 
   it("refuses a date with no time on it", () => {
@@ -123,7 +124,7 @@ describe("an armed boundary is an instant or it is unreadable", () => {
   });
 
   it("and the reading refuses a bare date too", () => {
-    expect(instantMilliseconds("2026-01-01")).toBeUndefined();
+    expect(workflowInstant("2026-01-01").kind).toBe("malformed");
   });
 
   it("refuses a numeric offset, because this plane declares one encoding", () => {
@@ -192,7 +193,7 @@ describe("a calendar and a clock, not four groups of digits", () => {
   ];
 
   it.each(OUT_OF_RANGE_FIELDS)("refuses %s", (_field, autoResumeAt) => {
-    expect(instantMilliseconds(autoResumeAt)).toBeUndefined();
+    expect(workflowInstant(autoResumeAt).kind).toBe("malformed");
     expect(
       parkSchedule({
         parkReason: "provider-usage-limited",
@@ -206,7 +207,9 @@ describe("a calendar and a clock, not four groups of digits", () => {
     // The control for every refusal above: a check that refused February the
     // twenty-ninth outright would satisfy the whole table and be wrong once every
     // four years, on a day a run is as likely to park as any other.
-    expect(instantMilliseconds("2028-02-29T00:00:00Z")).toBe(Date.UTC(2028, 1, 29, 0, 0, 0, 0));
+    expect(workflowInstant("2028-02-29T00:00:00Z").epochMilliseconds).toBe(
+      Date.UTC(2028, 1, 29, 0, 0, 0, 0),
+    );
   });
 
   it("refuses it in a year that has no such day", () => {
@@ -214,6 +217,6 @@ describe("a calendar and a clock, not four groups of digits", () => {
     // string and the one above are digit-identical in shape and only one is a day.
     // What the host parser makes of each — the first of March, and a number either way
     // — is asserted in `core/instant.test.ts`, where the ban is lifted to show it.
-    expect(instantMilliseconds("2027-02-29T00:00:00Z")).toBeUndefined();
+    expect(workflowInstant("2027-02-29T00:00:00Z").kind).toBe("malformed");
   });
 });
