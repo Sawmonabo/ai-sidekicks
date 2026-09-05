@@ -8,7 +8,7 @@
 import { act, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge } from "../bridge/index.js";
+import { SidekicksBridgeProvider, createFixtureBridge } from "../bridge/index.js";
 import { DraftStore } from "../persistence/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { FrameStore, SessionStore } from "../store/index.js";
@@ -87,18 +87,23 @@ describe("Workspace — the sidebar it composes beside the deck", () => {
   it("negative control: a route with no session store composes no sidebar", async () => {
     // Without this the cases above would pass over a workspace that rendered the column
     // whether or not there was a session for its sections to be a view of.
+    // The two providers the frame mounts above every surface, over one bridge: the
+    // deck reads the window's clock off the resolved one.
+    const bridge = createFixtureBridge({ scenario: SCENARIO });
     const { container } = render(
-      <LiveAnnouncerProvider>
-        <Workspace
-          bridge={createFixtureBridge({ scenario: SCENARIO })}
-          frameStore={new FrameStore({ initialRoute: { kind: "sessions" } })}
-          sessionStore={undefined}
-          uiStateStore={memoryStore()}
-          draftStore={new DraftStore()}
-          route={{ kind: "sessions" }}
-          registry={testRegistry()}
-        />
-      </LiveAnnouncerProvider>,
+      <SidekicksBridgeProvider bridge={bridge}>
+        <LiveAnnouncerProvider>
+          <Workspace
+            bridge={bridge}
+            frameStore={new FrameStore({ initialRoute: { kind: "sessions" } })}
+            sessionStore={undefined}
+            uiStateStore={memoryStore()}
+            draftStore={new DraftStore()}
+            route={{ kind: "sessions" }}
+            registry={testRegistry()}
+          />
+        </LiveAnnouncerProvider>
+      </SidekicksBridgeProvider>,
     );
     await waitFor(() => {
       expect(container.querySelector(".meridian-workspace__split")).not.toBeNull();

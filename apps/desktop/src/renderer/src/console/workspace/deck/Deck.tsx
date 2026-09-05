@@ -48,10 +48,11 @@
 // indicator, the keyboard reorder path, and the density floor. Neither library ships
 // a stylesheet and neither is imported for one.
 
-import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useMemo, useRef } from "react";
 import { Group, Separator } from "react-resizable-panels";
 
-import { RealClock, type ConsoleRefusal } from "../../core/index.js";
+import { type ConsoleRefusal } from "../../core/index.js";
+import { useConsoleClock } from "../../bridge/index.js";
 import { InlineRefusal, Nothing, isEditableTarget, useAnnounce } from "../../primitives/index.js";
 import { type ConsolePaneContext, type ConsolePaneRegistry } from "../../seats/index.js";
 import { useDeckLayoutState, type DeckLayout } from "./deck-layout.js";
@@ -122,7 +123,13 @@ export function Deck(props: DeckProps): React.JSX.Element {
   const { layout } = props;
   const state = useDeckLayoutState(layout);
   const containerReference = useRef<HTMLDivElement>(null);
-  const [clock] = useState(() => new RealClock());
+  // The window's own clock, not a second time base beside it. In fixture mode that
+  // is the scenario's FROZEN clock, which every other surface in the window already
+  // reads: a deck that minted a `RealClock` ran its rect-flush coalescing on wall
+  // time while the ledger, the replay dock and the reveal engine were frozen, so
+  // whether a flush had happened when a screenshot was taken depended on how long
+  // the runner took, and no advance of the fixture clock could settle it.
+  const clock = useConsoleClock();
   const tracker = usePaneRectTracker({
     clock,
     ...(props.onPaneRects === undefined ? {} : { onRects: props.onPaneRects }),

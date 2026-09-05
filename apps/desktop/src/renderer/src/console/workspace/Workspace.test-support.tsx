@@ -11,7 +11,11 @@ import { render } from "@testing-library/react";
 import { expect } from "vitest";
 
 import { DECK_RESTORED_PANE_CAP } from "../core/index.js";
-import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import {
+  SidekicksBridgeProvider,
+  createFixtureBridge,
+  type ConsoleBridge,
+} from "../bridge/index.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import type { StoredRecord } from "../persistence/adapter.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
@@ -97,17 +101,7 @@ export function renderWorkspace(
   store?: SessionStore,
 ): { readonly container: HTMLElement; readonly uiStateStore: UiStateStore } {
   const { container } = render(
-    <LiveAnnouncerProvider>
-      <Workspace
-        bridge={createFixtureBridge({ scenario: SCENARIO })}
-        frameStore={new FrameStore({ initialRoute: { kind: "workspace", sessionId: SESSION_ID } })}
-        sessionStore={store ?? sessionStore()}
-        uiStateStore={uiStateStore}
-        draftStore={new DraftStore()}
-        route={{ kind: "workspace", sessionId: SESSION_ID }}
-        registry={testRegistry()}
-      />
-    </LiveAnnouncerProvider>,
+    workspaceFor({ sessionId: SESSION_ID, store: store ?? sessionStore() }, uiStateStore, false),
   );
   return { container, uiStateStore };
 }
@@ -130,21 +124,27 @@ export function workspaceFor(
   isKeyed: boolean,
   bridge: ConsoleBridge = createFixtureBridge({ scenario: SCENARIO }),
 ): React.JSX.Element {
+  // The provider carries the SAME bridge the surface is handed, because that is the
+  // shape the frame mounts: one window, one transport, and one clock resolved off it
+  // — the deck reads that clock for its rect tracker, and a provider carrying another
+  // bridge would be two time bases in a window production only ever gives one.
   return (
-    <LiveAnnouncerProvider>
-      <Workspace
-        {...(isKeyed ? { key: session.sessionId } : {})}
-        bridge={bridge}
-        frameStore={
-          new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
-        }
-        sessionStore={session.store}
-        uiStateStore={uiStateStore}
-        draftStore={new DraftStore()}
-        route={{ kind: "workspace", sessionId: session.sessionId }}
-        registry={testRegistry()}
-      />
-    </LiveAnnouncerProvider>
+    <SidekicksBridgeProvider bridge={bridge}>
+      <LiveAnnouncerProvider>
+        <Workspace
+          {...(isKeyed ? { key: session.sessionId } : {})}
+          bridge={bridge}
+          frameStore={
+            new FrameStore({ initialRoute: { kind: "workspace", sessionId: session.sessionId } })
+          }
+          sessionStore={session.store}
+          uiStateStore={uiStateStore}
+          draftStore={new DraftStore()}
+          route={{ kind: "workspace", sessionId: session.sessionId }}
+          registry={testRegistry()}
+        />
+      </LiveAnnouncerProvider>
+    </SidekicksBridgeProvider>
   );
 }
 

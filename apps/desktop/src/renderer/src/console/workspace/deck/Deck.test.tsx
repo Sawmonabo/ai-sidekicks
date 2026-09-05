@@ -8,7 +8,13 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { DECK_RESTORED_PANE_CAP } from "../../core/index.js";
+import { DECK_RESTORED_PANE_CAP, ManualClock } from "../../core/index.js";
+import {
+  SidekicksBridgeProvider,
+  createFixtureBridge,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
+import { FIRST_RUN_SCENARIO } from "../../bridge/scenarios/first-run.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ConsolePaneRegistry, type ConsolePaneContext } from "../../seats/index.js";
 import { Deck } from "./Deck.js";
@@ -61,20 +67,29 @@ function registryWith(
 }
 
 /**
- * The deck under the window's announcer, which is where it lives.
+ * The deck under the two providers the frame mounts above every surface.
  *
- * Not decoration: the deck reads `useAnnounce` to say what a drop settled on, and
- * that hook throws outside the provider by design. `AppFrame` mounts the provider
- * above every surface, so a bare `render(<Deck/>)` here would be a mount shape
- * production never has — and the throw is the primitive refusing to let a surface
- * speak through a region nobody created, which is a rule worth honouring in a test
- * rather than working around.
+ * Not decoration: the deck reads `useAnnounce` to say what a drop settled on and
+ * `useConsoleClock` to hand its rect tracker the window's own time base, and both
+ * throw outside their provider by design. `AppFrame` mounts both above every
+ * surface, so a bare `render(<Deck/>)` here would be a mount shape production never
+ * has — and the throw is the primitive refusing to let a surface speak through a
+ * region nobody created, or read a clock no window resolved, which is a rule worth
+ * honouring in a test rather than working around.
  */
+function DeckWindow(props: { readonly children: React.ReactNode }): React.JSX.Element {
+  return (
+    <SidekicksBridgeProvider bridge={createFixtureBridge({ scenario: FIRST_RUN_SCENARIO })}>
+      <LiveAnnouncerProvider>{props.children}</LiveAnnouncerProvider>
+    </SidekicksBridgeProvider>
+  );
+}
+
 function renderDeck(layout: DeckLayout, registry: ConsolePaneRegistry): HTMLElement {
   const { container } = render(
-    <LiveAnnouncerProvider>
+    <DeckWindow>
       <Deck layout={layout} registry={registry} paneContextFor={paneContextFor} />
-    </LiveAnnouncerProvider>,
+    </DeckWindow>,
   );
   const deck = container.querySelector(".meridian-deck");
   if (!(deck instanceof HTMLElement)) {
@@ -196,14 +211,14 @@ describe("the deck's panes", () => {
     const layout = emptyLayout();
     const report = layout.restore({ $deck: { version: 99 } });
     const { container } = render(
-      <LiveAnnouncerProvider>
+      <DeckWindow>
         <Deck
           layout={layout}
           registry={registryWith({ kind: "timeline" })}
           paneContextFor={paneContextFor}
           restoreRefusals={report.refusals}
         />
-      </LiveAnnouncerProvider>,
+      </DeckWindow>,
     );
     // Scoped to the deck's own strip rather than the first `role="status"` in the
     // tree: the announcer's polite region carries that role too and renders above
@@ -328,3 +343,57 @@ function pressFrom(origin: Element | null, init: KeyboardEventInit): KeyboardEve
   });
   return event;
 }
+
+describe("Deck — the clock its rect flush runs on", () => {
+  /** The scenario's frozen clock, or a failure that says the fixture served none. */
+  function frozenClockOf(bridge: ConsoleBridge): ManualClock {
+    const clock = bridge.scenarioEngine?.clock;
+    if (!(clock instanceof ManualClock)) {
+      throw new Error("the fixture bridge resolved no frozen clock");
+    }
+    return clock;
+  }
+
+  function renderDeckOn(bridge: ConsoleBridge): void {
+    const layout = emptyLayout();
+    layout.open({ kind: "timeline", entity: undefined });
+    render(
+      <SidekicksBridgeProvider bridge={bridge}>
+        <LiveAnnouncerProvider>
+          <Deck
+            layout={layout}
+            registry={registryWith({ kind: "timeline" })}
+            paneContextFor={paneContextFor}
+          />
+        </LiveAnnouncerProvider>
+      </SidekicksBridgeProvider>,
+    );
+  }
+
+  it("arms its flush on the window's own clock, so a frozen fixture decides when it lands", () => {
+    // The deck used to mint a `RealClock` of its own, which in fixture mode is a
+    // second time base beside the frozen one every other surface in the window reads:
+    // the rect flush then ran on wall time while the ledger, the replay dock and the
+    // reveal engine were frozen, and whether it had fired when a screenshot was taken
+    // depended on how long the runner took.
+    const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    const clock = frozenClockOf(bridge);
+
+    renderDeckOn(bridge);
+
+    // Armed and not yet run — `rect-discipline.ts` rule 1 is reads in the callback and
+    // writes on the next frame, and the frame is this window's.
+    expect(clock.pendingFrameCount).toBe(1);
+    act(() => {
+      clock.runFrame();
+    });
+    expect(clock.pendingFrameCount).toBe(0);
+  });
+
+  it("negative control: the frozen clock has nothing armed until a deck is mounted", () => {
+    // Without this, the case above would pass over a clock that reported a pending
+    // frame for anything at all, including work no deck ever asked for.
+    const bridge = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
+    expect(frozenClockOf(bridge).pendingFrameCount).toBe(0);
+  });
+});
