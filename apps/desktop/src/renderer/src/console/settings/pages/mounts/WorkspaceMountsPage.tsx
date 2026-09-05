@@ -36,7 +36,7 @@ import type { ReactNode } from "react";
 
 import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 
-import { RealClock } from "../../../core/index.js";
+import { consoleClockFor } from "../../../bridge/index.js";
 import {
   Chip,
   InlineRefusal,
@@ -122,15 +122,16 @@ function MountInventoryList(props: {
   readonly sessionStore: SettingsPageContext["retainedSessionStore"];
 }): ReactNode {
   const { bridge, sessionId, sessionStore } = props;
-  // The scenario's frozen clock under the fixture, the real one otherwise — the
-  // same resolution the family's session models make, so a story advances this
-  // read's coalescing window exactly when it advances everything else's.
+  // The scenario's frozen clock under the fixture, the real one otherwise, through
+  // the bridge family's own door — the same resolution eleven other sites make, so a
+  // story advances this read's coalescing window exactly when it advances everything
+  // else's, and a third arm on that resolution reaches here with them.
   const inventoryRead = useMemo(
     () =>
       createMountInventoryRead({
         bridge,
         sessionId,
-        clock: bridge.scenarioEngine?.clock ?? new RealClock(),
+        clock: consoleClockFor(bridge),
         sessionStore,
       }),
     [bridge, sessionId, sessionStore],
