@@ -151,8 +151,9 @@ describe("screenshot — the tier gates rather than mints", () => {
 describe("screenshot — the frame under the first-run scenario", () => {
   // Said once at collection, on the one channel the terminal reporter forwards.
   // Without it a skipped run reports "3 skipped" and nothing else, which a reader
-  // cannot tell from a tier that was quietly switched off. Once for the RUN and not
-  // once per suite, which is what the module it comes from latches.
+  // cannot tell from a tier that was quietly switched off. Once per FILE — browser
+  // mode gives each one its own module graph — which is the scope the module it comes
+  // from latches.
   warnOnceOffBaselineHost();
 
   for (const scheme of CONSOLE_SCHEMES) {

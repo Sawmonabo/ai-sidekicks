@@ -1,12 +1,12 @@
-// The screenshot tier's off-platform notice says its sentence once, not once per suite.
+// The screenshot tier's skip notice says its sentence once per file, not once per suite.
 //
 // IN THE BROWSER TIER, BECAUSE THE SUBJECT CANNOT BE IMPORTED ANYWHERE ELSE THE
 // AGGREGATE `test` SCRIPT RUNS. `baseline-guard.ts` reads `vitest/browser`'s `server`
 // at module scope for the resolved environment and the snapshot-update mode, so a
 // Node-context architecture test cannot import it at all — and its own screenshot tier
-// is the one project the aggregate script omits, which is exactly the state this
-// branch is fixing elsewhere. The browser tier is on the aggregate script and gives
-// the module the context it needs, so the checker runs where its subject runs.
+// is the one project the aggregate script omits. The browser tier is on that script
+// and gives the module the context it needs, so the checker runs where its subject
+// runs.
 //
 // The latch is driven directly rather than through `console`: the notice takes its
 // writer as an argument, so a case can count what was written without replacing a

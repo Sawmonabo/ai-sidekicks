@@ -1,4 +1,4 @@
-// What THIS run of the screenshot tier concluded about its host, said once.
+// What this screenshot FILE concluded about its host, said once.
 //
 // Not a test file — no `include` glob reaches it. `baseline-platform.ts` beside it
 // owns the pure half: the two variables, the runner they name, and a predicate that
@@ -11,9 +11,14 @@
 // frame and the palette; each view family pins its own surfaces beside it. Every one
 // of them needs the same skip guard and the same sentence, and a per-file copy is a
 // second chance for the predicate and the reason it prints to drift apart — a skip
-// whose sentence names a host the guard is no longer testing. It is also what makes
-// the notice's "once" true: a latch inside a suite fires once per SUITE, so the
-// paragraph that exists to make a skipped run legible was printed once per file.
+// whose sentence names a host the guard is no longer testing.
+//
+// AND "ONCE" MEANS ONCE PER FILE, WHICH IS THE WIDEST SCOPE THIS TIER HAS. Browser
+// mode isolates each test file into its own page and module graph, so module scope IS
+// file scope here and a run that skips prints one paragraph per skipping FILE — which
+// is what a reader of a skipped run needs, since a file that ran and skipped is
+// exactly the thing the count does not distinguish. The latch bounds the file: a file
+// whose suites each ask says it once rather than once per suite.
 
 import { server } from "vitest/browser";
 import type { TestContext } from "vitest";
@@ -53,7 +58,7 @@ export function skipOffBaselineHost(context: TestContext): void {
 }
 
 /**
- * A sentence this run says at most once, however many suites ask for it.
+ * A sentence this module says at most once, however many callers ask for it.
  *
  * A class with a private field rather than a module-level `let`, which
  * `apps/desktop/AGENTS.md` rejects — and it takes its writer as an argument rather
@@ -87,10 +92,10 @@ const offBaselineHostNotice = new RunScopedNotice(comparesHere ? undefined : SKI
  * Say the reason once at collection, on the channel the terminal reporter forwards.
  *
  * Without it a skipped run reports a bare skipped count and nothing else, which a
- * reader cannot tell from a tier that was quietly switched off. ONCE for the run and
- * not once per caller: every suite in the tier calls this during collection, so an
- * unlatched body printed the same paragraph once per suite and the note that exists
- * to make a skipped run legible was the noisiest thing in the report.
+ * reader cannot tell from a tier that was quietly switched off. Once per FILE and not
+ * once per caller: every suite in a file calls this during collection, so an unlatched
+ * body printed the same paragraph once per suite and the note that exists to make a
+ * skipped run legible was the noisiest thing in the report.
  */
 export function warnOnceOffBaselineHost(): void {
   offBaselineHostNotice.say((message) => {
