@@ -186,6 +186,15 @@ export class PaneErrorWatch {
    * re-opened and that was delivering. The generation is what tells the two apart; the
    * stream-identity check that used to guard the handle alone cannot, because the
    * handle is one of the fields the stale round was writing.
+   *
+   * AND BOTH ENDINGS ARE THE SAME FACT, WHICH IS WHY BOTH REFUSE. A producer that
+   * closes the stream cleanly and one that drops it leave this window in the identical
+   * state: nothing will report the next crash, and every pane still in a window of its
+   * own is one whose loss would go unnoticed. The normal arm used to clear the handle
+   * and publish, which rendered a placeholder that said nothing was wrong — the
+   * quietest possible account of a signal that had stopped. A stop is the ONE ending
+   * that is calm, and a stop supersedes this round before the loop can notice, so
+   * neither arm here ever has to ask which one it was.
    */
   async #drain(stream: PaneErrorSignal, claim: CurrentGenerationClaim): Promise<void> {
     try {
@@ -208,6 +217,10 @@ export class PaneErrorWatch {
       return;
     }
     claim.settle(() => {
+      this.#refusal = refuseHandoff(
+        "signal-ended",
+        "The signal that reports a lost window ended. A window that closes unexpectedly will no longer return its pane on its own.",
+      );
       this.#stream = undefined;
       this.#onChanged();
     });

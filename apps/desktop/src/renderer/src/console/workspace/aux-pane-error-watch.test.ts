@@ -17,8 +17,27 @@ import { AuxiliaryHandoff } from "./aux-handoff.js";
 import { servingPort } from "./aux-handoff.test-support.js";
 
 describe("AuxiliaryHandoff — the crashed-window signal", () => {
-  /** A served pane-error stream that delivers exactly what the test lists. */
-  function streamingPort(paneErrors: readonly { paneId: string; reason: string }[]): GrowthPort {
+  /** Let a held request's continuation run, without advancing any timer. */
+  async function drainMicrotasks(): Promise<void> {
+    for (let turn = 0; turn < 8; turn += 1) {
+      await Promise.resolve();
+    }
+  }
+
+  /**
+   * A served pane-error stream that delivers exactly what the test lists.
+   *
+   * `endsAfterDelivering` separates the two endings this signal has, and the DEFAULT
+   * is the one the wire offers: a subscription held open for as long as something is
+   * in a window of its own, delivering nothing further rather than completing. A case
+   * that wants the producer to close the stream asks for it by name — a helper that
+   * only ever modelled a finite list would leave the loop's normal exit unreachable,
+   * which is how it went unnoticed that the exit reported a stopped signal as calm.
+   */
+  function streamingPort(
+    paneErrors: readonly { paneId: string; reason: string }[],
+    options: { readonly endsAfterDelivering: boolean } = { endsAfterDelivering: false },
+  ): GrowthPort {
     return {
       ...servingPort(),
       windowSubscribePaneErrors: async () => ({
@@ -28,6 +47,9 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
             for (const paneError of paneErrors) {
               await Promise.resolve();
               yield paneError;
+            }
+            if (!options.endsAfterDelivering) {
+              await new Promise<void>(() => undefined);
             }
           })(),
           close: () => undefined,
@@ -46,7 +68,8 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
     expect(handoff.detached()).toHaveLength(1);
 
-    await handoff.watchPaneErrors();
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
 
     expect(handoff.detached()).toHaveLength(0);
     expect(handoff.paneErrorRefusal).toBeUndefined();
@@ -66,9 +89,56 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
     });
     await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
 
-    await handoff.watchPaneErrors();
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
 
     expect(handoff.detached()).toHaveLength(1);
+  });
+
+  it("says so when the signal ends of its own accord, rather than reading it as calm", async () => {
+    // The defect: the loop's normal exit cleared the handle and published, and wrote
+    // no refusal — so a producer that closed the subscription while panes were still
+    // in windows left a placeholder reporting that nothing was wrong. The next window
+    // to crash returned no pane and said nothing about why.
+    const handoff = new AuxiliaryHandoff({
+      growth: streamingPort([], { endsAfterDelivering: true }),
+    });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    await handoff.watchPaneErrors();
+
+    expect(handoff.paneErrorRefusal?.code).toBe("signal-ended");
+    // And the pane is still in its window: an ended signal is a notice about what is
+    // no longer being watched, never an act that returns anything.
+    expect(handoff.detached()).toHaveLength(1);
+  });
+
+  it("negative control: a signal that stays open leaves no refusal behind", async () => {
+    // Without this, the case above would pass over a watch that refused the moment it
+    // opened, which is a permanent notice on a window whose signal is healthy — the
+    // shape this module's header rules out.
+    const handoff = new AuxiliaryHandoff({ growth: streamingPort([]) });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+
+    expect(handoff.paneErrorRefusal).toBeUndefined();
+  });
+
+  it("drops that refusal when the last pane comes back and the watch is stopped", async () => {
+    // Which is what makes the notice above one about panes that are still in windows,
+    // rather than one that outlives the hand-off it describes.
+    const handoff = new AuxiliaryHandoff({
+      growth: streamingPort([], { endsAfterDelivering: true }),
+    });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+    await handoff.watchPaneErrors();
+    expect(handoff.paneErrorRefusal?.code).toBe("signal-ended");
+
+    handoff.stopWatchingPaneErrors();
+
+    expect(handoff.paneErrorRefusal).toBeUndefined();
   });
 
   it("keeps the refusal where the signal is not served, rather than reading it as calm", async () => {
@@ -133,13 +203,6 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
         },
       },
     };
-  }
-
-  /** Let the held request's continuation run, without advancing any timer. */
-  async function drainMicrotasks(): Promise<void> {
-    for (let turn = 0; turn < 8; turn += 1) {
-      await Promise.resolve();
-    }
   }
 
   it("closes a subscription that arrives after the watch was stopped, and drains nothing", async () => {

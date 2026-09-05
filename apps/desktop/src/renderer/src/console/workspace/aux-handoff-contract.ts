@@ -21,18 +21,22 @@ import {
 import { type PaneKind } from "../seats/index.js";
 
 /**
- * Why a hand-off was refused, or how one ended badly. Closed; a sixth is a decision.
+ * Why a hand-off was refused, or how one ended badly. Closed; a seventh is a decision.
  *
- * `window-lost` is the one member that is not an act being refused: nothing was
- * asked for and nothing was denied — a window that was open stopped being open. It
- * is in this vocabulary rather than beside it because the console has exactly one
- * shape for "here is a code and the sentence that came with it", and a second
- * vocabulary for one member would be a second answer to which strings this
+ * Two members are not an act being refused: nothing was asked for and nothing was
+ * denied. `window-lost` is a window that was open and stopped being open, and
+ * `signal-ended` is the subscription that would have reported such a window ending
+ * of its own accord while panes are still in windows — the producer closed the
+ * stream, so no crash will be reported again and the placeholder has to say so.
+ * Both are in this vocabulary rather than beside it because the console has exactly
+ * one shape for "here is a code and the sentence that came with it", and a second
+ * vocabulary for the odd member would be a second answer to which strings this
  * subsystem may put on a screen.
  */
 export const AUXILIARY_HANDOFF_REFUSAL_CODES = [
   "kind-not-detachable",
   "route-not-implemented",
+  "signal-ended",
   "target-context-invalid",
   "wire-unregistered",
   "window-lost",

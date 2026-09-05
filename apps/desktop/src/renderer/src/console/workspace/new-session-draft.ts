@@ -267,7 +267,7 @@ export class NewSessionDraft {
    * id before the daemon minted it. Across repeated presses, it is idempotent in
    * the only way a renderer can make a create idempotent — by remembering. A
    * concurrent call joins the running send; a later call re-reports the session the
-   * first one made. Neither refuses, because a refusal here would put a fourth code
+   * first one made. Neither refuses, because a refusal here would put a fifth code
    * in front of a person whose press did exactly what they meant it to.
    */
   public send(): Promise<NewSessionSendResult> {
@@ -295,8 +295,11 @@ export class NewSessionDraft {
 
     // A session this draft already created is the session this draft sends to. The
     // create is skipped rather than repeated, and the SAME partial is re-reported,
-    // because nothing about the outcome has changed: the session still exists and
-    // the two calls that would have finished the send are still unregistered.
+    // because nothing about the outcome has changed: the session still exists, and
+    // whichever call the send stopped at is still the one it cannot make. That is
+    // not one condition but two, and only one of them is a missing registration —
+    // `#remainderAfterCreate` is where they are told apart, and it is the single
+    // place both the first press and every later one read it from.
     if (this.#landedCreate !== undefined) {
       return this.#remainderAfterCreate(this.#landedCreate.sessionId);
     }
