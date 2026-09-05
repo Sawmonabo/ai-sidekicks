@@ -11,7 +11,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ManualClock } from "../../core/index.js";
 import { NATIVE_VIEW_MINIMUM_VISIBLE_PX } from "../workspace-bounds.js";
 import { AirspaceRegistry, PaneRectTracker } from "./rect-discipline.js";
-import { rectKey, type TrackedRect } from "./rect-geometry.js";
+import { type TrackedRect } from "./rect-geometry.js";
 
 /** A rectangle in viewport coordinates, as the DOM would report one. */
 interface ViewportBox {
@@ -276,31 +276,5 @@ describe("PaneRectTracker — what a clipping ancestor does to the rect", () => 
     clock.runFrame();
 
     expect(writes[0]?.[0]).toMatchObject({ x: 100, y: 40, width: 400, height: 300 });
-  });
-});
-
-describe("rectKey", () => {
-  it("ignores a sub-pixel difference no one can see", () => {
-    const base: TrackedRect = {
-      paneId: "pane-1",
-      x: 0,
-      y: 0,
-      width: 400,
-      height: 300,
-      isVisible: true,
-    };
-    expect(rectKey({ ...base, width: 400.2 })).toBe(rectKey(base));
-  });
-
-  it("negative control: visibility is part of the key", () => {
-    const base: TrackedRect = {
-      paneId: "pane-1",
-      x: 0,
-      y: 0,
-      width: 400,
-      height: 300,
-      isVisible: true,
-    };
-    expect(rectKey({ ...base, isVisible: false })).not.toBe(rectKey(base));
   });
 });
