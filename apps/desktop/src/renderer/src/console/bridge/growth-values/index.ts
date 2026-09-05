@@ -57,23 +57,13 @@ export type { GrowthCallbackTool, GrowthToolCall } from "./tools.js";
 
 export {
   // Consumed by T-023p-1C-5
-  GROWTH_ARTIFACT_REPLICATION_STATUSES,
-  // Consumed by T-023p-1C-5
-  GROWTH_ARTIFACT_STATES,
-  // Consumed by T-023p-1C-5
   GROWTH_ARTIFACT_TYPES,
-  // Consumed by T-023p-1C-5
-  GROWTH_ARTIFACT_VISIBILITIES,
   type GrowthArtifactDeleteReceipt,
   // Consumed by T-023p-1C-5
   type GrowthArtifactPayloadDisposition,
   // Consumed by T-023p-1C-5
   type GrowthArtifactPayloadEncoding,
   type GrowthArtifactRead,
-  // Consumed by T-023p-1C-5
-  type GrowthArtifactReadDeferred,
-  // Consumed by T-023p-1C-5
-  type GrowthArtifactReadInline,
   // Consumed by T-023p-1C-5
   type GrowthArtifactReplicationStatus,
   // Consumed by T-023p-1C-5

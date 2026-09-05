@@ -7,7 +7,6 @@
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
 import { op } from "./operation-entry.js";
 
-/** The session and shell rows, in the order the single table carried them. */
 /**
  * The ids this plane carries, DERIVED from the id union rather than listed again.
  *
@@ -27,6 +26,7 @@ type SessionOperationId = Extract<
   | "healthSubscribe"
 >;
 
+/** The session and shell rows, in the order the single table carried them. */
 export const SESSION_GROWTH_OPERATIONS: Readonly<Record<SessionOperationId, GrowthOperationEntry>> =
   {
     sessionRename: op("sessionRename", "session-lifecycle-verbs", "method", "rename a session"),
