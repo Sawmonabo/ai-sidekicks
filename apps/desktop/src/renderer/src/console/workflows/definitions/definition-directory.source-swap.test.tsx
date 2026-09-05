@@ -20,7 +20,7 @@ import {
   type ObservedSubjectRead,
 } from "../../store/subject-read-commits.test-support.js";
 import { definition } from "../WorkflowsBrowser.test-support.js";
-import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definition-rows.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectory,

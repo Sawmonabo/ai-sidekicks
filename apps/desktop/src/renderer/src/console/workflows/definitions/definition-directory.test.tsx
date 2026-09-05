@@ -22,7 +22,7 @@ import {
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
 import { definition } from "../WorkflowsBrowser.test-support.js";
-import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definition-rows.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectory,

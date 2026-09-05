@@ -8,8 +8,9 @@
 
 import { describe, expect, it } from "vitest";
 
+import { WORKFLOW_DEFINITION_SCOPES } from "../../bridge/index.js";
 import { definition } from "../WorkflowsBrowser.test-support.js";
-import { DefinitionsBrowser, WORKFLOW_DEFINITION_SCOPES } from "./DefinitionsBrowser.js";
+import { DefinitionsBrowser } from "./DefinitionsBrowser.js";
 import { groupFor, renderScopeList, rowNames } from "./DefinitionsBrowser.test-support.js";
 
 describe("the scope groups", () => {

@@ -35,14 +35,12 @@
 // appears in this list.
 
 import type { ReadingState } from "../primitives/index.js";
+import type { WorkflowDefinitionScope } from "../bridge/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
 import { WorkflowChrome } from "./WorkflowChrome.js";
 import type { WorkflowChromeState } from "./chrome-state.js";
-import {
-  DefinitionsBrowser,
-  type WorkflowDefinitionRow,
-  type WorkflowDefinitionScope,
-} from "./definitions/DefinitionsBrowser.js";
+import { DefinitionsBrowser } from "./definitions/DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 
 export interface WorkflowsSurfaceProps {
   readonly state: WorkflowChromeState;

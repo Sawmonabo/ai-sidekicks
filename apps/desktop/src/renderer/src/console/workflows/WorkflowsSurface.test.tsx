@@ -16,9 +16,9 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { WORKFLOW_DEFINITION_SCOPES } from "../bridge/index.js";
 import { refuse } from "../core/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
-import { WORKFLOW_DEFINITION_SCOPES } from "./definitions/DefinitionsBrowser.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { refusedWorkflowChrome, unaskedWorkflowChrome } from "./chrome-state.js";
 

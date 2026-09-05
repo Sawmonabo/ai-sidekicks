@@ -29,7 +29,7 @@ import { act, render } from "@testing-library/react";
 
 import { createRefusingGrowthPort, type GrowthPort } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import type { WorkflowDefinitionRow } from "./definitions/DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";

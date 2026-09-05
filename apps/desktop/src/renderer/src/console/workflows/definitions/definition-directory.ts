@@ -65,15 +65,13 @@ import { useCallback, useMemo } from "react";
 import {
   settleGrowthRead,
   useSettledGrowthRead,
+  WORKFLOW_DEFINITION_SCOPES,
   type GrowthPort,
   type SettledReadRefusal,
+  type WorkflowDefinitionScope,
 } from "../../bridge/index.js";
 import { subjectReadStart, type SubjectRead } from "../../store/index.js";
-import {
-  WORKFLOW_DEFINITION_SCOPES,
-  type WorkflowDefinitionRow,
-  type WorkflowDefinitionScope,
-} from "./DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definition-rows.js";
 
 /** What one settled page of the enumeration is, derived from the port's own answer. */
 type SettledDefinitionPage =

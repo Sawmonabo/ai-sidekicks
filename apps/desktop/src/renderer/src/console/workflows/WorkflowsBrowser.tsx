@@ -49,7 +49,7 @@
 
 import type { GrowthPort } from "../bridge/index.js";
 import type { ReadingState } from "../primitives/index.js";
-import type { WorkflowDefinitionRow } from "./definitions/DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { useReadSettlementAnnouncement } from "./read-announcement.js";
 import { refusedWorkflowChrome, type WorkflowChromeState } from "./chrome-state.js";
