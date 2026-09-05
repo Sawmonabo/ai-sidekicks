@@ -72,7 +72,7 @@
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import {
   GenerationLatch,
   RefreshScheduler,
@@ -133,8 +133,17 @@ export interface ArtifactPaneReaderOptions {
    * listens for nothing, and the pane renders the absence that says nobody asked.
    */
   readonly sessionStore: SessionStore | undefined;
-  /** Injected so a test drives every read on frozen time with no real timers. */
-  readonly clock?: ConsoleClock;
+  /**
+   * The clock this reader's scheduler and every stamp it publishes run on.
+   *
+   * REQUIRED, AND THE BINDING READS IT OFF THE BRIDGE. It used to default to a fresh
+   * `RealClock`, so a pane composed under the fixture coalesced its reads against wall
+   * time while the scenario advanced on frozen time — the two clocks racing inside one
+   * window, with whichever ran first deciding what a screenshot caught.
+   * `consoleClockFor` is the one answer to which clock a window runs on, and a default
+   * here is what let a call site skip asking it.
+   */
+  readonly clock: ConsoleClock;
 }
 
 export class ArtifactPaneReader {
@@ -165,7 +174,7 @@ export class ArtifactPaneReader {
     this.#bridge = options.bridge;
     this.#sessionId = options.sessionStore?.sessionId;
     this.#scheduler = new RefreshScheduler({
-      clock: options.clock ?? new RealClock(),
+      clock: options.clock,
       perform: async () => {
         await this.#performRead();
       },

@@ -17,7 +17,7 @@ import {
   INGEST_STALL_DISCLOSURE_MS,
   ManualClock,
 } from "../../core/index.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import { AttachmentCard } from "./AttachmentCard.js";
 import {
   AttachmentCarrier,
@@ -198,6 +198,49 @@ describe("attachment carrier — the stall disclosure wakes once at its threshol
     clock.advance(INGEST_STALL_DISCLOSURE_MS * 3);
     expect(publishCount).toBe(0);
     expect(carrier.snapshot.publishedAtMilliseconds).toBe(START_MILLISECONDS);
+  });
+});
+
+describe("useAttachmentCarrier — the stamp is the window's clock, never the host's", () => {
+  it("publishes the instant `consoleClockFor` answers for the bridge it was handed", () => {
+    // The defect: the carrier defaulted to a `RealClock` of its own, so under the
+    // fixture the entries were stamped from wall time while the scenario's beats
+    // advanced on frozen time — two clocks inside one window, and the wall one always
+    // won. This fails on that code, where the stamp is `Date.now()`.
+    const port = new ScriptedGrowthPort();
+    const clock = new ManualClock(START_MILLISECONDS);
+    const bridge = port.asBridge(clock);
+    let binding: AttachmentCarrierBinding | undefined;
+    render(
+      <CarrierProbe
+        bridge={bridge}
+        onBinding={(taken) => {
+          binding = taken;
+        }}
+      />,
+    );
+
+    expect(consoleClockFor(bridge).now()).toBe(START_MILLISECONDS);
+    expect(binding?.snapshot.publishedAtMilliseconds).toBe(START_MILLISECONDS);
+  });
+
+  it("negative control: the stamp follows the clock it was given, not one fixed instant", () => {
+    // Without this, a stamp hard-coded to the first case's start would pass it. Two
+    // bridges on two scenario clocks stamp two different instants.
+    const laterStart = START_MILLISECONDS + INGEST_STALL_DISCLOSURE_MS;
+    const port = new ScriptedGrowthPort();
+    let binding: AttachmentCarrierBinding | undefined;
+    render(
+      <CarrierProbe
+        bridge={port.asBridge(new ManualClock(laterStart))}
+        onBinding={(taken) => {
+          binding = taken;
+        }}
+      />,
+    );
+
+    expect(binding?.snapshot.publishedAtMilliseconds).toBe(laterStart);
+    expect(binding?.snapshot.publishedAtMilliseconds).not.toBe(START_MILLISECONDS);
   });
 });
 

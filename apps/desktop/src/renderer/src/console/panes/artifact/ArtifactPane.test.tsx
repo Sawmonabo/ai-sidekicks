@@ -364,3 +364,41 @@ describe("artifact pane — deleting one row", () => {
     expect(container.querySelector(".meridian-artifacts__receipt")).toBeNull();
   });
 });
+
+describe("artifact pane — the reader runs on the window's clock, never one of its own", () => {
+  it("reads when the scenario clock reaches the window, not when the host's does", async () => {
+    // The defect: `ArtifactPaneReader` defaulted to a `RealClock`, so a pane composed
+    // under the fixture coalesced its reads against wall time while the scenario
+    // advanced on frozen time. On that code the host-timer advance below lists the row
+    // and this case fails on its first assertion.
+    const clock = new ManualClock();
+    const { container } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, clock }),
+        sessionId: SESSION_ID,
+      }),
+    );
+
+    await readThrough();
+    expect(container.querySelector(".meridian-artifact-row")).toBeNull();
+
+    await readThrough(clock);
+    await settleAct();
+    expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
+  });
+
+  it("negative control: a bridge with no scenario clock still reads on the host's", async () => {
+    // `consoleClockFor` mints a `RealClock` where no engine is running, which is what
+    // every other case here relies on — so the case above is about which clock the
+    // reader was handed rather than about the pane having stopped reading.
+    const { container } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW }),
+        sessionId: SESSION_ID,
+      }),
+    );
+
+    await readThrough();
+    expect(container.querySelector(".meridian-artifact-row")).not.toBeNull();
+  });
+});

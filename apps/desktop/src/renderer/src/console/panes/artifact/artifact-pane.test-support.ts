@@ -192,20 +192,29 @@ async function scriptedAnswer(scripted: unknown): Promise<unknown> {
  * Let the scheduler's coalescing window elapse, then let the read's awaits run.
  *
  * ONE WAIT, TWO CLOCKS, and the argument says which. A reader a case constructs is
- * handed a `ManualClock` directly, so the window is advanced on it; a reader the PANE
- * composes runs on whatever `consoleClockFor` answers for the bridge it was given,
- * which for a hand-built bridge is the host's clock the suite fakes. Written twice it
- * was two functions of one name in two modules, which is one grep and two contracts.
+ * handed a `ManualClock` directly, so the window is advanced on that; a reader the
+ * PANE composes runs on whatever `consoleClockFor` answers for the bridge it was
+ * given, which for a hand-built bridge is the host's clock the mounted suites fake —
+ * and for a bridge carrying a scenario engine is the manual clock that engine holds.
+ * Written twice it was two functions of one name in two modules, which is one grep and
+ * two contracts.
+ *
+ * The `act` and the drain are the two harnesses' own settling, not a third clock:
+ * `drainMicrotasks` crosses a macrotask boundary and so never resolves while the host
+ * timers are faked, and `act` needs a rendering environment a reader-only case does
+ * not have. `vi.isFakeTimers()` is what tells them apart, rather than a second
+ * parameter a call site would have to keep in step with its own `beforeEach`.
  */
 export async function readThrough(clock?: ManualClock): Promise<void> {
-  if (clock === undefined) {
-    await act(async () => {
-      await vi.advanceTimersByTimeAsync(REFRESH_DEBOUNCE_MS);
-    });
+  if (clock !== undefined && !vi.isFakeTimers()) {
+    clock.advance(REFRESH_DEBOUNCE_MS);
+    await drainMicrotasks();
     return;
   }
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  await drainMicrotasks();
+  await act(async () => {
+    clock?.advance(REFRESH_DEBOUNCE_MS);
+    await vi.advanceTimersByTimeAsync(clock === undefined ? REFRESH_DEBOUNCE_MS : 0);
+  });
 }
 
 /** Let an act's promise and the publish it causes settle, inside a mounted render. */
@@ -302,11 +311,19 @@ export const ARTIFACT_ENTITY = { kind: "artifact", id: "artifact-diff-01" } as c
 export const OTHER_ARTIFACT_ENTITY = { kind: "artifact", id: "artifact-attachment-02" } as const;
 
 /**
- * A pane context whose collaborators are never reached — `legacy-surfaces.test.ts`'s
- * cast, for its reason: the assertions are about what the address renders as. The
- * blocks that press a control pass a bridge and a session and reach both. The ADDRESS
- * half is not cast — the entity parameter is the arm's own, so a case handing this
- * pane a subject an artifact pane is never opened over fails to compile here.
+ * A pane context on the address the case is about.
+ *
+ * `legacy-surfaces.test.ts`'s cast, for its reason: the assertions are about what the
+ * address renders as. The ADDRESS half is not cast — the entity parameter is the arm's
+ * own, so a case handing this pane a subject an artifact pane is never opened over
+ * fails to compile here.
+ *
+ * THE BRIDGE IS ALWAYS PRESENT, and it used to be optional. `ConsolePaneContext`
+ * declares it required and the cast hid an `undefined` from the compiler, which was
+ * harmless only while nothing read it before a session existed — and stopped being so
+ * the moment the pane began resolving its clock off the bridge. A case that scripts no
+ * operation gets a port that refuses every one of them, which is what a live bridge
+ * answers for these wires anyway.
  */
 export function contextFor(
   entity: ArtifactPaneContext["entity"],
@@ -316,7 +333,7 @@ export function contextFor(
     kind: "artifact",
     entity,
     paneId: "pane-artifact-1",
-    bridge: reached.bridge,
+    bridge: reached.bridge ?? artifactBridgeAnswering({}),
     // A REAL store rather than a stub carrying an id: the reader now subscribes to it
     // for three of its four refresh reasons, and a stub with no `readable` would make
     // every case here fail on the subscription rather than on what it asserts.

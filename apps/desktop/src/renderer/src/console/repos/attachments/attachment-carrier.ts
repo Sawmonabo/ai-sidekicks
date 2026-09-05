@@ -31,12 +31,11 @@
 // the declared name would silently drop the second of two `notes.md`. The counter
 // rises and never repeats, which is the whole requirement.
 
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import {
   Emitter,
-  RealClock,
   type ConsoleClock,
   type ScheduledHandle,
   type Unsubscribe,
@@ -56,8 +55,18 @@ export interface AttachmentCarrierSnapshot {
 export interface AttachmentCarrierOptions {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
-  /** Injected so a test drives a whole carrier on frozen time with no real clock. */
-  readonly clock?: ConsoleClock;
+  /**
+   * The clock every stamp this carrier publishes is taken from.
+   *
+   * REQUIRED, AND THE BINDING BELOW READS IT OFF THE BRIDGE. It used to default to a
+   * fresh `RealClock`, which made the default the wall clock in exactly the place the
+   * fixture is supposed to own time: `consoleClockFor` is the one answer to which
+   * clock a window runs on, so a carrier under the fixture stamped its entries from
+   * wall time while the scenario's beats advanced on frozen time, and a surface
+   * showing an age disagreed with the ledger it was reading. A default is what let
+   * that happen without a call site saying so, so there is none.
+   */
+  readonly clock: ConsoleClock;
 }
 
 /** One ingest client, its subscription, and the stamped snapshot a surface renders. */
@@ -73,7 +82,7 @@ export class AttachmentCarrier {
   #disposed = false;
 
   public constructor(options: AttachmentCarrierOptions) {
-    this.#clock = options.clock ?? new RealClock();
+    this.#clock = options.clock;
     this.#client = new AttachmentIngestClient({
       bridge: options.bridge,
       sessionId: options.sessionId,
@@ -268,19 +277,24 @@ export function useAttachmentCarrier(
   bridge: ConsoleBridge,
   sessionId: string,
 ): AttachmentCarrierBinding {
+  // The window's own clock, resolved once per bridge — `clone-expiry-wake-up.ts`'s
+  // shape, for its reason: `consoleClockFor` mints a fresh `RealClock` per call on a
+  // live bridge, so reading it in a render body would hand the re-mint arm below a
+  // different instance from the one the first carrier was opened on.
+  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const { value: carrier, settle } = useSubjectScopedResource(
     bridge,
     sessionId,
-    () => new AttachmentCarrier({ bridge, sessionId }),
+    () => new AttachmentCarrier({ bridge, sessionId, clock }),
     closeAttachmentCarrier,
   );
   useEffect(() => {
     if (carrier.isDisposed) {
-      settle()(new AttachmentCarrier({ bridge, sessionId }));
+      settle()(new AttachmentCarrier({ bridge, sessionId, clock }));
       return;
     }
     carrier.start();
-  }, [carrier, settle, bridge, sessionId]);
+  }, [carrier, settle, bridge, sessionId, clock]);
   const subscribe = useCallback(
     (onCarrierChange: () => void) => carrier.subscribe(onCarrierChange),
     [carrier],

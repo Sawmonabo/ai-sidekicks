@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import type { SessionStore } from "../../store/index.js";
 import type {
   ArtifactDeleteOutcome,
@@ -66,13 +66,19 @@ export function useArtifactPaneReading(
   sessionStore: SessionStore | undefined,
   subjectArtifactId: string,
 ): ArtifactPaneBinding {
+  // The window's own clock, resolved once per bridge — `clone-expiry-wake-up.ts`'s
+  // shape. `consoleClockFor` is the one answer to which clock a window runs on, and
+  // the reader used to default to a `RealClock` of its own, so a pane under the
+  // fixture scheduled its reads on wall time while the scenario advanced on frozen
+  // time.
+  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const reader = useMemo(
-    () => new ArtifactPaneReader({ bridge, sessionStore }),
+    () => new ArtifactPaneReader({ bridge, sessionStore, clock }),
     // The subject is a dependency the constructor is not handed: the reader reads the
     // session's whole list rather than one artifact, so nothing inside it takes an
     // artifact id — what the subject decides is which reader's subject-scoped state
     // this is, which is exactly what a memo key decides.
-    [bridge, sessionStore, subjectArtifactId],
+    [bridge, sessionStore, subjectArtifactId, clock],
   );
   useEffect(() => {
     reader.start();

@@ -18,6 +18,7 @@
 // than passing under a recorder that had been updated to match it.
 
 import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
+import type { ConsoleClock } from "../../core/index.js";
 import type { ChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { attachmentSourceFrom, type AttachmentSource } from "./attachment-shapes.js";
@@ -201,7 +202,15 @@ export class ScriptedGrowthPort {
     return spooledBytes;
   }
 
-  public asBridge(): ConsoleBridge {
+  /**
+   * The port behind a bridge, with the window's clock where a case freezes one.
+   *
+   * `consoleClockFor` reads the running scenario engine's clock, so a case that hands
+   * one over here is handing it to every subsystem the binding composes — which is the
+   * only way to assert that a carrier stamps from the window's clock rather than from
+   * a `RealClock` of its own.
+   */
+  public asBridge(clock?: ConsoleClock): ConsoleBridge {
     const port = {
       artifactIngestBegin: async (request: RecordedInit) => {
         this.initCalls.push(request);
@@ -268,7 +277,10 @@ export class ScriptedGrowthPort {
           : { status: "unavailable", code: this.#abortRefusalCode, detail: "scripted refusal" };
       },
     };
-    return { growth: port } as unknown as ConsoleBridge;
+    return {
+      growth: port,
+      ...(clock === undefined ? {} : { scenarioEngine: { clock } }),
+    } as unknown as ConsoleBridge;
   }
 }
 
