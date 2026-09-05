@@ -182,6 +182,20 @@ const RENDERER_RESTRICTED_PATTERNS = [
  */
 const WIRE_STAMP_NAME_SUFFIX = "(?:At|Iso)$";
 
+/**
+ * How the console spells a NUMERIC instant — the one construction `new Date(...)`
+ * leaves open.
+ *
+ * A census of this tree rather than a convention, which is what the arm it serves was
+ * missing: the only bare name any `new Date(...)` under `console/` passes today is
+ * `sequence`, a fixture counter, and the millisecond and epoch suffixes are how the
+ * corpus spells a numeric instant everywhere it composes one
+ * (`ATTENTION_SCENARIO_STARTED_AT_MILLISECONDS + atMs`). A name outside this set is
+ * refused, which is the opposite of the heuristic that stood here and could not see
+ * `new Date(iso)`.
+ */
+const NUMERIC_INSTANT_NAME_SUFFIX = "(?:Ms|Milliseconds|Epoch|[Ss]equence)$";
+
 export default [
   ...root,
   // `src/shared/**` is imported by BOTH processes (see
@@ -424,22 +438,22 @@ export default [
             "`new Date(<string>)` is `Date.parse` with a wrapper and carries the same leniency. Read the stamp with `parseInstant` from `console/core/instant.ts`; build a fixture instant from `Date.UTC(...)` instead of parsing one.",
         },
         {
-          // The NAMED form, which is the one an engineer actually writes. The selector
-          // above matches a literal or a template because those carry the separators a
-          // stamp carries; a stamp reached through a variable or a member carries no
-          // syntax at all, and `new Date(row.createdAt)` is how a renderer parses one
-          // without ever typing a quote. So this arm keys on the NAME instead — the
-          // corpus spells every wire instant `<something>At` or `<something>Iso`, and the
-          // convention is what makes the heuristic decidable.
+          // The NAMED form, INVERTED. This arm used to key on the argument's NAME being
+          // stamp-shaped — `…At` or `…Iso` — and justified itself with "the corpus spells
+          // every wire instant that way". The console's own figure chokepoint refutes it:
+          // `formatClockTime(iso: string)` in `primitives/wire-figures.ts` carries a wire
+          // stamp under a lower-case name, and `new Date(iso)` there passed the check.
+          // A premise a live call site in the same tree contradicts is not a convention.
           //
-          // `new Date(<number>)` stays legitimate and is why this is name-keyed rather
-          // than "any identifier": a fixture composing an instant from a base and an
-          // offset passes a number through a variable, and banning that would ban the
-          // one construction this whole rule leaves open.
-          selector:
-            'NewExpression[callee.name="Date"] > :matches(Identifier[name=/(?:At|Iso)$/], MemberExpression[property.name=/(?:At|Iso)$/])',
+          // So the ban is stated the other way round: a `new Date` whose argument is a
+          // NAME is refused unless the name says it is a number. That inverts which side
+          // pays for a spelling nobody anticipated — a new stamp name is caught, and a
+          // new numeric name is a one-word edit to `NUMERIC_INSTANT_NAME_SUFFIX` that a
+          // reviewer sees. A sum or a call is not a name and is outside the arm entirely,
+          // so `new Date(base + offsetMs)` and `new Date(Date.UTC(...))` still pass.
+          selector: `:matches(NewExpression[callee.name="Date"][arguments.0.type="Identifier"][arguments.0.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/], NewExpression[callee.name="Date"][arguments.0.type="MemberExpression"][arguments.0.property.name!=/${NUMERIC_INSTANT_NAME_SUFFIX}/])`,
           message:
-            "`new Date(<a value named …At / …Iso>)` is `Date.parse` with a wrapper and carries the same leniency — it just does not look like it, because the string is behind a name. Read the stamp with `parseInstant` from `console/core/instant.ts`; build a fixture instant from `Date.UTC(...)` instead of parsing one.",
+            "`new Date(<a named value>)` is `Date.parse` with a wrapper and carries the same leniency — it just does not look like it, because the string is behind a name. Read the stamp with `parseInstant` from `console/core/instant.ts`; build a fixture instant from `Date.UTC(...)`, or name the value for the number it holds (`…Ms`, `…Milliseconds`, `…Epoch`).",
         },
         {
           // The template-literal half of the `String(catch)` ban below. Interpolating the
