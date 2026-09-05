@@ -116,12 +116,14 @@ export {
   /** @consumedBy T-023p-1C-3 */
   SidebarSectionRegistry,
   registerSidebarSection,
+  // Consumed by T-023p-1C-3
   sidebarSectionRegistry,
   /** @consumedBy T-023p-1C-3 */
   sidebarSectionRenderer,
   type SidebarSectionContext,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   type SidebarSectionDescriptor,
+  // Consumed by T-023p-1C-3
   type SidebarSectionId,
 } from "./sidebar-sections.js";
 

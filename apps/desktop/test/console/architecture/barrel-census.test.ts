@@ -80,16 +80,27 @@ const CONSOLE_PREFIX = "src/renderer/src/console";
 const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT];
 
 /**
- * The two doors that publish nothing they did not declare themselves.
+ * The five doors that publish nothing they did not declare themselves.
  *
- * Both are composition sites: `scenarios/index.ts` composes the scenario list and
- * `panes/index.ts` registers the pane board, each declaring its one export in place
- * rather than forwarding a name from elsewhere. Named here so the per-door claim
- * below is a quantifier rather than a predicate that could grow to admit anything.
+ * Every one of them is a composition site, and that is the whole of what they have
+ * in common: `scenarios/index.ts` composes the scenario list, `panes/index.ts`
+ * registers the pane board, and each view family's own door registers that family's
+ * surface or pane against a registry it is handed. A registration is a CALL, so the
+ * door declares its registrar in place and forwards no name from elsewhere — the
+ * family's bodies, models, and vocabularies are reached deeply from inside it and
+ * cross the family boundary through nothing.
+ *
+ * Named rather than subtracted by a predicate so the per-door claim below stays a
+ * quantifier: a door that forwards nothing because a clause was dropped from it
+ * reads identically to one that never forwarded, and only an enumeration tells them
+ * apart. A view family landing on a branch appends its door here in the same diff.
  */
 const DOORS_THAT_FORWARD_NOTHING: readonly string[] = [
   `${CONSOLE_PREFIX}/bridge/scenarios/index.ts`,
+  `${CONSOLE_PREFIX}/panes/agent-console/index.ts`,
   `${CONSOLE_PREFIX}/panes/index.ts`,
+  `${CONSOLE_PREFIX}/sessions/index.ts`,
+  `${CONSOLE_PREFIX}/settings/index.ts`,
 ];
 
 function toKey(absolutePath: string): string {

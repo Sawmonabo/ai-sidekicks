@@ -112,13 +112,14 @@ export function suppressedGuardedRules(source: string): readonly string[] {
 }
 
 /**
- * The module that proves the needle reads a real directive rather than nothing.
+ * The word a directive is written with, whatever rule it goes on to name.
  *
- * It suppresses a DIFFERENT rule, which is what makes it the honest control: the
- * directive form is already in this tree, so the clean result above is a finding about
- * which rules are suppressed rather than about whether any directive exists to find.
+ * The control below reads it with `includes` — deliberately the crudest possible
+ * search — so that the needle it checks and the check itself cannot fail the same
+ * way. A regular expression cross-checked against a second regular expression would
+ * agree on exactly the cases both were written wrong for.
  */
-const MODULE_CARRYING_A_DIRECTIVE = "console/panes/index.ts";
+const DIRECTIVE_WORD = "eslint-disable";
 
 /** Whether the audited rule is configured and ON for `absolutePath`. */
 async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<boolean> {
@@ -230,14 +231,26 @@ describe("eslint exemption census — every excused file trips something", () =>
     expect(offenders).toStrictEqual([]);
   });
 
-  it("negative control: the needle reads the directive this tree already carries", () => {
-    // Both halves. The real one proves a directive is findable at all; the planted rows
-    // prove the rule list is read rather than the word `eslint-disable` alone.
-    const carrier = readConsoleSourceModule(
-      moduleNamed(modules, MODULE_CARRYING_A_DIRECTIVE, "the module carrying a directive"),
-    );
-    expect(inlineDirectives(carrier).length).toBeGreaterThan(0);
-    expect(suppressedGuardedRules(carrier)).toStrictEqual([]);
+  it("negative control: the needle finds every directive this tree carries, and no other", () => {
+    // Both halves, and the first one is a SCAN rather than a named module. A carrier
+    // named by hand is a control that stops controlling the day its module stops
+    // carrying — which is what a family absorbing the last directive in the tree does,
+    // and it leaves the gate red for a reason that is nothing to do with the gate's
+    // subject. Reading the whole tree instead keeps the claim true at every count: the
+    // needle and the crudest possible search agree on WHICH modules carry a directive,
+    // so an under-reporting needle fails on the module it missed and an over-reporting
+    // one fails on the module it invented. At zero carriers the claim still bites in
+    // the over-reporting direction, and the planted rows below carry the rest.
+    const needled = modules
+      .filter((module) => inlineDirectives(readConsoleSourceModule(module)).length > 0)
+      .map((module) => module.displayPath);
+    const worded = modules
+      .filter((module) => readConsoleSourceModule(module).includes(DIRECTIVE_WORD))
+      .map((module) => module.displayPath);
+    expect(needled).toStrictEqual(worded);
+
+    // The planted rows prove the rule list is read rather than the word alone, which
+    // is the half no scan over a tree that suppresses nothing could ever prove.
     for (const planted of [
       "/* eslint-disable no-restricted-syntax */\nexport const at = Date.parse(iso);\n",
       "// eslint-disable-next-line no-restricted-syntax -- a reason\nexport const at = Date.parse(iso);\n",

@@ -18,11 +18,7 @@
 // rather than re-exported here, so a family editing its own seat never touches
 // this file.
 
-export type {
-  ConsoleBridge,
-  // Consumed by T-023p-1C-4
-  ConsoleBridgeSource,
-} from "./console-bridge.js";
+export type { ConsoleBridge, ConsoleBridgeSource } from "./console-bridge.js";
 
 // The one answer to "which clock does this window run on". Exported because the
 // two composition roots that build a clocked subsystem — the session registry and
@@ -61,13 +57,11 @@ export { createFixtureBridge } from "./fixture-bridge.js";
 // renders a served value or a refusal, and a surface that could reach a schema
 // would be a surface that could parse a second time, differently.
 export {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
   callDaemon,
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DAEMON_REPLY_REFUSAL_ORIGIN,
 } from "./daemon-reply.js";
 export type {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
   DaemonReply,
   // Consumed by T-023p-1C-2, T-023p-1C-3
   DaemonReplyRefusalCode,
@@ -132,9 +126,7 @@ export type {
   AgentConfigUpdateReading,
   AgentConfigUpdateRequest,
   AgentDetachRequest,
-  AgentEffectiveBinding,
   AgentListRequest,
-  AgentPendingAxis,
   AgentPendingSwitch,
   AgentResolvedConfiguration,
   AgentRosterEntry,

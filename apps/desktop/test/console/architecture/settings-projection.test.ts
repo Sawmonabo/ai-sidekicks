@@ -26,24 +26,17 @@
 //     rendering it. The needles are the same family the contracts package's own
 //     negative type-test flattens.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const SETTINGS_DIRECTORY = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "src",
-  "renderer",
-  "src",
-  "console",
-  "settings",
-);
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  readConsoleSourceModule,
+  type ConsoleSourceModule,
+} from "../console-source-modules.js";
+
+/** The prefix a settings module's display path carries. */
+const SETTINGS_PREFIX = "console/settings/";
 
 /**
  * Identifiers a page would have to name to decide, itself, that a control is not
@@ -95,15 +88,22 @@ function projectionViolations(source: string): readonly string[] {
   );
 }
 
-function settingsPageModules(): readonly string[] {
-  return readdirSync(SETTINGS_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx"),
-    )
-    .sort();
+/**
+ * Every settings module, through the one walk every source-text gate shares.
+ *
+ * The console root alone rather than both, because this claim is about the settings
+ * family and nothing else; the shared walk excludes co-located tests and their
+ * support modules by default, which is exactly the set this gate wants.
+ */
+function settingsPageModules(): readonly ConsoleSourceModule[] {
+  return consoleSourceModules({ roots: [CONSOLE_DIRECTORY] }).filter((module) =>
+    module.displayPath.startsWith(SETTINGS_PREFIX),
+  );
+}
+
+/** What a settings module is named by inside its own family. */
+function nameInsideSettings(module: ConsoleSourceModule): string {
+  return module.displayPath.slice(SETTINGS_PREFIX.length);
 }
 
 describe("settings pages are projections", () => {
@@ -113,18 +113,20 @@ describe("settings pages are projections", () => {
     // Without this, a wrong SETTINGS_DIRECTORY would scan nothing and every
     // assertion below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(3);
-    expect(modules).toContain("SettingsSurface.tsx");
-    expect(modules.filter((module) => module.startsWith("pages"))).not.toStrictEqual([]);
+    expect(modules.map(nameInsideSettings)).toContain("SettingsSurface.tsx");
+    expect(
+      modules.filter((module) => nameInsideSettings(module).startsWith("pages")),
+    ).not.toStrictEqual([]);
   });
 
   it("no page derives eligibility or renders a credential-bearing value", () => {
     const offenders = modules
       .map((module) => ({
         module,
-        signatures: projectionViolations(readFileSync(join(SETTINGS_DIRECTORY, module), "utf8")),
+        signatures: projectionViolations(readConsoleSourceModule(module)),
       }))
       .filter((entry) => entry.signatures.length > 0)
-      .map((entry) => `${entry.module}: ${entry.signatures.join(", ")}`);
+      .map((entry) => `${entry.module.displayPath}: ${entry.signatures.join(", ")}`);
     expect(offenders).toStrictEqual([]);
   });
 
