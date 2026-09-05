@@ -148,6 +148,7 @@ export interface ArtifactPaneReaderOptions {
 
 export class ArtifactPaneReader {
   readonly #bridge: ConsoleBridge;
+  readonly #sessionStore: SessionStore | undefined;
   readonly #sessionId: string | undefined;
   readonly #scheduler: RefreshScheduler;
   /** Absent on a bare route: with no session there is nothing to observe. */
@@ -172,6 +173,7 @@ export class ArtifactPaneReader {
 
   public constructor(options: ArtifactPaneReaderOptions) {
     this.#bridge = options.bridge;
+    this.#sessionStore = options.sessionStore;
     this.#sessionId = options.sessionStore?.sessionId;
     this.#scheduler = new RefreshScheduler({
       clock: options.clock,
@@ -210,6 +212,29 @@ export class ArtifactPaneReader {
   /** How many reads have actually run — the coalescing assertion, not an inference. */
   public get performCount(): number {
     return this.#scheduler.performCount;
+  }
+
+  /**
+   * Whether this reader is still the right one for a render holding that store.
+   *
+   * ASKED RATHER THAN REMEMBERED, on `AttachmentCarrier.isDisposed`'s reason: the
+   * binding that owns this reader's lifetime has exactly one question before it calls
+   * `start()`, and a flag kept beside the reader would be a copy of what the reader
+   * already knows.
+   *
+   * TWO CONJUNCTS, AND THEY ARE TWO DIFFERENT FACTS. A DISPOSED reader is terminal —
+   * `start()` returns at once — and React's development double-mount produces exactly
+   * one, by running the seam's disposal and then replaying the setup on the same
+   * committed value; without this the pane would come back from that replay having
+   * read nothing, forever. A reader built against a DIFFERENT store is not broken,
+   * it is looking at a projection this render has replaced: the subject-scoped seam
+   * keys on the artifact, which names its session and so cannot separate two readings
+   * of one session, and a store rebuilt across a reconnect is exactly that. Both
+   * answers mean the same act — mint a fresh reader — which is why one question
+   * carries them.
+   */
+  public isCurrentFor(sessionStore: SessionStore | undefined): boolean {
+    return !this.#disposed && this.#sessionStore === sessionStore;
   }
 
   public subscribe(sink: (reading: ArtifactPaneReading) => void): Unsubscribe {

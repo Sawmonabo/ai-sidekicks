@@ -75,12 +75,23 @@ const PANE_SUBJECT_BY_KIND: Readonly<
   artifact: { kind: "artifact", id: "artifact-diff-01" },
 };
 
-/** A pane context whose collaborators are never reached. */
+/**
+ * A pane context with real collaborators, on `sectionContext`'s reason.
+ *
+ * THE BRIDGE IS REACHED NOW, and this context used to supply none. The artifact
+ * pane resolves the window's clock off it — `consoleClockFor(bridge)`, so that a pane
+ * under the fixture schedules on the scenario's frozen time rather than on wall time
+ * — which made an absent bridge a throw on the pane's first hook rather than a
+ * collaborator nobody asked for. The fixture bridge and a bare store are the cheapest
+ * honest ones: both are the real classes, and the scenario is the family's own.
+ */
 function paneContext(kind: (typeof REPOS_PANE_KINDS)[number]): ConsolePaneContext {
   return {
     kind,
     entity: PANE_SUBJECT_BY_KIND[kind],
     paneId: `pane-${kind}`,
+    bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
+    sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
   } as unknown as ConsolePaneContext;
 }
 
