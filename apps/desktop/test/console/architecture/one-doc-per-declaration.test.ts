@@ -25,7 +25,7 @@
 // pattern that matches `*/` followed by `/**`.
 
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
 import { parseSourceText } from "../typescript-source.js";
@@ -72,22 +72,74 @@ function describeStack(entry: StackedDocumentation): string {
   return `${entry.displayPath}:${String(entry.line)} carries ${String(entry.blockCount)} documentation blocks on one declaration`;
 }
 
+/**
+ * The budgets this file states rather than inherits, and why they differ.
+ *
+ * One reading and parse of the console costs ~150 ms alone on the authoring machine
+ * and multiplies under the gate's five-project concurrency — the load, not the tree,
+ * is what a budget here has to survive, the same finding that put explicit budgets on
+ * `barrel-census.test.ts`. The hook pays for the whole reading and is set well above
+ * the loaded cost, because what a budget guards is a reading that never settles rather
+ * than a slow one. The cases compare over a reading already in hand at 0-1 ms each, so
+ * their budget is deliberately smaller: a case that somehow became the first to touch
+ * the reading should fail fast and say so rather than inherit the hook's patience.
+ */
+const CONSOLE_READING_ALLOWANCE_MS = 30_000;
+const COMPARISON_ALLOWANCE_MS = 10_000;
+
+vi.setConfig({ testTimeout: COMPARISON_ALLOWANCE_MS, hookTimeout: CONSOLE_READING_ALLOWANCE_MS });
+
+/** What one reading of the tree answers. Every case below is a comparison over this. */
+interface DocumentationReading {
+  readonly moduleCount: number;
+  readonly stacked: readonly string[];
+}
+
+/**
+ * The one reading this file pays for, and the cases' only source.
+ *
+ * Behind a private field with a throwing accessor rather than a mutable binding a case
+ * could read as `undefined`: a hook that failed would otherwise surface as a type
+ * error in whichever case ran first, which names the wrong thing.
+ */
+class DocumentationCensus {
+  #reading: DocumentationReading | undefined = undefined;
+
+  public get reading(): DocumentationReading {
+    if (this.#reading === undefined) {
+      throw new Error("the console reading was asked for before the hook filled it in");
+    }
+    return this.#reading;
+  }
+
+  public read(): void {
+    const modules = consoleSourceModules();
+    this.#reading = {
+      moduleCount: modules.length,
+      stacked: modules
+        .flatMap((module) =>
+          stackedDocumentationIn(module.displayPath, readConsoleSourceModule(module)),
+        )
+        .map(describeStack),
+    };
+  }
+}
+
 describe("documentation — one block per declaration", () => {
-  const modules = consoleSourceModules();
+  const census = new DocumentationCensus();
+
+  beforeAll(() => {
+    census.read();
+  });
 
   it("finds a tree to scan at all", () => {
     // Without this a wrong root would scan nothing and the claim below would pass
     // over the empty set.
-    expect(modules.length).toBeGreaterThan(50);
+    expect(census.reading.moduleCount).toBeGreaterThan(50);
   });
 
   it("no declaration carries a second documentation block", () => {
-    const stacked = modules
-      .flatMap((module) =>
-        stackedDocumentationIn(module.displayPath, readConsoleSourceModule(module)),
-      )
-      .map(describeStack);
-    expect(stacked).toStrictEqual([]);
+    expect(census.reading.stacked).toStrictEqual([]);
   });
 
   it("negative control: the reader reports a stack and passes every way of not being one", () => {

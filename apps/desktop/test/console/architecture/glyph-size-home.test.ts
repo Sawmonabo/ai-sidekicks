@@ -27,7 +27,7 @@
 // a string from one the module actually declares.
 
 import ts from "typescript";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   consoleSourceModules,
@@ -110,40 +110,100 @@ function describeRestatement(entry: LiteralGlyphSize): string {
   return `${entry.displayPath} declares ${entry.name} = ${String(entry.value)}, a size tokens/glyphs.ts already publishes`;
 }
 
+/**
+ * The budgets this file states rather than inherits, and why they differ.
+ *
+ * Reading and parsing the console once costs ~150 ms alone on the authoring machine
+ * and multiplies under the gate's five-project concurrency — the load, not the tree,
+ * is what a budget here has to survive, which is the same finding that put explicit
+ * budgets on `barrel-census.test.ts`. The hook pays for that whole reading and is set
+ * well above the loaded cost, because what a budget guards is a reading that never
+ * settles rather than a slow one. The cases pay only for comparisons over a reading
+ * already in hand, measured at 0-2 ms each, so their budget is deliberately smaller: a
+ * case that somehow became the first to touch the reading should fail fast and say so
+ * rather than inherit the hook's patience.
+ */
+const CONSOLE_READING_ALLOWANCE_MS = 30_000;
+const COMPARISON_ALLOWANCE_MS = 10_000;
+
+vi.setConfig({ testTimeout: COMPARISON_ALLOWANCE_MS, hookTimeout: CONSOLE_READING_ALLOWANCE_MS });
+
+/** What one reading of the tree answers. Every case below is a comparison over this. */
+interface GlyphSizeReading {
+  readonly moduleCount: number;
+  readonly publishedSizes: ReadonlySet<number>;
+  readonly restatements: readonly string[];
+  readonly readerCount: number;
+}
+
+/**
+ * The one reading this file pays for, and the cases' only source.
+ *
+ * Behind a private field with a throwing accessor rather than a mutable binding a case
+ * could read as `undefined`: a hook that failed would otherwise surface as a type
+ * error in whichever case ran first, which names the wrong thing.
+ */
+class GlyphSizeCensus {
+  #reading: GlyphSizeReading | undefined = undefined;
+
+  public get reading(): GlyphSizeReading {
+    if (this.#reading === undefined) {
+      throw new Error("the console reading was asked for before the hook filled it in");
+    }
+    return this.#reading;
+  }
+
+  public read(): void {
+    const modules = consoleSourceModules();
+    const home: ConsoleSourceModule = moduleNamed(modules, GLYPH_SIZE_HOME, "the glyph token home");
+    const publishedSizes = new Set(
+      literalGlyphSizesIn(home.displayPath, readConsoleSourceModule(home)).map(
+        (entry) => entry.value,
+      ),
+    );
+    const restatements: string[] = [];
+    let readerCount = 0;
+    for (const module of modules) {
+      if (module.displayPath === GLYPH_SIZE_HOME) {
+        continue;
+      }
+      const source = readConsoleSourceModule(module);
+      for (const entry of literalGlyphSizesIn(module.displayPath, source)) {
+        if (publishedSizes.has(entry.value)) {
+          restatements.push(describeRestatement(entry));
+        }
+      }
+      if (importedGlyphSizesIn(module.displayPath, source).length > 0) {
+        readerCount += 1;
+      }
+    }
+    this.#reading = { moduleCount: modules.length, publishedSizes, restatements, readerCount };
+  }
+}
+
 describe("glyph sizes — a published size is declared once", () => {
-  const modules = consoleSourceModules();
-  const home: ConsoleSourceModule = moduleNamed(modules, GLYPH_SIZE_HOME, "the glyph token home");
-  const publishedSizes = new Set(
-    literalGlyphSizesIn(home.displayPath, readConsoleSourceModule(home)).map(
-      (entry) => entry.value,
-    ),
-  );
-  const elsewhere = modules.filter((module) => module.displayPath !== GLYPH_SIZE_HOME);
+  const census = new GlyphSizeCensus();
+
+  beforeAll(() => {
+    census.read();
+  });
 
   it("finds a tree to scan and a home that publishes more than one size", () => {
     // Without this a wrong root would scan nothing, and an empty published set would
     // make the claim below quantify over no values at all.
-    expect(modules.length).toBeGreaterThan(50);
-    expect(publishedSizes.size).toBeGreaterThan(1);
+    expect(census.reading.moduleCount).toBeGreaterThan(50);
+    expect(census.reading.publishedSizes.size).toBeGreaterThan(1);
   });
 
   it("no module outside the home restates a size the home publishes", () => {
-    const restatements = elsewhere
-      .flatMap((module) => literalGlyphSizesIn(module.displayPath, readConsoleSourceModule(module)))
-      .filter((entry) => publishedSizes.has(entry.value))
-      .map(describeRestatement);
-    expect(restatements).toStrictEqual([]);
+    expect(census.reading.restatements).toStrictEqual([]);
   });
 
   it("modules outside the home read the published sizes, so the rule has subjects", () => {
     // The claim above is satisfied both by a console that reads its tokens and by one
     // that draws no glyphs at all. This is what separates them: the sizes are not
     // merely unrestated, they are in use through the door.
-    const readers = elsewhere.filter(
-      (module) =>
-        importedGlyphSizesIn(module.displayPath, readConsoleSourceModule(module)).length > 0,
-    );
-    expect(readers.length).toBeGreaterThan(1);
+    expect(census.reading.readerCount).toBeGreaterThan(1);
   });
 
   it("negative control: the reader reports a planted literal and passes a read one", () => {
