@@ -35,7 +35,6 @@ export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // importer reaches is a dead export the structure gate reports.
 export { SCENARIO_FIXTURE_GLOBAL, SESSION_DIAGNOSTICS_FIXTURE_GLOBAL } from "./fixture-globals.js";
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   compareInstants,
   parseInstant,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
