@@ -68,7 +68,7 @@
  * a naming rule that swept them in would be answered by renaming rather than by going
  * through the holder.
  */
-export const SECOND_IMPLEMENTATION_NAMES =
+export const SECOND_IMPLEMENTATION_NAMES: RegExp =
   /use(?:Subject|Session|Bridge|Pane|Run|Agent)[A-Za-z]*?(?:Scoped|Stamped|State|Value|Holder)|(?:Latch|Register|Epoch)$|Generation|MutationAttempt$/;
 
 /** What a hand-rolled holder captures: the two identities a surface is addressed by. */
