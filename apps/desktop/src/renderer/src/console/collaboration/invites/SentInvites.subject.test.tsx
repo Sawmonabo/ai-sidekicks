@@ -9,8 +9,10 @@ import { describe, expect, it } from "vitest";
 
 import type { InviteRevokeResponse } from "@ai-sidekicks/contracts";
 
-import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
-import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
+import {
+  fixtureBridgeWithGrowth,
+  withDaemonCall,
+} from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge, InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
 import { SentInvites } from "./SentInvites.js";
 import {
