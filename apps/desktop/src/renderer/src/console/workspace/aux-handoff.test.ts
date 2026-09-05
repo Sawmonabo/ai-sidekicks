@@ -443,4 +443,88 @@ describe("AuxiliaryHandoff — the crashed-window signal", () => {
 
     expect(handoff.paneErrorRefusal?.detail).toContain("the channel dropped");
   });
+
+  /**
+   * A served signal whose delivery can be made to fail, per stream and on demand.
+   *
+   * The two cases below are about WHOSE failure it was: closing a stream is what makes
+   * its drain throw, and a stop closes one, so a drain that reports its own failure
+   * without asking whether it is still the watch reports it over whatever was opened
+   * behind that stop.
+   */
+  function abortableSignalPort(): {
+    readonly port: GrowthPort;
+    /** Fail delivery on the stream opened at `position`, without closing the watch. */
+    readonly failDeliveryOn: (position: number) => void;
+    readonly openedCount: () => number;
+  } {
+    const failures: ((reason: unknown) => void)[] = [];
+    return {
+      failDeliveryOn: (position) => {
+        failures[position]?.(new Error("the channel dropped"));
+      },
+      openedCount: () => failures.length,
+      port: {
+        ...servingPort(),
+        windowSubscribePaneErrors: async () => {
+          let failDelivery: (reason: unknown) => void = () => undefined;
+          // Never resolves: a signal delivers or it fails, and a watch is closed
+          // rather than waited out.
+          const pull = new Promise<never>((_resolve, reject) => {
+            failDelivery = reject;
+          });
+          failures.push(failDelivery);
+          return {
+            status: "served",
+            value: {
+              events: { [Symbol.asyncIterator]: () => ({ next: () => pull }) },
+              close: () => {
+                failDelivery(new Error("the channel dropped"));
+              },
+            },
+          };
+        },
+      },
+    };
+  }
+
+  it("does not report a superseded drain's failure over the watch that replaced it", async () => {
+    // The defect: the claim was released at the reply, so the drain — which runs for
+    // the whole life of the subscription — held no generation. A stop closes the
+    // stream, the close makes the drain throw, and a detach arriving right behind that
+    // stop has already installed a healthy signal by the time the throw is caught. The
+    // placeholder then said the crash signal had stopped while it was delivering.
+    const held = abortableSignalPort();
+    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+    handoff.stopWatchingPaneErrors();
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+
+    expect(held.openedCount()).toBe(2);
+    expect(handoff.paneErrorRefusal).toBeUndefined();
+    // And the healthy stream is still the installed one: the stale drain's clear is a
+    // settlement too, and it went nowhere.
+    handoff.stopWatchingPaneErrors();
+    await drainMicrotasks();
+    expect(handoff.paneErrorRefusal).toBeUndefined();
+  });
+
+  it("negative control: a drain that fails while it IS the watch says so", async () => {
+    // Without this, the case above would pass over a drain whose catch wrote nothing
+    // at all, and a signal that really dropped would end in silence.
+    const held = abortableSignalPort();
+    const handoff = new AuxiliaryHandoff({ growth: held.port });
+    await handoff.detach({ paneId: "pane-1", kind: "timeline", sessionId: "session-1" });
+
+    void handoff.watchPaneErrors();
+    await drainMicrotasks();
+    held.failDeliveryOn(0);
+    await drainMicrotasks();
+
+    expect(handoff.paneErrorRefusal?.detail).toContain("the channel dropped");
+  });
 });

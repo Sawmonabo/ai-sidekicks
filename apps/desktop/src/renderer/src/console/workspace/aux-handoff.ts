@@ -55,7 +55,7 @@
 // makes a note about the last one a note about nothing.
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
-import { GenerationLatch } from "../store/index.js";
+import { GenerationLatch, type CurrentGenerationClaim } from "../store/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import {
   AUXILIARY_ROUTE_LABELS,
@@ -324,6 +324,15 @@ export class AuxiliaryHandoff {
    * stream and drained it for a window with nothing detached, which is the
    * permanent-notice-about-a-hazard-the-window-does-not-have shape this file's header
    * rules out. A stale response closes what it opened and installs nothing.
+   *
+   * AND THE CLAIM IS HELD FOR THE DRAIN, WHICH IS THE WORK IT GATES. The drain runs
+   * for the whole life of the subscription and every write it makes is a settlement
+   * — a pane returned to the deck, a refusal about the signal, the handle cleared.
+   * Freeing the key at the reply left all of that ungated: a stop closes the stream,
+   * which is what makes the drain throw, and a detach arriving right behind that stop
+   * has already installed a healthy one by the time the throw is caught. The key is
+   * given back at the end instead, where `release` is a no-op for a round something
+   * else has already superseded.
    */
   public async watchPaneErrors(): Promise<void> {
     if (this.#paneErrorStream !== undefined) {
@@ -334,33 +343,31 @@ export class AuxiliaryHandoff {
       return;
     }
 
-    const answer = await this.#growth.windowSubscribePaneErrors({});
-    let installed = false;
-    claim.settle(() => {
-      installed = true;
-    });
-    // Released whether or not the settlement ran: a claim superseded by a stop no
-    // longer owns the key, so this cannot take back a watch a later detach started,
-    // and a claim that did settle has to free the key or no later detach could
-    // start one at all.
-    claim.release();
-    if (!installed) {
-      // Stopped while this was in flight, so the stream this reply carries is one
-      // nothing will ever drain.
-      if (answer.status === "served") {
-        answer.value.close();
+    try {
+      const answer = await this.#growth.windowSubscribePaneErrors({});
+      const installed = claim.settle(() => {
+        if (answer.status === "unavailable") {
+          this.#paneErrorRefusal = refuseHandoff("wire-unregistered", answer.detail);
+          this.#publish();
+          return;
+        }
+        this.#paneErrorRefusal = undefined;
+        this.#paneErrorStream = answer.value;
+      });
+      if (!installed) {
+        // Stopped while this was in flight, so the stream this reply carries is one
+        // nothing will ever drain.
+        if (answer.status === "served") {
+          answer.value.close();
+        }
+        return;
       }
-      return;
+      if (answer.status === "served") {
+        await this.#drainPaneErrors(answer.value, claim);
+      }
+    } finally {
+      claim.release();
     }
-
-    if (answer.status === "unavailable") {
-      this.#paneErrorRefusal = refuseHandoff("wire-unregistered", answer.detail);
-      this.#publish();
-      return;
-    }
-    this.#paneErrorRefusal = undefined;
-    this.#paneErrorStream = answer.value;
-    await this.#drainPaneErrors(answer.value);
   }
 
   /**
@@ -380,23 +387,41 @@ export class AuxiliaryHandoff {
     this.#paneErrorRefusal = undefined;
   }
 
-  async #drainPaneErrors(stream: PaneErrorSignal): Promise<void> {
+  /**
+   * Deliver what the signal reports, for as long as this round is the watch.
+   *
+   * EVERY WRITE GOES THROUGH THE CLAIM, including the failure arm. A superseded drain
+   * is one whose stream has been closed by a stop, and closing is exactly what makes
+   * this loop throw — so an ungated catch wrote "the signal that reports a lost window
+   * stopped" over a subscription that a detach arriving behind that stop had already
+   * re-opened and that was delivering. The generation is what tells the two apart; the
+   * stream-identity check that used to guard the handle alone cannot, because the
+   * handle is one of the fields the stale round was writing.
+   */
+  async #drainPaneErrors(stream: PaneErrorSignal, claim: CurrentGenerationClaim): Promise<void> {
     try {
       for await (const paneError of stream.events) {
-        this.noteWindowLost(paneError.paneId, paneError.reason);
+        claim.settle(() => {
+          this.noteWindowLost(paneError.paneId, paneError.reason);
+        });
       }
     } catch (error) {
       // A signal that ended in a failure is not a signal that reported no crashes,
       // so the placeholder says so rather than the stream ending in silence.
-      this.#paneErrorRefusal = refuseHandoff(
-        "wire-unregistered",
-        `The signal that reports a lost window stopped: ${describeStreamFailure(error)}`,
-      );
+      claim.settle(() => {
+        this.#paneErrorRefusal = refuseHandoff(
+          "wire-unregistered",
+          `The signal that reports a lost window stopped: ${describeStreamFailure(error)}`,
+        );
+        this.#paneErrorStream = undefined;
+        this.#publish();
+      });
+      return;
     }
-    if (this.#paneErrorStream === stream) {
+    claim.settle(() => {
       this.#paneErrorStream = undefined;
-    }
-    this.#publish();
+      this.#publish();
+    });
   }
 
   #publish(): void {
