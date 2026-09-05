@@ -20,6 +20,16 @@
 // that polls needs a figure for its own `timeout`, and a body that invents one is
 // a second copy of a bound that will drift from this one — so `remainingMs()` is
 // what a poll is given, and it is what is LEFT rather than the whole allowance.
+//
+// A WAIT'S OWN BOUND IS NOT ENOUGH ON ITS OWN
+//
+// Handing a wait what is left is only half of it. A wait also has a bound of its
+// own — a route transition that has stopped is a different failure from a body
+// that ran long — and passing either figure alone loses the other's sentence: the
+// whole bound lets a late step be replaced by the outer overrun, and the raw
+// remainder lets a wedged console burn the rest of the body before saying so. So
+// `boundedMs` takes both and the smaller wins, which is what makes the FIRST wait
+// that cannot fit fail with its own message.
 
 import { type ClosableApplication } from "./bounded-cleanup.js";
 import { closeAfterBody } from "./cleanup-disposition.js";
@@ -28,6 +38,24 @@ import { LaunchDeadline } from "./launch-deadline.js";
 
 /** How an overrun names the phase that ran out. */
 const TEST_BODY_PHASE = "the launched console's test body";
+
+/**
+ * The bound one in-window step gets before the console is called stopped.
+ *
+ * A surface mounting, an overlay opening, a durable write landing: each is a
+ * store update and a React commit, or one IndexedDB round trip — sub-second work
+ * on any runner. So this bounds a console that has STOPPED responding rather than
+ * one that is being slow, and it is deliberately one figure for the class rather
+ * than a figure per site, since a second name for the same number is a second
+ * place it can drift.
+ *
+ * Shared by both launching tiers: the end-to-end tier's waits and the endurance
+ * tier's route transitions used to carry one copy each. It is a bound a wait
+ * declares rather than a ceiling anything is measured against, which is why it
+ * lives here beside the allowance and not as a `budgets.json` row — every row
+ * there is a ceiling the registry compares a reading to.
+ */
+export const IN_WINDOW_STEP_TIMEOUT_MS = 10_000;
 
 /**
  * One body's allowance: mint it after the launch settles, then draw from it.
@@ -61,6 +89,25 @@ export class BodyAllowance {
    */
   remainingMs(): number {
     return this.#deadline.remainingMs();
+  }
+
+  /**
+   * The timeout to hand ONE bounded wait: its own bound, or what is left of the
+   * allowance, whichever is smaller.
+   *
+   * Both halves are load-bearing and neither is the other's approximation. The
+   * wait's own bound is what makes a stalled step report as a stalled step —
+   * `.meridian-frame` never appeared, the scheme was never written — rather than
+   * as a body that took too long. The remainder is what stops a wait declared at
+   * 10 000 ms from running 10 000 ms past an allowance with 200 ms left on it, in
+   * which case the enclosing race settles first and replaces the wait's own
+   * sentence with the generic overrun.
+   *
+   * Never zero, because `remainingMs` is floored at 1 and a caller passing zero
+   * to Playwright would be asking for no timeout at all.
+   */
+  boundedMs(ownBoundMs: number): number {
+    return Math.min(ownBoundMs, this.remainingMs());
   }
 
   /**

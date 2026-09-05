@@ -36,6 +36,7 @@
 import { expect } from "vitest";
 
 import type { ConsoleApplication, LaunchConsoleOptions } from "../electron-harness.js";
+import { IN_WINDOW_STEP_TIMEOUT_MS } from "../launch-body.js";
 import { ENDURANCE_BODY_ALLOWANCE_MS } from "../launch-budgets.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
@@ -84,16 +85,16 @@ export const WORKSPACE_SURFACE_SELECTOR: string =
   ".meridian-frame__surface .meridian-nothing--block.meridian-nothing--not-checked";
 
 /**
- * How long a route transition may take before the run is called failed.
+ * Assign the hash and wait for the surface only that route mounts.
  *
- * A route change is a store update and one React commit — sub-frame work on any
- * runner — so this bounds a console that has STOPPED navigating rather than one
- * that is being slow. Well under the tier's own timeout, so the failure names the
- * selector that never appeared instead of the whole test timing out.
+ * The wait carries `IN_WINDOW_STEP_TIMEOUT_MS` — a route change is a store update
+ * and one React commit, so that figure bounds a console that has STOPPED
+ * navigating rather than one being slow — and it is additionally held to what is
+ * left of the body's allowance. Both halves matter: without the first, a stalled
+ * route reports as a body that ran long; without the second, a transition
+ * declared at ten seconds outlives an allowance with a second left on it and the
+ * enclosing race replaces the selector's name with the generic overrun.
  */
-const ROUTE_TRANSITION_TIMEOUT_MS = 10_000;
-
-/** Assign the hash and wait for the surface only that route mounts. */
 async function openRoute(
   consoleApplication: ConsoleApplication,
   hash: string,
@@ -102,9 +103,10 @@ async function openRoute(
   await consoleApplication.window.evaluate((targetHash: string) => {
     globalThis.location.hash = targetHash;
   }, hash);
-  await consoleApplication.window
-    .locator(surfaceSelector)
-    .waitFor({ state: "visible", timeout: ROUTE_TRANSITION_TIMEOUT_MS });
+  await consoleApplication.window.locator(surfaceSelector).waitFor({
+    state: "visible",
+    timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+  });
 }
 
 export async function openSettingsRoute(consoleApplication: ConsoleApplication): Promise<void> {
@@ -258,10 +260,16 @@ export async function churnOnce(
 ): Promise<number | null> {
   const consoleWindow = consoleApplication.window;
   await consoleWindow.keyboard.press("ControlOrMeta+KeyK");
-  await consoleWindow.getByRole("dialog").waitFor({ state: "visible" });
+  await consoleWindow.getByRole("dialog").waitFor({
+    state: "visible",
+    timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+  });
   await consoleWindow.keyboard.type("Go to");
   await consoleWindow.keyboard.press("Escape");
-  await consoleWindow.getByRole("dialog").waitFor({ state: "hidden" });
+  await consoleWindow.getByRole("dialog").waitFor({
+    state: "hidden",
+    timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
+  });
 
   // Route changes mount and unmount the surface subtree through the error
   // boundary's keyed remount — the path most likely to strand a listener. One of
