@@ -16,6 +16,22 @@ import { consoleTripwires } from "../core/tripwires.js";
 import { SUBJECT_ONE, SUBJECT_TWO } from "./subject-fixtures.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
 
+// Tripwires throw in a development build, which would turn the two backstops below
+// into the very escaping throws they exist to prevent. The recording arm is the one
+// under test, exactly as it is for the surface error boundary next door.
+let restoreThrowOnReport = false;
+
+beforeEach(() => {
+  restoreThrowOnReport = import.meta.env.DEV;
+  consoleTripwires.setThrowOnReport(false);
+  consoleTripwires.reset();
+});
+
+afterEach(() => {
+  consoleTripwires.setThrowOnReport(restoreThrowOnReport);
+  consoleTripwires.reset();
+});
+
 describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
   it("seeds on the first address and keeps the value while the subject stands", () => {
     const holder = new SubjectScopedHolder<string>();
@@ -153,22 +169,6 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
 });
 
 describe("SubjectScopedHolder — a disposal that throws does not take the replacement", () => {
-  let restoreThrowOnReport = false;
-
-  beforeEach(() => {
-    // The registry throws in a development build, which would turn the backstop into
-    // the very escaping throw it exists to prevent. The recording arm is the one
-    // under test, exactly as it is for the surface error boundary next door.
-    restoreThrowOnReport = import.meta.env.DEV;
-    consoleTripwires.setThrowOnReport(false);
-    consoleTripwires.reset();
-  });
-
-  afterEach(() => {
-    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
-    consoleTripwires.reset();
-  });
-
   it("leaves the replacement addressed and publishable, and records the reason", () => {
     // Escaping, this throw leaves the render with the NEW value installed and no
     // commit ever reaching it — so the resource the disposal was clearing room for is
@@ -233,5 +233,122 @@ describe("SubjectScopedHolder — a disposal that throws does not take the repla
 
     expect(disposals).toBe(1);
     expect(consoleTripwires.firingCount("surface-render-failure")).toBe(0);
+  });
+});
+
+describe("SubjectScopedHolder — a resource it refuses is disposed rather than dropped", () => {
+  /** What the caller's disposal was handed, in order, so a double close is visible. */
+  function holderDisposing(closed: string[]): SubjectScopedHolder<string> {
+    return new SubjectScopedHolder<string>({
+      disposeRejectedPublish: (rejected) => {
+        closed.push(rejected);
+      },
+    });
+  }
+
+  it("closes a resource that settled into a visit which had already ended", () => {
+    // The async open: a caller opened a connection for the visit on screen, the
+    // surface was re-addressed while the open was in flight, and the settlement now
+    // names a visit nothing is addressed at. Installed nowhere, it is reachable
+    // through this disposal and through no other path in the program.
+    const closed: string[] = [];
+    const holder = holderDisposing(closed);
+    holder.address(SUBJECT_ONE, "alpha", () => "the connection the first visit opened");
+    const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
+    holder.address(SUBJECT_TWO, "alpha", () => "the connection the second visit opened");
+
+    settlementFromTheVisitThatEnded("the connection that opened too late");
+
+    expect(closed).toStrictEqual(["the connection that opened too late"]);
+    expect(holder.value).toBe("the connection the second visit opened");
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(consoleTripwires.reports().at(-1)?.detail).toContain("had already ended");
+  });
+
+  it("closes a resource offered to a capture taken before any subject", () => {
+    // The one publisher that used to answer through a no-op of its own. A surface
+    // about nothing yet can still have an open in flight, and the value it settles
+    // with is as unreachable as any other the holder refuses.
+    const closed: string[] = [];
+    const holder = holderDisposing(closed);
+
+    holder.settle()("the connection opened before there was a subject");
+
+    expect(closed).toStrictEqual(["the connection opened before there was a subject"]);
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+  });
+
+  it("refuses a function form without running it, so there is nothing to close", () => {
+    // An update that never ran produced no value: disposing here would hand the
+    // caller its own closure, and reporting would describe a resource that does not
+    // exist.
+    const closed: string[] = [];
+    const holder = holderDisposing(closed);
+    holder.address(SUBJECT_ONE, "alpha", () => "the first visit");
+    const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
+    holder.address(SUBJECT_TWO, "alpha", () => "the second visit");
+
+    let updates = 0;
+    settlementFromTheVisitThatEnded((previous) => {
+      updates += 1;
+      return previous;
+    });
+
+    expect(updates).toBe(0);
+    expect(closed).toStrictEqual([]);
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
+  });
+
+  it("records the resource as held by nothing where its disposal throws", () => {
+    // Escaping, this throw would reach whatever settled the publish — a caller's
+    // `.then` — which is the same backstop the re-addressing path takes, and the
+    // report has to say which of the two outcomes happened.
+    const holder = new SubjectScopedHolder<string>({
+      disposeRejectedPublish: () => {
+        throw new Error("the connection this value owned refused to close");
+      },
+    });
+    holder.address(SUBJECT_ONE, "alpha", () => "the first visit");
+    const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
+    holder.address(SUBJECT_TWO, "alpha", () => "the second visit");
+
+    expect(() => {
+      settlementFromTheVisitThatEnded("the connection that opened too late");
+    }).not.toThrow();
+
+    expect(holder.value).toBe("the second visit");
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+    expect(consoleTripwires.reports().at(-1)?.detail).toContain("held by nothing");
+    expect(consoleTripwires.reports().at(-1)?.detail).toContain("refused to close");
+  });
+
+  it("negative control: a publish that lands is installed rather than closed", () => {
+    // Without this, "closed" above would also be satisfied by a holder that disposed
+    // every publish — which would close the resource the surface just opened for the
+    // visit it is on.
+    const closed: string[] = [];
+    const holder = holderDisposing(closed);
+    holder.address(SUBJECT_ONE, "alpha", () => "the connection the first visit opened");
+
+    holder.publisherFor(SUBJECT_ONE, "alpha")("the connection that replaced it");
+
+    expect(holder.value).toBe("the connection that replaced it");
+    expect(closed).toStrictEqual([]);
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
+  });
+
+  it("negative control: a holder built with no disposal drops what it refuses", () => {
+    // The plain state path, unchanged: a value is not a resource, and a holder that
+    // reported every ordinary route change would put a defect on the operator's
+    // diagnostics for a settlement the substrate is designed to drop.
+    const holder = new SubjectScopedHolder<string>();
+    holder.address(SUBJECT_ONE, "alpha", () => "seed");
+    const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
+    holder.address(SUBJECT_TWO, "alpha", () => "seed");
+
+    settlementFromTheVisitThatEnded("the answer to a question nobody is asking");
+
+    expect(holder.value).toBe("seed");
+    expect(consoleTripwires.totalFiringCount).toBe(0);
   });
 });

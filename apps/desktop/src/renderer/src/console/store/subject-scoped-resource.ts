@@ -25,6 +25,12 @@
 //     render would tear down what the frame on screen is still reading through — and
 //     that render may itself be the one React discards.
 //
+// A RESOURCE THE HOLDER REFUSED IS THE FIRST OF THE TWO, reached by the other door.
+// An `open` that settles after the surface has been re-addressed publishes into a
+// visit that is over; the holder installs nothing, so no commit will ever see that
+// resource either. It is closed on the same terms and by the same decision — this
+// hook's — which is why the holder is handed the disposal at construction.
+//
 // WHICH OF THE TWO A DROPPED RESOURCE IS cannot be the holder's question. It knows a
 // value was replaced; only React knows whether the pass that replaced it went on to
 // commit. So the holder reports the drop, this module decides, and the decision is
@@ -59,7 +65,12 @@ class SubjectScopedResourceLifetime<TResource> {
    * Close a resource the holder dropped that no commit ever saw.
    *
    * A bound property rather than a method, so the holder can be handed it on every
-   * render without a closure being minted for a call that almost never happens.
+   * render without a closure being minted for a call that almost never happens. It
+   * is what the holder is handed for a REFUSED publish too, and one property serves
+   * both: a value no commit saw is closed whichever door it arrived at, and the
+   * committed check is not redundant on either — a caller may publish the resource
+   * it is already holding, and a refusal is no reason to tear down what the frame on
+   * screen is reading through.
    *
    * The committed resource is deliberately NOT closed here: a live effect is holding
    * it, and the render doing the dropping may itself be discarded, in which case that
@@ -142,8 +153,15 @@ export function useSubjectScopedResource<TResource>(
   open: () => TResource,
   close: (resource: TResource) => void,
 ): SubjectScopedState<TResource> {
-  const [holder] = useState(() => new SubjectScopedHolder<TResource>());
   const [lifetime] = useState(() => new SubjectScopedResourceLifetime<TResource>(close));
+  // The holder is handed the disposal at construction, because a resource it refuses
+  // is one nothing else can reach: never installed, so no commit and no effect.
+  const [holder] = useState(
+    () =>
+      new SubjectScopedHolder<TResource>({
+        disposeRejectedPublish: lifetime.closeIfUncommitted,
+      }),
+  );
   // During the render and before the value is read, for the reason the holder states:
   // the pass that first sees a new subject already reads that subject's own resource.
   holder.address(subject, key, open, lifetime.closeIfUncommitted);

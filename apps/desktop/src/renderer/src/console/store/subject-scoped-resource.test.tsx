@@ -18,8 +18,9 @@
 
 import { act, render, type RenderResult } from "@testing-library/react";
 import { useEffect, useState, type ReactElement } from "react";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { consoleTripwires } from "../core/tripwires.js";
 import { useSubjectScopedResource } from "./subject-scoped-resource.js";
 import type { NamedFixtureSubject } from "./subject-fixtures.test-support.js";
 import {
@@ -29,6 +30,21 @@ import {
   type OpenResource,
 } from "./subject-scoped-resource.test-support.js";
 import { useSubjectScopedState } from "./subject-scoped-state.js";
+
+// Tripwires throw in a development build, so the one this file drives would reach the
+// caller's settlement as an escaping throw rather than as the record under test. The
+// recording arm is the one asserted, as it is in `subject-scoped-holder.test.ts`.
+const THROW_ON_REPORT_BEFORE_THE_SUITE = import.meta.env.DEV;
+
+beforeEach(() => {
+  consoleTripwires.setThrowOnReport(false);
+  consoleTripwires.reset();
+});
+
+afterEach(() => {
+  consoleTripwires.setThrowOnReport(THROW_ON_REPORT_BEFORE_THE_SUITE);
+  consoleTripwires.reset();
+});
 
 interface DiscardProbeProps {
   /** The subject the pass React throws away is addressed at. */
@@ -232,7 +248,9 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
 
   it("closes a resource a caller published over, on the same terms", () => {
     // Publishing is how a window replaces a resource that has retired itself. The
-    // replacement is held and disposed exactly as one the holder seeded.
+    // replacement is held and disposed exactly as one the holder seeded — and this
+    // is the control on the late-open case below: a hook that closed every published
+    // resource would leave both live callers with none.
     const ledger = new ResourceLedger();
     let publishInto: (next: OpenResource) => void = () => {};
     const view = render(
@@ -250,9 +268,47 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
 
     expect(ledger.opened).toStrictEqual(["discarded", "published"]);
     expect(ledger.closed).toStrictEqual(["discarded"]);
+    expect(consoleTripwires.totalFiringCount).toBe(0);
 
     view.unmount();
     expect(ledger.closed).toStrictEqual(["discarded", "published"]);
+  });
+});
+
+describe("useSubjectScopedResource — an open that settles after the subject has moved", () => {
+  it("closes the resource the late open produced, and installs nothing", () => {
+    // A caller opens a connection for the visit on screen, the surface is
+    // re-addressed while that open is in flight, and the settlement names a visit
+    // that is over. Nothing installs it, so no commit and no effect will ever see it
+    // — the holder's refusal is the resource's last reachable moment, which is why
+    // this hook hands the holder its disposal rather than leaving a refusal a drop.
+    const ledger = new ResourceLedger();
+    let publishInto: (next: OpenResource) => void = () => {};
+    const treeAt = (subject: NamedFixtureSubject): ReactElement => (
+      <SwapProbe
+        subject={subject}
+        ledger={ledger}
+        onReady={(publish) => {
+          publishInto = publish;
+        }}
+      />
+    );
+    const view = render(treeAt(DISCARDED_SUBJECT));
+    const settlementFromTheVisitThatEnded = publishInto;
+
+    view.rerender(treeAt(SETTLED_SUBJECT));
+    act(() => {
+      settlementFromTheVisitThatEnded(ledger.open("opened too late"));
+    });
+
+    expect(ledger.opened).toStrictEqual(["discarded", "settled", "opened too late"]);
+    expect(ledger.closed).toStrictEqual(["discarded", "opened too late"]);
+    // And the surface goes on reading through the visit it is addressed at.
+    expect(view.container.textContent).toBe("settled");
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
+
+    view.unmount();
+    expect(ledger.closed).toStrictEqual(["discarded", "opened too late", "settled"]);
   });
 });
 
