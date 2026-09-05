@@ -7,9 +7,9 @@
 // the tier already takes for `barrel-census.ts` and `stylesheet-edge-graph.ts`: the
 // corpus in a module of its own, the suite that judges it next door.
 //
-// The split is what keeps either file readable. Four rules need seven trees between
+// The split is what keeps either file readable. Five rules need seven trees between
 // them, each carrying the paragraph that says which rule it is the control for and
-// why it offends exactly one — and a file holding those beside the harness, the
+// why it offends the set it does — and a file holding those beside the harness, the
 // budgets and the cases was doing two jobs at ~500 lines.
 //
 // WHY THESE ARE OBJECTS AND NOT FILES ON DISK. A tree is planted into a fresh
@@ -21,7 +21,7 @@
 export type PlantedTree = Readonly<Record<string, string>>;
 
 /**
- * The shape the console has AFTER this change, reduced to the modules the four rules
+ * The shape the console has AFTER this change, reduced to the modules the five rules
  * can see.
  *
  * Every member is here because a rule could misfire on it: the sub-module door that
@@ -100,16 +100,24 @@ export const SUB_MODULE_DOOR_TREE: PlantedTree = {
 };
 
 /**
- * A pane BODY parked under the composition site, the shape the console shipped until
- * the bodies moved into their families.
+ * A pane BODY parked under the composition site, planted from BOTH endpoints.
  *
- * Its one import is a family DOOR, so the deep-import rule has nothing to say about
- * it and this tree offends exactly one rule — the claim being that the board's
- * flatness is enforced by where a module SITS and not by what it reaches for.
+ * The body has its own outgoing edge and the board imports it, because these rules
+ * match EDGES rather than directories: a body that imported nothing at all — a table,
+ * a closed set — would be reported by neither its own outgoing edges nor the orphan
+ * rule, since the board importing it gives it a dependent.
+ *
+ * The body reaches for another VIEW family rather than for a layer, and that is the
+ * second claim: under the board's old directory-wide exemption this edge was
+ * subtracted from the sibling-isolation rule on both endpoints and passed in silence.
+ * It reaches a MODULE rather than that family's door, which is the third: a body under
+ * the board is an ordinary view family in every respect, so the door rule holds it to
+ * the same specifier discipline as `repos/` or `collaboration/`.
  */
-export const NESTED_PANE_BODY_TREE: PlantedTree = {
+export const PANE_BOARD_SUBDIRECTORY_TREE: PlantedTree = {
   ...CLEAN_TREE,
-  "panes/workflow-run/WorkflowRunPane.ts": `import type { ConsolePaneRegistry } from "../../seats/index.js";\n\nexport type PaneBoard = ConsolePaneRegistry;\n`,
+  "panes/runs/RunsPaneBody.ts": `import type { RepoRefusal } from "../../repos/RepoList.js";\n\nexport type RunsPaneRefusal = RepoRefusal;\n`,
+  "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\nimport type { RunsPaneRefusal } from "./runs/RunsPaneBody.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  const refusal: RunsPaneRefusal | undefined = undefined;\n  return refusal === undefined ? registry.size : 0;\n}\n`,
 };
 
 /**
@@ -152,7 +160,7 @@ export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   VIEW_FAMILY_EDGE_TREE,
   DEEP_IMPORT_TREE,
   SUB_MODULE_DOOR_TREE,
-  NESTED_PANE_BODY_TREE,
+  PANE_BOARD_SUBDIRECTORY_TREE,
   PANE_BOARD_DEEP_IMPORT_TREE,
 ];
 

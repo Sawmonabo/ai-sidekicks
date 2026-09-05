@@ -1,12 +1,12 @@
-// The four layering rules that had no failing control until now.
+// The five layering rules that had no failing control until now.
 //
 // `structure:layering` is a command, not a suite: it reports on THIS tree, and a
 // tree that happens not to contain a violation reports clean whether the rule
 // exists or not. Two rules landed here whose subject does not exist yet — the six
 // view families are unlanded branches, and the console carries exactly one
 // barrel-to-barrel forward that this same change removed — so without a planted
-// control both would have shipped green and unproven. The door rule and the
-// pane-board rule are the same shape for the same reason: the change that added them
+// control both would have shipped green and unproven. The door rule and the two
+// pane-board rules are the same shape for the same reason: the change that added them
 // also hoisted or moved every module that violated them, so the tree they land on is
 // clean by construction and their green says nothing about whether they bite.
 //
@@ -36,7 +36,10 @@
 // makes an aggregate case free and leaves each case with at most one cruise to pay
 // for. The timeout then follows the shape `tierTimeoutFor()` uses next door — the
 // slices a case can spend, plus the settlement residual that module already owns —
-// rather than a literal chosen to be comfortable.
+// rather than a literal chosen to be comfortable. The RULE SET is memoized on the
+// same reasoning and for a cost that is not the tree's at all: extracting the config
+// resolves and imports the real `.dependency-cruiser.mjs` through the CLI's loader,
+// so a load per cruise charged every tree for the same module load.
 
 import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
@@ -54,8 +57,8 @@ import {
   CLEAN_TREE,
   DEEP_IMPORT_TREE,
   EVERY_PLANTED_TREE,
-  NESTED_PANE_BODY_TREE,
   PANE_BOARD_DEEP_IMPORT_TREE,
+  PANE_BOARD_SUBDIRECTORY_TREE,
   PROOF_TREE,
   RULE_CONTROL_TREES,
   SUB_MODULE_DOOR_TREE,
@@ -74,12 +77,14 @@ const CONSOLE_ROOT = join("src", "renderer", "src", "console");
 const BARREL_CHAIN_RULE = "console-no-barrel-chain";
 const VIEW_FAMILY_ISOLATION_RULE = "console-view-family-isolation";
 const DEEP_IMPORT_RULE = "console-cross-family-deep-import";
-const FLAT_PANE_BOARD_RULE = "console-pane-board-is-flat";
+const PANE_BODY_RULE = "console-panes-hold-no-body";
+const IMPORTED_PANE_BODY_RULE = "console-panes-hold-no-imported-body";
 const OWNED_RULES: readonly string[] = [
   BARREL_CHAIN_RULE,
   VIEW_FAMILY_ISOLATION_RULE,
   DEEP_IMPORT_RULE,
-  FLAT_PANE_BOARD_RULE,
+  PANE_BODY_RULE,
+  IMPORTED_PANE_BODY_RULE,
 ];
 
 /**
@@ -122,6 +127,9 @@ const ONE_TREE_MS = layeringTimeoutFor(1);
  */
 const EVERY_TREE_MS = layeringTimeoutFor(RULE_CONTROL_TREES.length);
 
+/** What the config loader answers, named so the memo below can hold its promise. */
+type LayeringConfiguration = Awaited<ReturnType<typeof extractDepcruiseConfig>>;
+
 /**
  * The cruise results this file has paid for, and the directories it planted to get
  * them.
@@ -143,6 +151,29 @@ class PlantedTreeCache {
   readonly #violationsByTree = new Map<PlantedTree, Promise<readonly string[]>>();
   #plantedRoots: string[] = [];
   #removedRoots: string[] = [];
+  // The rule set, loaded ONCE for the file rather than once per cruise. Extracting it
+  // resolves and imports `.dependency-cruiser.mjs` through the same loader the CLI
+  // uses, which is a real module load and has nothing to do with the tree being
+  // cruised — so a file that cruises seven trees paid for seven identical loads, and
+  // each landed inside the per-case budget of whichever case reached a tree first.
+  // Held as the PROMISE rather than the value so two cases racing for it still load
+  // once, exactly as the cruise results above are.
+  #configuration: Promise<LayeringConfiguration> | undefined = undefined;
+  #configurationLoadCount = 0;
+
+  /** The rule set every cruise runs, loaded on first use and remembered. */
+  #configurationOnce(): Promise<LayeringConfiguration> {
+    if (this.#configuration === undefined) {
+      this.#configurationLoadCount += 1;
+      this.#configuration = extractDepcruiseConfig(CONFIG_PATH);
+    }
+    return this.#configuration;
+  }
+
+  /** How many times the rule set has been loaded, for the control that it is once. */
+  public get configurationLoadCount(): number {
+    return this.#configurationLoadCount;
+  }
 
   /**
    * Which rules fired on `tree`, on which edge — cruised once and remembered.
@@ -210,7 +241,7 @@ class PlantedTreeCache {
    */
   async #cruiseOnce(tree: PlantedTree): Promise<readonly string[]> {
     const plantRoot = await this.#plant(tree);
-    const configuration = await extractDepcruiseConfig(CONFIG_PATH);
+    const configuration = await this.#configurationOnce();
     const { forbidden } = configuration;
     if (forbidden === undefined) {
       // The loader types the set as optional, and a run over an empty rule set would
@@ -293,11 +324,29 @@ describe("console layering rules", () => {
   );
 
   it(
-    "fails a pane body parked under the composition site",
+    "fails a pane body parked under the board, from both endpoints",
     async () => {
-      expect(await cruiseCache.violationsFor(NESTED_PANE_BODY_TREE)).toEqual([
-        `${FLAT_PANE_BOARD_RULE}: ${join(CONSOLE_ROOT, "panes/workflow-run/WorkflowRunPane.ts")} → ${join(CONSOLE_ROOT, "seats/index.ts")}`,
-      ]);
+      // The composer's three pane bodies lived at `panes/runs/`, `panes/approvals/`, and
+      // `panes/inspector/` before the rule that every body lives in its own family. The
+      // board's own exemption is what made that invisible: `panes/` was subtracted from
+      // the view-family set wholesale, so a body under it could import any view family
+      // it liked and no rule said a word.
+      const body = join(CONSOLE_ROOT, "panes/runs/RunsPaneBody.ts");
+      const sibling = join(CONSOLE_ROOT, "repos/RepoList.ts");
+      // Sorted, because four rules fire on two edges and the order dependency-cruiser
+      // reports them in is its own — asserting it would be asserting the reporter.
+      expect([...(await cruiseCache.violationsFor(PANE_BOARD_SUBDIRECTORY_TREE))].sort()).toEqual(
+        [
+          `${PANE_BODY_RULE}: ${body} → ${sibling}`,
+          `${IMPORTED_PANE_BODY_RULE}: ${join(CONSOLE_ROOT, "panes/index.ts")} → ${body}`,
+          // The narrowing, witnessed twice: the board's exemption is now the FILES on it,
+          // so a body under it is an ordinary view family — its edge into `repos/` is the
+          // sibling edge every other family is held to, and its specifier past that
+          // family's door is the deep import every other family is held to.
+          `${VIEW_FAMILY_ISOLATION_RULE}: ${body} → ${sibling}`,
+          `${DEEP_IMPORT_RULE}: ${body} → ${sibling}`,
+        ].sort(),
+      );
     },
     ONE_TREE_MS,
   );
@@ -315,15 +364,21 @@ describe("console layering rules", () => {
   it(
     "leaves the composition site's import of a family door alone",
     async () => {
-      // `panes/index.ts` is in every tree above and never appears in a violation. Stated as
-      // its own case because it is the one edge the barrel-chain rule would catch if it
-      // matched on the module pair rather than on the `export … from` dependency type, and
-      // a rule that reported it would make the pane board unwritable.
+      // `panes/index.ts` is the board itself and it imports `seats/index.js` in every tree
+      // above. Across every control tree it is named by exactly ONE violation — the
+      // imported-body rule's, whose whole point is that the board imported a body that
+      // should not exist — and by none for the door edge it is written to carry. That edge
+      // is the one the barrel-chain rule would catch if it matched on the module pair
+      // rather than on the `export … from` dependency type, and a rule that reported it
+      // would make the pane board unwritable. Quantified over `RULE_CONTROL_TREES` so a
+      // control added for a sixth rule joins this claim by construction.
       const violationsPerTree = await Promise.all(
         RULE_CONTROL_TREES.map((tree) => cruiseCache.violationsFor(tree)),
       );
-      const everyViolation = violationsPerTree.flat();
-      expect(everyViolation.filter((line) => line.includes("panes/index.ts"))).toEqual([]);
+      const board = join(CONSOLE_ROOT, "panes/index.ts");
+      expect(violationsPerTree.flat().filter((line) => line.includes(board))).toEqual([
+        `${IMPORTED_PANE_BODY_RULE}: ${board} → ${join(CONSOLE_ROOT, "panes/runs/RunsPaneBody.ts")}`,
+      ]);
     },
     EVERY_TREE_MS,
   );
@@ -337,6 +392,22 @@ describe("console layering rules", () => {
       const first = cruiseCache.violationsFor(CLEAN_TREE);
       expect(cruiseCache.violationsFor(CLEAN_TREE)).toBe(first);
       expect(cruiseCache.cruisedTreeCount).toBeLessThanOrEqual(EVERY_PLANTED_TREE.length);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "control: the rule set is loaded once, however many trees are cruised",
+    async () => {
+      // The other half of the memo, and invisible without this: extracting the config
+      // resolves and imports the real `.dependency-cruiser.mjs` through the CLI's own
+      // loader, which has nothing to do with the tree being cruised — so a load per
+      // cruise put that cost inside the budget of whichever case reached a tree first.
+      // Asserted after a cruise has been awaited, so a count of zero cannot pass it.
+      // Perturbed by unmemoizing: the count reads one per tree cruised.
+      await cruiseCache.violationsFor(CLEAN_TREE);
+      expect(cruiseCache.cruisedTreeCount).toBeGreaterThan(0);
+      expect(cruiseCache.configurationLoadCount).toBe(1);
     },
     ONE_TREE_MS,
   );

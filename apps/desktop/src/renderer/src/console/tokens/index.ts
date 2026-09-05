@@ -61,6 +61,7 @@ export type { GlyphName } from "./glyphs.js";
 export {
   GLYPH_DEFAULT_SIZE,
   GLYPH_PATHS,
+  GLYPH_SIZE_CHROME,
   GLYPH_STROKE_WIDTH,
   GLYPH_VIEWBOX_SIZE,
 } from "./glyphs.js";
