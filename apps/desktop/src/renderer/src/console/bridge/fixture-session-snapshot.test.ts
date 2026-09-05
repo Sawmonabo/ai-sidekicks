@@ -23,7 +23,8 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
-import { membershipRoleOf } from "../store/selectors.js";
+import { membershipRoleOf } from "./entity-body-reads.js";
+import type { ConsoleEntity } from "../store/index.js";
 import { SessionStore } from "../store/session-store.js";
 import type { SessionSnapshot } from "../store/session-store.js";
 
@@ -50,16 +51,21 @@ async function servedFlagshipSnapshot(): Promise<SessionSnapshot> {
   return outcome.value;
 }
 
+/** The roster entry the read established for one participant, or `undefined`. */
+function rosterEntryOf(store: SessionStore, participantId: string): ConsoleEntity | undefined {
+  return store.snapshot().partitions.participant[participantId];
+}
+
 describe("the fixture's base state — the roster a store opens with", () => {
   it("resolves the caller's own role through the store the read establishes", async () => {
     const store = storeEstablishedFrom(await servedFlagshipSnapshot());
 
-    expect(membershipRoleOf(store.snapshot(), FLAGSHIP_VIEWER)).toBe(
+    expect(membershipRoleOf(rosterEntryOf(store, FLAGSHIP_VIEWER))).toBe(
       FLAGSHIP_ROLES[FLAGSHIP_VIEWER],
     );
     // Not `undefined`, stated separately: the comparison above would hold vacuously
     // if the scenario declared no role for its viewer and the lookup found none.
-    expect(membershipRoleOf(store.snapshot(), FLAGSHIP_VIEWER)).toBeDefined();
+    expect(membershipRoleOf(rosterEntryOf(store, FLAGSHIP_VIEWER))).toBeDefined();
   });
 
   it("negative control: the entity-free base state resolves no role at all", async () => {
@@ -69,7 +75,7 @@ describe("the fixture's base state — the roster a store opens with", () => {
     const served = await servedFlagshipSnapshot();
     const store = storeEstablishedFrom({ ...served, entities: [] });
 
-    expect(membershipRoleOf(store.snapshot(), FLAGSHIP_VIEWER)).toBeUndefined();
+    expect(membershipRoleOf(rosterEntryOf(store, FLAGSHIP_VIEWER))).toBeUndefined();
   });
 
   it("carries one row per declared membership, in join order", () => {
@@ -98,7 +104,7 @@ describe("the fixture's base state — the roster a store opens with", () => {
       if (Object.hasOwn(FLAGSHIP_ROLES, participantId)) {
         continue;
       }
-      expect(membershipRoleOf(store.snapshot(), participantId), participantId).toBeUndefined();
+      expect(membershipRoleOf(rosterEntryOf(store, participantId)), participantId).toBeUndefined();
     }
   });
 

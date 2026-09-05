@@ -29,7 +29,7 @@ import { SessionStore, type ConsoleSessionEvent } from "../store/index.js";
 // layering DAG. The real selector, not a re-export of it: a local narrowing here
 // would be checking this file's own copy of the thing under test.
 import type { ConsoleEntity } from "../store/entities.js";
-import { stampedExecutionPostureOf } from "../store/selectors.js";
+import { stampedExecutionPostureOf } from "../bridge/entity-body-reads.js";
 import { RUN_LIFECYCLE_PROJECTORS, projectRunLifecycleEvent } from "./run-lifecycle-projector.js";
 
 /** The session every synthetic event below is attributed to. */

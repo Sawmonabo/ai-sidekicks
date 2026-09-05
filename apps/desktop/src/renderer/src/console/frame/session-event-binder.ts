@@ -60,15 +60,18 @@
 // gains an argument and nothing else about the lifecycle moves.
 //
 // Reading a delivered payload is a different job and lives in
-// `session-event-payload.ts`: this module owns WHICH sessions are bound and for how
+// `bridge/session-event-payload.ts`: this module owns WHICH sessions are bound and for how
 // long, that one owns WHAT a delivered payload has to look like. Neither can be
 // wrong in the other's way.
 
 import type { Unsubscribe } from "../core/index.js";
 import { SESSION_DIAGNOSTICS_FIXTURE_GLOBAL, reportTripwire } from "../core/index.js";
-import { SESSION_EVENT_STREAM, type ConsoleBridge } from "../bridge/index.js";
+import {
+  SESSION_EVENT_STREAM,
+  readConsoleSessionEvent,
+  type ConsoleBridge,
+} from "../bridge/index.js";
 import type { SessionStoreRegistry } from "../store/index.js";
-import { readConsoleSessionEvent } from "./session-event-payload.js";
 
 /** The site every tripwire this module reports names. */
 const SITE = "console/frame/session-event-binder.ts";
@@ -82,7 +85,7 @@ const SITE = "console/frame/session-event-binder.ts";
  * the daemon's event union lands. The event name is pinned to `string` (the
  * genuinely untypeable half) and the payload left `unknown`, which is honest: a
  * tighter payload type here would be a fiction, and `readConsoleSessionEvent`
- * (`session-event-payload.ts`) is what turns the `unknown` into something the
+ * (`bridge/session-event-payload.ts`) is what turns the `unknown` into something the
  * store may hold. Same posture as the two shipped renderer families that already
  * subscribe this way.
  */

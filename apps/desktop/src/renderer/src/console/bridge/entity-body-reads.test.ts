@@ -16,38 +16,23 @@
 import { describe, expect, it } from "vitest";
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
-import type { ConsoleEntity } from "./entities.js";
-import { emptyPartitions } from "./entities.js";
-import { membershipRoleOf, stampedExecutionPostureOf } from "./selectors.js";
-import type { SessionStoreState } from "./session-state.js";
+import type { ConsoleEntity } from "../store/index.js";
+import { membershipRoleOf, stampedExecutionPostureOf } from "./entity-body-reads.js";
 
 /** A run entity as the projector would leave it once it carries the payload through. */
 function runEntityWithBody(body: Readonly<Record<string, unknown>>): ConsoleEntity {
   return { kind: "run", id: "run-1", state: "running", body };
 }
 
-/** A store state holding one participant entry, as a session read establishes it. */
-function stateWithParticipant(
+/** A roster entry as a session read establishes it. */
+function participantEntry(
   participantId: string,
   body: Readonly<Record<string, unknown>> | undefined,
-): SessionStoreState {
-  const partitions = emptyPartitions();
-  partitions.participant = {
-    [participantId]: {
-      kind: "participant",
-      id: participantId,
-      ...(body === undefined ? {} : { body }),
-    },
-  };
+): ConsoleEntity {
   return {
-    sessionId: "session-1",
-    initialised: true,
-    partitions,
-    timeline: [],
-    cursor: 0,
-    degradedCause: undefined,
-    gaps: [],
-    revision: 1,
+    kind: "participant",
+    id: participantId,
+    ...(body === undefined ? {} : { body }),
   };
 }
 
@@ -210,47 +195,35 @@ describe("stampedExecutionPostureOf — the posture a run.running payload carrie
 
 describe("membershipRoleOf — the role the roster carries", () => {
   it("answers the role the participant entry carries", () => {
-    expect(
-      membershipRoleOf(stateWithParticipant("participant-1", { role: "owner" }), "participant-1"),
-    ).toBe("owner");
+    expect(membershipRoleOf(participantEntry("participant-1", { role: "owner" }))).toBe("owner");
   });
 
   it("answers the multi-word role verbatim, as the wire spells it", () => {
-    // `"runtime contributor"` carries its space on the wire. A selector that
-    // normalised it would answer a role no contract carries.
+    // `"runtime contributor"` carries its space on the wire. A read that normalised
+    // it would answer a role no contract carries.
     expect(
-      membershipRoleOf(
-        stateWithParticipant("participant-1", { role: "runtime contributor" }),
-        "participant-1",
-      ),
+      membershipRoleOf(participantEntry("participant-1", { role: "runtime contributor" })),
     ).toBe("runtime contributor");
   });
 
   it("answers undefined for a participant the partition does not hold", () => {
-    expect(
-      membershipRoleOf(stateWithParticipant("participant-1", { role: "owner" }), "participant-2"),
-    ).toBeUndefined();
+    // The absent entry, which is what the store's own `selectEntity` hands over for
+    // an id no partition carries.
+    expect(membershipRoleOf(undefined)).toBeUndefined();
   });
 
   it("answers undefined for an entry carrying no role", () => {
-    expect(
-      membershipRoleOf(stateWithParticipant("participant-1", undefined), "participant-1"),
-    ).toBeUndefined();
-    expect(
-      membershipRoleOf(stateWithParticipant("participant-1", { handle: "ada" }), "participant-1"),
-    ).toBeUndefined();
+    expect(membershipRoleOf(participantEntry("participant-1", undefined))).toBeUndefined();
+    expect(membershipRoleOf(participantEntry("participant-1", { handle: "ada" }))).toBeUndefined();
   });
 
   it("negative control: a role the contract does not carry yields undefined, never itself", () => {
-    // Without this, every case above would pass over a selector that returned the
-    // member unchecked — and a surface would offer an owner's controls to whatever
-    // string a body happened to hold.
+    // Without this, every case above would pass over a read that returned the member
+    // unchecked — and a surface would offer an owner's controls to whatever string a
+    // body happened to hold.
     for (const candidate of ["admin", "OWNER", "", 7, null, { role: "owner" }]) {
       expect(
-        membershipRoleOf(
-          stateWithParticipant("participant-1", { role: candidate }),
-          "participant-1",
-        ),
+        membershipRoleOf(participantEntry("participant-1", { role: candidate })),
       ).toBeUndefined();
     }
   });
