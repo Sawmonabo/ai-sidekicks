@@ -18,8 +18,12 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import {
+  drainMicrotasks,
+  fixtureBridgeWithGrowth,
+} from "../../bridge/fixture-bridge.test-support.js";
+import type { GrowthPort } from "../../bridge/index.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
@@ -125,13 +129,11 @@ function readerWithHeldManifestReads(clock: ManualClock): {
       }),
   );
   const reader = new ArtifactPaneReader({
-    bridge: {
-      growth: {
-        artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-        artifactAllowlistRead: async () => REFUSAL,
-        artifactRead,
-      },
-    } as unknown as ConsoleBridge,
+    bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+      artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
+      artifactAllowlistRead: async () => REFUSAL,
+      artifactRead,
+    } as unknown as Partial<GrowthPort>),
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });

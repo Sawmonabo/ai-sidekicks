@@ -26,10 +26,12 @@ import {
   REPOS_SCENARIO,
 } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
 import {
-  createFixtureBridge,
   type ConsoleBridge,
+  type GrowthPort,
+  createFixtureBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../src/renderer/src/console/core/index.js";
+import { fixtureBridgeWithGrowth } from "../../../src/renderer/src/console/bridge/fixture-bridge.test-support.js";
 import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.js";
 import { EXTENDED_HEADER_DIFF_SHAPE } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.js";
 import type { ConsoleDiffModel } from "../../../src/renderer/src/console/repos/diff-pane/diff-model.js";
@@ -143,16 +145,14 @@ const ARTIFACT_READ_UNREGISTERED =
  * composition the registered shape produces, not one this file invented.
  */
 export function scriptedArtifactPort(readAnswer: Record<string, unknown>): ConsoleBridge {
-  return {
-    growth: {
-      artifactList: async () => ({ status: "served", value: [] }),
-      artifactAllowlistRead: async () =>
-        refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
-      artifactRead: async () => readAnswer,
-      artifactDelete: async () =>
-        refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
-    },
-  } as unknown as ConsoleBridge;
+  return fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+    artifactList: async () => ({ status: "served", value: [] }),
+    artifactAllowlistRead: async () =>
+      refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
+    artifactRead: async () => readAnswer,
+    artifactDelete: async () =>
+      refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
+  } as unknown as Partial<GrowthPort>);
 }
 
 /** One manifest both payload arms are read against, as the port serves one. */

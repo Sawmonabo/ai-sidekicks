@@ -8,7 +8,11 @@ import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import {
+  fixtureBridgeWithGrowth,
+  growthRefusing,
+} from "../../bridge/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { refuse } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -44,22 +48,17 @@ const WORKSPACE: RepoWorkspaceRow = {
 } as RepoWorkspaceRow;
 
 /**
- * A bridge whose every gate read refuses, which is what the live bridge does.
+ * A bridge whose gate read refuses, which is what the live bridge does.
  *
- * The cast is `artifact-reader.test.ts`'s: this suite is about the card, and standing
- * up the whole preload contract to reach the one namespace a root's gate calls would
- * be scaffolding no assertion here reads.
+ * The refusal is COMPOSED by the port rather than written out beside the case: the
+ * hand-written twin this replaces carried four members where the port's own refusal
+ * carries seven, so a case comparing a rendered refusal against it was comparing
+ * against a value the port could never produce, and its sentence was free to drift
+ * from the one a person actually reads.
  */
-const REFUSING_BRIDGE = {
-  growth: {
-    gitflowBranchContextRead: async () => ({
-      status: "unavailable",
-      code: "wire-unregistered",
-      origin: "growth-port",
-      detail: "Not checked — the branch-context read is not registered yet.",
-    }),
-  },
-} as unknown as ConsoleBridge;
+const REFUSING_BRIDGE = fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+  gitflowBranchContextRead: growthRefusing("gitflowBranchContextRead"),
+});
 
 function renderCard(
   overrides: Partial<React.ComponentProps<typeof MountCard>> = {},

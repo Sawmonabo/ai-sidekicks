@@ -16,9 +16,11 @@
 // clock is manual, so "the gate never polls" is read off `pendingCount` rather than
 // asserted.
 
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
 import {
   growthUnavailable,
   type ConsoleBridge,
+  type GrowthPort,
   type GrowthUnavailable,
 } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
@@ -61,13 +63,21 @@ export const READ_ONLY_SUBJECT: ProposalGateSubject = { ...SUBJECT, executionMod
  */
 export const WIRE_UNREGISTERED: GrowthUnavailable = growthUnavailable("gitflowBranchContextRead");
 
-/** The port's other refusal class: the question was put and the answer never came. */
-export const REPLY_ABANDONED = {
-  status: "unavailable",
+/**
+ * The port's other refusal class: the question was put and the answer never came.
+ *
+ * COMPOSED from the same builder for `WIRE_UNREGISTERED`'s reason, and it also stops
+ * the shape being wrong: a hand-written literal carried four members while the port's
+ * own refusal carries seven, so a case comparing a rendered refusal against this one
+ * was comparing against a value the port could never produce. The two members this
+ * case IS about — the code and the sentence — are stated; the slate-derived rest comes
+ * from the operation.
+ */
+export const REPLY_ABANDONED: GrowthUnavailable = {
+  ...growthUnavailable("gitflowBranchContextRead"),
   code: "reply-abandoned",
-  origin: "growth-port",
   detail: "The scenario was torn down before the frozen clock reached this reply.",
-} as const;
+};
 
 /**
  * One served branch context, in the wire's own member names.
@@ -154,7 +164,7 @@ export function rejectsWith(reason: unknown): ScriptedRejection {
  * ONE DOOR FOR EVERY OPERATION on all three ports below, so a case can move any of
  * them onto the rejection path without a second port shape to keep in step.
  */
-async function scriptedAnswer(scripted: unknown): Promise<unknown> {
+function scriptedAnswer(scripted: unknown): unknown {
   if (scripted instanceof ScriptedRejection) {
     throw scripted.reason;
   }
@@ -179,22 +189,70 @@ export interface PortScript {
 }
 
 /**
- * A bridge whose growth port answers exactly what a case scripts.
+ * What each of the four arms answers, given the request it was sent.
  *
- * The cast is `artifact-reader.test.ts`'s: the gate reaches three methods of one
- * namespace, and standing up the whole preload contract to reach them would be
- * scaffolding no assertion reads.
+ * A SUPPLIER PER ARM RATHER THAN A VALUE, which is what lets the three exported ports
+ * below be three callers of ONE construction instead of three copies of it. A fixed
+ * script closes over its value, the recording port pushes the request before
+ * answering, and the moving port reads a `let` the case reassigns — three behaviours,
+ * one four-arm port, so a fifth operation is added in one place.
  */
-export function bridgeAnswering(script: PortScript): ConsoleBridge {
+interface PortSuppliers {
+  readonly branchContext: () => unknown;
+  readonly prepare: () => unknown;
+  readonly gitAction: (request: unknown) => unknown;
+  readonly callerParticipant: () => unknown;
+}
+
+/**
+ * The REAL fixture bridge over the repos scenario, with these four arms spread on.
+ *
+ * Built through `fixtureBridgeWithGrowth` rather than as `{ growth: {…} } as unknown as
+ * ConsoleBridge`, which is what all three of these ports used to be. Three things
+ * change and each was a live defect: every other namespace is now the fixture's own
+ * rather than `undefined`, so a gate that started reaching the daemon door fails an
+ * assertion instead of throwing inside the case; an operation none of these four names
+ * answers the fixture's own typed outcome rather than `undefined`, which a caller
+ * narrowing on `status` reads as neither served nor refused; and the whole bridge type
+ * is no longer erased.
+ *
+ * THE ONE CAST THAT REMAINS is `Partial<GrowthPort>` over the four arms, and it is
+ * here because the bridge door deliberately publishes neither `GrowthOutcome` nor the
+ * per-operation value types (`bridge/index.ts` says why: a view family writes the
+ * served arm it consumes rather than importing the union). Typing these scripts against
+ * the signature table is the substrate change that would remove it, and it is reported
+ * rather than made here. It erases the four arms' payload shapes and nothing else.
+ */
+function gateBridge(suppliers: PortSuppliers): ConsoleBridge {
+  const scriptedPort = {
+    gitflowBranchContextRead: async () => scriptedAnswer(suppliers.branchContext()),
+    gitflowPrPrepare: async () => scriptedAnswer(suppliers.prepare()),
+    gitActionExecute: async (request: unknown) => scriptedAnswer(suppliers.gitAction(request)),
+    callerParticipantRead: async () => scriptedAnswer(suppliers.callerParticipant()),
+  } as Partial<GrowthPort>;
+  return fixtureBridgeWithGrowth(REPOS_SCENARIO, scriptedPort);
+}
+
+/**
+ * The four suppliers a FIXED script produces — the shape two of the three ports share.
+ *
+ * An arm the script leaves out answers the port's own unregistered-wire refusal rather
+ * than an absent value, which is the same answer the repos scenario's fixture gives for
+ * these two operations. Stated here so an unscripted arm is a refusal a case can render
+ * rather than an `undefined` it silently narrows past.
+ */
+function suppliersFor(script: PortScript): PortSuppliers {
   return {
-    growth: {
-      gitflowBranchContextRead: async () => scriptedAnswer(script.branchContext),
-      gitflowPrPrepare: async () => scriptedAnswer(script.prepare),
-      gitActionExecute: async () => scriptedAnswer(script.gitAction),
-      callerParticipantRead: async () =>
-        scriptedAnswer(script.callerParticipant ?? SERVED_CALLER_PARTICIPANT),
-    },
-  } as unknown as ConsoleBridge;
+    branchContext: () => script.branchContext,
+    prepare: () => script.prepare ?? growthUnavailable("gitflowPrPrepare"),
+    gitAction: () => script.gitAction ?? growthUnavailable("gitActionExecute"),
+    callerParticipant: () => script.callerParticipant ?? SERVED_CALLER_PARTICIPANT,
+  };
+}
+
+/** A bridge whose growth port answers exactly what a case scripts. */
+export function gateBridgeAnswering(script: PortScript): ConsoleBridge {
+  return gateBridge(suppliersFor(script));
 }
 
 /** A bridge that keeps every git-action request it was sent, in the order they went. */
@@ -214,18 +272,15 @@ export interface RecordingPort {
  */
 export function recordingPort(script: PortScript): RecordingPort {
   const requests: unknown[] = [];
+  const suppliers = suppliersFor(script);
   return {
-    bridge: {
-      growth: {
-        gitflowBranchContextRead: async () => script.branchContext,
-        gitflowPrPrepare: async () => script.prepare,
-        gitActionExecute: async (request: unknown) => {
-          requests.push(request);
-          return script.gitAction ?? ACCEPTED_ACTION;
-        },
-        callerParticipantRead: async () => script.callerParticipant ?? SERVED_CALLER_PARTICIPANT,
+    bridge: gateBridge({
+      ...suppliers,
+      gitAction: (request: unknown) => {
+        requests.push(request);
+        return script.gitAction ?? ACCEPTED_ACTION;
       },
-    } as unknown as ConsoleBridge,
+    }),
     gitActionRequests: () => requests,
   };
 }
@@ -249,14 +304,12 @@ export function bridgeWithMovingAnswers(prepare: unknown = SERVED_PREPARATION): 
   let branchContext: unknown = SERVED_CONTEXT;
   let gitAction: unknown = WIRE_UNREGISTERED;
   return {
-    bridge: {
-      growth: {
-        gitflowBranchContextRead: async () => branchContext,
-        gitflowPrPrepare: async () => prepare,
-        gitActionExecute: async () => gitAction,
-        callerParticipantRead: async () => SERVED_CALLER_PARTICIPANT,
-      },
-    } as unknown as ConsoleBridge,
+    bridge: gateBridge({
+      branchContext: () => branchContext,
+      prepare: () => prepare,
+      gitAction: () => gitAction,
+      callerParticipant: () => SERVED_CALLER_PARTICIPANT,
+    }),
     serveContext: (answer: unknown) => {
       branchContext = answer;
     },

@@ -8,9 +8,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
 import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
 import {
   BRANCH_ROOT_UNADDRESSABLE_COPY,
   EPHEMERAL_CLONE_UNADDRESSABLE_COPY,
@@ -20,7 +21,7 @@ import {
   OpenReaders,
   SERVED_CONTEXT,
   SUBJECT,
-  bridgeAnswering,
+  gateBridgeAnswering,
   initialisedStore,
   settle,
 } from "./proposal-gate-scripted-port.test-support.js";
@@ -39,7 +40,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
     const clock = new ManualClock();
     const sessionStore = initialisedStore();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT }),
       clock,
       SUBJECT,
       sessionStore,
@@ -64,7 +65,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
     const clock = new ManualClock();
     const sessionStore = initialisedStore();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT }),
       clock,
       SUBJECT,
       sessionStore,
@@ -95,7 +96,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
     const clock = new ManualClock();
     const sessionStore = initialisedStore();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT }),
       clock,
       SUBJECT,
       sessionStore,
@@ -125,7 +126,7 @@ describe("ProposalGateReader — the reasons it reads again", () => {
 describe("ProposalGateReader — teardown", () => {
   it("arms no timer of its own and leaves none behind", async () => {
     const clock = new ManualClock();
-    const reader = readers.open(bridgeAnswering({ branchContext: SERVED_CONTEXT }), clock);
+    const reader = readers.open(gateBridgeAnswering({ branchContext: SERVED_CONTEXT }), clock);
     reader.start();
     await settle(clock, reader);
     const performedBeforeDispose = reader.performCount;
@@ -151,14 +152,12 @@ describe("ProposalGateReader — the roots the registered read has no key for", 
   function countingPort(): { readonly bridge: ConsoleBridge; readonly calls: () => number } {
     let calls = 0;
     return {
-      bridge: {
-        growth: {
-          gitflowBranchContextRead: async () => {
-            calls += 1;
-            return SERVED_CONTEXT;
-          },
+      bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+        gitflowBranchContextRead: async () => {
+          calls += 1;
+          return SERVED_CONTEXT;
         },
-      } as unknown as ConsoleBridge,
+      } as unknown as Partial<GrowthPort>),
       calls: () => calls,
     };
   }

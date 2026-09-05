@@ -18,7 +18,7 @@ import {
   REPLY_ABANDONED,
   SERVED_CONTEXT,
   WIRE_UNREGISTERED,
-  bridgeAnswering,
+  gateBridgeAnswering,
   bridgeWithMovingAnswers,
   publishedProposalOf,
   servedContext,
@@ -37,7 +37,7 @@ afterEach(() => {
 describe("ProposalGateReader — one arm per outcome", () => {
   it("says nobody could ask when the wire is unregistered, and carries the port's sentence", async () => {
     const clock = new ManualClock();
-    const reader = readers.open(bridgeAnswering({ branchContext: WIRE_UNREGISTERED }), clock);
+    const reader = readers.open(gateBridgeAnswering({ branchContext: WIRE_UNREGISTERED }), clock);
     reader.start();
     await settle(clock, reader);
 
@@ -53,7 +53,7 @@ describe("ProposalGateReader — one arm per outcome", () => {
     // The OTHER refusal class, and it is a different arm: `not-checked` would claim
     // nothing was asked, which is false here.
     const clock = new ManualClock();
-    const reader = readers.open(bridgeAnswering({ branchContext: REPLY_ABANDONED }), clock);
+    const reader = readers.open(gateBridgeAnswering({ branchContext: REPLY_ABANDONED }), clock);
     reader.start();
     await settle(clock, reader);
 
@@ -72,7 +72,7 @@ describe("ProposalGateReader — one arm per outcome", () => {
     // its proposal actions.
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({
+      gateBridgeAnswering({
         branchContext: {
           status: "unavailable",
           code: "wire-unregistered",
@@ -115,7 +115,7 @@ describe("ProposalGateReader — one arm per outcome", () => {
     // Without this the cases above would pass against a reader that read at
     // construction, which would put a call behind every render pass React discards.
     const clock = new ManualClock();
-    const reader = readers.open(bridgeAnswering({ branchContext: SERVED_CONTEXT }), clock);
+    const reader = readers.open(gateBridgeAnswering({ branchContext: SERVED_CONTEXT }), clock);
     clock.advance(REFRESH_DEBOUNCE_MS);
     await Promise.resolve();
 
@@ -126,7 +126,7 @@ describe("ProposalGateReader — one arm per outcome", () => {
 
   it("enters the wait once: a refresh redraws the answer, never the wait", async () => {
     const clock = new ManualClock();
-    const reader = readers.open(bridgeAnswering({ branchContext: SERVED_CONTEXT }), clock);
+    const reader = readers.open(gateBridgeAnswering({ branchContext: SERVED_CONTEXT }), clock);
     const seen: ProposalGateReading[] = [];
     reader.subscribe((reading) => seen.push(reading));
     reader.start();

@@ -14,8 +14,12 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import {
+  drainMicrotasks,
+  fixtureBridgeWithGrowth,
+} from "../../bridge/fixture-bridge.test-support.js";
+import type { GrowthPort } from "../../bridge/index.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
@@ -187,7 +191,10 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     const artifactList = vi.fn(async () => REFUSAL);
     const artifactAllowlistRead = vi.fn(async () => REFUSAL);
     const reader = new ArtifactPaneReader({
-      bridge: { growth: { artifactList, artifactAllowlistRead } } as unknown as ConsoleBridge,
+      bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+        artifactList,
+        artifactAllowlistRead,
+      } as unknown as Partial<GrowthPort>),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
@@ -290,15 +297,13 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     const clock = new ManualClock();
     let releaseList: (answer: unknown) => void = () => undefined;
     const reader = new ArtifactPaneReader({
-      bridge: {
-        growth: {
-          artifactList: () =>
-            new Promise((resolve) => {
-              releaseList = resolve;
-            }),
-          artifactAllowlistRead: async () => REFUSAL,
-        },
-      } as unknown as ConsoleBridge,
+      bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+        artifactList: () =>
+          new Promise((resolve) => {
+            releaseList = resolve;
+          }),
+        artifactAllowlistRead: async () => REFUSAL,
+      } as unknown as Partial<GrowthPort>),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });

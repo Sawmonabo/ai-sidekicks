@@ -11,6 +11,9 @@ import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/con
 
 import type { ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
+import type { GrowthOperationId } from "./growth-entry.js";
+import type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
+import { growthUnavailable, type GrowthPort } from "./growth-port.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 import type { ConsoleScenario, ScenarioBeat } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
@@ -177,6 +180,77 @@ export function bridgeAnswering(
   answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   return withDaemonCall(createFixture().bridge, answer);
+}
+
+// ---------------------------------------------------------------------------
+// The growth port a suite scripts, over a REAL bridge.
+// ---------------------------------------------------------------------------
+//
+// `withDaemonCall` above is the same shape for the daemon's call arm, and the two
+// compose: a suite that needs both spreads one over the other's bridge. The reason
+// this exists is what the families were doing without it — building
+// `{ growth: { …four methods… } } as unknown as ConsoleBridge` from nothing, at
+// twenty sites in one family alone. Three defects follow from that shape and none of
+// them is visible in the suite that has it:
+//
+//   • Every namespace but `growth` is `undefined`, so a surface that started reaching
+//     the daemon door THROWS in the case rather than being caught by an assertion —
+//     and a screenshot tier pinning such a composition is pinning images no bridge
+//     produces.
+//   • An operation the script did not name answers `undefined`, which a caller
+//     narrowing on `status` reads as neither served nor refused. The port's whole
+//     contract is that every arm answers a typed outcome.
+//   • The cast erases the port type, so a script whose member name has drifted from
+//     the signature table still compiles.
+//
+// The overrides are typed `Partial<GrowthPort>`, so a member name that is not an
+// operation is a compile error, and the arms a suite does not name stay the fixture's
+// own — a refusal or a scripted answer, never absent.
+
+/**
+ * The real fixture bridge over `scenario`, with `overrides` spread onto its growth port.
+ *
+ * Takes the scenario rather than a bridge because that is what every call site has:
+ * a family scripting its own operations is choosing which session the fixture plays,
+ * and the port it is overriding is that scenario's. A suite that also needs the
+ * daemon arm wraps the result in {@link withDaemonCall}.
+ */
+export function fixtureBridgeWithGrowth(
+  scenario: ConsoleScenario,
+  overrides: Partial<GrowthPort>,
+): ConsoleBridge {
+  const bridge = createFixtureBridge({ scenario });
+  return { ...bridge, growth: { ...bridge.growth, ...overrides } };
+}
+
+/** One growth arm answering a served value, whatever it was asked. */
+export function growthServing<TValue>(value: TValue): () => Promise<GrowthOutcome<TValue>> {
+  return async () => ({ status: "served", value });
+}
+
+/**
+ * One growth arm answering whatever `answer` computes for the request it was sent.
+ *
+ * The arm a case reaches for when the ANSWER MOVES — a second read serving a
+ * different context, an act refused until it is pressed again — or when the request
+ * itself is the subject. `growthServing` cannot express either, and a suite that
+ * wrote its own closure for them would be back to a hand-built port.
+ */
+export function growthAnswering<TValue>(
+  answer: (request: unknown) => GrowthOutcome<TValue> | Promise<GrowthOutcome<TValue>>,
+): (request: unknown) => Promise<GrowthOutcome<TValue>> {
+  return async (request: unknown) => answer(request);
+}
+
+/**
+ * One growth arm answering the port's own unregistered-wire refusal.
+ *
+ * Composed by `growthUnavailable` rather than written out, so a case asserting a
+ * refusal is comparing against the sentence the live bridge composes rather than a
+ * hand-written twin free to say something the port never would.
+ */
+export function growthRefusing(operationId: GrowthOperationId): () => Promise<GrowthUnavailable> {
+  return async () => growthUnavailable(operationId);
 }
 
 /**

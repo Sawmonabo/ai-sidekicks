@@ -23,7 +23,7 @@ import {
   REPLY_ABANDONED,
   SERVED_CONTEXT,
   WIRE_UNREGISTERED,
-  bridgeAnswering,
+  gateBridgeAnswering,
   bridgeWithMovingAnswers,
   rejectsWith,
   settleAct,
@@ -100,7 +100,7 @@ describe("ProposalGateActions — a served act the daemon did not take", () => {
   async function refusalTextFor(gitAction: unknown): Promise<string | undefined> {
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction }),
       clock,
     );
     reader.start();
@@ -149,7 +149,7 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
   async function pressAgainstRejectingWire(action: ProposalAction): Promise<ProposalGateReader> {
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({
+      gateBridgeAnswering({
         branchContext: SERVED_CONTEXT,
         prepare: rejectsWith(DISCONNECTED),
         gitAction: rejectsWith(DISCONNECTED),
@@ -189,7 +189,7 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
   it("leaves the arm the last read published, because the act did not happen", async () => {
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: rejectsWith(DISCONNECTED) }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: rejectsWith(DISCONNECTED) }),
       clock,
     );
     reader.start();
@@ -205,7 +205,7 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
   it("settles rather than rejecting, which the binding that voids the promise assumes", async () => {
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: rejectsWith(DISCONNECTED) }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: rejectsWith(DISCONNECTED) }),
       clock,
     );
     reader.start();
@@ -222,7 +222,7 @@ describe("ProposalGateActions — a call that rejected rather than answering", (
     // this build does not carry — the ordinary V1 answer, and not a rejection at all.
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: WIRE_UNREGISTERED }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: WIRE_UNREGISTERED }),
       clock,
     );
     reader.start();
