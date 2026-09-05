@@ -13,7 +13,10 @@ import {
   type GrowthAgentSummary,
   type GrowthOutcome,
 } from "../../../console/bridge/index.js";
-import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
+import {
+  drainMicrotasks,
+  withDaemonCall,
+} from "../../../console/bridge/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import { useAgentBindingReading } from "./agent-binding-read.js";
 
@@ -125,6 +128,61 @@ describe("useAgentBindingReading — every fact comes from the wire that carries
     expect(result.current.phase).toBe("refused");
     expect(result.current.refusal?.origin).toBe("growth-port");
     expect(result.current.payingAccountLabel).toBeUndefined();
+  });
+
+  it("renders no label for an account the registry does not carry, and no refusal", async () => {
+    // The join's own absence arm. The account plane served and simply holds no such
+    // account, so there is nothing to say about the label and nothing failed — and
+    // the handle never stands in for it, which is the rule the join exists to keep.
+    const bridge = bridgeServingRoster({
+      status: "served",
+      value: [rosterRow({ providerAccountId: "acct-not-in-this-registry" })],
+    });
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("read");
+    expect(result.current.payingAccountLabel).toBeUndefined();
+    expect(result.current.refusal).toBeUndefined();
+    expect(result.current.isProviderDefaultAccount).toBe(false);
+  });
+
+  it("carries the account plane's refusal beside a binding the roster did read", async () => {
+    // The binding IS read and only the label is missing, so the phase stays `read`
+    // and the account plane's own refusal rides beside it. Reporting the whole
+    // reading as refused would hide a pending switch the roster did report — which
+    // this case asserts directly rather than trusting the phase to imply it.
+    const refusingRegistry = withDaemonCall(
+      createFixtureBridge({ scenario: COMPOSER_SCENARIO }),
+      async (call, forward) => {
+        if (call.method === "providerAccount.list") {
+          throw new Error("the account registry was unreadable");
+        }
+        return forward();
+      },
+    );
+    const pending = {
+      switchId: "switch-2",
+      appliesAt: "run_boundary",
+      interruptRequested: false,
+    } as const;
+    const bridge: ConsoleBridge = {
+      ...refusingRegistry.bridge,
+      growth: {
+        ...refusingRegistry.bridge.growth,
+        agentList: async () => ({
+          status: "served",
+          value: [rosterRow({ providerAccountId: SCENARIO_ACCOUNT_ID, pendingSwitch: pending })],
+        }),
+      },
+    };
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("read");
+    expect(result.current.payingAccountLabel).toBeUndefined();
+    expect(result.current.refusal).toBeDefined();
+    expect(result.current.pendingSwitch).toStrictEqual(pending);
   });
 
   it("reports a served roster that does not list this agent as a read, not a refusal", async () => {

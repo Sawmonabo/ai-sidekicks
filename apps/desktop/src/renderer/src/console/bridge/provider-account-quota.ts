@@ -21,6 +21,12 @@
 // WIRE: one read, one tail, and what the console says when either could not be read.
 // `provider-quota-feed.ts` owns how many readings exist and how long each lives.
 //
+// ONE READ, TWO FOLDS. The readout carries the account LABELS beside the quota
+// readings because the accounts arrive on this same reply and this same tail: a
+// surface joining a paying-account handle to the operator's word for it reads them
+// here rather than issuing a second `providerAccount.list` of its own, which would be
+// a second arrival order for one registry with nothing able to say which was right.
+//
 // THREE DECISIONS THIS FILE MAKES, each argued where it is made rather than twice.
 // The tail opens BEFORE the read, so notifications arriving across it are held and
 // replayed rather than silently overwritten by the snapshot (`#seedRead`,
@@ -64,6 +70,18 @@ export type ProviderQuotaReadPhase = "reading" | "read" | "refused";
 export interface ProviderQuotaReadout {
   /** One reading per `(accountId, limitId)`, ordered by account then limit label. */
   readonly readings: readonly ProviderQuotaReading[];
+  /**
+   * Every account the registry carries, `accountId` to `displayLabel`.
+   *
+   * The same read and the same tail that feed the readings, folded a second way
+   * rather than fetched a second time: any surface that names a paying account holds
+   * the daemon-minted handle and needs the operator's word for it, and this window
+   * has exactly one reader of the account plane. Empty until the read has served,
+   * which is what makes a missing entry mean "not read" rather than "no such
+   * account" — a consumer renders nothing for one rather than falling back to the
+   * handle.
+   */
+  readonly accountLabels: ReadonlyMap<string, string>;
   readonly phase: ProviderQuotaReadPhase;
   /**
    * Why the registry could not be read.
@@ -411,6 +429,7 @@ export class NodeProviderQuotaReading implements ReadTriggerTarget {
   #composeReadout(): ProviderQuotaReadout {
     return {
       readings: this.#fold.readings(),
+      accountLabels: this.#fold.accountLabels(),
       phase: this.#phase,
       readRefusal: this.#readRefusal,
       unreadableDeliveryCount: this.#unreadableDeliveryCount,
