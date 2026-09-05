@@ -59,14 +59,15 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
  * verbatim. These two are the cases where there is no daemon in the loop at all —
  * a wire that does not exist, and an input this surface can measure before it
  * spends anyone's round trip.
+ *
+ * A UNION AND NOT AN EXPORTED TUPLE, unlike the actions above, and the difference is
+ * that the actions array is READ — the surface renders a control per member — while
+ * nothing ever read this one. It was published all the same, which is how a second
+ * surface comes to restate the literals rather than import them; and a value whose
+ * only reader is `typeof` is dead weight at runtime, which is the reason
+ * `run-list-rows.ts` gives for its own type-over-value choice.
  */
-export const WORKFLOW_RUN_CONTROL_REFUSAL_CODES = [
-  "wire-unregistered",
-  "reason-past-bound",
-] as const;
-
-/** One locally-raised refusal code. Derived from the tuple, never restated. */
-export type WorkflowRunControlRefusalCode = (typeof WORKFLOW_RUN_CONTROL_REFUSAL_CODES)[number];
+export type WorkflowRunControlRefusalCode = "wire-unregistered" | "reason-past-bound";
 
 /**
  * Bytes a cancellation reason may occupy, bounded exactly as the engine's own park

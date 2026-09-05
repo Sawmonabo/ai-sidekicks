@@ -68,11 +68,17 @@ export type PhaseTopologyAbsence = "not-supplied" | "not-drawable";
  * The caller supplies the answer rather than deriving it here, and derives it
  * through `workflows/runs/run-list-rows.ts`'s `parkAwaitsPerson` — the same reading the
  * badge takes its tone from, so the two cannot come apart again.
+ *
+ * A UNION AND NOT AN EXPORTED TUPLE. It was `PHASE_PARK_ATTENTIONS` beside a
+ * `(typeof …)[number]` alias, and nothing anywhere read the array — not this module,
+ * not the graph, not a test. `run-list-rows.ts` states the rule the day it chose types
+ * over `as const` maps: a value read only as a type is dead weight at runtime, and the
+ * lint rules say so. Exporting it was worse than keeping it, because a closed set
+ * published with no consumer is how the next surface comes to restate the literals
+ * rather than import them. The marks table below is total over this union, so a third
+ * reading is still one edit a reviewer sees.
  */
-export const PHASE_PARK_ATTENTIONS = ["awaiting-person", "scheduled"] as const;
-
-/** One park's attention reading. Derived from the tuple, never restated. */
-export type PhaseParkAttention = (typeof PHASE_PARK_ATTENTIONS)[number];
+export type PhaseParkAttention = "awaiting-person" | "scheduled";
 
 /**
  * What a node prints, and says out loud, for each attention reading.

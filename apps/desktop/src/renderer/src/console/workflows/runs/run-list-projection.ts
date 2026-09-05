@@ -96,8 +96,12 @@ import {
  * will happen. Ordering by the six-value status directly would put `pending` above
  * `suspended` because the contract declares it first, which is a fact about the DDL
  * and not about what an operator should look at.
+ *
+ * MODULE-PRIVATE: the comparator below is the only reader, and the band a surface
+ * shows arrives on the row. Published, the tuple invites a second surface to band a
+ * run itself rather than reading the one this projection already decided.
  */
-export const WORKFLOW_RUN_ATTENTION_BANDS = ["parked", "active", "settled"] as const;
+const WORKFLOW_RUN_ATTENTION_BANDS = ["parked", "active", "settled"] as const;
 
 /** One attention band. Derived from the tuple, never restated. */
 export type WorkflowRunAttentionBand = (typeof WORKFLOW_RUN_ATTENTION_BANDS)[number];

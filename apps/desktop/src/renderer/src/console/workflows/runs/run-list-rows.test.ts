@@ -244,7 +244,7 @@ describe("the two run modules' published surfaces", () => {
   it("declares the row vocabulary here and forwards none of it from the projection", () => {
     expect(Object.keys(runListRows).toSorted()).toStrictEqual(ROW_SYMBOLS.toSorted());
     expect(Object.keys(runListProjection).toSorted()).toStrictEqual(
-      ["RunListProjection", "WORKFLOW_RUN_ATTENTION_BANDS", "projectParkedPhases"].toSorted(),
+      ["RunListProjection", "projectParkedPhases"].toSorted(),
     );
   });
 
