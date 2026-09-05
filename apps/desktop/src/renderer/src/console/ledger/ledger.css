@@ -691,58 +691,14 @@
 /* --- Cards: the code palette -------------------------------------------- */
 
 /*
- * The nine code-token families, as custom properties.
- *
- * WHY THEY LIVE HERE AND NOT IN `tokens/palette.ts`. The palette owns three CLOSED
- * sets — surfaces, text, and the two attention hues plus one accent — and its own
- * comment says a third attention hue is that rule's failure mode. A syntax palette is
- * none of those: it is the ledger's own, read by one family, and folding nine more
- * colours into the console-wide token set would blur exactly the boundary rule 3
- * depends on. So they are declared in this family's sheet, scoped to the block that
- * spends them.
- *
- * WHY THE HIGHLIGHTER EMITS REFERENCES RATHER THAN COLOURS. `meridian-code-theme.ts`
- * sets every foreground to a reference to this sheet's own per-family custom property
- * rather than to a colour, so a cached token line is
- * theme-independent: flipping the scheme repaints through the cascade and invalidates
- * nothing. A theme carrying resolved colours would make the token cache wrong the
- * moment the operator changed schemes.
- *
- * Four of the nine are token references and therefore need no per-scheme redefinition —
- * they already follow the scheme. Only the five hued families are restated below, in the
- * same three-block shape the generated palette uses: light unconditionally, the system
- * preference where the operator has expressed none, then the explicit choice.
+ * The nine code-token families live in `tokens/palette.ts` and are emitted by
+ * `tokens/generate-css.ts`, not declared here — see the note at the ANSI section
+ * below for why they moved. The theme in `cards/markdown/meridian-code-theme.ts`
+ * still emits a reference to the per-family custom property as each token's
+ * foreground rather than a colour, which is what makes one token cache serve both
+ * schemes: a cached line is theme-independent, and flipping the scheme repaints
+ * through the cascade.
  */
-.meridian-code {
-  --meridian-code-plain: var(--meridian-text);
-  --meridian-code-comment: var(--meridian-text-faint);
-  --meridian-code-operator: var(--meridian-text-muted);
-  --meridian-code-invalid: var(--meridian-red-text);
-
-  --meridian-code-keyword: oklch(0.45 0.12 300);
-  --meridian-code-name: oklch(0.44 0.1 250);
-  --meridian-code-string: oklch(0.42 0.1 150);
-  --meridian-code-number: oklch(0.45 0.11 45);
-  --meridian-code-type: oklch(0.45 0.09 200);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-console-scheme="light"]) .meridian-code {
-    --meridian-code-keyword: oklch(0.8 0.11 300);
-    --meridian-code-name: oklch(0.82 0.09 250);
-    --meridian-code-string: oklch(0.83 0.1 150);
-    --meridian-code-number: oklch(0.83 0.1 60);
-    --meridian-code-type: oklch(0.83 0.08 200);
-  }
-}
-
-[data-console-scheme="dark"] .meridian-code {
-  --meridian-code-keyword: oklch(0.8 0.11 300);
-  --meridian-code-name: oklch(0.82 0.09 250);
-  --meridian-code-string: oklch(0.83 0.1 150);
-  --meridian-code-number: oklch(0.83 0.1 60);
-  --meridian-code-type: oklch(0.83 0.08 200);
-}
 
 /* --- Cards: markdown prose ---------------------------------------------- */
 
@@ -947,73 +903,15 @@
 /* --- Cards: ANSI command output ------------------------------------------ */
 
 /*
- * The sixteen ANSI names, as the console's own colours.
+ * The sixteen ANSI names live in `tokens/palette.ts`, with the nine code families.
  *
- * Four of them are text tokens already: a terminal's black and white are the two ends of
- * the reading scale, and reproducing a tool's literal black on a dark scheme would render
- * its output invisible. The twelve hued ones are restated per scheme in the same
- * three-block shape the code palette above uses.
+ * They were `oklch()` literals here, restated across three scheme blocks — and the
+ * cost of that home was not tidiness: nothing fitted them into the sRGB gamut, so
+ * the browser was remapping several of them to a colour no file stated, and nothing
+ * measured them against this well, so six of the light scheme's bright names sat
+ * below the 4.5:1 floor `Spec-023 §Console Design (Meridian)` rule 3 sets. Both are
+ * now `tokens/contrast.test.ts`' subject, and the generator emits all three layers.
  */
-.meridian-ansi {
-  /*
-   * The two colours this body paints when the stream names none, declared once so the
-   * body below and the reverse-video swap in `ansi-spans.ts` read the SAME pair. A
-   * reversed run with one unset channel resolves that channel here, so what it swaps
-   * against is what the reader is looking at rather than a second opinion about it.
-   */
-  --meridian-ansi-default-foreground: var(--meridian-text);
-  --meridian-ansi-default-background: var(--meridian-surface-sunken);
-
-  --meridian-ansi-black: var(--meridian-text-faint);
-  --meridian-ansi-white: var(--meridian-text-muted);
-  --meridian-ansi-bright-black: var(--meridian-text-muted);
-  --meridian-ansi-bright-white: var(--meridian-text);
-
-  --meridian-ansi-red: oklch(0.48 0.16 25);
-  --meridian-ansi-green: oklch(0.45 0.12 150);
-  --meridian-ansi-yellow: oklch(0.48 0.11 85);
-  --meridian-ansi-blue: oklch(0.46 0.11 255);
-  --meridian-ansi-magenta: oklch(0.47 0.13 330);
-  --meridian-ansi-cyan: oklch(0.46 0.09 205);
-  --meridian-ansi-bright-red: oklch(0.55 0.18 25);
-  --meridian-ansi-bright-green: oklch(0.52 0.14 150);
-  --meridian-ansi-bright-yellow: oklch(0.56 0.12 85);
-  --meridian-ansi-bright-blue: oklch(0.53 0.13 255);
-  --meridian-ansi-bright-magenta: oklch(0.54 0.15 330);
-  --meridian-ansi-bright-cyan: oklch(0.53 0.1 205);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root:not([data-console-scheme="light"]) .meridian-ansi {
-    --meridian-ansi-red: oklch(0.76 0.14 25);
-    --meridian-ansi-green: oklch(0.8 0.12 150);
-    --meridian-ansi-yellow: oklch(0.84 0.11 85);
-    --meridian-ansi-blue: oklch(0.79 0.1 255);
-    --meridian-ansi-magenta: oklch(0.79 0.12 330);
-    --meridian-ansi-cyan: oklch(0.81 0.08 205);
-    --meridian-ansi-bright-red: oklch(0.83 0.14 25);
-    --meridian-ansi-bright-green: oklch(0.87 0.13 150);
-    --meridian-ansi-bright-yellow: oklch(0.9 0.11 85);
-    --meridian-ansi-bright-blue: oklch(0.86 0.1 255);
-    --meridian-ansi-bright-magenta: oklch(0.86 0.12 330);
-    --meridian-ansi-bright-cyan: oklch(0.88 0.08 205);
-  }
-}
-
-[data-console-scheme="dark"] .meridian-ansi {
-  --meridian-ansi-red: oklch(0.76 0.14 25);
-  --meridian-ansi-green: oklch(0.8 0.12 150);
-  --meridian-ansi-yellow: oklch(0.84 0.11 85);
-  --meridian-ansi-blue: oklch(0.79 0.1 255);
-  --meridian-ansi-magenta: oklch(0.79 0.12 330);
-  --meridian-ansi-cyan: oklch(0.81 0.08 205);
-  --meridian-ansi-bright-red: oklch(0.83 0.14 25);
-  --meridian-ansi-bright-green: oklch(0.87 0.13 150);
-  --meridian-ansi-bright-yellow: oklch(0.9 0.11 85);
-  --meridian-ansi-bright-blue: oklch(0.86 0.1 255);
-  --meridian-ansi-bright-magenta: oklch(0.86 0.12 330);
-  --meridian-ansi-bright-cyan: oklch(0.88 0.08 205);
-}
 
 .meridian-ansi__body {
   margin: 0;
