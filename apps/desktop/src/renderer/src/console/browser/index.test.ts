@@ -26,12 +26,12 @@ import { registerBrowserPanes } from "./index.js";
 /**
  * The daemon methods this fixture is allowed to call.
  *
- * Both are registered reads `first-run.ts` already scripts. The browser namespace is
- * on `Plan-023 §Console growth slate` and is deliberately absent, which is what this
- * list exists to hold the fixture to: a scenario answering `browser.act` would read
- * as scripted behaviour and be a promise the wire has not made.
+ * `agent.list` is a registered read `first-run.ts` already scripts. The browser
+ * namespace is on `Plan-023 §Console growth slate` and is deliberately absent, which
+ * is what this list exists to hold the fixture to: a scenario answering `browser.act`
+ * would read as scripted behaviour and be a promise the wire has not made.
  */
-const REGISTERED_CALL_NAMES: readonly string[] = ["session.list", "agent.list"];
+const REGISTERED_CALL_NAMES: readonly string[] = ["agent.list"];
 
 describe("browser family — claiming the deck's browser pane", () => {
   it("claims the browser kind on terms the deck can hold it by", () => {

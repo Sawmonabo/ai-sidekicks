@@ -1,7 +1,7 @@
 // The terminal scenario — one shared shell changing hands, and ending degraded.
 //
-// THIS FILE IS THE SCRIPT. The cast is in `terminal-cast.ts`, the beat envelope and
-// its clock in `terminal-beats.ts`, and the canned replies in `terminal-replies.ts`.
+// THIS FILE IS THE SCRIPT. The cast is in `terminal-cast.ts`, and the beat envelope
+// and its clock in `terminal-beats.ts`.
 // What stays here is the one thing that has to be read in order to be understood:
 // which beat follows which, and why.
 //
@@ -82,7 +82,6 @@ import {
   TERMINAL_SCENARIO_CAST,
   TERMINAL_SCENARIO_SESSION_ID,
 } from "./terminal-cast.js";
-import { TERMINAL_SCENARIO_REPLIES } from "./terminal-replies.js";
 
 // The cast reaches this family's consumers through the script they already import.
 // The VALUE only: `TerminalScenarioCast` stays exported from the module that
@@ -365,5 +364,11 @@ export const TERMINAL_SCENARIO: ConsoleScenario = {
       },
     }),
   ],
-  replies: TERMINAL_SCENARIO_REPLIES,
+  // The one read the scenario answers. Everything the terminal family itself needs
+  // arrives as beats: the holder is a field on `pty.control_changed`, and the host's
+  // presence is the `runtime_node.*` pair above — so no roster read is scripted, and
+  // a scripted reply nothing calls would be a promise the wire has not made.
+  replies: [
+    { call: "agent.list", result: { agents: [{ agentId: TERMINAL_SCENARIO_CAST.agent }] } },
+  ],
 };

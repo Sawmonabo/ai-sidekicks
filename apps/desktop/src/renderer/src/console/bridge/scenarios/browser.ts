@@ -380,16 +380,9 @@ export const BROWSER_SCENARIO: ConsoleScenario = {
     },
   ],
   replies: [
-    { call: "session.list", result: { sessions: [{ sessionId: SESSION_ID }] } },
-    {
-      call: "agent.list",
-      // Scripted late on purpose. A delayed reply is the fixture's only way to
-      // make a loading state observable — the frozen clock is the only clock, so
-      // the caller advances the engine past the due tick to settle it — and a
-      // console whose every read answers instantly is one whose loading states
-      // nobody has ever seen.
-      afterMs: 220,
-      result: { agents: [{ agentId: AGENT_PARTICIPANT_ID }] },
-    },
+    // The one read the scenario answers, instantly: nothing this family renders waits
+    // on a reply. Its loading states are the in-flight capture row and the run that
+    // stops, and both arrive as beats on the scenario clock.
+    { call: "agent.list", result: { agents: [{ agentId: AGENT_PARTICIPANT_ID }] } },
   ],
 };

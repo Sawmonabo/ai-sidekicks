@@ -32,6 +32,7 @@ import { describe, expect, it } from "vitest";
 
 import { BROWSER_SCENARIO } from "./browser.js";
 import { TERMINAL_SCENARIO } from "./terminal.js";
+import { TERMINAL_HOST_NODE_ID } from "./terminal-cast.js";
 import type { ConsoleScenario, ScenarioBeat } from "../scenario.js";
 
 /** Every payload member value the beats of one kind carry under one member name. */
@@ -41,30 +42,6 @@ function payloadValuesOf(scenario: ConsoleScenario, kind: string, member: string
     .map((beat) => beat.event.payload?.[member])
     .filter((value): value is string => typeof value === "string");
 }
-
-const BOTH_SCENARIOS = [
-  [BROWSER_SCENARIO.id, BROWSER_SCENARIO],
-  [TERMINAL_SCENARIO.id, TERMINAL_SCENARIO],
-] as const;
-
-describe("scenario scripts leave both reply timings reachable", () => {
-  it.each(BOTH_SCENARIOS)(
-    "%s delays at least one reply, so a loading state is reachable",
-    (_id, scenario) => {
-      // The frozen clock is the only clock, so a scripted latency is the fixture's
-      // only loading state. A scenario whose every read answers instantly leaves its
-      // surface's loading rendering unexercised.
-      expect(scenario.replies.some((reply) => (reply.afterMs ?? 0) > 0)).toBe(true);
-    },
-  );
-
-  it.each(BOTH_SCENARIOS)("%s still answers something instantly", (_id, scenario) => {
-    // The control for the case above: if every reply were delayed, that assertion
-    // would pass over a scenario with no settled opening frame at all, and the
-    // predicate would be reading a constant rather than a decision.
-    expect(scenario.replies.some((reply) => reply.afterMs === undefined)).toBe(true);
-  });
-});
 
 describe("the browser scenario reaches every artifact state a row renders", () => {
   // `ArtifactState`, closed at three by
@@ -188,25 +165,19 @@ describe("the terminal scenario ends held, then loses its host", () => {
     expect(transitionsAfter("runtime_node.online").length).toBeGreaterThan(0);
   });
 
-  it("names one node across the presence beats and the roster reply", () => {
+  it("names one node across the presence beats, and it is the host", () => {
     // The degraded line names a node, and it has to be the node whose presence
     // dropped — telling a person to go look at the wrong machine is worse than
-    // saying nothing.
+    // saying nothing. The family reads presence off the log, so the beats are the
+    // only place the scenario names a node at all.
     const presenceNodeIds = new Set([
       ...payloadValuesOf(TERMINAL_SCENARIO, "runtime_node.online", "nodeId"),
       ...payloadValuesOf(TERMINAL_SCENARIO, "runtime_node.offline", "nodeId"),
     ]);
-    expect(presenceNodeIds.size).toBe(1);
-
-    const rosterReply = TERMINAL_SCENARIO.replies.find(
-      (reply) => reply.call === "runtimenode.roster",
-    );
-    expect(rosterReply).toBeDefined();
-    const roster = rosterReply?.result as { nodes: { nodeId: string }[] } | undefined;
-    expect(roster?.nodes.map((node) => node.nodeId)).toStrictEqual([...presenceNodeIds]);
+    expect([...presenceNodeIds]).toStrictEqual([TERMINAL_HOST_NODE_ID]);
   });
 
-  it("would notice a roster naming a node no beat mentions", () => {
+  it("would notice a presence beat naming a node the cast does not", () => {
     const presenceNodeIds = new Set(
       payloadValuesOf(TERMINAL_SCENARIO, "runtime_node.online", "nodeId"),
     );
