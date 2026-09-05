@@ -7,6 +7,20 @@
 // this file the helper could return on its first call for the rest of its life, and
 // every reference would still be whatever frame the capture reached while every audit
 // stayed green over a graph it never saw.
+//
+// IN THE BROWSER TIER, BECAUSE A CHECKER MUST RUN WHEREVER ITS SUBJECT RUNS. This
+// file was in `screenshot/`, the one project the aggregate `test` script deliberately
+// omits — its references are committed per platform and it runs in its own pinned
+// job — while the helper it checks also runs in `accessibility/`, which the aggregate
+// invokes on every call. A regression in the settle predicate therefore hung or
+// green-washed the accessibility tier with the one test that would have named the
+// cause never running.
+//
+// The browser tier rather than the architecture tier, and that is forced rather than
+// preferred: `console-architecture` is a Node project with no DOM, no animation
+// frame, and no layout engine, and every claim below is measured on all three. The
+// browser tier is where "geometry a DOM shim cannot answer" already lives — the run
+// pane's own graph-box case is its neighbour — and it is on the aggregate.
 
 import { describe, expect, it } from "vitest";
 

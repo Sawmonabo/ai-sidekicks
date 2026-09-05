@@ -223,6 +223,15 @@ function surfaceContext(bridge: ConsoleBridge): ConsoleSurfaceContext {
  * The wait is the difference between a surface and its empty state: the read crosses
  * a promise, so a tier reading straight after the mount would pin three empty groups
  * and compare them against a baseline of the populated list on the next warm run.
+ *
+ * BOTH READS, because the element this returns holds both. The destination composes
+ * the definitions browser AND `WorkflowRuns`, whose own `workflowRunList` read is a
+ * second, independent promise with no wait of its own — so a helper that waited on
+ * `.meridian-definition-row` alone handed the screenshot and accessibility tiers a
+ * surface holding `Reading this session's runs.` in place of four run rows, three park
+ * badges, a frozen-pin chip and the summary counts. The two settle in dispatch order
+ * today, which is ordering luck rather than a guarantee, and is the same class of luck
+ * `phase-graph-settled.ts` was written to remove for the graph chunk.
  */
 export async function mountWorkflowsDestination(): Promise<MountedFamilySurface> {
   const bridge = createFixtureBridge({ scenario: WORKFLOWS_SCENARIO });
@@ -243,6 +252,9 @@ export async function mountWorkflowsDestination(): Promise<MountedFamilySurface>
   await waitFor(() => {
     if (element.querySelector(".meridian-definition-row") === null) {
       throw new Error("the definition enumeration has not landed yet");
+    }
+    if (element.querySelector(".meridian-run-row") === null) {
+      throw new Error("the run enumeration has not landed yet");
     }
   });
   return { element, bridge };

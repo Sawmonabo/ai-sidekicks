@@ -13,7 +13,10 @@
 // And it never draws a control that leads nowhere: "absent, not disabled" means an
 // entry point appears when its caller supplies the action and not before, so the
 // empty state of a console that cannot yet author a definition says so by having no
-// button rather than by having a dead one.
+// button rather than by having a dead one. A control whose action nothing can EVER
+// supply is a different thing and is not reserved here either: an import entry point
+// was threaded through two components to a button no caller in this repository could
+// reach, which reads as coverage and is inert. It is gone until a producer exists.
 //
 // WHERE THE GROUPS THEMSELVES LIVE. This file is the destination's chrome — heading,
 // one primary action, and which of the absence grammars the state calls for. The
@@ -59,10 +62,15 @@ export interface WorkflowsSurfaceProps {
   readonly pendingScopes?: readonly WorkflowDefinitionScope[] | undefined;
   /** True while the enumeration holds pages nobody has read, so no group is empty yet. */
   readonly hasUnreadPages?: boolean | undefined;
-  /** Opens the builder on a new definition. Absent while nothing can author one. */
-  readonly onNewDefinition?: () => void;
-  /** Reads a definition file in and submits it. Absent while nothing can import one. */
-  readonly onImportDefinition?: () => void;
+  /**
+   * Opens the builder on a new definition. Absent while nothing can author one.
+   *
+   * `| undefined` explicitly, because `exactOptionalPropertyTypes` is on: without it
+   * a caller holding an optional handler cannot forward it, and the workaround is the
+   * spread-guard this branch had in `WorkflowsBrowser.tsx` — a conditional built to
+   * pass a value the caller already held.
+   */
+  readonly onNewDefinition?: (() => void) | undefined;
   /** Opens one definition's detail. Absent while nothing can open one. */
   readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
   /** Asks for the page after the ones shown. Absent while no cursor is held. */
@@ -97,7 +105,6 @@ export function WorkflowsSurface(props: WorkflowsSurfaceProps): React.JSX.Elemen
         pendingScopes={props.pendingScopes}
         hasUnreadPages={props.hasUnreadPages}
         onOpenDefinition={props.onOpenDefinition}
-        onImportDefinition={props.onImportDefinition}
         onContinueReading={props.onContinueReading}
         continuationReading={props.continuationReading}
       />

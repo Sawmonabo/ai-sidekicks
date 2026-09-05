@@ -13,6 +13,14 @@
 // make — `useAnnounce` throws outside its provider rather than falling silently back
 // to a region invented at the moment something spoke.
 //
+// THE ROW FACTORY IS THE FAMILY'S, not this file's, and it is a FACTORY rather than a
+// frozen const on purpose. Five suites across two directories were each stating the
+// nine members of `WorkflowDefinitionRow` in their own words, so adding a required
+// member to the wire type would have broken some of them and silently left the rest
+// asserting against a differently-shaped row for the same type. One factory with
+// overrides is the shape that cannot do that: a new required member is one edit here,
+// and every caller keeps compiling because it only ever names what it asserts on.
+//
 // What is deliberately NOT here is anything one suite reads: the scope-group queries,
 // the two-page port, the recording announcer, and the start slot's spy each have one
 // reader and stay beside it.
@@ -30,18 +38,21 @@ export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 /** The continuation token the paged cases hand back. */
 export const SECOND_PAGE_CURSOR = "definitions-page-2";
 
-/** One definition, as the enumeration carries it. */
-export const SERVED_DEFINITION: WorkflowDefinitionRow = {
-  id: "release-checklist",
-  name: "Release checklist",
-  scope: "session",
-  scopeRef: PROBE_SESSION_ID,
-  latestVersionNumber: 3,
-  latestWorkflowVersionId: "release-checklist-version-3",
-  contentHash: "b3:0f1e2d",
-  resolvesAtThisContext: true,
-  createdAt: "2026-01-01T10:00:00.000Z",
-};
+/** One definition, as the enumeration carries it. Override only what a case asserts on. */
+export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): WorkflowDefinitionRow {
+  return {
+    id: "release-checklist",
+    name: "Release checklist",
+    scope: "session",
+    scopeRef: PROBE_SESSION_ID,
+    latestVersionNumber: 3,
+    latestWorkflowVersionId: "release-checklist-version-3",
+    contentHash: "b3:0f1e2d",
+    resolvesAtThisContext: false,
+    createdAt: "2026-01-01T10:00:00.000Z",
+    ...overrides,
+  };
+}
 
 /** One settled page, derived from the port's own answer rather than restated. */
 export type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
@@ -52,10 +63,7 @@ export function portAnswering(page: SettledDefinitionPage): GrowthPort {
 }
 
 /** The browser under the announcer its one caller mounts it inside. */
-export function browserUnderAnnouncer(
-  growth: GrowthPort,
-  sessionId: string | undefined,
-): React.JSX.Element {
+export function browserUnderAnnouncer(growth: GrowthPort, sessionId: string): React.JSX.Element {
   return (
     <LiveAnnouncerProvider>
       <WorkflowsBrowser growth={growth} sessionId={sessionId} />

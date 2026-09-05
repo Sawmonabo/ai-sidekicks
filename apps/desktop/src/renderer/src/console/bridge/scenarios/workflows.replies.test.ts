@@ -8,13 +8,15 @@
 
 import { describe, expect, it } from "vitest";
 
+import { GROWTH_OPERATIONS } from "../growth-operations.js";
+
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
 import {
   WORKFLOWS_COMPLETED_PHASE_ID,
   WORKFLOWS_SCENARIO_PHASE_OUTPUTS,
 } from "./workflow-fixture-phase-outputs.js";
 import { WORKFLOWS_PARKED_RUN, WORKFLOWS_SCENARIO_RUNS } from "./workflow-fixture-runs.js";
-import { WORKFLOWS_SCENARIO } from "./workflows.js";
+import { WORKFLOWS_RUN_ENUMERATION_CALL, WORKFLOWS_SCENARIO } from "./workflows.js";
 import { ScenarioEngine } from "../scenario-engine.js";
 import { settleScriptedReply } from "../scripted-reply.js";
 import type { WorkflowRunListEntry, WorkflowRunSnapshot } from "../workflow-projection.js";
@@ -47,7 +49,7 @@ const INCIDENT_TRIAGE_DEFINITION_FACTS = {
 async function enumerationEntries(
   engine: ScenarioEngine,
 ): Promise<readonly WorkflowRunListEntry[]> {
-  const runList = await settleScriptedReply(engine, "workflow.runList");
+  const runList = await settleScriptedReply(engine, WORKFLOWS_RUN_ENUMERATION_CALL);
   if (runList.status !== "resolved") {
     throw new Error(`the enumeration settled ${runList.status}`);
   }
@@ -59,7 +61,7 @@ describe("the workflows scenario — what a caller is answered with", () => {
     const engine = new ScenarioEngine({ scenario: WORKFLOWS_SCENARIO });
 
     const definitionList = await settleScriptedReply(engine, "workflow.definitionList");
-    const runList = await settleScriptedReply(engine, "workflow.runList");
+    const runList = await settleScriptedReply(engine, WORKFLOWS_RUN_ENUMERATION_CALL);
     // Addressed, because both snapshot reads answer per request: a run read is one of
     // the registered workflow methods and addresses one run by an id the caller holds,
     // and this fixture now answers it that way rather than with one fixed run.
@@ -101,6 +103,38 @@ describe("the workflows scenario — what a caller is answered with", () => {
       },
     });
     engine.dispose();
+  });
+
+  it("keys the run enumeration on its growth operation and not on an invented method", () => {
+    // The console has one rule about method strings — a name is transcribed from a
+    // registered contract or it is not written — and this scenario is where the
+    // workflow plane's names get written. `growth-operations.ts` registers
+    // `workflowRunList` with `expectedWireMethod` undefined, under the note that an
+    // invented string there would be a wire fact traceable to nothing; a
+    // `workflow.runList` literal HERE is that same invention one file further from
+    // the ledger that refused it, and nothing between the two would have caught it.
+    //
+    // Two claims, and the second is the one that bites. Every `workflow.`-prefixed
+    // call this scenario scripts is some operation's registered method — so the three
+    // transcriptions stay transcriptions — and the enumeration, which has no method to
+    // transcribe, wears a key no daemon method can: the operation id under a `growth:`
+    // prefix. On the old code the enumeration failed the first claim and the second.
+    const registeredWorkflowMethods = new Set<string>(
+      Object.values(GROWTH_OPERATIONS).flatMap((operation) =>
+        operation.expectedWireMethod === undefined ? [] : [operation.expectedWireMethod],
+      ),
+    );
+    const workflowCalls = WORKFLOWS_SCENARIO.replies
+      .map((reply) => reply.call)
+      .filter((call) => call.startsWith("workflow."));
+
+    // The zero-match guard: a scenario that scripted no workflow reply at all would
+    // satisfy the filter below vacuously.
+    expect(workflowCalls).toHaveLength(3);
+    expect(workflowCalls.filter((call) => !registeredWorkflowMethods.has(call))).toStrictEqual([]);
+
+    expect(GROWTH_OPERATIONS.workflowRunList.expectedWireMethod).toBeUndefined();
+    expect(WORKFLOWS_RUN_ENUMERATION_CALL).toBe(`growth:${GROWTH_OPERATIONS.workflowRunList.id}`);
   });
 
   it("scripts no mutating workflow call", async () => {

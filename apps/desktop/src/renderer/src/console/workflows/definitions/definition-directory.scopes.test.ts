@@ -90,13 +90,17 @@ describe("scopeResolutionOf — an empty scope is an answer only once the read i
     ).toStrictEqual({ pendingScopes: undefined, hasUnreadPages: false });
   });
 
-  it("negative control: a read nobody could put resolves every scope", () => {
-    // The bare rail address names no session, so nothing was asked and there are no
-    // unread pages. The browser's three named groups there are the design's own empty
-    // state rather than a claim about a read, and this keeps them that way.
+  it("lets no group claim an empty result for a read nobody put", () => {
+    // The reversal: this arm used to resolve every scope definitively, so three groups
+    // each said `No <scope> definitions` about a daemon nobody had asked. It was
+    // defended by a mount that no longer exists — the browser's one caller resolves a
+    // session before mounting it — and the claim it licensed was never true.
+    //
+    // Not `pendingScopes` either: nothing is in flight, so a wait would promise an
+    // answer that is not coming.
     expect(scopeResolutionOf({ status: "unasked" })).toStrictEqual({
       pendingScopes: undefined,
-      hasUnreadPages: false,
+      hasUnreadPages: true,
     });
   });
 });

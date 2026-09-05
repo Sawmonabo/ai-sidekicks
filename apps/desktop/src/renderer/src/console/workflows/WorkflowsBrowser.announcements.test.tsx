@@ -19,7 +19,7 @@ import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import {
   PROBE_SESSION_ID,
   SECOND_PAGE_CURSOR,
-  SERVED_DEFINITION,
+  definition,
   browserUnderAnnouncer,
   portAnswering,
   renderBrowser,
@@ -29,7 +29,7 @@ import {
 
 /** A second definition, so a continuation that lands moves the count it reports. */
 const SECOND_PAGE_DEFINITION: WorkflowDefinitionRow = {
-  ...SERVED_DEFINITION,
+  ...definition(),
   id: "deploy-checklist",
   name: "Deploy checklist",
   latestWorkflowVersionId: "deploy-checklist-version-3",
@@ -101,7 +101,7 @@ function twoPagePort(secondPage: SettledDefinitionPage): GrowthPort {
       request.cursor === undefined
         ? {
             status: "served",
-            value: { definitions: [SERVED_DEFINITION], nextCursor: SECOND_PAGE_CURSOR },
+            value: { definitions: [definition()], nextCursor: SECOND_PAGE_CURSOR },
           }
         : secondPage,
   };
@@ -130,7 +130,7 @@ describe("what the definitions browser says out loud", () => {
     // session came into scope and that the RUNS list had settled, and never that the
     // definition list had.
     const { container, rerender } = renderBrowserTwice(
-      portAnswering({ status: "served", value: { definitions: [SERVED_DEFINITION] } }),
+      portAnswering({ status: "served", value: { definitions: [definition()] } }),
     );
 
     await settle();

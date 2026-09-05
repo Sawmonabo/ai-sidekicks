@@ -98,7 +98,7 @@ describe("definitions browser — the scope groups", () => {
 });
 
 describe("definitions browser — the entry points", () => {
-  it("draws no control while nothing can author or import a definition", () => {
+  it("draws no control while nothing can author a definition", () => {
     expect(
       renderSurface(
         <WorkflowsSurface state={{ kind: "ready" }} sessionId={PROBE_SESSION_ID} />,
@@ -106,20 +106,44 @@ describe("definitions browser — the entry points", () => {
     ).toHaveLength(0);
   });
 
-  it("draws each control once its caller supplies the action", () => {
+  it("draws the authoring control once its caller supplies the action", () => {
     // Negative control for the case above, which would otherwise pass over a
     // surface that had no entry points at all.
+    //
+    // One control rather than two: the import entry point this surface used to thread
+    // had no producer anywhere in this repository, so it rendered nowhere and could
+    // not be reached — and a case that supplied the handler itself was the only thing
+    // making it look reachable.
     const section = renderSurface(
       <WorkflowsSurface
         state={{ kind: "ready" }}
         sessionId={PROBE_SESSION_ID}
         onNewDefinition={() => undefined}
-        onImportDefinition={() => undefined}
       />,
     );
     expect(
       [...section.querySelectorAll("button")].map((button) => button.textContent),
-    ).toStrictEqual(["New definition", "Import a definition file"]);
+    ).toStrictEqual(["New definition"]);
+  });
+
+  it("negative control: the import seam is gone from the type, not merely unsupplied", () => {
+    // Compile-time on purpose. Deleting a dead prop leaves nothing to render, so no
+    // rendered assertion can tell the deletion from a caller that simply never passed
+    // it — which is how the seam survived this long. This reads the type instead: on
+    // the surface as it was, which declared `onImportDefinition` and threaded it to
+    // the `shared` group's empty state, the suppression below has nothing to suppress
+    // and `tsc` fails the file for an unused directive. That is the control, and the
+    // repo's typecheck gate is what runs it.
+    const section = renderSurface(
+      <WorkflowsSurface
+        state={{ kind: "ready" }}
+        sessionId={PROBE_SESSION_ID}
+        // @ts-expect-error the surface declares no import entry point
+        onImportDefinition={() => undefined}
+      />,
+    );
+
+    expect(section.querySelectorAll("button")).toHaveLength(0);
   });
 });
 

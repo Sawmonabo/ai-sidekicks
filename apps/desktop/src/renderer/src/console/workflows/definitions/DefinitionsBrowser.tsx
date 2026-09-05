@@ -19,8 +19,11 @@
 //     Stating that after the fact would be the surface discovering a consequence for
 //     the author.
 //   • **Absent, not disabled.** Every control here appears when its caller supplies
-//     the action and not before, so a console that cannot yet author or import says
-//     so by having no button rather than by having a dead one.
+//     the action and not before, so a console that cannot yet author says so by having
+//     no button rather than by having a dead one. The continuation control below is
+//     the one entry point a caller does supply; a definition-import control used to
+//     stand beside it with no producer anywhere in this repository, which is not the
+//     same rule applied to a second control but a control that could never appear.
 //   • **A refusal is the daemon's, rendered with its code and its message verbatim.**
 //     Ten `workflow.*` codes are registered against twenty-two refusal points, and
 //     fifteen of those points carry no code of their own — on those the code alone
@@ -98,8 +101,6 @@ export interface DefinitionsBrowserProps {
   readonly hasUnreadPages?: boolean | undefined;
   /** Opens one definition's detail. Absent while nothing can open one. */
   readonly onOpenDefinition?: OpenDefinition | undefined;
-  /** Reads a definition file in and submits it. Absent while nothing can import one. */
-  readonly onImportDefinition?: (() => void) | undefined;
   /** Asks for the page after these. Absent while no cursor is held. */
   readonly onContinueReading?: (() => void) | undefined;
   /**
@@ -177,19 +178,6 @@ export function DefinitionsBrowser(props: DefinitionsBrowserProps): React.JSX.El
             isPending={pendingScopes.includes(scope)}
             hasUnreadPages={props.hasUnreadPages === true}
             onOpenDefinition={props.onOpenDefinition}
-            emptyAction={
-              // Import belongs to the scope an import lands in, and a control offered
-              // three times is a control that reads as three different acts.
-              scope === "session" && props.onImportDefinition !== undefined ? (
-                <button
-                  type="button"
-                  className="meridian-workflow__action"
-                  onClick={props.onImportDefinition}
-                >
-                  Import a definition file
-                </button>
-              ) : undefined
-            }
           />
         ))}
       </ol>

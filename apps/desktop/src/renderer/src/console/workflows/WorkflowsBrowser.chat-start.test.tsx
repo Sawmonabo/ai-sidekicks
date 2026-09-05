@@ -1,5 +1,7 @@
-// The session the browser hands the conversational start, and the nothing it hands
-// where there is none.
+// The session the browser hands the conversational start.
+//
+// There is no case for a browser with no session, because there is no such browser:
+// the one mount resolves a session before rendering it, and `sessionId` is `string`.
 //
 // Spied, never replaced, `ConsoleRoot.test.tsx`'s instrument: the start slot carries
 // no body anywhere in this repository, so what the browser handed it reaches no
@@ -8,18 +10,13 @@
 // spy lives here rather than in the shared harness, where it would be installed for
 // three suites that make no claim about the mount.
 
-import { cleanup, render } from "@testing-library/react";
+import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { type GrowthPort } from "../bridge/index.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
-import {
-  PROBE_SESSION_ID,
-  browserUnderAnnouncer,
-  renderBrowser,
-  settle,
-} from "./WorkflowsBrowser.test-support.js";
+import { PROBE_SESSION_ID, renderBrowser, settle } from "./WorkflowsBrowser.test-support.js";
 
 vi.mock(import("./ChatStartSlot.js"), { spy: true });
 
@@ -56,20 +53,7 @@ describe("the workflows browser — the session it hands the conversational star
     });
   });
 
-  it("hands over the same nothing it read under, where no session is in scope", async () => {
-    // A bare rail address puts no question — the enumeration's request carries a
-    // required session id — and the mount is told exactly that rather than being
-    // handed a key that was quietly dropped.
-    const readSessions: string[] = [];
-    render(browserUnderAnnouncer(recordingPort(readSessions), undefined));
-
-    await settle();
-
-    expect(readSessions).toStrictEqual([]);
-    expect(vi.mocked(ChatStartSlot).mock.calls[0]?.[0]).toStrictEqual({ sessionId: undefined });
-  });
-
-  it("negative control: the wrapper really rendered, so the cases above are not vacuous", async () => {
+  it("negative control: the wrapper really rendered, so the case above is not vacuous", async () => {
     // The spy would record a call for a mount that was composed and never rendered.
     // This reads the wrapper's own reserved copy off the markup instead.
     const container = renderBrowser(recordingPort([]));

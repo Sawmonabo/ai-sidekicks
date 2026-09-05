@@ -58,6 +58,13 @@ function offeredSessionIds(container: HTMLElement): readonly string[] {
   );
 }
 
+/** Whether the surface is saying, above its choices, that it is still reading. */
+function readingNotices(container: HTMLElement): readonly string[] {
+  return [...container.querySelectorAll(".meridian-nothing--not-loaded")].map(
+    (notice) => notice.textContent ?? "",
+  );
+}
+
 function refusalCodes(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll(".meridian-refusal .meridian-figure--wire")].map(
     (code) => code.textContent ?? "",
@@ -96,6 +103,43 @@ describe("the workflows scope picker — a refused directory beside a usable cho
 
     expect(refusalCodes(container)).toStrictEqual([]);
     expect(offeredSessionIds(container)).toContain(WORKFLOWS_SESSION_ID);
+  });
+
+  it("says it is still reading while offering the sessions it can already name", async () => {
+    // The defect: this window holds one session, the node holds six, and while the
+    // directory read was in flight the picker rendered a choice list of exactly one
+    // with nothing beside it — the prefix presented as the whole answer. A person
+    // picks the only session offered and five more arrive a beat later.
+    //
+    // Unsettled deliberately: the assertion is about the frame BEFORE the read lands,
+    // which is the frame a person can act in.
+    const container = renderPicker(
+      createFixtureBridge({ scenario: WORKFLOWS_SCENARIO }).growth,
+      registryHolding(OPEN_SESSION_ID),
+    );
+
+    expect(offeredSessionIds(container)).toStrictEqual([OPEN_SESSION_ID]);
+    expect(readingNotices(container).join(" ")).toContain("Reading the sessions on this node");
+
+    // And it stops saying so once the node has answered, which is the other half: a
+    // notice that outlived its read would report a wait over a settled list.
+    await settle();
+    expect(readingNotices(container)).toStrictEqual([]);
+    expect(offeredSessionIds(container)).toContain(WORKFLOWS_SESSION_ID);
+  });
+
+  it("negative control: a served directory offers its choices with no wait notice at all", async () => {
+    // Without this, the case above passes for a picker that rendered the wait
+    // unconditionally — which would report an unfinished read over the node's own
+    // complete list, in every frame, forever.
+    const container = renderPicker(
+      createFixtureBridge({ scenario: WORKFLOWS_SCENARIO }).growth,
+      emptyRegistry(),
+    );
+
+    await settle();
+
+    expect(readingNotices(container)).toStrictEqual([]);
   });
 
   it("negative control: a refused directory with nothing open still says nobody asked", async () => {

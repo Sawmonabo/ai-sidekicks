@@ -39,8 +39,6 @@ interface DefinitionScopeGroupProps {
   readonly isPending: boolean;
   readonly hasUnreadPages: boolean;
   readonly onOpenDefinition: OpenDefinition | undefined;
-  /** The group's own escape hatch, when its caller supplies one. */
-  readonly emptyAction: React.ReactNode;
 }
 
 /** One scope's group: its name, what it is, and whatever it holds. */
@@ -111,7 +109,6 @@ function renderScopeBody(props: DefinitionScopeGroupProps): React.ReactNode {
       placement="surface"
       title={`No ${props.scope} definitions.`}
       detail="A definition saved at this scope appears here, and the one a run would pick is marked."
-      action={props.emptyAction}
     />
   );
 }

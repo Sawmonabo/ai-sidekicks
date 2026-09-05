@@ -20,6 +20,7 @@ import {
   observeSubjectRead,
   type ObservedSubjectRead,
 } from "../../store/subject-read-commits.test-support.js";
+import { definition } from "../WorkflowsBrowser.test-support.js";
 import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
 import {
   useWorkflowDefinitionDirectory,
@@ -28,18 +29,20 @@ import {
 
 const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
-function definition(id: string): WorkflowDefinitionRow {
-  return {
+/**
+ * One row per id, which is what these cases read back: the id is the only member that
+ * says WHICH read committed. Everything else is the family's row, built once at
+ * `../WorkflowsBrowser.test-support.tsx` — including `scopeRef`, whose default is this
+ * same probe session.
+ */
+function definitionWithId(id: string): WorkflowDefinitionRow {
+  return definition({
     id,
     name: `Definition ${id}`,
-    scope: "session",
-    scopeRef: PROBE_SESSION_ID,
     latestVersionNumber: 1,
     latestWorkflowVersionId: `${id}-version-1`,
     contentHash: `b3:${id}`,
-    resolvesAtThisContext: false,
-    createdAt: "2026-01-01T10:00:00.000Z",
-  };
+  });
 }
 
 /** The real port serving one scenario's worth of definitions, and nothing else changed. */
@@ -48,7 +51,7 @@ function portServing(definitionId: string): GrowthPort {
     ...createRefusingGrowthPort(),
     workflowDefinitionList: async () => ({
       status: "served",
-      value: { definitions: [definition(definitionId)] },
+      value: { definitions: [definitionWithId(definitionId)] },
     }),
   };
 }

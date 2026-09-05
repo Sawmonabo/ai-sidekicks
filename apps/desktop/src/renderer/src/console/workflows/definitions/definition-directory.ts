@@ -62,14 +62,13 @@
 
 import { useCallback, useEffect, useMemo } from "react";
 
-import type { GrowthPort } from "../../bridge/index.js";
+import { settleGrowthRead, type GrowthPort, type SettledReadRefusal } from "../../bridge/index.js";
 import { subjectReadStart, useSubjectScopedState, type SubjectRead } from "../../store/index.js";
 import {
   WORKFLOW_DEFINITION_SCOPES,
   type WorkflowDefinitionRow,
   type WorkflowDefinitionScope,
 } from "./DefinitionsBrowser.js";
-import { settleGrowthRead, type SettledReadRefusal } from "../read-settlement.js";
 
 /** What one settled page of the enumeration is, derived from the port's own answer. */
 type SettledDefinitionPage =
@@ -237,9 +236,15 @@ export function useWorkflowDefinitionDirectory(
  * Exported beside the hook because it is the whole of the rule and a case that drove it
  * through a rendered surface would be asserting the rule and the rendering at once.
  *
- * `unasked` resolves to a definitive empty on purpose: nothing was asked, so there are
- * no unread pages, and the browser's three named groups on a bare rail address are the
- * design's own empty state rather than a claim about a read.
+ * `unasked` no longer resolves to a definitive empty, and that reversal is the point:
+ * a group that was never asked cannot assert an empty result. The old reading was
+ * defended by "the browser's three named groups on a bare rail address" — a mount that
+ * no longer exists, since the browser's one caller resolves a session before mounting
+ * it — and what it did in the meantime was let three groups each say `No <scope>
+ * definitions` over a read nobody put, which is the exact conflation the rest of this
+ * projection exists to prevent. It resolves like a read with pages outstanding
+ * instead: no group claims to be empty, and none claims to be waiting either, because
+ * nothing is in flight.
  */
 export function scopeResolutionOf(
   state: WorkflowDefinitionDirectoryState,
@@ -247,7 +252,13 @@ export function scopeResolutionOf(
   if (state.status === "reading") {
     return { pendingScopes: WORKFLOW_DEFINITION_SCOPES, hasUnreadPages: true };
   }
+  if (state.status === "unasked") {
+    return { pendingScopes: undefined, hasUnreadPages: true };
+  }
   if (state.status !== "served") {
+    // The refused arm, and it keeps the definitive empty: a refusal is the whole
+    // surface's state and the chrome renders it in place of the groups, so no group
+    // is on screen to claim anything at all.
     return { pendingScopes: undefined, hasUnreadPages: false };
   }
   if (state.continuation.status === "reading") {
