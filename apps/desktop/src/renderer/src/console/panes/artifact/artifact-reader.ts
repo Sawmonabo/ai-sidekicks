@@ -163,6 +163,7 @@ export interface ArtifactPaneReaderOptions {
 
 export class ArtifactPaneReader {
   readonly #bridge: ConsoleBridge;
+  readonly #clock: ConsoleClock;
   readonly #sessionStore: SessionStore | undefined;
   readonly #sessionId: string | undefined;
   readonly #scheduler: RefreshScheduler;
@@ -188,6 +189,10 @@ export class ArtifactPaneReader {
 
   public constructor(options: ArtifactPaneReaderOptions) {
     this.#bridge = options.bridge;
+    this.#clock = options.clock;
+    // Stamped at construction rather than left at the declaration's own placeholder,
+    // so every reading a surface can reach carries an instant somebody took.
+    this.#reading = { ...NOTHING_READ_YET, readAtMilliseconds: this.#clock.now() };
     this.#sessionStore = options.sessionStore;
     this.#sessionId = options.sessionStore?.sessionId;
     this.#scheduler = new RefreshScheduler({
@@ -403,8 +408,23 @@ export class ArtifactPaneReader {
     });
   }
 
-  #publish(reading: ArtifactPaneReading): void {
-    this.#reading = reading;
-    this.#changes.emit(reading);
+  /**
+   * Put one reading on the pane, stamped with the instant it was put there.
+   *
+   * THE STAMP IS TAKEN HERE AND NOWHERE ELSE. Every publish this reader makes — the
+   * read's own pair, the scheduler's error arm, and all three acts through the action
+   * host — comes through this method, so stamping here is what makes the instant a
+   * property of the publish rather than of whichever producer remembered to take one.
+   * A producer that spread a previous reading forward gets this publish's instant,
+   * which is correct: the reading changed, and that is when.
+   *
+   * WHICH IS WHY THE PARAMETER OMITS IT. A producer cannot supply the stamp, so the
+   * type does not ask it to — and one that spreads a stamped reading forward passes
+   * through unchanged, because the member this method writes is written last.
+   */
+  #publish(reading: Omit<ArtifactPaneReading, "readAtMilliseconds">): void {
+    const stamped: ArtifactPaneReading = { ...reading, readAtMilliseconds: this.#clock.now() };
+    this.#reading = stamped;
+    this.#changes.emit(stamped);
   }
 }

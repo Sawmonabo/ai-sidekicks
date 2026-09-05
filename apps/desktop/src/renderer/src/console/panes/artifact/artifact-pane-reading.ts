@@ -45,9 +45,35 @@ export interface ArtifactAllowlistReading {
   readonly refusal: ConsoleRefusal | undefined;
 }
 
+/**
+ * The instant a reading nobody has published yet carries.
+ *
+ * Reachable by nothing a participant sees: `NOTHING_READ_YET` draws no row, so no age
+ * is rendered against it, and the reader stamps its own opening reading from the
+ * window's clock at construction. Named rather than written as a bare `0` so the
+ * declaration says which of the two it is — an instant nobody took, not midnight 1970.
+ */
+export const UNREAD_AT_MILLISECONDS = 0;
+
 /** Everything the pane renders from, in one immutable value. */
 export interface ArtifactPaneReading {
   readonly artifacts: ArtifactsPanelState;
+  /**
+   * The instant this reading was published at, taken from the window's own clock.
+   *
+   * ON THE READING, WHICH IS THE WHOLE POINT. `repos/repo-mounts-model.ts` states the
+   * rule for this family and names the alternative as the defect: a card reading
+   * `Date.now()` in its render body would move an age on any unrelated re-render, and
+   * under the fixture it would move against wall time while the scenario advanced on
+   * frozen time — so a screenshot listing a row pinned text that renders differently
+   * next month. An age moves when the READ moves, and on no other occasion; an age
+   * that advanced on a timer would be the interval poll the budget forbids, wearing a
+   * clock face.
+   *
+   * Stamped by the reader's one publish rather than by each producer, so no path can
+   * put a reading on screen carrying an instant from an earlier one.
+   */
+  readonly readAtMilliseconds: number;
   readonly allowlist: ArtifactAllowlistReading;
   /**
    * What the last delete REPORTED, which is not the same as that it happened.
@@ -119,6 +145,7 @@ export const SHIPPED_DEFAULT_ALLOWLIST: ArtifactAllowlistReading = {
 /** Before anyone asked. `not-checked` is a different claim from an empty list. */
 export const NOTHING_READ_YET: ArtifactPaneReading = {
   artifacts: { kind: "not-checked" },
+  readAtMilliseconds: UNREAD_AT_MILLISECONDS,
   allowlist: SHIPPED_DEFAULT_ALLOWLIST,
   lastDeleteReceipt: undefined,
   payload: { status: "not-checked" },

@@ -51,7 +51,7 @@
 // are the artifact plane's rules and a participant who has just been refused for an
 // unsupported type needs somewhere to read what IS supported.
 
-import { useCallback, useId, useMemo } from "react";
+import { useCallback, useId } from "react";
 
 import {
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
@@ -107,11 +107,6 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
     // reader of its own rather than the previous subject's bytes under this header.
     context.entity.id,
   );
-
-  // The instant the rows were rendered against. It moves when the reading moves and on
-  // no other occasion — an age that advanced on a timer would be the interval poll the
-  // budget forbids, wearing a clock face.
-  const nowMilliseconds = useMemo(() => Date.now(), [reading]);
 
   // Announced from the act's own settlement and from nowhere else. A re-render
   // announces nothing, because nothing settled.
@@ -235,7 +230,11 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
         <ArtifactPayloadSection payload={reading.payload} />
         <ArtifactsPanel
           state={reading.artifacts}
-          nowMilliseconds={nowMilliseconds}
+          // The instant the READER took, off the window's own clock — never one this
+          // body reads. A render body reaching `Date.now()` moves an age on any
+          // unrelated re-render, and under the fixture it moves against wall time
+          // while the scenario advances on frozen time.
+          nowMilliseconds={reading.readAtMilliseconds}
           rowRefusals={reading.refusalByArtifactId}
           manifestReadInFlightArtifactIds={reading.manifestReadInFlightArtifactIds}
           lastDeleteReceipt={reading.lastDeleteReceipt}

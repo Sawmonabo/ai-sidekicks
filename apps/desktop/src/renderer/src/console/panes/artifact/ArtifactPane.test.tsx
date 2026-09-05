@@ -549,3 +549,56 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     expect(artifactList).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("artifact pane — the instant a row's age is read against", () => {
+  it("renders an age from the reader's clock, so a frozen scenario renders one text", async () => {
+    // The defect: the pane read `Date.now()` in its render body. `test/console/repos-surfaces.tsx`
+    // recorded the consequence in its own words — the pane built a clock behind the
+    // binding and no surface could hand it one — so a screenshot subject that listed a
+    // row pinned text derived from real wall-clock time against a fixture `createdAt`,
+    // and the same subject rendered differently the next month.
+    //
+    // The reading now carries the instant the READER took, off the window's own clock.
+    // Under the fixture that clock is frozen at the scenario's epoch, so the row's age
+    // is a fixed distance from a fixed `createdAt`: `SERVED_SUMMARY` is stamped in 2026
+    // and this clock starts at zero, so the row says the artifact is twenty thousand
+    // days in the future — a text no wall clock can produce.
+    const clock = new ManualClock();
+    const { container } = renderPane(
+      contextFor(ARTIFACT_ENTITY, {
+        bridge: artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, clock }),
+        sessionId: SESSION_ID,
+      }),
+    );
+    await readThrough(clock);
+    await settleAct();
+
+    const age = container.querySelector(".meridian-artifact-row")?.textContent ?? "";
+    expect(age).toContain("in 20,698 days");
+  });
+
+  it("holds that age still while the pane re-renders under it", async () => {
+    // The other half of the rule: an age moves when the READ moves and on no other
+    // occasion. A body reading the wall clock moves it on any unrelated re-render —
+    // and one that advanced on a timer would be the interval poll the budget forbids,
+    // wearing a clock face.
+    const clock = new ManualClock();
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const bridge = artifactBridgeAnswering({ listAnswer: LISTED_ONE_ROW, clock });
+    const announcerClock = new ManualClock();
+    const { container, rerender } = render(
+      paneTree(contextFor(ARTIFACT_ENTITY, { bridge, sessionStore }), announcerClock),
+    );
+    await readThrough(clock);
+    await settleAct();
+    const before = container.querySelector(".meridian-artifact-row")?.textContent ?? "";
+
+    // Time really passes, and the pane really re-renders — with no read in between.
+    clock.advance(3_600_000);
+    rerender(paneTree(contextFor(ARTIFACT_ENTITY, { bridge, sessionStore }), announcerClock));
+    await settleAct();
+
+    expect(container.querySelector(".meridian-artifact-row")?.textContent).toBe(before);
+    expect(before).not.toBe("");
+  });
+});
