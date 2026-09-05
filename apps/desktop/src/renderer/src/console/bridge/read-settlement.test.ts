@@ -19,10 +19,8 @@ import { growthUnavailable } from "./growth-port.js";
 import type { GrowthOperationSignatures } from "./growth-signatures.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import { READ_SETTLEMENT_REFUSAL_ORIGIN, settleGrowthRead } from "./read-settlement.js";
+import { PROBE_PARTICIPANT_ID, PROBE_SESSION_ID } from "./scripted-probe.test-support.js";
 import type { ConsoleScenario } from "./scenario.js";
-
-const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
-const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
 
 /** The refusal the scenario below scripts, in the envelope a daemon sends. */
 const SCRIPTED_DAEMON_REFUSAL: WireErrorEnvelope = {

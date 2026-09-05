@@ -28,6 +28,7 @@ import { ScenarioEngine } from "./scenario-engine.js";
 import type { ConsoleScenario, ScenarioReply } from "./scenario.js";
 import { WORKFLOWS_PARKED_RUN } from "./scenarios/workflow-fixture-runs.js";
 import { settleScriptedReply } from "./scripted-reply.js";
+import { PROBE_PARTICIPANT_ID, PROBE_SESSION_ID } from "./scripted-probe.test-support.js";
 import type { WorkflowRunSnapshot } from "./workflow-projection.js";
 
 /** The call every snapshot case below asks for, and the operation it answers. */
@@ -35,9 +36,6 @@ const RUN_READ_CALL = "workflow.runRead";
 
 /** Longer than one tick, so a reply parked on it is observably pending. */
 const SCRIPTED_LATENCY_MS = 120;
-
-const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
-const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
 
 /**
  * A scenario that scripts exactly the replies one case needs and plays no beats.

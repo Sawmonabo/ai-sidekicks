@@ -23,8 +23,8 @@ import {
   observeSubjectRead,
 } from "../../../store/subject-read-commits.test-support.js";
 import { useWorkflowRunSnapshot, type WorkflowRunSnapshotState } from "./run-snapshot.js";
+import { PROBE_SESSION_ID } from "../../WorkflowsBrowser.test-support.js";
 
-const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
 
 /** The refusal the scenarios below script, in the envelope a daemon sends. */

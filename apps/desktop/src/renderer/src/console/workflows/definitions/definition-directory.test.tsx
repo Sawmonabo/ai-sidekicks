@@ -21,7 +21,7 @@ import {
 } from "../../bridge/index.js";
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
-import { definition } from "../WorkflowsBrowser.test-support.js";
+import { definition, PROBE_SESSION_ID } from "../WorkflowsBrowser.test-support.js";
 import type { WorkflowDefinitionRow } from "./definition-rows.js";
 import {
   useWorkflowDefinitionDirectory,
@@ -29,7 +29,6 @@ import {
   type WorkflowDefinitionDirectoryState,
 } from "./definition-directory.js";
 
-const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 /** A second session, so a scope change is a change of subject and not of nothing. */
 const SECOND_PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3402";
 const PROBE_PARTICIPANT_ID = "019b7a12-0280-79a4-8110-cca0117a0401";
