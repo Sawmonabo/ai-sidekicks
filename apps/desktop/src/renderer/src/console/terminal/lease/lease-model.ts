@@ -127,9 +127,21 @@ export interface TerminalLeaseState {
   /**
    * Every transition the fold could READ, including the ones the cap dropped. An
    * unreadable one is counted nowhere here — it has no sentence and no ledger row,
-   * and it is reported through `unreadTransition` instead.
+   * and it is counted by the member below instead.
    */
   readonly transitionCount: number;
+  /**
+   * Every transition the fold could NOT read, across the whole log.
+   *
+   * A DIFFERENT QUESTION FROM `unreadTransition`, which is the newest unreadable
+   * transition and only while no readable one has arrived since. That member
+   * answers whether the current holder is known, and a later readable transition
+   * settles it; this one answers whether the ledger's rows are the whole history,
+   * and nothing settles that — a transition this build could not read changed no
+   * row whether or not the log went on. A ledger counting only the trailing one
+   * would report a history it cannot prove complete as complete.
+   */
+  readonly unreadableTransitionCount: number;
 }
 
 /**
@@ -168,6 +180,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
   unreadTransition: undefined,
   transitions: [],
   transitionCount: 0,
+  unreadableTransitionCount: 0,
 };
 
 /**
@@ -194,6 +207,7 @@ export function projectTerminalLease(
 ): TerminalLeaseState {
   const transitions: TerminalLeaseTransition[] = [];
   let transitionCount = 0;
+  let unreadableTransitionCount = 0;
   let unreadTransition: TerminalLeaseUnreadTransition | undefined;
 
   for (const event of events) {
@@ -202,6 +216,7 @@ export function projectTerminalLease(
     }
     const transition = readTerminalLeaseTransition(event);
     if (transition === undefined) {
+      unreadableTransitionCount += 1;
       unreadTransition = readTerminalLeaseUnreadTransition(event);
       continue;
     }
@@ -242,6 +257,7 @@ export function projectTerminalLease(
     unreadTransition,
     transitions,
     transitionCount,
+    unreadableTransitionCount,
   };
 }
 

@@ -153,10 +153,17 @@
   margin: 0;
 }
 
-.meridian-lease-line__ledger {
+/* The disclosure body and the feed inside it stack the same way; only the outer box
+   scrolls, so the truncation notice above the feed scrolls with the rows it is
+   about rather than sitting outside the disclosure it qualifies. */
+.meridian-lease-line__ledger,
+.meridian-lease-line__ledger-feed {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-1);
+}
+
+.meridian-lease-line__ledger {
   max-block-size: 18rem;
   overflow-y: auto;
   padding-block-start: var(--meridian-space-2);

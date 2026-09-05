@@ -117,6 +117,36 @@ describe("the lease fold — what the wire said, and only that", () => {
     expect(state.transitions.at(-1)?.sequence).toBe(events.length);
   });
 
+  it("counts every transition it could not read, including the ones a later one cleared", () => {
+    // `unreadTransition` is cleared by the next readable transition, because the
+    // HOLDER is known again. The ledger's completeness is not: neither unreadable
+    // move ever became a row, so a count that only kept the trailing one would let a
+    // three-row ledger claim to be the whole history of five moves.
+    const state = projectTerminalLease(
+      [
+        transitionEvent(1, "taken", OTHER),
+        transitionEvent(2, "seized", OTHER),
+        transitionEvent(3, "released", null, OTHER),
+        transitionEvent(4, "auto_released_quota_exhausted", null, OTHER),
+        transitionEvent(5, "taken", VIEWER),
+      ],
+      { viewerParticipantId: VIEWER },
+    );
+    expect(state.unreadableTransitionCount).toBe(2);
+    expect(state.unreadTransition).toBeUndefined();
+    expect(state.transitionCount).toBe(3);
+  });
+
+  it("negative control: a log the fold read whole counts no unreadable transition", () => {
+    // Without it the case above would pass against a counter that incremented on
+    // every event, which would put a notice on every ledger the console renders.
+    const state = projectTerminalLease(
+      [transitionEvent(1, "taken", OTHER), transitionEvent(2, "released", null, OTHER)],
+      { viewerParticipantId: VIEWER },
+    );
+    expect(state.unreadableTransitionCount).toBe(0);
+  });
+
   it("negative control: a fold that echoed the payload would pass every case above", () => {
     // It would not pass this one. A payload naming a holder is not a holder when
     // the reason it arrived under is not one the console understands.
