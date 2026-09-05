@@ -42,6 +42,7 @@ import {
   readinessFailure,
 } from "../launch-deadline.js";
 import { resolveVitestProjects, type ResolvedVitestProjects } from "../vitest-projects.js";
+import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
 
 /** A budget short enough that exhausting it costs the suite nothing. */
 const TEST_BUDGET_MS = 200;
@@ -235,16 +236,16 @@ describe("launch deadline — one clock, drawn from", () => {
     // Same hazard the witness carries: the launch path closes the application
     // right after a failed phase, which rejects the round trip still outstanding.
     // Unhandled, that fails the tier on something other than the phase's verdict.
-    let rejectAbandoned: (reason: Error) => void = () => undefined;
-    const abandoned = new Promise<string>((_resolveNever, reject) => {
-      rejectAbandoned = reject;
-    });
+    const abandoned = deferredRejection();
     await expect(
-      new LaunchDeadline(TEST_BUDGET_MS / 4).settleWithin(abandoned, "a phase"),
+      new LaunchDeadline(TEST_BUDGET_MS / 4).settleWithin(abandoned.promise, "a phase"),
     ).rejects.toThrow(/did not settle/u);
-    rejectAbandoned(new Error("Target page, context or browser has been closed"));
-    await new Promise((resolveTick) => {
-      setTimeout(resolveTick, 10);
+    // Asserted rather than waited out. This is what holds `settleWithin` to
+    // racing both promises rather than merely bounding one: `Promise.race` calls
+    // `then` on the loser, so it stays handled — abandon it outside a race and
+    // this line fails.
+    await expectNoUnhandledRejection(() => {
+      abandoned.reject(new Error("Target page, context or browser has been closed"));
     });
   });
 });

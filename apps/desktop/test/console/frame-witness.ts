@@ -135,12 +135,21 @@ export class FrameWitness {
     const framesDelivered = this.#frameSource.awaitTwoFrames();
     // An ABANDONED probe must not take the process down. When the budget wins the
     // race the probe is still outstanding, and the caller's next act is to close
-    // the application — which rejects it. Without this the rejection arrives with
-    // no handler attached and vitest fails the tier on an unhandled rejection
-    // instead of on the witness's own verdict. Attaching a handler here does not
-    // remove `framesDelivered` from the race, so a rejection that arrives BEFORE
-    // the budget expires still propagates: a crashed renderer reports as a crash.
-    framesDelivered.catch(() => undefined);
+    // the application — which rejects it; unhandled, that fails the tier on
+    // something other than this witness's verdict.
+    //
+    // The race is what stops that, and it is the race and nothing else:
+    // `Promise.race` calls `then` on BOTH promises, so the loser stays handled
+    // for the rest of its life. A bare `framesDelivered.catch(() => undefined)`
+    // used to sit here claiming to be the mechanism, and it was a second handler
+    // on an already-handled promise — removing it changes nothing, which is how
+    // it was found. The claim lives in `architecture/frame-witness.test.ts`
+    // instead, where an abandoned probe is rejected and the process is asserted
+    // never to have been told: that case fails if this stops being a race.
+    //
+    // Racing rather than only bounding also keeps the OTHER direction: a
+    // rejection arriving before the budget expires still propagates, so a
+    // crashed renderer reports as a crash.
     try {
       const frameIntervalMs = await Promise.race([framesDelivered, budgetExpired]);
       const waitedMs = Date.now() - startedAt;

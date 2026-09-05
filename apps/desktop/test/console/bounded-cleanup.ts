@@ -168,10 +168,14 @@ export class BoundedCleanup {
     const closing = this.#application.close().then(() => "closed" as const);
     // An ABANDONED close must not take the process down. When the budget wins it
     // is still outstanding, and killing the process underneath it is precisely
-    // what makes it reject — with no handler attached unless one is put here.
-    // Attaching does not remove it from the race, so a close that fails FAST
-    // still settles the race rather than waiting out the budget.
-    closing.catch(() => undefined);
+    // what makes it reject; unhandled, that would fail the tier on something
+    // other than the failure that started the cleanup. The race is what stops it
+    // — `Promise.race` calls `then` on both promises, so the loser stays handled
+    // for the rest of its life, and a close that fails FAST still settles the
+    // race rather than waiting the budget out. A bare `.catch(() => undefined)`
+    // used to sit here claiming to be that mechanism; it was a second handler on
+    // an already-handled promise. The claim is made where it can fail instead,
+    // in `architecture/bounded-cleanup.test.ts`.
     let raced: "closed" | "expired" | "rejected";
     let closeRejection: unknown;
     try {
@@ -234,10 +238,9 @@ export class BoundedCleanup {
  * clean close, because a sentence about cleanup on every failure would train a
  * reader to skip the one that matters.
  *
- * The sentence names no phase, deliberately. It is reached from the launch's own
- * failure path AND from `closeAfterBody`, where the failure being kept is a
- * test body's assertion; claiming "a launch failed" there would misdescribe the
- * very run it is reporting on.
+ * The sentence names no phase, deliberately: it is reached from the launch's own
+ * failure path AND from `closeAfterBody`, where the failure kept is a test
+ * body's assertion, and "a launch failed" would misdescribe that run.
  */
 export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | undefined): unknown {
   if (outcome === undefined || outcome.settlement === "closed") {
@@ -283,10 +286,9 @@ export class CleanupFailedError extends Error {
   /**
    * The verdict this error was built from, carried whole.
    *
-   * A caller that has to fold this cleanup into a failure of its own needs the
-   * outcome, not a re-derivation of it from the message — and the two fields
-   * below used to be the only way through, which is a second copy of data the
-   * constructor already had. `closeAfterBody` reads it and hands it straight to
+   * A caller folding this cleanup into a failure of its own needs the outcome,
+   * not a re-derivation of it from the message — and two copied fields used to
+   * be the only way through. `closeAfterBody` reads it and hands it straight to
    * `withCleanupOutcome`.
    */
   readonly outcome: CleanupOutcome;
@@ -323,19 +325,19 @@ export class CleanupFailedError extends Error {
  *
  * A function rather than a conditional at the call site so the rule is stated
  * once and can be tested without launching Electron, which is the only way to
- * reach these settlements for real. Two settlements raise, and they are the two
- * a later launch can feel: `unterminable`, where a process nothing could kill
- * may still be holding its profile, and `closed-after-rejection`, where the
- * close failed outright and the caller would otherwise never hear the rejection.
+ * reach these settlements for real. Two raise, and they are the two a later
+ * launch can feel: `unterminable`, where a process nothing could kill may still
+ * be holding its profile, and `closed-after-rejection`, where the close failed
+ * outright and the caller would otherwise never hear the rejection.
  *
  * `terminated` is deliberately NOT one of them. It says the tree was SIGKILLed,
  * which `withCleanupOutcome` reports in the same breath as "later launches are
  * unaffected" — and a verdict cannot both say that and fail a tier over it. What
- * failing it would actually catch is a healthy shutdown that ran long: the
- * endurance tier closes minutes after its launch deadline is spent, so the
- * applied bound is the reserve alone, and an Electron flushing a session store
- * on a loaded two-core runner can lose that race with every assertion passed and
- * nothing leaked. So it is a breadcrumb the harness prints, not a red check.
+ * failing it would catch is a healthy shutdown that ran long: the endurance tier
+ * closes minutes after its launch deadline is spent, so the applied bound is the
+ * reserve alone, and an Electron flushing a session store on a loaded two-core
+ * runner can lose that race with nothing leaked. It is a breadcrumb, not a red
+ * check.
  */
 export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | undefined {
   return outcome.settlement === "unterminable" || outcome.settlement === "closed-after-rejection"
@@ -360,7 +362,7 @@ export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | un
  *
  * Takes the close alone rather than a whole launched application, which is what
  * makes the interesting case reachable: a body that fails while the close also
- * fails is one object literal here, and unproducible with a real Electron.
+ * fails is one object literal, and unproducible with a real Electron.
  */
 export async function closeAfterBody<TResult>(
   application: Pick<ClosableApplication, "close">,

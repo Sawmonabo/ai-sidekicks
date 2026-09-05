@@ -37,6 +37,7 @@ import {
 } from "../bounded-cleanup.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
 import { LaunchDeadline } from "../launch-deadline.js";
+import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
 
 describe("bounded cleanup — a close that never settles", () => {
   /** A close bound short enough that exhausting it costs the suite nothing. */
@@ -246,23 +247,20 @@ describe("bounded cleanup — a close that never settles", () => {
     // Killing the process is what MAKES the outstanding close reject, so this is
     // the ordinary path rather than an edge: unhandled, it would fail the tier on
     // something other than the failure that started the cleanup.
-    let rejectAbandoned: (reason: Error) => void = () => undefined;
+    const abandonedClose = deferredRejection();
     const outcome = await new BoundedCleanup(
-      {
-        close: () =>
-          new Promise<void>((_resolveNever, reject) => {
-            rejectAbandoned = reject;
-          }),
-        processId: () => 4242,
-      },
+      { close: () => abandonedClose.promise, processId: () => 4242 },
       terminatorSpy(true),
       spentDeadline(),
       TEST_RESERVE_MS,
     ).close();
     expect(outcome.settlement).toBe("terminated");
-    rejectAbandoned(new Error("Target page, context or browser has been closed"));
-    await new Promise((resolveTick) => {
-      setTimeout(resolveTick, 10);
+    // Asserted rather than waited out. This is what holds the cleanup to racing
+    // the close rather than merely bounding it: `Promise.race` calls `then` on
+    // the loser, so it stays handled — abandon it outside a race and this line
+    // fails.
+    await expectNoUnhandledRejection(() => {
+      abandonedClose.reject(new Error("Target page, context or browser has been closed"));
     });
   });
 });
