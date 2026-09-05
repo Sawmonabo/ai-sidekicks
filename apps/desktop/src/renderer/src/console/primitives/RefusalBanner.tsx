@@ -4,8 +4,9 @@
 // props they share; this module decides only the two things that are the banner's
 // own — whether a person can put it away, and that it does not speak for itself.
 
+import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 import { Glyph } from "./Glyph.js";
-import { REFUSAL_GLYPH_SIZE, type RefusalProps } from "./refusal-contract.js";
+import { type RefusalProps } from "./refusal-contract.js";
 import { WireFigure } from "./WireFigure.js";
 import { formatWireString } from "./wire-figures.js";
 
@@ -26,7 +27,7 @@ export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
       // sentence; the banner stays in the tree as a plain group carrying the code.
       role="group"
     >
-      <Glyph name="alert" size={REFUSAL_GLYPH_SIZE} />
+      <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
       <div className="meridian-refusal__body">
         <WireFigure value={props.code} />
         <span className="meridian-refusal__message">{formatWireString(props.detail)}</span>
@@ -41,7 +42,7 @@ export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
           onClick={props.onDismiss}
           aria-label="Dismiss this notice"
         >
-          <Glyph name="close" size={REFUSAL_GLYPH_SIZE} />
+          <Glyph name="close" size={GLYPH_SIZE_CHROME} />
         </button>
       ) : null}
     </div>

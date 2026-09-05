@@ -28,12 +28,12 @@
 
 import { Chip, DerivedFigure, Glyph, Nothing, WireFigure } from "../../../primitives/index.js";
 import type { GlyphName } from "../../../primitives/index.js";
+// The record's kind glyph is drawn at the pane header's scale, and takes it from the
+// one home that publishes that scale rather than restating the number.
+import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
 import type { SessionDegradedCause } from "../../../store/index.js";
 import type { EntityFacet } from "./entity-facets.js";
-
-/** Edge length the record's kind glyph is drawn at, matching the pane header's. */
-const RECORD_GLYPH_SIZE = 14;
 
 export interface EntityRecordProps {
   /** The kind's glyph, from the token family's set. */
@@ -98,7 +98,7 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
     <article className="meridian-entity-record" aria-label={`${props.heading} record`}>
       <header className="meridian-entity-record__head">
         <span className="meridian-entity-record__glyph">
-          <Glyph name={props.glyph} size={RECORD_GLYPH_SIZE} />
+          <Glyph name={props.glyph} size={GLYPH_SIZE_CHROME} />
         </span>
         <h2 className="meridian-entity-record__heading">{props.heading}</h2>
         <WireFigure value={props.entityId} />

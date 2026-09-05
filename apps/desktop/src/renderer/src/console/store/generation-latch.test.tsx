@@ -197,6 +197,65 @@ describe("GenerationLatch — supersedeAndClaim, for the write whose newest inte
   });
 });
 
+describe("GenerationLatch — asking whether a key is held, without taking it", () => {
+  it("answers for a free key and for a held one", () => {
+    const latch = new GenerationLatch();
+    expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
+    latch.claim(SUBJECT_ONE, "retry");
+    expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(true);
+  });
+
+  it("takes nothing, so the act it was asking about is still admitted", () => {
+    // The whole of it: a caller that must refuse BECAUSE the key is held has to be
+    // able to ask when it is free without that question consuming the answer.
+    const latch = new GenerationLatch();
+    expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
+    expect(latch.claim(SUBJECT_ONE, "retry")).toBeDefined();
+  });
+
+  it("negative control: claiming as the predicate refuses the very act it admitted", () => {
+    // The shape a caller was left with before this predicate existed. `claim` answers
+    // by TAKING, so asking with it holds the key — and the dispatch the caller then
+    // makes finds the key held by its own question.
+    const latch = new GenerationLatch();
+    const askedWithAClaim = latch.claim(SUBJECT_ONE, "retry") === undefined;
+    expect(askedWithAClaim).toBe(false);
+    expect(latch.claim(SUBJECT_ONE, "retry")).toBeUndefined();
+  });
+
+  it("goes back to free on release and on supersede", () => {
+    const latch = new GenerationLatch();
+    latch.claim(SUBJECT_ONE, "retry")?.release();
+    expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
+    latch.claim(SUBJECT_ONE, "retry");
+    latch.supersede(SUBJECT_ONE, "retry");
+    expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
+  });
+
+  it("reports a key superseded across the whole register as free", () => {
+    const latch = new GenerationLatch();
+    latch.claim(SUBJECT_ONE, "retry");
+    latch.supersedeAll();
+    expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(false);
+  });
+
+  it("holds each key and each subject apart", () => {
+    const latch = new GenerationLatch();
+    latch.claim(SUBJECT_ONE, "retry");
+    expect(latch.isHeld(SUBJECT_ONE, "abort")).toBe(false);
+    expect(latch.isHeld(SUBJECT_TWO, "retry")).toBe(false);
+  });
+
+  it("reports a round a joiner minted, which is a key somebody now holds", () => {
+    // `currentClaim` mints a round on a free key, so the honest answer afterwards is
+    // that the key is held: a caller refusing on held would otherwise offer an act
+    // against a round already running.
+    const latch = new GenerationLatch();
+    latch.currentClaim(SUBJECT_ONE, "retry");
+    expect(latch.isHeld(SUBJECT_ONE, "retry")).toBe(true);
+  });
+});
+
 describe("GenerationLatch — the register is bounded", () => {
   it("holds nothing for a subject once every key is released", () => {
     const latch = new GenerationLatch();

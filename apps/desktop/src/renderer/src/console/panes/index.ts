@@ -29,6 +29,12 @@
 // sites are subtracted from the layering gate's endpoints precisely so that this
 // file may name them all.
 //
+// AND NOTHING ELSE LIVES HERE EITHER. The frame every pane wears is
+// `seats/ConsolePaneChrome.tsx` and its sheet is imported by the seats door, which
+// is where every console family imports its own. This directory is this file and its
+// suite; `console-panes-hold-no-body` holds the first half of that and the barrel
+// census the second.
+//
 // WHAT A FAMILY DOES NOT DO
 //
 // A family never edits `seats/pane-registry.ts` or `seats/pane-kinds.ts`. The
@@ -48,13 +54,6 @@
 //
 // No logic lands here. If this file ever needs a condition, a try, or a value of
 // its own, the thing it is deciding belongs in the family that owns the decision.
-
-// THE PANE CHROME'S STYLESHEET IS IMPORTED HERE, and here only — a family's CSS is
-// imported from that family's door and from nowhere else. It sat on `pane-chrome.tsx`
-// to keep this file's reserved lines free of merge traffic, but a sheet import above
-// the seat board is one line no branch touches, and hanging it off a component left
-// the family's frame styled by whichever component happened to be reached first.
-import "./pane-chrome.css";
 
 import { registerApprovalsPane } from "../approvals/index.js";
 import { registerInspectorPane } from "../inspector/index.js";

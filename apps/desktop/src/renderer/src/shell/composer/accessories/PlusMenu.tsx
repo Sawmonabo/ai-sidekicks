@@ -18,6 +18,10 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Glyph } from "../../../console/primitives/index.js";
+// The chrome scale, from the one home that publishes it. `GLYPH_DEFAULT_SIZE` would
+// draw this mark larger than the rail it sits in; a private copy of the number would
+// be the second declaration of one scale that a token exists to prevent.
+import { GLYPH_SIZE_CHROME } from "../../../console/tokens/index.js";
 import type { OwnerSlotContract } from "../../../console/seats/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { AttachmentPickerSeat } from "./AttachmentPickerSeat.js";
@@ -36,15 +40,6 @@ export const WORKFLOW_START_SLOT_CONTRACT: OwnerSlotContract = {
     "the composer supplies the menu position, the session the run would start in, and the accessible framing of the disclosure; the body owns the definition enumeration, the pinned-version choice, and the start dispatch with its denial rendering",
   deleteShellIn: "the PR that mounts the workflow definition picker into this seat",
 };
-
-// The chrome glyph size, and the one number in this file that is a TOKEN IN WAITING.
-// `tokens/glyphs.ts` publishes `GLYPH_DEFAULT_SIZE` for a glyph that names no size of
-// its own, and the smaller scale composer chrome draws at arrives with the pane-chrome
-// substrate as `GLYPH_SIZE_CHROME`. Rebinding to the default here would draw this
-// glyph larger than the rail it sits in, and minting the chrome token here would be a
-// second declaration of one scale — which is what a token exists to prevent — so the
-// literal stands until the token that owns it is in the tree.
-const PLUS_GLYPH_SIZE = 14;
 
 export interface PlusMenuProps {
   readonly bridge: ConsoleBridge;
@@ -81,7 +76,7 @@ export function PlusMenu(props: PlusMenuProps): React.JSX.Element {
           setIsOpen((wasOpen) => !wasOpen);
         }}
       >
-        <Glyph name="plus" size={PLUS_GLYPH_SIZE} title="Add to this message" />
+        <Glyph name="plus" size={GLYPH_SIZE_CHROME} title="Add to this message" />
       </button>
       {isOpen ? (
         <div className="meridian-plus-menu__panel" aria-label="Add to this message">

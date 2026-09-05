@@ -65,7 +65,7 @@ import {
   rendererProbePath,
   ruleMessagesAt,
 } from "../eslint-harness.js";
-import { CALL_DOOR_IMPORT, daemonCallReaches } from "./daemon-call-census.js";
+import { daemonCallReaches, importsCallDoor } from "./daemon-call-census.js";
 
 /**
  * The walk, done once, and shared with every other source-text gate.
@@ -163,7 +163,7 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
   it("no module outside the bridge family reaches the daemon call door", () => {
     const offenders = modules
       .filter((module) => !isBridgeFamilyModule(module))
-      .map((module) => ({ module, reaches: daemonCallReaches(readGovernedSource(module)) }))
+      .map((module) => ({ module, reaches: daemonCallReaches(readGovernedSource(module), module) }))
       .filter((entry) => entry.reaches.length > 0)
       .map((entry) => `${entry.module}: ${entry.reaches.join(", ")}`);
 
@@ -183,7 +183,7 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
           !module.includes(".test.") &&
           !module.includes(".test-support."),
       )
-      .map((module) => ({ module, reaches: daemonCallReaches(readGovernedSource(module)) }))
+      .map((module) => ({ module, reaches: daemonCallReaches(readGovernedSource(module), module) }))
       .filter((entry) => entry.reaches.length > 0)
       .map((entry) => `${entry.module}: ${entry.reaches.join(", ")}`);
 
@@ -193,7 +193,7 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
   it("counts what consumes the call door, against a pinned number", () => {
     const consumers = modules
       .filter((module) => !isBridgeFamilyModule(module))
-      .filter((module) => CALL_DOOR_IMPORT.test(readGovernedSource(module)));
+      .filter((module) => importsCallDoor(readGovernedSource(module), module));
 
     expect(
       consumers.length,
@@ -205,30 +205,33 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
     // Without this, the pinned zero above would be reporting a broken needle rather
     // than an unrebound console, and the count would stay at zero — green, and
     // saying nothing — on the day the first surface starts calling the daemon.
-    expect(CALL_DOOR_IMPORT.test(`import { callDaemon } from "../bridge/index.js";`)).toBe(true);
+    expect(importsCallDoor(`import { callDaemon } from "../bridge/index.js";`)).toBe(true);
     expect(
-      CALL_DOOR_IMPORT.test(
+      importsCallDoor(
         ["import {", "  callDaemon,", "  type DaemonReply,", '} from "../bridge/index.js";'].join(
           "\n",
         ),
       ),
     ).toBe(true);
+    // An alias is still a consumption, and the local name it takes is not the door's.
+    expect(importsCallDoor('import { callDaemon as send } from "../bridge/index.js";')).toBe(true);
     // And not on the door merely named in prose, which is all the tree carries today.
-    expect(CALL_DOOR_IMPORT.test("// a surface reaches the wire through `callDaemon`")).toBe(false);
-    // The false-positive direction, which was unmeasured and live: this sentence
-    // contains the word `import`, and the needle this replaces spanned the newlines
-    // between the two words because nothing ended the statement in between.
+    expect(importsCallDoor("// a surface reaches the wire through `callDaemon`")).toBe(false);
+    // The false-positive direction the text needle was narrowed twice to survive: this
+    // sentence contains the word `import`, and a scan over text spanned the newlines
+    // between the two words because nothing ended the statement in between. An import
+    // clause is a node; a comment carrying both words in any order is not one.
     expect(
-      CALL_DOOR_IMPORT.test(
+      importsCallDoor(
         [
           "// a surface would import",
           "// `callDaemon` from the bridge door rather than reach the wire itself",
         ].join("\n"),
       ),
     ).toBe(false);
+    expect(importsCallDoor('const note = "import { callDaemon } from the door";')).toBe(false);
     // And a longer name that merely starts with the door's is a different symbol.
-    expect(CALL_DOOR_IMPORT.test('import { callDaemonRegistry } from "./registry.js";')) //
-      .toBe(false);
+    expect(importsCallDoor('import { callDaemonRegistry } from "./registry.js";')).toBe(false);
   });
 
   it("negative control: the chokepoint itself trips the scan", () => {
@@ -255,12 +258,17 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
 
   it("sees the same door reached by a computed key or handed on as a value", () => {
     // Planted, and each one is the SMALLEST violation that passed the two dotted
-    // needles: one bracket, and the whole scan reads the tree as compliant. A
+    // needles: one bracket, and a scan over text reads the tree as compliant. A
     // module that smuggles a reply out this way holds an `unknown` it can cast,
     // which needs no validator, so the lint ban beside this scan does not cover it.
+    //
+    // The first is now reported by TWO forms rather than one, and that is the reading
+    // improving rather than a rule widening: `sidekicks["daemon"].call(…)` really is
+    // both the namespace taken by a key and the door called, and the text needle
+    // reported only the half whose spelling it was written for.
     expect(
       daemonCallReaches(`const reply = await bridge.sidekicks["daemon"].call(name, params);`),
-    ).toStrictEqual(["namespace taken by computed key"]);
+    ).toStrictEqual(["called or aliased", "namespace taken by computed key"]);
     expect(daemonCallReaches(`const door = bridge.sidekicks["daemon"];`)) //
       .toStrictEqual(["namespace taken by computed key"]);
     expect(daemonCallReaches(`const send = bridge.sidekicks.daemon["call"];`)) //
@@ -276,6 +284,16 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
       .toStrictEqual([]);
     expect(daemonCallReaches("const first = daemonEvents[0];")).toStrictEqual([]);
     expect(daemonCallReaches("const kinds = this.#sidekicksByName;")).toStrictEqual([]);
+    // The sentence that was reworded rather than reported: a seam's header naming the
+    // namespace it deliberately does NOT reach. The text needle fired on it, and the
+    // disposition a red gate on prose invites is editing the prose.
+    expect(
+      daemonCallReaches(
+        "// the shipped component reads `window.sidekicks.daemon` directly, which the\n// fixture cannot serve",
+      ),
+    ).toStrictEqual([]);
+    // A string naming the door is data rather than a reach, for the same reason.
+    expect(daemonCallReaches('const method = "sidekicks.daemon.call";')).toStrictEqual([]);
   });
 });
 

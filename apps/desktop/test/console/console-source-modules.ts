@@ -17,6 +17,12 @@
 // has to write the thing the rule forbids, and a tripwire that forbade that would
 // forbid testing itself.
 //
+// STYLESHEETS ARE A SIBLING, not a flag. `consoleStylesheets` answers the same roots
+// with the same sorting in the same shape, because the tier asks two questions about
+// one tree — which modules import a sheet, which sheets exist — and a caller wants one
+// list or the other and never a mixed one. What they share is the walk, which is the
+// part that was being rewritten per gate.
+//
 // TESTS ARE A PARAMETER, not a fork. One gate — the daemon-call reach scan — governs
 // the tests too, because a test outside the bridge family stands in for a surface and
 // a surface goes through the door. Expressing that as `{ tests: true }` here is what

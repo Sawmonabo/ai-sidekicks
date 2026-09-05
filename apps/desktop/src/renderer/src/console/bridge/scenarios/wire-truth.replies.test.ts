@@ -28,6 +28,59 @@ function scenarioWithProbeReply(scenarioId: string, afterMs: number): ConsoleSce
   };
 }
 
+describe("scenario wire truth — a call the corpus registers nowhere", () => {
+  /** The flagship, with one extra reply answering `call`. */
+  const scenarioAnswering = (call: string): ConsoleScenario => ({
+    ...FLAGSHIP_SCENARIO,
+    id: "answers-a-call",
+    replies: [...FLAGSHIP_SCENARIO.replies, { call, result: {} }],
+  });
+
+  it("reports a scripted reply to a method nothing registers", () => {
+    // The defect this leg was written for, and it is not hypothetical: a scenario
+    // answering `workflow.runList` renders a surface that looks served, ships a
+    // reference image of it, and reaches nothing on the day the fixture define flips.
+    // The slate registers `workflow.runRead` and `workflow.definitionList`, which is
+    // exactly what makes the invented name read like a real one.
+    const defects = findScenarioWireTruthDefects([scenarioAnswering("workflow.runList")]);
+
+    expect(defects).toHaveLength(1);
+    expect(defects[0]?.subject).toBe('reply "workflow.runList"');
+    expect(defects[0]?.reason).toContain("registers nowhere");
+  });
+
+  it("passes a registered daemon method and a growth row's expected wire method", () => {
+    // Both admitted classes, so the claim above is a finding about the call rather
+    // than about which registry a reader happened to check.
+    expect(findScenarioWireTruthDefects([scenarioAnswering("run.queueList")])).toStrictEqual([]);
+    expect(findScenarioWireTruthDefects([scenarioAnswering("workflow.runRead")])).toStrictEqual([]);
+  });
+
+  it("passes an operation-id key only where the growth row registers no wire method", () => {
+    // The one shape that is manifestly not a method string, and it is admitted for a
+    // growth row that has no name to transcribe. A row that DOES declare one is
+    // scripted under that name, because the live transport sends that name.
+    expect(findScenarioWireTruthDefects([scenarioAnswering("growth:browserNavigate")])) //
+      .toStrictEqual([]);
+
+    const wrongKey = findScenarioWireTruthDefects([scenarioAnswering("growth:sessionRead")]);
+    expect(wrongKey).toHaveLength(1);
+    expect(wrongKey[0]?.reason).toContain("session.read");
+
+    const unknownId = findScenarioWireTruthDefects([scenarioAnswering("growth:notAnOperation")]);
+    expect(unknownId).toHaveLength(1);
+    expect(unknownId[0]?.reason).toContain("registers no operation by that id");
+  });
+
+  it("negative control: the shipped seat board answers only registered calls", () => {
+    // The real tree, which is where a family's invented name would land. It passes
+    // today because the one call no console surface binds — `agent.list` — is a
+    // method the corpus itself registers, and the walk says so by name rather than by
+    // admitting anything that merely looks like a method.
+    expect(findScenarioWireTruthDefects([FLAGSHIP_SCENARIO])).toStrictEqual([]);
+  });
+});
+
 describe("scenario wire truth — a scripted latency the frozen clock cannot spend", () => {
   it("reports a latency of Infinity, which parks the reply past every finite advance", () => {
     // The engine parks a delayed reply at `elapsedMs + afterMs` and releases it when

@@ -17,7 +17,7 @@ import {
   type SessionStore,
   type SessionStoreState,
 } from "../../store/index.js";
-import { type PaneContextOf } from "../../panes/pane-chrome.js";
+import { type PaneContextOf } from "../../seats/index.js";
 import { findApprovalCardAction } from "./card/ApprovalCard.js";
 import { ApprovalList } from "./card/ApprovalList.js";
 import { providerAskFor, type ProviderAsk } from "./card/provider-ask.js";

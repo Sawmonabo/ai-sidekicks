@@ -45,9 +45,18 @@
 // A family reaching past it into another family's subtree is reaching for a body,
 // and a body is exactly what a seat exists to keep it from holding.
 //
-// NOTHING HERE RENDERS. No component, no CSS, no store, no scenario. A seat
-// that rendered would be a body, and the family that owns the body would then have
-// two.
+// ONE THING HERE RENDERS, AND IT IS THE FRAME RATHER THAN A BODY. `ConsolePaneChrome`
+// is the chrome every pane wears — kind glyph, breadcrumb, control strip, focus
+// treatments — and it is here for the same reason every other seat is: the deck that
+// provides its two host controls is a VIEW family, six sibling families each draw a
+// pane inside it, and a sibling may not import a sibling. Six frames drawn
+// independently is six spacings and six answers to where the focus ring goes, which is
+// the drift a seat exists to remove. The rule it does not break is the one that
+// matters: a seat may not hold a BODY, and this holds none — every pane's content
+// arrives as `children` from the family that owns it. Its stylesheet is imported below,
+// where every console family imports its own.
+//
+// NOTHING ELSE HERE RENDERS. No store, no scenario, no second component.
 //
 // THE `@consumedBy` TAGS BELOW are the dead-code gate's one exemption, on the terms
 // `apps/desktop/AGENTS.md` sets: every seat is reached by a task that has not landed,
@@ -56,10 +65,15 @@
 // module carries the same claim as a `// Consumed by` line. Both go in the PR that
 // imports the symbol — a tag that outlives its consumer fails the run.
 
+import "./pane-chrome.css";
+
 export {
   /** @consumedBy T-023p-1C-2 */
   DETACHABLE_PANE_KINDS,
+  /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
+  /** @consumedBy T-023p-1C-2 */
+  isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
   type PaneKind,
@@ -157,6 +171,20 @@ export {
   /** @consumedBy T-023p-1C-2 */
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
+
+// The pane chrome and the seam its two host controls travel on. The chrome's three
+// lines carry no marker: the runs, approvals, and inspector bodies import all three,
+// so a surviving tag would fail the run under `--treat-tag-hints-as-errors`.
+// `PaneControls` and its context are still named by the one task that builds the
+// deck, which is the only host that provides them.
+export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
+
+export {
+  /** @consumedBy T-023p-1C-2 */
+  PaneControlsContext,
+  /** @consumedBy T-023p-1C-2 */
+  type PaneControls,
+} from "./pane-controls.js";
 
 export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
 

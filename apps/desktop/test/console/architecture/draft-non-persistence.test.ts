@@ -22,6 +22,7 @@
 
 import { join } from "node:path";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 // Statically, not through `await import()` inside each case, which is what these
@@ -45,6 +46,7 @@ import {
   moduleNamed,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 const PERSISTENCE_DIRECTORY = join(CONSOLE_DIRECTORY, "persistence");
 
@@ -85,17 +87,68 @@ function readPersistenceSource(file: string): string {
   );
 }
 
+/** What a module writes as code, with its comments gone by construction. */
+interface ModuleCode {
+  /** Every identifier, property name, and literal string the module writes. */
+  readonly written: readonly string[];
+  /** How many `import` declarations it carries. */
+  readonly importCount: number;
+}
+
 /**
- * Source with comments removed.
+ * Read a module as CODE, which is the only reading either sweep below wants.
  *
  * Comments in this subtree name the storage APIs constantly — explaining why the
  * draft store does NOT use them is most of `draft-store.ts`'s header — so a check
- * over raw text would fire on the very prose that documents the rule. Stripping is
- * deliberately crude (it does not understand strings containing `//`), which is
- * the safe direction: it can only leave MORE text for the check to see.
+ * over raw text fires on the very prose that documents the rule. That used to be
+ * answered by a hand-written stripper whose own doc comment admitted it did not
+ * understand a string containing `//`, and called that the safe direction.
+ *
+ * IT IS NOT THE SAFE DIRECTION HERE. Over-stripping is what the crude reading risks,
+ * and this file's negative control asserts a planted comment is GONE — so a stripper
+ * that under-stripped would fail loudly while one that over-stripped would delete the
+ * `localStorage.setItem` beside it and report the tree clean. The parser makes the
+ * question structural: comments are trivia and belong to no node, so no stripper has
+ * to be kept correct, and a string containing `//` is a string literal like any other.
  */
-function withoutComments(source: string): string {
-  return source.replaceAll(/\/\*[\s\S]*?\*\//g, "").replaceAll(/\/\/[^\n]*/g, "");
+function readModuleCode(fileName: string, source: string): ModuleCode {
+  const parsed = parseSourceText(fileName, source);
+  const written: string[] = [];
+  let importCount = 0;
+  const consider = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node)) {
+      importCount += 1;
+      return;
+    }
+    // Identifiers cover a bare `localStorage` and the `.localStorage` of a member
+    // access alike; the literal arms cover the computed forms — `globalThis["caches"]`
+    // and a name assembled in a template — which an identifier walk alone cannot see.
+    if (ts.isIdentifier(node) || ts.isPrivateIdentifier(node)) {
+      written.push(node.text);
+      return;
+    }
+    if (ts.isStringLiteralLike(node) || ts.isTemplateHead(node)) {
+      written.push(node.text);
+      return;
+    }
+    if (ts.isTemplateMiddle(node) || ts.isTemplateTail(node)) {
+      written.push(node.text);
+    }
+  };
+  consider(parsed);
+  forEachDescendant(parsed, consider);
+  return { written, importCount };
+}
+
+/**
+ * Whether the module writes any text containing `needle`, outside its comments.
+ *
+ * `includes` per written unit rather than an exact name match, which keeps the
+ * reading this replaces exactly as strict as it was: `localStorageKey` counts, and
+ * narrowing that to equality would be a second change hiding inside a mechanical one.
+ */
+function mentions(code: ModuleCode, needle: string): boolean {
+  return code.written.some((text) => text.includes(needle));
 }
 
 describe("tripwire — the durable store admits no participant-authored text", () => {
@@ -137,9 +190,9 @@ describe("tripwire — only the named adapters reach browser storage", () => {
       if (STORAGE_ADAPTER_FILES.includes(file)) {
         continue;
       }
-      const code = withoutComments(readPersistenceSource(file));
+      const code = readModuleCode(file, readPersistenceSource(file));
       for (const api of DURABLE_STORAGE_APIS) {
-        if (code.includes(api)) {
+        if (mentions(code, api)) {
           offenders.push(`${file}: ${api}`);
         }
       }
@@ -151,32 +204,84 @@ describe("tripwire — only the named adapters reach browser storage", () => {
     // Stated separately from the sweep above, because this is the one the rule is
     // ABOUT: the draft store must not merely avoid `indexedDB` directly, it must
     // not hold an adapter that would reach it on the store's behalf.
-    const code = withoutComments(readPersistenceSource("draft-store.ts"));
+    const code = readModuleCode("draft-store.ts", readPersistenceSource("draft-store.ts"));
     for (const api of DURABLE_STORAGE_APIS) {
-      expect(code).not.toContain(api);
+      expect(mentions(code, api), api).toBe(false);
     }
-    expect(code).not.toContain("PersistenceAdapter");
-    expect(code).not.toContain("UiStateStore");
+    expect(mentions(code, "PersistenceAdapter")).toBe(false);
+    expect(mentions(code, "UiStateStore")).toBe(false);
     // No import at all: a Map-backed class needs nothing from this subtree, and an
-    // import appearing here is the first move of persisting a draft.
-    expect(code).not.toMatch(/^\s*import\s/mu);
+    // import appearing here is the first move of persisting a draft. Counted off the
+    // declarations rather than matched against a line start, which read an `import`
+    // inside a template literal as one and missed a declaration written over two
+    // lines.
+    expect(code.importCount).toBe(0);
   });
 
   it("negative control: the sweep sees a storage call when there is one", () => {
-    // Runs the same predicate over a planted source, so a `withoutComments` that
-    // over-stripped — or a `DURABLE_STORAGE_APIS` that had been emptied — fails
-    // here rather than reporting the tree clean.
+    // Runs the same predicate over a planted source, so a reading that saw through
+    // the code — or a `DURABLE_STORAGE_APIS` that had been emptied — fails here
+    // rather than reporting the tree clean.
     const planted = [
       "// localStorage is discussed in this comment and must not count.",
       "export function saveDraft(text: string): void {",
       '  localStorage.setItem("draft", text);',
       "}",
     ].join("\n");
-    const code = withoutComments(planted);
-    const hits = DURABLE_STORAGE_APIS.filter((api) => code.includes(api));
-    expect(hits).toStrictEqual(["localStorage"]);
-    // And the comment on the first line is genuinely gone rather than counted
-    // twice, which is what makes the stripping load-bearing rather than cosmetic.
-    expect(code).not.toContain("must not count");
+    const code = readModuleCode("planted.ts", planted);
+    expect(DURABLE_STORAGE_APIS.filter((api) => mentions(code, api))).toStrictEqual([
+      "localStorage",
+    ]);
+    // And the comment on the first line is genuinely absent rather than counted
+    // twice, which is what makes the reading load-bearing rather than cosmetic.
+    expect(mentions(code, "must not count")).toBe(false);
+  });
+
+  it("negative control: a storage call the hand-written stripper deleted is still seen", () => {
+    // Both shapes measured against the regular expressions this replaces, and both
+    // silently DELETED a real storage call rather than merely leaving prose behind —
+    // which is the direction the old reading's own doc comment claimed it could not
+    // fail in. Neither spelling is a hypothetical: one is a URL, the other a glob.
+    //
+    //   1. `"https://…" + localStorage.getItem(k)` — the `//` inside the string
+    //      matched the line-comment pattern, so the rest of the line went, taking
+    //      `localStorage` with it. The module read clean.
+    //   2. A `/*` inside one string and a `*/` inside another three lines later
+    //      matched the block-comment pattern ACROSS them, collapsing three statements
+    //      into one and deleting the `sessionStorage` between.
+    const cutByLineComment =
+      'export const docsUrl = "https://x.test/a" + localStorage.getItem("k");';
+    const cutByBlockComment = [
+      'export const head = "src/*.ts";',
+      "export const store = sessionStorage;",
+      'export const tail = "dist*/bundle.js";',
+    ].join("\n");
+
+    expect(
+      DURABLE_STORAGE_APIS.filter((api) =>
+        mentions(readModuleCode("url.ts", cutByLineComment), api),
+      ),
+    ).toStrictEqual(["localStorage"]);
+    expect(
+      DURABLE_STORAGE_APIS.filter((api) =>
+        mentions(readModuleCode("glob.ts", cutByBlockComment), api),
+      ),
+    ).toStrictEqual(["sessionStorage"]);
+  });
+
+  it("negative control: an import declaration is counted however it is written", () => {
+    // The line-anchored match this replaces read the word rather than the statement:
+    // a declaration whose clause runs onto a second line still begins with `import`,
+    // but one written after anything else on its line did not match, and the word
+    // inside a string did.
+    expect(readModuleCode("none.ts", 'export const note = "import nothing";\n').importCount).toBe(
+      0,
+    );
+    expect(
+      readModuleCode(
+        "wrapped.ts",
+        'import {\n  PersistenceAdapter,\n} from "./adapter.js";\nexport const x = 1;\n',
+      ).importCount,
+    ).toBe(1);
   });
 });

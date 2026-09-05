@@ -7,22 +7,16 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock, refuse } from "../core/index.js";
+import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../core/index.js";
 import { LiveAnnouncer } from "./live-announcer.js";
+import { liveRegionText, politeText } from "./live-region.test-support.js";
 import { LiveAnnouncerProvider } from "./LiveAnnouncerProvider.js";
 import { useReadingAnnouncement } from "./reading-announcement.js";
-import { type ReadingState } from "./partial-read.js";
-
-const SUBJECT = "the queue";
-
-const PARSE_REFUSAL = refuse(
-  "session-queue",
-  "delivery-unreadable",
-  "A queue delivery did not match the registered row shape.",
-);
+import { uncheckedCoverageReading, type ReadingState } from "./partial-read.js";
+import { PARSE_REFUSAL, READING_SUBJECT } from "./partial-read.test-support.js";
 
 function AnnouncingSurface(props: { readonly states: readonly ReadingState[] }): null {
-  useReadingAnnouncement(props.states, SUBJECT);
+  useReadingAnnouncement(props.states, READING_SUBJECT);
   return null;
 }
 
@@ -40,11 +34,9 @@ function renderAnnouncing(states: readonly ReadingState[]): {
       <AnnouncingSurface states={states} />
     </LiveAnnouncerProvider>,
   );
-  const regionText = (lane: string): string =>
-    container.querySelector(`[data-live-region="${lane}"]`)?.textContent ?? "";
   return {
-    polite: () => regionText("polite"),
-    assertive: () => regionText("assertive"),
+    polite: () => politeText(container),
+    assertive: () => liveRegionText(container, "assertive"),
     rerender: (next) => {
       rerender(
         <LiveAnnouncerProvider announcer={announcer}>
@@ -77,7 +69,7 @@ describe("useReadingAnnouncement — the incomplete reading, said out loud", () 
     // The figure travels with its sentence: "3" and "deliveries could not be read"
     // spoken apart are two fragments.
     expect(announced.polite()).toContain("3 deliveries could not be read");
-    expect(announced.polite()).toContain(SUBJECT);
+    expect(announced.polite()).toContain(READING_SUBJECT);
     // The assertive lane is for refusals that change what the whole room can do.
     expect(announced.assertive()).toBe("");
   });
@@ -102,6 +94,25 @@ describe("useReadingAnnouncement — the incomplete reading, said out loud", () 
     announced.settle();
     announced.rerender([{ kind: "cut", servedCount: 40 }]);
     expect(announced.polite()).toContain("40");
+  });
+
+  it("speaks a coverage gap with its figure, so a listener hears how much", () => {
+    // The arm this vocabulary was extended for. A person who cannot see the panel
+    // hears the count, because "some of it went unanswered" and "four of it did" are
+    // different facts and only the second is actionable.
+    const announced = renderAnnouncing([
+      uncheckedCoverageReading(4, PARSE_REFUSAL),
+      { kind: "served" },
+    ]);
+    expect(announced.polite()).toContain("4 parts of");
+    expect(announced.polite()).toContain("covers less than was asked for");
+    expect(announced.assertive()).toBe("");
+  });
+
+  it("negative control: full coverage says nothing, so the figure is the reading", () => {
+    // Without this the case above would also be satisfied by a hook that spoke for
+    // every fan-out, including one that heard back from every source it asked.
+    expect(renderAnnouncing([uncheckedCoverageReading(0, PARSE_REFUSAL)]).polite()).toBe("");
   });
 
   it("leaves the in-flight read to the absence that already announces it", () => {

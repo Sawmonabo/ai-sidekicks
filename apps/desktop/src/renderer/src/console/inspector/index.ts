@@ -23,8 +23,7 @@ import { createElement } from "react";
 // pane's rule, for the runs pane's reason.
 import "./pane/inspector.css";
 
-import { type ConsolePaneRegistry } from "../seats/index.js";
-import { paneBodyForKind } from "../panes/pane-chrome.js";
+import { paneBodyForKind, type ConsolePaneRegistry } from "../seats/index.js";
 import { InspectorPane } from "./pane/InspectorPane.js";
 
 /**

@@ -41,6 +41,7 @@ import {
   createDesktopLinter,
   ESLINT_CASE_BUDGET_MS,
   NON_EXEMPT_CONSOLE_PROBE_PATH,
+  NON_EXEMPT_TIER_PROBE_PATH,
   ruleMessagesAt,
 } from "../eslint-harness.js";
 
@@ -111,6 +112,16 @@ export function suppressedGuardedRules(source: string): readonly string[] {
   });
 }
 
+/**
+ * The word a directive is written with, whatever rule it goes on to name.
+ *
+ * The corpus half of the control reads it with `includes` — deliberately the crudest
+ * possible search — so that the needle and the check on it cannot fail the same way.
+ * A regular expression cross-checked against a second regular expression would agree
+ * on exactly the cases both were written wrong for.
+ */
+const DIRECTIVE_WORD = "eslint-disable";
+
 /** Whether the audited rule is configured and ON for `absolutePath`. */
 async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<boolean> {
   const resolved = await linter.calculateConfigForFile(absolutePath);
@@ -140,6 +151,9 @@ describe("eslint exemption census — every excused file trips something", () =>
       // for no reason.
       expect(modules.length).toBeGreaterThan(20);
       expect(await restrictsSyntaxAt(linter, NON_EXEMPT_CONSOLE_PROBE_PATH)).toBe(true);
+      // And the tiers, which the block covers for the same reason and which nothing
+      // asserted while two `Date.parse` calls sat under `test/console/`.
+      expect(await restrictsSyntaxAt(linter, NON_EXEMPT_TIER_PROBE_PATH)).toBe(true);
     },
     ESLINT_CASE_BUDGET_MS,
   );
@@ -221,15 +235,43 @@ describe("eslint exemption census — every excused file trips something", () =>
     expect(offenders).toStrictEqual([]);
   });
 
-  it("negative control: the needle reads a directive, and reads which rule it names", () => {
-    // Both halves, both planted, and the first one planted on purpose. This tree now
-    // carries no inline directive at all — which the claim above is exactly about, so
-    // reading the needle against a real carrier would mean keeping one alive to be
-    // read. The benign row is what the real carrier used to prove: a directive is
-    // findable, and naming an unguarded rule is not a suppression of a guarded one.
-    const benign = "// eslint-disable-next-line @typescript-eslint/no-unused-vars\nconst a = 1;\n";
-    expect(inlineDirectives(benign).length).toBeGreaterThan(0);
-    expect(suppressedGuardedRules(benign)).toStrictEqual([]);
+  it("negative control: the needle finds every directive this tree carries, and no other", () => {
+    // THREE HALVES, because no one of them holds on its own.
+    //
+    // The corpus half is a SCAN rather than a named module. This control used to read
+    // `console/panes/index.ts`, whose placeholder directive the first consuming family
+    // deletes — a control pinned to a named carrier stops controlling the day its
+    // module stops carrying, and leaves the gate red for a reason that has nothing to
+    // do with the gate's subject. Reading the whole tree keeps the claim true at every
+    // count: the needle and the crudest possible search agree on WHICH modules carry a
+    // directive, so an under-reporting needle fails on the module it missed and an
+    // over-reporting one fails on the module it invented.
+    // The floor is asserted HERE rather than in the case above it, because it is what
+    // keeps this one from being tautologically green: two empty lists are equal, so a
+    // root that resolved to nothing would agree with itself. The read is asserted too
+    // — a walk that found paths it cannot open would hand both filters empty text.
+    expect(modules.length).toBeGreaterThan(20);
+    expect(readConsoleSourceModule(modules[0] as ConsoleSourceModule).length).toBeGreaterThan(0);
+
+    const needled = modules
+      .filter((module) => inlineDirectives(readConsoleSourceModule(module)).length > 0)
+      .map((module) => module.displayPath);
+    const worded = modules
+      .filter((module) => readConsoleSourceModule(module).includes(DIRECTIVE_WORD))
+      .map((module) => module.displayPath);
+    expect(needled).toStrictEqual(worded);
+
+    // The planted half proves the needle is not blind, which the scan cannot: at zero
+    // carriers the two lists agree by both being empty, and a needle that matched
+    // nothing at all would pass that. This is the direction a tree with no directives
+    // left can still be held in, and it is proven on text written to be found rather
+    // than on a directive re-introduced into the console to be read.
+    expect(
+      inlineDirectives("// eslint-disable-next-line @typescript-eslint/no-unused-vars\n").length,
+    ).toBeGreaterThan(0);
+    expect(inlineDirectives("// nothing here disables anything\n")).toStrictEqual([]);
+
+    // And the rule list is read rather than the word alone.
     for (const planted of [
       "/* eslint-disable no-restricted-syntax */\nexport const at = Date.parse(iso);\n",
       "// eslint-disable-next-line no-restricted-syntax -- a reason\nexport const at = Date.parse(iso);\n",
@@ -238,6 +280,9 @@ describe("eslint exemption census — every excused file trips something", () =>
     ]) {
       expect(suppressedGuardedRules(planted), planted).not.toStrictEqual([]);
     }
+    expect(
+      suppressedGuardedRules("// eslint-disable-next-line @typescript-eslint/no-unused-vars\n"),
+    ).toStrictEqual([]);
   });
 });
 

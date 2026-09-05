@@ -15,8 +15,8 @@ import { SessionStore } from "../../store/index.js";
 import { ConsolePaneRegistry } from "../../seats/index.js";
 // The declaring module rather than the door: the predicate is read only from suites.
 import { isDetachablePaneKind } from "../../seats/pane-kinds.js";
-import { type PaneContextOf } from "../../panes/pane-chrome.js";
-import { paneContext } from "../../panes/pane-chrome.test-support.js";
+import { type PaneContextOf } from "../../seats/index.js";
+import { paneContext } from "../../seats/pane-context.test-support.js";
 import { registerInspectorPane } from "../index.js";
 import { InspectorPane } from "./InspectorPane.js";
 
@@ -56,6 +56,19 @@ function renderPane(
   );
   const { container } = render(<InspectorPane {...context} />);
   return container;
+}
+
+/** The element the pane names itself by, resolved the way an assistive reader does. */
+function accessibleName(pane: HTMLElement): string {
+  const labelledBy = pane.getAttribute("aria-labelledby");
+  if (labelledBy === null) {
+    throw new Error("the pane names itself by nothing");
+  }
+  const naming = pane.ownerDocument.getElementById(labelledBy);
+  if (naming === null) {
+    throw new Error(`the pane names itself by "${labelledBy}", which is on no element`);
+  }
+  return naming.textContent ?? "";
 }
 
 /** A session store holding the one worktree the link cases inspect. */
@@ -103,13 +116,37 @@ describe("the inspector with an entity and a session", () => {
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
   });
 
-  it("wears the pane chrome, with the entity in the breadcrumb", () => {
+  it("wears the pane chrome, and is named by its whole trail", () => {
+    // The name is `aria-labelledby` and not an `aria-label`: the two cannot both name
+    // one element, so the chrome points at the crumb list and the pane's name is
+    // "session-inspector worktree-1 Inspector" rather than "Inspector" for every
+    // inspector in the deck. The entity contributes its ID and not its kind — the
+    // kind is already said by the glyph and the last crumb.
     const store = new SessionStore({ sessionId: SESSION_ID });
     const pane = renderPane({ kind: "worktree", id: "worktree-1" }, store).querySelector(
       ".meridian-pane",
     );
-    expect(pane?.getAttribute("aria-label")).toContain("worktree worktree-1");
-    expect(pane?.getAttribute("aria-label")).toContain("Inspector");
+    if (!(pane instanceof HTMLElement)) {
+      throw new Error("the inspector rendered no pane element");
+    }
+    const name = accessibleName(pane);
+    expect(name).toContain(SESSION_ID);
+    expect(name).toContain("worktree-1");
+    expect(name).toContain("Inspector");
+  });
+
+  it("negative control: the name is the trail rather than the kind alone", () => {
+    // Without this the case above would pass for a chrome that named every pane
+    // "Inspector" and happened to render the ids somewhere else in the subtree.
+    const store = new SessionStore({ sessionId: SESSION_ID });
+    const pane = renderPane({ kind: "worktree", id: "worktree-1" }, store).querySelector(
+      ".meridian-pane",
+    );
+    if (!(pane instanceof HTMLElement)) {
+      throw new Error("the inspector rendered no pane element");
+    }
+    expect(accessibleName(pane)).not.toBe("Inspector");
+    expect(pane.getAttribute("aria-label")).toBeNull();
   });
 });
 

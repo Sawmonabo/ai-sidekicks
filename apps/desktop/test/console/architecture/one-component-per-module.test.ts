@@ -1,4 +1,4 @@
-// A `.tsx` module declares one component.
+// A `.tsx` module is named for the one component it declares.
 //
 // `apps/desktop/AGENTS.md` states the rule — "`.tsx` files are PascalCase, one
 // component each" — and until this file nothing checked it, which is how
@@ -6,6 +6,13 @@
 // `ReadingNotice`, that no reader looking for a notice would have found and no test
 // could reach except through the first. A convention with no instrument is a
 // convention that holds for as long as everyone remembers it.
+//
+// THE SENTENCE HAS TWO HALVES and this gate landed holding only the second. Counting
+// components says nothing about what the module is CALLED, and the two halves are one
+// claim in practice: the rule is how a reader finds a component without opening
+// anything, and it fails on either — a `pane-chrome.tsx` declaring exactly one
+// component is as unfindable as a `PaneChrome.tsx` declaring three. Both are checked
+// here now, over the same walk, so neither can be the half nobody is watching.
 //
 // THE INSTRUMENT IS THE PARSER, and here that is not a preference. The question is
 // which components a module DECLARES, which is a question about declaration
@@ -57,6 +64,28 @@ const ELEMENT_RETURN_TYPE_SPELLINGS: readonly string[] = [
 /** A component's name, as this tree spells one. */
 function isComponentName(name: string): boolean {
   return /^[A-Z]/u.test(name);
+}
+
+/**
+ * A component module's name, as this tree spells one.
+ *
+ * Anchored at both ends on purpose: the leading capital alone admits `Pane_chrome`
+ * and `PANE_CHROME`, and the rule this gate quotes is PascalCase and not
+ * initial-capital-anything. Digits are admitted because a component may carry one
+ * (`H2`, `Column3`) and no house rule forbids it.
+ */
+const PASCAL_CASE_MODULE_NAME = /^[A-Z][A-Za-z0-9]*$/u;
+
+/**
+ * Whether `displayPath` names its module the way a component module is named.
+ *
+ * Pure over the path so the controls below can drive the real predicate rather than
+ * a paraphrase of it — a control asserting a regex it declared itself proves the
+ * regex, not the gate.
+ */
+function hasComponentModuleName(displayPath: string): boolean {
+  const basename = displayPath.slice(displayPath.lastIndexOf("/") + 1);
+  return PASCAL_CASE_MODULE_NAME.test(basename.replace(/\.tsx$/u, ""));
 }
 
 /** Whether `declaration` renders markup — JSX in its body, or an element return type. */
@@ -148,7 +177,23 @@ describe("one component per module — the console's .tsx modules", () => {
   );
 
   it("finds the .tsx modules to scan at all", () => {
+    // Both sets, because two claims below quantify over two different ones and a
+    // floor on the wider says nothing about the narrower.
     expect(componentModules.length).toBeGreaterThan(20);
+    expect(productionComponentModules.length).toBeGreaterThan(20);
+  });
+
+  it("names every one of them for the component it declares", () => {
+    // The first half of the quoted sentence. Scoped to the production set: the
+    // scaffolding class is named for what it stands up rather than for a component,
+    // and one harness in the tree — `session-lifecycle.test-support.tsx` — stands up
+    // a lifecycle and not a component, so the naming half does not reach it. That is
+    // a SUFFIX excluded once and said out loud, not a list of paths where the rule is
+    // waived: the count half above still binds every harness.
+    const misnamed = productionComponentModules
+      .map((module) => module.displayPath)
+      .filter((displayPath) => !hasComponentModuleName(displayPath));
+    expect(misnamed).toStrictEqual([]);
   });
 
   it("resolves at least one component in every one of them", () => {
@@ -224,6 +269,34 @@ describe("one component per module — the predicate bites", () => {
       "}",
     ].join("\n");
     expect(componentNamesIn(withHelpers, "Nothing.tsx")).toStrictEqual(["Nothing"]);
+  });
+
+  it("negative control: a kebab-case module name is an offence", () => {
+    // The shape the tree would drift into first, because every `.ts` module beside
+    // these is kebab-case by the same sentence's second clause: the console's
+    // `.ts` modules are named for the noun they own, and a `.tsx` that borrows that
+    // spelling is findable by neither convention.
+    expect(hasComponentModuleName("console/seats/pane-chrome.tsx")).toBe(false);
+    expect(hasComponentModuleName("console/seats/ConsolePaneChrome.tsx")).toBe(true);
+  });
+
+  it("negative control: the near misses a leading-capital test would admit", () => {
+    // Why the pattern is anchored at both ends. Each of these begins with a capital
+    // and none of them is PascalCase, so an `^[A-Z]` check — the spelling the
+    // component-name predicate above uses, where it is correct — would pass all four.
+    expect(hasComponentModuleName("console/seats/Pane_Chrome.tsx")).toBe(false);
+    expect(hasComponentModuleName("console/seats/PANE_CHROME.tsx")).toBe(false);
+    expect(hasComponentModuleName("console/seats/Pane-Chrome.tsx")).toBe(false);
+    expect(hasComponentModuleName("console/seats/Pane.Chrome.tsx")).toBe(false);
+  });
+
+  it("negative control: the predicate reads the basename and not the path", () => {
+    // A module under a kebab-case directory is the ordinary case in this tree, and a
+    // predicate that tested the whole path would report every one of them misnamed.
+    expect(hasComponentModuleName("console/view-families/agent-console/AgentChoice.tsx")).toBe(
+      true,
+    );
+    expect(hasComponentModuleName("Column3.tsx")).toBe(true);
   });
 
   it("negative control: a component name inside a comment or a string is not a declaration", () => {

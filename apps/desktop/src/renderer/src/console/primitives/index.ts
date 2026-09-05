@@ -64,7 +64,7 @@ export { Nothing } from "./Nothing.js";
 // The incomplete-reading vocabulary and its one notice. Through the door for the
 // reason every family lane needs them: six families each wrote their own notice for
 // this case and the sentences disagreed, so a family that reached past the barrel for
-// a local copy would be the seventh.
+// a local copy would be one more of them.
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   PartialReadNotice,
@@ -85,6 +85,8 @@ export {
   partialReadNotices,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   readingNoticeFor,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  uncheckedCoverageReading,
   unreadableDeliveryReading,
 } from "./partial-read.js";
 export type {
@@ -106,33 +108,34 @@ export {
 // module header for why the two vocabularies sit beside each other rather than one
 // inside the other.
 export type {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsence,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsenceKind,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsenceNotice,
 } from "./window-absence.js";
 export {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WINDOW_ABSENCE_KINDS,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   windowAbsenceNotice,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   windowAbsenceNotices,
 } from "./window-absence.js";
 export type {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsencesProps,
 } from "./WindowAbsences.js";
 export {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsences,
 } from "./WindowAbsences.js";
 
-// None of the three carries a marker: the runs, approvals, inspector, and
-// pane-chrome surfaces render their refusals through them, so a surviving tag would
-// be the half of the marker an importing change owed and did not pay.
+// None of the three carries a marker: `seats/ConsolePaneChrome.tsx` renders
+// `InlineRefusal` where a pane body was mounted at another kind's address, and the
+// composer, sidebar, runs, approvals, and inspector surfaces render their refusals
+// through all three — so a surviving tag would fail `--treat-tag-hints-as-errors`.
 export { InlineRefusal } from "./InlineRefusal.js";
 export { RefusalBanner } from "./RefusalBanner.js";
 export { RefusalCard } from "./RefusalCard.js";

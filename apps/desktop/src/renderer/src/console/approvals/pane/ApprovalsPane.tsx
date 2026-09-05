@@ -28,7 +28,7 @@
 // a single action.
 
 import { Nothing } from "../../primitives/index.js";
-import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../../panes/pane-chrome.js";
+import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 import { ApprovalsPaneBody } from "./ApprovalsPaneBody.js";
 
 export function ApprovalsPane(context: PaneContextOf<"approvals">): React.JSX.Element {
@@ -36,7 +36,8 @@ export function ApprovalsPane(context: PaneContextOf<"approvals">): React.JSX.El
   return (
     <ConsolePaneChrome
       kind="approvals"
-      leadingCrumbs={paneScopeCrumbs()}
+      // The pane's own binding rather than the route, on the runs pane's reason.
+      sessionId={sessionStore?.sessionId}
       focusHue={context.focusHue}
     >
       {sessionStore === undefined ? (

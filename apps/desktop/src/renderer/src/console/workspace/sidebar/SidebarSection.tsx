@@ -21,6 +21,7 @@
 import { useCallback, useId, useMemo } from "react";
 
 import { Glyph, Nothing, type GlyphName } from "../../primitives/index.js";
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
 import { type SessionStore } from "../../store/index.js";
 import {
@@ -75,7 +76,15 @@ const ATTENTION_LABEL: Readonly<Record<SidebarSectionAttention, string | undefin
   calm: undefined,
 };
 
-const SECTION_GLYPH_SIZE = 14;
+/**
+ * The section's own mark is the chrome scale, named rather than restated.
+ *
+ * The disclosure's is smaller and the token home publishes no size equal to it, so it
+ * stays a literal here until one exists — a family may be the first to need a size,
+ * and inventing a token for it beside the home would be the second declaration the
+ * home exists to prevent.
+ */
+const SECTION_GLYPH_SIZE = GLYPH_SIZE_CHROME;
 const DISCLOSURE_GLYPH_SIZE = 12;
 
 export interface SidebarSectionProps {

@@ -19,14 +19,13 @@
 
 import { createElement } from "react";
 
-import { type ConsolePaneRegistry } from "../seats/index.js";
-import { paneBodyForKind } from "../panes/pane-chrome.js";
+import { paneBodyForKind, type ConsolePaneRegistry } from "../seats/index.js";
 import { ApprovalsPane } from "./pane/ApprovalsPane.js";
 
 // The sheet is imported here, at the pane's single door, for the reason
-// `pane-chrome.tsx` gives for its own: every body behind this door renders through
-// the registration below, so a body cannot arrive without its CSS, and the seat
-// board six branches each replace one line in is never touched.
+// `seats/index.ts` gives for the chrome's own: every body behind this door renders
+// through the registration below, so a body cannot arrive without its CSS, and the
+// seat board six branches each replace one line in is never touched.
 import "./pane/approvals.css";
 // The sections this pane hosts carry their own sheet beside the pane's, split at
 // the same seam their components are: the rules that address selectors in BOTH
