@@ -6,10 +6,7 @@
 // cases are about what an open one renders and how it is moved through. Still driven
 // through the whole composer, because that is where an open popover exists.
 
-import {
-  ProviderCommandListResultSchema,
-  type ProviderCommandBindingGroup,
-} from "@ai-sidekicks/contracts";
+import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 import { consoleCommands } from "../../../console/frame/command-surface.js";
 import {
@@ -38,7 +35,7 @@ import { recordingBridge } from "./provider-command-holder.test-support.js";
 describe("ProviderCommandAutocomplete — one binding's entries reach the list", () => {
   it("lists the addressed run's group and none of the other binding's entries", async () => {
     const mounted = await mountComposer({
-      bridge: bridgeEnumerating([...scenarioBindingGroups(), UNADDRESSED_CODEX_GROUP]),
+      bridge: bridgeEnumerating([...(await scenarioBindingGroups()), UNADDRESSED_CODEX_GROUP]),
       focusedPane: agentPane(composerAgentIds()[0]!),
     });
 
@@ -73,7 +70,7 @@ describe("ProviderCommandAutocomplete — one binding's entries reach the list",
     // address moves, and the entries follow it.
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([
-        { ...UNADDRESSED_CODEX_GROUP, runId: addressedRunIdOfFirstAgent() },
+        { ...UNADDRESSED_CODEX_GROUP, runId: await addressedRunIdOfFirstAgent() },
       ]),
       focusedPane: agentPane(composerAgentIds()[0]!),
     });
@@ -189,31 +186,28 @@ describe("ProviderCommandAutocomplete — a declared disabled entry renders disa
   /**
    * The scenario's addressed group with one entry's `enabled` set as the case wants.
    *
-   * Through the registered schema rather than by assembling a literal: the flag is a
-   * wire member, and a group these cases treat as enumerated must be one the wire
-   * would have produced.
+   * Derived from the group the registered method already answered with rather than
+   * re-parsed: the flag is a wire member on a shape the call door checked, so the
+   * only thing a second parse here would prove is that a spread of a parsed value
+   * is still that value.
    */
-  function addressedGroupWithFlag(enabled: boolean): ProviderCommandBindingGroup {
-    const group = scenarioBindingGroups()[0];
+  async function addressedGroupWithFlag(enabled: boolean): Promise<ProviderCommandBindingGroup> {
+    const group = (await scenarioBindingGroups())[0];
     if (group === undefined) {
       throw new Error("the composer scenario enumerates no addressed group");
     }
-    return ProviderCommandListResultSchema.parse({
-      bindings: [
-        {
-          ...group,
-          entries: group.entries.map((entry) =>
-            entry.name === FLIPPED_ENTRY_NAME ? { ...entry, enabled } : entry,
-          ),
-        },
-      ],
-    }).bindings[0]!;
+    return {
+      ...group,
+      entries: group.entries.map((entry) =>
+        entry.name === FLIPPED_ENTRY_NAME ? { ...entry, enabled } : entry,
+      ),
+    } satisfies ProviderCommandBindingGroup;
   }
 
   /** The composer over that group, filtered to the one entry by its exact name. */
   async function mountFilteredToFlippedEntry(enabled: boolean): Promise<MountedComposer> {
     const mounted = await mountComposer({
-      bridge: bridgeEnumerating([addressedGroupWithFlag(enabled)]),
+      bridge: bridgeEnumerating([await addressedGroupWithFlag(enabled)]),
       focusedPane: agentPane(composerAgentIds()[0]!),
     });
     await typeIntoLine(mounted.line, `/${FLIPPED_ENTRY_NAME}`);

@@ -1,6 +1,6 @@
 // The growth port: the console's single fixture-only seam.
 //
-// `Plan-023 §Console growth slate` names thirty-four wires the console builds
+// `Plan-023 §Console growth slate` names every wire the console builds
 // against and does not yet have. Those rows are not methods — one bundles a whole
 // namespace plus two settings plus a pane-kind declaration, several describe type
 // semantics on replies that already exist. So the port is keyed by OPERATION, not
@@ -185,6 +185,7 @@ export function createRefusingGrowthPort(): GrowthPort {
     approvalResolve: async () => growthUnavailable("approvalResolve"),
     approvalRuleList: async () => growthUnavailable("approvalRuleList"),
     approvalRuleRevoke: async () => growthUnavailable("approvalRuleRevoke"),
+    agentList: async () => growthUnavailable("agentList"),
     sessionGoalUpdate: async () => growthUnavailable("sessionGoalUpdate"),
     sessionGoalClear: async () => growthUnavailable("sessionGoalClear"),
     onboardingStateRead: async () => growthUnavailable("onboardingStateRead"),

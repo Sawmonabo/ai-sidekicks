@@ -1,6 +1,9 @@
 // The composer family's surfaces, mounted once for the two tiers that look at them.
 //
-// Not a test file — no `include` glob reaches it. The screenshot tier and the
+// Not a test file — no `include` glob reaches it as one. It lives under `surfaces/`
+// rather than beside the tier harnesses, because the two tiers that mount it are two
+// directories and a module named for one family belongs in the directory that holds
+// the family mounts, not in the drawer that holds everything. The screenshot tier and the
 // accessibility tier need the same compositions, and a per-tier copy of the mount
 // would be two chances to compose them differently and then read the results as if
 // they were comparable. `console-harness.tsx` owns HOW the console is mounted, one
@@ -32,37 +35,37 @@ import type { FunctionComponent } from "react";
 
 import { act } from "@testing-library/react";
 
-import { renderSettled } from "./console-harness.js";
+import { renderSettled } from "../console-harness.js";
 
-import { APPROVALS_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/approvals.js";
-import { COMPOSER_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/composer.js";
-import { RUNS_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/runs.js";
-import { REFRESH_DEBOUNCE_MS } from "../../src/renderer/src/console/core/index.js";
+import { APPROVALS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/approvals.js";
+import { COMPOSER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/composer.js";
+import { RUNS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/runs.js";
+import { REFRESH_DEBOUNCE_MS } from "../../../src/renderer/src/console/core/index.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
-} from "../../src/renderer/src/console/bridge/index.js";
+} from "../../../src/renderer/src/console/bridge/index.js";
 // Deep-imported rather than taken off the frame barrel, which does not publish it:
 // it is the registry the window's own composition root registers, and a test that
 // built its own would be projecting the run partition a second way.
-import { RUN_LIFECYCLE_PROJECTORS } from "../../src/renderer/src/console/frame/run-lifecycle-projector.js";
-import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
+import { RUN_LIFECYCLE_PROJECTORS } from "../../../src/renderer/src/console/frame/run-lifecycle-projector.js";
+import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
   SessionStore,
   type ConsoleSessionEvent,
-} from "../../src/renderer/src/console/store/index.js";
-import { MessageComposer } from "../../src/renderer/src/shell/MessageComposer.js";
-import { registerApprovalsPane } from "../../src/renderer/src/console/panes/approvals/index.js";
-import { registerApprovalFlowProjectors } from "../../src/renderer/src/console/bridge/index.js";
-import { registerRunsPane } from "../../src/renderer/src/console/panes/runs/index.js";
-import { ConsoleEntityProjectorRegistry } from "../../src/renderer/src/console/store/index.js";
+} from "../../../src/renderer/src/console/store/index.js";
+import { MessageComposer } from "../../../src/renderer/src/shell/MessageComposer.js";
+import { registerApprovalsPane } from "../../../src/renderer/src/console/panes/approvals/index.js";
+import { registerApprovalFlowProjectors } from "../../../src/renderer/src/console/bridge/index.js";
+import { registerRunsPane } from "../../../src/renderer/src/console/panes/runs/index.js";
+import { ConsoleEntityProjectorRegistry } from "../../../src/renderer/src/console/store/index.js";
 import {
   ConsolePaneRegistry,
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type PaneKind,
-} from "../../src/renderer/src/console/seats/index.js";
+} from "../../../src/renderer/src/console/seats/index.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedFamilySurface {
@@ -144,8 +147,10 @@ export async function mountComposerChannelAddressed(): Promise<MountedFamilySurf
     focusedPane: {
       kind: "timeline",
       // A channel the store holds no entity for, which is the ordinary case on this
-      // branch: no channel projector is registered, so the chip names the id it was
-      // given and states that it read no label — rather than inventing one.
+      // branch: no channel projector is registered, so the chip states that it read
+      // no label for the channel it is addressed at. It neither invents a label nor
+      // prints the id, and — the reason this surface is pinned beside the default
+      // one — it does not fall through to the words the unaddressed arm uses.
       entity: { kind: "channel", id: `${COMPOSER_SCENARIO.sessionId}-main` },
     },
   });

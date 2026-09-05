@@ -6,26 +6,24 @@
 // and the row itself is still in the reading the runs pane renders.
 
 import { describe, expect, it } from "vitest";
-import { QueueItemSummarySchema, type QueueItemSummary } from "@ai-sidekicks/contracts";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
+import { fixtureQueueItemId, queueRow } from "./queue-rows.test-support.js";
 import { waitingQueueRows } from "./waiting-queue.js";
 
-const WAITING_FIRST = "1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9";
-const WAITING_SECOND = "2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0";
-const ADMITTED = "3c4d5e6f-7081-4293-84a5-b6c7d8e9f001";
-const SUPERSEDED = "4d5e6f70-8192-43a4-95b6-c7d8e9f00112";
-const CANCELED = "5e6f7081-92a3-44b5-86c7-d8e9f0011223";
-const EXPIRED = "6f708192-a3b4-45c6-97d8-e9f001122334";
+const WAITING_FIRST = fixtureQueueItemId("1a2b3c4d-5e6f-4071-8283-94a5b6c7d8e9");
+const WAITING_SECOND = fixtureQueueItemId("2b3c4d5e-6f70-4182-9394-a5b6c7d8e9f0");
+const ADMITTED = fixtureQueueItemId("3c4d5e6f-7081-4293-84a5-b6c7d8e9f001");
+const SUPERSEDED = fixtureQueueItemId("4d5e6f70-8192-43a4-95b6-c7d8e9f00112");
+const CANCELED = fixtureQueueItemId("5e6f7081-92a3-44b5-86c7-d8e9f0011223");
+const EXPIRED = fixtureQueueItemId("6f708192-a3b4-45c6-97d8-e9f001122334");
 
-/** One row through the registered parse, so these are the rows the fold itself holds. */
-function rowInState(id: string, state: QueueItemSummary["state"]): QueueItemSummary {
-  return QueueItemSummarySchema.parse({
-    id,
-    state,
-    priority: 0,
-    createdAt: "2026-01-01T00:00:00.000Z",
-    updatedAt: "2026-01-01T00:00:00.000Z",
-  });
+/** One row in one state, through the zone's own builder over the registered shape. */
+function rowInState(
+  id: QueueItemSummary["id"],
+  state: QueueItemSummary["state"],
+): QueueItemSummary {
+  return queueRow(id, state);
 }
 
 describe("waitingQueueRows", () => {

@@ -61,7 +61,7 @@ import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { useComposerAddress } from "../composer-address.js";
 import { composerDraftKey } from "../router/draft-key.js";
 import { composerCommandSurface } from "./console-command-surface.js";
-import { useDirectiveLineDiscovery } from "./directive-line-observer.js";
+import { useDirectiveLineDiscovery } from "./use-directive-line-discovery.js";
 import { addressedProviderBinding } from "./provider-command-catalog.js";
 import {
   useProviderCommandEnumeration,

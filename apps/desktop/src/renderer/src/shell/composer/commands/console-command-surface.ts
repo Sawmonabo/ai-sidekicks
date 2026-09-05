@@ -11,7 +11,7 @@
 // WHY THE REGISTRY IS DEEP-IMPORTED. `consoleCommands` is the frame family's
 // window-scoped registry and the frame's barrel publishes only `ConsoleRoot` and the
 // token installation. The precedent is in-tree and reasoned the same way:
-// `test/console/composer-surfaces.tsx` deep-imports `frame/run-lifecycle-projector.js`
+// `test/console/surfaces/composer.tsx` deep-imports `frame/run-lifecycle-projector.js`
 // "rather than taken off the frame barrel, which does not publish it", because a
 // consumer that built its own would be a second answer to a question one module
 // already owns. Building a second registry here would be exactly that: a person's

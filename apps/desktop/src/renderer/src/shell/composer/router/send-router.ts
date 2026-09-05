@@ -6,7 +6,7 @@
 // with `type: "steer"` — so Send is a ROUTER, and a second router anywhere in the
 // console would be a second answer to "what did that button do".
 //
-// THREE PROPERTIES ARE STRUCTURAL HERE RATHER THAN CONVENTIONAL.
+// THE PROPERTIES BELOW ARE STRUCTURAL HERE RATHER THAN CONVENTIONAL.
 //
 //   1. **Resolution is pure and separate from dispatch.** `resolve` takes text and
 //      a target and answers with the request it WOULD send. That is what makes the

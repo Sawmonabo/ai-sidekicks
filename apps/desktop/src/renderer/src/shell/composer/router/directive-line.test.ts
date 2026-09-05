@@ -48,6 +48,30 @@ describe("the placeholder names the target and never an internal handle", () => 
     // The negative control: the id is in the target and must not reach the copy.
     expect(unnamed).not.toContain(RUN_TARGET.agentId);
   });
+
+  it("says a different thing about an addressed channel than about no address at all", () => {
+    // Two DIFFERENT destinations. The send goes to the named channel in one and to
+    // the session's default in the other, so one sentence cannot serve both.
+    const addressedChannelId = "0f1e2d3c-4b5a-4968-8776-a5b4c3d2e1f0";
+    const addressed = composeDirectivePlaceholder({
+      ...CHANNEL_TARGET,
+      channelId: addressedChannelId,
+      channelLabel: undefined,
+    });
+    const unaddressed = composeDirectivePlaceholder({
+      ...CHANNEL_TARGET,
+      channelId: undefined,
+      channelLabel: undefined,
+    });
+
+    expect(unaddressed).toBe("Message this session");
+    // The negative control. Reading the label first and falling through `??` to the
+    // unaddressed words made these two strings equal, which is the whole defect: the
+    // line stated the destination that was not happening.
+    expect(addressed).not.toBe(unaddressed);
+    // Still no internal handle in operator-facing copy.
+    expect(addressed).not.toContain(addressedChannelId);
+  });
 });
 
 describe("the path label follows the resolution, not the target", () => {

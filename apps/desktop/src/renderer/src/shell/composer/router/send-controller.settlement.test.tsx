@@ -9,7 +9,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ParkedDaemonCalls } from "../parked-daemon-calls.js";
+import { ParkedDaemonCalls } from "../parked-daemon-calls.test-support.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import type {
@@ -19,8 +19,8 @@ import type {
 } from "../chips/chip-models.js";
 import type { SendController } from "./send-controller-contract.js";
 import { useSendController } from "./send-controller.js";
+import { QUEUE_CREATED, SESSION_ID } from "./send-router.test-support.js";
 
-const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 const CHANNEL_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 const CHANNEL_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
 /** `RunIdSchema` is a branded UUID and the stop path parses the run before it calls. */
@@ -30,19 +30,6 @@ const AGENT_B = "agent-beta";
 
 const QUEUE_FULL_CODE = "queue.full";
 const QUEUE_FULL_MESSAGE = "That channel's queue is full.";
-
-/**
- * The registered `run.queueCreate` reply, so the send below actually succeeds.
- *
- * The router parses the response before reporting a send, so an empty object is the
- * unreadable-reply refusal rather than the success this case sets beside the Stop's
- * own refusal.
- */
-const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
-  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
-  state: "queued",
-  createdAt: "2026-09-02T09:00:00.000Z",
-};
 
 function channelTarget(channelId: string): ComposerChannelTarget {
   return {
@@ -215,6 +202,45 @@ describe("useSendController — a settlement is keyed to the address it was sent
 
     expect(driven.latest().refusal).toBeUndefined();
     expect(driven.latest().text).toBe("ship it");
+  });
+
+  it("frees Send on a return visit whose earlier call has not settled", async () => {
+    // The only ordering in which the latch and the status disagree, and the one the
+    // suite stopped one step short of: A → B → A with A's first call STILL PARKED.
+    // The holder re-seeds on the return, so the bar renders `idle` and the line is
+    // writable; a latch keyed on the draft key alone still held A's slot, so the
+    // second press claimed nothing, returned, and did nothing at all — no send, no
+    // refusal, no status change, no chip.
+    const driven = driveAddressableComposer();
+    const firstSend = driven.beginSend("ship it");
+    expect(driven.calls.parkedCount).toBe(1);
+
+    driven.reAddressTo(CHANNEL_B);
+    driven.reAddressTo(CHANNEL_A);
+    expect(driven.latest().status).toBe("idle");
+
+    const secondSend = driven.beginSend("actually, hold on");
+    expect(driven.calls.parkedCount).toBe(2);
+
+    // And the first visit's settlement does not reach across into the second's line.
+    // The draft store is keyed by ADDRESS, so the captured key names a draft with
+    // the same name and different text; an unconditional clear erased the words the
+    // person had just typed, with nothing rendered to say why.
+    await act(async () => {
+      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      await firstSend;
+    });
+
+    expect(driven.latest().text).toBe("actually, hold on");
+    expect(driven.latest().refusal).toBeUndefined();
+
+    await act(async () => {
+      driven.calls.refuseOldest(QUEUE_FULL_CODE, QUEUE_FULL_MESSAGE);
+      await secondSend;
+    });
+
+    // The second visit's own settlement IS current and does render.
+    expect(driven.latest().refusal?.code).toBe(QUEUE_FULL_CODE);
   });
 });
 

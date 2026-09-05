@@ -118,15 +118,15 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * FIVE, and PINNED rather than left as a floor. The count was zero when this gate
+ * SIX, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The five are the composer's send router, its compaction
- * dispatch, its step-in control, its provider-command read, and the runs pane's
- * run-control dispatch — every surface in this family that reaches the wire, each
- * through `callDaemon` and none around it.
+ * It is no longer vacuous. The six are the composer's send dispatch, its compaction
+ * dispatch, its step-in control, its provider-command read, its target chip's
+ * agent-binding read, and the runs pane's run-control dispatch — every surface in
+ * this family that reaches the wire, each through `callDaemon` and none around it.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
@@ -135,7 +135,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * surface moves this constant in its own PR and a reader learns from that diff that
  * the console grew a wire.
  */
-const CALL_DOOR_CONSUMER_COUNT = 5;
+const CALL_DOOR_CONSUMER_COUNT = 6;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

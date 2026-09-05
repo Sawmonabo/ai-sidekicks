@@ -26,7 +26,7 @@ import {
   mountComposerProviderBoundWaiting,
   mountRunsPane,
   type MountedFamilySurface,
-} from "../composer-surfaces.js";
+} from "../surfaces/composer.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,

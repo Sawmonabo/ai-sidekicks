@@ -19,9 +19,20 @@
 // resolvers routinely answer with an incomplete target. That is the honest answer
 // and the chips render it as an absence; the alternative, defaulting a missing
 // field, is how a console starts asserting facts nobody established.
+//
+// AND WHAT IS READ OFF A BODY IS ONLY WHAT A BODY CARRIES. `ConsoleEntity.body` is
+// an untyped bag, so a member read from it typechecks whatever its name is — which
+// is how three chips came to render `providerAccountLabel`, `pendingSwitchBoundary`,
+// and `providerSwitchFailureReason`, none of which exists in any contract, registry,
+// or document, and none of which any daemon has ever sent. Those three facts have
+// real carriers — the `agent.list` reply for the first two, and a mutation response
+// or an event for the third — and they are read from those carriers in
+// `agent-binding-read.ts`, which states which of them this console can reach today
+// and which it cannot. What is left here is what the store's own log supplies.
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
+import { stampedExecutionPostureOf } from "../../../console/bridge/index.js";
 import type { ConsoleEntity, ConsoleEntityRef } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { resolveAddressedRun } from "./addressed-run.js";
@@ -103,12 +114,6 @@ export interface TargetChipModel {
    * exactly like one the daemon reported.
    */
   readonly bindingClause: string | undefined;
-  /** The paying account's wire-verbatim label, when the wire named one. */
-  readonly payingAccountLabel: string | undefined;
-  /** Set while a provider switch has been accepted and not yet applied. */
-  readonly pendingSwitchBoundary: string | undefined;
-  /** The failed switch's wire-verbatim reason, when the last switch failed. */
-  readonly switchFailureReason: string | undefined;
 }
 
 /**
@@ -192,13 +197,7 @@ export function resolveTargetChipModel(
   agents: Readonly<Record<string, ConsoleEntity>>,
 ): TargetChipModel {
   const agent = target.path === "provider-bound" ? agents[target.agentId] : undefined;
-  return {
-    target,
-    bindingClause: composeBindingClause(agent?.body),
-    payingAccountLabel: readWireString(agent?.body, "providerAccountLabel"),
-    pendingSwitchBoundary: readWireString(agent?.body, "pendingSwitchBoundary"),
-    switchFailureReason: readWireString(agent?.body, "providerSwitchFailureReason"),
-  };
+  return { target, bindingClause: composeBindingClause(agent?.body) };
 }
 
 /**
@@ -207,6 +206,15 @@ export function resolveTargetChipModel(
  * The posture is read off the target run's entity body and nowhere else. A session
  * default, a policy lookup, or a per-agent guess would each be the renderer deriving
  * a posture, which `Spec-012 §Required Behavior` puts at the daemon at run start.
+ *
+ * AND THE READ IS THE WIRE'S EDGE'S, NOT THIS MODULE'S. It used to check
+ * `typeof mode === "string"` and `Array.isArray(writableRoots)` and then assert the
+ * whole `ExecutionPosture` — which admits a body carrying no `networkAccess` at all,
+ * the one member the chip actually renders, and a `mode` outside the closed union.
+ * `stampedExecutionPostureOf` parses the candidate against the registered
+ * `RunStateChangeEvent` shape, so a body the wire would not admit reaches the chip
+ * as `undefined` and the chip renders `not-checked` rather than an empty label
+ * beside two full ones.
  */
 export function resolvePostureChipModel(
   target: ComposerTarget,
@@ -215,7 +223,7 @@ export function resolvePostureChipModel(
   if (target.path !== "provider-bound") {
     return { stamped: undefined };
   }
-  return { stamped: readStampedPosture(runs[target.targetRunId]?.body) };
+  return { stamped: stampedExecutionPostureOf(runs[target.targetRunId]) };
 }
 
 /**
@@ -246,28 +254,6 @@ function composeBindingClause(
     (value): value is string => value !== undefined,
   );
   return axes.length === 0 ? undefined : axes.join(BINDING_CLAUSE_SEPARATOR);
-}
-
-/**
- * The stamped posture, or `undefined`.
- *
- * Narrowed on the two members every posture arm carries, and no further: this is a
- * read of a value the daemon composed and the schema already validated at the wire,
- * so re-deriving the arm discrimination here would be a second parser for a shape
- * `packages/contracts` owns.
- */
-function readStampedPosture(
-  body: Readonly<Record<string, unknown>> | undefined,
-): ExecutionPosture | undefined {
-  const candidate = body?.["executionPosture"];
-  if (typeof candidate !== "object" || candidate === null) {
-    return undefined;
-  }
-  const posture = candidate as { readonly mode?: unknown; readonly writableRoots?: unknown };
-  if (typeof posture.mode !== "string" || !Array.isArray(posture.writableRoots)) {
-    return undefined;
-  }
-  return candidate as ExecutionPosture;
 }
 
 /** One wire-supplied string from an entity body, or `undefined`. */

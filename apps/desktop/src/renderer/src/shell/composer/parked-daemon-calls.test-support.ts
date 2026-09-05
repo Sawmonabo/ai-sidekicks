@@ -14,6 +14,11 @@
 // one case issued the same method twice, which is exactly the shape these cases are
 // written to explore.
 //
+// THE `.test-support.ts` SUFFIX IS LOAD-BEARING and not decoration: it is what the
+// package's own naming says a shared double is, and the file had shipped under a
+// production name — indistinguishable, to knip and to a reader, from a module the
+// composer mounts.
+//
 // WHY IT SITS IN THE COMPOSER FAMILY AND NOT UNDER `test/console/`. That directory is
 // the home for the console TIER harnesses, and those tiers are their own tsconfig
 // programs. Its consumers here are two CO-LOCATED unit tests, which the renderer

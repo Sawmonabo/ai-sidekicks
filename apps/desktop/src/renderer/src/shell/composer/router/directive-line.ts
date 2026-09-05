@@ -33,13 +33,23 @@ export type DirectivePathLabel = (typeof DIRECTIVE_PATH_LABELS)[number];
  * Every name in it is wire-verbatim or absent. An agent whose name has not been read
  * is "the agent" rather than its opaque id: an id in a placeholder is an internal
  * handle in operator-facing copy, and a person cannot act on one.
+ *
+ * THE CHANNEL ARM BRANCHES ON THE ID BEFORE THE LABEL. Falling through an unread
+ * label to "Message this session" wrote the UNADDRESSED sentence over an addressed
+ * send: the message goes to the channel the pane names, and the line said it was
+ * going to the session's own default. Two destinations, one sentence, and the one it
+ * stated was the one not happening.
  */
 export function composeDirectivePlaceholder(target: ComposerTarget): string {
   if (target.path === "provider-bound") {
     return `Steer ${target.agentName ?? "the agent"}'s running turn`;
   }
-  const channel = target.channelLabel;
-  return channel === undefined ? "Message this session" : `Message ${channel}`;
+  if (target.channelLabel !== undefined) {
+    return `Message ${target.channelLabel}`;
+  }
+  return target.channelId === undefined
+    ? "Message this session"
+    : "Message this channel, name not read";
 }
 
 /**

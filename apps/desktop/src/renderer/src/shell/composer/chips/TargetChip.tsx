@@ -5,6 +5,14 @@
 // marks a pending switch. Everything on it is a PROJECTION of what the daemon said —
 // there is no field here the console computed and none it defaulted.
 //
+// THE FOUR FACTS COME FROM THREE PLACES, AND THE CHIP DOES NOT PRETEND OTHERWISE.
+// The address and the binding clause are the session store's, folded from the event
+// log. The paying account and a pending switch are the `agent.list` reply's, read
+// through the growth port and joined with the account plane's labels in
+// `agent-binding-read.ts`. A failed switch has no carrier this console can reach —
+// that module says which two it would come from and why neither is reachable — so
+// nothing here renders one.
+//
 // WHY THE AXIS POPOVER IS NOT HERE. The design gives the chip a popover that changes
 // the agent's five provider axes through `agent.configUpdate`. That method is not
 // registered anywhere in `packages/contracts`, and the growth port — the console's
@@ -19,6 +27,9 @@
 // are none" (`Spec-023 §Console Design (Meridian)` rule 8).
 
 import { Chip, Nothing } from "../../../console/primitives/index.js";
+import type { AgentBindingReading } from "./agent-binding-read.js";
+import { PayingAccount } from "./PayingAccount.js";
+import { switchBoundarySentence } from "./switch-boundary.js";
 import type { TargetChipModel } from "./chip-models.js";
 
 /** The glyph each path wears, so the two are distinguishable without reading. */
@@ -26,6 +37,15 @@ const PATH_GLYPH = { "channel-message": "channel", "provider-bound": "agent" } a
 
 export interface TargetChipProps {
   readonly model: TargetChipModel;
+  /**
+   * What the binding reads said, or why they said nothing.
+   *
+   * Handed in rather than read here: a component that opened a wire read would be a
+   * subscription in a render body, and the rail is where the composer's reads are
+   * armed. The channel path carries the `not-checked` reading, which is the honest
+   * one — no agent is addressed, so no roster was asked for.
+   */
+  readonly binding: AgentBindingReading;
 }
 
 export function TargetChip(props: TargetChipProps): React.JSX.Element {
@@ -57,18 +77,13 @@ export function TargetChip(props: TargetChipProps): React.JSX.Element {
       ) : (
         <Chip mono label={props.model.bindingClause} />
       )}
-      {props.model.payingAccountLabel === undefined ? null : (
-        <Chip mono glyph="member" label={props.model.payingAccountLabel} />
-      )}
-      {props.model.pendingSwitchBoundary === undefined ? null : (
+      {isProviderBound ? <PayingAccount binding={props.binding} /> : null}
+      {props.binding.pendingSwitch === undefined ? null : (
         <Chip
           tone="attention"
           glyph="clock"
-          label={`Switch applies at the next ${props.model.pendingSwitchBoundary}`}
+          label={switchBoundarySentence(props.binding.pendingSwitch.appliesAt)}
         />
-      )}
-      {props.model.switchFailureReason === undefined ? null : (
-        <Chip tone="failure" glyph="alert" mono label={props.model.switchFailureReason} />
       )}
     </div>
   );
@@ -80,11 +95,22 @@ export function TargetChip(props: TargetChipProps): React.JSX.Element {
  * Never an opaque id: an id in a chip is an internal handle a person cannot act on.
  * An unnamed agent or channel is described rather than identified, and the state
  * chip beside it is what carries the wire-verbatim fact.
+ *
+ * THE CHANNEL ARM BRANCHES ON THE ID BEFORE THE LABEL, which is the whole of this
+ * function's correctness. A pane addressed at a channel whose label the store has
+ * not read fell through `?? "This session"` — the words the UNADDRESSED arm uses,
+ * and the unaddressed arm omits `channelId` entirely. So two different destinations
+ * rendered identically and the chip named the one that was not happening. An
+ * addressed channel with no label is a channel whose label was not read, which is
+ * the console's own `not-checked` fact rather than "there is no channel".
  */
 function targetName(model: TargetChipModel): string {
   const { target } = model;
   if (target.path === "provider-bound") {
     return target.agentName ?? "This agent's running turn";
   }
-  return target.channelLabel ?? "This session";
+  if (target.channelLabel !== undefined) {
+    return target.channelLabel;
+  }
+  return target.channelId === undefined ? "This session" : "This channel, name not read";
 }

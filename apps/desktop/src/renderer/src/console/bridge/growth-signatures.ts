@@ -58,6 +58,7 @@ import type {
   ParsedRows,
   RememberedRule,
 } from "./approvals/approval-records.js";
+import type { GrowthAgentSummary } from "./growth-values/agents.js";
 import type {
   GrowthArtifactDeleteReceipt,
   GrowthArtifactRead,
@@ -378,6 +379,16 @@ export interface GrowthOperationSignatures {
   // with nothing able to say which was right (`store/entities.ts`: a store never
   // caches a flag another store owns). What no registered read supplies is which
   // entry in that roster this window IS; given that, the role is a lookup.
+  // The agent roster. Registered in `api-payload-contracts.md` §`agent.attach /
+  // agent.detach / agent.configUpdate / agent.list` and in no code package, so it is
+  // the port's rather than `callDaemon`'s. The value is this family's NARROWING of
+  // the registered reply rather than the reply itself: the composer reads two facts
+  // off a row — the effective paying account and the pending switch — and a surface
+  // handed the whole row would be reading members nothing here renders.
+  agentList: {
+    request: { readonly sessionId: string };
+    value: readonly GrowthAgentSummary[];
+  };
   callerParticipantRead: {
     request: { readonly sessionId: string };
     value: { readonly participantId: string };

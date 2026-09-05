@@ -118,6 +118,9 @@ export type GrowthOperationId =
   // gitflow
   | "gitflowBranchContextRead"
   | "gitflowPrPrepare"
+  // the agent roster — the composer's target chip reads the effective paying account
+  // and the pending switch off it, neither of which any entity body carries
+  | "agentList"
   // identity, and the callback-tool registry the approvals pane reads
   | "callerParticipantRead"
   | "callbackToolRegistryRead"
@@ -156,4 +159,5 @@ export type GrowthPrerequisiteId =
   | "timelinePathReferenceMember"
   | "approvalRememberedRuleMember"
   | "approvalAmendmentArm"
+  | "agentProviderSwitchFailedEvent"
   | "providerSessionImportSpec";

@@ -9,8 +9,9 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ParkedDaemonCalls } from "../parked-daemon-calls.js";
+import { ParkedDaemonCalls } from "../parked-daemon-calls.test-support.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { createFixture } from "../../../console/bridge/fixture-bridge.test-support.js";
 import {
   isSameCompactionTarget,
   useCompactionDispatch,
@@ -243,8 +244,11 @@ describe("useCompactionDispatch — a settlement renders under the run it is abo
 });
 
 describe("isSameCompactionTarget — all three parts, and none of them redundant", () => {
-  const bridge = { source: "fixture" } as unknown as ConsoleBridge;
-  const otherBridge = { source: "fixture" } as unknown as ConsoleBridge;
+  // Two REAL bridges rather than two casts of a one-member literal: the part under
+  // test is transport identity, and a stand-in that is not a bridge proves identity
+  // over an object the surface could never have been handed.
+  const bridge = createFixture().bridge;
+  const otherBridge = createFixture().bridge;
   const target: CompactionTarget = { bridge, sessionId: SESSION_ID, targetRunId: RUN_A };
 
   it("matches a target composed of the same three parts", () => {

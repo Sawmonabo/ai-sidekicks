@@ -8,13 +8,14 @@
 import { fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DraftStore } from "../../../console/persistence/index.js";
-import { mountBar, openSessionStore, stubBridge } from "./composer-send-bar.test-support.js";
+import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { mountBar, openSessionStore } from "./composer-send-bar.test-support.js";
 
 describe("ComposerSendBar — the store's restart disclosure, once", () => {
   it("says nothing until there is unsent text to say it about", () => {
     const draftStore = new DraftStore();
     const sessionStore = openSessionStore();
-    const bridge = stubBridge(async () => undefined);
+    const bridge = bridgeAnswering(async () => undefined).bridge;
 
     const mounted = mountBar({ bridge, draftStore, sessionStore });
     // The default state of every composer in every window, and what the captured
@@ -34,7 +35,7 @@ describe("ComposerSendBar — the store's restart disclosure, once", () => {
   it("keeps it to one composer per window, and out of the ones it never armed", () => {
     const draftStore = new DraftStore();
     const sessionStore = openSessionStore();
-    const bridge = stubBridge(async () => undefined);
+    const bridge = bridgeAnswering(async () => undefined).bridge;
 
     const first = mountBar({ bridge, draftStore, sessionStore });
     fireEvent.focus(first.line);
@@ -51,7 +52,7 @@ describe("ComposerSendBar — the store's restart disclosure, once", () => {
   it("negative control: a store that owes no disclosure renders none at all", () => {
     const draftStore = new DraftStore({ restartNoticePending: false });
     const mounted = mountBar({
-      bridge: stubBridge(async () => undefined),
+      bridge: bridgeAnswering(async () => undefined).bridge,
       draftStore,
       sessionStore: openSessionStore(),
     });

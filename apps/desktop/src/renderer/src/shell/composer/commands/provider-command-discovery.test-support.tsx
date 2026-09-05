@@ -10,15 +10,17 @@
 // shipped surface resolves. The bridge is the real fixture with `answer` in front of
 // `daemon.call`, so every reply, refusal, and clock reading is the fixture's own.
 
-import {
-  ProviderCommandListResultSchema,
-  type ProviderCommandBindingGroup,
-} from "@ai-sidekicks/contracts";
+import type { ProviderCommandBindingGroup, RunId } from "@ai-sidekicks/contracts";
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach } from "vitest";
-import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
+import {
+  createFixtureBridge,
+  readRunId,
+  type ConsoleBridge,
+} from "../../../console/bridge/index.js";
 import {
   bridgeAnswering,
+  drainMicrotasks,
   type RecordedDaemonCall,
 } from "../../../console/bridge/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
@@ -28,6 +30,7 @@ import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { MessageComposer } from "../../MessageComposer.js";
+import { settleEnumeration } from "./provider-command-read.js";
 // The enumeration method string and the recording bridge are the holder suite's, and
 // there is one of each: two copies would let the two suites disagree about which call
 // they are watching for.
@@ -44,31 +47,43 @@ export const NOT_RUNNABLE_FRAGMENT = "there is nothing here to run";
 /** An entry name the scenario's own enumeration does not carry. */
 export const UNADDRESSED_ENTRY_NAME = "status";
 /**
+ * The run identifier the wire admits, or a loud failure.
+ *
+ * `runId` is a branded id, and a literal asserted into that brand would let a group
+ * these cases treat as wire-shaped carry a value the wire would refuse. The bridge
+ * family's own reader answers the brand; a fixture whose id the wire would not take
+ * fails here rather than reaching a case as if it had been enumerated.
+ */
+function fixtureRunId(value: string): RunId {
+  const runId = readRunId(value);
+  if (runId === undefined) {
+    throw new Error(`this fixture names a run id the wire would refuse: ${value}`);
+  }
+  return runId;
+}
+
+/**
  * A live binding on the OTHER provider, attributed to a run this composer never
  * addresses — the second group the agent-scoped reply can carry.
  *
- * Built through the registered schema for the reason `scenarioBindingGroups` records
- * below: `runId` is a branded id, and a literal asserted into that brand would let a
- * group these cases treat as wire-shaped carry a value the wire would refuse.
+ * A typed literal over the registered shape rather than a parse of an untyped one:
+ * a surface's suite reads the reply the bridge family parsed and holds no parser of
+ * its own, and the annotation is the stronger claim — a member the wire does not
+ * carry fails `typecheck` here rather than at the moment a case runs.
  */
-export const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup =
-  ProviderCommandListResultSchema.parse({
-    bindings: [
-      {
-        runId: "019b7a11-1100-740e-8120-d1a4c1150312",
-        binding: { driverName: "codex", providerAccountId: null },
-        entries: [
-          {
-            name: UNADDRESSED_ENTRY_NAME,
-            kind: "command",
-            description: "Report the other binding's state.",
-            binding: { driverName: "codex", providerAccountId: null },
-          },
-        ],
-        complete: true,
-      },
-    ],
-  }).bindings[0]!;
+export const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = {
+  runId: fixtureRunId("019b7a11-1100-740e-8120-d1a4c1150312"),
+  binding: { driverName: "codex", providerAccountId: null },
+  entries: [
+    {
+      name: UNADDRESSED_ENTRY_NAME,
+      kind: "command",
+      description: "Report the other binding's state.",
+      binding: { driverName: "codex", providerAccountId: null },
+    },
+  ],
+  complete: true,
+} satisfies ProviderCommandBindingGroup;
 /**
  * The registered `run.queueCreate` reply, for the cases that need a send to LAND.
  *
@@ -126,25 +141,33 @@ export function bridgeHoldingTheEnumeration(): ConsoleBridge {
 }
 
 /**
- * The scenario's own enumerated groups, read back through the registered schema.
+ * The scenario's own enumerated groups, read through the registered method.
  *
- * Parsed rather than cast: the scenario's reply is typed `unknown`, and a cast would
- * let a fixture that has drifted from the wire shape reach these cases as if it had
- * not.
+ * The surface's own read path rather than a parser beside it: `settleEnumeration`
+ * puts the scripted reply through `callDaemon`, which parses it against the shape
+ * the registry binds to `driver.listProviderCommands`. So a fixture that has
+ * drifted from the wire shape reaches these cases as a refusal — which this throws
+ * on — rather than as an enumeration, and no suite outside `bridge/` holds a
+ * schema. Asynchronous because a registered reply is reached by calling for it.
  */
-export function scenarioBindingGroups(): readonly ProviderCommandBindingGroup[] {
-  const reply = COMPOSER_SCENARIO.replies.find(
-    (candidate) => candidate.call === ENUMERATION_METHOD,
-  );
-  if (reply === undefined || reply.result === undefined) {
-    throw new Error("the composer scenario scripts no enumeration reply");
+export async function scenarioBindingGroups(): Promise<readonly ProviderCommandBindingGroup[]> {
+  const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+  const [agentId] = composerAgentIds();
+  if (agentId === undefined) {
+    throw new Error("the composer scenario attaches no agent");
   }
-  return ProviderCommandListResultSchema.parse(reply.result).bindings;
+  const state = await settleEnumeration(bridge, COMPOSER_SCENARIO.sessionId, agentId);
+  if (state.phase !== "served") {
+    throw new Error(`the composer scenario scripts no enumeration reply: ${state.phase}`);
+  }
+  return state.groups;
 }
 
 /** The run the scenario attributes its own Claude group to — the addressed one. */
-export function addressedRunIdOfFirstAgent(): NonNullable<ProviderCommandBindingGroup["runId"]> {
-  const runId = scenarioBindingGroups()[0]?.runId;
+export async function addressedRunIdOfFirstAgent(): Promise<
+  NonNullable<ProviderCommandBindingGroup["runId"]>
+> {
+  const runId = (await scenarioBindingGroups())[0]?.runId;
   if (runId === null || runId === undefined) {
     throw new Error("the scenario's enumerated group names no run");
   }
@@ -191,6 +214,8 @@ export interface MountedComposer {
   readonly container: HTMLElement;
   readonly line: HTMLTextAreaElement;
   readonly rerenderAt: (pane: ConsolePaneAddress) => Promise<void>;
+  /** Take the composer down, for the cases about what its teardown releases. */
+  readonly unmount: () => void;
 }
 
 export async function mountComposer(options: {
@@ -211,7 +236,7 @@ export async function mountComposer(options: {
         focusedPane={options.focusedPane}
       />,
     );
-    await Promise.resolve();
+    await drainMicrotasks();
   });
   if (rendered === undefined) {
     throw new Error("the composer did not mount");
@@ -224,6 +249,9 @@ export async function mountComposer(options: {
   return {
     container: mounted.container,
     line,
+    unmount: (): void => {
+      mounted.unmount();
+    },
     rerenderAt: async (pane) => {
       await act(async () => {
         mounted.rerender(
@@ -235,7 +263,7 @@ export async function mountComposer(options: {
             focusedPane={pane}
           />,
         );
-        await Promise.resolve();
+        await drainMicrotasks();
       });
     },
   };
@@ -244,8 +272,7 @@ export async function mountComposer(options: {
 export async function typeIntoLine(line: HTMLTextAreaElement, text: string): Promise<void> {
   await act(async () => {
     fireEvent.input(line, { target: { value: text } });
-    await Promise.resolve();
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }
 
@@ -264,7 +291,7 @@ export function optionNames(container: HTMLElement): readonly string[] {
 export async function stepIntoList(mounted: MountedComposer): Promise<HTMLElement> {
   await act(async () => {
     fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
-    await Promise.resolve();
+    await drainMicrotasks();
   });
   const list = mounted.container.querySelector('[role="listbox"]');
   if (!(list instanceof HTMLElement)) {
@@ -277,7 +304,7 @@ export async function stepIntoList(mounted: MountedComposer): Promise<HTMLElemen
 export async function pressOnList(list: HTMLElement, key: string): Promise<void> {
   await act(async () => {
     fireEvent.keyDown(list, { key });
-    await Promise.resolve();
+    await drainMicrotasks();
   });
 }
 
