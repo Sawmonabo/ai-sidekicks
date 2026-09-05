@@ -24,7 +24,7 @@ import {
   typeIntoFind,
   withLaidOutViewport,
   withdrawLedgerCommands,
-} from "./ledger-feed-fixtures.js";
+} from "./LedgerFeedFixtures.test-support.js";
 import {
   FOLDED_CHAPTER_MESSAGE_ROW_COUNT,
   LATE_JOINER,
@@ -35,7 +35,7 @@ import {
   openSessionStoreWithGeneralLog,
   openSessionStoreWithLog,
   projectedRowId,
-} from "./ledger-feed-logs.js";
+} from "./ledger-feed-logs.test-support.js";
 
 afterEach(() => {
   withdrawLedgerCommands();

@@ -4,7 +4,7 @@
 // only one of them needs a DOM: these are pure store builders — a real
 // `SessionStore` with a real batch applied — and they are read by the pane's own
 // unit cases, by the model's, and by the composed feed's alike. The harness that
-// mounts a feed, stubs a box and presses a palette row is `ledger-feed-fixtures.tsx`'.
+// mounts a feed, stubs a box and presses a palette row is `LedgerFeedFixtures.test-support.tsx`'.
 //
 // EVERY EVENT CARRIES A REAL ROW ID. The hydrated-event read is keyed by it, so a
 // store seeded without one holds rows nothing could ever ask about.

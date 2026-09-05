@@ -24,7 +24,7 @@ import {
   TERMINAL_RUN_ID,
   foldedMessageChapterLog,
   projectedRowId,
-} from "./ledger-feed-logs.js";
+} from "./ledger-feed-logs.test-support.js";
 import { jumpOutcomeRowId, useDeferredRowJump, useLedgerJumpReach } from "./ledger-jump.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 

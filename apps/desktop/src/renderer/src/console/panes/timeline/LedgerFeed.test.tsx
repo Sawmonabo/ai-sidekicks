@@ -9,7 +9,7 @@
 //
 // The feed's other three subjects are their own files, on this package's ~400-line
 // rule: `LedgerFeedAbsences.test.tsx`, `LedgerFeedReplay.test.tsx`, and
-// `LedgerFeedSeats.test.tsx`. The scaffolding they share is `ledger-feed-fixtures.tsx`.
+// `LedgerFeedSeats.test.tsx`. The scaffolding they share is `LedgerFeedFixtures.test-support.tsx`.
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -24,14 +24,14 @@ import {
   recordRailInk,
   renderFeed,
   withLaidOutViewport,
-} from "./ledger-feed-fixtures.js";
+} from "./LedgerFeedFixtures.test-support.js";
 import {
   EARLY_JOINER,
   LATE_JOINER,
   openSessionStoreWithGeneralLog,
   openSessionStoreWithLog,
   openStoreWhereJoinOrderIsNotEventOrder,
-} from "./ledger-feed-logs.js";
+} from "./ledger-feed-logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();

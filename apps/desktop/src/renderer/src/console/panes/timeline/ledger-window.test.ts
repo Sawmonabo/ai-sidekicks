@@ -6,7 +6,7 @@
 // the table directly would prove the table works while saying nothing about whether
 // the window is wired to it.
 //
-// The rows are built here rather than taken from `ledger-feed-logs.ts` because two of
+// The rows are built here rather than taken from `ledger-feed-logs.test-support.ts` because two of
 // these cases need two logs that differ in ONE member of ONE event, which no shared
 // builder offers and which is the whole instrument: it separates a table that compares
 // what it holds from one that trusts a key and serves a stale row.

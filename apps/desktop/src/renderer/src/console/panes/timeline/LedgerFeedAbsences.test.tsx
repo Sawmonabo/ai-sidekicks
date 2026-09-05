@@ -3,13 +3,17 @@
 // Four absences with four different next moves — an unrecognised type, a row the
 // cap took, a row the replay position has not reached, and a sequence that never
 // arrived — and the failure this file guards is one being reported as another. The
-// seam is `LedgerFeed.test.tsx`'; the scaffolding is `ledger-feed-fixtures.tsx`'.
+// seam is `LedgerFeed.test.tsx`'; the scaffolding is `LedgerFeedFixtures.test-support.tsx`'.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { OVER_CAP_EVENT_COUNT, renderFeed, withLaidOutViewport } from "./ledger-feed-fixtures.js";
-import { SESSION_ID, openSessionStoreWithGeneralLog } from "./ledger-feed-logs.js";
+import {
+  OVER_CAP_EVENT_COUNT,
+  renderFeed,
+  withLaidOutViewport,
+} from "./LedgerFeedFixtures.test-support.js";
+import { SESSION_ID, openSessionStoreWithGeneralLog } from "./ledger-feed-logs.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { LedgerRowsAdmittedDuringReplayNotice } from "./LedgerRowsAdmittedDuringReplayNotice.js";
 

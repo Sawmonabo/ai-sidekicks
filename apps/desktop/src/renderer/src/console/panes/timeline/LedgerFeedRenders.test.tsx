@@ -23,7 +23,7 @@
 // `LedgerFeedRow`'s memo is what spends the stability, so what an event costs now is
 // the rows it actually changed.
 //
-// The mount is composed here rather than taken from `ledger-feed-fixtures.tsx`
+// The mount is composed here rather than taken from `LedgerFeedFixtures.test-support.tsx`
 // because this case needs the PARENT in its hands, which that helper deliberately
 // does not expose — `LedgerFeedSeats.test.tsx`' precedent, for its reason.
 
@@ -40,8 +40,8 @@ import {
   REPLAY_LOG_EVENT_COUNT,
   renderFeed,
   withLaidOutViewport,
-} from "./ledger-feed-fixtures.js";
-import { SESSION_ID, openSessionStoreWithGeneralLog } from "./ledger-feed-logs.js";
+} from "./LedgerFeedFixtures.test-support.js";
+import { SESSION_ID, openSessionStoreWithGeneralLog } from "./ledger-feed-logs.test-support.js";
 
 afterEach(() => {
   vi.restoreAllMocks();
