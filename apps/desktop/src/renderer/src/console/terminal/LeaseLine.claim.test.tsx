@@ -14,6 +14,8 @@
 import { act, fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+import { consoleClockFor } from "../bridge/index.js";
+import { ManualClock } from "../core/index.js";
 import { LeaseLine } from "./LeaseLine.js";
 import { UNREAD_TERMINAL_LEASE } from "./lease-model.js";
 import {
@@ -33,6 +35,15 @@ import {
   requestShapeOf,
   servingBridge,
 } from "./LeaseLine.test-support.js";
+
+/**
+ * How far past any plausible retry the frozen clock is advanced.
+ *
+ * An hour rather than a margin over some particular delay: the claim being made is
+ * that NO retry is armed, which is unbounded in time, so the horizon has to be one
+ * nobody would schedule past rather than one chosen to clear a specific implementation.
+ */
+const RETRY_HORIZON_MS = 60 * 60 * 1000;
 
 describe("the claim control — one affordance, and three things it never does", () => {
   it("renders the port's own refusal beside the control", async () => {
@@ -94,6 +105,15 @@ describe("the claim control — one affordance, and three things it never does",
 
   it("never queues a refused claim — one press is one call, and no retry follows", async () => {
     const bridge = refusingBridge();
+    // THE CLAIM IS UNBOUNDED IN TIME, SO IT IS ASKED OF THE CLOCK RATHER THAN WAITED
+    // OUT. This used to sleep 30 ms on the wall clock and then read the call count,
+    // which a retry armed at 50 ms, or on a longer promise chain, walks straight
+    // through. Every timer the console arms is minted through one `ConsoleClock`, so
+    // "nothing was armed" is a state this window can be asked about.
+    const clock = consoleClockFor(bridge);
+    if (!(clock instanceof ManualClock)) {
+      throw new Error("the fixture bridge did not hand this window a frozen clock");
+    }
     const acquire = vi.spyOn(bridge.growth, "terminalAcquireWriteLease");
     const { container } = renderLease(
       leaseState({ holding: "unheld", holderVouching: "vouched" }),
@@ -103,11 +123,16 @@ describe("the claim control — one affordance, and three things it never does",
     await waitFor(() => {
       expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
     });
-    // The refusal is still on screen and the call count has not moved: a person
-    // retries by hand or not at all.
-    await new Promise((resolve) => {
-      setTimeout(resolve, 30);
+
+    await act(async () => {
+      clock.advance(RETRY_HORIZON_MS);
+      clock.runFrame();
+      await Promise.resolve();
     });
+
+    // Nothing is armed at all, at any delay — and the refusal is still on screen and
+    // the call count has not moved: a person retries by hand or not at all.
+    expect(clock.pendingCount).toBe(0);
     expect(acquire).toHaveBeenCalledTimes(1);
     expect(container.querySelector(".meridian-refusal--inline")).not.toBeNull();
   });
