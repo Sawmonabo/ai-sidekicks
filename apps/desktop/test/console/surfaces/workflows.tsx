@@ -6,6 +6,13 @@
 // if they were comparable. `console-harness.tsx` owns HOW the console is mounted, one
 // level down; this module owns WHAT of this family is mounted into it.
 //
+// ONE FILE PER FAMILY, UNDER `test/console/surfaces/`. The tier root holds the roles
+// every tier reaches for — the harness, the graph-readiness wait, the source walk —
+// and a mount that is one family's is not one of them. Seven families each dropping a
+// `<family>-surfaces.tsx` beside those would bury the shared set in the family set,
+// and a reader looking for what a tier can reuse would have to know the difference by
+// name. The directory is the difference, and it scales.
+//
 // THREE MOUNTS, AND THE TWO TIERS TAKE DIFFERENT SUBSETS. The family registers one
 // rail destination and TWO pane kinds, so all three are mounted here. The
 // accessibility tier audits every one of them — a family-wide claim that skipped a
@@ -49,37 +56,37 @@
 import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
-import { renderSettled } from "./console-harness.js";
+import { renderSettled } from "../console-harness.js";
 
 import {
   createFixtureBridge,
   type ConsoleBridge,
-} from "../../src/renderer/src/console/bridge/index.js";
-import { WORKFLOWS_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/workflows.js";
-import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-definitions.js";
-import { WORKFLOWS_SESSION_ID } from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-ids.js";
-import { WORKFLOWS_PARKED_RUN } from "../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
+} from "../../../src/renderer/src/console/bridge/index.js";
+import { WORKFLOWS_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/workflows.js";
+import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-definitions.js";
+import { WORKFLOWS_SESSION_ID } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-ids.js";
+import { WORKFLOWS_PARKED_RUN } from "../../../src/renderer/src/console/bridge/scenarios/workflow-fixture-runs.js";
 import {
   ConsoleSurfaceRegistry,
   type ConsoleSurfaceContext,
-} from "../../src/renderer/src/console/frame/surface-registry.js";
-import { LiveAnnouncerProvider } from "../../src/renderer/src/console/primitives/index.js";
-import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
+} from "../../../src/renderer/src/console/frame/surface-registry.js";
+import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
+import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
   SessionStore,
   SessionStoreRegistry,
-} from "../../src/renderer/src/console/store/index.js";
+} from "../../../src/renderer/src/console/store/index.js";
 import {
   registerWorkflowPanes,
   registerWorkflowSurfaces,
-} from "../../src/renderer/src/console/workflows/index.js";
+} from "../../../src/renderer/src/console/workflows/index.js";
 import {
   ConsolePaneRegistry,
   type ConsolePaneAddress,
   type ConsolePaneContext,
   type PaneKind,
-} from "../../src/renderer/src/console/seats/index.js";
+} from "../../../src/renderer/src/console/seats/index.js";
 
 /**
  * A registry carrying exactly this family's two claims.

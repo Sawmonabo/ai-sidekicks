@@ -40,7 +40,7 @@ import {
   mountWorkflowParkedRunPane,
   mountWorkflowsDestination,
   type MountedFamilySurface,
-} from "../workflow-surfaces.js";
+} from "../surfaces/workflows.js";
 import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
 import { awaitPhaseGraphSettled } from "../phase-graph-settled.js";
 

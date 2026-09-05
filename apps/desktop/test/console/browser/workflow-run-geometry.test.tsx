@@ -22,7 +22,7 @@ import { describe, expect, it } from "vitest";
 
 import { waitFor } from "@testing-library/react";
 
-import { mountWorkflowParkedRunPane } from "../workflow-surfaces.js";
+import { mountWorkflowParkedRunPane } from "../surfaces/workflows.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 
