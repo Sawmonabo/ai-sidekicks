@@ -16,13 +16,9 @@ import type { GrowthUnavailable } from "../../bridge/index.js";
 import {
   ATTACHMENT_BYTE_CAP_DEFAULT,
   isConsoleRefusal,
-  refuse,
   type ConsoleRefusal,
 } from "../../core/index.js";
-import {
-  ARTIFACT_READER_REFUSAL_ORIGIN,
-  type ArtifactPaneRefusalCode,
-} from "./artifact-pane-refusals.js";
+import { replyUnreadableRefusal } from "./artifact-pane-refusals.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import type {
   ArtifactDeleteReceipt,
@@ -218,10 +214,9 @@ export function growthAnswerReading<TValue>(
   if (!carriesServedValue(answer)) {
     return {
       status: "refused",
-      refusal: refuse(
-        ARTIFACT_READER_REFUSAL_ORIGIN,
-        "reply-unreadable" satisfies ArtifactPaneRefusalCode,
-        `${operation} answered with a shape that is neither a served value nor a refusal, so nothing was read.`,
+      refusal: replyUnreadableRefusal(
+        operation,
+        "a shape that is neither a served value nor a refusal",
       ),
     };
   }

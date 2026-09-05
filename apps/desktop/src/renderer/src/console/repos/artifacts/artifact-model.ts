@@ -256,6 +256,14 @@ function renderableMetadata(
   metadata: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, string>> {
   const rendered: Record<string, string> = {};
+  // `Object.entries` THROWS on `null` and on `undefined`, and the member is typed
+  // present rather than proven present: a summary is whatever crossed the process
+  // boundary. A row missing its provenance draws no entries, which is what a row
+  // whose metadata is empty draws too — and is the only reading available, where the
+  // alternative is the whole list read rejecting over one row.
+  if (typeof metadata !== "object" || metadata === null) {
+    return rendered;
+  }
   for (const [key, value] of Object.entries(metadata)) {
     rendered[key] = typeof value === "string" ? value : renderableMetadataValue(value);
   }

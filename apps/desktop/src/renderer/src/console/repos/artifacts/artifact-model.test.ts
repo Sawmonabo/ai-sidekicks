@@ -229,8 +229,15 @@ describe("artifact-copy — the delete disclosure states only what is known", ()
 });
 
 describe("artifact manifest row — metadata a daemon can send and JSON cannot hold", () => {
-  /** One summary whose metadata is whatever the case is about. Every other member is fixed. */
-  function rowWithMetadata(metadata: Readonly<Record<string, unknown>>): ArtifactManifestRow {
+  /**
+   * One summary whose metadata is whatever the case is about. Every other member is fixed.
+   *
+   * TAKES `unknown` AND NOT THE MEMBER'S OWN TYPE, because half of what this suite
+   * drives is a reply the member's type forbids: the summary is whatever crossed the
+   * process boundary, and a helper that could only express a conforming value could
+   * not reach the guards that read a non-conforming one.
+   */
+  function rowWithMetadata(metadata: unknown): ArtifactManifestRow {
     return artifactManifestRowFromSummary({
       artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
       sessionId: REPOS_SESSION_ID,
@@ -303,5 +310,24 @@ describe("artifact manifest row — metadata a daemon can send and JSON cannot h
     expect(row.metadata["producer"]).toBe("codex-driver");
     expect(row.metadata["counts"]).toBe('{"added":4,"removed":1}');
     expect(row.metadata["flags"]).toBe("[true,null]");
+  });
+
+  it("draws a row with no provenance when the member itself is not there", () => {
+    // `Object.entries` THROWS on `null` and on `undefined`, and the member is typed
+    // present rather than proven present — so a summary that arrived without it took
+    // the whole list read down through `.map`, and the participant lost every OTHER
+    // row to one row's missing provenance. A row with nothing to show shows nothing.
+    expect(rowWithMetadata(null).metadata).toStrictEqual({});
+    expect(rowWithMetadata(undefined).metadata).toStrictEqual({});
+    // The row itself is still a row: the members that DID arrive are read.
+    expect(rowWithMetadata(null).digest).toBe("sha256:2b4c");
+  });
+
+  it("negative control: a member that IS there is still read", () => {
+    // Without this the guard above could be widened to skip every metadata read, and
+    // the rows a deployment does send provenance for would draw none of it.
+    expect(rowWithMetadata({ producer: "claude-driver" }).metadata).toStrictEqual({
+      producer: "claude-driver",
+    });
   });
 });

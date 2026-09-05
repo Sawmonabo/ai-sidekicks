@@ -102,6 +102,28 @@ export function readFailureRefusal(error: unknown): WireRefusal {
 }
 
 /**
+ * The refusal a reply the pane cannot read becomes.
+ *
+ * TWO SITES RAISE IT AND SO IT IS DECLARED ONCE. `artifact-pane-reading.ts` raises it
+ * for an answer that is neither a served value nor a refusal, and `artifact-pane-reads.ts`
+ * for a served `value` whose SHAPE the leg cannot use — an `artifactList` that is not
+ * an array, a bounds reply with no content types. Both are the same fact about the
+ * same wire and neither is a rejection, so a caller narrowing on the code should not
+ * have to know which of the two saw it first.
+ *
+ * THE REPLY IS NOT QUOTED INTO THE SENTENCE, on `readFailureRefusal`'s rule: what
+ * arrived can carry participant content, so the sentence names the operation and what
+ * was expected of it and stops there.
+ */
+export function replyUnreadableRefusal(operation: string, expected: string): ConsoleRefusal {
+  return refuse(
+    ARTIFACT_READER_REFUSAL_ORIGIN,
+    "reply-unreadable" satisfies ArtifactPaneRefusalCode,
+    `${operation} answered with ${expected}, so nothing was read.`,
+  );
+}
+
+/**
  * The refusal a second payload fetch becomes while the first is still on the wire.
  *
  * NAMED RATHER THAN SILENT, and it names the artifact the pane is actually waiting
