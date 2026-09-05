@@ -22,6 +22,7 @@ import { Switch } from "@base-ui/react/switch";
 
 import { InlineRefusal } from "../../primitives/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
+import "./preference-toggle-row.css";
 
 export interface PreferenceToggleRowProps {
   readonly label: string;

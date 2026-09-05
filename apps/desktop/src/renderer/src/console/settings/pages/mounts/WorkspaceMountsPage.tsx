@@ -53,6 +53,7 @@ import {
   type MountReading,
 } from "./mount-inventory.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
+import "./mounts.css";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-mounts";

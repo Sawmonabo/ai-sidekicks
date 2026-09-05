@@ -1,3 +1,34 @@
+/* What the collaboration family SHARES, and the live line it draws itself.
+ *
+ * The three sub-families carry their own sheets — `channels/channels.css`,
+ * `members/members.css`, `invites/invites.css`. What is left here is the shape no one
+ * of them owns: the shell the channel list and the roster both take, the card chrome
+ * and the one control shape the memberships and the invite ledger both take, and the
+ * live line, which is the family's own. A selector list spanning two sub-families
+ * lives at the door rather than being copied into both, because two copies agree only
+ * until one of them is restyled.
+ *
+ * Hand-authored composition over generated values, like every other console sheet —
+ * no literal colour below, and the only literal lengths are the two-pixel identity
+ * mark (rule 1's attribution width, carried on the roster the same way the ledger row
+ * carries it) and the hairlines that separate rows.
+ *
+ * Three decisions the design forces:
+ *
+ *   • **A channel row is a ledger line, not a list item.** Flush left, one measure,
+ *     the name and its marks on one baseline, and the live line below it in the same
+ *     column rather than pushed to a second block. What makes it a row rather than a
+ *     card is that nothing is boxed: the separation is a hairline, so twelve rows
+ *     read as a log.
+ *   • **Identity is an edge, never a fill.** The roster's participant hue is a 2 px
+ *     mark down the row's leading edge, dashed / ticked / dotted by wrap lap the way
+ *     the ledger row does it. A hue behind text would put an identity colour under a
+ *     glyph, which rule 3 forbids in terms.
+ *   • **The live line takes no space when there is nothing live.** It is a sibling
+ *     that renders or does not; no reserved height, no min-height, so an idle channel
+ *     list has no gaps in it.
+ */
+
 /* The collaboration family's own styles: channels, the roster, and the live line.
  *
  * Hand-authored composition over generated values, like every other console sheet —
@@ -45,236 +76,6 @@
   flex-direction: column;
 }
 
-/* ------------------------------------------------------------- channel rows */
-
-.meridian-channel-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  border-block-end: 1px solid var(--meridian-edge);
-}
-
-.meridian-channel-row:last-child {
-  border-block-end: 0;
-}
-
-.meridian-channel-row__open {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--meridian-space-3);
-  inline-size: 100%;
-  padding-block: var(--meridian-space-2);
-  padding-inline: var(--meridian-space-1);
-  border: 0;
-  border-radius: var(--meridian-radius-sm);
-  background: transparent;
-  color: var(--meridian-text);
-  font-family: var(--meridian-font-sans);
-  font-size: var(--meridian-text-sm);
-  text-align: start;
-  cursor: pointer;
-  transition: background var(--meridian-motion-quick) ease-out;
-}
-
-.meridian-channel-row__open:hover {
-  background: var(--meridian-surface-sunken);
-}
-
-.meridian-channel-row__open:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
-}
-
-.meridian-channel-row__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.meridian-channel-row--main .meridian-channel-row__name {
-  font-weight: 500;
-}
-
-.meridian-channel-row__marks {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  flex: none;
-}
-
-.meridian-channel-row__count {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* Mute suppresses attention and nothing else — the row stays readable, still
- * admits runs, and is dimmed rather than greyed out of legibility. */
-.meridian-channel-row--muted .meridian-channel-row__open {
-  color: var(--meridian-text-muted);
-}
-
-.meridian-channel-row--archived .meridian-channel-row__open {
-  color: var(--meridian-text-faint);
-}
-
-.meridian-channels__archive {
-  border-block-start: 1px solid var(--meridian-edge);
-  padding-block-start: var(--meridian-space-2);
-}
-
-.meridian-channels__archive-summary {
-  cursor: pointer;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-  padding-block: var(--meridian-space-1);
-}
-
-.meridian-channels__archive-summary:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
-.meridian-channels__list--archived {
-  max-block-size: 40vh;
-  overflow-y: auto;
-}
-
-/* --------------------------------------------------------- creating a channel */
-
-.meridian-create-channel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  border-block-start: 1px solid var(--meridian-edge);
-  padding-block-start: var(--meridian-space-3);
-}
-
-.meridian-create-channel__title {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  font-weight: 500;
-  color: var(--meridian-text);
-}
-
-.meridian-create-channel__standing {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-create-channel__decisions {
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-create-channel__decision-label {
-  font-size: var(--meridian-text-xs);
-  font-weight: 500;
-  color: var(--meridian-text);
-}
-
-.meridian-create-channel__decision-consequence {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* -------------------------------------------------------------- roster rows */
-
-.meridian-roster-row {
-  position: relative;
-  display: grid;
-  grid-template-columns: 2px minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  padding-block: var(--meridian-space-2);
-  padding-inline-end: var(--meridian-space-1);
-  border-block-end: 1px solid var(--meridian-edge);
-  font-size: var(--meridian-text-sm);
-}
-
-.meridian-roster-row:last-child {
-  border-block-end: 0;
-}
-
-/* The identity mark: the same 2 px attribution edge the ledger row carries, varied
- * along its LENGTH by wrap lap so two people sharing a hue past the twelfth
- * participant are still told apart without a thirteenth colour. */
-.meridian-roster-row__mark {
-  align-self: stretch;
-  inline-size: 2px;
-  border-radius: 1px;
-  background: var(--meridian-roster-hue);
-}
-
-.meridian-roster-row--dashed .meridian-roster-row__mark {
-  background: repeating-linear-gradient(var(--meridian-roster-hue) 0 6px, transparent 6px 10px);
-}
-
-.meridian-roster-row--double .meridian-roster-row__mark {
-  background: repeating-linear-gradient(
-    var(--meridian-roster-hue) 0 3px,
-    transparent 3px 5px,
-    var(--meridian-roster-hue) 5px 8px,
-    transparent 8px 12px
-  );
-}
-
-.meridian-roster-row--dotted .meridian-roster-row__mark {
-  background: repeating-linear-gradient(var(--meridian-roster-hue) 0 2px, transparent 2px 6px);
-}
-
-.meridian-roster-row__identity {
-  display: flex;
-  align-items: baseline;
-  gap: var(--meridian-space-2);
-  min-width: 0;
-}
-
-.meridian-roster-row__label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--meridian-text);
-}
-
-.meridian-roster-row__self-mark {
-  flex: none;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
-}
-
-.meridian-roster-row__marks {
-  display: flex;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  flex: none;
-}
-
-.meridian-roster-row__composing {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--meridian-space-1);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-roster-row__seen {
-  flex: none;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* Present, dimmed, and still readable. Someone who stepped away is still in the
- * session, so the row is never removed and never made illegible. */
-.meridian-roster-row--offline .meridian-roster-row__label,
-.meridian-roster-row--offline .meridian-roster-row__seen {
-  color: var(--meridian-text-faint);
-}
-
 /* ----------------------------------------------------------- the live line */
 
 .meridian-activity {
@@ -295,60 +96,11 @@
   gap: var(--meridian-space-1);
 }
 
-/* ---------------------------------------------------------------------------
- * Memberships, the sent-invite ledger, and the invite confirmation.
- *
- * Three surfaces in one region, one inside the next: the members section is a
- * stack of bands, each band a bordered card on the pane's surface, and the rhythm
- * only reads as a rhythm if they agree on one spacing scale. The roster above
- * carries the identity edge; these carry none, because a membership row's subject
- * is the terms and not the person's presence.
- *
- * Every value is a Meridian token. The one exception is the row grid's minimum
- * column, which is a layout literal.
- * ------------------------------------------------------------------------- */
-
-.meridian-members {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-5);
-  min-width: 0;
-}
-
-.meridian-members__head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  max-width: 64ch;
-}
-
-.meridian-members__title {
-  margin: 0;
-  font-size: var(--meridian-text-lg);
-  font-weight: 500;
-  color: var(--meridian-text);
-}
-
-.meridian-invites__title {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--meridian-text-muted);
-}
-
 .meridian-members__lede,
 .meridian-invites__lede {
   margin: 0;
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
-}
-
-.meridian-members__count {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
 }
 
 .meridian-members__rows,
@@ -361,20 +113,6 @@
   list-style: none;
 }
 
-/* One membership. The left rule is the section's ledger rhythm: a quiet edge that
- * lines the rows up without drawing a table. */
-.meridian-members__row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge);
-  border-left: var(--meridian-attribution-edge) solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface);
-  min-width: 0;
-}
-
 .meridian-members__row-facts,
 .meridian-invites__row-facts {
   display: flex;
@@ -382,29 +120,6 @@
   align-items: center;
   gap: var(--meridian-space-2);
   min-width: 0;
-}
-
-.meridian-members__row-reach {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-/* The last-owner note. Amber, because it is a condition a person has to resolve
- * before an act succeeds — not a failure, which is the red hue's job. */
-.meridian-members__row-note {
-  margin: 0;
-  padding: var(--meridian-space-2);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-amber-ground);
-  color: var(--meridian-amber-text);
-  font-size: var(--meridian-text-xs);
-}
-
-.meridian-members__row-acts {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-2);
 }
 
 .meridian-members__manage,
@@ -439,12 +154,6 @@
   cursor: default;
 }
 
-.meridian-members__revoke,
-.meridian-members__dialog-confirm {
-  color: var(--meridian-red-text);
-  border-color: var(--meridian-red-mark);
-}
-
 /* Focus is visible on every control here, with one rule rather than one per
  * class, so a control added later cannot arrive without it. */
 .meridian-members :focus-visible,
@@ -454,175 +163,4 @@
 .meridian-members__dialog :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
-}
-
-.meridian-members__menu-positioner {
-  z-index: 1;
-}
-
-.meridian-members__menu {
-  display: flex;
-  flex-direction: column;
-  min-width: 14rem;
-  padding: var(--meridian-space-1);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-md);
-  background: var(--meridian-surface-raised);
-}
-
-.meridian-members__menu-item {
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  border-radius: var(--meridian-radius-sm);
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text);
-  cursor: pointer;
-}
-
-.meridian-members__menu-item[data-highlighted] {
-  background: var(--meridian-surface-sunken);
-}
-
-.meridian-members__dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  background: color-mix(in oklab, var(--meridian-ground) 72%, transparent);
-}
-
-.meridian-members__dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  max-width: 48ch;
-  padding: var(--meridian-space-5);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-lg);
-  background: var(--meridian-surface-raised);
-}
-
-.meridian-members__dialog-title {
-  margin: 0;
-  font-size: var(--meridian-text-md);
-  font-weight: 500;
-  color: var(--meridian-text);
-}
-
-.meridian-members__dialog-body {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-members__dialog-acts {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--meridian-space-2);
-}
-
-.meridian-invites {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-3);
-  padding: var(--meridian-space-4);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-md);
-  background: var(--meridian-surface-sunken);
-  min-width: 0;
-}
-
-.meridian-invites__head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-invites__row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface);
-}
-
-.meridian-invites__fold-summary {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-  cursor: pointer;
-}
-
-.meridian-invites__fold-overflow {
-  margin: var(--meridian-space-2) 0 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
-}
-
-/* The confirmation is the whole section while it is up, so it takes the measure
- * and centres rather than sitting in the ledger's column. */
-.meridian-invite-confirmation {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-4);
-  max-width: 52ch;
-  padding: var(--meridian-space-5);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-lg);
-  background: var(--meridian-surface-raised);
-}
-
-.meridian-invite-confirmation__head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-invite-confirmation__title {
-  margin: 0;
-  font-size: var(--meridian-text-lg);
-  font-weight: 500;
-  color: var(--meridian-text);
-}
-
-.meridian-invite-confirmation__identity {
-  margin: 0;
-}
-
-.meridian-invite-confirmation__facts {
-  display: grid;
-  grid-template-columns: minmax(9rem, auto) minmax(0, 1fr);
-  gap: var(--meridian-space-2) var(--meridian-space-4);
-  margin: 0;
-}
-
-.meridian-invite-confirmation__fact {
-  display: contents;
-}
-
-.meridian-invite-confirmation__fact dt {
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-muted);
-}
-
-.meridian-invite-confirmation__fact dd {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text);
-}
-
-.meridian-invite-confirmation__acts {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--meridian-space-3);
-}
-
-.meridian-invite-confirmation__footnote {
-  margin: 0;
-  font-size: var(--meridian-text-xs);
-  color: var(--meridian-text-faint);
 }

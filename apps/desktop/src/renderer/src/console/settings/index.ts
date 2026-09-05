@@ -30,6 +30,7 @@
 // why the other twelve are the design's own.
 
 import "./settings.css";
+import "./shared/settings-page.css";
 
 import { createElement } from "react";
 
