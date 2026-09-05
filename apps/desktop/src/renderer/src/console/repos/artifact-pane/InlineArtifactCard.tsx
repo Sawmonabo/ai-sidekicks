@@ -35,13 +35,13 @@ import {
   WireFigure,
   formatByteQuantity,
 } from "../../primitives/index.js";
+import { type ArtifactManifestRow } from "../artifacts/artifact-model.js";
 import {
   ARTIFACT_STATE_PRESENTATION,
   ARTIFACT_VISIBILITY_PRESENTATION,
   artifactProducerLabel,
   artifactReplicationPresentation,
-  type ArtifactManifestRow,
-} from "../artifacts/artifact-model.js";
+} from "../artifacts/artifact-copy.js";
 import { registerInlineCardBody, type ArtifactInlineCardProps } from "../../seats/index.js";
 import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 

@@ -23,14 +23,14 @@ import {
   formatByteQuantity,
   formatRelativeTime,
 } from "../../primitives/index.js";
+import { type ArtifactManifestRow } from "./artifact-model.js";
 import {
   ARTIFACT_DELETE_CONSEQUENCE,
   ARTIFACT_STATE_PRESENTATION,
   ARTIFACT_VISIBILITY_PRESENTATION,
   artifactProducerLabel,
   artifactReplicationPresentation,
-  type ArtifactManifestRow,
-} from "./artifact-model.js";
+} from "./artifact-copy.js";
 
 /**
  * The two pieces of confirm state one row's controls need.

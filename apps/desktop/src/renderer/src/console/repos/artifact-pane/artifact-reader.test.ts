@@ -23,9 +23,10 @@ import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
-import { ARTIFACT_TERMINAL_EVENT_KINDS, ArtifactPaneReader } from "./artifact-reader.js";
+import { ARTIFACT_TERMINAL_EVENT_KINDS } from "../repo-lifecycle-events.js";
+import { ArtifactPaneReader } from "./artifact-reader.js";
 import {
-  type GrowthAnswer,
+  type GrowthPortAnswer,
   SERVED_SUMMARY,
   SESSION_ID,
   artifactBridgeAnswering,
@@ -291,7 +292,10 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
       bridge: artifactBridgeAnswering({
-        listAnswer: { status: "served", value: [null] } as unknown as GrowthAnswer<"artifactList">,
+        listAnswer: {
+          status: "served",
+          value: [null],
+        } as unknown as GrowthPortAnswer<"artifactList">,
         allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
       }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
@@ -309,7 +313,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // The generation stamp, exercised: the read is in flight when the pane unmounts,
     // and its answer arrives afterwards with a stamp that is no longer current.
     const clock = new ManualClock();
-    let releaseList: (answer: GrowthAnswer<"artifactList">) => void = () => undefined;
+    let releaseList: (answer: GrowthPortAnswer<"artifactList">) => void = () => undefined;
     const reader = new ArtifactPaneReader({
       bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
         artifactList: () =>

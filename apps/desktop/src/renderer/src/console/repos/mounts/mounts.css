@@ -13,6 +13,12 @@
  *
  * NO LITERAL VALUES, on the family sheet's rule: every length is on the space scale,
  * every size on the type scale, and every colour is read out of a custom property.
+ *
+ * PAST THE 400-LINE BOUND AND DELIBERATELY NOT SPLIT, on the same reading as
+ * `diff-pane/diff.css`: the size rule splits a sheet by directory and `repos/mounts/`
+ * is one directory, so a second sheet here would buy nothing but a cascade whose order
+ * depends on two adjacent import lines. The six section banners below carry the
+ * navigation the bound is really asking for. It splits when the directory does.
  */
 
 /* --------------------------------------------------------- sidebar section */

@@ -67,6 +67,7 @@ import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { ProposalGateActions } from "./proposal-gate-actions.js";
 import type { ProposalGateActionHost } from "./proposal-gate-action-host.js";
+import { gateReadingForContext, gateReadingForRefusal } from "./proposal-gate-readings.js";
 import {
   GATE_SETTLEMENT_COPY,
   NOTHING_ASKED_GATE_READING,
@@ -338,26 +339,7 @@ export class ProposalGateReader {
     if (outcome.status === "unavailable") {
       this.#context = undefined;
       this.#discardProposal();
-      // The port's two refusal classes are two different facts and get two different
-      // arms. `wire-unregistered` means the question could not be put at all, which
-      // is `not-checked` — and that arm carries no message, so the refusal travels
-      // beside it. A scripted reply that never arrived means the question WAS put and
-      // the answer did not come, which is a failure the `refused` arm states.
-      if (outcome.code === "wire-unregistered") {
-        this.#publish({
-          ...this.#reading,
-          state: { kind: "not-checked" },
-          refusal: outcome,
-          settlement: outcome.detail,
-        });
-        return;
-      }
-      this.#publish({
-        ...this.#reading,
-        state: { kind: "refused", message: outcome.detail },
-        refusal: undefined,
-        settlement: GATE_SETTLEMENT_COPY.refused,
-      });
+      this.#publish(gateReadingForRefusal(this.#reading, outcome));
       return;
     }
 
@@ -379,20 +361,7 @@ export class ProposalGateReader {
     ) {
       this.#discardProposal();
     }
-    const proposal = this.#proposal;
-    this.#publish({
-      ...this.#reading,
-      state: {
-        kind: "prepared",
-        context,
-        ...(proposal === undefined ? {} : { proposal }),
-      },
-      refusal: undefined,
-      settlement:
-        proposal === undefined
-          ? GATE_SETTLEMENT_COPY.prepared
-          : GATE_SETTLEMENT_COPY["prepared-with-proposal"],
-    });
+    this.#publish(gateReadingForContext(this.#reading, context, this.#proposal));
   }
 
   /**

@@ -1,12 +1,15 @@
-// The repos family's surfaces, mounted once for the two tiers that look at them.
+// The repos family's sidebar section, diff pane, and proposal gate, mounted once for
+// the two tiers that look at them.
 //
 // Not a test file — no `include` glob reaches it. The screenshot tier and the
-// accessibility tier both need the same four surfaces this family ships, and a
-// per-tier copy of the mount would be two chances to compose them differently and
-// then read the results as if they were comparable. That is `console-harness.tsx`'s
-// own reason for existing, one level down: the harness owns HOW the console is
-// mounted, this module owns which of this family's surfaces is mounted and what
-// settled means for each, and `repos-fixtures.ts` owns what they are drawn against.
+// accessibility tier both need the same surfaces this family ships, and a per-tier copy
+// of the mount would be two chances to compose them differently and then read the
+// results as if they were comparable. Four modules divide that job: `console-harness.tsx`
+// owns HOW the console is mounted, `repos-mount-harness.ts` owns what SETTLED means and
+// how a tier waits for it, `repos-fixtures.ts` owns what the surfaces are drawn against,
+// and the mounts themselves are split between this module and `repos-artifact.tsx` —
+// which holds the artifact pane, the family's largest, so neither file has to be read to
+// understand the other.
 //
 // THE BODIES COME OUT OF THE REGISTRIES WHERE THE REGISTRIES HOLD THEM. The family
 // claims into two — the sidebar's section ids and the deck's pane kinds — and both
@@ -44,28 +47,23 @@
 // this tier exists to pin. Building that reading here would pin a state the fixture
 // could stop producing without either tier noticing.
 
-import { act, fireEvent, waitFor, within } from "@testing-library/react";
-
 import { renderSettled } from "../console-harness.js";
+import {
+  driveUntilWithin,
+  requireElement,
+  requireLabelledRegion,
+  type MountedFamilySurface,
+} from "./repos-mount-harness.js";
 
 import {
-  DEFERRED_PAYLOAD_READ,
-  INLINE_PAYLOAD_READ,
   PREPARED_GATE_STATE,
   PUSH_REFUSAL,
   extendedHeaderChangeSet,
   paneBinding,
-  paneBodyComponent,
   scenarioCollaborators,
-  scriptedArtifactPort,
 } from "./repos-fixtures.js";
-import type { GrowthAnswer } from "../../../src/renderer/src/console/bridge/index.js";
 
-import {
-  REPOS_GIT_WORKSPACE_ID,
-  REPOS_PINNED_ARTIFACT_ID,
-  REPOS_SCENARIO,
-} from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
+import { REPOS_GIT_WORKSPACE_ID } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
 import type { ConsoleBridge } from "../../../src/renderer/src/console/bridge/index.js";
 import { DiffPane } from "../../../src/renderer/src/console/repos/diff-pane/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
@@ -73,95 +71,12 @@ import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primiti
 import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/ProposalGate.js";
 import { registerRepos } from "../../../src/renderer/src/console/repos/index.js";
 import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/scenario-clock.test-support.js";
-import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import {
   sidebarSectionRegistry,
   type SidebarSectionContext,
 } from "../../../src/renderer/src/console/seats/index.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
-export interface MountedFamilySurface {
-  readonly element: HTMLElement;
-  readonly bridge: ConsoleBridge;
-}
-
-/** How long a surface's first read may take to settle before a tier gives up. */
-const FAMILY_READ_TIMEOUT_MS = 5_000;
-
-/**
- * How far a mount moves the scenario clock to let a scheduled read land.
- *
- * Comfortably past `REFRESH_MAX_WAIT_MS`, and stated as one number rather than tuned
- * per subject: the claim is "every deadline a mounted surface armed has passed", and a
- * value that only just cleared the current one would turn a scheduler retune into a
- * flake in an unrelated tier.
- */
-const SCENARIO_SETTLE_ADVANCE_MS = 1000;
-
-/**
- * Find the one region a surface renders itself as, by the name it announces.
- *
- * By accessible name rather than by class, because that is what a person using
- * assistive technology navigates by — a surface that lost its accessible name would
- * still match a class selector and would still be captured as if nothing had
- * changed. `getByRole` rather than a selector for the same reason: it resolves the
- * name the way the accessibility tree does, through `aria-labelledby` and the
- * heading it points at.
- */
-function requireLabelledRegion(container: HTMLElement, accessibleName: string): HTMLElement {
-  return within(container).getByRole("region", { name: accessibleName });
-}
-
-/**
- * Find a surface that announces no name of its own, by the class it renders under.
- *
- * The sidebar section is the one such surface this family has, and deliberately: the
- * sidebar chrome owns the section's heading and its disclosure state, so a body that
- * announced a second name would put two regions in the tree for one section. The
- * selector is what is left, and a throw rather than a null keeps a tier from
- * comparing an empty box against a baseline.
- */
-function requireElement(container: HTMLElement, selector: string): HTMLElement {
-  const element = container.querySelector(selector);
-  if (!(element instanceof HTMLElement)) {
-    throw new Error(`nothing in the mounted tree matches \`${selector}\``);
-  }
-  return element;
-}
-
-/** Wait until a selector resolves inside a mounted surface, or say what did not. */
-async function waitForWithin(region: HTMLElement, selector: string): Promise<void> {
-  await waitFor(
-    () => {
-      if (region.querySelector(selector) === null) {
-        throw new Error(`the surface has not rendered \`${selector}\` yet`);
-      }
-    },
-    { timeout: FAMILY_READ_TIMEOUT_MS },
-  );
-}
-
-/**
- * The same wait, for a surface whose reads are scheduled on the SCENARIO's clock.
- *
- * THE SECTION AND ITS GATES SCHEDULE ON THE BRIDGE'S CLOCK, which under the fixture is
- * the scenario's frozen one — the point of taking it from `consoleClockFor`, and what
- * makes these baselines pin one instant rather than the day they were minted on. Real
- * time therefore moves none of it, so this wait drives the clock instead of polling the
- * machine. The pane mounts above keep `waitForWithin`: their reads run on a port this
- * file scripts directly, with no scenario engine behind them.
- */
-async function driveUntilWithin(
-  bridge: ConsoleBridge,
-  region: HTMLElement,
-  selector: string,
-): Promise<void> {
-  await advanceScenarioUntil(bridge, () => {
-    if (region.querySelector(selector) === null) {
-      throw new Error(`the surface has not rendered \`${selector}\` yet`);
-    }
-  });
-}
 
 /**
  * The repos sidebar section, open, with its two mounts read.
@@ -266,133 +181,6 @@ export async function mountDiffPane(): Promise<MountedFamilySurface> {
     />,
   );
   return { element: requireLabelledRegion(container, "Diff"), bridge };
-}
-
-/**
- * The artifact pane, with both of its reads settled.
- *
- * `artifactList` and `artifactAllowlistRead` are growth-slate rows the fixture does
- * not serve, so what this pins is the pane carrying the port's typed refusal beside
- * the shipped-default allow-list hint — which is the composition a person on this
- * build actually sees, and the one a mapped list would replace.
- *
- * WAITED ON TWICE, AND THE SECOND WAIT IS THE ONE THAT MATTERS. The panel's own root
- * is in the DOM from the first frame on every arm, so waiting for it alone would pin
- * whichever side of the read the runner happened to reach — and the pane's reads run
- * through the console's refresh scheduler, which coalesces before it calls. The
- * refusal card is what the settled arm renders, so that is what is waited for.
- *
- * The announcer is the pane's environment, on the section's rule and for its reason:
- * an act announces its own settlement, `useAnnounce` throws outside the provider on
- * purpose, and a frozen clock keeps a standing message from clearing mid-capture.
- */
-export async function mountArtifactPane(): Promise<MountedFamilySurface> {
-  const { bridge, sessionStore } = scenarioCollaborators();
-  const ArtifactPaneBody = paneBodyComponent("artifact");
-  const { container } = await renderSettled(
-    <LiveAnnouncerProvider clock={new ManualClock()}>
-      {ArtifactPaneBody({
-        kind: "artifact",
-        // The scenario's pinned attachment — a published artifact this session
-        // actually holds, on the diff pane's rule about naming its subject.
-        entity: { kind: "artifact", id: REPOS_PINNED_ARTIFACT_ID },
-        ...paneBinding({ paneId: "pane-artifact-surface", bridge, sessionStore }),
-      })}
-    </LiveAnnouncerProvider>,
-  );
-  const region = requireLabelledRegion(container, "Artifact");
-  await waitForWithin(region, ".meridian-artifacts");
-  // THE PANE'S FIRST READ IS ON THE WINDOW'S CLOCK, so under a scenario bridge it is
-  // on FROZEN time and nothing here was moving it. The reader's refresh scheduler is
-  // trailing-edge — `start()` asks for a read and the read happens a debounce interval
-  // later — and `consoleClockFor` hands a pane under the fixture the scenario engine's
-  // clock, which is the rule `Spec-023 §The fixture bridge` states and the whole point
-  // of the seam. So the interval never elapsed, the list never resolved, and the
-  // refusal this subject is named for never arrived. Advancing past the scheduler's
-  // absolute deadline is what a scenario beat would have done anyway; a bare
-  // `runToCompletion()` would not, because it plays the script's beats rather than
-  // moving time past a deadline no beat is scheduled at.
-  await act(async () => {
-    bridge.scenarioEngine?.advance(SCENARIO_SETTLE_ADVANCE_MS);
-    await Promise.resolve();
-  });
-  await waitForWithin(region, ".meridian-refusal--card");
-  return { element: region, bridge };
-}
-
-/**
- * The artifact pane after a payload fetch, on each of the two arms a served read has.
- *
- * A SECOND AND THIRD SUBJECT rather than a flag on the first, on the proposal gate's
- * rule: the refusal composition above and the two served ones are different surfaces,
- * and the first would go on passing if the payload section never rendered at all.
- *
- * DRIVEN THROUGH `scriptedArtifactPort`, because the fixture's growth port serves no
- * `artifact*` operation at all, so a subject waiting on the scenario for a served
- * payload would wait forever. Why that port answers as it does is stated where it is.
- *
- * THE SCHEDULED READ IS WAITED FOR BEFORE THE ACT IS PRESSED, AND THAT ORDER IS THE
- * WHOLE FIX. This mount used to wait for the payload section alone — the act's own
- * DOM — while the pane's list and allow-list reads were still inside the refresh
- * scheduler's coalescing window, which is 120 ms of real time and not a microtask
- * `renderSettled` can flush. So the Artifacts panel was captured in whichever of two
- * states the runner reached, and it genuinely reached both: the same commit measured
- * 10,510 and then 10,232 differing pixels on consecutive runs of one subject, while a
- * sibling subject lost the race every time and pinned the pre-read frame. A baseline
- * minted over that records a coin flip, and every later comparison against it is a
- * comparison with the coin.
- *
- * WAITED FOR BY THE ARM'S OWN DOM, on `mountRepoSection`'s rule and for its reason.
- * The panel's filter group is rendered if and only if a list came back — the panel
- * withholds it on `not-checked`, on `loading`, and on a refusal, because an offered
- * filter is a promise that pressing it narrows something — so its presence IS the
- * settled `listed` arm and nothing else. Both of the reader's legs publish as one
- * snapshot, so the allow-list hint is settled in the same frame.
- *
- * AND THE CLOCK IS DRIVEN FIRST, which `mountArtifactPane` above already does and this
- * mount used to be unable to. The port is a real fixture bridge now rather than a
- * hand-built object, so it carries the scenario engine and `consoleClockFor` hands the
- * pane that engine's frozen clock — which means the reader's trailing-edge scheduler
- * waits on time nothing was moving, and the filter group the wait below is keyed to
- * never arrived. The advance is the same beat the refusal subject takes, for the same
- * reason: a deadline no scripted beat is scheduled at is reached by moving time past
- * it. The DOM wait stays, because it says the state is on screen rather than that time
- * has passed.
- */
-async function mountArtifactPanePayload(
-  readAnswer: GrowthAnswer<"artifactRead">,
-): Promise<MountedFamilySurface> {
-  const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
-  const bridge = scriptedArtifactPort(readAnswer);
-  const ArtifactPaneBody = paneBodyComponent("artifact");
-  const { container } = await renderSettled(
-    <LiveAnnouncerProvider clock={new ManualClock()}>
-      {ArtifactPaneBody({
-        kind: "artifact",
-        entity: { kind: "artifact", id: REPOS_PINNED_ARTIFACT_ID },
-        ...paneBinding({ paneId: "pane-artifact-payload", bridge, sessionStore }),
-      })}
-    </LiveAnnouncerProvider>,
-  );
-  const region = requireLabelledRegion(container, "Artifact");
-  await act(async () => {
-    bridge.scenarioEngine?.advance(SCENARIO_SETTLE_ADVANCE_MS);
-    await Promise.resolve();
-  });
-  await waitForWithin(region, ".meridian-artifacts__filter");
-  fireEvent.click(within(region).getByRole("button", { name: "Fetch payload" }));
-  await waitForWithin(region, ".meridian-artifact-payload");
-  return { element: region, bridge };
-}
-
-/** The pane on the DEFERRED arm: a content-addressed handle and no bytes. */
-export async function mountArtifactPaneDeferredPayload(): Promise<MountedFamilySurface> {
-  return mountArtifactPanePayload(DEFERRED_PAYLOAD_READ);
-}
-
-/** The pane on the INLINE arm: the bytes, and the encoding a reader switches on. */
-export async function mountArtifactPaneInlinePayload(): Promise<MountedFamilySurface> {
-  return mountArtifactPanePayload(INLINE_PAYLOAD_READ);
 }
 
 /**

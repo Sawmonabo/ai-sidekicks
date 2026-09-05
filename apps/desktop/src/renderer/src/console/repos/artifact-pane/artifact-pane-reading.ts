@@ -338,3 +338,37 @@ export function withoutRowRefusal(
   remaining.delete(artifactId);
   return remaining;
 }
+
+/**
+ * What a settled read publishes: both legs, and what of the previous reading survives.
+ *
+ * ONE SNAPSHOT, BOTH LEGS. Publishing each leg as it lands would let a snapshot hold a
+ * list from one refresh beside an allow-list from another, so the reader joins them and
+ * calls this once. Which members carry forward is the decision this function exists to
+ * hold in one place, and each is carried for its own reason rather than by a spread:
+ *
+ *   • `lastDeleteReceipt` is CLEARED BY THE LIST THAT FOLLOWS IT. The receipt is about a
+ *     row this read has just answered for — by not returning it — so a consequence left
+ *     standing would read as a fact about the list now on screen.
+ *   • `payload` SURVIVES: it is about an artifact this read either returned or did not,
+ *     and either way nothing here re-fetched bytes to answer for it.
+ *   • `manifestReadInFlightArtifactIds` and `refusalByArtifactId` are THE ACTS' REGISTERS
+ *     rather than this read's. A row whose re-read is still on the wire is still holding
+ *     its control, and a publish that rebuilt the set would offer it back mid-flight; a
+ *     refusal records an ACT that did not happen, and a read that did not re-attempt the
+ *     act does not answer for it.
+ */
+export function settledReadReading(
+  previous: ArtifactPaneReading,
+  artifacts: ArtifactPaneReading["artifacts"],
+  allowlist: ArtifactAllowlistReading,
+): Omit<ArtifactPaneReading, "readAtMilliseconds"> {
+  return {
+    artifacts,
+    allowlist,
+    lastDeleteReceipt: undefined,
+    payload: previous.payload,
+    manifestReadInFlightArtifactIds: previous.manifestReadInFlightArtifactIds,
+    refusalByArtifactId: previous.refusalByArtifactId,
+  };
+}

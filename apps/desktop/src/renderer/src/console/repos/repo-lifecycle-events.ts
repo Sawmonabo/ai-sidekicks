@@ -1,4 +1,11 @@
-// The frames this family re-reads on, named where a repository is understood.
+// The frames this family re-reads on — THE FAMILY'S ONE EVENT-KIND CENSUS.
+//
+// Two sets live here, both derived from the contract's registry by namespace prefix and
+// neither hand-listed: `REPO_LIFECYCLE_EVENT_KINDS` for the mounts and the gate, and
+// `ARTIFACT_TERMINAL_EVENT_KINDS` for the artifact pane. The second moved here from
+// `artifact-pane/artifact-reader.ts` because its own doc already said it was built on
+// this module's shape and for this module's reason, and a derivation stated twice in two
+// directories is the pair that drifts.
 //
 // The mechanism — window focus, the store's repair edge, and a named frame, each routed
 // to a `RefreshScheduler` — is `store/refresh-triggers.ts`'s, and it is shared with
@@ -74,3 +81,34 @@ export const REPO_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = [
 ].filter((eventType) =>
   REPO_EVENT_NAMESPACE_PREFIXES.some((prefix) => eventType.startsWith(prefix)),
 );
+
+/** The namespace every frame about an artifact is registered under. */
+const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
+
+/**
+ * Every registered frame that names an artifact.
+ *
+ * DERIVED FROM THE CONTRACT'S OWN CENSUS rather than hand-listed, on
+ * `repos/repo-lifecycle-events.ts`'s shape and for its reason: the three kinds this
+ * used to spell out are a snapshot of a registry that grows, so a fourth
+ * `artifact.*` kind — a retention sweep, a re-publication — would have reached this
+ * pane and been ignored, with the list on screen going stale and nothing anywhere
+ * saying why. `SESSION_EVENT_CATEGORY_BY_TYPE` is the canonical type registry and its
+ * keys are the whole census, so a kind is watched the day it is registered and a kind
+ * renamed stops matching nothing silently rather than compiling and doing so.
+ *
+ * THE SELECTOR IS THE NAMESPACE AND NOT THE CATEGORY, which is the question this pane
+ * is actually asking. Both of its reads are about artifacts, so any frame that names
+ * one changes what one of them would answer — while `artifact_publication`, the
+ * category the three live in, also holds `diff.created`, `pr.prepared`, and
+ * `pr.submitted`, which are publications of other entities and change neither read. It
+ * deliberately does not infer a category from the prefix either, which
+ * `packages/contracts/src/event.ts` warns against: a type's category is the registry's
+ * to state, and this set never reads one.
+ *
+ * The annotation is explicit rather than inferred, because `isolatedDeclarations`
+ * requires one on every exported binding.
+ */
+export const ARTIFACT_TERMINAL_EVENT_KINDS: readonly SessionEventType[] = [
+  ...SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
+].filter((eventType) => eventType.startsWith(ARTIFACT_EVENT_NAMESPACE_PREFIX));

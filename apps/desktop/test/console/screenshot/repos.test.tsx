@@ -43,15 +43,17 @@ import { server } from "vitest/browser";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountArtifactPane,
-  mountArtifactPaneDeferredPayload,
-  mountArtifactPaneInlinePayload,
   mountDiffPane,
   mountProposalGate,
   mountRepoSection,
   mountRepoSectionWithOpenGate,
-  type MountedFamilySurface,
 } from "../surfaces/repos.js";
+import {
+  mountArtifactPane,
+  mountArtifactPaneDeferredPayload,
+  mountArtifactPaneInlinePayload,
+} from "../surfaces/repos-artifact.js";
+import { type MountedFamilySurface } from "../surfaces/repos-mount-harness.js";
 import { baselineSkipReason, comparesBaselines, readBaselineHost } from "./baseline-platform.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";

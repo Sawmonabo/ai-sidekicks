@@ -35,15 +35,17 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountArtifactPane,
-  mountArtifactPaneDeferredPayload,
-  mountArtifactPaneInlinePayload,
   mountDiffPane,
   mountProposalGate,
   mountRepoSection,
   mountRepoSectionWithOpenGate,
-  type MountedFamilySurface,
 } from "../surfaces/repos.js";
+import {
+  mountArtifactPane,
+  mountArtifactPaneDeferredPayload,
+  mountArtifactPaneInlinePayload,
+} from "../surfaces/repos-artifact.js";
+import { type MountedFamilySurface } from "../surfaces/repos-mount-harness.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,
