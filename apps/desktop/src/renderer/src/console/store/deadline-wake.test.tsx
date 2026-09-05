@@ -11,7 +11,7 @@
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ManualClock, RealClock, type ScheduledHandle } from "../core/index.js";
+import { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "../core/index.js";
 import { earliestFutureDeadline, useDeadlineWake } from "./deadline-wake.js";
 
 /**
@@ -54,7 +54,7 @@ const MAXIMUM_TIMEOUT_MILLISECONDS = 2_147_483_647;
 const SIXTY_DAYS_MILLISECONDS = 60 * 24 * 60 * 60 * 1_000;
 
 function WakingSurface(props: {
-  readonly clock: ManualClock;
+  readonly clock: ConsoleClock;
   readonly deadlines: readonly number[];
 }): React.JSX.Element {
   const nowMilliseconds = useDeadlineWake(props.clock, props.deadlines);
@@ -62,7 +62,7 @@ function WakingSurface(props: {
 }
 
 function renderWake(
-  clock: ManualClock,
+  clock: ConsoleClock,
   deadlines: readonly number[],
 ): { readonly instant: () => number; readonly setDeadlines: (next: readonly number[]) => void } {
   const { container, rerender } = render(<WakingSurface clock={clock} deadlines={deadlines} />);
