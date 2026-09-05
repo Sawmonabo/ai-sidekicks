@@ -22,14 +22,14 @@
 // Test files are excluded: a test asserting that "1.0 KiB" renders has to write
 // "1.0 KiB", and forbidding that would forbid testing the chokepoint's own output.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "src", "console");
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
 
 /**
  * The one module allowed to scale a byte figure.
@@ -37,7 +37,7 @@ const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "sr
  * An allow-list of exactly one, written as a path rather than inferred from a
  * naming convention, so moving the chokepoint is an edit a reviewer sees.
  */
-const CHOKEPOINT_MODULE = join("primitives", "wire-figures.ts");
+const CHOKEPOINT_MODULE = "console/primitives/wire-figures.ts";
 
 /**
  * The binary unit labels. Naming one of these in a source module is the
@@ -69,45 +69,38 @@ function byteScalingSignatures(source: string): readonly string[] {
   return [...BINARY_UNIT_LABELS, ...SCALING_STEP_FORMS].filter((form) => source.includes(form));
 }
 
-function consoleSourceModules(): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx") &&
-        !entry.endsWith(".d.ts"),
-    )
-    .sort();
-}
-
-function readConsoleSource(module: string): string {
-  return readFileSync(join(CONSOLE_DIRECTORY, module), "utf8");
-}
-
 describe("wire-figure-formatting — byte scaling happens in exactly one module", () => {
-  const modules = consoleSourceModules();
+  // The walk is `test/console/console-source-modules.ts`, shared with the timer and
+  // windowed-row tripwires: three copies of "what counts as console source" is how
+  // one scan comes to read declaration files and another does not, with nothing
+  // reporting the difference. Scoped to the console root, because this chokepoint's
+  // claim is about the console and not about every renderer subtree.
+  const modules = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
 
   it("finds a console tree to scan at all", () => {
     // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
     // assertion below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
-    expect(modules).toContain(CHOKEPOINT_MODULE);
+    expect(modules.map((module) => module.displayPath)).toContain(CHOKEPOINT_MODULE);
   });
 
   it("no other module names a binary unit or divides by the scaling step", () => {
     const offenders = modules
-      .filter((module) => module !== CHOKEPOINT_MODULE)
-      .map((module) => ({ module, signatures: byteScalingSignatures(readConsoleSource(module)) }))
+      .filter((module) => module.displayPath !== CHOKEPOINT_MODULE)
+      .map((module) => ({
+        module: module.displayPath,
+        signatures: byteScalingSignatures(readConsoleSourceModule(module)),
+      }))
       .filter((entry) => entry.signatures.length > 0)
-      .map((entry) => `${relative(".", entry.module)}: ${entry.signatures.join(", ")}`);
+      .map((entry) => `${entry.module}: ${entry.signatures.join(", ")}`);
     expect(offenders).toStrictEqual([]);
   });
 
   it("negative control: the chokepoint itself trips every signature", () => {
     // The checker reads real files and the needles match real code. Without this,
     // a typo in a needle would make the clean result above meaningless.
-    const signatures = byteScalingSignatures(readConsoleSource(CHOKEPOINT_MODULE));
+    const chokepoint = moduleNamed(modules, CHOKEPOINT_MODULE, "the byte-scaling chokepoint");
+    const signatures = byteScalingSignatures(readConsoleSourceModule(chokepoint));
     for (const label of BINARY_UNIT_LABELS) {
       expect(signatures).toContain(label);
     }

@@ -20,9 +20,7 @@
 //
 // Each has a negative control, because a guard that cannot fail is not a guard.
 
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
@@ -41,18 +39,17 @@ import {
   validatePersistedValue,
 } from "../../../src/renderer/src/console/persistence/value-classes.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const PERSISTENCE_DIRECTORY = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "src",
-  "renderer",
-  "src",
-  "console",
-  "persistence",
-);
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
+
+const PERSISTENCE_DIRECTORY = join(CONSOLE_DIRECTORY, "persistence");
+
+/** The persistence subtree, through the tier's one walk. */
+const PERSISTENCE_MODULES = consoleSourceModules({ roots: [PERSISTENCE_DIRECTORY] });
 
 /**
  * The browser storage APIs a renderer can reach. `caches` and `openDatabase` are
@@ -79,13 +76,13 @@ const STORAGE_ADAPTER_FILES: readonly string[] = ["indexeddb-adapter.ts", "memor
 const PARTICIPANT_CONTENT_WORDS: readonly string[] = ["draft", "composer", "form"];
 
 function persistenceSourceFiles(): readonly string[] {
-  return readdirSync(PERSISTENCE_DIRECTORY)
-    .filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".test.ts"))
-    .sort();
+  return PERSISTENCE_MODULES.map((module) => module.relativePath);
 }
 
 function readPersistenceSource(file: string): string {
-  return readFileSync(join(PERSISTENCE_DIRECTORY, file), "utf8");
+  return readConsoleSourceModule(
+    moduleNamed(PERSISTENCE_MODULES, `console/persistence/${file}`, "a persistence module"),
+  );
 }
 
 /**

@@ -20,31 +20,31 @@
 // right instrument for the guard, because a guard's placement is not observable
 // from the module's exports.
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const TRIPWIRES_MODULE_PATH = resolve(
-  HERE,
-  "..",
-  "..",
-  "..",
-  "src",
-  "renderer",
-  "src",
-  "console",
-  "core",
-  "tripwires.ts",
-);
+import {
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
+
+/**
+ * The module this gate reads, named the way every source-text gate in this tier names
+ * one: through the shared walk, which resolves it and says which name was not found.
+ *
+ * It used to be a path composed segment by segment beside a `readFileSync` — a gate
+ * holding its own opinion about where console source lives, which is what the
+ * source-walk chokepoint's second claim exists to refuse.
+ */
+const TRIPWIRES_MODULE = "console/core/tripwires.ts";
 
 const FIXTURE_GUARD = "if (__SIDEKICKS_CONSOLE_FIXTURES__) {";
 const REGISTRY_ASSIGNMENT = "[TRIPWIRE_FIXTURE_GLOBAL] = consoleTripwires";
 
 describe("tripwire fixture global — exposed only behind the fixture define", () => {
-  const source = readFileSync(TRIPWIRES_MODULE_PATH, "utf8");
+  const source = readConsoleSourceModule(
+    moduleNamed(consoleSourceModules(), TRIPWIRES_MODULE, "the tripwire registry"),
+  );
 
   it("assigns the registry only inside the fixture guard", () => {
     const guardIndex = source.indexOf(FIXTURE_GUARD);

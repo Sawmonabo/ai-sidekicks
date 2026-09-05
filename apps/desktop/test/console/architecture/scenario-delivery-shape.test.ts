@@ -25,7 +25,7 @@ import {
 } from "../../../src/renderer/src/console/bridge/fixture-bridge.test-support.js";
 import { CONSOLE_SCENARIOS } from "../../../src/renderer/src/console/bridge/scenarios/index.js";
 import { SESSION_EVENT_STREAM } from "../../../src/renderer/src/console/bridge/session-event-streams.js";
-import { readConsoleSessionEvent } from "../../../src/renderer/src/console/frame/session-event-payload.js";
+import { readConsoleSessionEvent } from "../../../src/renderer/src/console/bridge/session-event-payload.js";
 
 describe("scenario delivery shape — what the fixture bridge actually delivers", () => {
   it.each(CONSOLE_SCENARIOS.map((scenario) => [scenario.id, scenario] as const))(

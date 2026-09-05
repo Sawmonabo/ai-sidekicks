@@ -181,3 +181,24 @@ export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
   OwnerSlotProps,
 } from "./owner-slot.js";
+
+// The session vocabulary, straight from the module that DECLARES it rather than
+// through `store/index.js`, which would be a barrel chain. Without these four lines
+// the door written for the view families is unreachable through the one import path
+// they are allowed to use: a pane reaching `../../seats/session-subject.js` is a deep
+// cross-family import the package standard forbids, so the only other answer would be
+// not to bind at all. Both gates were green on that for reasons neither intends — the
+// module's own test keeps it reachable, and it imports two families so it is no
+// orphan — which is why the census below is the thing that says who owes the rebind.
+export {
+  /** @consumedBy T-023p-1C-4 */
+  isCurrentSessionSubject,
+  /** @consumedBy T-023p-1C-3 */
+  useSessionScopedState,
+} from "./session-subject.js";
+export type {
+  /** @consumedBy T-023p-1C-3 */
+  SessionScopedKey,
+  /** @consumedBy T-023p-1C-4 */
+  SessionSubject,
+} from "./session-subject.js";

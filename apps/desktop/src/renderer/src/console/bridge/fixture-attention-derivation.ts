@@ -51,6 +51,7 @@
 //   • `mention` — the event census registers no mention type at all, so there is
 //     nothing canonical to fold.
 
+import { compareInstants, parseInstant } from "../core/index.js";
 import type {
   AttentionItem,
   AttentionProjection,
@@ -210,13 +211,26 @@ function deriveSessionAggregate(
   };
 }
 
-/** D-019-2's tiebreak chain: severity, then `createdAt`, then `id`. */
+/**
+ * D-019-2's tiebreak chain: severity, then `createdAt`, then `id`.
+ *
+ * The stamps are ordered through `compareInstants` and not with `<`. Two RFC 3339
+ * stamps are not lexically ordered — an offset form sorts after the `Z` form of the
+ * moment it precedes — so the text comparison this replaced picked the wrong
+ * representative for exactly the pair of items a reader would check. It also read two
+ * texts naming one moment as different; they now tie, and the `id` tiebreak below
+ * settles them, which is what the chain says.
+ */
 function outranksAsRepresentative(candidate: AttentionItem, chosen: AttentionItem): boolean {
   if (candidate.severity !== chosen.severity) {
     return candidate.severity === "actionable";
   }
-  if (candidate.createdAt !== chosen.createdAt) {
-    return candidate.createdAt < chosen.createdAt;
+  const byCreatedAt = compareInstants(
+    parseInstant(candidate.createdAt),
+    parseInstant(chosen.createdAt),
+  );
+  if (byCreatedAt !== 0) {
+    return byCreatedAt < 0;
   }
   return candidate.id < chosen.id;
 }

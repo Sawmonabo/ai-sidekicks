@@ -135,8 +135,8 @@ import type { RuntimeNodeRosterEntry, VersionFloorExceededCode } from "@ai-sidek
 // PROP, theirs as bridge `catch` bindings), and that difference is now the
 // `total` option rather than a third normalizer.
 import {
-  isWireErrorEnvelopeWithCode,
-  normalizeWireRejection,
+  readWireErrorEnvelopeWithCode,
+  wireRejectionToError,
 } from "../../../shared/wire-errors.js";
 
 // `VERSION_FLOOR_EXCEEDED_WIRE_CODE` — the canonical wire code for the
@@ -154,8 +154,8 @@ import {
 // contracts literal at compile time, so if the canonical code ever drifts this
 // line becomes a type error rather than the branch silently ceasing to match
 // (which would demote a below-floor refusal to the generic arm and lose the
-// AC4 typed surfacing unflagged — a type predicate's body is an unchecked
-// assertion). The binding costs nothing at runtime: `import type` plus a
+// AC4 typed surfacing unflagged — the reader's `===` is a runtime comparison
+// nothing else checks). The binding costs nothing at runtime: `import type` plus a
 // type-annotated local literal emit no JS import, so the file stays type-only
 // from `@ai-sidekicks/contracts`. (The wire VALUE itself is already hoisted in
 // contracts; per the repo's hoist test, a compile-bound local literal is the
@@ -297,6 +297,15 @@ export function MixedVersionStatus({
   writeAttemptRejection,
 }: MixedVersionStatusProps): React.JSX.Element {
   const accessStatus = resolveAccessStatus(rosterEntry);
+  // The floor refusal as a SNAPSHOT, never a narrowing of the prop: this rejection
+  // is `unknown` and whatever a parent caught, so a member read at the render below
+  // would be a second access on an unvalidated value — one that answers differently
+  // paints an arm the wire never sent, and one that throws unmounts the node this
+  // component exists to keep visible (I-003-1, eject-by-render).
+  const floorRefusal = readWireErrorEnvelopeWithCode(
+    writeAttemptRejection,
+    VERSION_FLOOR_EXCEEDED_WIRE_CODE,
+  );
 
   // The write-refusal block — one of three arms, computed ahead of the single
   // return so the render below states the I-003-1 structure plainly: the
@@ -313,7 +322,7 @@ export function MixedVersionStatus({
     // value; `undefined` is tolerated as the same fact (the prop is
     // `unknown`, so a parent's optional-chain miss can arrive here).
     writeRefusalBlock = <p data-write-refusal="none">no refused write attempt to surface</p>;
-  } else if (isWireErrorEnvelopeWithCode(writeAttemptRejection, VERSION_FLOOR_EXCEEDED_WIRE_CODE)) {
+  } else if (floorRefusal !== undefined) {
     // The AC4 surfacing: the typed `version.floor_exceeded` envelope rendered
     // verbatim (wire code + server message), with the admit-not-eject fact
     // stated in copy — the refused WRITE is the only thing denied; the node
@@ -331,7 +340,7 @@ export function MixedVersionStatus({
         data-write-refusal={VERSION_FLOOR_EXCEEDED_WIRE_CODE}
       >
         <p>
-          write refused: {writeAttemptRejection.code}: {writeAttemptRejection.message}
+          write refused: {floorRefusal.code}: {floorRefusal.message}
         </p>
         <p>the node remains joined and readable — admitted read-only, not ejected</p>
       </div>
@@ -355,7 +364,7 @@ export function MixedVersionStatus({
     // unmount the tree — no error boundary exists in the renderer at Tier 3 —
     // and even a future boundary would only swap the crash for a fallback that
     // hides the node: an eject-by-render, which I-003-1 forbids.
-    const normalizedRejection = normalizeWireRejection(writeAttemptRejection, { total: true });
+    const normalizedRejection = wireRejectionToError(writeAttemptRejection, { total: true });
     writeRefusalBlock = (
       <div role="alert" aria-label="unrecognized-write-rejection" data-write-refusal="unrecognized">
         <p>
