@@ -90,11 +90,12 @@
 // restart disclosure reachable: it is armed at construction and cleared the first
 // time a composer is focused, which is a sentence somebody has to render.
 
-import { useCallback, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
 import { composerDraftKey } from "./draft-key.js";
+import { useComposerDraftText } from "../use-composer-draft-text.js";
 import { useSettlementRegister } from "./use-settlement-register.js";
 import { composerRefusal } from "./send-refusals.js";
 import { composeDirectivePlaceholder, directivePathLabel } from "./directive-line.js";
@@ -212,17 +213,9 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     [isCurrent, publishRefusalSlots],
   );
 
-  const subscribeToDraft = useCallback(
-    (onDraftChanged: () => void) => draftStore.subscribe(draftKey, onDraftChanged),
-    [draftStore, draftKey],
-  );
-  // Returns a plain string rather than the entry, so the snapshot is value-stable
-  // across renders and `useSyncExternalStore` has nothing to loop on.
-  const readDraftText = useCallback(
-    () => draftStore.read(draftKey)?.text ?? "",
-    [draftStore, draftKey],
-  );
-  const text = useSyncExternalStore(subscribeToDraft, readDraftText, readDraftText);
+  // The one reading of this key, shared with the discovery popover watching the same
+  // line: two subscriptions written twice are two answers to what the person typed.
+  const { text, read: readDraftText } = useComposerDraftText(draftStore, draftKey);
   // The walk back through what was sent from this address, and the record a settled
   // send writes into. Its own module because it is a different job with a different
   // lifetime — nothing there reaches the wire and nothing there can refuse.

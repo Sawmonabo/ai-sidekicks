@@ -7,7 +7,7 @@
 // the line", and the two would disagree the first time either side changed it.
 //
 // So this hook OBSERVES rather than owns: it reads the composer's draft and never
-// writes to it. `useSyncExternalStore` is the shape for exactly that — the snapshot
+// writes to it. `use-composer-draft-text.ts` is the shape for exactly that — the snapshot
 // is the value, and a value read between render and subscription is not missed the
 // way an effect-written state would miss it.
 //
@@ -35,10 +35,11 @@
 // zone was handed, and a region-wide arrow interception would swallow the keys of the
 // list it just opened.
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { DraftStore } from "../../../console/persistence/index.js";
 import { readDirectiveName } from "../directive-syntax.js";
+import { useComposerDraftText } from "../use-composer-draft-text.js";
 
 /** What the composer's line is currently asking the discovery surface for. */
 export interface DirectiveLineDiscovery {
@@ -76,18 +77,8 @@ export function useDirectiveLineDiscovery(
   source: DirectiveLineSource,
 ): DirectiveLineDiscovery {
   const { draftStore, draftKey } = source;
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => draftStore.subscribe(draftKey, onStoreChange),
-    [draftStore, draftKey],
-  );
-  // A plain string rather than the entry, so the snapshot is value-stable across
-  // renders and `useSyncExternalStore` has nothing to loop on — the same reading the
-  // send bar takes of the same key.
-  const readLineText = useCallback(
-    () => draftStore.read(draftKey)?.text ?? "",
-    [draftStore, draftKey],
-  );
-  const lineText = useSyncExternalStore(subscribe, readLineText, readLineText);
+  // The same reading the send bar takes of the same key, through the same hook.
+  const { text: lineText, read: readLineText } = useComposerDraftText(draftStore, draftKey);
 
   const [dismissedAtText, setDismissedAtText] = useState<string | undefined>(undefined);
   const [stepIntoListToken, setStepIntoListToken] = useState(0);
