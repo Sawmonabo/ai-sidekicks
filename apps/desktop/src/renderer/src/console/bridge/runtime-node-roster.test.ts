@@ -37,7 +37,7 @@ import { SETTINGS_SCENARIO } from "./scenarios/settings.js";
 import {
   RUNTIME_NODE_PRESENCE_EVENT_NAMES,
   RUNTIME_NODE_ROSTER_PROCEDURE,
-  RUNTIME_NODE_ROSTER_REFUSAL_CODES,
+  RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES,
   RUNTIME_NODE_ROSTER_REFUSAL_ORIGIN,
   readRuntimeNodeRosterFromScenario,
   type RuntimeNodeRosterOutcome,
@@ -176,7 +176,9 @@ describe("the fixture roster read", () => {
     const engine = new ScenarioEngine({ scenario: SETTINGS_SCENARIO });
     const foreign = readRuntimeNodeRosterFromScenario(engine, { sessionId: FOREIGN_SESSION_ID });
     raised.add(foreign.status === "refused" ? foreign.code : "");
-    expect([...raised].sort()).toStrictEqual([...RUNTIME_NODE_ROSTER_REFUSAL_CODES].sort());
+    expect([...raised].sort()).toStrictEqual(
+      [...RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES].sort(),
+    );
   });
 });
 

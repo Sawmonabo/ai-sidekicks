@@ -36,26 +36,23 @@
 // invent one in a `catch`. The refused arm IS a `ConsoleRefusal`, so a surface
 // spreads it straight into the refusal primitives.
 //
-// TWO BRAND CASTS, AND WHY THEY ARE HERE. `CpProcedure` and `DaemonEvent` are
-// `never`-shaped Plan-007/Plan-008 brands that no string literal is assignable to,
-// so every caller in this repository casts — the three shipped Tier-1 components
-// and `seats/wire-access.ts` each carry one. This module is the `bridge/`
-// family's single copy, and it narrows rather than erases: the procedure NAME and
-// the event NAME stay `string` (the genuinely untypeable half) while the request and
-// the response are pinned to the contracts package's own types. When the brands
-// narrow, the casts here and the family copy one level up are the sites that change.
+// WHERE THE TWO ARMS LIVE. This module holds the seam's VOCABULARY — the registered
+// procedure name, the event census the presence set is derived from, the refusal
+// codes, the outcome types — plus the FIXTURE read, which is scenario-driven and
+// touches no transport. The two LIVE arms are `runtime-node-roster-transport.ts`
+// beside it: they speak to a real `SidekicksBridge`, they carry the Plan-007 /
+// Plan-008 brand casts, and they are driven by their own suite. One vocabulary, two
+// arms, and neither arm can invent a name the other does not know.
 
 import type {
   RuntimeNodeEventName,
   RuntimeNodeRosterRequest,
   RuntimeNodeRosterResponse,
   SessionId,
-  SidekicksBridge,
   Unsubscribe,
 } from "@ai-sidekicks/contracts";
 
-import { wireRejectionToError } from "../../../../shared/wire-errors.js";
-import { refuse, type ConsoleRefusal } from "../core/index.js";
+import { refuse, type WireRefusal } from "../core/index.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 import type { ScenarioRuntimeNodeRosterFrame } from "./scenario.js";
 
@@ -127,22 +124,34 @@ export const RUNTIME_NODE_PRESENCE_EVENT_NAMES: readonly RuntimeNodeEventName[] 
 ).filter((eventName) => RUNTIME_NODE_EVENT_AXIS_BY_NAME[eventName] === "state-transition");
 
 /**
- * The codes this seam's own refusals carry.
+ * The codes the FIXTURE arm raises. Both are facts about the scenario.
  *
- * Both are FIXTURE facts: the scenario named no roster, or it names a different
- * session. A live refusal carries the wire's own code instead — rule 9 renders the
- * refuser's code verbatim, and paraphrasing a typed daemon refusal into a
- * console-scoped code would replace the one string a person pastes into a search.
- * That is why `ConsoleRefusal.code` stays a `string` on the outcome and this closed
- * set describes only what this module itself can raise.
+ * Kept apart from the wire arm's set below rather than pooled with it, because each
+ * set is TOTAL for the arm that raises it and the two arms are driven by different
+ * suites: pooled, neither census could claim every code it declares is reachable, and
+ * a code nothing raises is exactly the drift a census exists to catch.
  */
-export const RUNTIME_NODE_ROSTER_REFUSAL_CODES: readonly [
+export const RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES: readonly [
   "roster-unscripted",
   "session-not-played",
 ] = ["roster-unscripted", "session-not-played"];
 
-/** One refusal code this seam raises. Derived, so the vocabulary is declared once. */
-export type RuntimeNodeRosterRefusalCode = (typeof RUNTIME_NODE_ROSTER_REFUSAL_CODES)[number];
+/**
+ * The codes the LIVE arms fall back to, and only fall back to.
+ *
+ * A LAST RESORT, never a displacement. A live rejection that names a code of its own
+ * — a carried refusal, a JSON-RPC `data.type`, a flat `{code, message}` envelope —
+ * keeps it verbatim, because rule 9 renders the refuser's code and paraphrasing a
+ * typed daemon refusal into a console-scoped one would replace the one string a
+ * person pastes into a search. These three are what a rejection that named nothing
+ * gets, plus the one failure the wire cannot name because the wire believes it
+ * succeeded: a reply this console cannot read.
+ */
+export const RUNTIME_NODE_ROSTER_WIRE_REFUSAL_CODES: readonly [
+  "roster-read-failed",
+  "roster-reply-unreadable",
+  "presence-subscribe-failed",
+] = ["roster-read-failed", "roster-reply-unreadable", "presence-subscribe-failed"];
 
 /** The roster read answered, with the registered reply verbatim. */
 export interface RuntimeNodeRosterServed {
@@ -155,11 +164,18 @@ export interface RuntimeNodeRosterServed {
  *
  * ONE refusal shape for both, because a surface renders them the same way and two
  * structurally identical types would be two vocabularies to keep in step. A
- * `ConsoleRefusal` widened with the discriminant, on the growth port's own pattern:
+ * `WireRefusal` widened with the discriminant, on the growth port's own pattern:
  * `isConsoleRefusal` answers true for it and the refusal primitives take it by
  * spread, so a surface renders this beside any other refusal without translating.
+ *
+ * `WireRefusal` rather than the bare `ConsoleRefusal` it extends, because the live
+ * arms answer through the console's rejection normalizer and a rate-limited read
+ * carries a `retry` bound the surface may render. Declaring the narrower supertype
+ * would have kept the member on the object and hidden it from every reader — a hint
+ * present on the wire and unreachable in the types, which is the one shape worse than
+ * not carrying it.
  */
-export interface RuntimeNodeRefused extends ConsoleRefusal {
+export interface RuntimeNodeRefused extends WireRefusal {
   readonly status: "refused";
 }
 
@@ -205,33 +221,6 @@ export type RuntimeNodePresenceSubscribe = (
 ) => RuntimeNodePresenceSubscription;
 
 /**
- * Read the roster over the registered control-plane procedure. The live arm.
- *
- * The rejection is converted rather than propagated, and the wire's own code
- * survives the conversion: `wireRejectionToError` rebuilds a `{code, message}`
- * envelope as an `Error` whose `name` IS the wire code, so a typed
- * `runtimenode.*` refusal reaches the surface as that code and not as a
- * console-scoped paraphrase. Anything else keeps its own error name, which is a
- * true statement about what failed rather than a guess.
- */
-export async function readRuntimeNodeRosterOverControlPlane(
-  sidekicks: SidekicksBridge,
-  request: RuntimeNodeRosterRequest,
-): Promise<RuntimeNodeRosterOutcome> {
-  const callProcedure = sidekicks.controlPlane.call as unknown as (
-    procedure: string,
-    input: RuntimeNodeRosterRequest,
-  ) => Promise<RuntimeNodeRosterResponse>;
-  try {
-    const value = await callProcedure(RUNTIME_NODE_ROSTER_PROCEDURE, request);
-    return { status: "served", value };
-  } catch (rejection: unknown) {
-    const normalized = wireRejectionToError(rejection);
-    return refusedByWire(normalized.name, normalized.message);
-  }
-}
-
-/**
  * Read the roster from the scenario the fixture is playing. The fixture arm.
  *
  * Three answers, and the two refusals are different facts a surface draws
@@ -271,61 +260,6 @@ export function readRuntimeNodeRosterFromScenario(
   return { status: "served", value: { nodes: [...current.nodes] } };
 }
 
-/**
- * Subscribe to the presence transitions of one session, over `daemon.subscribe`.
- *
- * ONE subscription per registered name, because the wire takes one name per call
- * and there is no stream that projects the family. The returned handle releases
- * every one of them, so a caller cannot half-detach.
- *
- * THE SESSION FILTER FAILS OPEN, deliberately. `daemon.subscribe` carries no
- * session parameter, so the filter has to run at the delivery boundary — and the
- * only thing this module may read off an `unknown` is a member the contract
- * declares. The lifecycle payloads carry `sessionId`, and the fixture delivers the
- * beat envelope, which carries it too; so a delivery that NAMES a different session
- * is dropped, and one that names none is delivered. That direction is the safe one:
- * an extra signal costs one coalesced re-read, while a dropped signal leaves the
- * roster silently stale, which is the failure a live roster exists to prevent.
- */
-export function subscribeRuntimeNodePresence(
-  sidekicks: SidekicksBridge,
-  sessionId: SessionId,
-  onPresenceChange: () => void,
-): RuntimeNodePresenceSubscription {
-  const subscribeToEvent = sidekicks.daemon.subscribe as unknown as (
-    eventName: string,
-    handler: (payload: unknown) => void,
-  ) => Unsubscribe;
-  const taken: Unsubscribe[] = [];
-  const releaseAll = (): void => {
-    for (const unsubscribe of taken.splice(0, taken.length)) {
-      unsubscribe();
-    }
-  };
-  for (const eventName of RUNTIME_NODE_PRESENCE_EVENT_NAMES) {
-    try {
-      taken.push(
-        subscribeToEvent(eventName, (payload: unknown) => {
-          if (namesAnotherSession(payload, sessionId)) {
-            return;
-          }
-          onPresenceChange();
-        }),
-      );
-    } catch (rejection: unknown) {
-      // ALL OR NOTHING. A subscription that covered three of the five registered
-      // names would deliver some transitions and drop others, which reads as a
-      // roster that updates sometimes — the hardest kind of staleness to notice.
-      // So the ones already taken are released and the whole attempt refuses,
-      // carrying the thrower's own name and sentence rather than a paraphrase.
-      releaseAll();
-      const normalized = wireRejectionToError(rejection);
-      return refusedByWire(normalized.name, normalized.message);
-    }
-  }
-  return { status: "subscribed", unsubscribe: releaseAll };
-}
-
 /** The roster reading current at `elapsedMs`, or `undefined` before the first. */
 function frameDueAt(
   frames: readonly ScenarioRuntimeNodeRosterFrame[],
@@ -339,15 +273,6 @@ function frameDueAt(
   );
 }
 
-/** Does a delivered payload name a session other than the subscribed one? */
-function namesAnotherSession(delivered: unknown, sessionId: SessionId): boolean {
-  if (typeof delivered !== "object" || delivered === null) {
-    return false;
-  }
-  const { sessionId: deliveredSessionId } = delivered as { readonly sessionId?: unknown };
-  return typeof deliveredSessionId === "string" && deliveredSessionId !== sessionId;
-}
-
 /**
  * The refusal the FIXTURE arm raises, held to this seam's own closed vocabulary.
  *
@@ -356,22 +281,23 @@ function namesAnotherSession(delivered: unknown, sessionId: SessionId): boolean 
  * scenario and belongs to a set declared here, so passing a wire code through it is
  * a compile error rather than a convention.
  */
-function refusedByScenario(code: RuntimeNodeRosterRefusalCode, detail: string): RuntimeNodeRefused {
-  return buildRuntimeNodeRefusal(code, detail);
+function refusedByScenario(
+  code: (typeof RUNTIME_NODE_ROSTER_SCENARIO_REFUSAL_CODES)[number],
+  detail: string,
+): RuntimeNodeRefused {
+  return runtimeNodeRefusal(code, detail);
 }
 
 /**
- * The refusal the LIVE arm raises, carrying the refuser's own code verbatim.
+ * The one construction every door in this seam goes through, so `origin` is never
+ * forgotten and no arm invents a second subsystem name for the same read.
  *
- * `code` is deliberately a `string`: it is whatever the daemon or the transport
- * called the failure, and narrowing it to a set this module declares would mean
- * paraphrasing a typed refusal into a vocabulary the wire has never heard of.
+ * `code` is deliberately a `string` rather than the closed set: the transport module
+ * beside this one also builds a refusal from a code the WIRE chose, and narrowing
+ * here would mean paraphrasing a typed daemon refusal into a vocabulary this console
+ * declared. Which codes this module ITSELF may choose is stated by the two closed
+ * sets above and enforced where they are consumed.
  */
-function refusedByWire(code: string, detail: string): RuntimeNodeRefused {
-  return buildRuntimeNodeRefusal(code, detail);
-}
-
-/** The one construction both doors share, so `origin` is never forgotten. */
-function buildRuntimeNodeRefusal(code: string, detail: string): RuntimeNodeRefused {
+export function runtimeNodeRefusal(code: string, detail: string): RuntimeNodeRefused {
   return { ...refuse(RUNTIME_NODE_ROSTER_REFUSAL_ORIGIN, code, detail), status: "refused" };
 }

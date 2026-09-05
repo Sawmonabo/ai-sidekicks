@@ -130,13 +130,15 @@ describe("the live bridge's roster read", () => {
   it("answers rather than rejecting when the preload throws synchronously", async () => {
     // The Tier-1 stub throws from the call itself rather than returning a rejected
     // promise, so a seam that did not funnel both into one arm would throw out of
-    // the caller's effect. The refusal names the thrower.
+    // the caller's effect. The thrower named no code — it is a class, not a wire
+    // envelope — so the refusal carries the seam's own registered one rather than a
+    // constructor name no contract registers and no search finds.
     const outcome = await createLiveBridge(createTier1Bridge()).runtimeNodeRosterRead({
       sessionId: SESSION_ID,
     });
 
     expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" ? outcome.code : "").toBe("NotImplementedAtTier1Error");
+    expect(outcome.status === "refused" ? outcome.code : "").toBe("roster-read-failed");
   });
 });
 
@@ -193,7 +195,7 @@ describe("the live bridge's presence subscription", () => {
 
     expect(subscription.status).toBe("refused");
     expect(subscription.status === "refused" ? subscription.code : "").toBe(
-      "NotImplementedAtTier1Error",
+      "presence-subscribe-failed",
     );
   });
 });
