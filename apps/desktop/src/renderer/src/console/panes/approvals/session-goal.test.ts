@@ -13,10 +13,7 @@
 import { describe, expect, it } from "vitest";
 
 import { type ConsoleSessionEvent } from "../../store/index.js";
-import {
-  SESSION_GOAL_EVENT_KINDS,
-  foldSessionGoal,
-} from "./session-goal.js";
+import { SESSION_GOAL_EVENT_KINDS, foldSessionGoal } from "./session-goal.js";
 
 /**
  * One timeline entry.

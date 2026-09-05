@@ -119,12 +119,23 @@ export interface BridgeUnderTest {
  * Takes the bridge rather than building one, so a suite that has already overridden a
  * different namespace — a growth port answering its own operation, say — composes the
  * two instead of minting a second builder to hold both.
+ *
+ * `forward` is the underlying bridge's own answer, handed to the arm rather than
+ * reachable only by the caller keeping a reference. It is what lets one arm INTERCEPT
+ * one method and leave every other one scripted, which is what three shell suites
+ * each hand-rolled a spread of their own to do; a suite that answers everything
+ * simply never calls it. It is called at most once per call and its promise is the
+ * fixture's, so a parked reply is parked by not calling it rather than by racing it.
  */
 export function withDaemonCall(
   bridge: ConsoleBridge,
-  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+  answer: (call: RecordedDaemonCall, forward: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   const calls: RecordedDaemonCall[] = [];
+  const underlying = bridge.sidekicks.daemon.call as (
+    method: string,
+    params: unknown,
+  ) => Promise<unknown>;
   return {
     calls,
     bridge: {
@@ -136,7 +147,7 @@ export function withDaemonCall(
           call: (async (method: string, params: unknown): Promise<unknown> => {
             const recorded: RecordedDaemonCall = { method, params };
             calls.push(recorded);
-            return answer(recorded);
+            return answer(recorded, () => underlying(method, params));
           }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
         },
       },
@@ -144,11 +155,79 @@ export function withDaemonCall(
   };
 }
 
-/** The shipped fixture over the flagship scenario, with that call arm on it. */
+/** One bridge with a named stream's handler captured, and the way to deliver to it. */
+export interface StreamUnderTest {
+  readonly bridge: ConsoleBridge;
+  /** Push one frame to whatever subscribed to the captured stream. */
+  readonly deliver: (payload: unknown) => void;
+}
+
+/**
+ * Capture one named stream's handler, leaving every other subscription real.
+ *
+ * The subscription counterpart of `withDaemonCall`, and a spread over a REAL bridge
+ * for the same reason: a surface opens more than one stream, so a stand-in that
+ * answered them all would leave the case reading some other read's refusal. What a
+ * case gets back is the one handler it wants to push frames into; every other
+ * `subscribe` goes to the bridge underneath and behaves exactly as it would in the
+ * console.
+ *
+ * CAPTURED RATHER THAN SCRIPTED, which is a claim about WHEN. A scenario beat puts
+ * the frame on the fixture's clock, and every case that reaches for this is about
+ * what happens AFTER a read has settled — a moment the case has to place itself,
+ * because the fixture's clock does not know where that is.
+ *
+ * Delivering before anything subscribed throws rather than silently doing nothing: a
+ * case that pushed a frame into no handler and then asserted an absence would be
+ * reporting its own mistake as the surface's correct behaviour.
+ */
+export function withCapturedStream(bridge: ConsoleBridge, streamName: string): StreamUnderTest {
+  const underlying = bridge.sidekicks.daemon.subscribe as (
+    name: string,
+    sink: (payload: unknown) => void,
+  ) => () => void;
+  let capturedSink: ((payload: unknown) => void) | undefined;
+  return {
+    deliver: (payload: unknown): void => {
+      if (capturedSink === undefined) {
+        throw new Error(`nothing is subscribed to ${streamName}`);
+      }
+      capturedSink(payload);
+    },
+    bridge: {
+      ...bridge,
+      sidekicks: {
+        ...bridge.sidekicks,
+        daemon: {
+          ...bridge.sidekicks.daemon,
+          subscribe: ((name: string, sink: (payload: unknown) => void) => {
+            if (name !== streamName) {
+              return underlying(name, sink);
+            }
+            capturedSink = sink;
+            return () => {
+              capturedSink = undefined;
+            };
+          }) as ConsoleBridge["sidekicks"]["daemon"]["subscribe"],
+        },
+      },
+    },
+  };
+}
+
+/**
+ * The shipped fixture with that call arm on it, over the flagship scenario or over a
+ * scenario the suite names.
+ *
+ * The parameter is optional so the common case reads as it did, and present because a
+ * family suite drives its OWN scenario — the composer's, the approvals pane's — and
+ * without it each one had to reach for `createFixtureBridge` and rebuild the spread.
+ */
 export function bridgeAnswering(
-  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+  answer: (call: RecordedDaemonCall, forward: () => Promise<unknown>) => Promise<unknown>,
+  scenario?: ConsoleScenario,
 ): BridgeUnderTest {
-  return withDaemonCall(createFixture().bridge, answer);
+  return withDaemonCall(createFixture(scenario).bridge, answer);
 }
 
 /**

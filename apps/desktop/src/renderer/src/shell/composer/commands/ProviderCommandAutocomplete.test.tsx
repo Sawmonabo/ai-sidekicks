@@ -18,6 +18,10 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
+import {
+  bridgeAnswering,
+  type RecordedDaemonCall,
+} from "../../../console/bridge/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import { consoleCommands } from "../../../console/frame/command-surface.js";
 // Deep-imported for the reason `test/console/composer-surfaces.tsx` records: it is
@@ -87,32 +91,22 @@ interface RecordedCall {
 /**
  * The real fixture bridge with `answer` in front of `daemon.call`.
  *
- * A wrapper rather than a stand-in bridge: the replies, the refusals, and the
- * scenario clock are all the fixture's own, and `answer` decides only whether a
- * call is forwarded to them, noted on the way past, or held.
+ * The bridge family's own helper rather than a spread of this suite's: the replies,
+ * the refusals, and the scenario clock are all the fixture's own, and `answer`
+ * decides only whether a call is forwarded to them or held. The call door's
+ * chokepoint gate is why it is not spread here — a test outside `bridge/` stands in
+ * for a surface, and a surface goes through the door.
  */
-function bridgeAnswering(
-  answer: (method: string, params: unknown, forward: () => Promise<unknown>) => Promise<unknown>,
+function composerBridgeAnswering(
+  answer: (call: RecordedDaemonCall, forward: () => Promise<unknown>) => Promise<unknown>,
 ): ConsoleBridge {
-  const base = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
-  const call = base.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>;
-  return {
-    ...base,
-    sidekicks: {
-      ...base.sidekicks,
-      daemon: {
-        ...base.sidekicks.daemon,
-        call: ((method: string, params: unknown) =>
-          answer(method, params, () => call(method, params))) as typeof base.sidekicks.daemon.call,
-      },
-    },
-  };
+  return bridgeAnswering(answer, COMPOSER_SCENARIO).bridge;
 }
 
 /** The fixture, with a note of what was asked. */
 function recordingBridge(recorded: RecordedCall[]): ConsoleBridge {
-  return bridgeAnswering((method, params, forward) => {
-    recorded.push({ method, params });
+  return composerBridgeAnswering((call, forward) => {
+    recorded.push({ method: call.method, params: call.params });
     return forward();
   });
 }
@@ -139,8 +133,8 @@ function refusingEnumerationBridge(): ConsoleBridge {
 
 /** The fixture, with the enumeration held open so the read stays in flight. */
 function bridgeHoldingTheEnumeration(): ConsoleBridge {
-  return bridgeAnswering((method, _params, forward) =>
-    method === ENUMERATION_METHOD ? new Promise<unknown>(() => undefined) : forward(),
+  return composerBridgeAnswering((call, forward) =>
+    call.method === ENUMERATION_METHOD ? new Promise<unknown>(() => undefined) : forward(),
   );
 }
 
@@ -977,8 +971,8 @@ describe("ProviderCommandAutocomplete — the surface follows every write to the
    */
   async function mountWithHistory(): Promise<MountedComposer> {
     const mounted = await mountComposer({
-      bridge: bridgeAnswering(async (method, _params, forward) =>
-        method === "run.queueCreate" ? QUEUE_CREATED : await forward(),
+      bridge: composerBridgeAnswering(async (call, forward) =>
+        call.method === "run.queueCreate" ? QUEUE_CREATED : await forward(),
       ),
       focusedPane: undefined,
     });

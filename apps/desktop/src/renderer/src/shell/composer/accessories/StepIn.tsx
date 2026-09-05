@@ -21,7 +21,7 @@
 // floor still has to ask for the terminal.
 
 import { useCallback, useRef, useState } from "react";
-import { RunIdSchema, type RunControlAck } from "@ai-sidekicks/contracts";
+import { RunIdSchema } from "@ai-sidekicks/contracts";
 import { refuse } from "../../../console/core/index.js";
 import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { Glyph } from "../../../console/primitives/index.js";

@@ -74,7 +74,11 @@ import { projectRunStreamDelivery } from "./run-stream-projection.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import { composeScenarioEventEnvelope } from "./scenario-envelope.js";
 import type { ConsoleScenario } from "./scenario.js";
-import { SCRIPTED_REPLY_REFUSAL_CODES, settleScriptedReply } from "./scripted-reply.js";
+import {
+  SCRIPT_ABSENT_REFUSAL_CODE,
+  SCRIPTED_REPLY_REFUSAL_CODES,
+  settleScriptedReply,
+} from "./scripted-reply.js";
 import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-event-streams.js";
 
 /**
@@ -100,13 +104,13 @@ import { sessionEventStreamFor, subscriptionDeliversEventKind } from "./session-
  * projection arm above exists to prevent, arriving through the call door.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
-  "reply-unscripted",
+  typeof SCRIPT_ABSENT_REFUSAL_CODE,
   "capability-absent",
   "beat-unprojectable",
   "reply-off-contract",
   ...typeof SCRIPTED_REPLY_REFUSAL_CODES,
 ] = [
-  "reply-unscripted",
+  SCRIPT_ABSENT_REFUSAL_CODE,
   "capability-absent",
   "beat-unprojectable",
   "reply-off-contract",

@@ -74,8 +74,10 @@ describe("the two reads", () => {
   });
 
   it("renders a refusal when the scenario scripts no reply", async () => {
-    // The composer scenario scripts neither approval read, so the fixture rejects
-    // rather than resolving with nothing — which is what makes this arm reachable.
+    // The composer scenario scripts neither approval read, so the port refuses
+    // rather than serving an empty projection — which is what makes this arm
+    // reachable, and is the honest answer: an empty list is a claim that nothing is
+    // waiting on a decision, and a scenario modelling no approvals has not made it.
     const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
     const { reader, clock } = readerOver(bridge);
     reader.requestRead("subscribe");
@@ -85,9 +87,11 @@ describe("the two reads", () => {
     if (phase.status !== "refused") {
       throw new Error("an unscripted read did not refuse");
     }
-    // The fixture's own refusal survives rather than being re-wrapped, so its
-    // origin still names the subsystem that actually refused.
-    expect(phase.refusal.origin).toBe("fixture-bridge");
+    // The port's own refusal survives rather than being re-wrapped, so its origin
+    // still names the subsystem that actually refused — and the code separates a
+    // scenario that scripts nothing from a wire nobody has built, which the reader
+    // would otherwise render identically.
+    expect(phase.refusal.origin).toBe("growth-port");
     expect(phase.refusal.code).toBe("reply-unscripted");
   });
 });

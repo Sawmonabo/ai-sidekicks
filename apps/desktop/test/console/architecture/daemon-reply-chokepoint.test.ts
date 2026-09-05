@@ -47,10 +47,9 @@
 //     owned by other plans, reach their own bridge, and import nothing from
 //     `console/bridge/` — so a call there is that plan's to place, and a gate here
 //     would fire on a change this console has no standing to refuse.
-//   • The `shell/` subtree is scanned WHEN IT EXISTS. It does not on this branch;
-//     the package's own structure rules place it beside the console as a
-//     `console-unit` resident, so it is named here rather than added later and
-//     forgotten.
+//   • Nothing. The `shell/` subtree IS scanned — the package's own structure rules
+//     place it beside the console as a `console-unit` resident, and four of the five
+//     modules that consume the call door live in it.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -78,9 +77,8 @@ import { CALL_DOOR_IMPORT, daemonCallReaches } from "./daemon-call-census.js";
  * that differed from the shared one and from the subject gate's, so the three walks
  * disagreed about `.test-support.*` with nothing reporting it.
  *
- * The roots are the shared walk's default, `console/` and `shell/`; the second does
- * not exist on this branch, contributes no modules rather than throwing, and the
- * vacuity guard below is what keeps that from turning into a silent pass.
+ * The roots are the shared walk's default, `console/` and `shell/`, and the vacuity
+ * guard below is what keeps a wrong root from turning into a silent pass.
  */
 const GOVERNED_MODULES: readonly ConsoleSourceModule[] = consoleSourceModules({ tests: true });
 
@@ -120,21 +118,24 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * ZERO, and PINNED rather than left as a floor, because zero is the whole reading:
- * the two reach claims above are satisfied by an empty set here — no surface reaches
- * the daemon call door because no surface calls the daemon at all — and a scan that
- * reports the tree compliant for that reason is not making the claim this file's
- * title makes.
+ * FIVE, and PINNED rather than left as a floor. The count was zero when this gate
+ * landed, and zero was the whole reading then: the two reach claims above are
+ * satisfied by an empty set, so a scan reporting the tree compliant because nothing
+ * called the daemon at all was not making the claim this file's title makes.
  *
- * A pinned count is what makes that visible without shipping a red gate on
- * `develop`. It fails the moment the number moves in either direction, so the family
- * lane that binds the first surface to a registered method — the composer's send
- * router and the runs pane's run controls are the two nearest, both T-023p-1C-3 —
- * moves this constant in its own PR, and a reader learns from that diff that the
- * claim has stopped being vacuous. It cannot silently stay at zero once the console
- * has consumers, and it cannot be raised by accident either.
+ * It is no longer vacuous. The five are the composer's send router, its compaction
+ * dispatch, its step-in control, its provider-command read, and the runs pane's
+ * run-control dispatch — every surface in this family that reaches the wire, each
+ * through `callDaemon` and none around it.
+ *
+ * The pin stays because the reading it protects is unchanged in the other direction:
+ * a surface that stopped going through the door would drop this number, and one that
+ * started reaching past it would be caught by the reach scan above rather than here.
+ * It fails the moment the number moves either way, so the lane that binds the next
+ * surface moves this constant in its own PR and a reader learns from that diff that
+ * the console grew a wire.
  */
-const CALL_DOOR_CONSUMER_COUNT = 0;
+const CALL_DOOR_CONSUMER_COUNT = 5;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
@@ -297,9 +298,10 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
   });
 
   it("refuses `zod` in the shell subtree the console composes seats for", async () => {
-    // Asserted synthetically because that subtree does not exist on this branch.
-    // Without this case the second half of the `files` selector is untested, and a
-    // typo there would be invisible until the subtree landed carrying a validator.
+    // Asserted over a probe path rather than over a real module, because the claim
+    // is about the `files` selector and not about what the subtree happens to hold:
+    // no module there imports `zod` today, so a typo in that half of the selector
+    // would be invisible until one did.
     const messages = await restrictedImportMessages(
       IMPORTS_ZOD,
       rendererProbePath("shell", "shell-probe.ts"),

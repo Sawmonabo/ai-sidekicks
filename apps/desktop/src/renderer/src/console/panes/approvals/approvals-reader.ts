@@ -24,23 +24,19 @@
 // which is the whole of what those five events are for.
 
 import {
-  ConsoleRefusalError,
   Emitter,
-  isConsoleRefusal,
-  refuse,
   type ConsoleClock,
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../../core/index.js";
-import { type ConsoleBridge } from "../../bridge/index.js";
-import { RefreshScheduler, type RefreshReason } from "../../store/index.js";
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import {
   type ApprovalRecord,
+  type ConsoleBridge,
   type GrowthOutcome,
   type ParsedRows,
   type RememberedRule,
 } from "../../bridge/index.js";
+import { RefreshScheduler, type RefreshReason } from "../../store/index.js";
 import {
   readApprovals,
   readRememberedRules,
@@ -48,9 +44,6 @@ import {
   revokeRememberedRule,
   type ApprovalResolveRequest,
 } from "./approvals-wire.js";
-
-/** The subsystem name every refusal this surface raises carries. */
-export const APPROVALS_REFUSAL_ORIGIN = "approvals";
 
 /**
  * Where one read has got to.

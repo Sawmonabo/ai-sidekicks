@@ -20,7 +20,7 @@
 
 import { createElement } from "react";
 
-import { registerApprovalFlowProjectors } from "../console/panes/approvals/index.js";
+import { registerApprovalFlowProjectors } from "../console/bridge/index.js";
 import { registerComposerSeat } from "../console/seats/index.js";
 import { registerComposerSidebarSections } from "../console/workspace/index.js";
 import type { ConsoleEntityProjectorRegistry } from "../console/store/index.js";

@@ -24,14 +24,17 @@ import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
  * served operation may legitimately scope its answer to the session it is playing —
  * `callerParticipantRead` does, because an identity is a fact about one roster — so
  * a probe carrying no session would be asking about a session the fixture is not
- * playing and would read a correct scoping refusal as a broken served claim.
+ * playing and would read a correct scoping refusal as a broken served claim. It
+ * defaults to the flagship's for the same reason and is a parameter because a suite
+ * driving a port over another scenario has to send THAT scenario's session.
  */
 export async function callOperation(
   port: GrowthPort,
   operationId: GrowthOperationId,
+  sessionId: string = FLAGSHIP_SCENARIO.sessionId,
 ): Promise<GrowthOutcome<unknown>> {
   const call = port[operationId] as (request: unknown) => Promise<GrowthOutcome<unknown>>;
-  return call({ sessionId: FLAGSHIP_SCENARIO.sessionId });
+  return call({ sessionId });
 }
 
 /** The flagship scenario's fixture port, which is the port under test. */

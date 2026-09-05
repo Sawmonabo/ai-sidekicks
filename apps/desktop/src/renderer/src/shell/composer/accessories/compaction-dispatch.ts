@@ -50,11 +50,7 @@
 // answered and stops there.
 
 import { useCallback } from "react";
-import {
-  RunIdSchema,
-  SessionIdSchema,
-  type DriverCompactionResult,
-} from "@ai-sidekicks/contracts";
+import { RunIdSchema, SessionIdSchema, type DriverCompactionResult } from "@ai-sidekicks/contracts";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
 import { callDaemon, type ConsoleBridge } from "../../../console/bridge/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";

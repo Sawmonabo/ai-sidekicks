@@ -65,23 +65,15 @@ export {
 // family is this one — the pane may hold none. The projector beside them folds the
 // same wire's events; a surface consumes the ANSWER and never the schema.
 export {
-  APPROVAL_RECORD_MEMBERS,
   hasCompleteResolvedQuad,
   isResolvedState,
-  readApprovalProjection,
-  readRememberedRuleList,
   type ApprovalRecord,
   type ApprovalResolveRequest,
   type ParsedRows,
   type RememberedRule,
-  type RememberedScope,
 } from "./approvals/approval-records.js";
 export {
-  APPROVAL_CATEGORIES,
-  APPROVAL_DECISIONS,
-  APPROVAL_STATES,
   CATEGORY_PHRASE,
-  INVALIDATION_TRIGGERS,
   REMEMBERED_SCOPE_KINDS,
   SCOPE_KIND_PHRASE,
   STATE_PHRASE,
@@ -92,19 +84,9 @@ export {
   asInvalidationTrigger,
   asRememberedScopeKind,
   rememberedScopeKindPhrase,
-  type ApprovalCategory,
-  type ApprovalDecision,
-  type ApprovalState,
-  type InvalidationTrigger,
   type RememberedScopeKind,
 } from "./approvals/approval-vocabulary.js";
-export {
-  APPROVAL_BODY_MEMBER_TABLES,
-  APPROVAL_FLOW_EVENT_KINDS,
-  APPROVAL_FLOW_PROJECTORS,
-  projectApprovalFlowEvent,
-  registerApprovalFlowProjectors,
-} from "./approvals/approval-flow-projection.js";
+export { registerApprovalFlowProjectors } from "./approvals/approval-flow-projection.js";
 
 // The goal payload readings and the two bounds a goal is refused against. Through
 // this door because the approvals surface is a view family and may hold no
@@ -163,23 +145,15 @@ export {
 
 export { createFixtureBridge } from "./fixture-bridge.js";
 
-// The one door a daemon reply enters the console through. Exported as the CALL
-// plus the answer it gives and the method set it admits — and deliberately not the
-// registry, the bindings, or the schemas behind them: a surface names a method and
-// renders a served value or a refusal, and a surface that could reach a schema
-// would be a surface that could parse a second time, differently.
-export {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
-  callDaemon,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
-  DAEMON_REPLY_REFUSAL_ORIGIN,
-} from "./daemon-reply.js";
-export type {
-  // Consumed by T-023p-1C-2, T-023p-1C-3
-  DaemonReply,
-  // Consumed by T-023p-1C-2, T-023p-1C-3
-  DaemonReplyRefusalCode,
-} from "./daemon-reply.js";
+// The one door a daemon reply enters the console through. Exported as the CALL and
+// nothing else — deliberately not the registry, the bindings, the schemas behind
+// them, nor the refusal vocabulary: a surface names a method and branches on
+// `served` / `refused`, which the returned value narrows without the type being
+// named, and it renders whatever code the refusal carries rather than testing for
+// one. A surface that could reach a schema would be a surface that could parse a
+// second time, differently; a surface that named a code would be one deciding which
+// refusals count.
+export { callDaemon } from "./daemon-reply.js";
 export type {
   ConsoleDaemonMethod,
   DaemonRequestOf,
@@ -201,7 +175,7 @@ export type {
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
-export type { GrowthOutcome, GrowthServed, GrowthUnavailable } from "./growth-outcome.js";
+export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

@@ -53,10 +53,8 @@ import {
   type ConsoleSessionEvent,
 } from "../../src/renderer/src/console/store/index.js";
 import { MessageComposer } from "../../src/renderer/src/shell/MessageComposer.js";
-import {
-  registerApprovalsPane,
-  registerApprovalFlowProjectors,
-} from "../../src/renderer/src/console/panes/approvals/index.js";
+import { registerApprovalsPane } from "../../src/renderer/src/console/panes/approvals/index.js";
+import { registerApprovalFlowProjectors } from "../../src/renderer/src/console/bridge/index.js";
 import { registerRunsPane } from "../../src/renderer/src/console/panes/runs/index.js";
 import { ConsoleEntityProjectorRegistry } from "../../src/renderer/src/console/store/index.js";
 import {

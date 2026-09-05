@@ -195,12 +195,15 @@ export class NodeProviderQuotaReading {
       if (!this.#isOpen || this.#seedReadOrdinal !== readOrdinal) {
         return;
       }
-      // The held notifications are replayed on BOTH arms. They were not waiting on
-      // this snapshot for correctness — they were waiting so the snapshot could not
-      // overwrite them — and on the refused arm they are the only reading the console
-      // has.
-      this.#replayHeldNotifications();
+      // The held notifications are replayed on BOTH arms, and on the served arm they
+      // are replayed LAST. They were never waiting on this snapshot for correctness —
+      // they were waiting so the snapshot could not overwrite them — and the snapshot
+      // is a reading taken at an instant the tail has already moved past, so seating
+      // it over a held removal resurrects an account the node has dropped and seats a
+      // superseded credential generation over a newer one. On the refused arm there
+      // is no snapshot and they are the only reading the console has.
       if (reply.status === "refused") {
+        this.#replayHeldNotifications();
         this.#settleRefused(reply.refusal);
         return;
       }
@@ -211,6 +214,7 @@ export class NodeProviderQuotaReading {
         this.#mergeWindow(usageWindow);
       }
       this.#phase = "read";
+      this.#replayHeldNotifications();
       this.#publish();
     });
   }
@@ -379,9 +383,8 @@ function unreadableDeliveryRefusal(
  * nothing machine-readable.
  */
 function streamRefusalFor(rejection: unknown): ConsoleRefusal {
-  return normalizeWireRejection(PROVIDER_QUOTA_REFUSAL_ORIGIN, rejection, {
-    code: "stream-unopenable",
-    detail:
-      "The provider-account registry's live tail could not be opened, so the console read no quotas.",
-  });
+  // No fallback pair, on the queue reading's rule next door: a stream that would not
+  // open failed for a transport reason the transport itself states, and a house
+  // sentence would displace the one diagnosis a person can act on.
+  return normalizeWireRejection(PROVIDER_QUOTA_REFUSAL_ORIGIN, rejection);
 }

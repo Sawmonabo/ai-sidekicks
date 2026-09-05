@@ -12,7 +12,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ApprovalsPane } from "./ApprovalsPane.js";
-import { APPROVAL_FLOW_PROJECTORS } from "../../bridge/index.js";
+import { APPROVAL_FLOW_PROJECTORS } from "../../bridge/approvals/approval-flow-projection.js";
 import { REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";

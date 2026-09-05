@@ -140,14 +140,16 @@ export interface QueueFeed {
  * code intact instead of replacing it with this module's origin and a stringified
  * message — and already takes a typed envelope's dotted code off `data.type`, where
  * a `{ code: string }` guard cannot see it. All this module supplies is the two
- * things that are its own: the origin, and the sentence for a rejection that said
- * nothing machine-readable.
+ * thing that is its own: the origin.
+ *
+ * NO FALLBACK PAIR, deliberately. The fallback exists for a seam that knows its
+ * failure better than the thrown value does, and this one does not: a stream that
+ * would not open failed for a transport reason the transport already states — "the
+ * preload is a stub" is the sentence someone acts on, and a house sentence about a
+ * live tail would displace it with a paraphrase that names nothing to fix.
  */
 function streamRefusalFor(rejection: unknown): ConsoleRefusal {
-  return normalizeWireRejection(QUEUE_REFUSAL_ORIGIN, rejection, {
-    code: "stream-unopenable",
-    detail: "The queue's live tail could not be opened, so the console read no queue.",
-  });
+  return normalizeWireRejection(QUEUE_REFUSAL_ORIGIN, rejection);
 }
 
 /**

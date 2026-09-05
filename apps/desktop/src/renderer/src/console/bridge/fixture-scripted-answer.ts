@@ -32,12 +32,16 @@ import { settleScriptedReply } from "./scripted-reply.js";
  * there. Required and positional, so a handler that serves an entity-scoped operation
  * cannot quietly omit it: the compiler asks for it at every call site.
  *
- *   • **Unscripted** is not a failure on this port. Every operation the fixture serves
- *     has an honest answer of its own for a scenario that scripts nothing — the branch
- *     read's is that this workspace has no branch context — so the caller supplies it
- *     and the port serves it. `reply-unscripted` therefore stays what it has always
- *     been: `fixture-bridge.ts`'s authoring error, raised where a call really has no
- *     answer at all.
+ *   • **Unscripted** is the CALLER's to answer, and its answer is an outcome rather
+ *     than a value — because the honest reading differs per operation and neither
+ *     arm may be forced on the other. The branch read's is a served absence: this
+ *     workspace has no branch context, which is a state the surface has to draw. The
+ *     approvals reads' is a refusal: a scenario that models no approvals has left the
+ *     question unasked, and serving an empty projection for it would put "there is
+ *     none" in front of a person for a fact nothing checked. So the parameter returns
+ *     `GrowthOutcome` and this helper decides neither. `reply-unscripted` stays what
+ *     it has always been and is not reachable from here: `fixture-bridge.ts`'s
+ *     authoring error, raised where a `daemon.call` really has no answer at all.
  *   • **Resolved** is served verbatim. The cast is the seam's own property rather than
  *     a shortcut: a `ScenarioReply` carries `unknown`, exactly as it does for the
  *     bridge's `daemon.call`, and there is no registered reply schema to narrow it
@@ -59,12 +63,12 @@ export async function answerFromScriptedReply<TValue>(
   call: string,
   operationId: GrowthOperationId,
   request: unknown,
-  whenUnscripted: () => TValue,
+  whenUnscripted: () => GrowthOutcome<TValue>,
 ): Promise<GrowthOutcome<TValue>> {
   const settlement = await settleScriptedReply(engine, call, request);
   switch (settlement.status) {
     case "unscripted":
-      return { status: "served", value: whenUnscripted() };
+      return whenUnscripted();
     case "resolved":
       return { status: "served", value: settlement.value as TValue };
     case "unanswered":

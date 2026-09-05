@@ -155,11 +155,17 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
     // The call was answered and the answer is unreadable, so the console cannot
     // confirm the steer reached the run. Losing the participant's words to that
     // ambiguity is worse than letting them decide to send again.
+    //
+    // The code is the DOOR's, not this router's. `callDaemon` parses every reply
+    // against the registry before the router sees one, so the router no longer mints
+    // a per-call-site unreadable code — there is one reading of an unreadable reply
+    // for the whole console, and it names the seam that did the reading.
     const call = vi.fn().mockResolvedValue({ state: "applied" });
     const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
 
     expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("intervention-unreadable");
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("reply-unreadable");
+    expect(outcome.status === "refused" && outcome.refusal.origin).toBe("daemon-call");
   });
 });
 
@@ -173,12 +179,14 @@ describe("ComposerSendRouter — a fulfilled queue-create is not a successful se
     const outcome = await routerWith(call).send("ship the fix", CHANNEL_TARGET);
 
     expect(outcome.status).toBe("refused");
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("queue-unreadable");
-    // Composer-origin, like its steer sibling: the call was answered and nothing was
-    // carried, so what refused is this console's own parse.
-    expect(outcome.status === "refused" && outcome.refusal.origin).toBe("composer");
-    // The half the participant acts on: the words are still where they left them.
-    expect(outcome.status === "refused" && outcome.refusal.detail).toContain("still in the line");
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("reply-unreadable");
+    // Door-origin, like its steer sibling: the call was answered and nothing was
+    // carried, so what refused is the one parse every console call goes through, and
+    // the refusal names that seam rather than whichever surface happened to call.
+    expect(outcome.status === "refused" && outcome.refusal.origin).toBe("daemon-call");
+    // The half the participant acts on is the surface's, not the refusal's: a refused
+    // send never clears the draft, which `ComposerSendBar.test.tsx` holds directly.
+    expect(outcome.status === "refused" && outcome.refusal.detail).toContain("run.queueCreate");
   });
 
   it("refuses a reply that carries the members with a state the wire does not admit", async () => {
@@ -189,7 +197,7 @@ describe("ComposerSendRouter — a fulfilled queue-create is not a successful se
     const call = vi.fn().mockResolvedValue({ ...QUEUE_CREATED, state: "draining" });
     const outcome = await routerWith(call).send("ship the fix", CHANNEL_TARGET);
 
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("queue-unreadable");
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("reply-unreadable");
   });
 
   it("negative control: the registered reply is a send", async () => {
@@ -528,7 +536,10 @@ describe("ComposerSendRouter — a daemon refusal is carried, never paraphrased"
     expect(outcome).toStrictEqual({
       status: "refused",
       refusal: {
-        origin: "daemon",
+        // The door's origin, because the door is what read the rejection. What the
+        // composer must not do is PARAPHRASE, and it does not: the daemon's own code
+        // and its own sentence come through untouched.
+        origin: "daemon-call",
         code: "run.version_conflict",
         detail: "the run moved on",
       },
@@ -544,8 +555,12 @@ describe("ComposerSendRouter — a daemon refusal is carried, never paraphrased"
     const call = vi.fn().mockRejectedValue("socket closed");
     const outcome = await routerWith(call).send("go", CHANNEL_TARGET);
 
-    expect(outcome.status === "refused" && outcome.refusal.code).toBe("rejected");
-    expect(outcome.status === "refused" && outcome.refusal.detail).toBe("socket closed");
+    // The synthesized terminal pair, named after the seam that read the rejection:
+    // nothing machine-readable arrived, so the code says where rather than what.
+    expect(outcome.status === "refused" && outcome.refusal.code).toBe("call-rejected");
+    expect(outcome.status === "refused" && outcome.refusal.detail).toBe(
+      "run.queueCreate was rejected.",
+    );
   });
 });
 

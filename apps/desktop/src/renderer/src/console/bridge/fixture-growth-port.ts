@@ -143,12 +143,48 @@
 // `findScenariosNaming` beside this file pins the callback-tool premise the way the
 // branch finder pins its own, and pins the identity premise from the other side: no
 // scenario states a viewer under any name but the one field the port reads.
+//
+// WHY THE FOUR `approval.*` OPERATIONS ARE SERVED, AND THE TWO GOAL ONES ARE NOT
+//
+// The approvals scenario scripts all four calls — two reads with the rows a person
+// answers, and the two mutations with the replies the wire would send — so the rule
+// is met by the same evidence the gitflow read is measured against, and the pane can
+// be built against a projection it actually renders rather than against a refusal.
+// The narrowing is this port's, not the pane's: the scripted reply is `unknown` and
+// the corpus registers no shape for these methods, so `assertScriptedReplyOnContract`
+// on the call arm has nothing to check and would pass anything through. What binds
+// the script here is the console's OWN reading in `approvals/approval-records.ts` —
+// the one parser both this fixture and the eventual `callDaemon` seam narrow with, so
+// a scenario cannot teach the pane a row shape the surface will not accept later.
+//
+// A scenario that scripts none of them refuses rather than serving an empty
+// projection, which is the `callerParticipantRead` disposition and not the branch
+// read's: an empty approvals list is a claim that nothing is waiting on a decision,
+// and a scenario that models no approvals has not made it.
+//
+// The two session-goal operations are on neither list and refuse under both bridges.
+// No scenario carries a goal — no `session.goal_updated` beat, no scripted reply, and
+// `ConsoleScenario` has no field for one — so there is nothing to answer from, and a
+// mutation the fixture pretended to accept would leave the card waiting for a
+// projection event the log will never grow. The refusal names Plan-016, which is the
+// true state of that wire.
 
+import {
+  readApprovalProjection,
+  readRememberedRuleList,
+  type ParsedRows,
+} from "./approvals/approval-records.js";
 import { deriveAttentionProjection } from "./fixture-attention-derivation.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import { directorySessionsOf } from "./fixture-session-directory.js";
 import { fixtureSessionSnapshot } from "./fixture-session-snapshot.js";
-import { createRefusingGrowthPort, growthUnavailable, type GrowthPort } from "./growth-port.js";
+import { mapGrowthServed, type GrowthOutcome } from "./growth-outcome.js";
+import {
+  createRefusingGrowthPort,
+  growthUnavailable,
+  growthUnscriptedReply,
+  type GrowthPort,
+} from "./growth-port.js";
 import type { ScenarioEngine } from "./scenario-engine.js";
 
 /**
@@ -174,6 +210,13 @@ export const FIXTURE_SERVED_GROWTH_OPERATION_IDS = [
   // identity — answered from a scenario that states its own viewer, refused from one
   // that does not.
   "callerParticipantRead",
+  // approvals — the four calls the approvals scenario scripts, each answered from the
+  // script and refused by a scenario that models no approvals. The two session-goal
+  // operations are deliberately absent: see the header.
+  "approvalProjectionRead",
+  "approvalRuleList",
+  "approvalResolve",
+  "approvalRuleRevoke",
 ] as const;
 
 /** One operation the fixture serves. Derived, so the set has exactly one home. */
@@ -229,9 +272,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
         "gitflow.branchContextRead",
         "gitflowBranchContextRead",
         request,
-        () => ({
-          branchContext: undefined,
-        }),
+        () => ({ status: "served", value: { branchContext: undefined } }),
       ),
     // identity
     callerParticipantRead: async (request) => {
@@ -255,6 +296,74 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       }
       return { status: "served", value: { participantId: viewingParticipantId } };
     },
+    // approvals
+    approvalProjectionRead: async (request) =>
+      answerApprovalRead(
+        engine,
+        "approval.projectionRead",
+        "approvalProjectionRead",
+        request,
+        readApprovalProjection,
+      ),
+    approvalRuleList: async (request) =>
+      answerApprovalRead(
+        engine,
+        "approval.ruleList",
+        "approvalRuleList",
+        request,
+        readRememberedRuleList,
+      ),
+    // The two mutations answer with nothing, and that is the wire's own shape rather
+    // than a shortcut: what a record BECAME is the next projection read's answer, so
+    // a reply carrying a state would invite a card to settle itself. What the script
+    // decides here is only WHETHER the call was accepted.
+    approvalResolve: async (request) =>
+      mapGrowthServed(
+        await answerFromScriptedReply(engine, "approval.resolve", "approvalResolve", request, () =>
+          growthUnscriptedReply("approvalResolve", "approval.resolve"),
+        ),
+        () => undefined,
+      ),
+    approvalRuleRevoke: async (request) =>
+      mapGrowthServed(
+        await answerFromScriptedReply(
+          engine,
+          "approval.ruleRevoke",
+          "approvalRuleRevoke",
+          request,
+          () => growthUnscriptedReply("approvalRuleRevoke", "approval.ruleRevoke"),
+        ),
+        () => undefined,
+      ),
   };
   return { ...createRefusingGrowthPort(), ...served };
+}
+
+/**
+ * Answer one approvals READ from the script, narrowed by the console's own reader.
+ *
+ * The two reads differ only in which call they consult and which narrowing they
+ * apply, so they share this rather than repeating the four-line settle-then-narrow
+ * shape twice — and sharing it is what keeps the unscripted disposition the same for
+ * both, which is the half a second copy would drift on.
+ *
+ * The narrowing THROWS for a reply that is not even shaped like the read, and that
+ * rejection is left to travel. It is a scenario authoring error of exactly the class
+ * `assertScriptedReplyOnContract` raises on the call arm — a script teaching a surface
+ * a frame the daemon cannot send — and the caller renders it as a refusal, which is
+ * what it would do for the live wire's own rejection too.
+ */
+async function answerApprovalRead<TRow>(
+  engine: ScenarioEngine,
+  call: string,
+  operationId: "approvalProjectionRead" | "approvalRuleList",
+  request: unknown,
+  narrow: (reply: unknown) => ParsedRows<TRow>,
+): Promise<GrowthOutcome<ParsedRows<TRow>>> {
+  return mapGrowthServed(
+    await answerFromScriptedReply<unknown>(engine, call, operationId, request, () =>
+      growthUnscriptedReply(operationId, call),
+    ),
+    narrow,
+  );
 }

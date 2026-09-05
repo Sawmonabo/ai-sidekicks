@@ -247,10 +247,12 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
     const draftStore = new DraftStore({ restartNoticePending: false });
     const sessionStore = openSessionStore();
     const { line, result } = mountBar({
+      // The flat wire envelope the daemon's rejection actually carries — a dotted
+      // code beside its own sentence — rather than a shape invented for this case.
+      // The call door reads it (`core/wire-rejection.ts`), so what the surface
+      // renders is the daemon's code and the daemon's words, neither paraphrased.
       bridge: stubBridge(async () => {
-        throw Object.assign(new Error("queue is full"), {
-          refusal: { code: "ratelimit.exceeded", message: "queue is full" },
-        });
+        throw Object.assign(new Error("queue is full"), { code: "ratelimit.exceeded" });
       }),
       draftStore,
       sessionStore,

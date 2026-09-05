@@ -51,7 +51,6 @@ import {
 import { ApprovalsReader, type ApprovalsSnapshot } from "./approvals-reader.js";
 import { APPROVAL_LIFECYCLE_EVENT_KINDS, APPROVAL_RULE_EVENT_KINDS } from "./approvals-wire.js";
 import { clearSessionGoal, updateSessionGoal } from "./session-goal.js";
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 
 /** The subsystem name every goal-mutation refusal this module raises carries. */
 export const SESSION_GOAL_REFUSAL_ORIGIN = "session-goal";

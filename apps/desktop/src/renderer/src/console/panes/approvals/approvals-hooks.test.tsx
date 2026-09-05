@@ -15,7 +15,13 @@ import { useEffect } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
-import { type ConsoleBridge } from "../../bridge/index.js";
+import {
+  type ConsoleBridge,
+  type GrowthOutcome,
+  type GrowthUnavailable,
+  type ParsedRows,
+} from "../../bridge/index.js";
+import { createRefusingGrowthPort, growthUnavailable } from "../../bridge/growth-port.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
@@ -36,21 +42,38 @@ interface ObservableBridge {
   readonly calls: readonly RecordedCall[];
 }
 
-/** A bridge that answers empty and remembers what it was asked. */
+/**
+ * A bridge whose two approvals reads answer empty and remember what they were asked.
+ *
+ * The reads go through the growth port — `@ai-sidekicks/contracts` publishes neither
+ * half of their pairs — so the recorder sits on the port's arms and the `method` it
+ * records is the OPERATION the surface called. The daemon arm answers nothing: this
+ * hook reaches it through no path, and a stand-in that resolved calls it never makes
+ * would hide the day it started making one.
+ */
 function observableBridge(): ObservableBridge {
   const clock = new ManualClock();
   const calls: RecordedCall[] = [];
+  const recordEmptyRows = async (
+    method: string,
+    params: unknown,
+  ): Promise<GrowthOutcome<ParsedRows<never>>> => {
+    calls.push({ method, params });
+    return { status: "served", value: { rows: [], unreadableCount: 0 } };
+  };
   const bridge = {
     sidekicks: {
       daemon: {
-        call: async (method: string, params: unknown): Promise<unknown> => {
-          calls.push({ method, params });
-          return { requests: [], rules: [] };
-        },
+        call: async (): Promise<unknown> => undefined,
         subscribe: () => () => undefined,
       },
     },
-    growth: {},
+    growth: {
+      ...createRefusingGrowthPort(),
+      approvalProjectionRead: async (request: unknown) =>
+        recordEmptyRows("approvalProjectionRead", request),
+      approvalRuleList: async (request: unknown) => recordEmptyRows("approvalRuleList", request),
+    },
     source: "fixture",
     scenarioEngine: { clock },
   } as unknown as ConsoleBridge;
@@ -116,9 +139,17 @@ function lifecycleEvent(sessionId: string, sequence: number): ConsoleSessionEven
   };
 }
 
+/**
+ * Which sessions the projection read was issued for.
+ *
+ * Keyed on the growth OPERATION rather than on the wire method string, because that
+ * is what the surface calls: `@ai-sidekicks/contracts` publishes no pair for
+ * `approval.projectionRead`, so the read never reaches the call door and no method
+ * string is sent anywhere.
+ */
 function sessionIdsRead(calls: readonly RecordedCall[]): readonly unknown[] {
   return calls
-    .filter((call) => call.method === "approval.projectionRead")
+    .filter((call) => call.method === "approvalProjectionRead")
     .map((call) => (call.params as { readonly sessionId?: unknown }).sessionId);
 }
 
@@ -318,39 +349,51 @@ describe("the reader is bound to the session it reads", () => {
 // the `(bridge, sessionId)` the call was issued under, and the component outlives a
 // change of that pair.
 describe("the goal mutation is keyed to the session it mutates", () => {
-  /** A bridge whose goal call is settled by the test rather than by a timer. */
+  /**
+   * A bridge whose goal mutation is settled by the test rather than by a timer.
+   *
+   * The port never rejects, so the settlement a case drives is a REFUSAL value and
+   * not a thrown one — which is the seam's own shape and the reason the hook carries
+   * no `catch`. Parked per session, because what every case here is about is which
+   * session a settlement belongs to.
+   */
   function deferredGoalBridge(): {
     readonly bridge: ConsoleBridge;
-    readonly rejectFor: (sessionId: string, rejection: unknown) => void;
+    readonly refuseFor: (sessionId: string, refusal: GrowthUnavailable) => void;
     readonly sessionIdsCalled: readonly string[];
   } {
-    const rejectBySessionId = new Map<string, (rejection: unknown) => void>();
+    const settleBySessionId = new Map<string, (outcome: GrowthOutcome<undefined>) => void>();
     const sessionIdsCalled: string[] = [];
+    const park = async (request: unknown): Promise<GrowthOutcome<undefined>> => {
+      const { sessionId } = request as { readonly sessionId: string };
+      sessionIdsCalled.push(sessionId);
+      return new Promise<GrowthOutcome<undefined>>((resolve) => {
+        settleBySessionId.set(sessionId, resolve);
+      });
+    };
     const bridge = {
       sidekicks: {
         daemon: {
-          call: async (_method: string, params: unknown): Promise<unknown> => {
-            const { sessionId } = params as { readonly sessionId: string };
-            sessionIdsCalled.push(sessionId);
-            return new Promise<unknown>((_resolve, reject) => {
-              rejectBySessionId.set(sessionId, reject);
-            });
-          },
+          call: async (): Promise<unknown> => undefined,
           subscribe: () => () => undefined,
         },
       },
-      growth: {},
+      growth: {
+        ...createRefusingGrowthPort(),
+        sessionGoalUpdate: park,
+        sessionGoalClear: park,
+      },
       source: "fixture",
       scenarioEngine: undefined,
     } as unknown as ConsoleBridge;
     return {
       bridge,
-      rejectFor: (sessionId, rejection) => {
-        const reject = rejectBySessionId.get(sessionId);
-        if (reject === undefined) {
+      refuseFor: (sessionId, refusal) => {
+        const settle = settleBySessionId.get(sessionId);
+        if (settle === undefined) {
           throw new Error(`no goal call is outstanding for ${sessionId}`);
         }
-        reject(rejection);
+        settle(refusal);
       },
       sessionIdsCalled,
     };
@@ -418,8 +461,8 @@ describe("the goal mutation is keyed to the session it mutates", () => {
     expect(card.latest().refusal).toBeUndefined();
   });
 
-  it("installs nothing from a rejection that answers a session the card left", async () => {
-    const { bridge, rejectFor } = deferredGoalBridge();
+  it("installs nothing from a refusal that answers a session the card left", async () => {
+    const { bridge, refuseFor } = deferredGoalBridge();
     const card = mountGoalCard(bridge);
     act(() => {
       card.latest().update("the first session's goal");
@@ -427,10 +470,10 @@ describe("the goal mutation is keyed to the session it mutates", () => {
     card.rebindTo(SECOND_SESSION_ID);
 
     await act(async () => {
-      rejectFor(SESSION_ID, new Error("the first session refused"));
+      refuseFor(SESSION_ID, growthUnavailable("sessionGoalUpdate"));
       await Promise.resolve();
     });
-    // The rejection belongs to a session this card is no longer addressed to, so
+    // The refusal belongs to a session this card is no longer addressed to, so
     // rendering it here would put one session's refusal beside another's goal.
     expect(card.latest().refusal).toBeUndefined();
     expect(card.latest().isMutating).toBe(false);

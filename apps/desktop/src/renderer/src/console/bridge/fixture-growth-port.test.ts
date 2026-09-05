@@ -27,6 +27,7 @@ import type { GrowthOperationId } from "./growth-entry.js";
 import { GROWTH_OPERATIONS } from "./growth-operations.js";
 import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario } from "./scenario.js";
+import { APPROVALS_SCENARIO } from "./scenarios/approvals.js";
 import { FIRST_RUN_SCENARIO } from "./scenarios/first-run.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { createTier1Bridge } from "@ai-sidekicks/contracts";
@@ -65,15 +66,61 @@ function scenarioDeclaring(state: string): ConsoleScenario {
 }
 
 describe("the fixture growth port — what it serves, and what it still refuses", () => {
-  it("answers every operation its bridge claims to serve, and refuses every other", async () => {
+  it("refuses every operation it does not serve, and names the unbuilt wire", async () => {
+    // The `wire-unregistered` code is the instrument rather than the bare
+    // `unavailable` status, and it has to be: a SERVED operation refuses too — for a
+    // scenario that models nothing it could be answered from — so a status-only
+    // reading cannot tell an unimplemented arm from an unscripted one, and an
+    // operation that silently stopped being served would read as compliant.
     const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
     const served = new Set<string>(FIXTURE_SERVED_GROWTH_OPERATION_IDS);
 
     for (const operationId of Object.keys(GROWTH_OPERATIONS) as GrowthOperationId[]) {
+      if (served.has(operationId)) {
+        continue;
+      }
       const outcome = await callOperation(bridge.growth, operationId);
-      expect(outcome.status, `${operationId} answered the wrong way`).toBe(
-        served.has(operationId) ? "served" : "unavailable",
-      );
+      expect(outcome.status, `${operationId} answered the wrong way`).toBe("unavailable");
+      if (outcome.status === "unavailable") {
+        expect(outcome.code, `${operationId} refused with the wrong code`).toBe(
+          "wire-unregistered",
+        );
+      }
+    }
+  });
+
+  it("answers, or names the scenario's own gap, for every operation it serves", async () => {
+    // The other side of the same claim. Over the flagship, five of the served
+    // operations answer and the four approvals ones do not — that scenario models no
+    // approvals — and what makes the second a served arm rather than an absent one is
+    // that it refuses with the fixture's `reply-unscripted` and never with
+    // `wire-unregistered`, which would send a reader to a document that owes a wire
+    // this bridge already stands in for.
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+
+    for (const operationId of FIXTURE_SERVED_GROWTH_OPERATION_IDS) {
+      const outcome = await callOperation(bridge.growth, operationId);
+      if (outcome.status === "unavailable") {
+        expect(outcome.code, `${operationId} refused as an unbuilt wire`).not.toBe(
+          "wire-unregistered",
+        );
+      }
+    }
+  });
+
+  it("answers all four approvals reads and mutations from the scenario that scripts them", async () => {
+    // The positive control the flagship cannot give: without it the case above holds
+    // over a port whose four approvals arms refuse under every scenario there is.
+    const bridge = createFixtureBridge({ scenario: APPROVALS_SCENARIO });
+
+    for (const operationId of [
+      "approvalProjectionRead",
+      "approvalRuleList",
+      "approvalResolve",
+      "approvalRuleRevoke",
+    ] as const) {
+      const outcome = await callOperation(bridge.growth, operationId, APPROVALS_SCENARIO.sessionId);
+      expect(outcome.status, `${operationId} did not answer`).toBe("served");
     }
   });
 

@@ -15,7 +15,13 @@ import { describe, expect, it } from "vitest";
 
 import { ApprovalsPane } from "./ApprovalsPane.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
-import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  createFixtureBridge,
+  type ApprovalRecord,
+  type ConsoleBridge,
+  type ParsedRows,
+} from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { COMPOSER_SCENARIO } from "../../bridge/scenarios/composer.js";
 import { DraftStore, MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
@@ -309,9 +315,9 @@ class ScriptedApprovalReads {
     this.#admitsThird = true;
   }
 
-  public reply(): unknown {
+  public reply(): ParsedRows<ApprovalRecord> {
     const shown = this.#admitsThird ? WAITING_APPROVAL_IDS : WAITING_APPROVAL_IDS.slice(0, 2);
-    return { approvals: shown.map(waitingRecord) };
+    return { rows: shown.map(waitingRecord), unreadableCount: 0 };
   }
 }
 
@@ -321,13 +327,22 @@ const WAITING_APPROVAL_IDS = [
   "019b7a33-3300-7f01-8230-d1a4c1150603",
 ] as const;
 
-function waitingRecord(id: string): Record<string, unknown> {
+/**
+ * One waiting record, in the shape the CONSOLE holds — `approvalRequestId` and
+ * `requestedScope`, not the reply's `id` and `scope`.
+ *
+ * The read's own narrowing performs that rename, and it is deliberate: the resolve
+ * REQUEST names the same value `approvalRequestId`, and `scope` on the reply is what
+ * was asked for rather than what was granted. A case constructing the wire spelling
+ * here would be standing in for a read that had not run.
+ */
+function waitingRecord(id: string): ApprovalRecord {
   return {
-    id,
+    approvalRequestId: id,
     runId: "019b7a33-3300-740e-8110-d1a4c1150511",
     requestedBy: "019b7a33-3300-7a6e-8110-d1a4c1150501",
     category: "file_write",
-    scope: "run",
+    requestedScope: "run",
     resourceDescriptor: { path: "packages/contracts/src/approval.ts" },
     state: "pending",
     createdAt: "2026-01-01T13:30:00.900Z",
@@ -335,29 +350,45 @@ function waitingRecord(id: string): Record<string, unknown> {
   };
 }
 
-/** Anything the stub bridge can answer the projection read with. */
+/**
+ * Anything the stub port can answer the projection read with.
+ *
+ * The console's OWN reading of that read — rows it could decode, beside a count of
+ * the ones it could not — rather than a wire-shaped reply, because that is what the
+ * growth port answers with and because the claim under test is what the PANE renders
+ * for a partial read. A case that handed in raw rows would be re-deciding which of
+ * them are readable, which is `approval-records.test.ts`'s subject and not this
+ * file's.
+ */
 interface ApprovalProjectionSource {
-  readonly reply: () => unknown;
+  readonly reply: () => ParsedRows<ApprovalRecord>;
 }
 
+/**
+ * A bridge whose approvals reads answer from this suite rather than from a scenario.
+ *
+ * The growth port is spread over the refusing one, which is the console's shape for
+ * standing in for a single operation: an arm this suite does not name refuses by name
+ * instead of being absent, so a pane reaching for one renders a refusal rather than
+ * failing on `undefined`.
+ */
 function stubApprovalsBridge(reads: ApprovalProjectionSource): ConsoleBridge {
   const clock = new ManualClock();
   return {
     sidekicks: {
       daemon: {
-        call: async (method: string): Promise<unknown> => {
-          if (method === "approval.ruleList") {
-            return { rules: [] };
-          }
-          if (method === "approval.projectionRead") {
-            return reads.reply();
-          }
-          throw { code: "reply-unscripted", message: `nothing scripts ${method}` };
-        },
+        call: async (): Promise<unknown> => undefined,
         subscribe: () => () => undefined,
       },
     },
-    growth: {},
+    growth: {
+      ...createRefusingGrowthPort(),
+      approvalProjectionRead: async () => ({ status: "served", value: reads.reply() }),
+      approvalRuleList: async () => ({
+        status: "served",
+        value: { rows: [], unreadableCount: 0 },
+      }),
+    },
     source: "fixture",
     // Shaped so the frozen-clock helper above drives this stub unchanged: the reader
     // resolves its clock off the scenario engine, and the tier has exactly one way
@@ -411,7 +442,7 @@ describe("focus lands in the card that arrived", () => {
 // An answered read whose records this build cannot decode. Reachable only against a
 // stub: every shipped scenario answers rows the parser reads, which is what those
 // fixtures are for.
-async function mountOverReply(reply: unknown): Promise<ConsoleBridge> {
+async function mountOverReply(reply: ParsedRows<ApprovalRecord>): Promise<ConsoleBridge> {
   const bridge = stubApprovalsBridge({ reply: () => reply });
   await act(async () => {
     render(<ApprovalsPane {...paneContext(bridge, boundStore())} />);
@@ -422,7 +453,7 @@ async function mountOverReply(reply: unknown): Promise<ConsoleBridge> {
 
 describe("an empty list never hides what could not be read", () => {
   it("says the read was partial rather than that nothing needs a decision", async () => {
-    await mountOverReply({ approvals: [{}, {}, {}] });
+    await mountOverReply({ rows: [], unreadableCount: 3 });
     const waiting = section("Waiting on a decision");
     expect(within(waiting).getByText("Part of this read could not be decoded.")).not.toBeNull();
     expect(within(waiting).getByText(/\b3\b/u)).not.toBeNull();
@@ -432,14 +463,14 @@ describe("an empty list never hides what could not be read", () => {
   });
 
   it("renders the served empty set unchanged when nothing was unreadable", async () => {
-    await mountOverReply({ approvals: [] });
+    await mountOverReply({ rows: [], unreadableCount: 0 });
     const waiting = section("Waiting on a decision");
     expect(within(waiting).getByText("Nothing needs a decision.")).not.toBeNull();
     expect(within(waiting).queryByText("Part of this read could not be decoded.")).toBeNull();
   });
 
   it("keeps the list and the warning together when both are true", async () => {
-    await mountOverReply({ approvals: [waitingRecord(WAITING_APPROVAL_IDS[0]), {}] });
+    await mountOverReply({ rows: [waitingRecord(WAITING_APPROVAL_IDS[0])], unreadableCount: 1 });
     const waiting = section("Waiting on a decision");
     expect(within(waiting).getAllByRole("article")).toHaveLength(1);
     expect(within(waiting).getByText(/could not read/u)).not.toBeNull();

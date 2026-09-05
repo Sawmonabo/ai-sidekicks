@@ -14,7 +14,8 @@ import { describe, expect, it } from "vitest";
 
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge, type ConsoleBridge } from "../../../console/bridge/index.js";
+import { type ConsoleBridge } from "../../../console/bridge/index.js";
+import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import { addressedProviderBinding } from "./provider-command-catalog.js";
@@ -33,6 +34,10 @@ interface RecordedCall {
 /**
  * The real fixture bridge with a recorder in front of `daemon.call`.
  *
+ * The bridge family's own helper rather than a spread of this suite's: the call
+ * door's chokepoint gate holds that a test outside `bridge/` stands in for a surface,
+ * and a surface goes through the door.
+ *
  * `parkedEnumerations`, where a case supplies it, collects a resolver for every
  * enumeration call instead of letting it answer — which is the only way to hold one
  * bridge's reply outstanding across a swap to another bridge and then let it land.
@@ -41,26 +46,15 @@ function recordingBridge(
   recorded: RecordedCall[],
   parkedEnumerations?: ((reply: unknown) => void)[],
 ): ConsoleBridge {
-  const base = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
-  const call = base.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>;
-  return {
-    ...base,
-    sidekicks: {
-      ...base.sidekicks,
-      daemon: {
-        ...base.sidekicks.daemon,
-        call: ((method: string, params: unknown) => {
-          recorded.push({ method, params });
-          if (parkedEnumerations !== undefined && method === ENUMERATION_METHOD) {
-            return new Promise<unknown>((resolveEnumeration) => {
-              parkedEnumerations.push(resolveEnumeration);
-            });
-          }
-          return call(method, params);
-        }) as typeof base.sidekicks.daemon.call,
-      },
-    },
-  };
+  return bridgeAnswering((call, forward) => {
+    recorded.push({ method: call.method, params: call.params });
+    if (parkedEnumerations !== undefined && call.method === ENUMERATION_METHOD) {
+      return new Promise<unknown>((resolveEnumeration) => {
+        parkedEnumerations.push(resolveEnumeration);
+      });
+    }
+    return forward();
+  }, COMPOSER_SCENARIO).bridge;
 }
 
 /**
@@ -83,6 +77,18 @@ function enumerationReplyNaming(commandName: string): ProviderCommandListResult 
   };
 }
 
+/**
+ * Two agent addresses, distinct and shaped the way the wire requires.
+ *
+ * `ListProviderCommandsRequest` declares `agentId` a UUID, and the call door parses
+ * the REQUEST before it leaves — so an id shaped like a label refuses at the door and
+ * every case below would be reading `request-unsendable` instead of the enumeration
+ * it means to assert on. What these cases need of the two ids is only that they
+ * differ, which is why they are written here rather than borrowed from a scenario.
+ */
+const FIRST_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3301";
+const SECOND_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3302";
+
 function targetForAgent(agentId: string): ComposerTarget {
   return {
     path: "provider-bound",
@@ -104,7 +110,7 @@ function targetForAgent(agentId: string): ComposerTarget {
  * case cannot accidentally look up under a binding its own composer is not addressed
  * to — which is the thing the lookup is being held to.
  */
-const ADDRESSED = addressedProviderBinding(targetForAgent("agent-one"));
+const ADDRESSED = addressedProviderBinding(targetForAgent(FIRST_AGENT));
 
 function enumerationCalls(recorded: readonly RecordedCall[]): readonly RecordedCall[] {
   return recorded.filter((entry) => entry.method === ENUMERATION_METHOD);
@@ -119,7 +125,7 @@ describe("useProviderCommandEnumeration", () => {
       useProviderCommandEnumeration({
         enumeration,
         bridge,
-        target: targetForAgent("agent-one"),
+        target: targetForAgent(FIRST_AGENT),
         isOpen: false,
       }),
     );
@@ -139,7 +145,7 @@ describe("useProviderCommandEnumeration", () => {
       useProviderCommandEnumeration({
         enumeration,
         bridge,
-        target: targetForAgent("agent-one"),
+        target: targetForAgent(FIRST_AGENT),
         isOpen: true,
       }),
     );
@@ -151,7 +157,7 @@ describe("useProviderCommandEnumeration", () => {
     expect(result.current.phase).toBe("served");
     expect(enumerationCalls(recorded)).toHaveLength(1);
     expect((enumerationCalls(recorded)[0]?.params as { agentId: string }).agentId).toBe(
-      "agent-one",
+      FIRST_AGENT,
     );
   });
 
@@ -167,7 +173,7 @@ describe("useProviderCommandEnumeration", () => {
           target: targetForAgent(agentId),
           isOpen: true,
         }),
-      { initialProps: "agent-one" },
+      { initialProps: FIRST_AGENT },
     );
     await act(async () => {
       await Promise.resolve();
@@ -175,7 +181,7 @@ describe("useProviderCommandEnumeration", () => {
     });
     expect(result.current.phase).toBe("served");
 
-    rerender("agent-two");
+    rerender(SECOND_AGENT);
 
     // Discarded the instant the address changed: the previous agent's groups are
     // gone before the new read has answered.
@@ -186,7 +192,7 @@ describe("useProviderCommandEnumeration", () => {
     });
     expect(
       enumerationCalls(recorded).map((entry) => (entry.params as { agentId: string }).agentId),
-    ).toEqual(["agent-one", "agent-two"]);
+    ).toEqual([FIRST_AGENT, SECOND_AGENT]);
   });
 
   it("negative control: re-rendering at the same address asks nothing a second time", async () => {
@@ -201,14 +207,14 @@ describe("useProviderCommandEnumeration", () => {
           target: targetForAgent(agentId),
           isOpen: true,
         }),
-      { initialProps: "agent-one" },
+      { initialProps: FIRST_AGENT },
     );
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
 
-    rerender("agent-one");
+    rerender(FIRST_AGENT);
     await act(async () => {
       await Promise.resolve();
     });
@@ -255,7 +261,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       useProviderCommandEnumeration({
         enumeration,
         bridge,
-        target: targetForAgent("agent-one"),
+        target: targetForAgent(FIRST_AGENT),
         isOpen: true,
       }),
     );
@@ -263,7 +269,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       useProviderCommandEnumeration({
         enumeration,
         bridge,
-        target: targetForAgent("agent-one"),
+        target: targetForAgent(FIRST_AGENT),
         isOpen: true,
       }),
     );
@@ -286,7 +292,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
         useProviderCommandEnumeration({
           enumeration,
           bridge,
-          target: targetForAgent("agent-one"),
+          target: targetForAgent(FIRST_AGENT),
           isOpen: true,
         }),
       );
@@ -311,7 +317,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       useProviderCommandEnumeration({
         enumeration,
         bridge,
-        target: targetForAgent("agent-one"),
+        target: targetForAgent(FIRST_AGENT),
         isOpen: true,
       }),
     );
@@ -337,7 +343,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
         useProviderCommandEnumeration({
           enumeration,
           bridge,
-          target: targetForAgent("agent-one"),
+          target: targetForAgent(FIRST_AGENT),
           isOpen,
         }),
       { initialProps: true },
@@ -374,7 +380,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
         useProviderCommandEnumeration({
           enumeration,
           bridge,
-          target: targetForAgent("agent-one"),
+          target: targetForAgent(FIRST_AGENT),
           isOpen: true,
         }),
       { initialProps: firstBridge },
@@ -411,7 +417,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
         useProviderCommandEnumeration({
           enumeration,
           bridge,
-          target: targetForAgent("agent-one"),
+          target: targetForAgent(FIRST_AGENT),
           isOpen: true,
         }),
       { initialProps: firstBridge },
@@ -451,7 +457,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
         useProviderCommandEnumeration({
           enumeration,
           bridge: bridgeForRender,
-          target: targetForAgent("agent-one"),
+          target: targetForAgent(FIRST_AGENT),
           isOpen: true,
         }),
       { initialProps: bridge },

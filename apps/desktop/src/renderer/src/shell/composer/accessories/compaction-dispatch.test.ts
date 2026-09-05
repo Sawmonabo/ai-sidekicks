@@ -16,11 +16,13 @@ import { describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../../console/bridge/index.js";
 import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
-import {} from "../../../console/bridge/index.js";
 import { settleCompaction } from "./compaction-dispatch.js";
 
-const SESSION_ID = "session-compaction";
-const RUN_ID = "run-compaction";
+// Registered `SessionId` / `RunId` values (UUIDs). The dispatcher parses both before
+// it sends anything, so a readable name here would refuse at the address rather than
+// reaching the call this file is about.
+const SESSION_ID = "0d3f4a51-6c2b-4e88-9a17-2b5c8d0e1f34";
+const RUN_ID = "7e1a2b3c-4d5e-4f60-8a91-b2c3d4e5f607";
 
 /**
  * A scenario carrying one canned reply and no beats.
@@ -67,13 +69,19 @@ describe("settleCompaction — the call settles in every arm", () => {
     // `capability_undeclared` is deliberately absent from the result union — the
     // static capability gate refuses before dispatch — so a daemon answering it
     // must not reach the surface as a settlement.
+    //
+    // The code is the FIXTURE's, and that is the seam working rather than a weaker
+    // assertion: `driver.compactContext` is a registered method now, so the fixture
+    // refuses the SCRIPT before the dispatcher ever sees it. What is claimed here is
+    // that an inadmissible reply reaches the surface as a rejection and never as a
+    // settled result; which layer caught it is the corpus's business.
     const bridge = createFixtureBridge({
       scenario: scenarioReplying({ status: "refused", reason: "capability_undeclared" }),
     });
     const settled = await settleCompaction(bridge, SESSION_ID, RUN_ID);
     expect(settled.phase).toBe("rejected");
     expect(settled.phase === "rejected" ? settled.refusal.code : undefined).toBe(
-      "reply-unreadable",
+      "reply-off-contract",
     );
   });
 
