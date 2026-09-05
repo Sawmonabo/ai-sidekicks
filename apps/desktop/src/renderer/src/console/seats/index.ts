@@ -177,11 +177,9 @@ export type {
 export {
   /** @consumedBy T-023p-1C-4 */
   isCurrentSessionSubject,
-  /** @consumedBy T-023p-1C-3 */
   useSessionScopedState,
 } from "./session-subject.js";
 export type {
-  /** @consumedBy T-023p-1C-3 */
   SessionScopedKey,
   /** @consumedBy T-023p-1C-4 */
   SessionSubject,

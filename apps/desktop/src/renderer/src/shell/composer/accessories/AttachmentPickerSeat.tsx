@@ -30,7 +30,8 @@
 import { useCallback } from "react";
 import { InlineRefusal, Nothing, formatByteQuantity } from "../../../console/primitives/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
-import { useSessionScopedState, type ConsoleBridge } from "../../../console/bridge/index.js";
+import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { useSessionScopedState } from "../../../console/seats/index.js";
 import { ATTACHMENT_CARRIER_COUNT_CAP } from "./accessory-bounds.js";
 
 export interface AttachmentPickerSeatProps {
@@ -53,7 +54,11 @@ const UNASKED: PickerState = { phase: "unasked" };
 
 export function AttachmentPickerSeat(props: AttachmentPickerSeatProps): React.JSX.Element {
   const { bridge, sessionId } = props;
-  const [state, publishState] = useSessionScopedState<PickerState>(bridge, sessionId, UNASKED);
+  const { value: state, publish: publishState } = useSessionScopedState<PickerState>(
+    bridge,
+    sessionId,
+    () => UNASKED,
+  );
 
   const readAllowList = useCallback(() => {
     publishState({ phase: "asking" });

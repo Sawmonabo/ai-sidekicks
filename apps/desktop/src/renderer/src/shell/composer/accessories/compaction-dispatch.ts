@@ -49,7 +49,7 @@
 // alone. This module produces no such row and reads none; it reports what the call
 // answered and stops there.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { DriverCompactionResultSchema, type DriverCompactionResult } from "@ai-sidekicks/contracts";
 import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import { refuse, type ConsoleRefusal } from "../../../console/core/index.js";
@@ -58,6 +58,7 @@ import {
   callUnregisteredDaemonMethod,
   type ConsoleBridge,
 } from "../../../console/bridge/index.js";
+import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const COMPACTION_REFUSAL_ORIGIN = "composer-compaction";
@@ -133,75 +134,18 @@ interface HeldCompactionReading {
 }
 
 const IDLE: CompactionDispatchState = { phase: "idle" };
-const DISPATCHING: CompactionDispatchState = { phase: "dispatching" };
-
-/** One taken latch, released by the call that took it and by nothing else. */
-interface CompactionLatchHold {
-  /** Free this run within the generation the latch was taken in. */
-  release(): void;
-}
 
 /**
- * The single-flight latch: which runs have a call in flight, under which subject.
+ * The latch key one compaction round is claimed under.
  *
- * A class with private fields rather than a bare `Set` behind a ref, because the
- * rule it enforces is not "membership" but "membership WITHIN the generation the
- * caller took its hold in" — and that rule is exactly what a bare set cannot state.
- * Every hold captures the set it joined, so a settlement arriving after the bridge
- * or the session moved releases the generation it belongs to and leaves the live one
- * untouched.
+ * The run WITHIN the session rather than the run alone: the holder's subject is the
+ * bridge and its key is the session, and a latch keyed on the run alone would let one
+ * session's outstanding call refuse the same run id in another.
  */
-class CompactionLatchRegister {
-  #bridge: ConsoleBridge | undefined;
-  #sessionId: string | undefined;
-  #inFlightRunIds = new Set<string>();
-
-  /**
-   * Take the latch for one run, or `undefined` where this run already holds it.
-   *
-   * The rotation lives here because this is the one place the subject is known at
-   * the moment it matters. A subject the register has not seen starts a fresh
-   * generation, which is what makes the abandoned generation unreachable rather
-   * than merely emptied.
-   */
-  public acquire(
-    bridge: ConsoleBridge,
-    sessionId: string,
-    targetRunId: string,
-  ): CompactionLatchHold | undefined {
-    if (!this.#isCurrentSubject(bridge, sessionId)) {
-      this.#bridge = bridge;
-      this.#sessionId = sessionId;
-      this.#inFlightRunIds = new Set<string>();
-    }
-    if (this.#inFlightRunIds.has(targetRunId)) {
-      return undefined;
-    }
-    const generation = this.#inFlightRunIds;
-    generation.add(targetRunId);
-    return {
-      release: () => {
-        generation.delete(targetRunId);
-      },
-    };
-  }
-
-  /**
-   * Abandon every generation.
-   *
-   * The unmount path: a settle that lands after the composer is gone has nowhere to
-   * go, and a remount starts idle rather than wedged.
-   */
-  public abandon(): void {
-    this.#bridge = undefined;
-    this.#sessionId = undefined;
-    this.#inFlightRunIds = new Set<string>();
-  }
-
-  #isCurrentSubject(bridge: ConsoleBridge, sessionId: string): boolean {
-    return this.#bridge === bridge && this.#sessionId === sessionId;
-  }
+function compactionLatchKey(sessionId: string, targetRunId: string): string {
+  return `${sessionId}:${targetRunId}`;
 }
+const DISPATCHING: CompactionDispatchState = { phase: "dispatching" };
 
 /**
  * The reading to render at this address, or idle.
@@ -224,62 +168,53 @@ function readingAtTarget(
 /**
  * Drive one compaction request.
  *
- * The latch is a ref rather than state on purpose: it has to be readable and
- * writable in the same tick the click handler runs, and a state read inside that
- * handler would see the value from the render that produced it — so two clicks
- * inside one frame would both see `idle` and both dispatch.
+ * BOTH HALVES COME FROM THE CONSOLE'S SUBJECT PRIMITIVES. The reading is held under
+ * `(bridge, sessionId)` and carries the run it is about on the value, so a settlement
+ * that lands after the composer moved is dropped by the holder rather than attributed
+ * to a run the control is not showing. The single-flight rule is one `GenerationLatch`
+ * claim per `(bridge, "<session>:<run>")`, which is readable and writable in the click
+ * handler's own tick — a rendered flag read there is the one from the render that
+ * produced the handler, so two clicks inside one frame would both see `idle` and both
+ * dispatch. The unmount path is the latch's own teardown and the holder's own drop;
+ * neither is a flag this hook keeps.
  */
 export function useCompactionDispatch(
   bridge: ConsoleBridge,
   sessionId: string,
   targetRunId: string | undefined,
 ): CompactionDispatch {
-  const [held, setHeld] = useState<HeldCompactionReading | undefined>(undefined);
-  // The latch is a ref rather than state so the click handler reads it in its own
-  // tick; the register behind it is what keeps a settlement from releasing a
-  // generation it does not belong to. Allocated once and never rebuilt: the
-  // generations live inside it.
-  const latchRef = useRef<CompactionLatchRegister | null>(null);
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    const latch = latchRef;
-    return () => {
-      isMountedRef.current = false;
-      latch.current?.abandon();
-    };
-  }, []);
+  const { value: held, publish: publishHeld } = useSubjectScopedState<
+    HeldCompactionReading | undefined
+  >(bridge, sessionId, () => undefined);
+  const latch = useGenerationLatch();
 
   const requestCompaction = useCallback(() => {
     if (targetRunId === undefined) {
       return;
     }
-    const latch = (latchRef.current ??= new CompactionLatchRegister());
-    const hold = latch.acquire(bridge, sessionId, targetRunId);
-    if (hold === undefined) {
+    const claim = latch.claim(bridge, compactionLatchKey(sessionId, targetRunId));
+    if (claim === undefined) {
       // A second press on the run already compacting: the no-op the single-flight
-      // rule asks for. A press on a run this composer has since moved to, or under a
-      // subject the register has not seen, is a first press and dispatches.
+      // rule asks for. A press on a run this composer has since moved to is a first
+      // press on a different key and dispatches.
       return;
     }
     const target: CompactionTarget = { bridge, sessionId, targetRunId };
-    setHeld({ target, state: DISPATCHING });
+    publishHeld({ target, state: DISPATCHING });
     void settleCompaction(bridge, sessionId, targetRunId).then((settled) => {
-      hold.release();
-      if (!isMountedRef.current) {
-        return;
-      }
-      // The slot belongs to the newest act. A settlement arriving after a
-      // compaction was begun on ANOTHER run would otherwise replace that run's
-      // in-flight reading with a result about a run the control is not showing.
-      setHeld((current) =>
-        current === undefined || isSameCompactionTarget(current.target, target)
-          ? { target, state: settled }
-          : current,
-      );
+      claim.settle(() => {
+        // The slot belongs to the newest act. A settlement arriving after a
+        // compaction was begun on ANOTHER run would otherwise replace that run's
+        // in-flight reading with a result about a run the control is not showing.
+        publishHeld((current) =>
+          current === undefined || isSameCompactionTarget(current.target, target)
+            ? { target, state: settled }
+            : current,
+        );
+      });
+      claim.release();
     });
-  }, [bridge, sessionId, targetRunId]);
+  }, [bridge, latch, publishHeld, sessionId, targetRunId]);
 
   const addressed: CompactionTarget | undefined =
     targetRunId === undefined ? undefined : { bridge, sessionId, targetRunId };

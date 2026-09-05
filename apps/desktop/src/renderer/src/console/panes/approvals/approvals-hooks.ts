@@ -30,17 +30,13 @@
 // exists to catch — so the cursor walks backwards only as far as the events it has
 // not already examined.
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import { SessionRepairWatcher, consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+import { useSessionScopedState } from "../../seats/index.js";
 import {
-  BridgeScopedLatch,
-  SessionRepairWatcher,
-  consoleClockFor,
-  useSessionScopedState,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
-import {
+  useGenerationLatch,
   useSessionDegradedCause,
   useSessionStore,
   type ConsoleSessionEvent,
@@ -221,7 +217,7 @@ export function useApprovalsReader(
  * The one goal mutation a session may have in flight.
  *
  * THIS HOOK'S OWN RULE, because no committed document states it: a second mutation
- * is never queued behind the first. The guard is the shared `BridgeScopedLatch`
+ * is never queued behind the first. The guard is the console's one `GenerationLatch`
  * rather than the disabled attribute, because a disabled button is a rendering and
  * this is a rule about the wire — a keyboard-driven double submit lands between
  * renders and would otherwise send two.
@@ -230,13 +226,17 @@ export function useApprovalsReader(
  * latch are all about the `(bridge, sessionId)` the mutation was issued under, and
  * the component outlives a change of that pair — so a rebind used to leave the new
  * session's controls blocked by the old session's request and its rejection rendered
- * beside the new session's goal. The two readings ride
- * `useSessionScopedState`, which resets them during the render that first sees a new
- * subject and drops a settlement whose captured subject is no longer current; the
- * latch is claimed under the same pair, so this session's slot is the only one a
- * settlement of this session's call can release. Nothing here is a timer or a
- * counter: a late answer is discarded because of WHOSE it is, not because of when it
- * arrived.
+ * beside the new session's goal. The two readings ride `useSessionScopedState`, which
+ * resets them during the render that first sees a new subject and drops a settlement
+ * whose captured subject is no longer current; the act rides one `GenerationLatch`
+ * claim under the same pair, so this session's slot is the only one a settlement of
+ * this session's call can release. Nothing here is a timer or a counter: a late
+ * answer is discarded because of WHOSE it is, not because of when it arrived.
+ *
+ * THE CLAIM ALSO REPLACES THE MOUNTED FLAG. `claim.settle` runs its body only while
+ * the claim is still the live round, and the hook's latch is superseded when the
+ * mount goes away, so an unmounted settlement publishes nothing without this hook
+ * tracking mount-ness itself — one rule, in the module that owns it.
  */
 export function useSessionGoalMutation(
   bridge: ConsoleBridge,
@@ -247,28 +247,20 @@ export function useSessionGoalMutation(
   readonly update: (text: string) => void;
   readonly clear: () => void;
 } {
-  const [isMutating, publishIsMutating] = useSessionScopedState(bridge, sessionId, false);
-  const [refusal, publishRefusal] = useSessionScopedState<ConsoleRefusal | undefined>(
+  const { value: isMutating, publish: publishIsMutating } = useSessionScopedState(
     bridge,
     sessionId,
-    undefined,
+    () => false,
   );
-  // A `useState` initializer rather than a `useMemo`, on `frame/session-lifecycle.ts`'s
-  // reasoning: this runs once per mounted component and is never recomputed, and a
-  // latch React was free to rebuild would forget a call that was still outstanding.
-  const [latch] = useState(() => new BridgeScopedLatch());
-  const isMountedRef = useRef(true);
-
-  useEffect(() => {
-    isMountedRef.current = true;
-    return () => {
-      isMountedRef.current = false;
-    };
-  }, []);
+  const { value: refusal, publish: publishRefusal } = useSessionScopedState<
+    ConsoleRefusal | undefined
+  >(bridge, sessionId, () => undefined);
+  const latch = useGenerationLatch();
 
   const perform = useCallback(
     (mutate: () => Promise<void>) => {
-      if (!latch.claim(bridge, sessionId)) {
+      const claim = latch.claim(bridge, sessionId);
+      if (claim === undefined) {
         publishRefusal(
           refuse(
             SESSION_GOAL_REFUSAL_ORIGIN,
@@ -282,20 +274,19 @@ export function useSessionGoalMutation(
       publishRefusal(undefined);
       void mutate()
         .catch((rejection: unknown) => {
-          if (!isMountedRef.current) {
-            return;
-          }
           const wireError = wireRejectionToError(rejection, { total: true });
-          publishRefusal(refuse(SESSION_GOAL_REFUSAL_ORIGIN, wireError.name, wireError.message));
+          claim.settle(() => {
+            publishRefusal(refuse(SESSION_GOAL_REFUSAL_ORIGIN, wireError.name, wireError.message));
+          });
         })
         .finally(() => {
-          // Released against the subject the call was ISSUED under, so a settlement
-          // that arrives after a rebind frees its own session's slot and never the
-          // one the pane is now addressed to.
-          latch.release(bridge, sessionId);
-          if (isMountedRef.current) {
+          claim.settle(() => {
             publishIsMutating(false);
-          }
+          });
+          // Released through the claim the call was ISSUED under, so a settlement
+          // that arrives after a rebind frees its own round and never the one the
+          // pane is now addressed to.
+          claim.release();
         });
     },
     [bridge, latch, publishIsMutating, publishRefusal, sessionId],

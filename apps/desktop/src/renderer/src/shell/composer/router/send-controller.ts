@@ -19,7 +19,7 @@
 // re-addressed it: the new target's line stayed read-only and its own control
 // unavailable until the previous call settled, forever where it never did. Both
 // halves are keyed through the holders `console/bridge/` publishes rather than
-// through anything local. `BridgeScopedLatch` holds the in-flight slot under
+// through anything local. The console's one `GenerationLatch` holds the slot under
 // `(bridge, addressedOperationKey(draftKey, operation))`, claimed before the await
 // and released in `finally`, which makes a second press at the SAME address a no-op
 // in the same tick and leaves another address free; `useSubjectScopedState` holds
@@ -95,11 +95,8 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../../../console/core/index.js";
-import {
-  BridgeScopedLatch,
-  useSubjectScopedState,
-  type ConsoleBridge,
-} from "../../../console/bridge/index.js";
+import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
 import type { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import type { CommandExecutor } from "./command-executor.js";
@@ -254,10 +251,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const historiesRef = useRef<AddressedDirectiveHistories>(new AddressedDirectiveHistories());
   // Claimed before the await and released in `finally`, so every settlement — sent,
   // intercepted, refused, or a rejection the router turned into a refusal — releases
-  // the slot on exactly one path rather than on the arms an author remembered. A
-  // `useState` initializer rather than a `useMemo`, on `approvals-hooks.ts`'s
-  // reasoning: a latch React was free to rebuild would forget an act still going.
-  const [operationLatch] = useState(() => new BridgeScopedLatch());
+  // the round on exactly one path rather than on the arms an author remembered.
+  const operationLatch = useGenerationLatch();
   const [refusalSlots, setRefusalSlots] = useState(NO_COMPOSER_REFUSALS);
   const [resendOffer, setResendOffer] = useState<AddressedResendOffer | undefined>(undefined);
   // Armed by the first focus of this composer, and only where the store still owed
@@ -270,12 +265,16 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   // was issued at. Two holders rather than one object: a send and a Stop can be in
   // flight at once, and one publisher writing a pair would let whichever settled
   // second overwrite what the other had just said.
-  const [status, publishStatus] = useSubjectScopedState<SendControllerStatus>(
+  const { value: status, publish: publishStatus } = useSubjectScopedState<SendControllerStatus>(
     bridge,
     draftKey,
-    "idle",
+    () => "idle",
   );
-  const [isStopping, publishStopping] = useSubjectScopedState(bridge, draftKey, false);
+  const { value: isStopping, publish: publishStopping } = useSubjectScopedState(
+    bridge,
+    draftKey,
+    () => false,
+  );
   // The address a settlement is measured against is the composer's CURRENT one, and a
   // dispatch's own closure holds the address it was ISSUED at — so the current key
   // travels through a ref that every render refreshes, and the two are compared where
@@ -348,7 +347,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       // and a refusal card would report a failure where the only thing that happened
       // is that they were early.
       const latchKey = addressedOperationKey(draftKey, "send");
-      if (!operationLatch.claim(bridge, latchKey)) {
+      const claim = operationLatch.claim(bridge, latchKey);
+      if (claim === undefined) {
         return;
       }
       publishStatus("sending");
@@ -394,12 +394,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
             return;
         }
       } finally {
-        // The slot released is the one this act claimed, which is what lets a
+        // The round released is the one this act claimed, which is what lets a
         // settlement arriving after a re-address free the address it was issued at
         // rather than the one on screen. The reading is published through this
         // address's own publisher, so it lands only while that address is current.
-        operationLatch.release(bridge, latchKey);
-        publishStatus("idle");
+        claim.settle(() => {
+          publishStatus("idle");
+        });
+        claim.release();
       }
     },
     [
@@ -430,7 +432,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   const stop = useCallback(async () => {
     const latchKey = addressedOperationKey(draftKey, "stop");
-    if (!operationLatch.claim(bridge, latchKey)) {
+    const claim = operationLatch.claim(bridge, latchKey);
+    if (claim === undefined) {
       return;
     }
     publishStopping(true);
@@ -441,8 +444,10 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       const outcome = await router.stop(target);
       settle(identity, outcome.status === "refused" ? outcome.refusal : undefined);
     } finally {
-      operationLatch.release(bridge, latchKey);
-      publishStopping(false);
+      claim.settle(() => {
+        publishStopping(false);
+      });
+      claim.release();
     }
   }, [
     bridge,

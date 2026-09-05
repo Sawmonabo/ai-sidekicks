@@ -39,11 +39,17 @@
 // and control through the NEW bridge was refused as already in flight — until the
 // old call settled, and forever where it never did — and that old settlement was
 // appended to a surface it was not about. All three now rotate together, and by
-// whose they are rather than by a timer: `BridgeScopedLatch` holds each key under
-// the bridge it was claimed on, so a settlement releases the generation it belongs
-// to and leaves the live one untouched, and `useSubjectScopedState` holds the two
-// readings under the bridge, resetting them during the render that first sees a new
-// one and dropping a publish whose captured bridge has been replaced.
+// whose they are rather than by a timer: the console's one `GenerationLatch` holds
+// each key under the bridge it was claimed on, so a settlement releases the round it
+// belongs to and leaves the live one untouched, and `useSubjectScopedState` holds the
+// two readings under the bridge, resetting them during the render that first sees a
+// new one and dropping a publish whose captured bridge has been replaced.
+//
+// THE IN-FLIGHT SET IS THE LATCH'S RENDERING AND NOT A SECOND RULE. What admits a
+// dispatch is the claim; what a control renders as busy is this set, published only
+// from inside the claim's own settlement. The latch bounds what it holds and answers
+// only about the round it owns, so a set is what a component can read a key out of —
+// and because nothing outside the settlement writes it, the two cannot disagree.
 //
 // THE RECORD IS THIS WINDOW'S OWN. `Spec-023 §Signature Feature Composition
 // Sketches`' Runs View renders "intervention history per Spec-004" — the durable
@@ -54,13 +60,10 @@
 // every field of it daemon-supplied. The surface that renders it says so rather
 // than passing a partial record off as the whole one.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef } from "react";
 
-import {
-  BridgeScopedLatch,
-  useSubjectScopedState,
-  type ConsoleBridge,
-} from "../../bridge/index.js";
+import { type ConsoleBridge } from "../../bridge/index.js";
+import { useGenerationLatch, useSubjectScopedState } from "../../store/index.js";
 import { INTERVENTION_OUTCOME_CAP } from "./runs-bounds.js";
 import {
   RunControlDispatcher,
@@ -141,21 +144,14 @@ export function useRunControlSurface(
   bridge: ConsoleBridge,
   mintIdempotencyKey?: () => string,
 ): RunControlSurface {
-  const [records, publishRecords] = useSubjectScopedState<readonly RunControlRecord[]>(
-    bridge,
-    RUN_CONTROL_SURFACE_SUBJECT,
-    EMPTY_RECORDS,
-  );
-  const [inFlightKeys, publishInFlightKeys] = useSubjectScopedState<ReadonlySet<string>>(
-    bridge,
-    RUN_CONTROL_SURFACE_SUBJECT,
-    EMPTY_KEYS,
-  );
+  const { value: records, publish: publishRecords } = useSubjectScopedState<
+    readonly RunControlRecord[]
+  >(bridge, RUN_CONTROL_SURFACE_SUBJECT, () => EMPTY_RECORDS);
+  const { value: inFlightKeys, publish: publishInFlightKeys } = useSubjectScopedState<
+    ReadonlySet<string>
+  >(bridge, RUN_CONTROL_SURFACE_SUBJECT, () => EMPTY_KEYS);
   const nextDispatchOrdinal = useRef(0);
-  const isMounted = useRef(true);
-  // A `useState` initializer rather than a `useMemo`, on `approvals-hooks.ts`'s
-  // reasoning: a latch React was free to rebuild would forget a call still in flight.
-  const [controlLatch] = useState(() => new BridgeScopedLatch());
+  const controlLatch = useGenerationLatch();
 
   const dispatcher = useMemo(
     () =>
@@ -165,13 +161,6 @@ export function useRunControlSurface(
     [bridge, mintIdempotencyKey],
   );
 
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
-
   const dispatch = useCallback(
     (
       runId: string,
@@ -179,7 +168,8 @@ export function useRunControlSurface(
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
     ): RunControlAdmission => {
       const key = inFlightKeyFor(runId, control);
-      if (!controlLatch.claim(bridge, key)) {
+      const claim = controlLatch.claim(bridge, key);
+      if (claim === undefined) {
         return { admitted: false, reason: "in-flight" };
       }
       // Minted here rather than at settlement, because the caller needs it NOW: a
@@ -193,31 +183,30 @@ export function useRunControlSurface(
         return next;
       });
       const settle = (outcome: RunControlOutcome): void => {
-        // The latch is released before the mount check and never inside it: an
-        // unmounted surface writes no state, but a key left held would survive the
-        // mount/unmount/mount that development-mode React performs on one hook
-        // instance and leave that control latched for the rest of the window. The
-        // bridge released is the one the call was CLAIMED on, so a settlement landing
-        // after a swap frees the generation it belongs to and not the live one.
-        controlLatch.release(bridge, key);
-        if (!isMounted.current) {
-          return;
-        }
         const record: RunControlRecord = { recordId: dispatchToken, runId, control, outcome };
-        // Published through this bridge's own publishers, so an answer to a call made
-        // on a transport that has since been replaced is dropped rather than appended
-        // to a surface that never made it.
-        publishInFlightKeys((held) => {
-          const next = new Set(held);
-          next.delete(key);
-          return next;
+        // Published inside the claim, so an answer to a call made on a transport that
+        // has since been replaced — or by a mount React has already discarded — is
+        // dropped rather than appended to a surface that never made it.
+        claim.settle(() => {
+          publishInFlightKeys((held) => {
+            const next = new Set(held);
+            next.delete(key);
+            return next;
+          });
+          publishRecords((held) => {
+            const appended = [...held, record];
+            return appended.length <= INTERVENTION_OUTCOME_CAP
+              ? appended
+              : appended.slice(appended.length - INTERVENTION_OUTCOME_CAP);
+          });
         });
-        publishRecords((held) => {
-          const appended = [...held, record];
-          return appended.length <= INTERVENTION_OUTCOME_CAP
-            ? appended
-            : appended.slice(appended.length - INTERVENTION_OUTCOME_CAP);
-        });
+        // Released after the publish and never inside the mount check that used to
+        // guard it: a key left held would survive the mount/unmount/mount that
+        // development-mode React performs on one hook instance and leave that control
+        // latched for the rest of the window. The round released is the one the call
+        // was CLAIMED in, so a settlement landing after a swap frees its own and not
+        // the live one.
+        claim.release();
       };
       const settleRejection = (rejection: unknown): void => {
         settle(carriedRunControlRefusal(control, rejection));

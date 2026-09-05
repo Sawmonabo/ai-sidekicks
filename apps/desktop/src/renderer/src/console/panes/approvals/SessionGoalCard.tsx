@@ -50,7 +50,8 @@ import {
   Nothing,
 } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
-import { useSessionScopedState, type ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
+import { useSessionScopedState } from "../../seats/index.js";
 import { SESSION_GOAL_MAX_LENGTH, isSendableGoalText } from "../../bridge/index.js";
 import { type SessionGoalProjection } from "./session-goal.js";
 
@@ -107,10 +108,10 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
   // Held under the session it was opened for. The reset runs during the render that
   // first sees a new subject, so no frame commits one session's draft under another
   // — an effect would clear it one frame late, with Save reachable in between.
-  const [editor, publishEditor] = useSessionScopedState<GoalEditorState>(
+  const { value: editor, publish: publishEditor } = useSessionScopedState<GoalEditorState>(
     props.bridge,
     props.sessionId,
-    CLOSED_GOAL_EDITOR,
+    () => CLOSED_GOAL_EDITOR,
   );
   const draftText = editor.isOpen ? editor.draftText : "";
 

@@ -125,20 +125,6 @@ export { PROVIDER_QUOTA_REFUSAL_ORIGIN } from "./provider-account-quota.js";
 export { remainingPercentOf } from "./provider-quota-fold.js";
 export type { ProviderQuotaReading } from "./provider-quota-fold.js";
 
-// State that belongs to the bridge and the subject within it that produced it. Here
-// rather than beside any one consumer because they sit in families that may not
-// import one another — the runs pane's live feed, the composer's attachment picker,
-// the goal card, the send bar — and the failure it closes is the same in all of
-// them: a mounted surface rebound to another subject rendering the previous one's
-// answer, and a read still in flight settling into a surface that has moved on.
-export { useSessionScopedState, useSubjectScopedState } from "./session-scoped-state.js";
-export type { SubjectScopedState } from "./session-scoped-state.js";
-
-// The mutable half of the same rule: which keys have an act in flight, per bridge.
-// Read and written inside one handler's own tick, which is what a rendered value
-// cannot be, and keyed by the subject the "one in flight" rule is about.
-export { BridgeScopedLatch } from "./bridge-scoped-latch.js";
-
 export {
   SidekicksBridgeProvider,
   useBridgeResolution,

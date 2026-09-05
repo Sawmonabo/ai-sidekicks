@@ -50,9 +50,9 @@ import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import {
   RUN_STATE_SUBSCRIBE_STREAM,
   subscribeDaemon,
-  useSessionScopedState,
   type ConsoleBridge,
 } from "../../bridge/index.js";
+import { useSessionScopedState } from "../../seats/index.js";
 import {
   compareInstants,
   isConsoleRefusal,
@@ -342,7 +342,11 @@ export function useRunStateFeed(bridge: ConsoleBridge, sessionStore: SessionStor
   const sessionId = sessionStore.sessionId;
   const hasReadSnapshot = useSessionInitialised(sessionStore);
   const projection = useRef<RunStateProjection>(new RunStateProjection());
-  const [feed, setFeed] = useSessionScopedState<RunStateFeed>(bridge, sessionId, EMPTY_FEED);
+  const { value: feed, publish: setFeed } = useSessionScopedState<RunStateFeed>(
+    bridge,
+    sessionId,
+    () => EMPTY_FEED,
+  );
 
   useEffect(() => {
     const fold = new RunStateProjection();

@@ -35,7 +35,6 @@ import {
 } from "../store/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 
-// Consumed by T-023p-1C-3
 /**
  * Hold one value per `(bridge, sessionId)`.
  *
@@ -53,7 +52,6 @@ export function useSessionScopedState<TValue>(
   return useSubjectScopedState(bridge, sessionId, initial);
 }
 
-// Consumed by T-023p-1C-3
 /**
  * The session a holder is about, or `undefined` where the surface is about none.
  *
