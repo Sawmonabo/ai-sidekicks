@@ -10,7 +10,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { FIND_MATCH_CAP } from "./constants.js";
+import { FIND_MATCH_CAP } from "./structure-bounds.js";
 import { FindInLedger } from "./FindInLedger.js";
 import {
   LEDGER_FIND_CAP_NOTE,
@@ -19,7 +19,7 @@ import {
   findInLedger,
   type LedgerFindResult,
 } from "./find-model.js";
-import { runRow } from "./row-fixtures.js";
+import { runRow } from "./timeline-rows.test-support.js";
 
 /** More matches than the three-row window below can walk, so the cap arm is real. */
 const UNCAPPED_TOTAL = 940;

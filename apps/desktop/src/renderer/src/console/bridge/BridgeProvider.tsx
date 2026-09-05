@@ -40,6 +40,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { type ConsoleClock } from "../core/index.js";
+import { useSubjectScopedState } from "../store/index.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 import { createFixtureBridge } from "./fixture-bridge.js";
 import { createLiveBridge, readInstalledBridge } from "./live-bridge.js";
@@ -258,27 +259,29 @@ export function useConsoleBridge(): ConsoleBridge {
 }
 
 /**
- * The clock this window runs on, pinned for the calling component's life.
+ * The clock this window runs on, pinned to the bridge it was resolved from.
  *
- * `consoleClockFor` is the one answer to which clock a window reads, and a
- * subsystem that BUILDS itself around a clock — a store, a registry — resolves it
- * once inside its own `useState` initializer. A component that has to HAND a clock
- * to something it renders has nowhere to put that pin, and the real arm of
- * `consoleClockFor` mints a fresh `RealClock` per call: read straight from a render
- * body, the value would have a new identity on every pass, and every consumer that
- * treats a clock as a resource identity would tear itself down and rebuild once per
- * render. So the resolution is `useState` for the same reason the bridge resolution
- * itself is — a resource identity is state and is never recomputed.
+ * `consoleClockFor` is the one answer to which clock a window reads, and the
+ * resolution is HELD rather than recomputed: its real arm mints a fresh `RealClock`
+ * per call, so read straight from a render body the value would have a new identity
+ * on every pass and every consumer that treats a clock as a resource identity would
+ * tear itself down and rebuild once per render. A resource identity is state.
  *
- * A window's clock cannot change under it: the fixture arm reads the running
- * engine's frozen clock, which the provider replaces only by remounting the tree
- * below it, and every `RealClock` reads the same wall clock. So pinning loses
- * nothing.
+ * WHAT IT IS ADDRESSED BY IS THE BRIDGE, NOT THE MOUNT. `useState` is a holder
+ * addressed by the mount, and the clock is a fact about the BRIDGE: the fixture arm
+ * reads the running scenario engine's frozen clock, so a scenario switch — or a reconnect
+ * handing down a second live bridge — replaces the bridge without remounting the
+ * surfaces beneath it, and a mount-addressed clock keeps answering with the retired
+ * one. Nothing advances it after that: the replay dock scrubs against a clock nobody
+ * steps, the reveal engine's armed frame sits on a retired scheduler so streaming
+ * lanes never drain, and every downstream `[clock]` dependency sees a stable
+ * identity and therefore never fires the re-mint arms that exist for exactly this.
+ * Addressing the holder by the bridge re-resolves it on a replacement and fires them.
  */
 export function useConsoleClock(): ConsoleClock {
   const bridge = useConsoleBridge();
-  const [clock] = useState<ConsoleClock>(() => consoleClockFor(bridge));
-  return clock;
+  return useSubjectScopedState<ConsoleClock>(bridge, undefined, () => consoleClockFor(bridge))
+    .value;
 }
 
 /** The resolution including its failure arm, for the frame's own error surface. */

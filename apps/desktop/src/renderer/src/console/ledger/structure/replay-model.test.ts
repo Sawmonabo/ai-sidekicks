@@ -13,7 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import { ReplayEngine, type ReplayPosition, type ReplayRow } from "./replay-model.js";
-import { rollbackBoundaryRow, runRow } from "./row-fixtures.js";
+import { rollbackBoundaryRow, runRow } from "./timeline-rows.test-support.js";
 import { LedgerSeamIndex } from "./seams.js";
 
 /** Three turns, ten seconds apart, so the window spans twenty thousand milliseconds. */

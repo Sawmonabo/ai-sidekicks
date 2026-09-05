@@ -51,7 +51,15 @@ import { consolePaneRegistry, type ConsolePaneContext } from "../seats/index.js"
 import { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
+// The family's five sheets, in the order the cascade reads them. `ledger.css` first
+// because it carries the deck and pane boxes the rest sit inside, then one sheet per
+// directory. `ledger/ledger.css` states the split; a rule spanning two directories
+// goes there and nowhere else.
 import "./ledger.css";
+import "./frame/frame.css";
+import "./structure/structure.css";
+import "./cards/cards.css";
+import "./cards/markdown/markdown.css";
 
 // This door carries the family's REGISTRATIONS and no pieces.
 //

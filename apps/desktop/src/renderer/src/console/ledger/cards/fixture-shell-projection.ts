@@ -68,7 +68,7 @@
 // dim the whole of it. That comparison is already epoch-scoped; what it needs from
 // here is that both sides of it are measured from one origin.
 //
-// The `SessionId` / `RunId` casts are the same one `row-fixtures.ts` takes: the
+// The `SessionId` / `RunId` casts are the same one `timeline-rows.test-support.ts` takes: the
 // brand is a compile-time nominal tag over `string` with no runtime witness, and
 // the value under it is the wire's own.
 

@@ -36,8 +36,9 @@ export { LedgerFilterBar } from "./LedgerFilterBar.js";
 export { ProvenanceRail } from "./ProvenanceRail.js";
 export { ReplayControls } from "./ReplayControls.js";
 export { SeamRow } from "./SeamRow.js";
-export { ChapterCollapseState, LedgerChapterIndex, type LedgerChapter } from "./chapters.js";
-export { CHAPTER_VISIBLE_ROW_CAP } from "./constants.js";
+export { ChapterCollapseState } from "./chapter-collapse.js";
+export { LedgerChapterIndex, type LedgerChapter } from "./chapters.js";
+export { CHAPTER_VISIBLE_ROW_CAP } from "./structure-bounds.js";
 export {
   UNFILTERED_LEDGER,
   applyLedgerFilter,
@@ -52,13 +53,22 @@ export {
   type LedgerJumpStages,
 } from "./filters.js";
 export {
+  /**
+   * The walk's closed direction set, published for `panes/timeline/`'s find acts.
+   *
+   * @consumedBy T-023p-1C-5
+   */
+  FIND_STEP_DIRECTIONS,
   emptyFindResult,
   findInLedger,
   stepFindMatch,
+  /** @consumedBy T-023p-1C-5 */
+  type FindStepDirection,
   type LedgerFindResult,
 } from "./find-model.js";
 export { useMountedLedger, type LedgerStructureActs } from "./mounted-ledger.js";
-export { ProvenanceRailModel, railViewportBand, type RailViewportBand } from "./rail-model.js";
+export { railViewportBand, type RailViewportBand } from "./rail-bands.js";
+export { ProvenanceRailModel } from "./rail-model.js";
 export {
   ReplayEngine,
   type ReplayPosition,

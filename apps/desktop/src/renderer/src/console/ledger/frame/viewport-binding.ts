@@ -20,9 +20,10 @@ import {
 } from "react";
 
 import { type ConsoleClock } from "../../core/index.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "../../primitives/index.js";
 import { LEDGER_OVERSCAN_ROWS } from "./frame-bounds.js";
 import { LedgerViewportController } from "./viewport-controller.js";
-import { type LedgerRowLease } from "./window-cap.js";
+import { type LedgerRowLease } from "./row-lease-table.js";
 import { type LedgerViewportConditions, type LedgerViewportSnapshot } from "./viewport-snapshot.js";
 
 /**
@@ -154,6 +155,12 @@ export function useLedgerViewport(options: UseLedgerViewportOptions): LedgerView
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count: snapshot.keyProjection.virtualKeys.length,
     overscan: LEDGER_OVERSCAN_ROWS,
+    // The attribute the row primitive WRITES, named here rather than left to the
+    // library's identically-spelled default: the row and the measurement are two
+    // sides of one seam, and a default is not a seam — a rename in the primitive
+    // would leave this reading an attribute nothing writes, which measures every
+    // row as row zero with no gate anywhere to notice.
+    indexAttribute: WINDOWED_ROW_INDEX_ATTRIBUTE,
     estimateSize: controller.seams.estimateSize,
     getItemKey: controller.seams.getItemKey,
     getScrollElement: controller.seams.getScrollElement,

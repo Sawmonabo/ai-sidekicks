@@ -32,7 +32,7 @@ import {
   type ConsoleClock,
   type ScheduledHandle,
 } from "../../core/index.js";
-import { REPLAY_FRAME_INTERVAL_MS } from "./constants.js";
+import { REPLAY_FRAME_INTERVAL_MS } from "./structure-bounds.js";
 import type { LedgerSeam } from "./seams.js";
 
 /**

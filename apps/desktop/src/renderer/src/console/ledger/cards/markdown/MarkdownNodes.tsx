@@ -104,7 +104,7 @@ function renderNode(
     case "heading":
       // A message's `#` is not a page title — the ledger's rows are the document's
       // structure — so every level renders as one element carrying its depth, and
-      // `ledger.css` gives the levels their weights. That is what keeps a message from
+      // `markdown.css` gives the levels their weights. That is what keeps a message from
       // out-shouting the surface it sits inside.
       return (
         <p

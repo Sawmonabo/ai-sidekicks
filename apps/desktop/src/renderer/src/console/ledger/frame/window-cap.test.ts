@@ -242,24 +242,14 @@ describe("the ledger window — the reading floor", () => {
 });
 
 describe("the ledger window — leases and cursors", () => {
+  // The SEAM only. What parking means and the bound it is held to are
+  // `row-lease-table.test.ts`'s; this case pins that the prune reaches it at all.
   it("re-parks a pruned row's lease under a synthetic key, and hands it back", () => {
     const window = loadedWindow();
     window.setLease("chapter-0", { density: "expanded", innerScrollTopPx: 44 });
     window.prune(PRUNABLE);
     expect(window.rows().some((row) => row.key === "chapter-0")).toBe(false);
     expect(window.lease("chapter-0")).toStrictEqual({ density: "expanded", innerScrollTopPx: 44 });
-  });
-
-  it("bounds the parked table, evicting the least recently parked", () => {
-    const window = new LedgerWindow({ topLevelCap: 1, parkedLeaseCap: 2 });
-    window.ingest(syntheticLog(4));
-    for (const index of [0, 1, 2]) {
-      window.setLease(`chapter-${String(index)}`, { density: "expanded", innerScrollTopPx: index });
-    }
-    window.prune(PRUNABLE);
-    expect(window.lease("chapter-0")).toBeUndefined();
-    expect(window.lease("chapter-1")?.innerScrollTopPx).toBe(1);
-    expect(window.lease("chapter-2")?.innerScrollTopPx).toBe(2);
   });
 
   it("cuts at the pin's cursor while pinned and at the oldest retained row otherwise", () => {

@@ -25,7 +25,7 @@
 
 import { createContext, useContext } from "react";
 
-import { type LedgerRowLease } from "./window-cap.js";
+import { type LedgerRowLease } from "./row-lease-table.js";
 
 /** What a row body may do to the state the window holds for it. */
 export interface LedgerRowLeaseChannel {

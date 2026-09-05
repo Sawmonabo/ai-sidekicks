@@ -16,7 +16,7 @@ import { memo, useRef } from "react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
-import { TWO_FRAME_REVEAL_SOURCE } from "./reveal-fixture.js";
+import { TWO_FRAME_REVEAL_SOURCE } from "./reveal.test-support.js";
 import { useLedgerReveal, type LedgerRevealBinding } from "./reveal-binding.js";
 import { LedgerRowRevealProvider, useLedgerRowReveal } from "./RowRevealProvider.js";
 

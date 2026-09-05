@@ -15,15 +15,17 @@
 // So this theme's foregrounds are not colours. Each is a CSS custom-property reference
 // naming the token's FAMILY — `var(--meridian-code-keyword)` — so the collapse to
 // families happens inside the theme rather than in a pass after it, a cached token is
-// identical in both schemes, and the actual colours live in `ledger/ledger.css` where
-// the rest of the Meridian palette does. Shiki's own `createCssVariablesTheme` is the
-// same technique, and this is that technique with our own family vocabulary rather than
-// its variable names.
+// identical in both schemes, and the actual colours live in `tokens/palette.ts` where
+// the rest of the Meridian palette does, emitted into the generated token sheet by
+// `tokens/generate-css.ts` and measured against the code block's own ground by
+// `tokens/contrast.test.ts`. Shiki's own `createCssVariablesTheme` is the same
+// technique, and this is that technique with our own family vocabulary rather than its
+// variable names.
 //
 // THE FAMILIES ARE A CLOSED SET, and the architecture tier cross-checks that every
-// member has a declaration in the family stylesheet. That is the cross-check above:
-// a family added here without a colour there renders as the sheet's fallback and reads
-// as plain text, which is a silent failure a type cannot catch.
+// member has a declaration in that generated sheet. That is the cross-check above: a
+// family added here without a colour there renders as the sheet's fallback and reads as
+// plain text, which is a silent failure a type cannot catch.
 
 import type { ThemeRegistrationRaw } from "shiki/types";
 
@@ -51,6 +53,32 @@ export const CODE_TOKEN_FAMILIES = [
 
 /** One token family. Derived from the enumeration, never restated. */
 export type CodeTokenFamily = (typeof CODE_TOKEN_FAMILIES)[number];
+
+/**
+ * The families whose colour is one of the console's own text tokens.
+ *
+ * They need no per-scheme declaration of their own, because the token they defer to
+ * already swaps with the scheme. Listed rather than derived because deferring is a
+ * DESIGN decision about a family, and stating the exception here makes the other
+ * half a complement: a family added to the enumeration is coloured until somebody
+ * says otherwise, so it arrives owing a declaration under both schemes rather than
+ * silently rendering its light value on a dark ground.
+ */
+const NEUTRAL_CODE_TOKEN_FAMILIES = ["plain", "comment", "operator", "invalid"] as const;
+
+/**
+ * The families that carry a colour of their own, as the complement of the neutral set.
+ *
+ * The partition is what makes the sheet cross-check quantify over the DECLARED
+ * enumeration rather than over a list a second file wrote out by hand — which is the
+ * shape that stops covering a sixth coloured family the day one is added. Each member
+ * is a `CODE_TOKENS` entry in `tokens/palette.ts`; each neutral one is a
+ * `TOKEN_ALIASES` entry there.
+ */
+export const COLOURED_CODE_TOKEN_FAMILIES: readonly CodeTokenFamily[] = CODE_TOKEN_FAMILIES.filter(
+  (family): family is CodeTokenFamily =>
+    !(NEUTRAL_CODE_TOKEN_FAMILIES as readonly string[]).includes(family),
+);
 
 /** The custom property a family's colour is declared under, in one place. */
 export function codeTokenVariableName(family: CodeTokenFamily): string {

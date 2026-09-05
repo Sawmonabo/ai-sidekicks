@@ -57,9 +57,10 @@ import {
   RAIL_FISHEYE_RADIUS_PX,
   RAIL_INK_WIDTH_PX,
   RAIL_MAX_TICKS_PER_PIXEL,
-} from "./constants.js";
+} from "./structure-bounds.js";
 import { hostDevicePixelRatio } from "./rail-surface.js";
-import { type RailTick, type RailTickTone } from "./rail-model.js";
+import { type RailTick } from "./rail-model.js";
+import { type RailTickTone } from "./rail-ticks.js";
 
 /**
  * Where an actor tick's colour comes from.

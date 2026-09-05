@@ -115,7 +115,8 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
       <div
         className="meridian-ledger-viewport__surface"
         ref={binding.attachSurface}
-        // The feed role is claimed only while there is something to be a feed OF.
+        // The feed role is claimed only while there is something to be a feed OF,
+        // and the articles it owns are `LedgerRowMount`'s half of the same claim.
         // `feed` REQUIRES owned articles, so an empty one is not a quieter feed but
         // an invalid one — and a role whose contract the element is breaking is
         // worse for a screen-reader user than the plain scroll container this
@@ -145,7 +146,7 @@ export function LedgerViewport(props: LedgerViewportProps): React.JSX.Element {
                 key={virtualItem.key}
                 rowIndex={virtualItem.index}
                 row={row}
-                rowCount={snapshot.rows.length}
+                totalRowCount={snapshot.rows.length}
                 renderRow={props.renderRow}
                 attachRow={binding.attachRow}
               />

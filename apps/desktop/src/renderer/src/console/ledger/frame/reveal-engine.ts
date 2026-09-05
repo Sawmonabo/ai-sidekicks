@@ -44,12 +44,13 @@ import {
 } from "../../core/index.js";
 import {
   REVEAL_CATCH_UP_MULTIPLIER,
-  REVEAL_CHECKPOINT_TAIL_CAP,
   REVEAL_FRAME_CHARACTER_BUDGET,
   REVEAL_GATE_TAIL_CHARACTERS,
   REVEAL_LITERAL_BACKTRACK_CAP,
 } from "./frame-bounds.js";
+import { lossyStringify } from "../../../../../shared/wire-errors.js";
 import { safeRevealCeiling } from "./reveal-gate.js";
+import { RevealLane } from "./reveal-lane.js";
 import type {
   RevealDelta,
   RevealDiagnostic,
@@ -57,26 +58,10 @@ import type {
   RevealFrame,
   RevealLaneState,
 } from "./reveal-vocabulary.js";
-import { RopeSmoother, type ProvenAppendToken } from "./rope-smoother.js";
 
 export interface RevealEngineOptions {
   readonly clock: ConsoleClock;
   readonly frameCharacterBudget?: number;
-}
-
-/** One authoritative commit the lane can be re-anchored against. */
-interface RevealCheckpoint {
-  readonly sequence: number;
-  readonly sourceLength: number;
-}
-
-interface RevealLane {
-  readonly smoother: RopeSmoother;
-  readonly checkpoints: RevealCheckpoint[];
-  publishedText: string;
-  appendToken: ProvenAppendToken | undefined;
-  isCatchingUp: boolean;
-  isQuarantined: boolean;
 }
 
 export class RevealEngine {
@@ -108,12 +93,11 @@ export class RevealEngine {
     }
     const lane = this.#laneFor(delta.laneId);
     if (delta.mode === "authoritative") {
-      this.#commitAuthoritative(lane, delta);
+      lane.commitAuthoritative(delta, (diagnostic) => {
+        this.#reportDiagnostic(diagnostic);
+      });
     } else {
-      const token = lane.smoother.append(delta.text);
-      if (token !== undefined) {
-        lane.appendToken = token;
-      }
+      lane.appendSpeculative(delta.text);
     }
     this.#armFrame();
   }
@@ -125,18 +109,18 @@ export class RevealEngine {
 
   public laneState(laneId: string): RevealLaneState | undefined {
     const lane = this.#lanesById.get(laneId);
-    return lane === undefined ? undefined : this.#describeLane(laneId, lane);
+    return lane?.describe();
   }
 
   public lanes(): readonly RevealLaneState[] {
-    return [...this.#lanesById.entries()].map(([laneId, lane]) => this.#describeLane(laneId, lane));
+    return [...this.#lanesById.values()].map((lane) => lane.describe());
   }
 
   public get state(): RevealEngineState {
     if (this.#lanesById.size === 0) {
       return "idle";
     }
-    const working = [...this.#lanesById.values()].filter((lane) => !lane.smoother.isSettled);
+    const working = [...this.#lanesById.values()].filter((lane) => !lane.isSettled);
     if (working.length === 0) {
       return "settled";
     }
@@ -187,89 +171,16 @@ export class RevealEngine {
     if (existing !== undefined) {
       return existing;
     }
-    const lane: RevealLane = {
-      smoother: new RopeSmoother(laneId),
-      checkpoints: [],
-      publishedText: "",
-      appendToken: undefined,
-      isCatchingUp: false,
-      isQuarantined: false,
-    };
+    const lane = new RevealLane(laneId);
     this.#lanesById.set(laneId, lane);
     return lane;
-  }
-
-  /**
-   * Fold an authoritative commit.
-   *
-   * The prefix check is the whole point: a producer that re-wrote its own history
-   * — a retry, a rollback, a driver reconnect — must not have its new source glued
-   * onto the tail of the old one.
-   *
-   * When the check fails the lane is re-based on the LONGEST COMMON PREFIX of what
-   * it had published and what the producer now claims, and never on the published
-   * LENGTH. Clamping to the length preserved the cursor's position and not its
-   * text: a shorter rewrite truncated the visible prefix, and an equal-or-longer
-   * one replaced every character after the divergence in a single frame with no
-   * budget spent — which is the teleport this engine exists to prevent, arriving in
-   * exactly the retry case the branch was written for. Rebasing on the agreed
-   * prefix keeps the characters the two sources actually share, and the divergent
-   * remainder is revealed by the ordinary per-frame budget, so a rewrite streams.
-   *
-   * Both strings are already materialised here, so the comparison reads no growing
-   * source. The retraction is real — the producer withdrew text a reader had
-   * already seen — so the diagnostic states how many characters went, rather than
-   * claiming the revealed text held where it was.
-   */
-  #commitAuthoritative(lane: RevealLane, delta: RevealDelta): void {
-    if (lane.smoother.isPrefixOf(delta.text)) {
-      const appended = delta.text.slice(lane.smoother.sourceLength);
-      const token = lane.smoother.append(appended);
-      if (token !== undefined) {
-        lane.appendToken = token;
-        this.#recordCheckpoint(lane, token);
-      }
-      return;
-    }
-    const alreadyPublished = lane.publishedText;
-    const agreedPrefixLength = commonPrefixLength(alreadyPublished, delta.text);
-    this.#reportDiagnostic({
-      kind: "out-of-band-source-change",
-      laneId: delta.laneId,
-      detail: `an authoritative commit did not extend the text this lane had published; the lane was re-based on the ${String(agreedPrefixLength)} characters both sources agree on and ${String(alreadyPublished.length - agreedPrefixLength)} characters were retracted`,
-    });
-    const rebased = new RopeSmoother(delta.laneId);
-    const token = rebased.append(delta.text);
-    rebased.advance(agreedPrefixLength);
-    this.#lanesById.set(delta.laneId, {
-      smoother: rebased,
-      checkpoints: [],
-      publishedText: rebased.revealedText(),
-      appendToken: token,
-      isCatchingUp: false,
-      isQuarantined: false,
-    });
-  }
-
-  #recordCheckpoint(lane: RevealLane, token: ProvenAppendToken): void {
-    lane.checkpoints.push({ sequence: token.sequence, sourceLength: token.sourceLength });
-    while (lane.checkpoints.length > REVEAL_CHECKPOINT_TAIL_CAP) {
-      const dropped = lane.checkpoints.shift();
-      if (dropped !== undefined) {
-        this.#reportDiagnostic({
-          kind: "checkpoint-dropped",
-          laneId: lane.smoother.laneId,
-          detail: `the checkpoint tail is bounded at ${String(REVEAL_CHECKPOINT_TAIL_CAP)}; the oldest anchor was released`,
-        });
-      }
-    }
   }
 
   #armFrame(): void {
     if (this.#armedFrame !== undefined || this.#disposed) {
       return;
     }
-    if (![...this.#lanesById.values()].some((lane) => this.#hasWork(lane))) {
+    if (![...this.#lanesById.values()].some((lane) => lane.hasWork())) {
       return;
     }
     this.#armedFrame = this.#clock.scheduleFrame(() => {
@@ -291,7 +202,7 @@ export class RevealEngine {
    * still pending.
    */
   #drainFrame(): void {
-    const workingLanes = [...this.#lanesById.entries()].filter(([, lane]) => this.#hasWork(lane));
+    const workingLanes = [...this.#lanesById.values()].filter((lane) => lane.hasWork());
     if (workingLanes.length === 0) {
       return;
     }
@@ -300,20 +211,20 @@ export class RevealEngine {
     const failures: string[] = [];
     let spent = 0;
 
-    for (const [laneId, lane] of workingLanes) {
+    for (const lane of workingLanes) {
       // Cleared before the pass, so "catching up" describes THIS frame's
       // allocation rather than a flag a lane keeps once it has caught up.
       lane.isCatchingUp = false;
-      spent += this.#advanceLane(laneId, lane, fairShare, failures);
+      spent += this.#advanceLane(lane, fairShare, failures);
     }
     // The remainder, offered in queue order to the lanes that are behind. Bounded
     // by the catch-up ceiling so a lane's RATE rises and its position never jumps.
-    for (const [laneId, lane] of workingLanes) {
+    for (const lane of workingLanes) {
       const remaining = this.#frameCharacterBudget - spent;
       if (remaining <= 0) {
         break;
       }
-      if (!this.#hasWork(lane)) {
+      if (!lane.hasWork()) {
         lane.isCatchingUp = false;
         continue;
       }
@@ -322,7 +233,7 @@ export class RevealEngine {
         continue;
       }
       lane.isCatchingUp = true;
-      spent += this.#advanceLane(laneId, lane, extra, failures);
+      spent += this.#advanceLane(lane, extra, failures);
     }
 
     if (failures.length > 0) {
@@ -337,76 +248,28 @@ export class RevealEngine {
   }
 
   /** Advance one lane through the gate. Returns the characters actually revealed. */
-  #advanceLane(laneId: string, lane: RevealLane, share: number, failures: string[]): number {
+  #advanceLane(lane: RevealLane, share: number, failures: string[]): number {
     try {
-      const tail = lane.smoother.revealedTail(REVEAL_GATE_TAIL_CHARACTERS);
-      const window = tail + lane.smoother.lookahead(share + REVEAL_LITERAL_BACKTRACK_CAP);
-      const candidateInWindow = Math.min(tail.length + share, window.length);
-      const gatedInWindow = safeRevealCeiling(window, candidateInWindow);
-      const revealed = lane.smoother.advance(Math.max(0, gatedInWindow - tail.length));
-      lane.publishedText = lane.smoother.revealedText();
-      lane.isCatchingUp = lane.isCatchingUp && !lane.smoother.isSettled;
-      this.#assertPublishedTextIsRevealCursor(lane);
-      return revealed;
+      return lane.advance(
+        share,
+        safeRevealCeiling,
+        REVEAL_GATE_TAIL_CHARACTERS,
+        REVEAL_LITERAL_BACKTRACK_CAP,
+      );
     } catch (transitionFailure: unknown) {
       lane.isQuarantined = true;
-      failures.push(`${laneId}: ${String(transitionFailure)}`);
+      // The TOTAL stringifier, because this expression runs after the `catch` has
+      // been entered and a `String(...)` that threw here would leave the handler by
+      // exception: the throw escapes the frame loop past `#armFrame()`, so one
+      // lane's null-prototype failure value stops every lane permanently, with no
+      // diagnostic and no terminal. A quarantine that takes the engine with it is
+      // not a quarantine.
+      failures.push(`${lane.laneId}: ${lossyStringify(transitionFailure)}`);
       return 0;
     }
-  }
-
-  #hasWork(lane: RevealLane): boolean {
-    return !lane.isQuarantined && !lane.smoother.isSettled;
-  }
-
-  /**
-   * This engine's named invariant: published text is the smoother's reveal cursor.
-   *
-   * Asserted under DEV and test only, because it is a claim about this module's own
-   * bookkeeping rather than about anything a user did. `import.meta.env.DEV` is a
-   * compile-time substitution, so a release bundle contains neither the check nor
-   * the branch.
-   */
-  #assertPublishedTextIsRevealCursor(lane: RevealLane): void {
-    if (!import.meta.env.DEV) {
-      return;
-    }
-    if (lane.publishedText !== lane.smoother.revealedText()) {
-      throw new Error(
-        `reveal invariant broken on lane ${lane.smoother.laneId}: published text is not the smoother's reveal cursor`,
-      );
-    }
-  }
-
-  #describeLane(laneId: string, lane: RevealLane): RevealLaneState {
-    return {
-      laneId,
-      publishedText: lane.publishedText,
-      pendingCharacterCount: lane.smoother.pendingCharacterCount,
-      isCatchingUp: lane.isCatchingUp,
-      isSettled: lane.smoother.isSettled,
-      appendToken: lane.appendToken,
-    };
   }
 
   #reportDiagnostic(diagnostic: RevealDiagnostic): void {
     this.#diagnosticEmitter.emit(diagnostic);
   }
-}
-
-/**
- * How many leading characters two settled strings share.
- *
- * Both arguments are materialised strings the caller already holds — the text a
- * lane published and the whole source an authoritative commit carried — so this
- * inspects nothing that is still growing, which is the one thing the rope's
- * proven-append token exists to prevent.
- */
-function commonPrefixLength(first: string, second: string): number {
-  const ceiling = Math.min(first.length, second.length);
-  let shared = 0;
-  while (shared < ceiling && first[shared] === second[shared]) {
-    shared += 1;
-  }
-  return shared;
 }

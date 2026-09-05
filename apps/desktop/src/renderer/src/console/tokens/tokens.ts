@@ -17,7 +17,9 @@ import type { OklchColor } from "./color.js";
 import { resolveEmittedColor } from "./color.js";
 import type { SchemePair } from "./palette.js";
 import {
+  ANSI_TOKENS,
   ATTENTION_TOKENS,
+  CODE_TOKENS,
   PARTICIPANT_HUE_CHROMA,
   PARTICIPANT_HUE_LIGHTNESS,
   PARTICIPANT_HUE_STEPS,
@@ -108,13 +110,16 @@ function resolvePairs(source: Readonly<Record<string, SchemePair>>): Map<string,
 
 /**
  * Every scheme-varying color token, resolved. Insertion order is surfaces, then
- * text, then attention — the order `meridian.css` emits, so the generated file
- * reads top-down from ground to signal.
+ * text, then attention, then the two family vocabularies — the order
+ * `meridian.css` emits, so the generated file reads top-down from ground to
+ * signal and finishes with the sets a single family spends.
  */
 export const SCHEME_COLOR_TOKENS: ReadonlyMap<string, SchemePair> = new Map([
   ...resolvePairs(SURFACE_TOKENS),
   ...resolvePairs(TEXT_TOKENS),
   ...resolvePairs(ATTENTION_TOKENS),
+  ...resolvePairs(CODE_TOKENS),
+  ...resolvePairs(ANSI_TOKENS),
 ]);
 
 /** The token name of a participant wheel step. */
@@ -219,6 +224,31 @@ export const TINTED_GROUND_PAIRS: readonly (readonly [string, string])[] = [
 export const ACCENT_FILL_PAIRS: readonly (readonly [string, string])[] = [
   ["accent-ink", "accent"],
   ["accent-ink", "accent-pressed"],
+];
+
+/**
+ * The one ground a code block or a command-output body is ever painted on.
+ *
+ * Named rather than folded into `GROUND_TOKEN_NAMES`: that list is the four neutral
+ * grounds every foreground in the console may sit on, and measuring these two
+ * vocabularies against all four would hold them to a floor on three grounds no rule
+ * in the console ever paints them over.
+ */
+export const SUNKEN_WELL_GROUND_TOKEN_NAME = "surface-sunken";
+
+/**
+ * The foregrounds painted on that well — the code families and the ANSI names that
+ * carry a colour of their own.
+ *
+ * DERIVED from the two palette records rather than listed, so a family added there
+ * is measured here on the same commit. That is the whole point of the move: these
+ * were `oklch()` literals in a stylesheet, held to no floor and fitted into no
+ * gamut, and a hand-written census would have reproduced exactly that gap one
+ * family later.
+ */
+export const SUNKEN_WELL_TEXT_TOKEN_NAMES: readonly string[] = [
+  ...Object.keys(CODE_TOKENS),
+  ...Object.keys(ANSI_TOKENS),
 ];
 
 /** The WCAG 2.2 AA floor for body and UI text. */

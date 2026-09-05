@@ -19,16 +19,21 @@
 // colour, which is what makes one token cache serve both schemes. The cost of that
 // design is a seam: a family with no custom property renders as the browser's inherited
 // text colour and looks like a token the grammar failed to classify. The enumeration and
-// the stylesheet are the two halves, and this is where they are held together.
-
-import { readFileSync } from "node:fs";
+// the sheet that declares those properties are the two halves, and this is where they
+// are held together. That sheet is the GENERATED token sheet: the colours live in
+// `tokens/palette.ts` so one resolver fits them into sRGB and one test measures them,
+// and this claim reads the generator's output rather than a stylesheet so it checks
+// what the document will actually carry.
 
 import { describe, expect, it } from "vitest";
 
 import {
   CODE_TOKEN_FAMILIES,
+  COLOURED_CODE_TOKEN_FAMILIES,
   codeTokenVariableName,
+  type CodeTokenFamily,
 } from "../../../src/renderer/src/console/ledger/cards/markdown/meridian-code-theme.js";
+import { generateMeridianCss } from "../../../src/renderer/src/console/tokens/generate-css.js";
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
@@ -108,34 +113,78 @@ describe("the markup escape hatch", () => {
   });
 });
 
+/**
+ * A family the enumeration does not carry, for the controls to drive the real
+ * predicates with.
+ *
+ * Cast once, here: the predicates below take `CodeTokenFamily` because that is what
+ * the production code hands them, and a control has to be able to ask them about a
+ * family the stylesheet cannot possibly declare. Naming it once keeps the cast out
+ * of the cases.
+ */
+const UNDECLARED_FAMILY = "unclassified" as CodeTokenFamily;
+
 describe("the code token palette", () => {
-  // A stylesheet, not a source module, so it is read by path off the walk's own
-  // root rather than through a walk that answers `.ts` and `.tsx` only.
-  const stylesheet = readFileSync(`${CONSOLE_DIRECTORY}/ledger/ledger.css`, "utf8");
+  // The generated sheet, built rather than read: there is no committed copy of it,
+  // and building it is what makes this a claim about the text the document receives.
+  const tokenSheet = generateMeridianCss();
+
+  /** Which of `families` the sheet given declares nothing for. The one predicate. */
+  function familiesWithoutADeclaration(
+    sheet: string,
+    families: readonly CodeTokenFamily[],
+  ): readonly CodeTokenFamily[] {
+    return families.filter((family) => !sheet.includes(`${codeTokenVariableName(family)}:`));
+  }
+
+  /** The scheme-scoped half of the sheet, so a light-only declaration is not counted. */
+  function darkSchemeBlockOf(sheet: string): string {
+    return sheet.slice(sheet.indexOf('[data-console-scheme="dark"]'));
+  }
 
   it("declares a colour for every family the theme emits", () => {
-    const undeclared = CODE_TOKEN_FAMILIES.filter(
-      (family) => !stylesheet.includes(`${codeTokenVariableName(family)}:`),
-    );
-    expect(undeclared).toStrictEqual([]);
+    expect(familiesWithoutADeclaration(tokenSheet, CODE_TOKEN_FAMILIES)).toStrictEqual([]);
   });
 
-  it("negative control: a family the stylesheet does not declare is caught", () => {
-    // The checker is only worth running if a missing declaration fails it, so drive the
-    // same predicate with a family name the stylesheet cannot contain.
-    expect(stylesheet.includes("--meridian-code-unclassified:")).toBe(false);
+  it("negative control: an undeclared family is reported by the real predicate", () => {
+    // Driving the predicate rather than asserting a string is absent: a control that
+    // only checked absence would pass on an empty sheet, on a generator that had
+    // stopped emitting these, and on a `codeTokenVariableName` returning "".
+    expect(
+      familiesWithoutADeclaration(tokenSheet, [...CODE_TOKEN_FAMILIES, UNDECLARED_FAMILY]),
+    ).toStrictEqual([UNDECLARED_FAMILY]);
+    // And the same predicate over a sheet that declares nothing reports every family,
+    // which is what fails if the variable name ever stops discriminating.
+    expect(familiesWithoutADeclaration("", CODE_TOKEN_FAMILIES)).toStrictEqual([
+      ...CODE_TOKEN_FAMILIES,
+    ]);
   });
 
-  it("declares each family under both schemes rather than only the default one", () => {
-    // A family declared once, on `:root`, renders identically in both schemes — which
-    // for a foreground on a dark ground is the failure this rule exists to prevent. The
-    // four neutral families defer to the console's own text tokens, which already swap,
-    // so only the five coloured ones need a second declaration.
-    const darkBlock = stylesheet.slice(stylesheet.indexOf('[data-console-scheme="dark"]'));
-    const colouredFamilies = ["keyword", "name", "string", "number", "type"] as const;
-    const missingFromDark = colouredFamilies.filter(
-      (family) => !darkBlock.includes(`${codeTokenVariableName(family)}:`),
-    );
-    expect(missingFromDark).toStrictEqual([]);
+  it("declares each coloured family under both schemes rather than only the default one", () => {
+    // A family declared once, in the unconditional root block, renders identically in
+    // both schemes — which for a foreground on a dark ground is the failure this rule
+    // exists to prevent. The neutral families defer to the console's own text tokens,
+    // which already swap, so the claim quantifies over the complement the theme
+    // derives rather than over a list written out here — a hand-written subset stops
+    // covering a sixth coloured family on the day one is added, silently.
+    expect(
+      familiesWithoutADeclaration(darkSchemeBlockOf(tokenSheet), COLOURED_CODE_TOKEN_FAMILIES),
+    ).toStrictEqual([]);
+  });
+
+  it("negative control: the coloured set is a partition of the declared enumeration, and the dark claim bites", () => {
+    // Without the first half, a `COLOURED_CODE_TOKEN_FAMILIES` that had drifted to
+    // empty would make the claim above pass over nothing at all.
+    expect(COLOURED_CODE_TOKEN_FAMILIES.length).toBeGreaterThan(0);
+    expect(
+      COLOURED_CODE_TOKEN_FAMILIES.every((family) => CODE_TOKEN_FAMILIES.includes(family)),
+    ).toBe(true);
+    // And the dark-scheme claim reports a coloured family the block does not carry.
+    expect(
+      familiesWithoutADeclaration(darkSchemeBlockOf(tokenSheet), [
+        ...COLOURED_CODE_TOKEN_FAMILIES,
+        UNDECLARED_FAMILY,
+      ]),
+    ).toStrictEqual([UNDECLARED_FAMILY]);
   });
 });

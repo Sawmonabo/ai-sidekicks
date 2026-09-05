@@ -29,6 +29,7 @@ import {
   LEDGER_FIND_CAP_NOTE,
   LEDGER_FIND_SCOPE_NOTE,
   isFindWalkCapped,
+  type FindStepDirection,
   type LedgerFindResult,
 } from "./find-model.js";
 
@@ -48,7 +49,7 @@ export interface FindInLedgerProps {
    */
   readonly openRequestCount: number;
   readonly onQueryChange: (query: string) => void;
-  readonly onStep: (direction: "next" | "previous") => void;
+  readonly onStep: (direction: FindStepDirection) => void;
   /**
    * Fetch the rows before the window's head.
    *

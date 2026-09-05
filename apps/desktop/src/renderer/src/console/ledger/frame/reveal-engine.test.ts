@@ -5,12 +5,14 @@
 // only way to check that rather than assert it. Every case that ends settled ends
 // with that count at zero.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { lossyStringify, UNREPRESENTABLE_VALUE_TEXT } from "../../../../../shared/wire-errors.js";
 import { ManualClock } from "../../core/index.js";
 import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_FRAME_CHARACTER_BUDGET } from "./frame-bounds.js";
-import { revealProse as prose } from "./reveal-fixture.js";
+import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
+import { RopeSmoother } from "./rope-smoother.js";
 import type { RevealDiagnostic, RevealFrame } from "./reveal-vocabulary.js";
 
 function engineOn(clock: ManualClock): RevealEngine {
@@ -297,5 +299,88 @@ describe("the reveal engine — teardown", () => {
     clock.runFrame();
     expect(frameCount).toBe(0);
     expect(clock.pendingCount).toBe(0);
+  });
+});
+
+describe("the reveal engine — a lane whose advance throws an unrenderable value", () => {
+  /**
+   * A failure value nothing can be assumed about.
+   *
+   * `Object.create(null)` carries no `toString`, no `valueOf`, and no
+   * `Symbol.toPrimitive`, so ToPrimitive on it throws. That is not exotic: a lane's
+   * smoother can be handed anything a producer threw, and the reporting expression
+   * runs after the `catch` has been entered — so a stringifier that throws there
+   * leaves the handler by exception.
+   */
+  function unrenderableFailure(): object {
+    return Object.create(null) as object;
+  }
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("quarantines that lane, advances the others, and re-arms the frame", () => {
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const diagnostics: RevealDiagnostic[] = [];
+    engine.subscribeToDiagnostics((diagnostic) => diagnostics.push(diagnostic));
+    vi.spyOn(RopeSmoother.prototype, "advance").mockImplementationOnce(() => {
+      throw unrenderableFailure();
+    });
+
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(400) });
+    engine.ingest({
+      laneId: "lane-2",
+      mode: "direct",
+      text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 3),
+    });
+
+    // THE NEGATIVE CONTROL ON THE OLD CODE, and it is this line: the reporting
+    // expression used to be `String(...)`, which throws on the value above, out of
+    // the frame loop and past the re-arm below. This case fails at `runFrame` on
+    // that code and passes here.
+    expect(() => {
+      clock.runFrame();
+    }).not.toThrow();
+
+    // The quarantine is scoped to the lane that threw.
+    expect(engine.publishedText("lane-1")).toBe("");
+    expect(engine.publishedText("lane-2").length).toBeGreaterThan(0);
+    // And the frame is still armed, because lane 2 still has characters left —
+    // which is the half the old code lost: the throw escaped past `#armFrame()`.
+    expect(clock.pendingCount).toBe(1);
+    expect(engine.state).not.toBe("settled");
+    // The failure is REPORTED, naming the lane, rather than swallowed.
+    const reported = diagnostics.filter((diagnostic) => diagnostic.kind === "transition-failed");
+    expect(reported).toHaveLength(1);
+    expect(reported[0]?.laneId).toBe(`lane-1: ${UNREPRESENTABLE_VALUE_TEXT}`);
+  });
+
+  it("negative control: the value really does defeat a bare stringifier, and the total one renders it", () => {
+    // Without this the case above would pass over a failure value any stringifier
+    // could have handled, which is not the class the fix is for.
+    const failure = unrenderableFailure();
+    expect(() => String(failure)).toThrow();
+    expect(lossyStringify(failure)).toBe(UNREPRESENTABLE_VALUE_TEXT);
+  });
+
+  it("negative control: an ordinary failure still reaches the diagnostic with its own words", () => {
+    // The replacement must not have flattened every failure into one sentence.
+    const clock = new ManualClock();
+    const engine = engineOn(clock);
+    const diagnostics: RevealDiagnostic[] = [];
+    engine.subscribeToDiagnostics((diagnostic) => diagnostics.push(diagnostic));
+    vi.spyOn(RopeSmoother.prototype, "advance").mockImplementationOnce(() => {
+      throw new Error("the rope refused a backtrack");
+    });
+
+    engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(400) });
+    clock.runFrame();
+
+    expect(lossyStringify(new Error("the rope refused a backtrack"))).toContain(
+      "the rope refused a backtrack",
+    );
+    expect(diagnostics.map((diagnostic) => diagnostic.kind)).toContain("transition-failed");
   });
 });

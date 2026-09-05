@@ -8,7 +8,7 @@
 //
 // A `<pre>` and not a `<div>`: command output is preformatted by definition, and the
 // element that says so is the one screen readers and copy-paste both already honour.
-// The mono face comes from `ledger.css`, which reads the same type token every wire
+// The mono face comes from `cards.css`, which reads the same type token every wire
 // figure in the console reads.
 //
 // THE FOLD IS RECOVERABLE, and that is the whole reason this component holds state.

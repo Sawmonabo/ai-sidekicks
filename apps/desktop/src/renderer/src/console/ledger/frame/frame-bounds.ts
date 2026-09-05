@@ -10,6 +10,11 @@
 //
 // A number that appears inline in this subtree and is not a layout literal is a
 // review rejection: the rationale is the point, not the constant.
+//
+// `structure-bounds.ts` is the family's other bounds module, and the split is by
+// SPENDER rather than by count: every value here has one inside `ledger/frame/` and
+// every value there has one inside `ledger/structure/`. See that file's header for
+// why they are not folded into one.
 
 /**
  * Top-level rows the ledger window retains before the oldest are pruned.

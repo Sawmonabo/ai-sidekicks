@@ -9,8 +9,9 @@
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { FIND_MATCH_CAP } from "./constants.js";
+import { FIND_MATCH_CAP } from "./structure-bounds.js";
 import {
+  FIND_STEP_DIRECTIONS,
   LEDGER_FIND_CAP_NOTE,
   LEDGER_FIND_SCOPE_NOTE,
   emptyFindResult,
@@ -18,7 +19,7 @@ import {
   isFindWalkCapped,
   stepFindMatch,
 } from "./find-model.js";
-import { generalRow, runRow } from "./row-fixtures.js";
+import { generalRow, runRow } from "./timeline-rows.test-support.js";
 
 function searchWindow(): readonly TimelineRow[] {
   return [
@@ -202,6 +203,17 @@ describe("find — stepping the walk", () => {
   it("negative control: there is nothing to walk with no matches", () => {
     const empty = findInLedger(searchWindow(), "no row says this", false);
     expect(stepFindMatch(empty, 0, "next")).toBeUndefined();
+  });
+
+  it("walks every direction the closed set declares, and they disagree", () => {
+    // Quantified over the declaration rather than over the two names written here,
+    // so a third direction arrives as a red case in the module that owns the walk
+    // instead of as an arm nothing exercises. The disagreement is the control: two
+    // directions that landed on one index would satisfy a totality claim while
+    // proving the walk had stopped distinguishing them.
+    const landed = FIND_STEP_DIRECTIONS.map((direction) => stepFindMatch(result, 0, direction));
+    expect(landed.every((step) => step !== undefined)).toBe(true);
+    expect(new Set(landed.map((step) => step?.index)).size).toBe(FIND_STEP_DIRECTIONS.length);
   });
 });
 
