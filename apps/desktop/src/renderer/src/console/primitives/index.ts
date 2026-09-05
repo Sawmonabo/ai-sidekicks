@@ -133,10 +133,12 @@ export {
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   InlineRefusal,
-  RefusalBanner,
+} from "./InlineRefusal.js";
+export { RefusalBanner } from "./RefusalBanner.js";
+export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   RefusalCard,
-} from "./Refusal.js";
+} from "./RefusalCard.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach

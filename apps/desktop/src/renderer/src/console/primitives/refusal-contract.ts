@@ -15,6 +15,11 @@
 //               ledger with everything else that happened.
 //   • banner  — what the whole room can do has changed. It spans the frame.
 //
+// The three are three modules, one component each, and what they SHARE is here so
+// that it is declared once: a shape that grew its own props would be the second
+// vocabulary this contract exists to prevent, and it would drift silently, because
+// each shape is rendered by different callers.
+//
 // Two things every shape does the same way, because they are the rule and not a
 // stylistic choice:
 //
@@ -29,9 +34,6 @@
 //      remedy either.
 
 import type { ConsoleRefusal } from "../core/index.js";
-import { Glyph } from "./Glyph.js";
-import { WireFigure } from "./WireFigure.js";
-import { formatWireString } from "./wire-figures.js";
 
 /**
  * What every refusal shape renders, PICKED from the one refusal value rather than
@@ -55,73 +57,5 @@ export interface RefusalProps extends Pick<ConsoleRefusal, "code" | "detail"> {
   readonly action?: React.ReactNode;
 }
 
-const REFUSAL_GLYPH_SIZE = 14;
-
-/** Beside the control that was pressed. Nothing changed; the control stays. */
-export function InlineRefusal(props: RefusalProps): React.JSX.Element {
-  return (
-    <span className="meridian-refusal meridian-refusal--inline" role="status">
-      <Glyph name="alert" size={REFUSAL_GLYPH_SIZE} />
-      <WireFigure value={props.code} />
-      <span className="meridian-refusal__message">{formatWireString(props.detail)}</span>
-      {props.action !== undefined ? (
-        <span className="meridian-refusal__action">{props.action}</span>
-      ) : null}
-    </span>
-  );
-}
-
-/** In the ledger, when the refusal is now part of what happened. */
-export function RefusalCard(props: RefusalProps): React.JSX.Element {
-  return (
-    <div className="meridian-refusal meridian-refusal--card">
-      <div className="meridian-refusal__head">
-        <Glyph name="alert" size={REFUSAL_GLYPH_SIZE} />
-        <WireFigure value={props.code} />
-      </div>
-      <p className="meridian-refusal__message">{formatWireString(props.detail)}</p>
-      {props.action !== undefined ? (
-        <div className="meridian-refusal__action">{props.action}</div>
-      ) : null}
-    </div>
-  );
-}
-
-export interface RefusalBannerProps extends RefusalProps {
-  /** Omit to make the banner undismissable — it clears when the condition does. */
-  readonly onDismiss?: () => void;
-}
-
-/** Across the frame, when what the whole room can do has changed. */
-export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
-  return (
-    <div
-      className="meridian-refusal meridian-refusal--banner"
-      // Not a live region. The banner is inserted already carrying its text, which
-      // most screen readers never announce, and the frame announces every raise
-      // through the one `LiveAnnouncer` (`frame/banner-announcements.ts`). A
-      // `role="status"` here would be a second, unreliable read of the same
-      // sentence; the banner stays in the tree as a plain group carrying the code.
-      role="group"
-    >
-      <Glyph name="alert" size={REFUSAL_GLYPH_SIZE} />
-      <div className="meridian-refusal__body">
-        <WireFigure value={props.code} />
-        <span className="meridian-refusal__message">{formatWireString(props.detail)}</span>
-      </div>
-      {props.action !== undefined ? (
-        <div className="meridian-refusal__action">{props.action}</div>
-      ) : null}
-      {props.onDismiss !== undefined ? (
-        <button
-          type="button"
-          className="meridian-refusal__dismiss"
-          onClick={props.onDismiss}
-          aria-label="Dismiss this notice"
-        >
-          <Glyph name="close" size={REFUSAL_GLYPH_SIZE} />
-        </button>
-      ) : null}
-    </div>
-  );
-}
+/** The alert glyph every shape leads with, at one size so the three read as one grammar. */
+export const REFUSAL_GLYPH_SIZE = 14;
