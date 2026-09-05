@@ -4,8 +4,12 @@
 // two halves of one send — and a second builder written beside one of them would let
 // the two drift into routers that resolve alike and dispatch differently.
 
-import { vi } from "vitest";
+import type { Mock } from "vitest";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import {
+  createFixture,
+  withDaemonCall,
+} from "../../../console/bridge/fixture-bridge.test-support.js";
 import type { ComposerChannelTarget, ComposerRunTarget } from "../chips/chip-models.js";
 import { ComposerSendRouter } from "./send-router.js";
 
@@ -72,18 +76,35 @@ export const RUN_TARGET: ComposerRunTarget = {
   providerFailureDetail: undefined,
 };
 
-/** A bridge whose only live member is the daemon call, recorded for assertion. */
-export function bridgeRecording(call: ReturnType<typeof vi.fn>): ConsoleBridge {
-  return {
-    sidekicks: { daemon: { call } },
-    growth: {},
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
+/**
+ * The daemon-call mock these cases assert on.
+ *
+ * Spelled as an intersection rather than as `ReturnType<typeof vi.fn>`: that type is
+ * `Mock<Procedure | Constructable>`, which records calls but is not callable, and the
+ * old builder only ever ASSIGNED the mock into a literal so it never had to be. The
+ * call arm now invokes it, so the callable half has to be declared.
+ */
+export type DaemonCallMock = Mock & ((method: string, params: unknown) => Promise<unknown>);
+
+/**
+ * A real bridge whose daemon call this suite's mock answers.
+ *
+ * A spread over the family's own fixture through `withDaemonCall`, rather than an
+ * object cast to the bridge type. What is under test here is that the router reaches
+ * the wire through `bridge.sidekicks.daemon.call` and nothing else — and a case
+ * passing against a hand-built literal would not have proved it reached a bridge at
+ * all, only that it called the one member the literal happened to carry.
+ *
+ * The mock keeps its `(method, params)` arity, which is the shape the cases assert.
+ */
+export function bridgeRecording(call: DaemonCallMock): ConsoleBridge {
+  return withDaemonCall(createFixture().bridge, async (recorded) =>
+    call(recorded.method, recorded.params),
+  ).bridge;
 }
 
 export function routerWith(
-  call: ReturnType<typeof vi.fn>,
+  call: DaemonCallMock,
   recognized: readonly string[] = [],
   published: readonly string[] = [],
 ): ComposerSendRouter {

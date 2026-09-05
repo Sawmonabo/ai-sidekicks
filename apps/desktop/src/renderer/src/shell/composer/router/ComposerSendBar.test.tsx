@@ -9,6 +9,7 @@
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DraftStore } from "../../../console/persistence/index.js";
+import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
 import {
   CHANNEL_ID,
   QUEUE_CREATED,
@@ -16,14 +17,13 @@ import {
   mountAddressable,
   mountBar,
   openSessionStore,
-  stubBridge,
 } from "./composer-send-bar.test-support.js";
 
 describe("ComposerSendBar — the unsent body lives in the supplied draft store", () => {
   it("restores the text a remount would otherwise have thrown away", () => {
     const draftStore = new DraftStore({ restartNoticePending: false });
     const sessionStore = openSessionStore();
-    const bridge = stubBridge(async () => undefined);
+    const bridge = bridgeAnswering(async () => undefined).bridge;
 
     const first = mountBar({ bridge, draftStore, sessionStore });
     fireEvent.change(first.line, { target: { value: "half a thought" } });
@@ -36,7 +36,7 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
   it("swaps drafts on an address change rather than carrying text to the new target", () => {
     const draftStore = new DraftStore({ restartNoticePending: false });
     const sessionStore = openSessionStore();
-    const bridge = stubBridge(async () => undefined);
+    const bridge = bridgeAnswering(async () => undefined).bridge;
 
     const onChannel = mountBar({ bridge, draftStore, sessionStore });
     fireEvent.change(onChannel.line, { target: { value: "for the session" } });
@@ -62,7 +62,7 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
     const settle = vi.fn(async () => QUEUE_CREATED);
 
     const { line, result } = mountBar({
-      bridge: stubBridge(settle),
+      bridge: bridgeAnswering(settle).bridge,
       draftStore,
       sessionStore,
     });
@@ -76,7 +76,9 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
     result.unmount();
     // The negative control for the persistence claim above: a settled send leaves
     // nothing for the next mount to restore.
-    expect(mountBar({ bridge: stubBridge(settle), draftStore, sessionStore }).line.value).toBe("");
+    expect(
+      mountBar({ bridge: bridgeAnswering(settle).bridge, draftStore, sessionStore }).line.value,
+    ).toBe("");
   });
 
   it("keeps the body under its key when the daemon refuses the send", async () => {
@@ -87,9 +89,9 @@ describe("ComposerSendBar — the unsent body lives in the supplied draft store"
       // code beside its own sentence — rather than a shape invented for this case.
       // The call door reads it (`core/wire-rejection.ts`), so what the surface
       // renders is the daemon's code and the daemon's words, neither paraphrased.
-      bridge: stubBridge(async () => {
+      bridge: bridgeAnswering(async () => {
         throw Object.assign(new Error("queue is full"), { code: "ratelimit.exceeded" });
-      }),
+      }).bridge,
       draftStore,
       sessionStore,
     });
@@ -111,7 +113,7 @@ describe("ComposerSendBar — a rejected steer keeps the message in the line", (
     // declined. Nothing about the reply says the message travelled, so nothing about
     // the composer may say so either.
     const bar = mountAddressable(
-      stubBridge(async (method) =>
+      bridgeAnswering(async ({ method }) =>
         method === "run.intervene"
           ? {
               interventionId: "6f708192-0314-4526-8738-bc9d0e1f2a34",
@@ -121,7 +123,7 @@ describe("ComposerSendBar — a rejected steer keeps the message in the line", (
               rejectionReason: "run.invalid_transition",
             }
           : undefined,
-      ),
+      ).bridge,
     );
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
@@ -138,7 +140,7 @@ describe("ComposerSendBar — a rejected steer keeps the message in the line", (
   it("negative control: the same send against an applied answer clears the line", async () => {
     // Without this the case above would hold over a bar that had stopped clearing
     // the draft at all, which loses the send state rather than preserving the text.
-    const bar = mountAddressable(stubBridge(answerSteer));
+    const bar = mountAddressable(bridgeAnswering(answerSteer).bridge);
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {

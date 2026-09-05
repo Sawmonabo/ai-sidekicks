@@ -8,12 +8,8 @@
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DraftStore } from "../../../console/persistence/index.js";
-import {
-  mountAddressable,
-  mountBar,
-  openSessionStore,
-  stubBridge,
-} from "./composer-send-bar.test-support.js";
+import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { mountAddressable, mountBar, openSessionStore } from "./composer-send-bar.test-support.js";
 
 describe("ComposerSendBar — one interrupt in flight", () => {
   function stopButton(container: HTMLElement): HTMLButtonElement {
@@ -35,11 +31,11 @@ describe("ComposerSendBar — one interrupt in flight", () => {
       releaseFirstCall = resolve;
     });
     const bar = mountAddressable(
-      stubBridge(async (method) => {
+      bridgeAnswering(async ({ method }) => {
         calls.push(method);
         await pending;
         return undefined;
-      }),
+      }).bridge,
     );
 
     await act(async () => {
@@ -62,9 +58,9 @@ describe("ComposerSendBar — one interrupt in flight", () => {
 
   it("renders the daemon's refusal when the interrupt is refused", async () => {
     const bar = mountAddressable(
-      stubBridge(async () => {
+      bridgeAnswering(async () => {
         throw { code: "run.not_running", message: "there is no live run" };
-      }),
+      }).bridge,
     );
 
     await act(async () => {
@@ -85,13 +81,13 @@ describe("ComposerSendBar — one interrupt in flight", () => {
       releaseSend = resolve;
     });
     const bar = mountAddressable(
-      stubBridge(async (method) => {
+      bridgeAnswering(async ({ method }) => {
         calls.push(method);
         if (method === "run.intervene") {
           await sendPending;
         }
         return undefined;
-      }),
+      }).bridge,
     );
 
     fireEvent.change(bar.line(), { target: { value: "keep going" } });
@@ -125,11 +121,11 @@ describe("ComposerSendBar — one send in flight", () => {
     });
     const draftStore = new DraftStore({ restartNoticePending: false });
     const { line } = mountBar({
-      bridge: stubBridge(async (method) => {
+      bridge: bridgeAnswering(async ({ method }) => {
         settleCalls.push(method);
         await pending;
         return undefined;
-      }),
+      }).bridge,
       draftStore,
       sessionStore: openSessionStore(),
     });
@@ -156,11 +152,11 @@ describe("ComposerSendBar — one send in flight", () => {
     });
     const draftStore = new DraftStore({ restartNoticePending: false });
     const { line, result } = mountBar({
-      bridge: stubBridge(async (method) => {
+      bridge: bridgeAnswering(async ({ method }) => {
         settleCalls.push(method);
         await pending;
         return undefined;
-      }),
+      }).bridge,
       draftStore,
       sessionStore: openSessionStore(),
     });
@@ -194,10 +190,10 @@ describe("ComposerSendBar — one send in flight", () => {
     const settleCalls: string[] = [];
     const draftStore = new DraftStore({ restartNoticePending: false });
     const { line } = mountBar({
-      bridge: stubBridge(async (method) => {
+      bridge: bridgeAnswering(async ({ method }) => {
         settleCalls.push(method);
         return undefined;
-      }),
+      }).bridge,
       draftStore,
       sessionStore: openSessionStore(),
     });

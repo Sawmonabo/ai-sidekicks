@@ -8,7 +8,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
 import { refuse } from "../../../console/core/index.js";
 import { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerChannelTarget } from "../chips/chip-models.js";
@@ -28,26 +28,18 @@ const CHANNEL_TARGET: ComposerChannelTarget = {
 };
 
 /**
- * A bridge that fails the case loudly if a command ever reaches the wire.
+ * A real bridge that fails the case loudly if a command ever reaches the wire.
  *
  * Module scope, so its identity is stable across the probe's renders: a bridge
  * rebuilt in the render body would rebuild the router on every pass and hide a
  * dependency mistake behind a fresh object.
+ *
+ * The family's own answering bridge rather than a literal cast to the bridge type,
+ * so the throw is reached through the same member a send actually travels.
  */
-const UNREACHABLE_BRIDGE = {
-  sidekicks: {
-    daemon: {
-      call: async () => {
-        throw new Error("an intercepted command must reach no wire call");
-      },
-      subscribe: () => () => undefined,
-    },
-  },
-  growth: {},
-  growthServedOperations: new Set(),
-  source: "fixture",
-  scenarioEngine: undefined,
-} as unknown as ConsoleBridge;
+const UNREACHABLE_BRIDGE = bridgeAnswering(async () => {
+  throw new Error("an intercepted command must reach no wire call");
+}).bridge;
 
 /** Reports the controller out of the tree, so a case drives the real hook. */
 function ControllerProbe(props: {

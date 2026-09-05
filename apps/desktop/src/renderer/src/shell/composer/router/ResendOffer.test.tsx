@@ -6,13 +6,13 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
 import {
   FIRST_AGENT_ID,
   FIRST_RUN_ID,
   SECOND_AGENT_ID,
   answerSteer,
   mountAddressable,
-  stubBridge,
 } from "./composer-send-bar.test-support.js";
 
 describe("ComposerSendBar — a resend offer belongs to the target it was written for", () => {
@@ -23,10 +23,10 @@ describe("ComposerSendBar — a resend offer belongs to the target it was writte
     // gone, which is what `ResendOffer` already does with no body.
     const calls: string[] = [];
     const bar = mountAddressable(
-      stubBridge(async (method, params) => {
-        calls.push(JSON.stringify(params));
-        return await answerSteer(method);
-      }),
+      bridgeAnswering(async (call) => {
+        calls.push(JSON.stringify(call.params));
+        return await answerSteer(call);
+      }).bridge,
     );
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
@@ -49,7 +49,7 @@ describe("ComposerSendBar — a resend offer belongs to the target it was writte
     // moved on. The offer is now held under `(bridge, draftKey)`, which re-seeds on
     // the render that first sees a subject — so leaving drops it rather than hiding
     // it, and the whole record goes with a bridge replacement too.
-    const bar = mountAddressable(stubBridge(answerSteer));
+    const bar = mountAddressable(bridgeAnswering(answerSteer).bridge);
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
     await act(async () => {
@@ -67,10 +67,10 @@ describe("ComposerSendBar — a resend offer belongs to the target it was writte
   it("resends that body to its own target, once", async () => {
     const sent: unknown[] = [];
     const bar = mountAddressable(
-      stubBridge(async (method, params) => {
-        sent.push(params);
-        return await answerSteer(method);
-      }),
+      bridgeAnswering(async (call) => {
+        sent.push(call.params);
+        return await answerSteer(call);
+      }).bridge,
     );
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });

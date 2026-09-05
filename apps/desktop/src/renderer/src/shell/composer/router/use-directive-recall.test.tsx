@@ -7,12 +7,12 @@
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
+import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
 import {
   FIRST_AGENT_ID,
   SECOND_AGENT_ID,
   answerSteer,
   mountAddressable,
-  stubBridge,
 } from "./composer-send-bar.test-support.js";
 
 describe("ComposerSendBar — directive history does not cross an addressing boundary", () => {
@@ -25,7 +25,7 @@ describe("ComposerSendBar — directive history does not cross an addressing bou
   it("recalls nothing under an address the message was not sent from", async () => {
     // The defect: one history for the life of the mounted bar meant ArrowUp under the
     // second agent copied participant-authored text sent to the first into its line.
-    const bar = mountAddressable(stubBridge(answerSteer));
+    const bar = mountAddressable(bridgeAnswering(answerSteer).bridge);
     fireEvent.change(bar.line(), { target: { value: "written for Ada" } });
     await act(async () => {
       fireEvent.keyDown(bar.line(), { key: "Enter" });
@@ -44,7 +44,7 @@ describe("ComposerSendBar — directive history does not cross an addressing bou
     // The negative control for the case above: history is KEYED rather than reset, so
     // coming back finds what was sent from here — a reset would pass the first case
     // and lose the history a person expects to still be there.
-    const bar = mountAddressable(stubBridge(answerSteer));
+    const bar = mountAddressable(bridgeAnswering(answerSteer).bridge);
     fireEvent.change(bar.line(), { target: { value: "written for Ada" } });
     await act(async () => {
       fireEvent.keyDown(bar.line(), { key: "Enter" });
