@@ -68,7 +68,11 @@ import {
   ExecutionModeSelections,
   type ExecutionModeSelectionHost,
 } from "./execution-mode-selection.js";
-import { NOTHING_READ_YET, type RepoMountsReading } from "./repo-mounts-model.js";
+import {
+  NOTHING_READ_YET,
+  type RepoMountsReading,
+  type RepoWorkspaceRow,
+} from "./repo-mounts-model.js";
 import {
   readExecutionModeCapabilities,
   readRepoMount,
@@ -233,9 +237,15 @@ export class RepoMountsReader {
         ...NOTHING_READ_YET,
         status: "read",
         refusal: workspaceOutcome.refusal,
-        // Carried across the reset for the reason above: a refused roster read says
-        // nothing about a switch still on the wire, and dropping the entry would offer
-        // the picker again while its own mutation was unanswered.
+        // Both halves carried across the reset for the same reason: a refused roster
+        // read says nothing about a switch still on the wire, and nothing about one the
+        // daemon already refused. Dropping the pending entry would offer the picker
+        // again while its own mutation was unanswered; dropping the selection refusal
+        // would take away the only sentence saying why the last press did nothing.
+        workspaceRefusals: {
+          byCapabilitiesRead: {},
+          bySelection: this.#reading.workspaceRefusals.bySelection,
+        },
         pendingModeByWorkspaceId: this.#reading.pendingModeByWorkspaceId,
       });
       return;
@@ -273,7 +283,7 @@ export class RepoMountsReader {
       string,
       WorkspaceExecutionModeCapabilitiesReadResponse
     > = {};
-    const refusalByWorkspaceId: Record<string, ConsoleRefusal> = {};
+    const byCapabilitiesRead: Record<string, ConsoleRefusal> = {};
     for (const workspace of workspaces) {
       const capabilitiesOutcome = await readExecutionModeCapabilities(this.#bridge, workspace.id);
       if (this.#disposed) {
@@ -282,7 +292,7 @@ export class RepoMountsReader {
       if (capabilitiesOutcome.status === "served") {
         capabilitiesByWorkspaceId[workspace.id] = capabilitiesOutcome.value;
       } else {
-        refusalByWorkspaceId[workspace.id] = capabilitiesOutcome.refusal;
+        byCapabilitiesRead[workspace.id] = capabilitiesOutcome.refusal;
       }
     }
 
@@ -304,7 +314,16 @@ export class RepoMountsReader {
       // The read ran on this path whatever it answered, which is exactly the fact a
       // served-and-empty clone list needs to tell itself apart from an unasked one.
       worktreeReadPosition: "made",
-      refusalByWorkspaceId,
+      // ONE HALF REBUILT, THE OTHER CARRIED, AND THAT IS THE WHOLE POINT OF THE SPLIT.
+      // `byCapabilitiesRead` is this read's own answer and is replaced whole. The act
+      // half is not this read's to answer: a mode switch the daemon refused stays
+      // refused whether or not a lifecycle event happened to trigger a read a moment
+      // later, and rebuilding one map for both erased exactly that — the participant's
+      // failed press silently disappearing from the picker on the next repo event.
+      workspaceRefusals: {
+        byCapabilitiesRead,
+        bySelection: retainForRoster(this.#reading.workspaceRefusals.bySelection, workspaces),
+      },
       // SPREAD FORWARD, NEVER REBUILT. A switch the daemon has not answered is still on
       // the wire while a read runs beside it — the accepted switch ASKS for this read —
       // so a publish that reset the map would release the picker before the mutation it
@@ -317,6 +336,28 @@ export class RepoMountsReader {
     this.#reading = reading;
     this.#changes.emit(reading);
   }
+}
+
+/**
+ * Keep only the selection refusals whose workspace the roster still names.
+ *
+ * SCOPED RATHER THAN CARRIED WHOLE, because a workspace that has left the session has
+ * no row to render its refusal on, and an entry with no row is a leak that grows for as
+ * long as the section is mounted. The refused-roster path carries the map unscoped
+ * instead: it learned no roster, so it knows of no workspace that has gone.
+ */
+function retainForRoster(
+  bySelection: Readonly<Record<string, ConsoleRefusal>>,
+  workspaces: readonly RepoWorkspaceRow[],
+): Record<string, ConsoleRefusal> {
+  const retained: Record<string, ConsoleRefusal> = {};
+  for (const workspace of workspaces) {
+    const refusal = bySelection[workspace.id];
+    if (refusal !== undefined) {
+      retained[workspace.id] = refusal;
+    }
+  }
+  return retained;
 }
 
 function recordFirstRefusal(

@@ -220,7 +220,7 @@ describe("RepoMountsReader — when the answer does not come", () => {
     // The section as a whole answered; only the mode question did not.
     expect(reading.refusal).toBeUndefined();
     expect(reading.mounts).toHaveLength(2);
-    expect(Object.keys(reading.refusalByWorkspaceId).sort()).toStrictEqual(
+    expect(Object.keys(reading.workspaceRefusals.byCapabilitiesRead).sort()).toStrictEqual(
       reading.workspaces.map((row) => row.id).sort(),
     );
   });

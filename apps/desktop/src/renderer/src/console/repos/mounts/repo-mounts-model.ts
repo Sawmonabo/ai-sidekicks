@@ -10,9 +10,10 @@
 //
 // EVERY FIELD IS A DIFFERENT KIND OF NOTHING, WHICH IS WHY THERE ARE SO MANY. Rule 8
 // separates "not checked", "empty", "not loaded", and a refusal, and this shape is
-// where that separation is paid for: a status, two refusal fields at two scopes, a
-// read-position marker, and three per-workspace maps. Collapsing any pair would make
-// one absence render as another.
+// where that separation is paid for: a status, two section-scoped refusal fields, a
+// read-position marker, a per-workspace capabilities map, a per-workspace pending-mode
+// map, and a per-workspace refusal register that is itself split by producer.
+// Collapsing any pair would make one absence render as another.
 
 import type {
   ExecutionMode,
@@ -25,6 +26,50 @@ import type { EphemeralCloneStatusRecord, WorktreeStatusRecord } from "./worktre
 
 /** One workspace row, exactly as `WorkspaceListResponse` spells it. */
 export type RepoWorkspaceRow = WorkspaceListResponse["workspaces"][number];
+
+/**
+ * Two per-workspace refusal maps, because two different things can fail on one row.
+ *
+ * SPLIT BY WHO PRODUCED THE ENTRY, WHICH IS THE ONLY SPLIT THAT SURVIVES A RE-READ. One
+ * map cannot hold both: the read rebuilds its half from the capabilities loop on every
+ * pass, and a mode-switch refusal recorded a moment earlier sat in that same map, so the
+ * next lifecycle-triggered read erased the participant's own failed press — the picker
+ * silently dropping the sentence that said why nothing happened. Carrying entries
+ * forward does not fix it either, because after a served roster read EVERY workspace key
+ * is one the read answered for, so a carry-then-merge deletes exactly the same entry.
+ *
+ * `byCapabilitiesRead` is the reader's, rebuilt whole on each read and never written by
+ * an act. `bySelection` is the act's, written when a switch is refused and cleared when
+ * a new switch takes that workspace's register, and the read only ever scopes it to the
+ * roster it just saw.
+ */
+export interface WorkspaceRefusalRegister {
+  /** What the capabilities read could not answer, per workspace. Rebuilt by every read. */
+  readonly byCapabilitiesRead: Readonly<Record<string, ConsoleRefusal>>;
+  /** What a mode switch could not do, per workspace. Written and cleared by the act half. */
+  readonly bySelection: Readonly<Record<string, ConsoleRefusal>>;
+}
+
+/** Neither half has anything to say yet. */
+export const NO_WORKSPACE_REFUSALS: WorkspaceRefusalRegister = {
+  byCapabilitiesRead: {},
+  bySelection: {},
+};
+
+/**
+ * The one refusal a workspace row renders, where it has one.
+ *
+ * THE SELECTION REFUSAL WINS, because it is about what the participant just did and the
+ * capabilities refusal is about a read they did not ask for. A row showing "this
+ * workspace's modes could not be read" over "the switch you pressed was refused" answers
+ * a question nobody put and hides the one they did.
+ */
+export function workspaceRefusalFor(
+  register: WorkspaceRefusalRegister,
+  workspaceId: string,
+): ConsoleRefusal | undefined {
+  return register.bySelection[workspaceId] ?? register.byCapabilitiesRead[workspaceId];
+}
 
 /**
  * Everything the section renders from, in one immutable value.
@@ -86,8 +131,8 @@ export interface RepoMountsReading {
    * `empty` standing in for `not-checked`.
    */
   readonly worktreeReadPosition: "not-made" | "made";
-  /** Per workspace: the daemon's answer to a capabilities read or a mode switch. */
-  readonly refusalByWorkspaceId: Readonly<Record<string, ConsoleRefusal>>;
+  /** Per workspace: what the read could not answer, and what a press could not do. */
+  readonly workspaceRefusals: WorkspaceRefusalRegister;
   /**
    * Per workspace: the mode a switch is on the wire for, where one is.
    *
@@ -116,6 +161,6 @@ export const NOTHING_READ_YET: RepoMountsReading = {
   refusal: undefined,
   worktreeRefusal: undefined,
   worktreeReadPosition: "not-made",
-  refusalByWorkspaceId: {},
+  workspaceRefusals: NO_WORKSPACE_REFUSALS,
   pendingModeByWorkspaceId: {},
 };

@@ -207,16 +207,26 @@ export class ExecutionModeSelections {
       return;
     }
     pendingModeByWorkspaceId[workspaceId] = executionMode;
-    const refusalByWorkspaceId = { ...reading.refusalByWorkspaceId };
-    delete refusalByWorkspaceId[workspaceId];
-    this.#host.publish({ ...reading, pendingModeByWorkspaceId, refusalByWorkspaceId });
+    // Only the act's own half is cleared. The read's half is the read's to rebuild, and
+    // a workspace whose capabilities could not be read has not become readable because
+    // someone pressed a button on it.
+    const bySelection = { ...reading.workspaceRefusals.bySelection };
+    delete bySelection[workspaceId];
+    this.#host.publish({
+      ...reading,
+      pendingModeByWorkspaceId,
+      workspaceRefusals: { ...reading.workspaceRefusals, bySelection },
+    });
   }
 
   #recordRefusal(workspaceId: string, refusal: ConsoleRefusal): void {
     const reading = this.#host.currentReading();
     this.#host.publish({
       ...reading,
-      refusalByWorkspaceId: { ...reading.refusalByWorkspaceId, [workspaceId]: refusal },
+      workspaceRefusals: {
+        ...reading.workspaceRefusals,
+        bySelection: { ...reading.workspaceRefusals.bySelection, [workspaceId]: refusal },
+      },
     });
   }
 }

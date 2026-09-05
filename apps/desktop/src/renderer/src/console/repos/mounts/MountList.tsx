@@ -17,7 +17,7 @@ export function MountList(props: MountListProps): React.JSX.Element {
             mount={mount}
             workspaces={reading.workspaces.filter((row) => row.repoMountId === mount.id)}
             capabilitiesByWorkspaceId={reading.capabilitiesByWorkspaceId}
-            refusalByWorkspaceId={reading.refusalByWorkspaceId}
+            workspaceRefusals={reading.workspaceRefusals}
             pendingModeByWorkspaceId={reading.pendingModeByWorkspaceId}
             worktrees={reading.worktrees}
             worktreeRefusal={reading.worktreeRefusal}
