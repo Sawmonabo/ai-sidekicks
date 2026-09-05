@@ -115,7 +115,13 @@ export {
   type GrowthArtifactType,
   type GrowthArtifactVisibility,
 } from "./growth-values/artifacts.js";
-export type { GrowthUnavailable } from "./growth-outcome.js";
+// The port's own refusal vocabulary, for the callers that turn a REJECTED call into a
+// refusal. A growth call has two failure paths — the port answers `unavailable`, or the
+// call throws — and the artifact pane used to stamp the second with the repos family's
+// daemon-read origin and a daemon-reply code, so one operation reported two subsystem
+// names and neither was the port's.
+export { GROWTH_PORT_REFUSAL_ORIGIN } from "./growth-outcome.js";
+export type { GrowthPortRefusalCode, GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

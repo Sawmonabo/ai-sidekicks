@@ -169,7 +169,7 @@ describe("artifact pane reads — one leg that did not come back", () => {
     // defaults, named as such, carrying why the deployment's own were not read.
     expect(allowlist.source).toBe("shipped-default");
     expect(allowlist.mediaTypes).toStrictEqual(ATTACHMENT_ALLOWLIST_DEFAULT);
-    expect(allowlist.refusal?.code).toBe("call-rejected");
+    expect(allowlist.refusal?.code).toBe("wire-unregistered");
     // The leg that did not come back is named; the rejected value is not quoted into
     // the sentence, because a rejection off the wire can carry participant content.
     expect(allowlist.refusal?.detail).toContain("The attachment allow-list read");
@@ -183,7 +183,9 @@ describe("artifact pane reads — one leg that did not come back", () => {
     });
 
     expect(artifacts.kind).toBe("refused");
-    expect(artifacts.kind === "refused" ? artifacts.refusal.code : undefined).toBe("call-rejected");
+    expect(artifacts.kind === "refused" ? artifacts.refusal.code : undefined).toBe(
+      "wire-unregistered",
+    );
     expect(allowlist.source).toBe("effective");
     expect(allowlist.mediaTypes).toStrictEqual(["image/svg+xml"]);
   });

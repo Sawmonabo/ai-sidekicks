@@ -79,11 +79,13 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
       status: "refused",
       artifactId: SERVED_SUMMARY.artifactId,
       refusal: {
-        code: "call-rejected",
+        // The port's own vocabulary on both of its failure paths: a namespace the
+        // live bridge fills in is gone exactly when a call through it throws.
+        code: "wire-unregistered",
         // The leg, and NOT the rejected value: a rejection off the wire can carry
         // participant content as readily as a schema failure can.
         detail: "The payload fetch was rejected.",
-        origin: "repos",
+        origin: "growth-port",
       },
     });
     // The control is held by the `fetching` arm alone, so leaving that arm IS the
@@ -99,7 +101,7 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
   it("carries a thrown refusal through with the origin and code it named", async () => {
     // The normalizer's first arm, which is why this pane does not mint its own: the
     // fixture bridge throws a `ConsoleRefusalError`, and re-labelling it
-    // `call-rejected` would bury the diagnosis the seam already composed.
+    // `wire-unregistered` would bury the diagnosis the seam already composed.
     const clock = new ManualClock();
     const carried = refuse("growth-port", "scripted-reply-missing", "No reply was parked.");
     const { reader } = readerWithRejectingBridge(clock, new ConsoleRefusalError(carried));
@@ -128,7 +130,7 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
     const reRead = await reader.readManifest(SERVED_SUMMARY.artifactId);
     expect(reRead.status).toBe("refused");
     expect(reader.snapshot.refusalByArtifactId.get(SERVED_SUMMARY.artifactId)?.code).toBe(
-      "call-rejected",
+      "wire-unregistered",
     );
 
     const deletion = await reader.deleteArtifact(SERVED_SUMMARY.artifactId);
