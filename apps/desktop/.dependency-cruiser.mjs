@@ -191,6 +191,24 @@ export default {
           "sidekick-definitions|mcp-governance)/",
       },
     },
+    {
+      name: "console-not-shell",
+      comment:
+        "The console imported the shell. `src/renderer/src/shell/` composes console seats and " +
+        "therefore sits ABOVE the whole console DAG — it is the shell that mounts the console, " +
+        "never the other way round — so an edge from `console/` into it is an upward edge like " +
+        "any other, and it was the one upward edge no rule here could see: the ladders below " +
+        "are scoped inside `${CONSOLE}/` on both endpoints, `console-not-plan-subtree` " +
+        "enumerates six mounted plan subtrees that do not include the shell, and " +
+        "`no-circular` only fires once the edge comes back. A body the console mounts belongs " +
+        "in the view family that mounts it; a contract both sides need belongs in `seats/`. " +
+        "The composition root files are subtracted for the reason they are subtracted from the " +
+        "view-family rule: `families.ts` composes the shell's own `registerComposerFamily` in, " +
+        "which is what makes the shell a seat above the console rather than a body inside it.",
+      severity: "error",
+      from: { path: `${CONSOLE}/`, pathNot: COMPOSITION_ROOT_FILES },
+      to: { path: "^src/renderer/src/shell/" },
+    },
     upwardEdge("core", CORE, ABOVE_CORE),
     upwardEdge("tokens", TOKENS, ABOVE_TOKENS),
     upwardEdge("routing", ROUTING, ABOVE_ROUTING),
