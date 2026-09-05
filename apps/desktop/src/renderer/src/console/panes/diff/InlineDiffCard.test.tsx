@@ -14,7 +14,8 @@ import {
   type DiffInlineCardProps,
 } from "../../seats/index.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "./diff-bounds.js";
-import { SMALL_DIFF_SHAPE, buildDiffFixture } from "./diff-fixture.js";
+import { buildDiffFixture } from "./diff-fixture.js";
+import { SMALL_DIFF_SHAPE } from "./diff-fixture-shapes.js";
 import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
 import { InlineDiffCard, registerInlineDiffCardBody } from "./InlineDiffCard.js";
 

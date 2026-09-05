@@ -16,12 +16,12 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
+import { buildDiffFixture } from "./diff-fixture.js";
 import {
   EXTENDED_HEADER_DIFF_SHAPE,
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
-  buildDiffFixture,
-} from "./diff-fixture.js";
+} from "./diff-fixture-shapes.js";
 import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
 import { DiffFileList } from "./DiffFileList.js";
 import { HIDDEN_SELECTION_COPY } from "./diff-file-entries.js";

@@ -44,22 +44,24 @@ import process from "node:process";
 import { describe, expect, it } from "vitest";
 
 import {
-  ENDURANCE_DIFF_SHAPE,
-  SINGLE_LARGE_HUNK_DIFF_SHAPE,
   buildDiffFixture,
   fixtureChangedLineCount,
 } from "../../../src/renderer/src/console/panes/diff/diff-fixture.js";
+import {
+  ENDURANCE_DIFF_SHAPE,
+  SINGLE_LARGE_HUNK_DIFF_SHAPE,
+} from "../../../src/renderer/src/console/panes/diff/diff-fixture-shapes.js";
 import {
   diffLineText,
   type DiffLine,
 } from "../../../src/renderer/src/console/panes/diff/diff-model.js";
 import {
-  DiffRowIndex,
   diffGapKey,
   expandGap,
   type DiffGapExpansion,
   type DiffLineRow,
-} from "../../../src/renderer/src/console/panes/diff/hunk-virtualization.js";
+} from "../../../src/renderer/src/console/panes/diff/diff-row-model.js";
+import { DiffRowIndex } from "../../../src/renderer/src/console/panes/diff/hunk-virtualization.js";
 import { IntralineSegmentCache } from "../../../src/renderer/src/console/panes/diff/intraline-segments.js";
 import { parseUnifiedPatch } from "../../../src/renderer/src/console/panes/diff/patch-parse.js";
 

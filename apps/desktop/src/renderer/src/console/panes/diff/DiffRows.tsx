@@ -1,7 +1,8 @@
 import { memo } from "react";
 import { Glyph } from "../../primitives/index.js";
 import { diffFileChangeNotes, type DiffViewMode } from "./diff-model.js";
-import type { DiffRow, DiffRowIndex } from "./hunk-virtualization.js";
+import type { DiffRow } from "./diff-row-model.js";
+import type { DiffRowIndex } from "./hunk-virtualization.js";
 import type { IntralineSegmentCache } from "./intraline-segments.js";
 import { DiffSplitCell } from "./DiffSplitCell.js";
 import { DiffGutter } from "./DiffGutter.js";

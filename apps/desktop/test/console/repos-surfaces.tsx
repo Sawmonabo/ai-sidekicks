@@ -59,10 +59,8 @@ import {
   createFixtureBridge,
   type ConsoleBridge,
 } from "../../src/renderer/src/console/bridge/index.js";
-import {
-  EXTENDED_HEADER_DIFF_SHAPE,
-  buildDiffFixture,
-} from "../../src/renderer/src/console/panes/diff/diff-fixture.js";
+import { buildDiffFixture } from "../../src/renderer/src/console/panes/diff/diff-fixture.js";
+import { EXTENDED_HEADER_DIFF_SHAPE } from "../../src/renderer/src/console/panes/diff/diff-fixture-shapes.js";
 import { DiffPane } from "../../src/renderer/src/console/panes/diff/index.js";
 import {
   ManualClock,

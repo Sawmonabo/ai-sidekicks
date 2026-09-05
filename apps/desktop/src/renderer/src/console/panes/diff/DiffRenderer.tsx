@@ -67,7 +67,8 @@ import { Nothing } from "../../primitives/index.js";
 import { DIFF_ROW_HEIGHT_PX } from "./diff-bounds.js";
 import type { ConsoleDiffModel, DiffViewMode } from "./diff-model.js";
 import { DiffRowView } from "./DiffRows.js";
-import { DiffRowIndex, type DiffGapExpansion } from "./hunk-virtualization.js";
+import type { DiffGapExpansion } from "./diff-row-model.js";
+import { DiffRowIndex } from "./hunk-virtualization.js";
 import { IntralineSegmentCache } from "./intraline-segments.js";
 import { useRowWindow, type RowWindow } from "./row-window.js";
 

@@ -22,21 +22,21 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
+import { buildDiffFixture } from "./diff-fixture.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   EXTENDED_HEADER_DIFF_SHAPE,
   EXTENDED_HEADER_FIXTURE_FILES,
   SMALL_DIFF_SHAPE,
   TERMINAL_NEWLINE_FIXTURE_FILE,
-  buildDiffFixture,
-} from "./diff-fixture.js";
+} from "./diff-fixture-shapes.js";
 import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
   type DiffGrownRow,
 } from "./diff-layout-fixture.js";
 import { DiffRenderer } from "./DiffRenderer.js";
-import { expandGap, type DiffGapExpansion } from "./hunk-virtualization.js";
+import { expandGap, type DiffGapExpansion } from "./diff-row-model.js";
 
 const SMALL_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 const NO_EXPANSION: DiffGapExpansion = new Map();

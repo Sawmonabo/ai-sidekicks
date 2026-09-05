@@ -54,7 +54,6 @@
 import { useCallback, useId, useMemo } from "react";
 
 import {
-  ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP,
   ATTACHMENTS_PER_CARRIER_CAP_DEFAULT,
   ATTACHMENT_CHUNK_BYTE_CAP,
 } from "../../core/index.js";
@@ -62,52 +61,20 @@ import {
   Chip,
   DerivedFigure,
   Glyph,
-  Nothing,
-  RefusalCard,
   WireFigure,
   formatByteQuantity,
   useAnnounce,
 } from "../../primitives/index.js";
-import {
-  ArtifactsPanel,
-  artifactDeleteReceiptSentence,
-  type ArtifactDeleteReceipt,
-  type ArtifactManifestRow,
-} from "../../repos/artifacts/index.js";
+import { ArtifactsPanel, type ArtifactManifestRow } from "../../repos/artifacts/index.js";
 import { type ConsolePaneContext } from "../../seats/index.js";
+import {
+  MANIFEST_RE_READ_ANNOUNCEMENT,
+  PAYLOAD_ANNOUNCEMENT_BY_STATUS,
+  artifactDeletedAnnouncement,
+} from "./artifact-announcements.js";
+import { ArtifactPayloadSection } from "./ArtifactPayloadSection.js";
 import type { ArtifactAllowlistReading, ArtifactRowActOutcome } from "./artifact-pane-reading.js";
-import type { ArtifactPayloadReading } from "./artifact-payload.js";
 import { useArtifactPaneReading } from "./use-artifact-reading.js";
-
-/** What a settled act says, once, when it settles. A refusal speaks in its own words. */
-const MANIFEST_RE_READ_ANNOUNCEMENT = "Manifest re-read. The row shows what the read answered.";
-
-/**
- * What a settled delete says: the daemon's own two facts, in the daemon's own words.
- *
- * The sentence is composed by `repos/artifact-model.ts` and is the SAME one the panel
- * draws in its receipt strip, so the announcement and the screen cannot disagree about
- * what became of the bytes. Both used to say the reply reported nothing, which was
- * true of a `void` reply and is not true of a receipt.
- */
-function artifactDeletedAnnouncement(receipt: ArtifactDeleteReceipt): string {
-  return `Artifact deleted and the list read again. ${artifactDeleteReceiptSentence(receipt)}`;
-}
-
-/** What each settled payload fetch says. Total over the arms a served fetch can reach. */
-const PAYLOAD_ANNOUNCEMENT_BY_STATUS: Readonly<
-  Record<ArtifactPayloadReading["status"], string | undefined>
-> = {
-  // Neither is reachable from a settled fetch: `not-checked` is where the pane starts
-  // and `refused` speaks in the refusal's own words through the announcer below.
-  "not-checked": undefined,
-  fetching: undefined,
-  refused: undefined,
-  deferred:
-    "The read answered with a payload handle rather than the bytes. No registered operation fetches by one.",
-  text: "Payload fetched. The preview shows the beginning of it.",
-  opaque: "Payload fetched. Its bytes are not text, so there is nothing to preview.",
-};
 
 /**
  * This body's own address arm, narrowed off the union the deck hands every pane.
@@ -264,7 +231,7 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
         </div>
       </header>
       <div className="meridian-repos-pane__body">
-        {renderPayload(reading.payload)}
+        <ArtifactPayloadSection payload={reading.payload} />
         <ArtifactsPanel
           state={reading.artifacts}
           nowMilliseconds={nowMilliseconds}
@@ -279,73 +246,6 @@ export function ArtifactPane(props: ArtifactPaneProps): React.JSX.Element {
     </section>
   );
 }
-
-/**
- * What the payload fetch established, on whichever of its six arms it is.
- *
- * A render helper on this file's own rule: it holds no state and takes no hooks.
- *
- * THE PREVIEW IS TEXT, AND ONLY TEXT. The decoded bytes go into a `<pre>` as a text
- * node React escapes, bounded before they get here, with the truncation stated beside
- * them. Nothing in this function can interpret a payload: there is no `dangerously`
- * anything, no `src`, no `href`, and no element that a media type could turn into a
- * document.
- */
-function renderPayload(payload: ArtifactPayloadReading): React.JSX.Element | null {
-  if (payload.status === "not-checked") {
-    return null;
-  }
-  return (
-    <section className="meridian-artifact-payload" aria-label="Fetched payload">
-      {renderPayloadArm(payload)}
-    </section>
-  );
-}
-
-/** The one arm's own body. Total over the five arms a rendered payload can be on. */
-function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element | null {
-  switch (payload.status) {
-    case "not-checked":
-      return null;
-    case "fetching":
-      return <Nothing kind="not-loaded" placement="inline" title="Fetching this payload" />;
-    case "refused":
-      return <RefusalCard code={payload.refusal.code} detail={payload.refusal.detail} />;
-    case "deferred":
-      return (
-        <>
-          <p className="meridian-artifact-payload__note">
-            The read answered with a handle rather than the bytes. It is the content-addressed key
-            the payload is stored under, and no registered operation anywhere takes one — so the
-            bytes are named here and not checked for.
-          </p>
-          <WireFigure value={payload.payloadHandle} />
-        </>
-      );
-    case "opaque":
-      return (
-        <p className="meridian-artifact-payload__note">
-          {payload.reason === "not-utf8"
-            ? "These bytes are not text, so there is nothing to preview. They arrived whole and are unchanged."
-            : "These bytes did not decode under the encoding the reply declared, so there is nothing to preview."}{" "}
-          <WireFigure value={payload.encoding} />
-        </p>
-      );
-    case "text":
-      return (
-        <>
-          <p className="meridian-artifact-payload__note">
-            {payload.truncated
-              ? `The first ${String(ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP)} characters. The payload continues past them.`
-              : "The whole payload."}{" "}
-            <WireFigure value={payload.encoding} />
-          </p>
-          <pre className="meridian-artifact-payload__preview">{payload.text}</pre>
-        </>
-      );
-  }
-}
-
 /**
  * The ingest rules, one disclosure away.
  *

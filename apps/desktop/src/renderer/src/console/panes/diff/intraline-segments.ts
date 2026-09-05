@@ -51,7 +51,7 @@ import {
   type DiffLineKind,
 } from "./diff-model.js";
 import { pairedLineIndexFor } from "./hunk-row-layout.js";
-import type { DiffLineRow } from "./hunk-virtualization.js";
+import type { DiffLineRow } from "./diff-row-model.js";
 import { intralineSegments, wholeLineSegments } from "./patch-parse.js";
 
 /**

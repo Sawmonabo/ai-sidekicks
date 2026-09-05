@@ -33,7 +33,7 @@
 import { useCallback, useState } from "react";
 
 import type { ConsoleDiffModel } from "./diff-model.js";
-import { expandGap, type DiffGapExpansion } from "./hunk-virtualization.js";
+import { expandGap, type DiffGapExpansion } from "./diff-row-model.js";
 
 /** The two pieces of view state one diff owns, and the two ways they move. */
 export interface DiffModelViewState {

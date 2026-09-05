@@ -12,12 +12,12 @@
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { buildDiffFixture } from "./diff-fixture.js";
 import {
   RUN_ATTRIBUTION,
   SMALL_DIFF_SHAPE,
   WORKSPACE_FALLBACK_ATTRIBUTION,
-  buildDiffFixture,
-} from "./diff-fixture.js";
+} from "./diff-fixture-shapes.js";
 import { DIFF_FIXTURE_VIEWPORT_HEIGHT_PX, DiffLayoutFixture } from "./diff-layout-fixture.js";
 import { type ConsoleDiffModel } from "./diff-model.js";
 
