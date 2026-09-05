@@ -10,7 +10,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { lossyStringify, UNREPRESENTABLE_VALUE_TEXT } from "../../../../../shared/wire-errors.js";
 import { ManualClock } from "../../core/index.js";
 import { REVEAL_CATCH_UP_MULTIPLIER, REVEAL_FRAME_CHARACTER_BUDGET } from "./frame-bounds.js";
-import { revealProse as prose } from "./reveal-fixture.js";
+import { revealProse as prose } from "./reveal.test-support.js";
 import { RevealEngine } from "./reveal-engine.js";
 import { RopeSmoother } from "./rope-smoother.js";
 import type { RevealDiagnostic, RevealFrame } from "./reveal-vocabulary.js";

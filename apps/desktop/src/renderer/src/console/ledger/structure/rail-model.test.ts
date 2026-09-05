@@ -8,7 +8,7 @@
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { RAIL_THUMB_MIN_EXTENT } from "./constants.js";
+import { RAIL_THUMB_MIN_EXTENT } from "./structure-bounds.js";
 import {
   clampRailViewportBand,
   ProvenanceRailModel,
@@ -19,7 +19,7 @@ import {
   railTickKindsWithoutRegisteredWire,
   railViewportBand,
 } from "./rail-model.js";
-import { generalRow, rollbackBoundaryRow, runRow } from "./row-fixtures.js";
+import { generalRow, rollbackBoundaryRow, runRow } from "./timeline-rows.test-support.js";
 import { LedgerSeamIndex } from "./seams.js";
 
 function railOver(rows: readonly TimelineRow[], hasEarlierRows = false): ProvenanceRailModel {

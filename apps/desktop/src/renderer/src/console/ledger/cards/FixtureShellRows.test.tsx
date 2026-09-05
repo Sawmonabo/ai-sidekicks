@@ -17,7 +17,7 @@ import {
   FixtureShellRow,
   registerFixtureShellRows,
 } from "./FixtureShellRows.js";
-import { sampleGeneralRow, sampleRunRow } from "./row-samples.js";
+import { sampleGeneralRow, sampleRunRow } from "./row-samples.test-support.js";
 
 afterEach(() => {
   unregisterTimelineRowRenderer();

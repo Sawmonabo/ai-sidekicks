@@ -9,7 +9,12 @@
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { generalRow, legacyStubRow, rollbackBoundaryRow, runRow } from "./row-fixtures.js";
+import {
+  generalRow,
+  legacyStubRow,
+  rollbackBoundaryRow,
+  runRow,
+} from "./timeline-rows.test-support.js";
 import {
   LEDGER_SEAM_KINDS,
   LedgerSeamIndex,

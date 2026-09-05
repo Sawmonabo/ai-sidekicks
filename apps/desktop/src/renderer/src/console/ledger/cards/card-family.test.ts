@@ -16,7 +16,7 @@ import {
   classifyCardFamily,
   toolResultState,
 } from "./card-family.js";
-import { sampleGeneralRow, sampleRunRow } from "./row-samples.js";
+import { sampleGeneralRow, sampleRunRow } from "./row-samples.test-support.js";
 
 const AVAILABLE_BODY: HydratedSessionEventContent = { status: "available", body: "done" };
 const TRUNCATED_BODY: HydratedSessionEventContent = {

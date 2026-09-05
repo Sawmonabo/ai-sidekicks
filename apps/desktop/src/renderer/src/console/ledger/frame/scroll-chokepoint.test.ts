@@ -13,7 +13,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
 import { LEDGER_GEOMETRY_EPSILON_PX } from "./frame-bounds.js";
-import { countingSurface } from "./scroll-surface-fixture.js";
+import { countingSurface } from "./scroll-surface.test-support.js";
 import { LEDGER_SCROLL_CALLERS, LedgerScrollController } from "./scroll-chokepoint.js";
 import type { LedgerGeometry } from "./geometry-sample.js";
 import type { LedgerScrollSurface } from "./scroll-chokepoint.js";

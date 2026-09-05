@@ -50,7 +50,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { RealClock, type ConsoleClock } from "../../core/index.js";
 import { Glyph } from "../../primitives/index.js";
-import { RAIL_HIT_STRIP_WIDTH_PX, RAIL_PREVIEW_GRACE_MS } from "./constants.js";
+import { RAIL_HIT_STRIP_WIDTH_PX, RAIL_PREVIEW_GRACE_MS } from "./structure-bounds.js";
 import {
   clampRailViewportBand,
   RAIL_TICK_KINDS,

@@ -33,7 +33,7 @@
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type GlyphName } from "../../tokens/index.js";
-import { RAIL_THUMB_MIN_EXTENT } from "./constants.js";
+import { RAIL_THUMB_MIN_EXTENT } from "./structure-bounds.js";
 import { type FindStepDirection } from "./find-model.js";
 import { LedgerSeamIndex, SEAM_WIRE_BINDINGS, type LedgerSeamKind } from "./seams.js";
 

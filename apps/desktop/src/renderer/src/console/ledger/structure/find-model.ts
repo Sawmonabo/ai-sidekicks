@@ -22,7 +22,7 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
-import { FIND_MATCH_CAP } from "./constants.js";
+import { FIND_MATCH_CAP } from "./structure-bounds.js";
 
 /**
  * The sentence the field states its boundary in.

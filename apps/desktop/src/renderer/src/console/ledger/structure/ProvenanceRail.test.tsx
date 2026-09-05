@@ -13,10 +13,10 @@ import { type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
-import { RAIL_PREVIEW_GRACE_MS } from "./constants.js";
+import { RAIL_PREVIEW_GRACE_MS } from "./structure-bounds.js";
 import { ProvenanceRail } from "./ProvenanceRail.js";
 import { ProvenanceRailModel } from "./rail-model.js";
-import { generalRow, runRow } from "./row-fixtures.js";
+import { generalRow, runRow } from "./timeline-rows.test-support.js";
 
 /** Four marks: a message, an approval, a tool error, and a handoff. */
 function storyRows(): readonly TimelineRow[] {

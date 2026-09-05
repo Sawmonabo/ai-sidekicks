@@ -16,7 +16,7 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
-import { TWO_FRAME_REVEAL_SOURCE } from "./reveal-fixture.js";
+import { TWO_FRAME_REVEAL_SOURCE } from "./reveal.test-support.js";
 import { useLedgerReveal, type LedgerRevealBinding } from "./reveal-binding.js";
 
 const LANE_ID = "session-1:41";

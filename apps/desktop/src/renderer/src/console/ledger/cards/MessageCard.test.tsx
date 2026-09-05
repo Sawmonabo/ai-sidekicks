@@ -11,7 +11,7 @@ import {
 } from "../../seats/index.js";
 import { EDIT_AFFORDANCE_SLOT, MessageCard } from "./MessageCard.js";
 import { FootnoteRegistry } from "./markdown/index.js";
-import { sampleRunRow } from "./row-samples.js";
+import { sampleRunRow } from "./row-samples.test-support.js";
 
 const EMPTY_SLOT: OwnerSlotProps<React.ReactNode> = {
   contract: EDIT_AFFORDANCE_SLOT,

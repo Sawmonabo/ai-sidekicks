@@ -9,7 +9,7 @@
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { FIND_MATCH_CAP } from "./constants.js";
+import { FIND_MATCH_CAP } from "./structure-bounds.js";
 import {
   FIND_STEP_DIRECTIONS,
   LEDGER_FIND_CAP_NOTE,
@@ -19,7 +19,7 @@ import {
   isFindWalkCapped,
   stepFindMatch,
 } from "./find-model.js";
-import { generalRow, runRow } from "./row-fixtures.js";
+import { generalRow, runRow } from "./timeline-rows.test-support.js";
 
 function searchWindow(): readonly TimelineRow[] {
   return [

@@ -22,7 +22,7 @@ import {
   withToggledCategory,
   withToggledParticipant,
 } from "./filters.js";
-import { generalRow, rollbackBoundaryRow, runRow } from "./row-fixtures.js";
+import { generalRow, rollbackBoundaryRow, runRow } from "./timeline-rows.test-support.js";
 
 /** Two runs by two agents, one session row, and a boundary in each run. */
 function twoRunWindow(): readonly TimelineRow[] {

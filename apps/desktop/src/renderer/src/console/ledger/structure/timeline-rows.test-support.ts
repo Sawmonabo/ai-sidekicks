@@ -1,5 +1,10 @@
 // Timeline-row builders for this subtree's co-located tests.
 //
+// NAMED `.test-support.ts`, WHICH IS WHAT IT IS. Every architecture walk in the
+// tier classifies a module by suffix, so scaffolding named `-fixtures` was handed
+// back as PRODUCTION source by all of them — which is how a family door line whose
+// only reader was such a module read as a line with a production reader, and stayed.
+//
 // WHY IT SITS HERE AND NOT UNDER `test/console/`. `apps/desktop/AGENTS.md` sends
 // cross-TEST scaffolding to `test/console/`, and that home is for shared ROLES —
 // the render harness, the spawn-and-scan harness, a path resolver — reached by the

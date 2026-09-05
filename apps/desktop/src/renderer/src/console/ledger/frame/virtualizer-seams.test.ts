@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "../../core/index.js";
-import { countingSurface } from "./scroll-surface-fixture.js";
+import { countingSurface } from "./scroll-surface.test-support.js";
 import { LEDGER_SCROLL_CALLERS } from "./scroll-chokepoint.js";
 import { LedgerViewportController } from "./viewport-controller.js";
 import type { LedgerRowVirtualizer } from "./virtualizer-seams.js";

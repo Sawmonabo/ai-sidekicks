@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { sampleRunRow } from "./row-samples.js";
+import { sampleRunRow } from "./row-samples.test-support.js";
 import { projectedPayload, readWireCount, readWireString } from "./wire-payload.js";
 
 describe("reading a string member", () => {

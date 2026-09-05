@@ -16,7 +16,7 @@ import {
   type ChapterAutoCollapseObservation,
   type LedgerChapter,
 } from "./chapters.js";
-import { generalRow, legacyStubRow, runRow } from "./row-fixtures.js";
+import { generalRow, legacyStubRow, runRow } from "./timeline-rows.test-support.js";
 
 /** One live run, one finished run, and a session row belonging to neither. */
 function mixedWindow(): readonly TimelineRow[] {

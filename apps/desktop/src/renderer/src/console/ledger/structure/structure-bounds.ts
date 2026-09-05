@@ -5,6 +5,16 @@
 // always sits next to the code that spends it". Every value below is spent by a
 // module in this directory and by nothing else.
 //
+// TWO BOUNDS MODULES IN THIS FAMILY, AND THEY DO NOT FOLD INTO ONE. `frame-bounds.ts`
+// holds the window and the frame — the row cap, the element ceiling, the overscan,
+// the reveal budget — and every one of those is spent inside `ledger/frame/`. The
+// chapter cap, the rail's geometry, the replay interval, and the find cap are spent
+// inside this directory and nowhere else. The two sets share no spender, so one
+// `ledger-bounds.ts` would move ten values away from the code that spends them to
+// satisfy a count, which is the opposite of the rule quoted above; the rule's
+// subject is a family widening the SUBSTRATE's module, and applying it one level
+// down is what these two files are.
+//
 // `Spec-023 §Console Design (Meridian)` §The four bars, "Light on the machine":
 // "Every cap, window, and timeout is a named constant with a one-line rationale".
 
