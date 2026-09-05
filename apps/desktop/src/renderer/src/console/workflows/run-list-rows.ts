@@ -21,12 +21,11 @@
 // `workflow-event-registration` slate row lands, and a caller wiring these rows to a
 // live bridge before then is a review rejection.
 
-import { z } from "zod";
-
 import type {
   WorkflowPhaseState,
   WorkflowRunSnapshot as WorkflowWireRunSnapshot,
 } from "../bridge/index.js";
+import { parseInstant } from "../core/index.js";
 
 /**
  * What this console does with one member of a wire shape.
@@ -221,48 +220,28 @@ export interface WorkflowParkedPhase {
 }
 
 /**
- * The encoding this plane's instants are declared in: RFC 3339, in UTC.
+ * Read one of this plane's instants: RFC 3339, in UTC, and nothing wider.
  *
- * The workflow plane states it on the member that carries the consequence —
+ * THE ENCODING IS THE WIRE'S RULE RATHER THAN A CONVENTION CHOSEN HERE. The workflow
+ * plane states it on the member that carries the consequence —
  * `WorkflowPhasePark.autoResumeAt` above, and the same sentence on the payload
  * contract this file's header names — and `packages/contracts` cites it back as "the
- * encoding `PhaseState.autoResumeAt` already consumes". So the encoding is the wire's
- * own rule rather than a convention chosen here.
+ * encoding `PhaseState.autoResumeAt` already consumes". `"utc-only"` is that sentence
+ * said to the reader: a numeric offset parses unambiguously, so admitting it would
+ * cost nothing today, but a plane that declares ONE encoding and a console that
+ * quietly reads a second is where a producer's encoding change enters unremarked
+ * instead of arriving as the unreadable value it is.
  *
- * THE LIBRARY'S CHECK RATHER THAN A PATTERN OF OUR OWN, and that is the substance of
- * this declaration rather than a dependency preference. `packages/contracts` validates
- * every one of its own wire instants with this same `z.iso` family, so the console is
- * reading the plane's encoding through the validator the plane's own schemas are
- * written in — and the check it performs is the one a transcribed pattern cannot: it
- * validates the CALENDAR and the CLOCK, not just the digit groups. Month `13`, day
- * `31` in a 30-day month, `2027-02-29` in a year that has no such day, hour `24`, and
- * minute or second `60` are each refused, where a digit-shaped pattern admits them all
- * and hands them to `Date.parse`, which silently normalizes `2026-02-30T10:00:00Z`
- * into March and `2026-01-01T24:00:00Z` into the next day. Both used to reach the
- * armed arm below, so a park advertised a resume on a date the wire never sent.
- *
- * A NUMERIC OFFSET IS REFUSED TOO, and deliberately. `+01:00` parses unambiguously,
- * so admitting it would cost nothing today — but the plane declares one encoding, and
- * a console that quietly read a second is the place a producer's encoding change
- * enters unremarked instead of arriving as the unreadable value it is. The default
- * `z.iso.datetime()` is Z-only for exactly that reason; the contracts package opts
- * into offsets explicitly, and this plane does not.
- */
-const RFC_3339_UTC_INSTANT = z.iso.datetime();
-
-/**
- * An instant in milliseconds, or nothing when the string is not one.
- *
- * TWO CONJUNCTS, AND `Date.parse` ALONE IS NEITHER. `Date.parse` accepts a
- * timezone-less `2026-01-01T10:00:00` by reading it in the HOST's zone and a date-only
- * `2026-01-01` by reading it in UTC, and it answers a number for both — so a malformed
- * boundary reached the armed arm below, and the badge drew a scheduled-resume promise
- * whose time was whatever zone the operator's machine happened to be in. The
- * validation above is what refuses those, and the parse is still needed after it: the
- * validator answers whether the string is an instant and this function answers which
- * one. It runs SECOND, over a value already known to name a real calendar day and a
- * real time of day, so the two can no longer disagree — a shape-only check left
- * `Date.parse` free to answer a number for a date that does not exist.
+ * `core/instant.ts` RATHER THAN A VALIDATOR OF THIS FAMILY'S OWN, and the check is
+ * the one a digit-shaped pattern cannot make: it validates the CALENDAR and the
+ * CLOCK, not just the groups. Month `13`, day `31` in a 30-day month, `2027-02-29` in
+ * a year that has no such day, hour `24`, and minute or second `60` are each refused,
+ * where a pattern admits them all and hands them to `Date.parse` — which silently
+ * normalizes `2026-02-30T10:00:00Z` into March and `2026-01-01T24:00:00Z` into the
+ * next day. Both used to reach the armed arm below, so a park advertised a resume on
+ * a date the wire never sent. The reader also refuses a timezone-less
+ * `2026-01-01T10:00:00`, which `Date.parse` reads in the HOST's zone, and a date-only
+ * `2026-01-01`, which it reads in UTC.
  *
  * Deliberately NOT a numeric sentinel. The list's two orderings read an instant in
  * opposite directions — runs sort descending and armed resumes pick ascending — so a
@@ -270,16 +249,12 @@ const RFC_3339_UTC_INSTANT = z.iso.datetime();
  * caller states its own rule against this `undefined` instead.
  *
  * Exported because the park classification below and the run sort next door are the
- * only two readers of a wire instant in this family, and two parsers would be two
- * answers to "is this readable" — which is why the check lives HERE and not at one of
- * the two call sites.
+ * only two readers of a wire instant in this family, and the plane's `"utc-only"`
+ * declaration said at two call sites is one rule with two homes — which is how a
+ * console comes to refuse an encoding on one surface and accept it on the next.
  */
 export function instantMilliseconds(iso: string): number | undefined {
-  if (!RFC_3339_UTC_INSTANT.safeParse(iso).success) {
-    return undefined;
-  }
-  const milliseconds = Date.parse(iso);
-  return Number.isNaN(milliseconds) ? undefined : milliseconds;
+  return parseInstant(iso, "utc-only").epochMilliseconds;
 }
 
 /**

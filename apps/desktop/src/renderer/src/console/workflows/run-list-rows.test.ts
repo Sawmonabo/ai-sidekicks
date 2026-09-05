@@ -87,13 +87,16 @@ describe("the rows are a narrowing of the wire shape, not a second one", () => {
  * A schedule is a PROMISE about a moment, so the value it is read from has to be a
  * moment. `Date.parse` is not that check: it answers a number for a timezone-less
  * `2026-01-01T10:00:00` by reading it in whatever zone the operator's machine is in,
- * and for a date-only `2026-01-01` by reading it in UTC — so both reached the armed
- * arm, and the badge drew "Scheduled to resume at" over a time nobody had sent.
+ * for a date-only `2026-01-01` by reading it in UTC, and for `2026-02-30T10:00:00Z`
+ * by moving it to March — so all three reached the armed arm, and the badge drew
+ * "Scheduled to resume at" over a time nobody had sent.
  *
- * The cases below drive `parkSchedule`, which is where the consequence lands, and
- * `instantMilliseconds`, which is the single reading both this classification and the
- * run sort take. Each malformed shape carries the control that names why the shape
- * check is the thing doing the refusing.
+ * THAT THE HOST PARSER ACCEPTS THEM IS ASSERTED ONCE, in `core/instant.test.ts`,
+ * which is one of the two files the syntax bans excuse for exactly that purpose. The
+ * cases below make this family's own claim instead: `parkSchedule`, where the
+ * consequence lands, and `instantMilliseconds`, the single reading both this
+ * classification and the run sort take, refuse each of those shapes — and admit the
+ * spellings the plane does declare, which is the control the refusals need.
  */
 describe("an armed boundary is an instant or it is unreadable", () => {
   function scheduleFor(autoResumeAt: string): ReturnType<typeof parkSchedule> {
@@ -108,11 +111,10 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     expect(scheduleFor("2026-01-01T10:00:00").kind).toBe("unreadable");
   });
 
-  it("negative control: the host's own parser accepts that value and returns a number", () => {
-    // The whole finding. Without this the case above would pass over a projection
-    // that refused the value for some other reason — a length, a stray character —
-    // and would not say that the permissive parse is what let it through.
-    expect(Number.isNaN(Date.parse("2026-01-01T10:00:00"))).toBe(false);
+  it("and the reading both this family's surfaces take refuses it too", () => {
+    // The schedule case above would pass over a classification that refused the value
+    // for some other reason. This is the reading it refuses it BY, and it is the same
+    // one the run sort takes, so the two surfaces cannot disagree about the shape.
     expect(instantMilliseconds("2026-01-01T10:00:00")).toBeUndefined();
   });
 
@@ -120,8 +122,7 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     expect(scheduleFor("2026-01-01").kind).toBe("unreadable");
   });
 
-  it("negative control: the host's own parser accepts a bare date too", () => {
-    expect(Number.isNaN(Date.parse("2026-01-01"))).toBe(false);
+  it("and the reading refuses a bare date too", () => {
     expect(instantMilliseconds("2026-01-01")).toBeUndefined();
   });
 
@@ -138,7 +139,7 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     const schedule = scheduleFor("2026-01-01T10:00:00.000Z");
     expect(schedule.kind).toBe("armed");
     expect(schedule.kind === "armed" ? schedule.atMilliseconds : undefined).toBe(
-      Date.parse("2026-01-01T10:00:00.000Z"),
+      Date.UTC(2026, 0, 1, 10, 0, 0, 0),
     );
   });
 
@@ -148,7 +149,7 @@ describe("an armed boundary is an instant or it is unreadable", () => {
 
   it("still refuses an instant-shaped value that names no time of day", () => {
     // Digit-shaped and not a clock reading. A pattern that matched two digits per
-    // field admitted it and left `Date.parse` to refuse it; the validator refuses it
+    // field admitted it and left the host parser to refuse it; the reader refuses it
     // where every other malformed field is refused, which is why the arms below are
     // one claim rather than several.
     expect(scheduleFor("2026-09-01T99:99:99.000Z").kind).toBe("unreadable");
@@ -167,14 +168,15 @@ describe("an armed boundary is an instant or it is unreadable", () => {
  * A field that is digit-shaped and is not the day or the time it claims to be.
  *
  * The defect these close: the shape check matched digit GROUPS, so `2026-02-30`,
- * `2026-01-01T24:00:00Z` and `2027-02-29` all passed it — and `Date.parse` answers a
- * number for each, silently rolling the value forward into the next month or the next
- * day. The park then classified as `armed` and the badge advertised a resume on a date
- * the wire never sent, which is the one thing an armed schedule must never do.
+ * `2026-01-01T24:00:00Z` and `2027-02-29` all passed it — and the host parser answers
+ * a number for each, silently rolling the value forward into the next month or the
+ * next day. The park then classified as `armed` and the badge advertised a resume on a
+ * date the wire never sent, which is the one thing an armed schedule must never do.
  *
- * Each case carries the control that makes it bite: the host's own parser accepts the
- * value AND answers a different instant than the string names. Without that half, a
- * refusal here would prove only that something rejected the string.
+ * What makes each case bite — that the host parser accepts the value AND answers a
+ * different instant than the string names — is asserted in `core/instant.test.ts`,
+ * against the reader this family calls. Restating it here would be one claim with two
+ * homes and would need the syntax ban lifted at a second site to make it.
  */
 describe("a calendar and a clock, not four groups of digits", () => {
   /** Every field an instant declares, at a value that is out of its own range. */
@@ -200,39 +202,18 @@ describe("a calendar and a clock, not four groups of digits", () => {
     ).toBe("unreadable");
   });
 
-  it("negative control: the host's parser answers a NUMBER for a day that does not exist", () => {
-    // The finding in one line. `2026-02-30` is not a date and `Date.parse` reads it as
-    // the second of March, so a park armed on it advertised a resume two days after
-    // the one the daemon named — a wrong time drawn with a confident face.
-    expect(Number.isNaN(Date.parse("2026-02-30T10:00:00Z"))).toBe(false);
-    expect(new Date(Date.parse("2026-02-30T10:00:00Z")).toISOString()).toBe(
-      "2026-03-02T10:00:00.000Z",
-    );
-  });
-
-  it("negative control: and rolls the twenty-fourth hour into the next day", () => {
-    expect(Number.isNaN(Date.parse("2026-01-01T24:00:00Z"))).toBe(false);
-    expect(new Date(Date.parse("2026-01-01T24:00:00Z")).toISOString()).toBe(
-      "2026-01-02T00:00:00.000Z",
-    );
-  });
-
   it("admits the twenty-ninth of February in a leap year", () => {
     // The control for every refusal above: a check that refused February the
     // twenty-ninth outright would satisfy the whole table and be wrong once every
     // four years, on a day a run is as likely to park as any other.
-    expect(instantMilliseconds("2028-02-29T00:00:00Z")).toBe(Date.parse("2028-02-29T00:00:00Z"));
+    expect(instantMilliseconds("2028-02-29T00:00:00Z")).toBe(Date.UTC(2028, 1, 29, 0, 0, 0, 0));
   });
 
   it("refuses it in a year that has no such day", () => {
+    // Which is why the leap year has to be COMPUTED rather than pattern-matched: this
+    // string and the one above are digit-identical in shape and only one is a day.
+    // What the host parser makes of each — the first of March, and a number either way
+    // — is asserted in `core/instant.test.ts`, where the ban is lifted to show it.
     expect(instantMilliseconds("2027-02-29T00:00:00Z")).toBeUndefined();
-  });
-
-  it("negative control: the host's parser reads that same value as the first of March", () => {
-    // Which is why the leap year has to be COMPUTED rather than pattern-matched: both
-    // strings are digit-identical in shape and only one of them is a day.
-    expect(new Date(Date.parse("2027-02-29T00:00:00Z")).toISOString()).toBe(
-      "2027-03-01T00:00:00.000Z",
-    );
   });
 });
