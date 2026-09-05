@@ -75,7 +75,7 @@ import {
   installMeridianTokens,
 } from "../../../src/renderer/src/console/frame/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../src/renderer/src/console/bridge/scenarios/first-run.js";
-import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/index.js";
+import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 /**
  * The one platform whose references are committed, and the one CI compares on.

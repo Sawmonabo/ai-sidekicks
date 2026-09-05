@@ -32,11 +32,13 @@ import { describe, expect, it } from "vitest";
 
 import { RENDERER_ORIGIN } from "../../../src/main/renderer-scheme.js";
 import {
-  CONSOLE_DATABASE_NAME,
   PERSISTENCE_GLOBAL_PARTITION,
   SCHEME_PREFERENCE_KEY,
-  UI_STATE_STORE_NAME,
 } from "../../../src/renderer/src/console/persistence/index.js";
+import {
+  CONSOLE_DATABASE_NAME,
+  UI_STATE_STORE_NAME,
+} from "../../../src/renderer/src/console/persistence/indexeddb-adapter.js";
 import { fixtureBundleExists, launchConsole } from "../electron-harness.js";
 
 const bundleIsBuilt = fixtureBundleExists();

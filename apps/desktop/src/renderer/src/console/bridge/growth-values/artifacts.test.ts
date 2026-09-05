@@ -41,7 +41,7 @@ import type {
   GrowthArtifactPayloadDisposition,
   GrowthArtifactRead,
   GrowthArtifactSummary,
-} from "./index.js";
+} from "./artifacts.js";
 
 /** The manifest every case here reads through. Fixed; nothing below is about its values. */
 const MANIFEST: GrowthArtifactSummary = {

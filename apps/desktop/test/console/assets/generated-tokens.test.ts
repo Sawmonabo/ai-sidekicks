@@ -32,10 +32,11 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
-  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
   BOUNDED_ENUMERATION_MAX_ROWS,
-  CONSOLE_SCHEMES,
   ENUMERATION_ROW_HEIGHT_REM,
+} from "../../../src/renderer/src/console/tokens/palette.js";
+import {
+  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
   PARTICIPANT_HUES,
   SCHEME_COLOR_TOKENS,
   formatOklch,
@@ -43,6 +44,7 @@ import {
   participantHueTokenName,
   tokenVariableName,
 } from "../../../src/renderer/src/console/tokens/index.js";
+import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
 const CONSOLE_ROOT = fileURLToPath(new URL("../../../src/renderer/src/console", import.meta.url));
 

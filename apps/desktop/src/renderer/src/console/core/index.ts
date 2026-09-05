@@ -49,9 +49,14 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
   type MalformedInstant,
 } from "./instant.js";
-export { DuplicateRegistrationError, KeyedRegistry } from "./keyed-registry.js";
+// The registry classes leave through this door; the two symbols only their own
+// suites read do not. `DuplicateRegistrationError` is what `KeyedRegistry` throws
+// and `consoleTripwires` is the singleton `reportTripwire` writes to, so a family
+// consumes each of them by calling the symbol beside it rather than by naming it.
+// A test asserting on either reaches the module that declares it.
+export { KeyedRegistry } from "./keyed-registry.js";
 export { ConsoleRefusalError, isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
-export { consoleTripwires, reportTripwire } from "./tripwires.js";
+export { reportTripwire } from "./tripwires.js";
 export {
   normalizeWireRejection,
   /** @consumedBy T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */

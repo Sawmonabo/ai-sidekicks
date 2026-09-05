@@ -17,11 +17,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  PARTICIPANT_HUE_STEPS,
-  RING_TREATMENTS,
-  participantHueTokenName,
-} from "../tokens/index.js";
+import { PARTICIPANT_HUE_STEPS, participantHueTokenName } from "../tokens/index.js";
+import { RING_TREATMENTS } from "../tokens/participant-hue.js";
 import { LedgerRow } from "./LedgerRow.js";
 import { formatClockTime } from "./wire-figures.js";
 
