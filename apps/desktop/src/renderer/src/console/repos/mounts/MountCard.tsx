@@ -75,8 +75,7 @@ import {
   worktreeGateRowSubjects,
 } from "../proposals/worktree-gate-pairing.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";
-
-const CARD_GLYPH_SIZE = 13;
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 
 /**
  * The writable mode whose execution root is the mount's own checkout.
@@ -133,7 +132,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       aria-label={`Repo mount ${mount.canonicalRoot}`}
     >
       <header className="meridian-mount-card__head">
-        <Glyph name="repo" size={CARD_GLYPH_SIZE} />
+        <Glyph name="repo" size={GLYPH_SIZE_CHROME} />
         {/* The resolved root, verbatim and recoverable: the title carries the whole
             string the stylesheet truncates, and the copy control carries it out. */}
         <WireFigure value={mount.canonicalRoot} title={mount.canonicalRoot} />
@@ -145,7 +144,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
           }}
           aria-label={`Copy the resolved root ${mount.canonicalRoot}`}
         >
-          <Glyph name="copy" size={CARD_GLYPH_SIZE} />
+          <Glyph name="copy" size={GLYPH_SIZE_CHROME} />
         </button>
       </header>
 

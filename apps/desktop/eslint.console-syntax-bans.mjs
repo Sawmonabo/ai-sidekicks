@@ -30,8 +30,19 @@ const WIRE_STAMP_NAME_SUFFIX = "(?:At|Iso)$";
  * (`ATTENTION_SCENARIO_STARTED_AT_MILLISECONDS + atMs`). A name outside this set is
  * refused, which is the opposite of the heuristic that stood here and could not see
  * `new Date(iso)`.
+ *
+ * BOTH OF THE CORPUS'S TWO NAMING CONVENTIONS, and the second half was missing until
+ * the block reached the test tiers. The census above was taken over `src/`, where
+ * every `new Date(...)` argument happened to be a camelCase local — and the very
+ * constant this comment cites as the corpus's own spelling, a module-level
+ * SCREAMING_SNAKE name, could not have satisfied it. It never fired only because that
+ * one appears inside a sum, which is a binary expression and not a name. So a tier
+ * file naming its instant the way this package names every module constant was
+ * refused for the naming convention rather than for the reading, which is a false
+ * alarm of exactly the kind that gets a ban switched off.
  */
-const NUMERIC_INSTANT_NAME_SUFFIX = "(?:Ms|Milliseconds|Epoch|[Ss]equence)$";
+const NUMERIC_INSTANT_NAME_SUFFIX =
+  "(?:Ms|Milliseconds|Epoch|[Ss]equence|_MS|_MILLISECONDS|_EPOCH)$";
 
 /** The one `no-restricted-syntax` invocation the package makes. */
 export const consoleSyntaxBans = [
@@ -92,7 +103,19 @@ export const consoleSyntaxBans = [
   // `Date.parse` or a template-interpolated catch binding could have landed in either one
   // and the gate would have stayed green.
   {
-    files: ["src/renderer/src/console/**/*.{ts,tsx}", "src/renderer/src/shell/**/*.{ts,tsx}"],
+    files: [
+      "src/renderer/src/console/**/*.{ts,tsx}",
+      "src/renderer/src/shell/**/*.{ts,tsx}",
+      // THE TIERS, and their absence was how the two `Date.parse` calls a family
+      // adversarial review removed got in. A test reads the same wire stamps the
+      // console does, and a fixture composed with `Date.parse` records the HOST's
+      // zone into an expectation the surface under test is then measured against —
+      // which is the same defect as the production one, arriving through the file
+      // that is supposed to catch it. Nothing here is exempt: the two negative
+      // controls that must call the banned API sit under `src/` and are named in
+      // `ignores` by path, so a tier file cannot inherit their exemption.
+      "test/console/**/*.{ts,tsx}",
+    ],
     ignores: [
       "src/renderer/src/console/core/instant.test.ts",
       "src/renderer/src/console/primitives/wire-figures.time.test.ts",

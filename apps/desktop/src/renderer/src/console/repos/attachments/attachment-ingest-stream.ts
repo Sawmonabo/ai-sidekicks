@@ -58,7 +58,7 @@ import { AttachmentChunkStream } from "./attachment-ingest-chunks.js";
 import { writeIngestRefusal, type AttachmentIngestLedger } from "./attachment-ingest-ledger.js";
 
 /** Where the protocol's own diagnostic reports from, so a firing names a module. */
-export const INGEST_STREAM_SITE = "repos/attachments/attachment-ingest-stream.ts";
+export const INGEST_STREAM_SITE = "console/repos/attachments/attachment-ingest-stream.ts";
 
 /** What each leg is called in the one sentence that says which call failed. */
 const INGEST_OPEN_LEG = "The ingest open";

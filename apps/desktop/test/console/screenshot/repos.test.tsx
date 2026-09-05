@@ -1,9 +1,9 @@
 // The screenshot tier: the repos family's five surfaces, per scheme.
 //
 // `frame.test.tsx`'s header owns the mechanism this file rides — the three
-// snapshot-update modes, why the references are pinned to `darwin`, and which
-// machine may mint one. `baseline-platform.ts` holds the values that reasoning
-// produces, so nothing about it is restated here.
+// snapshot-update modes, why the references are pinned to a RUNNER rather than to a
+// platform, and which machine may mint one. `baseline-platform.ts` holds the values
+// and the predicate that reasoning produces, so nothing about it is restated here.
 //
 // WHAT IS PINNED, AND WHY THESE FIVE. The family ships one sidebar section, two pane
 // bodies, and the gate a change proposal is put through — and the gate is pinned both
@@ -38,19 +38,23 @@
 // the small, measured way `frame.test.tsx` records.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import type { TestContext } from "vitest";
+import { server } from "vitest/browser";
 
 import { emulateSystemScheme } from "../console-harness.js";
 import {
-  mountArtifactPane,
-  mountArtifactPaneDeferredPayload,
-  mountArtifactPaneInlinePayload,
   mountDiffPane,
   mountProposalGate,
   mountRepoSection,
   mountRepoSectionWithOpenGate,
-  type MountedFamilySurface,
 } from "../surfaces/repos.js";
-import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
+import {
+  mountArtifactPane,
+  mountArtifactPaneDeferredPayload,
+  mountArtifactPaneInlinePayload,
+} from "../surfaces/repos-artifact.js";
+import { type MountedFamilySurface } from "../surfaces/repos-mount-harness.js";
+import { baselineSkipReason, comparesBaselines, readBaselineHost } from "./baseline-platform.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -62,6 +66,33 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
  * surface is mounted, and four copies of the same six lines is four places for the
  * scheme emulation or the skip guard to be forgotten in one of them.
  */
+// THE HOST READING IS BOUND HERE AND NOT IN `baseline-platform.ts`, which is where a
+// reader who has seen `frame.test.tsx` do the same three lines will look for it. That
+// module is imported by `vitest/console-projects.ts` — a config file Vitest loads in
+// NODE, to widen `envPrefix` by the prefix the two variables share — so a
+// `vitest/browser` import at its top would put a browser-only module into the program
+// that configures the run. It stays a pure predicate over an environment record for
+// that reason, and each browser-mode suite hands it its own reading.
+
+/** What this host declared about itself, off Vite's resolved env — there is no `process` in the page. */
+const baselineHost = readBaselineHost(server.config.env);
+
+/** Whether this host is one whose comparisons mean anything. */
+const comparesHere = comparesBaselines(baselineHost);
+
+/** Why they did not run here. One sentence, carried on both channels. */
+const SKIP_REASON = baselineSkipReason(baselineHost);
+
+/**
+ * Skip a baseline comparison on a host that cannot reproduce the references.
+ *
+ * A skip with a NOTE rather than `describe.skipIf`, because the reason is the whole
+ * point: a suite simply absent from the report reads exactly like one that passed.
+ */
+function skipOffBaselineHost(context: TestContext): void {
+  context.skip(!comparesHere, SKIP_REASON);
+}
+
 const PINNED_SURFACES: readonly {
   readonly referenceName: string;
   readonly mount: () => Promise<MountedFamilySurface>;
@@ -90,12 +121,16 @@ afterEach(async () => {
 });
 
 describe("screenshot — the repos, diff, artifact, and proposal surfaces", () => {
-  warnOnceIfOffPinnedPlatform();
+  // Said once at collection, on the one channel the terminal reporter forwards: a
+  // bare skipped count reads exactly like a tier that was quietly switched off.
+  if (!comparesHere) {
+    console.warn(SKIP_REASON);
+  }
 
   for (const surface of PINNED_SURFACES) {
     for (const scheme of CONSOLE_SCHEMES) {
       it(`renders ${surface.referenceName} in the ${scheme} scheme`, async (context) => {
-        skipOffPinnedPlatform(context);
+        skipOffBaselineHost(context);
         // Through the system preference rather than a stamped attribute: the token
         // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
         // what a default install actually resolves.

@@ -88,6 +88,19 @@ export interface DiffIntralineSegment {
 }
 
 /**
+ * A line with no intraline change: one unchanged segment, which every consumer handles.
+ *
+ * BESIDE THE SHAPE IT BUILDS, because the rule it enforces is this module's: "exactly
+ * one segment" is what the interface above promises a consumer, and a constructor for
+ * it declared next to one of its callers would make the promise something a reader has
+ * to find. Every producer of an unsegmented line — the hunk reader, the intraline
+ * cache's two skip arms, the fixture builder — reaches this one.
+ */
+export function wholeLineSegments(text: string): readonly DiffIntralineSegment[] {
+  return [{ text, changed: false }];
+}
+
+/**
  * Who the trailers say wrote this line.
  *
  * Present only where the daemon supplied it. Absence means the trailers named

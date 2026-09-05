@@ -27,9 +27,11 @@ import {
 } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
 import {
   type ConsoleBridge,
-  type GrowthPort,
+  type GrowthArtifactSummary,
   createFixtureBridge,
+  growthUnavailable,
 } from "../../../src/renderer/src/console/bridge/index.js";
+import type { GrowthPortAnswer } from "../../../src/renderer/src/console/bridge/growth-port.js";
 import { refuse, type ConsoleRefusal } from "../../../src/renderer/src/console/core/index.js";
 import { fixtureBridgeWithGrowth } from "../../../src/renderer/src/console/bridge/fixture-bridge.test-support.js";
 import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.js";
@@ -131,10 +133,6 @@ export function extendedHeaderChangeSet(): ConsoleDiffModel {
   return buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 }
 
-/** The sentence a growth-port refusal carries, spelled once for every artifact mount. */
-const ARTIFACT_READ_UNREGISTERED =
-  "Not checked — the artifact CRUD method strings are not registered yet.";
-
 /**
  * A hand-scripted growth port serving one artifact read, and refusing the rest.
  *
@@ -144,19 +142,20 @@ const ARTIFACT_READ_UNREGISTERED =
  * or bytes beside the encoding to read them by — so what a payload mount pins is the
  * composition the registered shape produces, not one this file invented.
  */
-export function scriptedArtifactPort(readAnswer: Record<string, unknown>): ConsoleBridge {
+export function scriptedArtifactPort(readAnswer: GrowthPortAnswer<"artifactRead">): ConsoleBridge {
   return fixtureBridgeWithGrowth(REPOS_SCENARIO, {
     artifactList: async () => ({ status: "served", value: [] }),
-    artifactAllowlistRead: async () =>
-      refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
+    // The port's own refusal, not a hand-built one: `growthUnavailable` composes the
+    // sentence from the slate row, so these mounts pin the words a person would read
+    // rather than a paraphrase that stays put while the real one moves.
+    artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
     artifactRead: async () => readAnswer,
-    artifactDelete: async () =>
-      refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
-  } as unknown as Partial<GrowthPort>);
+    artifactDelete: async () => growthUnavailable("artifactDelete"),
+  });
 }
 
 /** One manifest both payload arms are read against, as the port serves one. */
-const SERVED_ARTIFACT_MANIFEST = {
+const SERVED_ARTIFACT_MANIFEST: GrowthArtifactSummary = {
   artifactId: REPOS_PINNED_ARTIFACT_ID,
   sessionId: REPOS_SCENARIO.sessionId,
   artifactType: "diff",
@@ -170,7 +169,7 @@ const SERVED_ARTIFACT_MANIFEST = {
 };
 
 /** The DEFERRED arm of a served read: a content-addressed handle and no bytes. */
-export const DEFERRED_PAYLOAD_READ: Record<string, unknown> = {
+export const DEFERRED_PAYLOAD_READ: GrowthPortAnswer<"artifactRead"> = {
   status: "served",
   value: {
     manifest: SERVED_ARTIFACT_MANIFEST,
@@ -179,7 +178,7 @@ export const DEFERRED_PAYLOAD_READ: Record<string, unknown> = {
 };
 
 /** The INLINE arm: the bytes, and the encoding a reader switches on. */
-export const INLINE_PAYLOAD_READ: Record<string, unknown> = {
+export const INLINE_PAYLOAD_READ: GrowthPortAnswer<"artifactRead"> = {
   status: "served",
   value: {
     manifest: SERVED_ARTIFACT_MANIFEST,

@@ -25,6 +25,7 @@ import {
   ACCEPTED_ACTION,
   OpenReaders,
   SERVED_CONTEXT,
+  SERVED_CONTEXT_VALUE,
   SUBJECT,
   WIRE_UNREGISTERED,
   gateBridgeAnswering,
@@ -213,8 +214,8 @@ describe("ProposalGateActions — the request a git action puts on the wire", ()
       repoMountId: SUBJECT.repoMountId,
       action: "commit",
       params: {
-        branchContextId: SERVED_CONTEXT.value["branchContextId"],
-        headBranch: SERVED_CONTEXT.value["headBranch"],
+        branchContextId: SERVED_CONTEXT_VALUE["branchContextId"],
+        headBranch: SERVED_CONTEXT_VALUE["headBranch"],
       },
       causationParticipantId: PARTICIPANT_YOU,
     });
@@ -225,9 +226,9 @@ describe("ProposalGateActions — the request a git action puts on the wire", ()
       repoMountId: SUBJECT.repoMountId,
       action: "push",
       params: {
-        branchContextId: SERVED_CONTEXT.value["branchContextId"],
-        headBranch: SERVED_CONTEXT.value["headBranch"],
-        upstreamRef: SERVED_CONTEXT.value["upstreamRef"],
+        branchContextId: SERVED_CONTEXT_VALUE["branchContextId"],
+        headBranch: SERVED_CONTEXT_VALUE["headBranch"],
+        upstreamRef: SERVED_CONTEXT_VALUE["upstreamRef"],
       },
       causationParticipantId: PARTICIPANT_YOU,
     });

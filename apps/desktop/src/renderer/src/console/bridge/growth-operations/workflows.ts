@@ -8,7 +8,6 @@
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
 import { op } from "./operation-entry.js";
 
-/** The workflow rows, in the order the single table carried them. */
 /**
  * The ids this plane carries, DERIVED from the id union rather than listed again.
  *
@@ -19,6 +18,7 @@ import { op } from "./operation-entry.js";
  */
 type WorkflowOperationId = Extract<GrowthOperationId, `workflow${string}`>;
 
+/** The workflow rows, in the order the single table carried them. */
 export const WORKFLOW_GROWTH_OPERATIONS: Readonly<
   Record<WorkflowOperationId, GrowthOperationEntry>
 > = {

@@ -16,13 +16,12 @@ import {
   drainMicrotasks,
   fixtureBridgeWithGrowth,
 } from "../../bridge/fixture-bridge.test-support.js";
-import type { GrowthPort } from "../../bridge/index.js";
+import { growthUnavailable } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 import {
-  REFUSAL,
   SERVED_SUMMARY,
   SESSION_ID,
   listedRowIds,
@@ -49,10 +48,10 @@ function readerWithRejectingBridge(
   const reader = new ArtifactPaneReader({
     bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
       artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-      artifactAllowlistRead: async () => REFUSAL,
+      artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
       artifactRead,
       artifactDelete: () => Promise.reject(rejection),
-    } as unknown as Partial<GrowthPort>),
+    }),
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });
@@ -159,9 +158,9 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
     const refusing = new ArtifactPaneReader({
       bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
         artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-        artifactAllowlistRead: async () => REFUSAL,
-        artifactRead: async () => REFUSAL,
-      } as unknown as Partial<GrowthPort>),
+        artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
+        artifactRead: async () => growthUnavailable("artifactRead"),
+      }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });

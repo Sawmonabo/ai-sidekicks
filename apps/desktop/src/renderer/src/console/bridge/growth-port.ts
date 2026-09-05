@@ -54,6 +54,45 @@ export type GrowthPort = {
 };
 
 /**
+ * What one operation answers with — the served arm or the refusal — read off the port.
+ *
+ * A PROJECTION OF `GrowthPort` AND NOT A SECOND DECLARATION, which is the whole point:
+ * spelled out beside the port it would be a second statement of the same fact, and the
+ * two agree only while someone keeps them in step.
+ *
+ * It exists because `Partial<GrowthPort>` is what a family hands the fixture bridge
+ * when it scripts a port, and a scripted answer had no name: fixtures were annotated
+ * `Record<string, unknown>` or left to infer, neither of which is assignable to the
+ * method it fills, so the call sites reached for `as unknown as Partial<GrowthPort>` —
+ * one cast switching off the checking on every operation in the object to get past the
+ * one member that did not fit. With the answer nameable, a fixture is annotated with
+ * the thing it has to be and the casts are unnecessary.
+ *
+ * `Port` IS IN THE NAME BECAUSE THE FAMILY ALREADY HAD A `GrowthAnswer`.
+ * `repos/artifact-pane/artifact-pane-reading.ts` declares one keyed by the VALUE a
+ * served answer carries; this one is keyed by the OPERATION that answers. Two types,
+ * one name, one directory — `growth-call.ts` and `artifact-pane.test-support.ts` sit
+ * beside each other and would each have meant a different thing by it — so the one
+ * published family-wide takes the qualifier and says which axis it is keyed on.
+ */
+export type GrowthPortAnswer<TOperationId extends GrowthOperationId> = Awaited<
+  ReturnType<GrowthPort[TOperationId]>
+>;
+
+/**
+ * The VALUE inside a served answer, for a fixture that builds one member at a time.
+ *
+ * `GrowthPortAnswer` is the whole union, so `.value` is unreachable on it — correct for a
+ * consumer, which must narrow before reading, and useless for a fixture, which is
+ * declaring the served arm and knows it. Extracted from the same projection rather
+ * than named again, so the two cannot describe different shapes.
+ */
+export type GrowthServedValue<TOperationId extends GrowthOperationId> = Extract<
+  GrowthPortAnswer<TOperationId>,
+  { readonly status: "served" }
+>["value"];
+
+/**
  * Build the refusal one operation returns when its wire is not registered.
  *
  * Routed through `core`'s `refuse` so the field order and the `origin` vocabulary

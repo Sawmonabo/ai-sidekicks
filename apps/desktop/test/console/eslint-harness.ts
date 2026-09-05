@@ -40,6 +40,23 @@ export const NON_EXEMPT_CONSOLE_PROBE_PATH: string = join(
 );
 
 /**
+ * A TIER path the syntax-ban block covers, and no `ignores` entry names.
+ *
+ * The tiers joined the block's `files` after a family adversarial review found two
+ * `Date.parse` calls that had landed under `test/console/` — a test reads the same
+ * wire stamps the console does, and a fixture built with a lenient reading records the
+ * host's zone into the expectation the surface is then measured against. It does not
+ * exist on disk and does not need to; what it is for is asking the real engine which
+ * rules a tier file would be linted under.
+ */
+export const NON_EXEMPT_TIER_PROBE_PATH: string = join(
+  DESKTOP_PACKAGE_ROOT,
+  "test",
+  "console",
+  "exemption-probe.ts",
+);
+
+/**
  * The per-case budget, sized to the machine rather than to the work.
  *
  * Every case that drives the engine additionally pays the config's whole module graph

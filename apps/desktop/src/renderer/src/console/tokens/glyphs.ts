@@ -61,7 +61,16 @@ export const GLYPH_SIZE_DENSE = 10;
 /** Inside a row, a chip, a toolbar toggle, or a card's leading mark. */
 export const GLYPH_SIZE_ROW = 12;
 
-/** Beside a section heading, a disclosure summary, or a gate's own chrome. */
+/**
+ * Beside a section heading, a disclosure summary, a refusal's leading alert, or a
+ * pane head's control — every mark that sits INSIDE a frame rather than being the
+ * thing the frame is about.
+ *
+ * This step in particular is a ratio and not a preference: 14 reads quiet against the
+ * default's 16 at this stroke width, and a chrome size chosen in one family drifts
+ * from the same size chosen in another. That drift is what it retired — three private
+ * copies of `14`, two of which cited each other as their authority.
+ */
 export const GLYPH_SIZE_CHROME = 14;
 
 /**

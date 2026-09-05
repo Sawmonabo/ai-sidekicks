@@ -73,7 +73,7 @@ describe("inline artifact card — the absence, and the manifest", () => {
   });
 
   it("renders the expired replication reading as the payload sentence, not as a TTL", () => {
-    // `repos/artifacts/artifact-model.ts` reads `expired` as the payload not being obtainable
+    // `repos/artifacts/artifact-copy.ts` reads `expired` as the payload not being obtainable
     // from the relay with re-publish as the remedy — the disposition `Spec-014` gives a
     // reclaimed blob — never the narrower "TTL elapsed", which
     // describes the cause and hides the way out.

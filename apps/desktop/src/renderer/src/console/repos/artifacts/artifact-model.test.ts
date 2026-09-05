@@ -17,23 +17,25 @@ import {
 } from "../../bridge/scenarios/repos.js";
 import * as artifactModel from "./artifact-model.js";
 import {
+  ARTIFACT_TYPE_FILTER_ALL,
+  artifactManifestRowFromSummary,
+  artifactTypeCounts,
+  filterArtifactRows,
+  type ArtifactManifestRow,
+  type ArtifactReplicationStatus,
+} from "./artifact-model.js";
+import {
   ARTIFACT_DELETE_CONSEQUENCE,
   ARTIFACT_PAYLOAD_DISPOSITION_COPY,
   ARTIFACT_PRODUCER_ABSENT_LABEL,
   ARTIFACT_REPLICATION_ABSENT,
   ARTIFACT_REPLICATION_PRESENTATION,
   ARTIFACT_STATE_PRESENTATION,
-  ARTIFACT_TYPE_FILTER_ALL,
   ARTIFACT_VISIBILITY_PRESENTATION,
   artifactDeleteReceiptSentence,
-  artifactManifestRowFromSummary,
   artifactProducerLabel,
   artifactReplicationPresentation,
-  artifactTypeCounts,
-  filterArtifactRows,
-  type ArtifactManifestRow,
-  type ArtifactReplicationStatus,
-} from "./artifact-model.js";
+} from "./artifact-copy.js";
 
 /**
  * The five vocabularies this module used to declare a second copy of.
@@ -67,7 +69,7 @@ function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactMani
   };
 }
 
-describe("artifact-model — the closed sets", () => {
+describe("artifact-model and artifact-copy — the closed sets", () => {
   it("declares three states, two visibility classes, six types, and five replication statuses", () => {
     // Counted off the presentation tables, which are typed `Record<Vocabulary, …>`
     // and so are total over the wire's own set by the compiler rather than by a
@@ -148,7 +150,7 @@ describe("artifact-model — the type filter", () => {
   });
 });
 
-describe("artifact-model — absences that are facts", () => {
+describe("artifact-copy — absences that are facts", () => {
   it("names the daemon as the producer when `createdBy` is absent", () => {
     expect(artifactProducerLabel(artifactRow({ createdBy: undefined }))).toBe(
       ARTIFACT_PRODUCER_ABSENT_LABEL,
@@ -181,7 +183,7 @@ describe("artifact-model — absences that are facts", () => {
   });
 });
 
-describe("artifact-model — the degraded sentences say what the design says", () => {
+describe("artifact-copy — the degraded sentences say what the design says", () => {
   it("blames the publisher being offline, not a cap the participant cannot see", () => {
     expect(ARTIFACT_REPLICATION_PRESENTATION.over_cap.meaning).toBe(
       "Unavailable while the publisher is offline.",
@@ -207,7 +209,7 @@ describe("artifact-model — the degraded sentences say what the design says", (
   });
 });
 
-describe("artifact-model — the delete disclosure states only what is known when it is stated", () => {
+describe("artifact-copy — the delete disclosure states only what is known", () => {
   it("makes the pre-action consequence conditional on a fact the receipt settles", () => {
     // `rePublishForeclosed` is a property of the row the daemon observes as it goes,
     // so before the act the console knows only that deletion MAY cost the re-publish.

@@ -45,6 +45,7 @@ import {
 } from "./diff-bounds.js";
 import {
   diffLineText,
+  wholeLineSegments,
   type ConsoleDiffModel,
   type DiffIntralineSegment,
   type DiffLine,
@@ -52,7 +53,7 @@ import {
 } from "./diff-model.js";
 import { pairedLineIndexFor } from "./hunk-row-layout.js";
 import type { DiffLineRow } from "./diff-row-model.js";
-import { intralineSegments, wholeLineSegments } from "./patch-parse.js";
+import { intralineSegments } from "./patch-parse.js";
 
 /**
  * One line's segmentation, and whether it is the comparison or the fallback.

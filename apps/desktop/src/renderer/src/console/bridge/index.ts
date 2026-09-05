@@ -85,7 +85,20 @@ export type {
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
 export { growthUnavailable } from "./growth-port.js";
+// `GrowthPortAnswer` and `GrowthServedValue` are DELIBERATELY NOT HERE. Both exist to
+// type a fixture, so neither will ever have a production consumer, and a door
+// specifier that only tests reach is what `barrel-census` fails. They are imported
+// from `./growth-port.js` directly, which is where `createRefusingGrowthPort` — a
+// test-facing helper for the same reason — is already reached from.
 export type { GrowthPort } from "./growth-port.js";
+// The operation id, beside the port and the builder that both speak it. Withheld, it
+// made `GrowthPort` unusable through this door by anyone composing a partial one: the
+// port's method types and `growthUnavailable`'s parameter are BOTH written in this
+// union, so a family scripting a port could not name the type it had to satisfy and
+// reached for `as unknown as Partial<GrowthPort>` instead — a cast that switches off
+// the checking on the whole object to get past one member it could not spell. It
+// leaves through `growth-entry.js`, the module that declares it.
+export type { GrowthOperationId } from "./growth-entry.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 // The manifest envelope a served `artifactList` answers with. Through this door
 // because the repos family's artifact model reads one into a row, and a family
@@ -109,6 +122,11 @@ export type {
 // wire dropping a member: a second union goes on offering it with nothing failing.
 export {
   GROWTH_ARTIFACT_TYPES,
+  // The receipt itself, beside the disposition it carries: a surface that renders
+  // where the bytes went is holding the whole receipt, and publishing the member's
+  // vocabulary without the record it sits in left the family annotating one and
+  // inferring the other.
+  type GrowthArtifactDeleteReceipt,
   type GrowthArtifactPayloadDisposition,
   type GrowthArtifactReplicationStatus,
   type GrowthArtifactState,

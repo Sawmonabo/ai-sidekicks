@@ -12,6 +12,17 @@
  *
  * NO LITERAL VALUES. Every length is on the space scale, every size on the type
  * scale, and every colour is read back out of a custom property.
+ *
+ * PAST THE 400-LINE BOUND AND DELIBERATELY NOT SPLIT, because the seam the size rule
+ * asks for does not exist here. `apps/desktop/AGENTS.md`'s rule splits a sheet BY
+ * DIRECTORY, and `repos/diff-pane/` is one directory; a second sheet beside this one
+ * would put two files in the cascade whose order is decided by the order of two
+ * adjacent lines in `repos/index.ts`, which is a coupling this file's own
+ * single-importer rule exists to prevent. The reading cost the bound protects is
+ * already paid by the section banners below — a reader looking for the changed-file
+ * list or the rows finds them by heading, not by scrolling. THE TRIGGER THAT SPLITS
+ * IT: if `repos/diff-pane/` ever gains real sub-directories, this sheet splits with
+ * them, one per directory, and the rule above is unchanged.
  */
 
 /*

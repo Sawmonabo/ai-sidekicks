@@ -12,7 +12,8 @@ import {
 import { refuse } from "../../core/index.js";
 import { formatByteQuantity, formatCount } from "../../primitives/index.js";
 import { ArtifactsPanel } from "./ArtifactsPanel.js";
-import { ARTIFACT_REPLICATION_PRESENTATION, type ArtifactManifestRow } from "./artifact-model.js";
+import { type ArtifactManifestRow } from "./artifact-model.js";
+import { ARTIFACT_REPLICATION_PRESENTATION } from "./artifact-copy.js";
 
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.

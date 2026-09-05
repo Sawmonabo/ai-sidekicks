@@ -72,7 +72,6 @@ import {
 import { ArtifactRow, type DeleteConfirmState } from "./ArtifactRow.js";
 import {
   ARTIFACT_TYPE_FILTER_ALL,
-  artifactDeleteReceiptSentence,
   artifactTypeCounts,
   filterArtifactRows,
   type ArtifactDeleteReceipt,
@@ -81,6 +80,7 @@ import {
   type ArtifactTypeFilter,
   type ArtifactsPanelState,
 } from "./artifact-model.js";
+import { artifactDeleteReceiptSentence } from "./artifact-copy.js";
 
 export interface ArtifactsPanelProps {
   readonly state: ArtifactsPanelState;

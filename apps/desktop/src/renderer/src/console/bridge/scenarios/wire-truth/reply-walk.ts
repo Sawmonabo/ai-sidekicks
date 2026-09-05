@@ -61,8 +61,11 @@ const GROWTH_REPLY_PREFIX = "growth:";
  */
 const CORPUS_METHODS_THE_CONSOLE_DOES_NOT_BIND: readonly string[] = [
   // `AgentListRequest` → `AgentListResponse`, registered in the api-payload
-  // contracts' agent namespace. Two shipped scenarios script it for the agents-table
-  // projection, which has no console surface on this branch.
+  // contracts' agent namespace. Shipped scenarios script it for the agents-table
+  // projection, which has no console surface on this branch. The comment names no
+  // count: every family that mounts a surface adds scenarios that script this call,
+  // so a figure written here rots at the next family merge rather than at an edit
+  // to this file.
   "agent.list",
 ];
 

@@ -69,8 +69,6 @@
 // reach a second object to press a control would put the pane's own composition into
 // every caller.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
-
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { Emitter, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import {
@@ -85,42 +83,13 @@ import {
   NOTHING_READ_YET,
   type ArtifactDeleteOutcome,
   type ArtifactPaneReading,
+  settledReadReading,
   type ArtifactRowActOutcome,
 } from "./artifact-pane-reading.js";
+import { ARTIFACT_TERMINAL_EVENT_KINDS } from "../repo-lifecycle-events.js";
 import { readFailureRefusal } from "./artifact-pane-refusals.js";
 import type { ArtifactPayloadOutcome } from "./artifact-payload.js";
 import { readArtifactAllowlist, readArtifactList } from "./artifact-pane-reads.js";
-
-/** The namespace every frame about an artifact is registered under. */
-const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
-
-/**
- * Every registered frame that names an artifact.
- *
- * DERIVED FROM THE CONTRACT'S OWN CENSUS rather than hand-listed, on
- * `repos/repo-lifecycle-events.ts`'s shape and for its reason: the three kinds this
- * used to spell out are a snapshot of a registry that grows, so a fourth
- * `artifact.*` kind — a retention sweep, a re-publication — would have reached this
- * pane and been ignored, with the list on screen going stale and nothing anywhere
- * saying why. `SESSION_EVENT_CATEGORY_BY_TYPE` is the canonical type registry and its
- * keys are the whole census, so a kind is watched the day it is registered and a kind
- * renamed stops matching nothing silently rather than compiling and doing so.
- *
- * THE SELECTOR IS THE NAMESPACE AND NOT THE CATEGORY, which is the question this pane
- * is actually asking. Both of its reads are about artifacts, so any frame that names
- * one changes what one of them would answer — while `artifact_publication`, the
- * category the three live in, also holds `diff.created`, `pr.prepared`, and
- * `pr.submitted`, which are publications of other entities and change neither read. It
- * deliberately does not infer a category from the prefix either, which
- * `packages/contracts/src/event.ts` warns against: a type's category is the registry's
- * to state, and this set never reads one.
- *
- * The annotation is explicit rather than inferred, because `isolatedDeclarations`
- * requires one on every exported binding.
- */
-export const ARTIFACT_TERMINAL_EVENT_KINDS: readonly SessionEventType[] = [
-  ...SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
-].filter((eventType) => eventType.startsWith(ARTIFACT_EVENT_NAMESPACE_PREFIX));
 
 /**
  * The one key this pane's scheduled read is claimed under.
@@ -386,26 +355,7 @@ export class ArtifactPaneReader {
     if (!readRound.isCurrent) {
       return;
     }
-    // ONE SNAPSHOT, BOTH LEGS. Publishing each leg as it lands would let a snapshot
-    // hold a list from one refresh beside an allow-list from another. The row
-    // refusals carry forward: a refusal records an ACT that did not happen, and a
-    // read that did not re-attempt the act does not answer for it.
-    this.#publish({
-      artifacts,
-      allowlist,
-      // CLEARED BY THE LIST THAT FOLLOWS IT. The receipt is about a row this read has
-      // just answered for — by not returning it — so a consequence left standing would
-      // read as a fact about the list now on screen.
-      lastDeleteReceipt: undefined,
-      // The payload survives: it is about an artifact this read either returned or did
-      // not, and either way nothing here re-fetched bytes to answer for it.
-      payload: this.#reading.payload,
-      // Carried for the same reason, and it is the acts' register rather than this
-      // read's: a row whose re-read is still on the wire is still holding its control,
-      // and a publish that rebuilt the set would offer it back mid-flight.
-      manifestReadInFlightArtifactIds: this.#reading.manifestReadInFlightArtifactIds,
-      refusalByArtifactId: this.#reading.refusalByArtifactId,
-    });
+    this.#publish(settledReadReading(this.#reading, artifacts, allowlist));
   }
 
   /**
