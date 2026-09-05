@@ -33,7 +33,7 @@ import {
 } from "./fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
-import { isWireErrorEnvelope, type WireErrorEnvelope } from "../../../../shared/wire-errors.js";
+import { readWireErrorEnvelope, type WireErrorEnvelope } from "../../../../shared/wire-errors.js";
 
 import { normalizeWireRejection } from "../core/index.js";
 
@@ -88,8 +88,13 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
 
     // The claim is not "some object was thrown" — it is that the console's own wire
     // vocabulary recognises it, which is what every renderer catch arm runs. A second
-    // refusal shape would pass a `rejects` assertion and fail here.
-    expect(isWireErrorEnvelope(caught)).toBe(true);
+    // refusal shape would pass a `rejects` assertion and fail here. Read rather than
+    // tested: the reader answers both members in one pass, so the assertion names
+    // what the fixture refused with instead of guarding and then reading it again.
+    expect(readWireErrorEnvelope(caught)).toStrictEqual({
+      code: SCRIPTED_REFUSAL.code,
+      message: SCRIPTED_REFUSAL.message,
+    });
     // Through `core/wire-rejection.ts` — the normalizer a console catch arm actually
     // calls — rather than `src/shared/`'s `Error`-returning one, which no console
     // surface runs. What matters is that the daemon's CODE survives as the refusal's
