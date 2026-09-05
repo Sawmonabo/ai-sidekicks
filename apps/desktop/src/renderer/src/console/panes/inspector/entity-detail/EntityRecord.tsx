@@ -29,7 +29,8 @@
 import { Chip, DerivedFigure, Glyph, Nothing, WireFigure } from "../../../primitives/index.js";
 import type { GlyphName } from "../../../primitives/index.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
-import type { EntityFacet, ProjectionDegradedCause } from "./entity-facets.js";
+import type { SessionDegradedCause } from "../../../store/index.js";
+import type { EntityFacet } from "./entity-facets.js";
 
 /** Edge length the record's kind glyph is drawn at, matching the pane header's. */
 const RECORD_GLYPH_SIZE = 14;
@@ -46,7 +47,7 @@ export interface EntityRecordProps {
   readonly isInitialised: boolean;
   /** Whether the store holds a record for this identifier. */
   readonly hasRecord: boolean;
-  readonly degradedCause: ProjectionDegradedCause | undefined;
+  readonly degradedCause: SessionDegradedCause | undefined;
   /**
    * What an incomplete projection costs this kind, as the second half of a
    * sentence beginning "The projection is incomplete (…), so ". The kind supplies

@@ -27,19 +27,9 @@
 // `not-checked` absence naming the member — never a blank cell, never a zero, and
 // never a dash standing in for both.
 
-import type { ConsoleEntity, SessionStore, useSessionDegradedCause } from "../../../store/index.js";
+import type { ConsoleEntity, SessionDegradedCause, SessionStore } from "../../../store/index.js";
 import { formatByteQuantity, formatClockTime, formatCount } from "../../../primitives/index.js";
 import { parseInstant } from "../../../core/index.js";
-
-/**
- * Why the session's projection is known-incomplete.
- *
- * Derived from the hook that answers it rather than restated: the closed set is
- * the store family's, it does not travel through the store's door as a type, and a
- * second union written here would be the mirrored closed set
- * `apps/desktop/AGENTS.md` rejects.
- */
-export type ProjectionDegradedCause = NonNullable<ReturnType<typeof useSessionDegradedCause>>;
 
 /**
  * What every per-kind detail is handed.
@@ -58,7 +48,7 @@ export interface EntityDetailProps {
   /** `false` until the store's first read has answered. */
   readonly isInitialised: boolean;
   /** Set while the projection is known-incomplete; `undefined` while it is whole. */
-  readonly degradedCause: ProjectionDegradedCause | undefined;
+  readonly degradedCause: SessionDegradedCause | undefined;
   /**
    * The pane this inspector was opened from, when the deck linked the two.
    *
