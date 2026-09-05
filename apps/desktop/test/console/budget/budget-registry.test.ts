@@ -1,41 +1,34 @@
-// The budget registry's own tests — Plan-023 Phase 1C (T-023p-1C-1).
+// The registry's SHAPE — which rows exist, and what each one must carry.
 //
 // `budgets.json` is the single source of truth for every numeric budget the
 // console is gated on (`Spec-023 §Console Design (Meridian)` §Budgets, Plan-023
-// invariant I-023-14). Three failure modes make it worthless, and this file
-// closes all three:
+// invariant I-023-14), and two of the three failure modes that would make it
+// worthless are shape failures this file closes:
 //
 //   • A budget quietly missing. Every row of the spec's §Budgets table is
 //     asserted present by id, so deleting one fails here rather than going
 //     unnoticed as a gate nobody runs.
 //
 //   • A budget quietly ungated. Every `"n/a"` entry must name the Plan-023 task
-//     that makes it measurable and the reason it is not measurable yet, and the
-//     report every harness prints must actually name all of them.
+//     that makes it measurable and the reason it is not measurable yet.
 //
 //   • A budget gated by a claim rather than by a measurement. A `harness` row's
 //     figure has no spec behind it, so the document states the derivation once
 //     for that whole set and each row points at it rather than carrying a copy.
-//     Whether the file a row NAMES actually drives the row's subject is a
-//     different question, over a file rather than over the registry, and it is
-//     `measured-by.test.ts`'s.
 //
-// The loader's validation is additionally exercised against known-bad inputs
-// below, so "the registry parsed" is evidence rather than an assumption: a
-// checker that has never been shown to reject anything has not been shown to
-// check anything.
+// Three neighbouring questions are deliberately elsewhere, each beside the module
+// that answers it: whether the loader REFUSES a malformed document is
+// `budget-document.test.ts`'s, whether the report names every un-measured row is
+// `budget-report.test.ts`'s, and whether the comparison bites is
+// `budget-evaluation.test.ts`'s. Whether the file a row NAMES actually drives the
+// row's subject is a question over a file rather than over the registry, and it
+// is `measured-by.test.ts`'s.
 
-import { mkdtempSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
   ConsoleBudgetRegistry,
-  ConsoleBudgetRegistryError,
   DEFAULT_BUDGETS_FILE_PATH,
-  evaluateBudget,
-  formatUnavailableBudgetReport,
 } from "../../../scripts/budget/budget-registry.mjs";
 
 /** Every row of `Spec-023 §Console Design (Meridian)` §Budgets, by registry id. */
@@ -218,188 +211,5 @@ describe("console budget registry", () => {
       ).toBeGreaterThan(40);
       expect(budget.producedBy, `${budget.id}: producedBy`).toMatch(/^T-023p-1C-[2-8]$/);
     }
-  });
-
-  it("prints one explicit n/a line per un-measured budget, so none is silently omitted", () => {
-    const report = formatUnavailableBudgetReport(registry);
-    for (const budget of registry.unavailableBudgets()) {
-      expect(report, `${budget.id} missing from the report`).toContain(budget.id);
-      expect(report).toContain(budget.producedBy);
-      expect(report).toContain(budget.notMeasurableReason ?? "");
-    }
-    for (const budget of registry.enforcedBudgets()) {
-      expect(report, `${budget.id} should not appear in the n/a block`).not.toContain(
-        `n/a  ${budget.id}`,
-      );
-    }
-  });
-});
-
-describe("budget evaluation", () => {
-  it("compares a measurement against the canonical limit", () => {
-    const budget = registry.requireBudget("renderer-initial-bundle");
-    const under = evaluateBudget(budget, 92_497);
-    expect(under.withinBudget).toBe(true);
-    expect(under.headroomCanonicalValue).toBe(budget.limit.canonicalValue - 92_497);
-
-    const exactlyAtLimit = evaluateBudget(budget, budget.limit.canonicalValue);
-    expect(exactlyAtLimit.withinBudget).toBe(true);
-    expect(exactlyAtLimit.utilizationFraction).toBe(1);
-
-    const over = evaluateBudget(budget, budget.limit.canonicalValue + 1);
-    expect(over.withinBudget).toBe(false);
-    expect(over.headroomCanonicalValue).toBe(-1);
-  });
-
-  it("refuses an unknown budget id rather than returning a vacuous pass", () => {
-    expect(() => registry.requireBudget("no-such-budget")).toThrow(ConsoleBudgetRegistryError);
-  });
-});
-
-// Negative controls. Every assertion above rests on the loader rejecting
-// malformed input; these prove it does, on one known-bad input per rule.
-describe("registry validation (negative controls)", () => {
-  const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "console-budget-registry-"));
-
-  const loadFixture = (name: string, document: unknown): (() => ConsoleBudgetRegistry) => {
-    const fixturePath = path.join(temporaryDirectory, `${name}.json`);
-    writeFileSync(fixturePath, JSON.stringify(document), "utf8");
-    return () => ConsoleBudgetRegistry.load(fixturePath);
-  };
-
-  const validEntry = {
-    id: "example",
-    label: "Example",
-    subject: "An example budget.",
-    specTarget: "≤ 1 kB",
-    limit: { comparison: "<=", value: 1, unit: "kB", canonicalValue: 1000, canonicalUnit: "bytes" },
-    scope: "product",
-    status: "enforced",
-    producedBy: "T-023p-1C-1",
-    measuredBy: "apps/desktop/scripts/budget/measure-bundle.mjs",
-    subjectSymbol: "RendererBundleMeasurer",
-    notes: "Example notes.",
-  };
-  const validDocument = { schemaVersion: 3, source: "spec", budgets: [validEntry] };
-
-  it("accepts a well-formed registry (the positive control the rest are measured against)", () => {
-    expect(loadFixture("valid", validDocument)().budgets).toHaveLength(1);
-  });
-
-  it("rejects a missing file", () => {
-    expect(() => ConsoleBudgetRegistry.load(path.join(temporaryDirectory, "absent.json"))).toThrow(
-      ConsoleBudgetRegistryError,
-    );
-  });
-
-  it("rejects an unsupported schema version", () => {
-    expect(loadFixture("bad-schema", { ...validDocument, schemaVersion: 1 })).toThrow(
-      /schemaVersion/,
-    );
-  });
-
-  it("rejects an `n/a` entry with no producing task", () => {
-    const entry = {
-      ...validEntry,
-      status: "n/a",
-      measuredBy: null,
-      subjectSymbol: null,
-      notMeasurableReason: "why",
-    };
-    const { producedBy: _omitted, ...withoutProducedBy } = entry;
-    expect(
-      loadFixture("no-produced-by", { ...validDocument, budgets: [withoutProducedBy] }),
-    ).toThrow(/producedBy/);
-  });
-
-  it("rejects an `n/a` entry with no reason", () => {
-    const entry = { ...validEntry, status: "n/a", measuredBy: null, subjectSymbol: null };
-    expect(loadFixture("no-reason", { ...validDocument, budgets: [entry] })).toThrow(
-      /notMeasurableReason/,
-    );
-  });
-
-  it("rejects an `enforced` entry with no measuring harness", () => {
-    const { measuredBy: _omitted, ...withoutHarness } = validEntry;
-    expect(loadFixture("no-harness", { ...validDocument, budgets: [withoutHarness] })).toThrow(
-      /measuredBy/,
-    );
-  });
-
-  it("rejects an `enforced` entry that names no subject symbol", () => {
-    // Without it `measuredBy` is checkable only by `existsSync`, which is what
-    // let two rows name a harness that drives neither of their subjects.
-    const { subjectSymbol: _omitted, ...withoutSubject } = validEntry;
-    expect(loadFixture("no-subject", { ...validDocument, budgets: [withoutSubject] })).toThrow(
-      /subjectSymbol/,
-    );
-  });
-
-  it("rejects an `n/a` entry that names a subject symbol anyway", () => {
-    const entry = { ...validEntry, status: "n/a", measuredBy: null, notMeasurableReason: "why" };
-    expect(loadFixture("subject-on-na", { ...validDocument, budgets: [entry] })).toThrow(
-      /subjectSymbol/,
-    );
-  });
-
-  it("rejects a duplicate budget id", () => {
-    expect(
-      loadFixture("duplicate", { ...validDocument, budgets: [validEntry, { ...validEntry }] }),
-    ).toThrow(/duplicate budget id/);
-  });
-
-  it("rejects a comparison that is not a ceiling", () => {
-    const entry = { ...validEntry, limit: { ...validEntry.limit, comparison: ">=" } };
-    expect(loadFixture("bad-comparison", { ...validDocument, budgets: [entry] })).toThrow(
-      /comparison/,
-    );
-  });
-
-  it("rejects a non-numeric limit", () => {
-    const entry = { ...validEntry, limit: { ...validEntry.limit, canonicalValue: "450000" } };
-    expect(loadFixture("bad-limit", { ...validDocument, budgets: [entry] })).toThrow(
-      /canonicalValue/,
-    );
-  });
-
-  it("rejects an unknown status", () => {
-    const entry = { ...validEntry, status: "deferred" };
-    expect(loadFixture("bad-status", { ...validDocument, budgets: [entry] })).toThrow(/status/);
-  });
-
-  it("rejects an unknown scope", () => {
-    // A row that declares neither kind would be counted by neither completeness
-    // claim above, which is the one way a budget can rejoin the set of numbers
-    // nothing checks.
-    const entry = { ...validEntry, scope: "internal" };
-    expect(loadFixture("bad-scope", { ...validDocument, budgets: [entry] })).toThrow(/scope/);
-  });
-
-  it("rejects a `harness` row in a document that states no derivation", () => {
-    // A bound the scaffolding applies to itself, with the reason for its figure
-    // written nowhere, is a number gated by nothing — which is what the harness
-    // rows were before they joined this file.
-    const entry = { ...validEntry, scope: "harness" };
-    expect(loadFixture("no-derivation", { ...validDocument, budgets: [entry] })).toThrow(
-      /harnessBudgetDerivation/,
-    );
-  });
-
-  it("accepts the same `harness` row once the derivation is stated", () => {
-    // The positive half: without it the case above passes over a loader that
-    // refused every harness row, whatever the document said.
-    const entry = { ...validEntry, scope: "harness" };
-    const loaded = loadFixture("with-derivation", {
-      ...validDocument,
-      harnessBudgetDerivation: "Why the scaffolding's own bounds are the figures they are.",
-      budgets: [entry],
-    })();
-    expect(loaded.harnessBudgetDerivation).not.toBeNull();
-    expect(loaded.harnessBudgets()).toHaveLength(1);
-  });
-
-  it("rejects a row with no scope at all", () => {
-    const { scope: _omitted, ...withoutScope } = validEntry;
-    expect(loadFixture("no-scope", { ...validDocument, budgets: [withoutScope] })).toThrow(/scope/);
   });
 });
