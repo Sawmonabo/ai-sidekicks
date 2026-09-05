@@ -19,6 +19,16 @@
 // is not a second description of that statement. Every later statement has no such
 // excuse.
 //
+// SCANNED PACKAGE-WIDE, because neither arm of the defect is a console phenomenon. An
+// insertion under a block and a copied block both land wherever someone is editing:
+// `src/main/`, a co-located test, and above all a `.test-support.*` module, which is
+// the one place a block is routinely copied along WITH the declaration it describes.
+// This gate read the console's non-test modules for its first life and reported clean
+// while the two largest homes of its own defect went unread — and the tests it did not
+// read outnumber the modules it did. `DESKTOP_PROSE_ROOTS` with `{ tests: true }` is
+// what reaches all of it, and the case below asserts each class the narrower scan
+// missed rather than trusting a single count.
+//
 // Read by parse rather than by regex. Whether two blocks are stacked is a question
 // about what the parser ATTACHES — a blank line, an intervening statement, or a line
 // comment between them all change the answer, and none of those is visible to a
@@ -27,7 +37,11 @@
 import ts from "typescript";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { consoleSourceModules, readConsoleSourceModule } from "../console-source-modules.js";
+import {
+  consoleSourceModules,
+  DESKTOP_PROSE_ROOTS,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
 import { parseSourceText } from "../typescript-source.js";
 
 /** One declaration carrying more than one documentation block, as a failure names it. */
@@ -75,14 +89,17 @@ function describeStack(entry: StackedDocumentation): string {
 /**
  * The budgets this file states rather than inherits, and why they differ.
  *
- * One reading and parse of the console costs ~150 ms alone on the authoring machine
- * and multiplies under the gate's five-project concurrency — the load, not the tree,
- * is what a budget here has to survive, the same finding that put explicit budgets on
- * `barrel-census.test.ts`. The hook pays for the whole reading and is set well above
- * the loaded cost, because what a budget guards is a reading that never settles rather
- * than a slow one. The cases compare over a reading already in hand at 0-1 ms each, so
- * their budget is deliberately smaller: a case that somehow became the first to touch
- * the reading should fail fast and say so rather than inherit the hook's patience.
+ * One reading and parse of the whole package costs 250-340 ms alone on the authoring
+ * machine — measured 2026-09-05 over its 541 modules, against 145 ms over the 218 this
+ * gate read while its subject was the console alone — and it multiplies under the
+ * gate's five-project concurrency. The load, not the tree, is what a budget here has to
+ * survive, the same finding that put explicit budgets on `barrel-census.test.ts`. The
+ * hook pays for the whole reading and stays well above the loaded cost, because what a
+ * budget guards is a reading that never settles rather than a slow one; widening the
+ * subject three-fold did not move it, which is the point of the headroom. The cases
+ * compare over a reading already in hand at 0-1 ms each, so their budget is
+ * deliberately smaller: a case that somehow became the first to touch the reading
+ * should fail fast and say so rather than inherit the hook's patience.
  */
 const CONSOLE_READING_ALLOWANCE_MS = 30_000;
 const COMPARISON_ALLOWANCE_MS = 10_000;
@@ -91,7 +108,7 @@ vi.setConfig({ testTimeout: COMPARISON_ALLOWANCE_MS, hookTimeout: CONSOLE_READIN
 
 /** What one reading of the tree answers. Every case below is a comparison over this. */
 interface DocumentationReading {
-  readonly moduleCount: number;
+  readonly displayPaths: readonly string[];
   readonly stacked: readonly string[];
 }
 
@@ -113,9 +130,9 @@ class DocumentationCensus {
   }
 
   public read(): void {
-    const modules = consoleSourceModules();
+    const modules = consoleSourceModules({ roots: DESKTOP_PROSE_ROOTS, tests: true });
     this.#reading = {
-      moduleCount: modules.length,
+      displayPaths: modules.map((module) => module.displayPath),
       stacked: modules
         .flatMap((module) =>
           stackedDocumentationIn(module.displayPath, readConsoleSourceModule(module)),
@@ -132,10 +149,26 @@ describe("documentation — one block per declaration", () => {
     census.read();
   });
 
-  it("finds a tree to scan at all", () => {
+  it("reaches every home the defect has, not the console alone", () => {
     // Without this a wrong root would scan nothing and the claim below would pass
-    // over the empty set.
-    expect(census.reading.moduleCount).toBeGreaterThan(50);
+    // over the empty set — and, since this gate was narrowed to the console once
+    // already, each named class is a separate way for it to narrow back with
+    // nothing reporting the difference. `.test-support.*` is called out because it
+    // is where a block is most often copied along with the helper it describes, and
+    // it is subtracted by the walk's own default rather than by the roots.
+    const { displayPaths } = census.reading;
+    expect(displayPaths.length).toBeGreaterThan(400);
+    expect(displayPaths).toContain("src/main/window-reveal.ts");
+    expect(displayPaths.filter((path) => path.startsWith("test/console/"))).not.toStrictEqual([]);
+    expect(displayPaths.filter((path) => path.includes(".test-support."))).not.toStrictEqual([]);
+    expect(displayPaths.filter((path) => path.endsWith(".test.ts"))).not.toStrictEqual([]);
+    // Named the long way here, and deliberately: reached through the package-wide
+    // roots a console module is `src/renderer/src/console/…` rather than the
+    // `console/…` every console-scoped gate spells, which is the one cost of leaving
+    // those gates' own lookups alone.
+    expect(
+      displayPaths.filter((path) => path.startsWith("src/renderer/src/console/")),
+    ).not.toStrictEqual([]);
   });
 
   it("no declaration carries a second documentation block", () => {
