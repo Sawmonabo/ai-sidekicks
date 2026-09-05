@@ -3,9 +3,10 @@
 // The other half of `subject-scoped-holder.test.ts`, on the seam the source draws:
 // that file is about WHO MAY WRITE — which addressing a publisher names and whether a
 // settlement is admitted — and this one is about the value that write refused or
-// replaced, and the value a re-addressing discarded. The rules live in
-// `unheld-value-disposal.ts` and in the holder's `address` backstop; both are driven
-// here through the holder's own door, because a caller reaches neither any other way.
+// replaced, and the value a proposal no render committed left behind. All three rules
+// live in `unheld-value-disposal.ts`, behind one seam the holder is handed at
+// construction, and are driven here through the holder's own door because a caller
+// reaches them no other way.
 //
 // Tripwires throw in a development build, which would turn the backstops below into
 // the very escaping throws they exist to prevent. The recording arm is the one under
@@ -19,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { consoleTripwires } from "../core/tripwires.js";
 import { SUBJECT_ONE, SUBJECT_TWO } from "./subject-fixtures.test-support.js";
+import { visit } from "./subject-scoped-drivers.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
 
 let restoreThrowOnReport = false;
@@ -34,47 +36,52 @@ afterEach(() => {
   consoleTripwires.reset();
 });
 
-describe("SubjectScopedHolder — a disposal that throws does not take the replacement", () => {
-  it("leaves the replacement addressed and publishable, and records the reason", () => {
-    // Escaping, this throw leaves the render with the NEW value installed and no
-    // commit ever reaching it — so the resource the disposal was clearing room for is
-    // held by nothing. That is the one path in this module a throw could take.
-    const holder = new SubjectScopedHolder<string>();
-    holder.address(SUBJECT_ONE, "alpha", () => "the value that owns a registry");
+describe("SubjectScopedHolder — a disposal that throws does not take the render with it", () => {
+  /** The value a pass proposed, which the case that supersedes it cannot dispose. */
+  const UNDISPOSABLE = "the value that owns a registry";
+
+  it("leaves the proposal that superseded it addressed and publishable, and records why", () => {
+    // This runs inside a render body. Escaping, the throw reaches the surface's error
+    // boundary, which unmounts the subtree on top of a holder whose newest proposal is
+    // already installed and reachable through nothing — so the resource the disposal
+    // was clearing room for is held by nothing AND the surface is gone.
+    const holder = new SubjectScopedHolder<string>({
+      disposeUnheldValue: (unheld) => {
+        if (unheld === UNDISPOSABLE) {
+          throw new Error("the registry this value owned refused to dispose");
+        }
+      },
+    });
+    visit(holder, SUBJECT_ONE, "alpha", () => "the visit on screen");
+    holder.address(SUBJECT_TWO, "alpha", () => UNDISPOSABLE);
 
     expect(() => {
-      holder.address(
-        SUBJECT_TWO,
-        "alpha",
-        () => "the replacement",
-        () => {
-          throw new Error("the registry this value owned refused to dispose");
-        },
-      );
+      holder.address(SUBJECT_TWO, "beta", () => "the proposal that superseded it");
     }).not.toThrow();
 
-    expect(holder.value).toBe("the replacement");
-    holder.publisherFor(SUBJECT_TWO, "alpha")("what the new subject read");
-    expect(holder.value).toBe("what the new subject read");
+    expect(holder.value).toBe("the proposal that superseded it");
     expect(consoleTripwires.firingCount("surface-render-failure")).toBe(1);
     expect(consoleTripwires.reports().at(-1)?.detail).toContain("refused to dispose");
+    // And the pass that superseded it can still settle into what it addressed, which
+    // is what "the render was not taken with it" means from the caller's side.
+    holder.publisherFor(SUBJECT_TWO, "beta")("what the new pass read");
+    expect(holder.value).toBe("what the new pass read");
+    expect(consoleTripwires.firingCount("apply-chokepoint-bypass")).toBe(0);
   });
 
   it("reports a thrown value that has no message, rather than throwing describing it", () => {
     // A null-prototype value carrying no `toString` makes bare `String(...)` throw,
     // which would put the failure back on the path the backstop just took it off.
-    const holder = new SubjectScopedHolder<string>();
-    holder.address(SUBJECT_ONE, "alpha", () => "first");
+    const holder = new SubjectScopedHolder<string>({
+      disposeUnheldValue: () => {
+        throw Object.create(null) as unknown;
+      },
+    });
+    visit(holder, SUBJECT_ONE, "alpha", () => "the visit on screen");
+    holder.address(SUBJECT_TWO, "alpha", () => "first");
 
     expect(() => {
-      holder.address(
-        SUBJECT_TWO,
-        "alpha",
-        () => "second",
-        () => {
-          throw Object.create(null) as unknown;
-        },
-      );
+      holder.address(SUBJECT_TWO, "beta", () => "second");
     }).not.toThrow();
 
     expect(holder.value).toBe("second");
@@ -83,19 +90,17 @@ describe("SubjectScopedHolder — a disposal that throws does not take the repla
 
   it("negative control: a disposal that returns records nothing", () => {
     // Without this, "recorded" above would be satisfied by a holder that reported on
-    // every re-address — which would put a defect on the operator's diagnostics for
-    // every ordinary route change.
-    const holder = new SubjectScopedHolder<string>();
+    // every discarded proposal — which would put a defect on the operator's
+    // diagnostics for every render React throws away, which is routine.
     let disposals = 0;
-    holder.address(SUBJECT_ONE, "alpha", () => "first");
-    holder.address(
-      SUBJECT_TWO,
-      "alpha",
-      () => "second",
-      () => {
+    const holder = new SubjectScopedHolder<string>({
+      disposeUnheldValue: () => {
         disposals += 1;
       },
-    );
+    });
+    visit(holder, SUBJECT_ONE, "alpha", () => "the visit on screen");
+    holder.address(SUBJECT_TWO, "alpha", () => "first");
+    holder.address(SUBJECT_TWO, "beta", () => "second");
 
     expect(disposals).toBe(1);
     expect(consoleTripwires.firingCount("surface-render-failure")).toBe(0);
@@ -119,9 +124,9 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // through this disposal and through no other path in the program.
     const closed: string[] = [];
     const holder = holderDisposing(closed);
-    holder.address(SUBJECT_ONE, "alpha", () => "the connection the first visit opened");
+    visit(holder, SUBJECT_ONE, "alpha", () => "the connection the first visit opened");
     const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
-    holder.address(SUBJECT_TWO, "alpha", () => "the connection the second visit opened");
+    visit(holder, SUBJECT_TWO, "alpha", () => "the connection the second visit opened");
 
     settlementFromTheVisitThatEnded("the connection that opened too late");
 
@@ -150,9 +155,9 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // exist.
     const closed: string[] = [];
     const holder = holderDisposing(closed);
-    holder.address(SUBJECT_ONE, "alpha", () => "the first visit");
+    visit(holder, SUBJECT_ONE, "alpha", () => "the first visit");
     const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
-    holder.address(SUBJECT_TWO, "alpha", () => "the second visit");
+    visit(holder, SUBJECT_TWO, "alpha", () => "the second visit");
 
     let updates = 0;
     settlementFromTheVisitThatEnded((previous) => {
@@ -172,7 +177,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // moment anything in the program can reach it.
     const closed: string[] = [];
     const holder = holderDisposing(closed);
-    holder.address(SUBJECT_ONE, "alpha", () => "the connection the visit opened");
+    visit(holder, SUBJECT_ONE, "alpha", () => "the connection the visit opened");
     const publish = holder.publisherFor(SUBJECT_ONE, "alpha");
 
     publish("the connection published second");
@@ -195,7 +200,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // and the one it replaced is as unreachable as any other.
     const closed: string[] = [];
     const holder = holderDisposing(closed);
-    holder.address(SUBJECT_ONE, "alpha", () => "the first connection");
+    visit(holder, SUBJECT_ONE, "alpha", () => "the first connection");
 
     holder.publisherFor(SUBJECT_ONE, "alpha")((previous) => `${previous}, replaced`);
 
@@ -208,7 +213,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // would close the resource the surface is reading through.
     const closed: string[] = [];
     const holder = holderDisposing(closed);
-    holder.address(SUBJECT_ONE, "alpha", () => "the only connection");
+    visit(holder, SUBJECT_ONE, "alpha", () => "the only connection");
 
     holder.publisherFor(SUBJECT_ONE, "alpha")("the only connection");
 
@@ -222,7 +227,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
         throw new Error("the connection this value owned refused to close");
       },
     });
-    holder.address(SUBJECT_ONE, "alpha", () => "the first connection");
+    visit(holder, SUBJECT_ONE, "alpha", () => "the first connection");
 
     expect(() => {
       holder.publisherFor(SUBJECT_ONE, "alpha")("the connection that replaced it");
@@ -239,7 +244,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // as before, and a holder that reported here would fire on every settlement the
     // console makes.
     const holder = new SubjectScopedHolder<string>();
-    holder.address(SUBJECT_ONE, "alpha", () => "seed");
+    visit(holder, SUBJECT_ONE, "alpha", () => "seed");
 
     holder.publisherFor(SUBJECT_ONE, "alpha")("published");
     holder.publisherFor(SUBJECT_ONE, "alpha")("published again");
@@ -257,9 +262,9 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
         throw new Error("the connection this value owned refused to close");
       },
     });
-    holder.address(SUBJECT_ONE, "alpha", () => "the first visit");
+    visit(holder, SUBJECT_ONE, "alpha", () => "the first visit");
     const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
-    holder.address(SUBJECT_TWO, "alpha", () => "the second visit");
+    visit(holder, SUBJECT_TWO, "alpha", () => "the second visit");
 
     expect(() => {
       settlementFromTheVisitThatEnded("the connection that opened too late");
@@ -280,7 +285,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // to close what a live effect is holding.
     const closed: string[] = [];
     const holder = holderDisposing(closed);
-    holder.address(SUBJECT_ONE, "alpha", () => "the connection the first visit opened");
+    visit(holder, SUBJECT_ONE, "alpha", () => "the connection the first visit opened");
 
     holder.publisherFor(SUBJECT_ONE, "alpha")("the connection that replaced it");
 
@@ -294,9 +299,9 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
     // reported every ordinary route change would put a defect on the operator's
     // diagnostics for a settlement the substrate is designed to drop.
     const holder = new SubjectScopedHolder<string>();
-    holder.address(SUBJECT_ONE, "alpha", () => "seed");
+    visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     const settlementFromTheVisitThatEnded = holder.publisherFor(SUBJECT_ONE, "alpha");
-    holder.address(SUBJECT_TWO, "alpha", () => "seed");
+    visit(holder, SUBJECT_TWO, "alpha", () => "seed");
 
     settlementFromTheVisitThatEnded("the answer to a question nobody is asking");
 
