@@ -53,6 +53,7 @@ import {
   WORKTREE_DETAIL_COLUMNS,
   worktreeColumnCell,
 } from "./worktree-columns.js";
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 
 export interface WorktreeCardProps {
   readonly record: WorktreeStatusRecord;
@@ -67,8 +68,6 @@ export interface WorktreeCardProps {
   readonly nowMilliseconds: number;
 }
 
-const CARD_GLYPH_SIZE = 14;
-
 export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
   const { record, nowMilliseconds } = props;
   const headingId = useId();
@@ -78,7 +77,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
   return (
     <article className="meridian-root-card" aria-labelledby={headingId}>
       <header className="meridian-root-card__head">
-        <Glyph name="worktree" size={CARD_GLYPH_SIZE} />
+        <Glyph name="worktree" size={GLYPH_SIZE_CHROME} />
         {/*
           The branch is the card's name. Mono and verbatim, suffix included: a
           daemon-derived name that took an ordinal suffix is displayed as it was
@@ -119,7 +118,7 @@ export function WorktreeCard(props: WorktreeCardProps): React.JSX.Element {
 
       {disposition === "live" ? null : (
         <p className="meridian-root-card__disposition">
-          <Glyph name={disposition === "reclaimed" ? "check" : "clock"} size={CARD_GLYPH_SIZE} />
+          <Glyph name={disposition === "reclaimed" ? "check" : "clock"} size={GLYPH_SIZE_CHROME} />
           {WORKTREE_DISK_DISPOSITION_COPY[disposition]}
         </p>
       )}

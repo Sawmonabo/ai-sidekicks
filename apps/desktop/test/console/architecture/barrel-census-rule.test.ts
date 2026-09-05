@@ -13,9 +13,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  barrelSpecifiers,
   censusFindings,
   doorsThatForwardNothing,
   findingLines,
+  readCensus,
   starReexportingBarrels,
 } from "./barrel-census.js";
 import type { CensusModule } from "./barrel-syntax.js";
@@ -324,5 +326,40 @@ describe("barrel census — the rule, against corpora written to fail it", () =>
       `${CONSOLE_PREFIX}/tokens/index.ts`,
     ]);
     expect(starReexportingBarrels([declaringModule, barrel("none")])).toStrictEqual([]);
+  });
+
+  it("answers the four questions off one reading exactly as it answers them off four", () => {
+    // `readCensus` exists so the gate next door parses the console once instead of
+    // four times, and a faster reading that answered differently would be a worse
+    // gate rather than a quicker one. Both corpora, because the interesting halves
+    // are opposite: the failing one has to carry the same finding and the clean one
+    // has to carry the same silence.
+    const starBarrel = syntheticModule(
+      `${CONSOLE_PREFIX}/repos/index.ts`,
+      'export * from "./RepoList.js";\n',
+    );
+    for (const corpus of [
+      [declaringModule, barrel("none"), testImporter, starBarrel],
+      [declaringModule, barrel("tag"), testImporter],
+    ]) {
+      expect(readCensus(corpus)).toStrictEqual({
+        specifiers: barrelSpecifiers(corpus),
+        doorsForwardingNothing: doorsThatForwardNothing(corpus),
+        unenumerableForwarders: starReexportingBarrels(corpus),
+        findings: censusFindings(corpus),
+      });
+    }
+  });
+
+  it("negative control: the four questions are four different answers, not one repeated", () => {
+    // Without this the equivalence above would hold over a corpus where every answer
+    // was the same empty list, and would go on holding if `readCensus` returned one
+    // reading under four names.
+    const corpus = [declaringModule, barrel("none"), testImporter];
+    const reading = readCensus(corpus);
+    expect(reading.specifiers.length).toBeGreaterThan(0);
+    expect(reading.findings.length).toBeGreaterThan(0);
+    expect(reading.doorsForwardingNothing).toStrictEqual([]);
+    expect(reading.unenumerableForwarders).toStrictEqual([]);
   });
 });

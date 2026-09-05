@@ -56,21 +56,11 @@ export type { GrowthNavigationState, GrowthPaneError, GrowthTerminalChunk } from
 export type { GrowthCallbackTool, GrowthToolCall } from "./tools.js";
 
 export {
-  // Consumed by T-023p-1C-5
-  GROWTH_ARTIFACT_REPLICATION_STATUSES,
-  // Consumed by T-023p-1C-5
-  GROWTH_ARTIFACT_STATES,
   GROWTH_ARTIFACT_TYPES,
-  // Consumed by T-023p-1C-5
-  GROWTH_ARTIFACT_VISIBILITIES,
   type GrowthArtifactDeleteReceipt,
   type GrowthArtifactPayloadDisposition,
   type GrowthArtifactPayloadEncoding,
   type GrowthArtifactRead,
-  // Consumed by T-023p-1C-5
-  type GrowthArtifactReadDeferred,
-  // Consumed by T-023p-1C-5
-  type GrowthArtifactReadInline,
   type GrowthArtifactReplicationStatus,
   type GrowthArtifactState,
   type GrowthArtifactSummary,

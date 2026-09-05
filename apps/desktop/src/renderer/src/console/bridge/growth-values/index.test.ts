@@ -94,17 +94,40 @@ const PRE_SPLIT_EXPORTS: readonly string[] = [
   "GrowthUnpricedFamilyCap",
 ];
 
+/**
+ * Names the barrel published at the split and has since deliberately RETIRED.
+ *
+ * Kept beside the transcription rather than deleted from it, because the two lists say
+ * different things: the one above records what the surface was, and this one records
+ * every departure from it that was a decision. Editing a name out of the record would
+ * make a lost name and a retired name indistinguishable, which is the whole property
+ * that census exists to hold.
+ *
+ * All five are the artifact vocabulary's runtime lists and its two read arms. Nothing
+ * in the tree read them: a consumer of the vocabulary takes the DERIVED type, where
+ * `Record<GrowthArtifactState, …>` is total in both directions at compile time, and a
+ * consumer of the read union narrows it structurally on `payload`, which is `never` on
+ * the deferred arm. A published list beside a derived type is a second way to ask one
+ * question, and only one of the two ways is checked.
+ */
+const RETIRED_SINCE_SPLIT: readonly string[] = [
+  "GROWTH_ARTIFACT_REPLICATION_STATUSES",
+  "GROWTH_ARTIFACT_STATES",
+  "GROWTH_ARTIFACT_VISIBILITIES",
+  "GrowthArtifactReadDeferred",
+  "GrowthArtifactReadInline",
+];
+
+/** What the barrel is expected to publish today: the split's surface, less the retired. */
+const CURRENT_EXPORTS: readonly string[] = PRE_SPLIT_EXPORTS.filter(
+  (name) => !RETIRED_SINCE_SPLIT.includes(name),
+);
+
 /** The tail of the gitflow re-export clause, which the negative control cuts out. */
 const GITFLOW_CLAUSE_TAIL = '} from "./gitflow.js";';
 
-/** The five names that survive erasure, so the runtime module object carries them. */
-const VALUE_EXPORTS: readonly string[] = [
-  "GROWTH_ARTIFACT_REPLICATION_STATUSES",
-  "GROWTH_ARTIFACT_STATES",
-  "GROWTH_ARTIFACT_TYPES",
-  "GROWTH_ARTIFACT_VISIBILITIES",
-  "GROWTH_PR_PREPARATION_STATES",
-];
+/** The two names that survive erasure, so the runtime module object carries them. */
+const VALUE_EXPORTS: readonly string[] = ["GROWTH_ARTIFACT_TYPES", "GROWTH_PR_PREPARATION_STATES"];
 
 /**
  * The names the barrel's export clauses actually list.
@@ -130,8 +153,21 @@ function exportedNames(source: string): readonly string[] {
 }
 
 describe("the growth-values barrel's export surface", () => {
-  it("publishes exactly the names the single module published", () => {
-    expect([...exportedNames(barrelSource)].sort()).toStrictEqual([...PRE_SPLIT_EXPORTS].sort());
+  it("publishes the names the single module published, less the retired ones", () => {
+    expect([...exportedNames(barrelSource)].sort()).toStrictEqual([...CURRENT_EXPORTS].sort());
+  });
+
+  it("retires only names the split actually published, and publishes none of them", () => {
+    // Without this the retirement list could drift into naming something that was
+    // never there, which would silently shrink what the census above demands — the
+    // one way a deliberate list can weaken the record it sits beside.
+    expect(RETIRED_SINCE_SPLIT.filter((name) => !PRE_SPLIT_EXPORTS.includes(name))).toStrictEqual(
+      [],
+    );
+    expect(
+      RETIRED_SINCE_SPLIT.filter((name) => exportedNames(barrelSource).includes(name)),
+    ).toStrictEqual([]);
+    expect(RETIRED_SINCE_SPLIT.length).toBeGreaterThan(0);
   });
 
   it("names each export once — a re-export chain would publish two of one name", () => {
@@ -160,9 +196,9 @@ describe("the growth-values barrel's export surface", () => {
       barrelSource.slice(0, clauseStart) +
       barrelSource.slice(clauseEnd + GITFLOW_CLAUSE_TAIL.length);
 
-    expect(exportedNames(withGitflowDropped).length).toBeLessThan(PRE_SPLIT_EXPORTS.length);
+    expect(exportedNames(withGitflowDropped).length).toBeLessThan(CURRENT_EXPORTS.length);
     expect([...exportedNames(withGitflowDropped)].sort()).not.toStrictEqual(
-      [...PRE_SPLIT_EXPORTS].sort(),
+      [...CURRENT_EXPORTS].sort(),
     );
   });
 });

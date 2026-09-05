@@ -58,7 +58,7 @@
 // reviewer reading one tag, and a false pass is a reader being told the wrong length
 // of a list with nothing anywhere to notice.
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   consoleSourceModules,
@@ -121,18 +121,105 @@ const HAND_ROLLED_LIST = [
   ");",
 ].join("\n");
 
-describe("windowed rows — the position pair has one writer", () => {
-  const modules: readonly ConsoleSourceModule[] = consoleSourceModules();
+/**
+ * The budgets this file states rather than inherits, and why they differ.
+ *
+ * Four `describe` blocks each walked the console and every case re-read the modules it
+ * scanned — eight full readings for four claims, all of the walking charged to
+ * COLLECTION where no case timing shows it. Measured alone on the authoring machine
+ * the visible cases were 7 / 22 / 6 / 90 ms and the file 498 ms end to end; under the
+ * aggregate gate's five-project concurrency the same file timed out against vitest's
+ * 5 s default with no change to the code it reads. The load, not the tree, is what a
+ * budget here has to survive — the finding that put explicit budgets on
+ * `barrel-census.test.ts`, restated here rather than cross-referenced.
+ *
+ * The hook pays for the one reading and is set well above the loaded cost, because
+ * what a budget guards is a reading that never settles rather than a slow one. The
+ * cases pay only for scans over sources already in hand, so their budget is smaller: a
+ * case that somehow became the first to touch the reading should fail fast and say so.
+ */
+const CONSOLE_READING_ALLOWANCE_MS = 30_000;
+const SCAN_ALLOWANCE_MS = 10_000;
 
+vi.setConfig({ testTimeout: SCAN_ALLOWANCE_MS, hookTimeout: CONSOLE_READING_ALLOWANCE_MS });
+
+/** One module and its text, read once for the whole file. */
+interface ConsoleModuleText {
+  readonly displayPath: string;
+  readonly source: string;
+}
+
+/** What one reading of the tree answers. Every claim below is a scan over this. */
+interface ConsoleTreeReading {
+  readonly modules: readonly ConsoleSourceModule[];
+  readonly texts: readonly ConsoleModuleText[];
+  readonly windowing: readonly ConsoleModuleText[];
+}
+
+/**
+ * The one reading this file pays for, and every claim's only source.
+ *
+ * Behind a private field with a throwing accessor rather than a mutable binding a case
+ * could read as `undefined`: a hook that failed would otherwise surface as a type
+ * error in whichever case ran first, which names the wrong thing.
+ */
+class ConsoleTree {
+  #reading: ConsoleTreeReading | undefined = undefined;
+  #readCount = 0;
+
+  /** How many times the tree has been walked, for the control that it is once. */
+  public get readCount(): number {
+    return this.#readCount;
+  }
+
+  public get reading(): ConsoleTreeReading {
+    if (this.#reading === undefined) {
+      throw new Error("the console reading was asked for before the hook filled it in");
+    }
+    return this.#reading;
+  }
+
+  public read(): void {
+    this.#readCount += 1;
+    const modules = consoleSourceModules();
+    const texts = modules.map((module) => ({
+      displayPath: module.displayPath,
+      source: readConsoleSourceModule(module),
+    }));
+    this.#reading = {
+      modules,
+      texts,
+      windowing: texts.filter((text) => windowsAList(text.source)),
+    };
+  }
+}
+
+const tree = new ConsoleTree();
+
+beforeAll(() => {
+  tree.read();
+});
+
+describe("windowed rows — the position pair has one writer", () => {
   it("finds a console tree to scan at all", () => {
-    expect(modules.length).toBeGreaterThan(20);
-    expect(modules.map((module) => module.displayPath)).toContain(WINDOWED_ROW_MODULE);
+    expect(tree.reading.modules.length).toBeGreaterThan(20);
+    expect(tree.reading.texts.map((text) => text.displayPath)).toContain(WINDOWED_ROW_MODULE);
+  });
+
+  it("control: the tree is walked and read once for the whole file", () => {
+    // Without this the hoist is invisible: four `describe` blocks each walked the
+    // console and every case re-read the modules it scanned, and the file would still
+    // pass that way — at the cost that made it time out under the aggregate gate. One
+    // reading is a claim about what this file spends, so it is asserted rather than
+    // left to the structure looking right.
+    expect(tree.readCount).toBe(1);
+    expect(tree.reading.texts.length).toBe(tree.reading.modules.length);
   });
 
   it("writes the pair in exactly one module", () => {
-    const writers = modules
-      .filter((module) => writesPositionMembers(readConsoleSourceModule(module)))
-      .map((module) => module.displayPath);
+    const writers = tree.reading.texts
+      .filter((text) => writesPositionMembers(text.source))
+      .map((text) => text.displayPath);
     expect(writers).toStrictEqual([WINDOWED_ROW_MODULE]);
   });
 
@@ -140,7 +227,7 @@ describe("windowed rows — the position pair has one writer", () => {
     // A primitive that carried only `aria-setsize` would satisfy the one-writer
     // claim above and still tell a reader nothing about where the row sits.
     const source = readConsoleSourceModule(
-      moduleNamed(modules, WINDOWED_ROW_MODULE, "the windowed-row primitive"),
+      moduleNamed(tree.reading.modules, WINDOWED_ROW_MODULE, "the windowed-row primitive"),
     );
     for (const member of POSITION_MEMBERS) {
       expect(source, `the primitive does not write ${member}`).toContain(member);
@@ -149,24 +236,19 @@ describe("windowed rows — the position pair has one writer", () => {
 });
 
 describe("windowed rows — an explicit row role carries the pair", () => {
-  const modules: readonly ConsoleSourceModule[] = consoleSourceModules();
-  const windowingModules = modules.filter((module) =>
-    windowsAList(readConsoleSourceModule(module)),
-  );
-
   it("finds the windowing modules to scan", () => {
     // The row primitive and its roving-index sibling both name themselves, so a scan
     // that found none has stopped reading the tree.
-    expect(windowingModules.map((module) => module.displayPath)).toContain(WINDOWED_ROW_MODULE);
+    expect(tree.reading.windowing.map((text) => text.displayPath)).toContain(WINDOWED_ROW_MODULE);
   });
 
   it("reports every offending tag, and says when there are no tags at all", () => {
-    const tags = windowingModules.flatMap((module) =>
-      [...readConsoleSourceModule(module).matchAll(WINDOWED_ROW_ROLE_TAG)].map((match) => match[0]),
+    const tags = tree.reading.windowing.flatMap((text) =>
+      [...text.source.matchAll(WINDOWED_ROW_ROLE_TAG)].map((match) => match[0]),
     );
-    const offenders = windowingModules.flatMap((module) =>
-      roleTagsMissingPosition(readConsoleSourceModule(module)).map(
-        (tag) => `${module.displayPath}: ${tag.replace(/\s+/g, " ")}`,
+    const offenders = tree.reading.windowing.flatMap((text) =>
+      roleTagsMissingPosition(text.source).map(
+        (tag) => `${text.displayPath}: ${tag.replace(/\s+/g, " ")}`,
       ),
     );
     expect(offenders).toStrictEqual([]);
@@ -202,21 +284,17 @@ describe("windowed rows — an explicit row role carries the pair", () => {
 });
 
 describe("windowed rows — a windowed list goes through the row primitive", () => {
-  const modules: readonly ConsoleSourceModule[] = consoleSourceModules();
-
   it("no module windows a list and renders its rows itself", () => {
-    const offenders = modules
-      .filter((module) =>
-        windowsWithoutTheRowPrimitive(readConsoleSourceModule(module), module.displayPath, modules),
+    const offenders = tree.reading.texts
+      .filter((text) =>
+        windowsWithoutTheRowPrimitive(text.source, text.displayPath, tree.reading.modules),
       )
-      .map((module) => module.displayPath);
+      .map((text) => text.displayPath);
     expect(offenders).toStrictEqual([]);
   });
 
   it("finds the windowing modules, so the clean result is not an empty scan", () => {
-    const windowing = modules
-      .filter((module) => windowsAList(readConsoleSourceModule(module)))
-      .map((module) => module.displayPath);
+    const windowing = tree.reading.windowing.map((text) => text.displayPath);
     expect(windowing).toContain(WINDOWED_ROW_MODULE);
     expect(windowing.length).toBeGreaterThan(1);
   });
@@ -226,7 +304,9 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
     // rows inside a `<ul>` — no role attribute, no position pair, straight off
     // `getVirtualItems()`. Claims 1 and 2 both pass on it, which is the whole reason
     // this claim exists; the assertions below say so rather than leaving it implied.
-    expect(windowsWithoutTheRowPrimitive(HAND_ROLLED_LIST, "HandRolled.tsx", modules)).toBe(true);
+    expect(
+      windowsWithoutTheRowPrimitive(HAND_ROLLED_LIST, "HandRolled.tsx", tree.reading.modules),
+    ).toBe(true);
     expect(writesPositionMembers(HAND_ROLLED_LIST)).toBe(false);
     expect(roleTagsMissingPosition(HAND_ROLLED_LIST)).toStrictEqual([]);
   });
@@ -239,7 +319,7 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
       HAND_ROLLED_LIST,
     ].join("\n");
     expect(excused).toContain(WINDOWED_ROW_PRIMITIVE);
-    expect(windowsWithoutTheRowPrimitive(excused, "Excused.tsx", modules)).toBe(true);
+    expect(windowsWithoutTheRowPrimitive(excused, "Excused.tsx", tree.reading.modules)).toBe(true);
   });
 
   it("negative control: a list that renders through the primitive is not", () => {
@@ -250,11 +330,18 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
       "  <WindowedListRow rowIndex={virtualRow.index} totalRowCount={total} />",
       "));",
     ].join("\n");
-    expect(windowsWithoutTheRowPrimitive(throughThePrimitive, "Through.tsx", modules)).toBe(false);
+    expect(
+      windowsWithoutTheRowPrimitive(throughThePrimitive, "Through.tsx", tree.reading.modules),
+    ).toBe(false);
     // And a module that windows nothing is outside the claim entirely, rather than an
     // offence for not naming a primitive it has no use for.
-    expect(windowsWithoutTheRowPrimitive("export const total = rows.length;", "x.ts", modules)) //
-      .toBe(false);
+    expect(
+      windowsWithoutTheRowPrimitive(
+        "export const total = rows.length;",
+        "x.ts",
+        tree.reading.modules,
+      ),
+    ).toBe(false);
   });
 
   it("negative control: rows extracted into a sibling component are admitted", () => {
@@ -267,7 +354,11 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
       "  <WindowedListRow rowIndex={virtualRow.index} totalRowCount={total} />",
       "));",
     ].join("\n");
-    const rowsOwnModule = moduleNamed(modules, WINDOWED_ROW_MODULE, "the row primitive");
+    const rowsOwnModule = moduleNamed(
+      tree.reading.modules,
+      WINDOWED_ROW_MODULE,
+      "the row primitive",
+    );
     expect(readConsoleSourceModule(rowsOwnModule)).toContain(WINDOWED_ROW_PRIMITIVE);
     const delegating = [
       "export const list = entryWindow.getVirtualItems().map((virtualRow) => (",
@@ -276,8 +367,12 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
       "  </li>",
       "));",
     ].join("\n");
-    expect(windowsWithoutTheRowPrimitive(composed, "Composed.tsx", modules)).toBe(false);
-    expect(windowsWithoutTheRowPrimitive(delegating, "Delegating.tsx", modules)).toBe(false);
+    expect(windowsWithoutTheRowPrimitive(composed, "Composed.tsx", tree.reading.modules)).toBe(
+      false,
+    );
+    expect(windowsWithoutTheRowPrimitive(delegating, "Delegating.tsx", tree.reading.modules)).toBe(
+      false,
+    );
   });
 
   it("negative control: the read is over the WINDOW and not over any list", () => {
@@ -288,17 +383,15 @@ describe("windowed rows — a windowed list goes through the row primitive", () 
       'import { useVirtualizer } from "@tanstack/react-virtual";',
       "export const badges = labels.map((label) => <div key={label}>{label}</div>);",
     ].join("\n");
-    expect(windowsWithoutTheRowPrimitive(otherList, "Other.tsx", modules)).toBe(false);
+    expect(windowsWithoutTheRowPrimitive(otherList, "Other.tsx", tree.reading.modules)).toBe(false);
   });
 });
 
 describe("windowed rows — a row keeps one tab stop", () => {
-  const modules: readonly ConsoleSourceModule[] = consoleSourceModules();
-
   it("no console module writes an interactive element into a row that keeps its own stop", () => {
-    const offenders = modules.flatMap((module) =>
-      undeclaredRowTabStops(readConsoleSourceModule(module), module.displayPath).map(
-        (tag) => `${module.displayPath}: ${tag}`,
+    const offenders = tree.reading.texts.flatMap((text) =>
+      undeclaredRowTabStops(text.source, text.displayPath).map(
+        (tag) => `${text.displayPath}: ${tag}`,
       ),
     );
     expect(offenders).toStrictEqual([]);
@@ -307,7 +400,7 @@ describe("windowed rows — a row keeps one tab stop", () => {
     // planted controls below are what keep the zero from meaning "the predicate is
     // broken". It arms the moment a family lands its first windowed list. The scan
     // itself is asserted non-empty so a walk that stopped reading fails here.
-    expect(modules.length).toBeGreaterThan(20);
+    expect(tree.reading.texts.length).toBeGreaterThan(20);
   });
 
   it("negative control: content written as markup is an offence", () => {

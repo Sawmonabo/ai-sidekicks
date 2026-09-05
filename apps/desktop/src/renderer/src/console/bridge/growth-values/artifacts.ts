@@ -35,17 +35,20 @@ export type GrowthArtifactType = (typeof GROWTH_ARTIFACT_TYPES)[number];
  * visibility is explicit and `local-only` is a different fact from shared-visible.
  * Partial per-participant redaction is deliberately absent — that spec puts it out of
  * V1 scope, and a third value here would let a surface offer a state nothing serves.
+ *
+ * THIS VOCABULARY AND THE TWO BELOW IT ARE UNIONS RATHER THAN DERIVATIONS OF A LIST.
+ * Each was a `readonly` array with a `typeof …[number]` beside it, and nothing in the
+ * tree ever read an array: a consumer writes `Record<GrowthArtifactVisibility, …>` on
+ * its presentation table, which is total in both directions at compile time — a
+ * missing arm and an arm that is not a visibility both fail to build — and that is a
+ * stronger claim than walking a list at runtime. Keeping the list would ship a value
+ * for a purpose only the compiler serves and offer a second way to ask one question,
+ * of which only one way is checked.
  */
-export const GROWTH_ARTIFACT_VISIBILITIES = ["local-only", "shared"] as const;
-
-/** One visibility class. Derived, so the vocabulary has exactly one home. */
-export type GrowthArtifactVisibility = (typeof GROWTH_ARTIFACT_VISIBILITIES)[number];
+export type GrowthArtifactVisibility = "local-only" | "shared";
 
 /** The lifecycle states a manifest row is in. */
-export const GROWTH_ARTIFACT_STATES = ["pending", "published", "superseded"] as const;
-
-/** One manifest lifecycle state. Derived, so the vocabulary has exactly one home. */
-export type GrowthArtifactState = (typeof GROWTH_ARTIFACT_STATES)[number];
+export type GrowthArtifactState = "pending" | "published" | "superseded";
 
 /**
  * Where this node's copy of a shared artifact's payload stands.
@@ -55,16 +58,12 @@ export type GrowthArtifactState = (typeof GROWTH_ARTIFACT_STATES)[number];
  * verbatim as its cause, and `expired` reads as "payload not obtainable, remedy is a
  * re-publish" rather than narrowly as "TTL elapsed".
  */
-export const GROWTH_ARTIFACT_REPLICATION_STATUSES = [
-  "pending_replication",
-  "pinned",
-  "over_cap",
-  "quota_exceeded",
-  "expired",
-] as const;
-
-/** One replication status. Derived, so the vocabulary has exactly one home. */
-export type GrowthArtifactReplicationStatus = (typeof GROWTH_ARTIFACT_REPLICATION_STATUSES)[number];
+export type GrowthArtifactReplicationStatus =
+  | "pending_replication"
+  | "pinned"
+  | "over_cap"
+  | "quota_exceeded"
+  | "expired";
 
 /**
  * What `AttachmentIngestComplete` answers once the daemon has the bytes. Mirrors
@@ -203,8 +202,16 @@ interface GrowthArtifactReadBase {
   readonly manifest: GrowthArtifactSummary;
 }
 
-/** The reply that hands back a key to fetch the bytes with, rather than the bytes. */
-export interface GrowthArtifactReadDeferred extends GrowthArtifactReadBase {
+/**
+ * The reply that hands back a key to fetch the bytes with, rather than the bytes.
+ *
+ * Not published, and neither is the inline arm: a reader narrows the union STRUCTURALLY
+ * — `payload` is `never` here and required there, so testing for it is exhaustive and
+ * the compiler proves it — rather than by naming an arm. A published arm name is a
+ * second way to spell a narrowing the type system already performs, and the two can
+ * disagree once a third arm appears.
+ */
+interface GrowthArtifactReadDeferred extends GrowthArtifactReadBase {
   /** The CAS key or URL for deferred retrieval. Required on this arm: it IS this arm. */
   readonly payloadHandle: string;
   readonly payload?: never;
@@ -212,7 +219,7 @@ export interface GrowthArtifactReadDeferred extends GrowthArtifactReadBase {
 }
 
 /** The reply that carries the bytes, and the encoding a reader switches on. */
-export interface GrowthArtifactReadInline extends GrowthArtifactReadBase {
+interface GrowthArtifactReadInline extends GrowthArtifactReadBase {
   /** Permitted beside the bytes, because the registered response permits it. */
   readonly payloadHandle?: string;
   /** The bytes, present when `includePayload` was set and the size permitted. */

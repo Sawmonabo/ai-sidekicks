@@ -53,11 +53,22 @@ export {
 export { formatOklch } from "./color.js";
 
 export type { GlyphName } from "./glyphs.js";
-// The icon scale. `GLYPH_DEFAULT_SIZE` is NOT published beside these three: its one
-// reader is `primitives/Glyph.tsx`, which reaches the declaring module for the
-// geometry it draws with, while these are spent by view families that render a glyph
-// at a named density and have no business knowing which module holds the paths.
-export { GLYPH_SIZE_CHROME, GLYPH_SIZE_DENSE, GLYPH_SIZE_ROW } from "./glyphs.js";
+// The icon scale — all four steps, because all four are SPENT by surfaces that render
+// a glyph at a named density and have no business knowing which module holds the
+// paths. The default is here with the other three now that `seats/ConsolePaneChrome`
+// draws a pane's kind mark at it; it had been withheld while `primitives/Glyph.tsx`
+// was its only reader, and a door that publishes three steps of a four-step scale
+// makes the fourth look like a private detail rather than the standalone size.
+//
+// The GEOMETRY beside them — the paths, the stroke width, the viewBox — stays behind
+// the declaring module on purpose: its one reader is `Glyph.tsx`, which draws with it
+// rather than sizing with it, and it reaches `./glyphs.js` directly.
+export {
+  GLYPH_DEFAULT_SIZE,
+  GLYPH_SIZE_CHROME,
+  GLYPH_SIZE_DENSE,
+  GLYPH_SIZE_ROW,
+} from "./glyphs.js";
 
 export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";
 export { ParticipantHueAllocator } from "./participant-hue.js";

@@ -43,12 +43,10 @@ import {
   type ArtifactManifestRow,
 } from "../artifacts/artifact-model.js";
 import { registerInlineCardBody, type ArtifactInlineCardProps } from "../../seats/index.js";
+import { GLYPH_SIZE_ROW } from "../../tokens/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */
 const INLINE_ARTIFACT_CARD_OWNER = "repos";
-
-/** Glyph edge length in the card's chrome, matching the primitives' inline size. */
-const INLINE_ARTIFACT_CARD_GLYPH_SIZE = 12;
 
 export interface InlineArtifactCardProps {
   readonly card: ArtifactInlineCardProps;
@@ -63,7 +61,7 @@ export function InlineArtifactCard(props: InlineArtifactCardProps): React.JSX.El
     <section className="meridian-artifact-card" aria-labelledby={headingId}>
       <header className="meridian-artifact-card__header">
         <h4 className="meridian-artifact-card__heading" id={headingId}>
-          <Glyph name="artifact" size={INLINE_ARTIFACT_CARD_GLYPH_SIZE} />
+          <Glyph name="artifact" size={GLYPH_SIZE_ROW} />
           Artifact
         </h4>
         {/* Wire-verbatim, with the full string recoverable through the title: an

@@ -34,7 +34,6 @@
 //      remedy either.
 
 import type { ConsoleRefusal } from "../core/index.js";
-import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 
 /**
  * What every refusal shape renders, PICKED from the one refusal value rather than
@@ -58,12 +57,7 @@ export interface RefusalProps extends Pick<ConsoleRefusal, "code" | "detail"> {
   readonly action?: React.ReactNode;
 }
 
-/**
- * The alert glyph every shape leads with, at one size so the three read as one grammar.
- *
- * Re-exported rather than re-declared: a refusal's glyph is chrome beside a heading, so
- * it takes the design language's own chrome step. Declared here it was a fourth copy of
- * a number `tokens/glyphs.ts` already names, and tightening the icon scale would have
- * moved every glyph in the console except the one on a refusal.
- */
-export const REFUSAL_GLYPH_SIZE: number = GLYPH_SIZE_CHROME;
+// NO GLYPH SIZE IS DECLARED HERE. The alert every shape leads with is chrome inside
+// a frame, so the three read as one grammar by taking `GLYPH_SIZE_CHROME` from
+// `tokens/glyphs.ts` — the console's one home for that size — rather than by this
+// module holding a copy the pane chrome would then have to agree with.

@@ -70,6 +70,14 @@ jobs:
     runs-on: macos-15
     permissions:
       contents: read
+    # BOTH modes need it, which is why it is on the job and not on the verify step.
+    # `verify` compares and would otherwise skip; `regenerate` captures through the
+    # same guarded assertions, so a skipped comparison writes no image and the
+    # artifact this job uploads would be the committed set unchanged — a green run
+    # that regenerated nothing. See `ci.yml`'s `console-screenshot-macos` for what
+    # the variable is and why it carries that prefix.
+    env:
+      SIDEKICKS_SCREENSHOT_BASELINE_RUNNER: macos-15
     steps:
       # Both `run:` steps below are guarded on `inputs.mode`, so a mode this job
       # does not recognise would skip both of them and leave the job GREEN having

@@ -22,10 +22,10 @@ import { describe, expect, it } from "vitest";
 import {
   GLYPH_DEFAULT_SIZE,
   GLYPH_NAMES,
+  GLYPH_PATHS,
   GLYPH_SIZE_CHROME,
   GLYPH_SIZE_DENSE,
   GLYPH_SIZE_ROW,
-  GLYPH_PATHS,
   GLYPH_STROKE_WIDTH,
   GLYPH_VIEWBOX_SIZE,
   isGlyphName,
@@ -179,6 +179,18 @@ describe("the glyph family — the geometry every glyph shares", () => {
 
   it("renders at a positive default edge length", () => {
     expect(GLYPH_DEFAULT_SIZE).toBeGreaterThan(0);
+  });
+
+  it("draws chrome smaller than the default, and both inside the box", () => {
+    // The two sizes are a RATIO rather than two preferences, which is the whole
+    // reason they live in one module: a chrome mark reads quiet against a kind mark
+    // only while it is the smaller of the pair. Pinned as an ordering rather than as
+    // the numbers, so re-scaling the family moves both and fails neither.
+    expect(GLYPH_SIZE_CHROME).toBeGreaterThan(0);
+    expect(GLYPH_SIZE_CHROME).toBeLessThan(GLYPH_DEFAULT_SIZE);
+    // Both are edge lengths for the same 16-unit path data. A size above the box
+    // would upscale the stroke past the weight rule 1 fixes.
+    expect(GLYPH_DEFAULT_SIZE).toBeLessThanOrEqual(GLYPH_VIEWBOX_SIZE);
   });
 });
 

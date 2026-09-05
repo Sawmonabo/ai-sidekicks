@@ -41,6 +41,7 @@ import {
   createDesktopLinter,
   ESLINT_CASE_BUDGET_MS,
   NON_EXEMPT_CONSOLE_PROBE_PATH,
+  NON_EXEMPT_TIER_PROBE_PATH,
   ruleMessagesAt,
 } from "../eslint-harness.js";
 
@@ -150,6 +151,9 @@ describe("eslint exemption census — every excused file trips something", () =>
       // for no reason.
       expect(modules.length).toBeGreaterThan(20);
       expect(await restrictsSyntaxAt(linter, NON_EXEMPT_CONSOLE_PROBE_PATH)).toBe(true);
+      // And the tiers, which the block covers for the same reason and which nothing
+      // asserted while two `Date.parse` calls sat under `test/console/`.
+      expect(await restrictsSyntaxAt(linter, NON_EXEMPT_TIER_PROBE_PATH)).toBe(true);
     },
     ESLINT_CASE_BUDGET_MS,
   );

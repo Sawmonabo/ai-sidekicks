@@ -54,14 +54,13 @@ import {
   EPHEMERAL_CLONE_DETAIL_COLUMNS,
   ephemeralCloneColumnCell,
 } from "./worktree-columns.js";
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 
 export interface EphemeralCloneCardProps {
   readonly record: EphemeralCloneStatusRecord;
   /** The instant the surface read at. See `WorktreeCardProps` for why it is a prop. */
   readonly nowMilliseconds: number;
 }
-
-const CARD_GLYPH_SIZE = 14;
 
 export function EphemeralCloneCard(props: EphemeralCloneCardProps): React.JSX.Element {
   const { record, nowMilliseconds } = props;
@@ -72,7 +71,7 @@ export function EphemeralCloneCard(props: EphemeralCloneCardProps): React.JSX.El
   return (
     <article className="meridian-root-card" aria-labelledby={headingId}>
       <header className="meridian-root-card__head">
-        <Glyph name="repo" size={CARD_GLYPH_SIZE} />
+        <Glyph name="repo" size={GLYPH_SIZE_CHROME} />
         <h4 className="meridian-root-card__title" id={headingId}>
           <WireFigure value={record.branchName} />
         </h4>

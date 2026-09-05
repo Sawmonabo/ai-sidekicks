@@ -47,14 +47,16 @@ const FRAME = `${CONSOLE}/frame/`;
 // view-family rule below can subtract them rather than report the console's own entry
 // wiring as a violation.
 const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
-// `panes/` is FLAT: composition files only, never a `panes/<kind>/` body directory. A pane
-// body belongs to the family that builds it — `repos/artifact-pane/`, `repos/diff-pane/` —
-// so this pattern names the board's own files rather than its whole subtree, and the
-// `console-panes-is-flat` rule below fails a module that lands one level deeper. Written as
-// the file set rather than the directory because the subtraction it feeds is what makes a
-// composition site exempt from the view-family ladder: a body sitting under `panes/` would
-// otherwise inherit that exemption and reach any family it liked, unreported.
+// The pane board is the FILES directly under `panes/`, not the directory. After the
+// pane-body rule below, `panes/` holds composition and nothing else, so a
+// `panes/<something>/` subtree is not a composition site and must not inherit the
+// exemption one gets: with the directory spelled here, a pane body parked under
+// `panes/runs/` would have been subtracted from the view-family set on both endpoints
+// and could import any view family it liked.
 const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
+
+/** Any module under a subdirectory of the pane board — the shape that is forbidden. */
+const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 
 /**
  * Every barrel under `console/` — a family door and a sub-module door alike.
@@ -241,18 +243,29 @@ export default {
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
     },
     {
-      name: "console-panes-is-flat",
+      name: "console-panes-hold-no-body",
       comment:
-        "A module landed under `console/panes/<kind>/`. That board holds composition files " +
-        "only — the registry call site and its own test. A pane BODY is owned by the family " +
-        "that builds it and lives in that family's subtree (`repos/artifact-pane/`), which is " +
-        "what makes the family door the one place its stylesheet, its registration, and its " +
-        "cross-family seams are published. A body parked here would also inherit the " +
-        "composition site's exemption from the view-family ladder and could reach any family " +
-        "unreported.",
+        "A module was authored under `console/panes/<something>/`. A pane BODY lives in the " +
+        "family that owns it — `<family>/pane/` — and `panes/` holds composition only: one " +
+        "reserved line per family, replaced by that family, so six branches produce six " +
+        "one-line diffs and none of them conflicts. A body parked under the board is a body " +
+        "no family owns, and it is invisible to the sibling-isolation rule the six families " +
+        "are held to. Move it into its family and register it from the board.",
+      severity: "error",
+      from: { path: PANE_BOARD_SUBDIRECTORY },
+      to: {},
+    },
+    {
+      name: "console-panes-hold-no-imported-body",
+      comment:
+        "Something imported a module under `console/panes/<something>/`. Same rule as " +
+        "`console-panes-hold-no-body`, stated from the other endpoint, because these rules " +
+        "match EDGES rather than directories: a body that imports nothing at all — a table, a " +
+        "closed set — would be reported by neither its own outgoing edges nor the orphan rule, " +
+        "since the board imports it and so it has a dependent.",
       severity: "error",
       from: {},
-      to: { path: `${CONSOLE}/panes/[^/]+/` },
+      to: { path: PANE_BOARD_SUBDIRECTORY },
     },
     {
       name: "console-no-barrel-chain",

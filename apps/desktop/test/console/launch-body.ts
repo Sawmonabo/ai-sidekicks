@@ -125,9 +125,23 @@ export class BodyAllowance {
     }
   }
 
-  /** The sentence a reader gets instead of vitest's, or the body's own failure. */
+  /**
+   * The sentence a reader gets instead of vitest's, or the body's own failure.
+   *
+   * The question asked is whether THIS allowance's own bound is what rejected, and it
+   * is asked of the deadline rather than of the clock. Reading the clock a second time
+   * answers a different question two ways, both wrong at the boundary: a `setTimeout`
+   * and `Date.now()` are separate readings of one instant, so the timer fires while
+   * the clock still reads short of the expiry about one firing in seventy (measured:
+   * 55 of 4 000 at a 5 ms budget) and the overrun was then reported in the deadline's
+   * words rather than the allowance's — a case that failed on a runner and passed on
+   * re-run; and a clock with the budget behind it cannot tell "my timer fired" from
+   * "time has passed", so a body that failed on its own AFTER the allowance was gone
+   * had its assertion replaced by this sentence, which is the inversion this module's
+   * header says it exists to stop.
+   */
   #overrun(error: unknown): unknown {
-    if (!this.#deadline.expired()) {
+    if (!this.#deadline.raisedExpiry(error)) {
       return error;
     }
     return new Error(
