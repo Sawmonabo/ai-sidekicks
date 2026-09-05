@@ -47,7 +47,21 @@ const FRAME = `${CONSOLE}/frame/`;
 // view-family rule below can subtract them rather than report the console's own entry
 // wiring as a violation.
 const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
-const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
+
+/**
+ * The pane board's own files, one segment deep — and deliberately not the directory.
+ *
+ * `console/panes/` composes the deck: the seat board and the pane chrome beside it.
+ * A pane BODY belongs to the family that owns it, so this constant names the flat
+ * composition files rather than the subtree. The difference is what the subtraction
+ * MEANS: written as the directory it exempted anything a branch parked under it, and
+ * a body sitting there inherited the composition site's standing above every family
+ * — reaching into any family's modules it liked, with no rule able to say so.
+ */
+const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
+
+/** Anything one segment deeper than that — a directory under the pane board. */
+const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 
 /**
  * The one cross-family deep specifier the tree still carries, and why it is named here.
@@ -266,11 +280,15 @@ export default {
         "door (`bridge/growth-values/`, `bridge/scenarios/`) is deliberately NOT a " +
         "legal target here — it publishes to its own family only, which is why the " +
         "exemption below matches a family door's single path segment and not a nested " +
-        "one. The composition sites are subtracted at both ends on the same terms the " +
-        "view-family rule subtracts them: `panes/` sits above every family by " +
-        "construction, so its edges are composition rather than layering.",
+        "one. The pane board is subtracted at the TO end only. It is a legal target " +
+        "because it sits above every family by construction; it is not a legal SOURCE, " +
+        "because standing above the families says nothing about how a file there writes " +
+        "an edge, and subtracting it here made the rule silent about the one directory " +
+        "whose whole job is to name every family — eleven deep specifiers into a family's " +
+        "projection, park badge and refusal helpers read as composition and were reported " +
+        "as nothing.",
       severity: "error",
-      from: { path: `${CONSOLE}/([^/]+)/`, pathNot: [COMPOSITION_PANE_BOARD] },
+      from: { path: `${CONSOLE}/([^/]+)/` },
       to: {
         path: `${CONSOLE}/[^/]+/`,
         pathNot: [
@@ -280,6 +298,24 @@ export default {
           FRAME_SURFACE_REGISTRY,
         ],
       },
+    },
+    {
+      name: "console-pane-board-is-flat",
+      comment:
+        "`console/panes/` is the deck's composition site and holds composition files " +
+        "only — the seat board and the pane chrome beside it. A pane BODY belongs to the " +
+        "family that owns it (`workflows/pane/run/` is the shape), because the family is " +
+        "what a reader finds the body from, what the body's own vocabulary lives in, and " +
+        "what one branch edits without touching another's. A directory here also re-opens " +
+        "the exemption the constant above narrows: the pane board is subtracted from the " +
+        "cross-family rule's target end, so a body parked under it would be reachable " +
+        "past every family door in the console. Stated over the SOURCE end, so a nested " +
+        "body is reported for the first thing it imports rather than only when something " +
+        "imports it — a body imports React and its seats before it does anything else, " +
+        "and one that imports nothing at all is what `no-orphans` above reports.",
+      severity: "error",
+      from: { path: PANE_BOARD_SUBDIRECTORY },
+      to: {},
     },
     {
       name: "console-no-barrel-chain",
