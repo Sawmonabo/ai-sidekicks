@@ -120,21 +120,19 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * ZERO, and PINNED rather than left as a floor, because zero is the whole reading:
- * the two reach claims above are satisfied by an empty set here — no surface reaches
- * the daemon call door because no surface calls the daemon at all — and a scan that
- * reports the tree compliant for that reason is not making the claim this file's
- * title makes.
+ * ONE. It was zero when this gate was written, and pinned rather than left as a
+ * floor for exactly that reason: the two reach claims above were satisfied by an
+ * empty set — no surface reached the daemon call door because no surface called the
+ * daemon at all — and a scan reporting the tree compliant for THAT reason is not
+ * making the claim this file's title makes.
  *
- * A pinned count is what makes that visible without shipping a red gate on
- * `develop`. It fails the moment the number moves in either direction, so the family
- * lane that binds the first surface to a registered method — the composer's send
- * router and the runs pane's run controls are the two nearest, both T-023p-1C-3 —
- * moves this constant in its own PR, and a reader learns from that diff that the
- * claim has stopped being vacuous. It cannot silently stay at zero once the console
- * has consumers, and it cannot be raised by accident either.
+ * `console/workspace/new-session-draft.ts` is the one, and it is what moved the
+ * number: it held its own `DaemonMethod` cast and its own structural read of the
+ * create reply, and it now sends through `callDaemon` like everything after it will.
+ * The pin is what made that visible in a diff rather than as a silent zero, and it
+ * still cannot be raised by accident.
  */
-const CALL_DOOR_CONSUMER_COUNT = 0;
+const CALL_DOOR_CONSUMER_COUNT = 1;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

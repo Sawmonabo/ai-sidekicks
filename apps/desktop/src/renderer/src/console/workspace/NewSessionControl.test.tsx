@@ -20,11 +20,27 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import { withDaemonCall } from "../bridge/fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 
 const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
+
+/**
+ * The WHOLE registered create response.
+ *
+ * Whole, because the fixture bridge parses a scripted reply against the method's own
+ * shape and refuses one that is short of it — a partial script would have been a
+ * console tested against a reply the daemon cannot send. Named once, so the scripted
+ * arm and the two suspended arms below settle on the same thing.
+ */
+const CREATE_REPLY = {
+  sessionId: CREATED_SESSION_ID,
+  state: "active",
+  memberships: [],
+  channels: [],
+} as const;
 
 /**
  * A bridge whose `session.create` answers, or one whose does not.
@@ -46,16 +62,7 @@ function bridgeFor(options: { readonly scriptsCreate: boolean }): ConsoleBridge 
       ? [
           {
             call: "session.create",
-            // The WHOLE registered response, because the fixture bridge parses a
-            // scripted reply against the method's own shape and refuses one that is
-            // short of it. A partial script here would have been a console tested
-            // against a reply the daemon cannot send.
-            result: {
-              sessionId: CREATED_SESSION_ID,
-              state: "active",
-              memberships: [],
-              channels: [],
-            },
+            result: CREATE_REPLY,
           },
         ]
       : [],
@@ -80,7 +87,7 @@ function renderControl(options: { readonly scriptsCreate: boolean }): HTMLElemen
 /** A bridge whose `session.create` is held open, and the handle that lets it answer. */
 interface HeldCreate {
   readonly bridge: ConsoleBridge;
-  /** Lets the held `session.create` proceed to the fixture's scripted reply. */
+  /** Lets the held `session.create` settle on the registered reply. */
   readonly answer: () => void;
 }
 
@@ -89,30 +96,23 @@ interface HeldCreate {
  *
  * A send that resolves within the same microtask cannot be observed mid-flight, and
  * "Send is disabled while a send is running" is a claim about exactly that moment.
- * The reply itself still comes from the fixture's own door — only its TIMING is the
- * test's, so what settles is the same partial every other case here reads.
+ * Only the TIMING is the test's: what settles is `CREATE_REPLY`, the same whole
+ * registered response every other case here reads.
+ *
+ * Through `withDaemonCall` rather than a spread written here, because a test reaches
+ * `daemon.call` on the same terms production does — `daemon-reply-chokepoint` scans
+ * source text and does not care which tier wrote it — and one shared arm is what
+ * keeps every suite driving the same door.
  */
 function bridgeHoldingCreate(): HeldCreate {
-  const fixture = bridgeFor({ scriptsCreate: true });
   let answer = (): void => {};
   const held = new Promise<void>((resolve) => {
     answer = resolve;
   });
-  const bridge: ConsoleBridge = {
-    ...fixture,
-    sidekicks: {
-      ...fixture.sidekicks,
-      daemon: {
-        ...fixture.sidekicks.daemon,
-        call: (async (method: string, params: unknown) => {
-          await held;
-          return await (
-            fixture.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>
-          )(method, params);
-        }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
-      },
-    },
-  };
+  const { bridge } = withDaemonCall(bridgeFor({ scriptsCreate: true }), async () => {
+    await held;
+    return CREATE_REPLY;
+  });
   return { bridge, answer };
 }
 
@@ -129,29 +129,17 @@ interface QueuedCreates {
  *
  * {@link bridgeHoldingCreate} holds them all behind one promise, which cannot show
  * what happens when an OLD draft's send settles while a new one is still running —
- * the case where a shared flag and an unguarded continuation do their damage. The
- * replies still come from the fixture's own door; only their order is the test's.
+ * the case where a shared flag and an unguarded continuation do their damage. Every
+ * reply is still `CREATE_REPLY`; only their order is the test's.
  */
 function bridgeQueueingCreates(): QueuedCreates {
-  const fixture = bridgeFor({ scriptsCreate: true });
   const suspended: (() => void)[] = [];
-  const bridge: ConsoleBridge = {
-    ...fixture,
-    sidekicks: {
-      ...fixture.sidekicks,
-      daemon: {
-        ...fixture.sidekicks.daemon,
-        call: (async (method: string, params: unknown) => {
-          await new Promise<void>((resolve) => {
-            suspended.push(resolve);
-          });
-          return await (
-            fixture.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>
-          )(method, params);
-        }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
-      },
-    },
-  };
+  const { bridge } = withDaemonCall(bridgeFor({ scriptsCreate: true }), async () => {
+    await new Promise<void>((resolve) => {
+      suspended.push(resolve);
+    });
+    return CREATE_REPLY;
+  });
   return {
     bridge,
     answerOldest: () => {

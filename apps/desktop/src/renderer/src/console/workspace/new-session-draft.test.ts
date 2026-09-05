@@ -16,11 +16,27 @@
 
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
+import { createFixtureBridge } from "../bridge/index.js";
+import { withDaemonCall, type RecordedDaemonCall } from "../bridge/fixture-bridge.test-support.js";
 import type { ConsoleScenario } from "../bridge/scenario.js";
 import { NewSessionDraft } from "./new-session-draft.js";
 
 const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
+
+/**
+ * The WHOLE registered create response.
+ *
+ * Whole, because the fixture bridge parses a scripted reply against the method's own
+ * shape and refuses one that is short of it — a partial script would have been a
+ * console tested against a reply the daemon cannot send. Named once, so the scenario
+ * and the counted arm below settle on the same thing.
+ */
+const CREATE_REPLY = {
+  sessionId: CREATED_SESSION_ID,
+  state: "active",
+  memberships: [],
+  channels: [],
+} as const;
 
 /** The one method the draft sends, named here so a count reads as what it counts. */
 const SESSION_CREATE_METHOD = "session.create";
@@ -34,23 +50,7 @@ function scenario(options: { readonly scriptsCreate: boolean }): ConsoleScenario
     participantIdsInJoinOrder: ["participant-you"],
     startedAtIso: "2026-01-01T09:00:00.000Z",
     beats: [],
-    replies: options.scriptsCreate
-      ? [
-          {
-            call: "session.create",
-            // The WHOLE registered response, because the fixture bridge parses a
-            // scripted reply against the method's own shape and refuses one that is
-            // short of it. A partial script here would have been a console tested
-            // against a reply the daemon cannot send.
-            result: {
-              sessionId: CREATED_SESSION_ID,
-              state: "active",
-              memberships: [],
-              channels: [],
-            },
-          },
-        ]
-      : [],
+    replies: options.scriptsCreate ? [{ call: "session.create", result: CREATE_REPLY }] : [],
   };
 }
 
@@ -58,39 +58,46 @@ function draftFor(options: { readonly scriptsCreate: boolean }): NewSessionDraft
   return new NewSessionDraft({ bridge: createFixtureBridge({ scenario: scenario(options) }) });
 }
 
+/** The method one recorded call named, for a count that reads as what it counts. */
+function sentMethod(call: RecordedDaemonCall): string {
+  return call.method;
+}
+
 /** A draft plus a tally of what reached the wire behind it. */
 interface CountedDraft {
   readonly draft: NewSessionDraft;
-  /** Every method name `daemon.call` was given, in order. */
-  readonly calls: readonly string[];
+  /**
+   * Every call `daemon.call` was given, in order.
+   *
+   * The recorder's own live array, not a snapshot: a case reads it after the send it
+   * is counting, and a copy taken at construction would always be empty.
+   */
+  readonly calls: readonly RecordedDaemonCall[];
 }
 
 /**
- * A draft over the real fixture bridge, with `daemon.call` counted on the way past.
+ * A draft over the fixture bridge, with `daemon.call` recorded on the way past.
  *
- * A wrapper around the fixture's own door rather than a stub of it: the draft's one
- * wire call has to go through the same `resolveScriptedReply` every other case here
- * exercises, or the count would be a count of a different implementation.
+ * Through `withDaemonCall`, the console's one shared arm for this, rather than a
+ * spread written here: `daemon-reply-chokepoint` scans source text and does not care
+ * which tier wrote the reach, so a suite that spelled its own would be the second
+ * implementation of the door every other suite already drives.
+ *
+ * The answer is `CREATE_REPLY` or a rejection, which is the two states the scenario
+ * itself puts the fixture in — what these cases assert is what the DRAFT does with
+ * each, and the count is of what it sent.
  */
 function countedDraftFor(options: { readonly scriptsCreate: boolean }): CountedDraft {
-  const fixture = createFixtureBridge({ scenario: scenario(options) });
-  const calls: string[] = [];
-  const bridge: ConsoleBridge = {
-    ...fixture,
-    sidekicks: {
-      ...fixture.sidekicks,
-      daemon: {
-        ...fixture.sidekicks.daemon,
-        call: (async (method: string, params: unknown) => {
-          calls.push(method);
-          return await (
-            fixture.sidekicks.daemon.call as (method: string, params: unknown) => Promise<unknown>
-          )(method, params);
-        }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
-      },
+  const under = withDaemonCall(
+    createFixtureBridge({ scenario: scenario(options) }),
+    async (call) => {
+      if (!options.scriptsCreate) {
+        throw new Error(`no reply is scripted for ${call.method}`);
+      }
+      return CREATE_REPLY;
     },
-  };
-  return { draft: new NewSessionDraft({ bridge }), calls };
+  );
+  return { draft: new NewSessionDraft({ bridge: under.bridge }), calls: under.calls };
 }
 
 describe("NewSessionDraft — what it holds", () => {
@@ -193,7 +200,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     // lands while the first send is still in flight.
     const [first, second] = await Promise.all([draft.send(), draft.send()]);
 
-    expect(calls).toStrictEqual([SESSION_CREATE_METHOD]);
+    expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
     // The same settlement, not merely an equal one — the second caller joined the
     // running send rather than starting a second that happened to agree.
     expect(second).toBe(first);
@@ -210,7 +217,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     // again. That is a retry of the send, not a request for a second session.
     const retried = await draft.send();
 
-    expect(calls).toStrictEqual([SESSION_CREATE_METHOD]);
+    expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
     expect(retried.sessionId).toBe(first.sessionId);
     expect(retried.completedCalls).toStrictEqual([SESSION_CREATE_METHOD]);
     expect(retried.refusal?.code).toBe("wire-unregistered");
@@ -228,7 +235,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     second.draft.setPosture("trusted");
     await second.draft.send();
 
-    expect(second.calls).toStrictEqual([SESSION_CREATE_METHOD]);
+    expect(second.calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
   });
 
   it("negative control: a single press still reaches the wire exactly once", async () => {
@@ -239,7 +246,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
 
     const result = await draft.send();
 
-    expect(calls).toStrictEqual([SESSION_CREATE_METHOD]);
+    expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
     expect(result.sessionId).toBe(CREATED_SESSION_ID);
   });
 
@@ -255,6 +262,6 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
 
     expect(first.refusal?.code).toBe("session-create-failed");
     expect(retried.refusal?.code).toBe("session-create-failed");
-    expect(calls).toStrictEqual([SESSION_CREATE_METHOD, SESSION_CREATE_METHOD]);
+    expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD, SESSION_CREATE_METHOD]);
   });
 });
