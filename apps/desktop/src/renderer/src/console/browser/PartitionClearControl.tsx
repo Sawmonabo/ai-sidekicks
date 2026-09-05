@@ -18,6 +18,12 @@
 // `aria-busy` for the same reason, and the button is disabled so a second confirm
 // cannot start a second close underneath the first.
 //
+// THE ROUND IS NOT THIS COMPONENT'S. The table folds past a threshold, so a listing
+// that refreshes mid-clear can move this row between two lists and React remounts it
+// — which used to bring the control back idle in the middle of its own act. What it
+// is doing and whether another may start both live on the page's
+// `PartitionClearRounds`, and this file renders that reading and dispatches into it.
+//
 // WHICH VERDICT IS SHOWN, AND WHY IT IS RANKED RATHER THAN COALESCED. The control holds
 // two facts that can both be present: the projected refusal of a clear that failed out
 // of band, and the outcome of the act the operator ran here. Preferring "whichever
@@ -28,13 +34,13 @@
 // A served settlement gets a reading of its own, because a receipt that renders as the
 // absence of a complaint is indistinguishable from an act that never ran.
 
-import { useCallback, useState } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 
 import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
 import { Chip, InlineRefusal, Nothing } from "../primitives/index.js";
+import type { PartitionClearRounds, PartitionClearState } from "./partition-clear-rounds.js";
 import {
   closeThenClearSiteData,
-  type ClearSiteDataOutcome,
   type ClearSiteDataStep,
   type SiteDataAct,
 } from "./site-data-clear.js";
@@ -50,12 +56,6 @@ const RUNNING_LABELS: Record<ClearSiteDataStep, string> = {
   "closing-pane": "Closing the pane…",
   clearing: "Clearing…",
 };
-
-/** The control's three phases. One closed set, declared here and derived nowhere else. */
-type ClearControlState =
-  | { readonly phase: "idle" }
-  | { readonly phase: "running"; readonly step: ClearSiteDataStep }
-  | { readonly phase: "settled"; readonly outcome: ClearSiteDataOutcome };
 
 /**
  * What the control reports beneath the arm, once the two facts it holds are ranked.
@@ -77,7 +77,7 @@ type ClearControlReport =
  * verdict on screen that is certainly not about this attempt.
  */
 function reportFor(
-  state: ClearControlState,
+  state: PartitionClearState,
   lastClearRefusal: ConsoleRefusal | undefined,
 ): ClearControlReport {
   if (state.phase === "settled") {
@@ -93,6 +93,13 @@ function reportFor(
 
 export interface PartitionClearControlProps {
   readonly sessionId: string;
+  /**
+   * The page's own record of which partitions have a clear running.
+   *
+   * Handed in rather than held here, because a row is remounted by an ordinary
+   * refresh and an act it started has to survive that.
+   */
+  readonly rounds: PartitionClearRounds;
   /** The daemon's reading of whether a pane still holds the partition open. */
   readonly hasOpenPane: boolean;
   /** A clear that failed out of band, projected by whoever owns the listing. */
@@ -104,8 +111,14 @@ export interface PartitionClearControlProps {
 }
 
 export function PartitionClearControl(props: PartitionClearControlProps): React.JSX.Element {
-  const { hasOpenPane, lastClearRefusal, onClearSiteData, onClosePane, sessionId } = props;
-  const [state, setState] = useState<ClearControlState>({ phase: "idle" });
+  const { hasOpenPane, lastClearRefusal, onClearSiteData, onClosePane, rounds, sessionId } = props;
+  const subscribe = useCallback((onChange: () => void) => rounds.subscribe(onChange), [rounds]);
+  const read = useCallback(() => rounds.stateFor(sessionId), [rounds, sessionId]);
+  // `useSyncExternalStore` rather than a `useState` an effect copies into, for the
+  // reason the substrate's own holders take it: a step recorded between this render
+  // and a subscription installed in an effect is missed, and a missed step is a button
+  // that goes on naming the wrong wait.
+  const state = useSyncExternalStore(subscribe, read, read);
 
   const confirm = useCallback((): void => {
     if (onClearSiteData === undefined) {
@@ -115,6 +128,13 @@ export function PartitionClearControl(props: PartitionClearControlProps): React.
     // "the pane would not close" and "the directory would not go" send a person to
     // two different places.
     let reachedStep: ClearSiteDataStep = hasOpenPane ? "closing-pane" : "clearing";
+    const round = rounds.begin(sessionId, reachedStep);
+    if (round === undefined) {
+      // A clear is already running on this partition. The button is disabled for
+      // exactly that lifetime, so there is nothing to start and nothing new to say —
+      // and this is the arm a control remounted mid-clear reaches.
+      return;
+    }
     void closeThenClearSiteData({
       sessionId,
       hasOpenPane,
@@ -122,28 +142,25 @@ export function PartitionClearControl(props: PartitionClearControlProps): React.
       clearSiteData: onClearSiteData,
       onStep: (step) => {
         reachedStep = step;
-        setState({ phase: "running", step });
+        rounds.reachStep(round, sessionId, step);
       },
     }).then(
       (outcome) => {
-        setState({ phase: "settled", outcome });
+        rounds.settle(round, sessionId, outcome);
       },
       (failure: unknown) => {
-        setState({
-          phase: "settled",
-          outcome: {
-            status: "refused",
-            at: reachedStep,
-            refusal: normalizeWireRejection(CLEAR_CONTROL_REFUSAL_ORIGIN, failure, {
-              code: "site-data-act-failed",
-              detail:
-                "The node stopped answering during this step, so how far it got is not known from here. Re-reading the site-data list is what says where this partition ended up.",
-            }),
-          },
+        rounds.settle(round, sessionId, {
+          status: "refused",
+          at: reachedStep,
+          refusal: normalizeWireRejection(CLEAR_CONTROL_REFUSAL_ORIGIN, failure, {
+            code: "site-data-act-failed",
+            detail:
+              "The node stopped answering during this step, so how far it got is not known from here. Re-reading the site-data list is what says where this partition ended up.",
+          }),
         });
       },
     );
-  }, [hasOpenPane, onClearSiteData, onClosePane, sessionId]);
+  }, [hasOpenPane, onClearSiteData, onClosePane, rounds, sessionId]);
 
   const report = reportFor(state, lastClearRefusal);
 

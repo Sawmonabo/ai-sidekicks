@@ -11,11 +11,14 @@
 
 import { InlineRefusal, WireFigure, formatByteQuantity } from "../primitives/index.js";
 import { PartitionClearControl } from "./PartitionClearControl.js";
+import type { PartitionClearRounds } from "./partition-clear-rounds.js";
 import type { BrowserSitePartition } from "./site-partitions.js";
 import type { SiteDataAct } from "./site-data-clear.js";
 
 export interface PartitionRowProps {
   readonly partition: BrowserSitePartition;
+  /** The page's record of running clears, threaded past the row that may be remounted. */
+  readonly rounds: PartitionClearRounds;
   readonly onClearSiteData?: SiteDataAct | undefined;
   readonly onClosePane?: SiteDataAct | undefined;
 }
@@ -47,6 +50,7 @@ export function PartitionRow(props: PartitionRowProps): React.JSX.Element {
         )}
       </div>
       <PartitionClearControl
+        rounds={props.rounds}
         sessionId={partition.sessionId}
         hasOpenPane={partition.hasOpenPane}
         lastClearRefusal={partition.lastClearRefusal}
