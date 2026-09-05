@@ -33,7 +33,6 @@ import type { MembershipRole } from "@ai-sidekicks/contracts";
 import { isConsoleRefusal, refuse, type ConsoleRefusal } from "../core/index.js";
 import type { ConsoleEntity, ConsoleEntityKind, ConsoleEntityRef } from "./entities.js";
 import type { FrameStore, FrameStoreState } from "./frame-store.js";
-import { membershipRoleOf } from "./selectors.js";
 import type { SessionStoreRegistry } from "./session-store-registry.js";
 import { selectEntity, selectPartition, type SessionStore } from "./session-store.js";
 import type { SessionStoreState } from "./session-store.js";
@@ -136,6 +135,20 @@ export function useSessionEntity(
 export type CallerParticipantReader = () => Promise<string | ConsoleRefusal>;
 
 /**
+ * How a roster role is read out of a participant entry, injected rather than imported.
+ *
+ * The role a roster carries is a REGISTERED wire value and reading it means narrowing
+ * an untyped body member against the shape the corpus registers — which the console
+ * only permits at or above `bridge/`, a family this one sits below. So the lookup
+ * arrives the way this file's caller-identity read already arrives: as a function the
+ * composition root supplies. `bridge/entity-body-reads.ts` declares the one
+ * implementation; nothing here narrows anything itself.
+ */
+export type MembershipRoleReader = (
+  participant: ConsoleEntity | undefined,
+) => MembershipRole | undefined;
+
+/**
  * The subsystem name this family's refusals carry, spelled once.
  *
  * `core/refusal.ts` gives `origin` as the field that lets a refusal surfacing three
@@ -202,7 +215,7 @@ export type CallerMembershipRoleResult =
  * the injected read and from nowhere else — there is no "the first participant" or
  * "the one that matches the handle" fallback, because a wrong answer here silently
  * shows one person another person's controls. What that participant's role is comes
- * from the store's own roster through `membershipRoleOf`, because the roster is
+ * from the store's own roster through the injected reader, because the roster is
  * where the role lives and a second copy carried on the identity read would be a
  * second source of truth for it.
  *
@@ -223,6 +236,7 @@ export type CallerMembershipRoleResult =
 export function useCallerMembershipRole(
   readCallerParticipant: CallerParticipantReader,
   store: SessionStore,
+  readMembershipRole: MembershipRoleReader,
 ): CallerMembershipRoleResult {
   const [reading, setReading] = useState<CallerIdentityReading | undefined>(undefined);
 
@@ -268,8 +282,10 @@ export function useCallerMembershipRole(
   const participantId = callerIdentity.status === "read" ? callerIdentity.participantId : undefined;
   const selectRole = useCallback(
     (state: SessionStoreState) =>
-      participantId === undefined ? undefined : membershipRoleOf(state, participantId),
-    [participantId],
+      participantId === undefined
+        ? undefined
+        : readMembershipRole(selectEntity(state, { kind: "participant", id: participantId })),
+    [participantId, readMembershipRole],
   );
   const role = useStore(store.readable, selectRole);
 

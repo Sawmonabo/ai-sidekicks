@@ -107,6 +107,64 @@ describe("window-absence — figures, and the arm that has none", () => {
   });
 });
 
+describe("window-absence — whose numbering the gap is in", () => {
+  /** A window onto one channel of a session's stream: the caller the member is for. */
+  const CHANNEL_SUBJECT = "messages";
+
+  it("names the producer the caller gave, in the sentence's own opening noun", () => {
+    const notice = windowAbsenceNotice(
+      { kind: "never-received", producer: "session" },
+      CHANNEL_SUBJECT,
+    );
+
+    expect(notice.detail).toContain("The session numbered messages this window did not receive.");
+  });
+
+  it("says the generic noun where no producer is named, unchanged from before", () => {
+    // The sentence is one shape, not two: naming the producer replaces this word and
+    // adds no clause, which is what lets a caller with one producer keep saying this.
+    expect(windowAbsenceNotice({ kind: "never-received" }, CHANNEL_SUBJECT).detail).toContain(
+      "The producer numbered messages this window did not receive.",
+    );
+  });
+
+  it("negative control: a channel-scoped window without it attributes the gap to itself", () => {
+    // The defect in terms: with the subject alone, the only stream the sentence can
+    // name is the pane's own. Both spellings are asserted to differ, so the case
+    // above is about the member and not about a sentence that reads the same either
+    // way.
+    const named = windowAbsenceNotice(
+      { kind: "never-received", producer: "session" },
+      CHANNEL_SUBJECT,
+    ).detail;
+    const unnamed = windowAbsenceNotice({ kind: "never-received" }, CHANNEL_SUBJECT).detail;
+
+    expect(named).not.toBe(unnamed);
+    expect(unnamed).not.toContain("session");
+  });
+
+  it("falls back rather than opening a hole in the sentence for a blank name", () => {
+    // A caller that resolved its producer to nothing and passed the result anyway:
+    // an unnamed producer and one named "   " are the same fact, and the second must
+    // not render as "The  numbered".
+    for (const blank of ["", "   "]) {
+      expect(
+        windowAbsenceNotice({ kind: "never-received", producer: blank }, CHANNEL_SUBJECT).detail,
+        JSON.stringify(blank),
+      ).toContain("The producer numbered messages");
+    }
+  });
+
+  it("negative control: a named producer is not trimmed away with the blanks", () => {
+    // Without this the fallback above would also be satisfied by an arm that ignored
+    // the member entirely, which is the state this case exists to leave.
+    expect(
+      windowAbsenceNotice({ kind: "never-received", producer: "  relay  " }, CHANNEL_SUBJECT)
+        .detail,
+    ).toContain("The relay numbered messages");
+  });
+});
+
 describe("window-absence — what there is to say", () => {
   it("says nothing about a counted absence of zero", () => {
     expect(

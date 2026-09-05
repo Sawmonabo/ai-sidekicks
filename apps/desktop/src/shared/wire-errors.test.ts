@@ -13,11 +13,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   isErrorInstance,
-  isWireErrorEnvelope,
-  isWireErrorEnvelopeWithCode,
+  isPropertyContainer,
   lossyStringify,
   readGuardedProperty,
   readWireErrorEnvelope,
+  readWireErrorEnvelopeWithCode,
   wireRejectionToError,
 } from "./wire-errors.js";
 import {
@@ -51,6 +51,29 @@ describe("readGuardedProperty — absent and unreadable answer the same", () => 
   it("reads a member off a function, which is a property container too", () => {
     const carrier = Object.assign(() => undefined, { code: "repo.not_found" });
     expect(readGuardedProperty(carrier, "code")).toBe("repo.not_found");
+  });
+});
+
+describe("isPropertyContainer — what can carry a member at all", () => {
+  it("accepts objects and functions, and rejects null and every primitive", () => {
+    expect(isPropertyContainer({})).toBe(true);
+    expect(isPropertyContainer([])).toBe(true);
+    // A function is a property container too — the clause a second copy of this
+    // predicate loses, and the one that admits a null-prototype function envelope.
+    expect(isPropertyContainer(() => undefined)).toBe(true);
+    expect(isPropertyContainer(nullPrototypeValue())).toBe(true);
+    expect(isPropertyContainer(null)).toBe(false);
+    expect(isPropertyContainer(undefined)).toBe(false);
+    expect(isPropertyContainer("repo.not_found")).toBe(false);
+    expect(isPropertyContainer(7)).toBe(false);
+    expect(isPropertyContainer(Symbol("thrown"))).toBe(false);
+  });
+
+  it("asks nothing OF the value, so a hostile one answers as any object does", () => {
+    // `typeof` runs no trap and no getter, which is what lets the guarded reader
+    // pre-check a revoked Proxy before touching it.
+    expect(isPropertyContainer(revokedProxy())).toBe(true);
+    expect(isPropertyContainer(everyTrapThrows())).toBe(true);
   });
 });
 
@@ -105,25 +128,41 @@ describe("readWireErrorEnvelope — one read per member, whatever the answer", (
   });
 });
 
-describe("isWireErrorEnvelopeWithCode — the discriminant costs no second read", () => {
-  it("matches on the code the reader returned", () => {
+describe("readWireErrorEnvelopeWithCode — the discriminant costs no second read", () => {
+  it("answers a snapshot on a match and undefined on a miss", () => {
     expect(
-      isWireErrorEnvelopeWithCode({ code: "repo.not_found", message: "gone" }, "repo.not_found"),
-    ).toBe(true);
+      readWireErrorEnvelopeWithCode({ code: "repo.not_found", message: "gone" }, "repo.not_found"),
+    ).toStrictEqual({ code: "repo.not_found", message: "gone" });
     expect(
-      isWireErrorEnvelopeWithCode({ code: "repo.not_found", message: "gone" }, "repo.locked"),
-    ).toBe(false);
-    expect(isWireErrorEnvelope({ code: "repo.not_found", message: "gone" })).toBe(true);
+      readWireErrorEnvelopeWithCode({ code: "repo.not_found", message: "gone" }, "repo.locked"),
+    ).toBeUndefined();
   });
 
-  it("answers a value whose members are readable once, where a second read throws", () => {
-    // The negative control is the shape itself: the predicate used to read `.code`
-    // again after the guard had already read it, so this value threw inside the
-    // discriminant. Two calls here, four member reads in the old shape, one each now.
-    expect(isWireErrorEnvelopeWithCode(readableOnceEnvelope(), "repo.not_found")).toBe(true);
+  it("hands back an object of its own, so the candidate is never read again", () => {
+    // The claim that makes this a reader rather than a predicate: a narrowing would
+    // have handed the caller the candidate, and the caller's own `.code` would be a
+    // second access on a value nobody validated.
+    const candidate = { code: "repo.not_found", message: "gone" };
+    const matched = readWireErrorEnvelopeWithCode(candidate, "repo.not_found");
+    expect(matched).toStrictEqual(candidate);
+    expect(matched).not.toBe(candidate);
+  });
+
+  it("answers a value whose members are readable once, and stays readable itself", () => {
+    // The negative control is the shape itself: this candidate answers each member
+    // exactly once, so any second read — the discriminant's, or a caller's — throws.
+    // The snapshot answers as many times as a render asks.
+    const matched = readWireErrorEnvelopeWithCode(readableOnceEnvelope(), "repo.not_found");
+    expect(matched?.code).toBe("repo.not_found");
+    expect(matched?.code).toBe("repo.not_found");
+    expect(matched?.message).toBe("That repository is not mounted.");
     const candidate = readableOnceEnvelope() as { readonly code: string };
     expect(candidate.code).toBe("repo.not_found");
     expect(() => candidate.code).toThrow();
+  });
+
+  it("answers undefined for a value whose every trap throws", () => {
+    expect(readWireErrorEnvelopeWithCode(everyTrapThrows(), "repo.not_found")).toBeUndefined();
   });
 });
 

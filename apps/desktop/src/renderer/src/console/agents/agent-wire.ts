@@ -36,7 +36,7 @@ import type { SessionEventType } from "@ai-sidekicks/contracts";
 // `sidekick.peerInvocationSet`, and `orchestration.childRunLinkRead` — has no
 // registered request/response pair anywhere in the corpus, so each is a growth
 // operation rather than a call: the string lives on its ledger row's
-// `expectedWireMethod` in `bridge/growth-operations.ts`, and a surface reaches it as
+// `expectedWireMethod` in `bridge/growth-operations/`, and a surface reaches it as
 // `bridge.growth.<operation>(…)`. A constant here would be a second home for a
 // string the ledger already owns, and the one that goes stale is the one no gate
 // reads.

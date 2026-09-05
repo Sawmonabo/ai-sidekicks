@@ -17,6 +17,12 @@
 // has to write the thing the rule forbids, and a tripwire that forbade that would
 // forbid testing itself.
 //
+// STYLESHEETS ARE A SIBLING, not a flag. `consoleStylesheets` answers the same roots
+// with the same sorting in the same shape, because the tier asks two questions about
+// one tree — which modules import a sheet, which sheets exist — and a caller wants one
+// list or the other and never a mixed one. What they share is the walk, which is the
+// part that was being rewritten per gate.
+//
 // TESTS ARE A PARAMETER, not a fork. One gate — the daemon-call reach scan — governs
 // the tests too, because a test outside the bridge family stands in for a surface and
 // a surface goes through the door. Expressing that as `{ tests: true }` here is what
@@ -81,9 +87,18 @@ export interface ConsoleSourceScan {
  * Every source module under the roots given, sorted, declarations always excluded.
  */
 export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly ConsoleSourceModule[] {
-  const roots = scan.roots ?? CONSOLE_SOURCE_ROOTS;
   const tests = scan.tests ?? false;
-  const modules: ConsoleSourceModule[] = [];
+  return walkRoots(scan.roots ?? CONSOLE_SOURCE_ROOTS, (relativePath) =>
+    isSourceModulePath(relativePath, tests),
+  );
+}
+
+/** The walk both entry points share: the roots, the recursion, and the display path. */
+function walkRoots(
+  roots: readonly string[],
+  admits: (relativePath: string) => boolean,
+): readonly ConsoleSourceModule[] {
+  const found: ConsoleSourceModule[] = [];
   for (const directory of roots) {
     if (!existsSync(directory)) {
       continue;
@@ -92,10 +107,10 @@ export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly Con
     for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
       const absolutePath = join(entry.parentPath, entry.name);
       const relativePath = relative(directory, absolutePath);
-      if (!entry.isFile() || !isSourceModulePath(relativePath, tests)) {
+      if (!entry.isFile() || !admits(relativePath)) {
         continue;
       }
-      modules.push({
+      found.push({
         directory,
         relativePath,
         displayPath: `${rootName}/${relativePath.split("\\").join("/")}`,
@@ -103,7 +118,25 @@ export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly Con
       });
     }
   }
-  return modules.sort((left, right) => left.displayPath.localeCompare(right.displayPath));
+  return found.sort((left, right) => left.displayPath.localeCompare(right.displayPath));
+}
+
+/**
+ * Every stylesheet under the roots given, sorted, on the same walk as the modules.
+ *
+ * A SIBLING OF {@link consoleSourceModules} AND NOT A FLAG ON IT. A caller wants one
+ * or the other and never a mixed list: a source-text tripwire that received a `.css`
+ * entry would parse it as TypeScript, and a stylesheet gate that received a `.ts` one
+ * would read declarations as rules. What the two share is the walk itself — the roots,
+ * the recursion, the display path — which is the part that was being rewritten per
+ * gate and the part a rename of a root has to move in one place.
+ */
+export function consoleStylesheets(
+  scan: Pick<ConsoleSourceScan, "roots"> = {},
+): readonly ConsoleSourceModule[] {
+  return walkRoots(scan.roots ?? CONSOLE_SOURCE_ROOTS, (relativePath) =>
+    relativePath.endsWith(".css"),
+  );
 }
 
 /** Read one module's text. Separate from the walk so a caller can filter first. */

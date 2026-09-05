@@ -41,7 +41,7 @@ import {
   renderAbsorbedNodeRoster,
   renderAbsorbedSessionProbe,
 } from "./legacy-surfaces.js";
-import { SurfaceAbsence } from "./RouteSurface.js";
+import { SurfaceAbsence } from "./SurfaceAbsence.js";
 import { ConsoleSurfaceRegistry, type ConsoleSurfaceContext } from "./surface-registry.js";
 
 /**

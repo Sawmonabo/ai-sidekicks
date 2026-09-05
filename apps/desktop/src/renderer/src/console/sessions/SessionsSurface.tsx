@@ -65,16 +65,13 @@ import {
   useAttentionSettlementAnnouncement,
   type AttentionReading,
 } from "./notifications/index.js";
-import { DerivedFigure, InlineRefusal, Nothing, formatCount } from "../primitives/index.js";
+import { DerivedFigure, InlineRefusal, formatCount } from "../primitives/index.js";
 import { useOpenSessionIds } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionRows } from "./rows/open-session-rows.js";
 import { SessionList } from "./SessionList.js";
-import {
-  mergeSessionRows,
-  sessionsAbsenceKindFor,
-  withAttentionSeverity,
-} from "./rows/session-directory-rows.js";
+import { SessionsAbsence } from "./SessionsAbsence.js";
+import { mergeSessionRows, withAttentionSeverity } from "./rows/session-directory-rows.js";
 import { useSessionPins, type SessionPinBinding } from "./rows/session-pins.js";
 import type { SessionListRow } from "./rows/session-rows.js";
 
@@ -310,45 +307,4 @@ function countSentence(rowCount: number, directory: SessionDirectoryState): stri
   return rowCount === 1
     ? "One session is open in this console."
     : `${formatCount(rowCount)} sessions are open in this console.`;
-}
-
-/**
- * The honest zero, chosen by what the directory read did rather than by the count.
- *
- * Three arms because there are three facts, and collapsing any two of them is the
- * conflation the five kinds of nothing exist to prevent. The `not-loaded` arm
- * carries no action deliberately: a read in flight renders as a skeleton, which has
- * nowhere to put a control, and passing one would make the code read as though a
- * control were on screen that is not.
- */
-function SessionsAbsence(props: {
-  readonly directory: SessionDirectoryState;
-  readonly action: ReactNode;
-}): React.JSX.Element {
-  const kind = sessionsAbsenceKindFor(props.directory);
-  if (kind === "not-loaded") {
-    return (
-      <Nothing kind="not-loaded" placement="surface" title="Reading the sessions on this node." />
-    );
-  }
-  if (kind === "empty") {
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="There are no sessions on this node yet."
-        detail="The node answered, and it has none. Starting one is the way to have the first."
-        action={props.action}
-      />
-    );
-  }
-  return (
-    <Nothing
-      kind="not-checked"
-      placement="surface"
-      title="This console is not holding any sessions."
-      detail={`The console lists the sessions this window has opened; the node's own directory answered nothing here. ${props.directory.status === "unavailable" ? props.directory.refusal.detail : ""}`.trim()}
-      action={props.action}
-    />
-  );
 }

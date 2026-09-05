@@ -39,7 +39,7 @@ import {
   participantHueTokenName,
   tokenReference,
 } from "../tokens/index.js";
-import { WireFigure } from "./Figure.js";
+import { WireFigure } from "./WireFigure.js";
 import { formatClockTime } from "./wire-figures.js";
 
 export interface LedgerRowProps {

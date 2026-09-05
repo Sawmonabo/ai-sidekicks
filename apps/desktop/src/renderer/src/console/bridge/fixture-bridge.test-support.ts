@@ -100,8 +100,23 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
   return received;
 }
 
+/**
+ * Reach one bridge's call door, whichever bridge that is.
+ *
+ * The raw call, written once. {@link callThroughBridge} is the fixture-shaped caller
+ * and a suite holding a WRAPPED bridge — the answer arm below — has one too, so the
+ * cast to the `DaemonMethod` brand lives here rather than at each of them.
+ */
+export function callBridge(
+  bridge: ConsoleBridge,
+  method: string,
+  params?: unknown,
+): Promise<unknown> {
+  return bridge.sidekicks.daemon.call(method as DaemonMethod, params);
+}
+
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
-  return fixture.bridge.sidekicks.daemon.call(method as DaemonMethod, undefined);
+  return callBridge(fixture.bridge, method);
 }
 
 /** What the daemon was asked, so a case can assert it was never asked at all. */
@@ -128,12 +143,25 @@ export interface BridgeUnderTest {
  * Takes the bridge rather than building one, so a suite that has already overridden a
  * different namespace — a growth port answering its own operation, say — composes the
  * two instead of minting a second builder to hold both.
+ *
+ * THE ANSWER IS HANDED THE WRAPPED BRIDGE'S OWN CALL, which is what lets a suite
+ * decide ONE method and leave every other one scripted by the scenario. Without it a
+ * suite that only cares about `agent.list` has to answer for `presence.read` too, and
+ * the only shape available is a hand-written stub — which is exactly what this helper
+ * exists to keep out of a suite that means to reach a real bridge. Delegation lives
+ * here once rather than being spelled at each site that needs it.
  */
 export function withDaemonCall(
   bridge: ConsoleBridge,
-  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+  answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   const calls: RecordedDaemonCall[] = [];
+  // Bound before the spread below, so the pass-through reaches the bridge this helper
+  // WRAPPED rather than the arm it is building — which would call itself forever.
+  const wrappedCall = bridge.sidekicks.daemon.call.bind(bridge.sidekicks.daemon) as (
+    method: string,
+    params: unknown,
+  ) => Promise<unknown>;
   return {
     calls,
     bridge: {
@@ -145,7 +173,7 @@ export function withDaemonCall(
           call: (async (method: string, params: unknown): Promise<unknown> => {
             const recorded: RecordedDaemonCall = { method, params };
             calls.push(recorded);
-            return answer(recorded);
+            return answer(recorded, async () => wrappedCall(method, params));
           }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
         },
       },
@@ -155,7 +183,7 @@ export function withDaemonCall(
 
 /** The shipped fixture over the flagship scenario, with that call arm on it. */
 export function bridgeAnswering(
-  answer: (call: RecordedDaemonCall) => Promise<unknown>,
+  answer: (call: RecordedDaemonCall, passThrough: () => Promise<unknown>) => Promise<unknown>,
 ): BridgeUnderTest {
   return withDaemonCall(createFixture().bridge, answer);
 }

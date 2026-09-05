@@ -15,8 +15,8 @@
 // the same obligation.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types, this module
-// is DELETED and `growth-signatures.ts` imports them from the contracts package
-// instead. The slate rows leave `growth-slate.ts` and `Plan-023 §Console growth
+// is DELETED and the `growth-signatures/` planes that name these shapes — the agent
+// plane and the sidekick one — import them from the contracts package instead. The slate rows leave `growth-slate.ts` and `Plan-023 §Console growth
 // slate` in the same PR, and `failure-modes.test.ts` then fails on the port entries
 // that still claim fixture-only.
 //

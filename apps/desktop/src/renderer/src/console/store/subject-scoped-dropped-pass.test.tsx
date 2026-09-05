@@ -26,7 +26,7 @@
 // control is what makes these claims about the memo key rather than about the script:
 // a publisher that never wrote anything at all would satisfy neither.
 
-import { act, render, type RenderResult } from "@testing-library/react";
+import { act, type RenderResult } from "@testing-library/react";
 import {
   Suspense,
   use,
@@ -39,12 +39,19 @@ import {
 } from "react";
 import { describe, expect, it } from "vitest";
 
+import { driveDroppedPass } from "./subject-scoped-drivers.test-support.js";
 import {
   SUBJECT_ONE,
   SUBJECT_TWO,
   type NamedFixtureSubject,
 } from "./subject-fixtures.test-support.js";
-import { useSubjectScopedResource } from "./subject-scoped-resource.js";
+import { ResourceDetourProbe } from "./ResourceDetourProbe.test-support.js";
+import { ValueDetourProbe } from "./ValueDetourProbe.test-support.js";
+import {
+  DETOUR_KEY,
+  type ResourceProbeProps,
+  type ValueProbeProps,
+} from "./subject-scoped-probes.test-support.js";
 import {
   DISCARDED_SUBJECT,
   ResourceLedger,
@@ -52,83 +59,9 @@ import {
   type OpenResource,
 } from "./subject-scoped-resource.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
-import { useSubjectScopedState } from "./subject-scoped-state.js";
-
-/** The key BOTH visits are addressed at, so only the addressing tells them apart. */
-const DETOUR_KEY = "s1";
 
 /** The resource a caller publishes over the one the holder seeded. */
 const PUBLISHED_RESOURCE_NAME = "published";
-
-/** How many times the A -> B -> A script addresses, and so seeds. */
-const DETOUR_ADDRESSINGS = 3;
-
-/**
- * A promise the test settles, so the suspending pass is the test's to schedule.
- *
- * The promise is made by the CALLER and handed in as a prop: React refuses to treat
- * one minted inside a render body as a suspension it can retry.
- */
-class SuspensionGate {
-  #open: (() => void) | undefined;
-  public readonly pending: Promise<void>;
-
-  public constructor() {
-    this.pending = new Promise<void>((resolve) => {
-      this.#open = resolve;
-    });
-  }
-
-  public open(): void {
-    this.#open?.();
-  }
-}
-
-/**
- * Drive one visit, one dropped pass at the other subject, and one visit back.
- *
- * The tree is the caller's, so the claim and its control run the identical script and
- * differ only in the dependency list their publisher was memoized on.
- */
-async function driveDroppedPass<TSubject extends object>(
-  treeAt: (subject: TSubject, suspendOn: Promise<void> | undefined) => ReactElement,
-  visited: TSubject,
-  dropped: TSubject,
-): Promise<RenderResult> {
-  const view = render(treeAt(visited, undefined));
-  const gate = new SuspensionGate();
-  await act(async () => {
-    view.rerender(treeAt(dropped, gate.pending));
-  });
-  await act(async () => {
-    gate.open();
-    await gate.pending;
-    view.rerender(treeAt(visited, undefined));
-  });
-  return view;
-}
-
-interface ValueProbeProps {
-  readonly subject: object;
-  /** Present on the pass React drops: the probe suspends on it. */
-  readonly suspendOn: Promise<void> | undefined;
-  /** Called once per addressing, which is what proves the dropped pass really ran. */
-  readonly onSeed: () => void;
-  readonly onReady: (publish: (next: string) => void) => void;
-}
-
-/** The value hook, driven through its own door. */
-function ValueDetourProbe(props: ValueProbeProps): ReactElement {
-  const { value, publish } = useSubjectScopedState<string>(props.subject, DETOUR_KEY, () => {
-    props.onSeed();
-    return "seed";
-  });
-  props.onReady(publish);
-  if (props.suspendOn !== undefined) {
-    use(props.suspendOn);
-  }
-  return <output>{value}</output>;
-}
 
 /**
  * The shape this hook shipped before the addressing was read live: a PAIR-keyed memo.
@@ -154,28 +87,6 @@ function PairKeyedValueProbe(props: ValueProbeProps): ReactElement {
     use(props.suspendOn);
   }
   return <output>{value}</output>;
-}
-
-interface ResourceProbeProps {
-  readonly subject: NamedFixtureSubject;
-  readonly suspendOn: Promise<void> | undefined;
-  readonly ledger: ResourceLedger;
-  readonly onReady: (publish: (next: OpenResource) => void) => void;
-}
-
-/** The resource hook, driven through its own door. */
-function ResourceDetourProbe(props: ResourceProbeProps): ReactElement {
-  const { value, publish } = useSubjectScopedResource<OpenResource>(
-    props.subject,
-    undefined,
-    () => props.ledger.open(props.subject.name),
-    props.ledger.close,
-  );
-  props.onReady(publish);
-  if (props.suspendOn !== undefined) {
-    use(props.suspendOn);
-  }
-  return <output>{value.name}</output>;
 }
 
 /**
@@ -211,6 +122,7 @@ function PairKeyedResourceProbe(props: ResourceProbeProps): ReactElement {
 /** What both value cases drive, and what each is left holding. */
 async function driveValueDetour(
   Probe: (props: ValueProbeProps) => ReactElement,
+  addressingsExpected: number,
 ): Promise<{ readonly view: RenderResult; readonly publish: (next: string) => void }> {
   let publishInto: (next: string) => void = () => {};
   let seedings = 0;
@@ -232,8 +144,10 @@ async function driveValueDetour(
     SUBJECT_ONE,
     SUBJECT_TWO,
   );
-  // The dropped pass really ran: it addressed, and addressing is what seeds.
-  expect(seedings).toBe(DETOUR_ADDRESSINGS);
+  // The dropped pass really ran: it addressed, and addressing is what seeds. How MANY
+  // addressings the round-trip costs is where the two arrangements part company, which
+  // is why each case states its own count rather than sharing one.
+  expect(seedings).toBe(addressingsExpected);
   return {
     view,
     publish: (next: string): void => {
@@ -279,7 +193,11 @@ async function driveResourceDetour(Probe: (props: ResourceProbeProps) => ReactEl
 
 describe("useSubjectScopedState — the publisher names the visit on screen", () => {
   it("publishes into the visit on screen after a dropped pass moved the addressing", async () => {
-    const detour = await driveValueDetour(ValueDetourProbe);
+    // TWO addressings, not three: the dropped pass proposed one and never committed
+    // it, so the render back at the first subject found the committed addressing
+    // already right and re-seeded nothing. That is the whole of what the hook does
+    // differently from the arrangement below.
+    const detour = await driveValueDetour(ValueDetourProbe, 2);
     act(() => {
       detour.publish("the answer this visit read");
     });
@@ -287,10 +205,12 @@ describe("useSubjectScopedState — the publisher names the visit on screen", ()
   });
 
   it("negative control: the pair-keyed memo publishes into a visit that is over", async () => {
-    // The pair is equal across the two committed visits, so the memo is not
+    // Three, because this holder is never told a render committed: every addressing
+    // is a proposal that retires the one before it, which is the arrangement the hook
+    // replaced. The pair is equal across the two committed visits, so the memo is not
     // recomputed and the publisher is the FIRST visit's — which the holder correctly
-    // drops, leaving the surface on the seed the third visit re-addressed to.
-    const detour = await driveValueDetour(PairKeyedValueProbe);
+    // drops, leaving the surface on the seed the third addressing produced.
+    const detour = await driveValueDetour(PairKeyedValueProbe, 3);
     act(() => {
       detour.publish("the answer this visit read");
     });

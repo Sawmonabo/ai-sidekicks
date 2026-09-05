@@ -58,7 +58,7 @@ import { type ConsoleBridge, type ConsoleBridgeSource } from "../bridge/index.js
 import { ConsoleRefusalError } from "../core/index.js";
 import { Nothing } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
-import { SurfaceAbsence } from "./RouteSurface.js";
+import { SurfaceAbsence } from "./SurfaceAbsence.js";
 import { NodeRoster, type NodeRosterReads } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";
 // Deep, because `session-members/` ships no barrel. The other two are reached

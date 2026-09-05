@@ -26,10 +26,14 @@
 // Both are vacuity-guarded: a planted difference and a planted reference each have
 // to be caught, or the assertions above are measuring nothing.
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  consoleStylesheets,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
 
 import {
   BOUNDED_ENUMERATION_MAX_ROWS,
@@ -46,21 +50,15 @@ import {
 } from "../../../src/renderer/src/console/tokens/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 
-const CONSOLE_ROOT = fileURLToPath(new URL("../../../src/renderer/src/console", import.meta.url));
-
-/** Console files with one of these extensions, found rather than listed. */
-function consoleFilePaths(directory: string, extensions: readonly string[]): string[] {
-  const found: string[] = [];
-  for (const entry of readdirSync(directory)) {
-    const path = join(directory, entry);
-    if (statSync(path).isDirectory()) {
-      found.push(...consoleFilePaths(path, extensions));
-    } else if (extensions.some((extension) => entry.endsWith(extension))) {
-      found.push(path);
-    }
-  }
-  return found;
-}
+/**
+ * The console alone, on the shared walk.
+ *
+ * SCOPED TO ONE ROOT rather than defaulted to both, because this tier's subject is
+ * the Meridian palette and the shell composes seats out of it rather than defining
+ * properties of its own: a claim about which properties the console defines should
+ * not silently start reporting on the shell the day that subtree lands.
+ */
+const CONSOLE_ROOT_ONLY = { roots: [CONSOLE_DIRECTORY] } as const;
 
 /** Custom-property NAMES a declaration block defines, e.g. `--meridian-text`. */
 function definedTokenVariables(css: string): Set<string> {
@@ -262,17 +260,17 @@ describe("assets — the generated token sheet", () => {
 
 describe("assets — every stylesheet reads only properties the console defines", () => {
   const definedByGenerator = definedTokenVariables(generateMeridianCss());
-  const stylesheetPaths = consoleFilePaths(CONSOLE_ROOT, [".css"]);
-  const sourcePaths = consoleFilePaths(CONSOLE_ROOT, [".ts", ".tsx"]);
+  const stylesheets = consoleStylesheets(CONSOLE_ROOT_ONLY);
+  const sourceModules = consoleSourceModules(CONSOLE_ROOT_ONLY);
 
   const defined = new Set(definedByGenerator);
-  for (const path of stylesheetPaths) {
-    for (const name of definedTokenVariables(readFileSync(path, "utf8"))) {
+  for (const stylesheet of stylesheets) {
+    for (const name of definedTokenVariables(readConsoleSourceModule(stylesheet))) {
       defined.add(name);
     }
   }
-  for (const path of sourcePaths) {
-    for (const name of inlineTokenVariables(readFileSync(path, "utf8"))) {
+  for (const module of sourceModules) {
+    for (const name of inlineTokenVariables(readConsoleSourceModule(module))) {
       defined.add(name);
     }
   }
@@ -280,17 +278,16 @@ describe("assets — every stylesheet reads only properties the console defines"
   it("finds the console's stylesheets at all", () => {
     // Without this, a resolution mistake would make every assertion below pass
     // over an empty set.
-    expect(stylesheetPaths.length).toBeGreaterThan(0);
-    expect(sourcePaths.length).toBeGreaterThan(0);
+    expect(stylesheets.length).toBeGreaterThan(0);
+    expect(sourceModules.length).toBeGreaterThan(0);
   });
 
   it("resolves every referenced property", () => {
     const undefinedReferences: string[] = [];
-    for (const path of stylesheetPaths) {
-      const css = readFileSync(path, "utf8");
-      for (const variableName of referencedTokenVariables(css)) {
+    for (const stylesheet of stylesheets) {
+      for (const variableName of referencedTokenVariables(readConsoleSourceModule(stylesheet))) {
         if (!defined.has(variableName)) {
-          undefinedReferences.push(`${path.slice(CONSOLE_ROOT.length + 1)} -> ${variableName}`);
+          undefinedReferences.push(`${stylesheet.displayPath} -> ${variableName}`);
         }
       }
     }

@@ -28,6 +28,18 @@
 // to prevent. So the members are read up front, into plain locals, and no arm
 // touches the candidate again.
 //
+// A DETAIL IS A SENTENCE SOMEBODY WROTE, NEVER A SERIALIZATION OF THE REJECTION.
+// `core/refusal.ts` states the rule this module has to keep — `detail` is "never the
+// refused value itself, which may be participant content" — and a rejection off the
+// bridge is `unknown`, so its members are request values, repository paths, headers,
+// or a token as easily as they are prose. Every arm here therefore renders one of
+// exactly three things: a string the producing side wrote AS a sentence (a wire
+// `message`, a refusal's own `detail`, an `Error`'s `message`, a thrown string), the
+// CALLER's fallback sentence, or {@link UNREPRESENTABLE_VALUE_TEXT}. A structure is
+// never stringified into it — not on the arm that has a code and no sentence, and not
+// on the terminal arm, where `String({ … })` is at best `[object Object]` and at worst
+// whatever a producer's own `toString` decided to disclose.
+//
 // WHAT IT ADDS OVER EVERY COPY IT REPLACES: the JSON-RPC arm. `JsonRpcRemoteError`
 // (`packages/client-sdk/src/transport/jsonRpcClient.ts`) carries `code` as the
 // JSON-RPC *numeric* — `-32603` and its four siblings — while the project's dotted
@@ -40,21 +52,34 @@
 
 import {
   isErrorInstance,
+  isPropertyContainer,
   lossyStringify,
   readGuardedProperty,
+  UNREPRESENTABLE_VALUE_TEXT,
 } from "../../../../shared/wire-errors.js";
 
-import { parseInstant } from "./instant.js";
-import { refuse, type ConsoleRefusal } from "./refusal.js";
+import {
+  readRefusalExtensions,
+  wireRetryExtension,
+  withRefusalExtensions,
+  type ConsoleRefusalExtensions,
+  type ExtendedConsoleRefusal,
+} from "./refusal-extensions.js";
+import { refuse } from "./refusal.js";
 
 /**
  * A caller-written refusal for a rejection that carries no code of its own.
  *
  * Some seams know their failure better than the thrown value does: "the call into
  * the browser never answered" names what a person can do next, where the transport's
- * own message names a socket. It replaces the synthesized `<origin>-call-failed`
- * pair — and only that pair. It never displaces a code the other side sent, which is
- * the whole reason the typed arms run first.
+ * own message names a socket.
+ *
+ * ITS `code` REPLACES THE SYNTHESIZED `<origin>-call-failed` PAIR AND ONLY THAT
+ * PAIR — it never displaces a code the other side sent, which is the whole reason
+ * the typed arms run first. Its `detail` reaches one place more: a wire arm that
+ * found a code and no readable sentence. That is not a displacement either, because
+ * there was no sentence to displace, and the alternative on that arm is a fixed
+ * constant naming nothing.
  */
 export interface RejectionFallback {
   readonly code: string;
@@ -62,78 +87,59 @@ export interface RejectionFallback {
 }
 
 /**
- * When the refusing side said the caller may try again.
- *
- * Both members are registered: `error-contracts.md §Rate Limiting` puts
- * `retryAfter` (seconds) and `resetAt` (an RFC 3339 instant) on the rate-limit
- * envelope, and the JSON-RPC mapping carries them through `data.fields`. Nothing is
- * invented here — an envelope that names neither produces no hint at all rather than
- * a zero, because "retry immediately" and "the refusing side said nothing about
- * retrying" are different facts and a surface must not render the second as the
- * first.
- *
- * `resetAt` is READ rather than carried: a hint that names an instant this console
- * cannot parse is not a hint, so it is dropped by {@link parseInstant} the same way
- * every other unreadable stamp is, and what survives is a number a countdown can use.
- */
-export interface WireRetryHint {
-  /** Seconds until a retry is allowed, where the wire named a relative bound. */
-  readonly afterSeconds?: number;
-  /** Epoch milliseconds at which the limit resets, where the wire named an instant. */
-  readonly atEpochMilliseconds?: number;
-}
-
-/**
  * A rejection, as the one shape the console renders.
  *
- * A `ConsoleRefusal` widened by one optional member, so every renderer that already
- * takes a refusal takes this unchanged and only a surface that offers a retry has to
- * know the member exists. `isConsoleRefusal` is structural, so this satisfies it.
+ * A `ConsoleRefusal` widened by the REGISTERED extension members and by nothing else
+ * (`core/refusal-extensions.ts`), so every renderer that already takes a refusal takes
+ * this unchanged and only a surface that reads one of those members has to know it
+ * exists. `isConsoleRefusal` is structural, so this satisfies it.
+ *
+ * Named here rather than declared here, because what it is IS the extended refusal:
+ * a second interface saying so would be the mirrored union the package forbids.
  */
-export interface WireRefusal extends ConsoleRefusal {
-  readonly retry?: WireRetryHint;
+export type WireRefusal = ExtendedConsoleRefusal;
+
+/**
+ * The sentence a CODE-BEARING arm renders, which is never the rejection itself.
+ *
+ * Both wire arms reach it, and that is the point: they differ in where the code was
+ * found and agree on what may stand in for a sentence, which is the half that drifts
+ * when it is written twice. A wire envelope whose `message` is missing or is not a
+ * string is a malformed producer, and the console's answer to that is the caller's
+ * own sentence or a constant — never `data.fields`, which
+ * `error-contracts.md §Rate Limiting` puts request values in by design.
+ *
+ * The CODE survives regardless, because it is the half a person acts on:
+ * `session.not_found` and a lease conflict are different next moves, and folding
+ * either into `<origin>-call-failed` because the sentence beside it was unreadable
+ * would throw away the one part that was.
+ */
+function envelopeDetail(message: unknown, fallback: RejectionFallback | undefined): string {
+  if (typeof message === "string") {
+    return message;
+  }
+  return fallback?.detail ?? UNREPRESENTABLE_VALUE_TEXT;
 }
 
 /**
- * Assemble a hint from two candidate numbers, or answer none.
+ * The sentence the terminal arm renders, for a rejection carrying no code at all.
  *
- * The one assembler both readers below share. They differ in WHERE the two numbers
- * are read from — the wire's spelling versus the console's own — and agree on what
- * counts as a bound, which is the half that would drift if it were written twice.
+ * THREE OUTCOMES AND A STRUCTURE IS NONE OF THEM. An `Error` gives up its `message`
+ * and a thrown string IS its own message — both are prose a producer wrote, which is
+ * what a detail is. Every other primitive goes through the total stringifier, which
+ * for a number, a symbol, a boolean, `null` or `undefined` is a bounded rendering of
+ * the value and carries no members. An object, an array or a function is refused:
+ * its serialization is `[object Object]` at best and, where a producer defined its
+ * own `toString`, exactly the disclosure this module's header forbids.
+ *
+ * `isPropertyContainer` rather than a `typeof` pair written again here — it is the
+ * same question `readGuardedProperty` asks, and two copies of it drift.
  */
-function retryHintOf(
-  afterSeconds: unknown,
-  atEpochMilliseconds: unknown,
-): WireRetryHint | undefined {
-  const hint: { afterSeconds?: number; atEpochMilliseconds?: number } = {};
-  if (typeof afterSeconds === "number" && Number.isFinite(afterSeconds) && afterSeconds >= 0) {
-    hint.afterSeconds = afterSeconds;
+function terminalDetail(rejection: unknown, message: unknown): string {
+  if (isErrorInstance(rejection) && typeof message === "string") {
+    return message;
   }
-  if (typeof atEpochMilliseconds === "number" && Number.isFinite(atEpochMilliseconds)) {
-    hint.atEpochMilliseconds = atEpochMilliseconds;
-  }
-  return hint.afterSeconds === undefined && hint.atEpochMilliseconds === undefined
-    ? undefined
-    : hint;
-}
-
-/** The two positions a retry bound is registered at on the WIRE, read guardedly. */
-function retryHintFrom(source: unknown): WireRetryHint | undefined {
-  const resetAt = readGuardedProperty(source, "resetAt");
-  const reset = typeof resetAt === "string" ? parseInstant(resetAt) : undefined;
-  return retryHintOf(
-    readGuardedProperty(source, "retryAfter"),
-    reset?.kind === "instant" ? reset.epochMilliseconds : undefined,
-  );
-}
-
-/** A hint a refusal already carries, in this console's own spelling, read guardedly. */
-function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
-  const carried = readGuardedProperty(candidate, "retry");
-  return retryHintOf(
-    readGuardedProperty(carried, "afterSeconds"),
-    readGuardedProperty(carried, "atEpochMilliseconds"),
-  );
+  return isPropertyContainer(rejection) ? UNREPRESENTABLE_VALUE_TEXT : lossyStringify(rejection);
 }
 
 /** The members a refusal-shaped candidate is classified on, each read exactly once. */
@@ -141,7 +147,7 @@ interface RefusalMembers {
   readonly code: unknown;
   readonly detail: unknown;
   readonly origin: unknown;
-  readonly retry: WireRetryHint | undefined;
+  readonly extensions: ConsoleRefusalExtensions;
 }
 
 /** One read per member. The only place a candidate's refusal members are touched. */
@@ -150,7 +156,7 @@ function readRefusalMembers(candidate: unknown): RefusalMembers {
     code: readGuardedProperty(candidate, "code"),
     detail: readGuardedProperty(candidate, "detail"),
     origin: readGuardedProperty(candidate, "origin"),
-    retry: carriedRetryHint(candidate),
+    extensions: readRefusalExtensions(candidate),
   };
 }
 
@@ -171,19 +177,7 @@ function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
   if (typeof code !== "string" || typeof detail !== "string" || typeof origin !== "string") {
     return undefined;
   }
-  return withRetryHint(refuse(origin, code, detail), members.retry);
-}
-
-/**
- * Attach a hint only where one was actually read.
- *
- * Written once rather than at each arm so no arm can ship a `retry: undefined`
- * member: the refusal shape is compared structurally in tests and rendered by
- * components that ask whether the member is present, and a present-but-undefined
- * member answers that question wrongly.
- */
-function withRetryHint(refusal: ConsoleRefusal, hint: WireRetryHint | undefined): WireRefusal {
-  return hint === undefined ? refusal : { ...refusal, retry: hint };
+  return withRefusalExtensions(refuse(origin, code, detail), members.extensions);
 }
 
 /**
@@ -209,6 +203,11 @@ function withRetryHint(refusal: ConsoleRefusal, hint: WireRetryHint | undefined)
  *      the console renders the daemon's code and the daemon's sentence, never a
  *      paraphrase, because `permission_denied` and a lease conflict are different
  *      next moves and both are unactionable once folded into one code.
+ *
+ * BOTH WIRE ARMS ARE ADMITTED BY THEIR CODE ALONE, and the sentence beside it is
+ * whatever {@link envelopeDetail} allows. An envelope carrying a code and an
+ * unreadable message is a malformed producer, and answering it with the synthesized
+ * terminal pair would throw away the one machine-readable thing it did send.
  */
 function classifyRejection(
   origin: string,
@@ -228,15 +227,18 @@ function classifyRejection(
   const dottedCode = readGuardedProperty(data, "type");
   const message = readGuardedProperty(rejection, "message");
   if (typeof dottedCode === "string" && dottedCode.length > 0) {
-    return withRetryHint(
-      refuse(origin, dottedCode, typeof message === "string" ? message : lossyStringify(rejection)),
-      retryHintFrom(readGuardedProperty(data, "fields")),
+    return withRefusalExtensions(
+      refuse(origin, dottedCode, envelopeDetail(message, fallback)),
+      wireRetryExtension(readGuardedProperty(data, "fields")),
     );
   }
   // The flat envelope — `{ code, message }` — from the same two readings the arms
   // above already took, never a second pass over the candidate.
-  if (typeof members.code === "string" && typeof message === "string") {
-    return withRetryHint(refuse(origin, members.code, message), retryHintFrom(rejection));
+  if (typeof members.code === "string") {
+    return withRefusalExtensions(
+      refuse(origin, members.code, envelopeDetail(message, fallback)),
+      wireRetryExtension(rejection),
+    );
   }
   if (fallback !== undefined) {
     return refuse(origin, fallback.code, fallback.detail);
@@ -265,7 +267,9 @@ function classifyRejection(
  * NOTHING OF THE REJECTION SURVIVES ONTO THE ANSWER. Every arm rebuilds, so what a
  * renderer receives is a plain object of strings this function already read — never
  * the candidate itself, whose next property access is the throw this whole module
- * exists to prevent, arriving one layer later and outside every `catch`.
+ * exists to prevent, arriving one layer later and outside every `catch`. And no arm
+ * SERIALIZES it either: see this module's header on what a `detail` may be, which is
+ * the second half of the same rule and the half a rebuild alone does not give.
  *
  * `origin` is the calling subsystem, and it is what the synthesized terminal code is
  * built from, so even a rejection that said nothing machine-readable still names the
@@ -291,14 +295,5 @@ export function normalizeWireRejection(
   // but a subclass is free to define an accessor over it, and this arm is reached
   // precisely when the value has already misbehaved once.
   const terminalMessage = readGuardedProperty(rejection, "message");
-  return refuse(
-    origin,
-    `${origin}-call-failed`,
-    // An `Error` gives up its message; anything else goes through the total
-    // stringifier rather than `String(...)`, which runs ToPrimitive and so throws on
-    // a null-prototype value carrying no `toString`.
-    isErrorInstance(rejection) && typeof terminalMessage === "string"
-      ? terminalMessage
-      : lossyStringify(rejection),
-  );
+  return refuse(origin, `${origin}-call-failed`, terminalDetail(rejection, terminalMessage));
 }

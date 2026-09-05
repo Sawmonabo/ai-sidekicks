@@ -30,6 +30,7 @@ export interface OpenResource {
 export class ResourceLedger {
   readonly #opened: string[] = [];
   readonly #closed: string[] = [];
+  readonly #closedResources = new WeakSet<OpenResource>();
 
   public open(name: string): OpenResource {
     this.#opened.push(name);
@@ -45,7 +46,21 @@ export class ResourceLedger {
    */
   public readonly close = (resource: OpenResource): void => {
     this.#closed.push(resource.name);
+    this.#closedResources.add(resource);
   };
+
+  /**
+   * Whether THIS resource has been closed — the reading a caller whose `close` is
+   * terminal hands the resource hook.
+   *
+   * BY IDENTITY AND NEVER BY NAME. Every resource a subject opens carries that
+   * subject's name, so a re-mint answers with the same name as the value it replaces
+   * and a reading keyed on the name would call the replacement closed the moment it
+   * was born — a hook that re-mints forever, which is the loop the arm exists to
+   * avoid. Bound for the reason `close` is: it is handed over as a value.
+   */
+  public readonly isClosed = (resource: OpenResource): boolean =>
+    this.#closedResources.has(resource);
 
   public get opened(): readonly string[] {
     return [...this.#opened];
