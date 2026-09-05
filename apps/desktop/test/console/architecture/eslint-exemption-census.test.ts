@@ -19,14 +19,16 @@
 // path the block DOES cover, must trip at least one selector. That is what "earns" means,
 // and it is checkable without anyone re-reading the rationale.
 //
-// THE INSTRUMENT IS THE REAL ENGINE, TWICE. The exempt set is resolved by asking ESLint
+// THE INSTRUMENT IS THE REAL ENGINE, TWICE — the one in `test/console/eslint-harness.ts`,
+// which three gates now share so that the probe path and the config resolution cannot
+// drift between the gate that resolves the exempt set and the gate that plants rows. The exempt set is resolved by asking ESLint
 // what config it would apply to each console module, so an exemption added anywhere —
 // this block, a later block, a widened glob — is in the set. Then each exempt file's own
 // TEXT is linted at a non-exempt probe path, through the same config. Nothing here
 // restates a selector: a copy would pass with the config deleted, which is the failure
 // this file exists to prevent.
 
-import { ESLint } from "eslint";
+import type { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -35,18 +37,12 @@ import {
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
-
-/** `architecture/` → `console/` → `test/` → the desktop package. */
-const DESKTOP_PACKAGE_ROOT = new URL("../../../", import.meta.url).pathname;
-
-/**
- * A console path the ban block covers and no `ignores` entry names.
- *
- * It does not exist on disk and does not need to: `lintText` lints the text it is given
- * AS this path, and the path is what decides which config objects match. The first case
- * below asserts it is genuinely non-exempt, so the probe cannot silently become one.
- */
-const NON_EXEMPT_PROBE_PATH = `${DESKTOP_PACKAGE_ROOT}src/renderer/src/console/exemption-probe.ts`;
+import {
+  createDesktopLinter,
+  ESLINT_CASE_BUDGET_MS,
+  NON_EXEMPT_CONSOLE_PROBE_PATH,
+  ruleMessagesAt,
+} from "../eslint-harness.js";
 
 /**
  * The rule whose exempt set this file audits.
@@ -70,14 +66,59 @@ const WOULD_NOT_EARN_AN_EXEMPTION: readonly string[] = [
   "console/core/wire-rejection.ts",
 ];
 
-/** Sized to the machine, not the work — see the case budget note below. */
-const ESLINT_CASE_BUDGET_MS = 30_000;
+/**
+ * The rules an inline directive may not switch off anywhere under the governed roots.
+ *
+ * `no-restricted-imports` rides beside the audited rule because the two carry one
+ * boundary between them: the syntax bans keep a lenient date reading out of the console,
+ * and the import ban keeps a second validator out of it. A directive is a fourth
+ * exemption channel — beside `ignores`, a later block's `off`, and a mis-scoped `files` —
+ * and it is the one that needs no config edit anybody reviews.
+ */
+const RULES_NO_DIRECTIVE_MAY_SUPPRESS: readonly string[] = [AUDITED_RULE, "no-restricted-imports"];
 
-function createLinter(): ESLint {
-  // `cwd` anchors flat-config discovery on the desktop package, so the config under audit
-  // — which itself spreads the repo-root config — is the one that runs.
-  return new ESLint({ cwd: DESKTOP_PACKAGE_ROOT });
+/**
+ * Every inline ESLint directive in `source`, as `[form, rule list]`.
+ *
+ * Source text, and it has to be: the config layer cannot see a directive at all —
+ * `calculateConfigForFile` reports the rule configured and on for a file that has
+ * switched it off in its own first line, so such a file is not in the exempt set and
+ * this census never looks at it. Measured, not assumed.
+ */
+function inlineDirectives(source: string): readonly (readonly [string, string])[] {
+  const directive = /\/[/*]\s*(eslint-disable(?:-next-line|-line)?)([^*\n]*)/gu;
+  return [...source.matchAll(directive)].map((match) => {
+    const named = (match[2] ?? "").split("--")[0] ?? "";
+    return [match[1] ?? "", named.replace(/\*\//gu, "").trim()] as const;
+  });
 }
+
+/**
+ * Which of the guarded rules `source` switches off inline, or `[]`.
+ *
+ * A directive naming NO rule disables every rule on the line or in the file, so an empty
+ * rule list is an offence against all of them rather than against none.
+ */
+export function suppressedGuardedRules(source: string): readonly string[] {
+  return inlineDirectives(source).flatMap(([form, named]) => {
+    if (named.length === 0) {
+      return [`${form} (every rule)`];
+    }
+    const rules = named.split(",").map((rule) => rule.trim());
+    return RULES_NO_DIRECTIVE_MAY_SUPPRESS.filter((rule) => rules.includes(rule)).map(
+      (rule) => `${form} ${rule}`,
+    );
+  });
+}
+
+/**
+ * The module that proves the needle reads a real directive rather than nothing.
+ *
+ * It suppresses a DIFFERENT rule, which is what makes it the honest control: the
+ * directive form is already in this tree, so the clean result above is a finding about
+ * which rules are suppressed rather than about whether any directive exists to find.
+ */
+const MODULE_CARRYING_A_DIRECTIVE = "console/panes/index.ts";
 
 /** Whether the audited rule is configured and ON for `absolutePath`. */
 async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<boolean> {
@@ -92,14 +133,11 @@ async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<
 
 /** How many selectors `source` trips when linted as a covered console module. */
 async function selectorHitsAtProbePath(linter: ESLint, source: string): Promise<number> {
-  const results = await linter.lintText(source, { filePath: NON_EXEMPT_PROBE_PATH });
-  return results
-    .flatMap((result) => result.messages)
-    .filter((message) => message.ruleId === AUDITED_RULE).length;
+  return (await ruleMessagesAt(linter, source, NON_EXEMPT_CONSOLE_PROBE_PATH, AUDITED_RULE)).length;
 }
 
 describe("eslint exemption census — every excused file trips something", () => {
-  const linter = createLinter();
+  const linter = createDesktopLinter();
   const modules: readonly ConsoleSourceModule[] = consoleSourceModules({ tests: true });
 
   it(
@@ -110,7 +148,7 @@ describe("eslint exemption census — every excused file trips something", () =>
       // itself exempt would make every hit count zero — two different ways to be green
       // for no reason.
       expect(modules.length).toBeGreaterThan(20);
-      expect(await restrictsSyntaxAt(linter, NON_EXEMPT_PROBE_PATH)).toBe(true);
+      expect(await restrictsSyntaxAt(linter, NON_EXEMPT_CONSOLE_PROBE_PATH)).toBe(true);
     },
     ESLINT_CASE_BUDGET_MS,
   );
@@ -176,6 +214,42 @@ describe("eslint exemption census — every excused file trips something", () =>
     },
     ESLINT_CASE_BUDGET_MS,
   );
+
+  it("no module switches the syntax or import bans off inline", () => {
+    // The channel the config-resolution claim above cannot see. A file carrying
+    // `eslint-disable no-restricted-syntax` in its first line lints clean at a fully
+    // covered console path AND still resolves the rule as configured and on, so it is
+    // not in the exempt set and every claim above passes over it.
+    const offenders = modules
+      .map((module) => ({
+        module: module.displayPath,
+        suppressed: suppressedGuardedRules(readConsoleSourceModule(module)),
+      }))
+      .filter((entry) => entry.suppressed.length > 0)
+      .map((entry) => `${entry.module}: ${entry.suppressed.join(", ")}`);
+    expect(offenders).toStrictEqual([]);
+  });
+
+  it("negative control: the needle reads the directive this tree already carries", () => {
+    // Both halves. The real one proves a directive is findable at all; the planted rows
+    // prove the rule list is read rather than the word `eslint-disable` alone.
+    const carrier = readConsoleSourceModule(
+      moduleNamed(modules, MODULE_CARRYING_A_DIRECTIVE, "the module carrying a directive"),
+    );
+    expect(inlineDirectives(carrier).length).toBeGreaterThan(0);
+    expect(suppressedGuardedRules(carrier)).toStrictEqual([]);
+    for (const planted of [
+      "/* eslint-disable no-restricted-syntax */\nexport const at = Date.parse(iso);\n",
+      "// eslint-disable-next-line no-restricted-syntax -- a reason\nexport const at = Date.parse(iso);\n",
+      "/* eslint-disable */\nexport const at = Date.parse(iso);\n",
+      '// eslint-disable-next-line no-restricted-imports\nimport { z } from "zod";\n',
+    ]) {
+      expect(suppressedGuardedRules(planted), planted).not.toStrictEqual([]);
+    }
+    expect(
+      suppressedGuardedRules("// eslint-disable-next-line @typescript-eslint/no-unused-vars\n"),
+    ).toStrictEqual([]);
+  });
 });
 
 /** The console modules ESLint would apply no syntax ban to. */

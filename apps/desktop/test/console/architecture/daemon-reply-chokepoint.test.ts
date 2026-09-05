@@ -27,11 +27,15 @@
 // title claims. The consumer count is therefore PINNED rather than left implicit —
 // see `CALL_DOOR_CONSUMER_COUNT`.
 //
-// The lint half is driven through the REAL ESLint engine over the REAL config,
-// never re-implemented — a test carrying its own copy of the pattern list would
-// stay green with the config deleted, which is the failure it exists to prevent.
-// That is the `renderer-import-boundary.test.ts` posture, and this file borrows its
-// timeout reasoning too (see `ESLINT_CASE_TIMEOUT_MS`).
+// The lint half is driven through the REAL ESLint engine over the REAL config, never
+// re-implemented — a test carrying its own copy of the pattern list would stay green
+// with the config deleted, which is the failure it exists to prevent. The engine, the
+// probe paths, and the per-case budget come from `test/console/eslint-harness.ts`, which
+// three gates now share; the budget's derivation is recorded there.
+//
+// The reach needles live in `daemon-call-census.ts` beside this file, on the
+// `barrel-census.ts` pattern: this file is the rule applied to the real tree, that one
+// is the rule.
 //
 // WHAT IS DELIBERATELY NOT SCANNED.
 //   • `daemon.subscribe`. A subscription is a different seam with a different
@@ -48,10 +52,6 @@
 //     `console-unit` resident, so it is named here rather than added later and
 //     forgotten.
 
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
-import { ESLint } from "eslint";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -60,10 +60,13 @@ import {
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const DESKTOP_PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
-const RENDERER_SOURCE_ROOT = join(DESKTOP_PACKAGE_ROOT, "src", "renderer", "src");
+import {
+  createDesktopLinter,
+  ESLINT_CASE_BUDGET_MS,
+  rendererProbePath,
+  ruleMessagesAt,
+} from "../eslint-harness.js";
+import { CALL_DOOR_IMPORT, daemonCallReaches } from "./daemon-call-census.js";
 
 /**
  * The walk, done once, and shared with every other source-text gate.
@@ -101,58 +104,6 @@ const CHOKEPOINT_MODULE = "console/bridge/daemon-reply.ts";
  */
 const BRIDGE_FAMILY_PREFIX = "console/bridge/";
 
-/**
- * How a module shows it reached the daemon call door, in the five shapes that reach.
- *
- * All five are deliberately anchored on syntax rather than on the bare name, because
- * `daemon.call` is a thing the console's own prose says constantly — the bridge
- * shape test names it as a member, the registry header names it as the generic
- * door — and a needle that flagged a comment would be turned off within a week.
- *
- *   • CALLED OR ALIASED matches `…daemon.call` only where a call, a type argument,
- *     or an `as` cast follows. That is the reach: invoking it, or widening its
- *     branded signature so it can be invoked.
- *   • NAMESPACE TAKEN matches the daemon namespace bound or spread rather than
- *     stepped through, which is how a determined evasion would be spelled. The
- *     negative lookahead is what keeps `…sidekicks.daemon.subscribe` out of it, and
- *     the bracket beside it hands a computed key to the form that names it.
- *   • The two COMPUTED KEY forms close the hole a dotted needle cannot see:
- *     `bridge.sidekicks["daemon"].call(…)` and `daemon["call"](…)` reach the same
- *     door, and neither is exotic — a member read through a variable key is how a
- *     helper written over "whichever namespace this is" spells itself. They are the
- *     smallest violations that passed the two dotted needles, measured.
- *   • TAKEN AS A VALUE catches the door handed on rather than invoked —
- *     `daemon.call.bind(bridge)` — which the first form's lookahead misses because
- *     what follows `call` is a dot rather than a parenthesis.
- *
- * The computed forms admit no whitespace before the bracket, and that is exact
- * rather than lax: every source file in this package is Prettier-formatted on the
- * way in, and Prettier writes no space there — while prose in a comment ("the daemon
- * [the local runtime] answers") writes one, so the spacing is what separates the two.
- *
- * Depth is honestly non-exhaustive: a value passed through two helpers defeats any
- * text scan, and so does a namespace reached through a variable that never names
- * `sidekicks`. The lint ban beside it is a second, different claim — a module that
- * cannot hold a validator cannot PARSE an unparsed reply it smuggled out — and it is
- * deliberately not offered as closing this one, since casting an `unknown` to the
- * response type needs no validator at all and is the first of the three mistakes the
- * registry header enumerates.
- */
-const DAEMON_CALL_REACH_FORMS: readonly (readonly [string, RegExp])[] = [
-  ["called or aliased", /\bdaemon\s*\.\s*call\b(?=\s*[(<]|\s+as\b)/],
-  ["namespace taken", /\.\s*sidekicks\s*\.\s*daemon\b(?!\s*[.[])/],
-  ["namespace taken by computed key", /\.\s*sidekicks\[/],
-  ["called by computed key", /\bdaemon\[/],
-  ["taken as a value", /\bdaemon\s*\.\s*call\s*\.\s*(?:bind|apply|call)\b/],
-];
-
-/** Which reach forms `source` contains, by name, or `[]`. */
-function daemonCallReaches(source: string): readonly string[] {
-  return DAEMON_CALL_REACH_FORMS.filter(([, pattern]) => pattern.test(source)).map(
-    ([name]) => name,
-  );
-}
-
 /** Every governed source module, as a renderer-root-relative path. */
 function governedSourceModules(): readonly string[] {
   return GOVERNED_MODULES.map((module) => module.displayPath);
@@ -165,16 +116,6 @@ function readGovernedSource(module: string): string {
 function isBridgeFamilyModule(module: string): boolean {
   return module.startsWith(BRIDGE_FAMILY_PREFIX);
 }
-
-/**
- * How a module shows it CONSUMES the call door: it imports the door's own name.
- *
- * Anchored on the import for the reason every needle in this file is anchored on
- * syntax — the console's prose names `callDaemon` constantly, and the growth
- * signature table names it in a sentence about which seam owes which wire. The
- * `[^;]*` spans newlines, so a multi-line specifier list is one import.
- */
-const CALL_DOOR_IMPORT = /\bimport\b[^;]*\bcallDaemon\b/u;
 
 /**
  * How many modules outside the bridge family import the call door on this branch.
@@ -260,6 +201,20 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
     ).toBe(true);
     // And not on the door merely named in prose, which is all the tree carries today.
     expect(CALL_DOOR_IMPORT.test("// a surface reaches the wire through `callDaemon`")).toBe(false);
+    // The false-positive direction, which was unmeasured and live: this sentence
+    // contains the word `import`, and the needle this replaces spanned the newlines
+    // between the two words because nothing ended the statement in between.
+    expect(
+      CALL_DOOR_IMPORT.test(
+        [
+          "// a surface would import",
+          "// `callDaemon` from the bridge door rather than reach the wire itself",
+        ].join("\n"),
+      ),
+    ).toBe(false);
+    // And a longer name that merely starts with the door's is a different symbol.
+    expect(CALL_DOOR_IMPORT.test('import { callDaemonRegistry } from "./registry.js";')) //
+      .toBe(false);
   });
 
   it("negative control: the chokepoint itself trips the scan", () => {
@@ -310,43 +265,13 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
   });
 });
 
-/**
- * The per-case budget, sized to the machine rather than to the work.
- *
- * Every case below drives the real ESLint engine over the real flat config, and
- * whichever runs first additionally pays that config's whole module graph
- * (`typescript-eslint`, and `typescript` behind it). The figure and its derivation
- * belong to `runtime-node-attach/__tests__/renderer-import-boundary.test.ts`, which
- * measured a 17.6x cold-plus-contended blow-up under a full-workspace `pnpm test`
- * and settled on this number; the same graph, the same engine, and the same
- * exposure apply here, so the budget is borrowed rather than re-derived. Nothing in
- * `lintText` has a deadline for this to sit above, and no failure these cases exist
- * to catch is a hang: delete the rule and they assert instantly.
- */
-const ESLINT_CASE_TIMEOUT_MS = 30_000;
-
-vi.setConfig({ testTimeout: ESLINT_CASE_TIMEOUT_MS });
-
-/** A path under the governed subtrees, absolute, for lint-as-if-this-file. */
-function governedPath(...segments: readonly string[]): string {
-  return join(RENDERER_SOURCE_ROOT, ...segments);
-}
-
-function createLinter(): ESLint {
-  // `cwd` anchors flat-config discovery on the desktop package, so the config under
-  // test is the one that runs.
-  return new ESLint({ cwd: DESKTOP_PACKAGE_ROOT });
-}
+vi.setConfig({ testTimeout: ESLINT_CASE_BUDGET_MS });
 
 async function restrictedImportMessages(
   source: string,
   filePath: string,
 ): Promise<readonly string[]> {
-  const results = await createLinter().lintText(source, { filePath });
-  return results
-    .flatMap((result) => result.messages)
-    .filter((message) => message.ruleId === "no-restricted-imports")
-    .map((message) => message.message);
+  return ruleMessagesAt(createDesktopLinter(), source, filePath, "no-restricted-imports");
 }
 
 const IMPORTS_ZOD = `import { z } from "zod";\nexport const schema = z;\n`;
@@ -355,7 +280,7 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
   it("refuses `zod` in a console surface", async () => {
     const messages = await restrictedImportMessages(
       IMPORTS_ZOD,
-      governedPath("console", "workspace", "validator-probe.ts"),
+      rendererProbePath("console", "workspace", "validator-probe.ts"),
     );
     expect(messages.length).toBeGreaterThan(0);
     expect(messages.join("\n")).toContain("callDaemon");
@@ -366,7 +291,7 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
     // a ban on the bare form alone is one import away from useless.
     const messages = await restrictedImportMessages(
       `import { z } from "zod/v4";\nexport const schema = z;\n`,
-      governedPath("console", "workspace", "validator-probe.ts"),
+      rendererProbePath("console", "workspace", "validator-probe.ts"),
     );
     expect(messages.length).toBeGreaterThan(0);
   });
@@ -377,7 +302,7 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
     // typo there would be invisible until the subtree landed carrying a validator.
     const messages = await restrictedImportMessages(
       IMPORTS_ZOD,
-      governedPath("shell", "shell-probe.ts"),
+      rendererProbePath("shell", "shell-probe.ts"),
     );
     expect(messages.length).toBeGreaterThan(0);
   });
@@ -385,7 +310,7 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
   it("allows it inside `console/bridge/`, which is where the schemas are bound", async () => {
     const messages = await restrictedImportMessages(
       IMPORTS_ZOD,
-      governedPath("console", "bridge", "validator-probe.ts"),
+      rendererProbePath("console", "bridge", "validator-probe.ts"),
     );
     expect(messages).toHaveLength(0);
   });
@@ -393,7 +318,7 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
   it("allows it in the wire-truth scenarios, which assert against the wire's shapes", async () => {
     const messages = await restrictedImportMessages(
       IMPORTS_ZOD,
-      governedPath("console", "bridge", "scenarios", "wire-truth", "probe.ts"),
+      rendererProbePath("console", "bridge", "scenarios", "wire-truth", "probe.ts"),
     );
     expect(messages).toHaveLength(0);
   });
@@ -413,7 +338,7 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
         `export const probe = { ipcRenderer, join, x };`,
         ``,
       ].join("\n"),
-      governedPath("console", "workspace", "boundary-probe.ts"),
+      rendererProbePath("console", "workspace", "boundary-probe.ts"),
     );
     expect(messages.join("\n")).toContain("Trust Stance");
     expect(messages.join("\n")).toContain("CP-003-3");
@@ -426,7 +351,7 @@ describe("daemon-reply chokepoint — only the bridge family may hold a validato
     // console and the rule would be wrong in the other direction.
     const messages = await restrictedImportMessages(
       IMPORTS_ZOD,
-      governedPath("session-members", "validator-probe.ts"),
+      rendererProbePath("session-members", "validator-probe.ts"),
     );
     expect(messages).toHaveLength(0);
   });
