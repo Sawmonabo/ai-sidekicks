@@ -71,6 +71,23 @@ import type { ConsoleScenario } from "../scenario.js";
 
 export const WORKFLOWS_SCENARIO_ID = "workflows";
 
+/**
+ * The routing key this scenario's run enumeration is answered under.
+ *
+ * Keyed on the growth OPERATION rather than on a wire method, because this one read
+ * has none: `growth-operations.ts` registers `workflowRunList` with no
+ * `expectedWireMethod` under the note that an invented string there would be a wire
+ * fact traceable to nothing, and writing one here instead would put the same
+ * invention one file further from the ledger that refused it. The `growth:` prefix is
+ * what makes the key manifestly not a method — so the day the daemon registers the
+ * enumeration under whatever name it chooses, this reply is not already answering
+ * under a different one.
+ *
+ * Named rather than written inline because the two suites that drive this reply have
+ * to name the same key, and a scenario's own call names are the scenario's to declare.
+ */
+export const WORKFLOWS_RUN_ENUMERATION_CALL = "growth:workflowRunList";
+
 /** The sequence the first `agent.attached` beat takes. One beat precedes it. */
 const FIRST_AGENT_SEQUENCE = 2;
 
@@ -250,7 +267,7 @@ export const WORKFLOWS_SCENARIO: ConsoleScenario = {
       // each — so a reply that pre-sorted them would be scripting a fold the console
       // performs, and a projection bug would be invisible behind fixture data that
       // had already done the work.
-      call: "workflow.runList",
+      call: WORKFLOWS_RUN_ENUMERATION_CALL,
       result: { runs: runListEntries() },
     },
     {

@@ -11,7 +11,9 @@
 //
 // The workflows scenario scripts the four reads the destination, the run list, the
 // run pane, and the definition browser are built on, and the growth port routed none
-// of them. So the panes rendered the "not checked" refusal in every
+// of them. Three are keyed on their registered wire method; the run enumeration is
+// keyed on its growth operation id, because its ledger row registers no method and
+// the handler below says why. So the panes rendered the "not checked" refusal in every
 // fixture build and the family's screenshots pinned an absence rather than the story
 // the scenario tells. Routing them is what makes a script that already exists
 // reachable.
@@ -183,9 +185,15 @@ export function fixtureWorkflowReads(
       if (request.sessionId !== engine.scenario.sessionId) {
         return emptyEnumeration;
       }
+      // The one call name here that is NOT a wire method, and it says so: this
+      // operation's ledger row registers none, so the scripted reply is keyed on the
+      // operation id under a `growth:` prefix no daemon method can wear. The three
+      // reads above transcribe registered method names; this one has nothing to
+      // transcribe, and inventing a plausible-looking string would be the fixture
+      // teaching a surface a wire fact traceable to nothing.
       return answerFromScriptedReply(
         engine,
-        "workflow.runList",
+        "growth:workflowRunList",
         "workflowRunList",
         request,
         () => emptyEnumeration,
