@@ -41,12 +41,31 @@ const SEATS = `${CONSOLE}/seats/`;
 const PALETTE = `${CONSOLE}/palette/`;
 const FRAME = `${CONSOLE}/frame/`;
 
-// The composition sites. `families.ts` and `panes/index.ts` are the two files whose whole
-// job is to name every view family, so they are the one place a downward-only ladder
-// cannot apply: they sit above every family by construction. They are named here so the
-// view-family rule below can subtract them rather than report the console's own entry
-// wiring as a violation.
-const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
+// The composition sites: the root modules enumerated below, plus `panes/index.ts`.
+// Their whole job is to name every view family, so they are the one place a
+// downward-only ladder cannot apply — they sit above every family by construction. They
+// are named here so the view-family rule below can subtract them rather than report the
+// console's own entry wiring as a violation.
+//
+// ENUMERATED RATHER THAN `[^/]+$`, which is what this pattern was and what made the
+// exemption one `git mv` wide. A family that `console-view-family-isolation` stopped
+// from importing a sibling could import both families from a NEW file at the console
+// root and the gate stayed green, because the wildcard admitted any root file as a
+// composition site — subtracted from the view-family set and from both endpoints of the
+// isolation rule at once. The enumeration makes a fourth root module a gate failure that
+// names itself.
+//
+// A FAMILY THAT LANDS ITS OWN ROOT REGISTRAR ADDS ONE ALTERNATIVE HERE and rewrites no
+// prose anywhere: this comment, `apps/desktop/AGENTS.md`, and the isolation rule below
+// all say "the enumerated root modules" rather than a count, so the six concurrent
+// family branches each produce a one-line, self-naming diff at this list.
+//
+// `console-env.d.ts` is the console root's fourth resident and is deliberately absent.
+// It declares ambient types: no module imports it and it imports none, so it is an
+// endpoint of no edge any rule here judges, and `no-orphans` exempts declaration files
+// by extension already. Co-located tests are absent for the stronger reason that
+// `options.exclude` removes them from the graph before any rule runs.
+const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|collaboration-family|sidekicks-settings-page)\\.ts$`;
 const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
 
 /**
@@ -260,6 +279,27 @@ export default {
       // the ones `$1` removes.
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: VIEW_FAMILIES.pathNot },
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
+    },
+    {
+      name: "console-root-is-composition-only",
+      comment:
+        "A module at the console ROOT that is not one of the enumerated composition sites " +
+        "imported a console module. The root is where a composition lives because a composition " +
+        "is the one thing that may name more than one view family — so a file that lands there " +
+        "and is not on the list is a family importing a sibling with the isolation rule stepped " +
+        "around, which is one `git mv` of work. `console-view-family-isolation` cannot see it: " +
+        "its `from` captures the owning DIRECTORY (`console/<family>/`) so it can subtract that " +
+        "family from its own target set, and a root file has no directory to capture. This rule " +
+        "is that complement, so the console root is closed from the SOURCE side and the " +
+        "enumeration closes it from the target side. A family whose registrar belongs at the " +
+        "root adds one alternative to `COMPOSITION_ROOT_FILES` and names itself doing it.",
+      severity: "error",
+      // Declaration files are subtracted for the reason `no-orphans` subtracts them: they
+      // declare ambient types rather than participate in the graph. `console-env.d.ts`
+      // imports nothing today, so it is an edge source in no cruise — the entry states the
+      // disposition rather than waiting for one that does.
+      from: { path: `${CONSOLE}/[^/]+$`, pathNot: [COMPOSITION_ROOT_FILES, "\\.d\\.ts$"] },
+      to: { path: `${CONSOLE}/` },
     },
     {
       name: "console-no-barrel-chain",
