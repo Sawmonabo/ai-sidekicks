@@ -18,17 +18,17 @@ import {
   type SessionStoreState,
 } from "../../store/index.js";
 import { type PaneContextOf } from "../pane-chrome.js";
-import { findApprovalCardAction } from "./ApprovalCard.js";
-import { ApprovalList } from "./ApprovalList.js";
-import { providerAskFor, type ProviderAsk } from "./provider-ask.js";
-import { ExecutionPostureChip } from "./ExecutionPosture.js";
-import { CallbackTools } from "./CallbackTools.js";
-import { SessionGoalCard } from "./SessionGoalCard.js";
+import { findApprovalCardAction } from "./card/ApprovalCard.js";
+import { ApprovalList } from "./card/ApprovalList.js";
+import { providerAskFor, type ProviderAsk } from "./card/provider-ask.js";
+import { ExecutionPostureChip } from "./posture/ExecutionPosture.js";
+import { CallbackTools } from "./posture/CallbackTools.js";
+import { SessionGoalCard } from "./goal/SessionGoalCard.js";
 import { useApprovalsReader, useSessionGoalMutation } from "./approvals-hooks.js";
-import { useGoalMutationAuthorization } from "./goal-authorization.js";
+import { useGoalMutationAuthorization } from "./goal/goal-authorization.js";
 import { type ApprovalRecord } from "../../bridge/index.js";
 import { type ReadPhase } from "./approvals-reader.js";
-import { foldSessionGoal } from "./session-goal.js";
+import { foldSessionGoal } from "./goal/session-goal.js";
 import { RulesRead } from "./RulesRead.js";
 
 /** The composer's root class. Focus moves to a new card only from inside it. */

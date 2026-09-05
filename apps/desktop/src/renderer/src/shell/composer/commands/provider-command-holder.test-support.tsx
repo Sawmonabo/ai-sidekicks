@@ -6,7 +6,10 @@
 
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
 import { type ConsoleBridge } from "../../../console/bridge/index.js";
-import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
+import {
+  bridgeAnswering,
+  type RecordedDaemonCall,
+} from "../../../console/bridge/fixture-bridge.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
 import type { ComposerTarget } from "../chips/chip-models.js";
 import {
@@ -15,11 +18,6 @@ import {
 } from "./provider-command-catalog.js";
 
 export const ENUMERATION_METHOD = "driver.listProviderCommands";
-
-export interface RecordedCall {
-  readonly method: string;
-  readonly params: unknown;
-}
 
 /**
  * The real fixture bridge with a recorder in front of `daemon.call`.
@@ -33,7 +31,7 @@ export interface RecordedCall {
  * bridge's reply outstanding across a swap to another bridge and then let it land.
  */
 export function recordingBridge(
-  recorded: RecordedCall[],
+  recorded: RecordedDaemonCall[],
   parkedEnumerations?: ((reply: unknown) => void)[],
 ): ConsoleBridge {
   return bridgeAnswering((call, forward) => {
@@ -104,6 +102,8 @@ export const ADDRESSED: AddressedProviderBinding = addressedProviderBinding(
   targetForAgent(FIRST_AGENT),
 );
 
-export function enumerationCalls(recorded: readonly RecordedCall[]): readonly RecordedCall[] {
+export function enumerationCalls(
+  recorded: readonly RecordedDaemonCall[],
+): readonly RecordedDaemonCall[] {
   return recorded.filter((entry) => entry.method === ENUMERATION_METHOD);
 }

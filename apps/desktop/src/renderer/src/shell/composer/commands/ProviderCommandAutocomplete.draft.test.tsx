@@ -16,10 +16,10 @@ import {
   UNMATCHED_PREFIX,
   composerBridgeAnswering,
   mountComposer,
-  recordingBridge,
   registeredIds,
   typeIntoLine,
 } from "./provider-command-discovery.test-support.js";
+import { recordingBridge } from "./provider-command-holder.test-support.js";
 
 describe("ProviderCommandAutocomplete — the surface follows every write to the draft", () => {
   /** Whether the discovery popover is on screen at all. */

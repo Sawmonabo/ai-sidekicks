@@ -15,7 +15,6 @@ import { consoleCommands } from "../../../console/frame/command-surface.js";
 import {
   type MountedComposer,
   NOT_RUNNABLE_FRAGMENT,
-  type RecordedCall,
   TEST_COMMAND_ID,
   UNADDRESSED_BINDING_SENTENCE,
   UNADDRESSED_CODEX_GROUP,
@@ -28,12 +27,13 @@ import {
   mountComposer,
   optionNames,
   pressOnList,
-  recordingBridge,
   registeredIds,
   scenarioBindingGroups,
   stepIntoList,
   typeIntoLine,
 } from "./provider-command-discovery.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { recordingBridge } from "./provider-command-holder.test-support.js";
 
 describe("ProviderCommandAutocomplete — one binding's entries reach the list", () => {
   it("lists the addressed run's group and none of the other binding's entries", async () => {
@@ -133,7 +133,7 @@ describe("ProviderCommandAutocomplete — the list activates its active row", ()
 
   it("answers a press on a provider row instead of running anything", async () => {
     const counted = registerCountedConsoleCommand();
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const mounted = await mountComposer({
       bridge: recordingBridge(recorded),
       focusedPane: agentPane(composerAgentIds()[0]!),

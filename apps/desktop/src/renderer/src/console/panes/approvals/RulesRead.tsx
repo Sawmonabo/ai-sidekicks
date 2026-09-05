@@ -8,7 +8,7 @@
 
 import { Nothing } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
-import { RememberedGrants } from "./RememberedGrants.js";
+import { RememberedGrants } from "./grants/RememberedGrants.js";
 import { type RememberedRule } from "../../bridge/index.js";
 import { type ReadPhase } from "./approvals-reader.js";
 

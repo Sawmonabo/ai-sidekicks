@@ -28,9 +28,12 @@ import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { MessageComposer } from "../../MessageComposer.js";
+// The enumeration method string and the recording bridge are the holder suite's, and
+// there is one of each: two copies would let the two suites disagree about which call
+// they are watching for.
+import { ENUMERATION_METHOD } from "./provider-command-holder.test-support.js";
 
 export const TEST_COMMAND_ID = "composer-discovery-test.act";
-export const ENUMERATION_METHOD = "driver.listProviderCommands";
 /** A prefix no console command and no enumerated provider entry begins with. */
 export const UNMATCHED_PREFIX = "/zzz-nothing-begins-with-this";
 export const EMPTY_STATE_SENTENCE = "No command matches what you have typed";
@@ -79,12 +82,6 @@ export const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
 };
 export const registeredIds: string[] = [];
 
-/** One recorded daemon call, so a re-read is distinguishable from a re-filter. */
-export interface RecordedCall {
-  readonly method: string;
-  readonly params: unknown;
-}
-
 /**
  * The real fixture bridge with `answer` in front of `daemon.call`.
  *
@@ -101,13 +98,6 @@ export function composerBridgeAnswering(
 }
 
 /** The fixture, with a note of what was asked. */
-export function recordingBridge(recorded: RecordedCall[]): ConsoleBridge {
-  return composerBridgeAnswering((call, forward) => {
-    recorded.push({ method: call.method, params: call.params });
-    return forward();
-  });
-}
-
 /** The fixture scenario, with the enumeration refused by the daemon's own code. */
 export function refusingEnumerationBridge(): ConsoleBridge {
   return createFixtureBridge({

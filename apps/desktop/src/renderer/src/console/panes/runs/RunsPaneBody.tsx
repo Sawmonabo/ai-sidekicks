@@ -17,11 +17,14 @@ import { DerivedFigure, formatCount, InlineRefusal } from "../../primitives/inde
 import { useSessionPartition, type SessionStore } from "../../store/index.js";
 import { type PaneContextOf } from "../pane-chrome.js";
 import { KnownRunRow } from "./KnownRunRow.js";
-import { QueueContents } from "./QueueContents.js";
-import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
+import { QueueContents } from "./queue/QueueContents.js";
+import {
+  RunInterventionComposer,
+  type ComposedControl,
+} from "./interventions/RunInterventionComposer.js";
 import { RunRow } from "./RunRow.js";
 import { seatRuns } from "./run-seating.js";
-import { useRunControlSurface } from "./run-control-surface.js";
+import { useRunControlSurface } from "./controls/run-control-surface.js";
 import { useRunFeed } from "./run-state-feed.js";
 import { NoRuns } from "./NoRuns.js";
 import { AwaitingProjection } from "./AwaitingProjection.js";

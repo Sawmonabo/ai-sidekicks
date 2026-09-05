@@ -19,12 +19,12 @@ import {
   enumerationReplyNaming,
   recordingBridge,
   targetForAgent,
-  type RecordedCall,
 } from "./provider-command-holder.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
 
 describe("ProviderCommandEnumeration — one reading, two readers", () => {
   it("puts one enumeration on the wire for both zones", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     // Two observers of one holder: the popover, which opens the reading, and the
@@ -55,7 +55,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
   });
 
   it("negative control: two holders are two readings and ask twice", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     for (const enumeration of [
       new ProviderCommandEnumeration(),
@@ -79,7 +79,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
   });
 
   it("names a published entry to a reader that never opened the surface", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     // Nothing is named before the reading lands: the send path says what it said
@@ -108,7 +108,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
   });
 
   it("stops naming entries once the surface that opened the reading closes", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(
@@ -144,7 +144,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     // where it was. A key of session and agent alone reads that as "nothing moved" and
     // serves the previous wire's catalog, which is exactly the routing invariant the
     // enumeration exists to keep.
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const firstBridge = recordingBridge(recorded);
     const secondBridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
@@ -180,7 +180,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     // The second half of the same defect: the outstanding read was guarded by a key
     // the swap did not move, so the old wire's catalog could land ON TOP of the new
     // one's after the surface had already been re-served.
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const parkedOnFirstBridge: ((reply: unknown) => void)[] = [];
     const firstBridge = recordingBridge(recorded, parkedOnFirstBridge);
     const secondBridge = recordingBridge(recorded);
@@ -222,7 +222,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
   it("negative control: the same bridge at the same address asks nothing a second time", async () => {
     // Without this the two cases above would hold over a holder that re-read on every
     // render, which is a different defect wearing the same green.
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(

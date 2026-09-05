@@ -11,7 +11,6 @@ import { describe, expect, it } from "vitest";
 import { consoleCommands } from "../../../console/frame/command-surface.js";
 import {
   EMPTY_STATE_SENTENCE,
-  type RecordedCall,
   TEST_COMMAND_ID,
   UNMATCHED_PREFIX,
   agentPane,
@@ -19,11 +18,12 @@ import {
   composerAgentIds,
   mountComposer,
   optionNames,
-  recordingBridge,
   refusingEnumerationBridge,
   registeredIds,
   typeIntoLine,
 } from "./provider-command-discovery.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { recordingBridge } from "./provider-command-holder.test-support.js";
 
 describe("ProviderCommandAutocomplete", () => {
   it("stays closed until a leading slash is typed", async () => {
@@ -62,7 +62,7 @@ describe("ProviderCommandAutocomplete", () => {
   });
 
   it("closes when the composer is re-addressed, because the line it watched is another draft", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const mounted = await mountComposer({
       bridge: recordingBridge(recorded),
       focusedPane: agentPane(composerAgentIds()[0]!),
@@ -83,7 +83,7 @@ describe("ProviderCommandAutocomplete", () => {
   });
 
   it("says nobody was asked when the composer addresses no agent", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const mounted = await mountComposer({
       bridge: recordingBridge(recorded),
       focusedPane: undefined,
@@ -187,7 +187,7 @@ describe("ProviderCommandAutocomplete", () => {
   });
 
   it("negative control: a provider entry offers no act, and nothing is dispatched", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const mounted = await mountComposer({
       bridge: recordingBridge(recorded),
       focusedPane: agentPane(composerAgentIds()[0]!),

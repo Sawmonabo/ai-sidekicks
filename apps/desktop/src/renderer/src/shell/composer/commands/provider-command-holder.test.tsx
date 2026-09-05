@@ -17,12 +17,12 @@ import {
   enumerationCalls,
   recordingBridge,
   targetForAgent,
-  type RecordedCall,
 } from "./provider-command-holder.test-support.js";
+import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
 
 describe("useProviderCommandEnumeration", () => {
   it("asks nothing until the discovery surface is open", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { result } = renderHook(() =>
@@ -42,7 +42,7 @@ describe("useProviderCommandEnumeration", () => {
   });
 
   it("reads the addressed agent once the surface opens", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { result } = renderHook(() =>
@@ -66,7 +66,7 @@ describe("useProviderCommandEnumeration", () => {
   });
 
   it("re-reads for a newly addressed agent rather than reusing the list in hand", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { result, rerender } = renderHook(
@@ -100,7 +100,7 @@ describe("useProviderCommandEnumeration", () => {
   });
 
   it("negative control: re-rendering at the same address asks nothing a second time", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { rerender } = renderHook(
@@ -127,7 +127,7 @@ describe("useProviderCommandEnumeration", () => {
   });
 
   it("asks nothing for a composer addressed at a channel", async () => {
-    const recorded: RecordedCall[] = [];
+    const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
     const { result } = renderHook(() =>

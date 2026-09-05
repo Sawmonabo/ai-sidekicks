@@ -14,9 +14,9 @@ import {
   type DriverCapabilityFlag,
   type RunState,
 } from "@ai-sidekicks/contracts";
-import { RunControls } from "./RunControls.js";
+import { RunControls } from "./controls/RunControls.js";
 import { RunStateProjection } from "./run-state-projection.js";
-import { useRunControlSurface } from "./run-control-surface.js";
+import { useRunControlSurface } from "./controls/run-control-surface.js";
 import type { DriverCapabilityReadout } from "../../bridge/index.js";
 import { RUN_ID, renderPane, scriptedBridge, transition } from "./runs-pane.test-support.js";
 

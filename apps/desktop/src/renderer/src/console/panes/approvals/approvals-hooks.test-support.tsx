@@ -13,20 +13,15 @@ import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { useApprovalsReader } from "./approvals-hooks.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
+import type { RecordedDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
 
 export const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 export const SECOND_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";
 
-/** One recorded wire call, so a read can be attributed to the session it named. */
-export interface RecordedCall {
-  readonly method: string;
-  readonly params: unknown;
-}
-
 export interface ObservableBridge {
   readonly bridge: ConsoleBridge;
   readonly clock: ManualClock;
-  readonly calls: readonly RecordedCall[];
+  readonly calls: readonly RecordedDaemonCall[];
 }
 
 /**
@@ -40,7 +35,7 @@ export interface ObservableBridge {
  */
 export function observableBridge(): ObservableBridge {
   const clock = new ManualClock();
-  const calls: RecordedCall[] = [];
+  const calls: RecordedDaemonCall[] = [];
   const recordEmptyRows = async (
     method: string,
     params: unknown,
@@ -134,7 +129,7 @@ export function lifecycleEvent(sessionId: string, sequence: number): ConsoleSess
  * `approval.projectionRead`, so the read never reaches the call door and no method
  * string is sent anywhere.
  */
-export function sessionIdsRead(calls: readonly RecordedCall[]): readonly unknown[] {
+export function sessionIdsRead(calls: readonly RecordedDaemonCall[]): readonly unknown[] {
   return calls
     .filter((call) => call.method === "approvalProjectionRead")
     .map((call) => (call.params as { readonly sessionId?: unknown }).sessionId);

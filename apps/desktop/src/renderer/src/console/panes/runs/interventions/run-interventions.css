@@ -1,0 +1,189 @@
+/* What a run's interventions look like: the history, the rollback settlement, and
+   the composer a steer or a rewind is written in.
+
+   Split out of `runs.css`, which now covers the pane, one run's row, the control
+   row, and the queue. The seam is the same one the modules take: everything above
+   is what the pane SHOWS about a run, and everything here is what a person DOES to
+   one and what the daemon said came of it.
+
+   Imported from this subtree's door beside the pane's own sheet, so the bundler
+   still sees one edge per file.
+
+   Every value here is a Meridian token: no colour literal, no font stack, and no
+   spacing number. */
+
+/* --- Interventions and the rollback settlement ------------------------------ */
+
+.meridian-interventions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.meridian-interventions__row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-2);
+  border-left: 2px solid var(--meridian-edge);
+  padding-left: var(--meridian-space-2);
+}
+
+.meridian-interventions__head {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-interventions__detail,
+.meridian-interventions__reason {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-rollback__head {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
+.meridian-rollback__summary,
+.meridian-rollback__resend,
+.meridian-rollback__standing,
+.meridian-rollback__enumeration-empty {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback__summary {
+  color: var(--meridian-text);
+}
+
+.meridian-rollback__resend,
+.meridian-rollback__standing,
+.meridian-rollback__enumeration-empty {
+  color: var(--meridian-text-muted);
+}
+
+.meridian-rollback__positions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-3);
+  margin: 0;
+}
+
+.meridian-rollback__position {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: baseline;
+}
+
+.meridian-rollback__position dt {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback__position dd {
+  margin: 0;
+}
+
+.meridian-rollback__no-position {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-rollback__files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+.meridian-rollback__enumeration-summary {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: baseline;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+.meridian-rollback__enumeration-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 2px;
+}
+
+.meridian-rollback__enumeration-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: var(--meridian-space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* --- The steer and rewind composer ----------------------------------------- */
+
+.meridian-run-composer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge-strong);
+  border-radius: var(--meridian-radius-lg);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-run-composer__title {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 500;
+}
+
+.meridian-run-composer__label {
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-composer__position,
+.meridian-run-composer__body {
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
+  font: inherit;
+  font-size: var(--meridian-text-sm);
+  resize: vertical;
+}
+
+.meridian-run-composer__position:focus-visible,
+.meridian-run-composer__body:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-run-composer__preview,
+.meridian-run-composer__composite {
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-run-composer__actions {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
