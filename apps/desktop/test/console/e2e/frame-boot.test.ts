@@ -37,14 +37,14 @@ import {
   SCHEME_PREFERENCE_KEY,
   UI_STATE_STORE_NAME,
 } from "../../../src/renderer/src/console/persistence/index.js";
-import { fixtureBundleExists, launchConsole } from "../electron-harness.js";
+import { withLaunchedConsole } from "../electron-harness.js";
+import { fixtureBundleExists } from "../fixture-bundle.js";
 
 const bundleIsBuilt = fixtureBundleExists();
 
 describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", () => {
   it("serves the window from the privileged renderer scheme", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       // The origin is the persistence partition key: a scheme registered without
       // `standard: true` has no origin at all, and an origin-less document gets
       // neither IndexedDB nor `localStorage` — so the scheme-persistence test
@@ -54,14 +54,11 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // compile time instead of leaving it comparing two stale literals.
       const origin = await consoleApplication.window.evaluate(() => window.location.origin);
       expect(origin).toBe(RENDERER_ORIGIN);
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("boots the frame with its rail, a mounted surface, and a reserved one", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
       // The rail exists and carries the destinations the frame declares. Read as
@@ -117,14 +114,11 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       await consoleWindow
         .locator(".meridian-frame__absence .meridian-nothing--empty")
         .waitFor({ state: "visible" });
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("keeps the renderer free of Node globals", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       // The Tier-1 smoke test asserts this against a `SIDEKICKS_SMOKE_PROBE`
       // build through a stdout probe. It is re-asserted here for a different
       // reason and against a different artifact: this is the FIXTURES bundle
@@ -141,14 +135,11 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
         process: "undefined",
         global: "undefined",
       });
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("opens the palette from a real keystroke", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
       // A real key event through the real window, which is the only place the
       // whole chord path runs end to end: the browser tier's synthetic events
@@ -161,14 +152,11 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       // dismissed is worse than one that never opened — the person is stuck.
       await consoleWindow.keyboard.press("Escape");
       await consoleWindow.getByRole("dialog").waitFor({ state: "hidden" });
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 
   it("persists an explicit colour scheme across a reload", async () => {
-    const consoleApplication = await launchConsole();
-    try {
+    await withLaunchedConsole({}, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
       const readScheme = async (): Promise<string | null> =>
         await consoleWindow.evaluate(
@@ -259,8 +247,6 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — the console in its own shell", (
       await expect
         .poll(readScheme, { timeout: 10_000, message: "the scheme did not survive a reload" })
         .toBe("dark");
-    } finally {
-      await consoleApplication.close();
-    }
+    });
   });
 });

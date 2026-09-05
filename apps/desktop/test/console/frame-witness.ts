@@ -54,19 +54,35 @@ export interface RendererFrameSource {
   readonly awaitTwoFrames: () => Promise<number>;
 }
 
-/** Frames arrived inside the budget. */
-export interface FramesWitnessed {
-  readonly painting: true;
+/**
+ * What every verdict carries, whichever way the race went.
+ *
+ * `budgetMs` is here rather than left for a caller to look up, and that is the
+ * whole of this shape's reason for existing: the budget is a CONSTRUCTOR
+ * argument with a default, so a caller that interpolated the module constant
+ * into its sentence would be describing a bound the witness may never have
+ * applied — wrong by a factor of 75 against the 200 ms every case in
+ * `architecture/frame-witness.test.ts` injects. It is the same rule
+ * `CleanupOutcome.budgetMs` states for the close: there is one figure, produced
+ * where the bound is computed.
+ */
+interface FrameWitnessMeasurement {
   /** Wall milliseconds the witness waited, measured on the driver side. */
   readonly waitedMs: number;
+  /** The bound this witness was actually held to, in milliseconds. */
+  readonly budgetMs: number;
+}
+
+/** Frames arrived inside the budget. */
+export interface FramesWitnessed extends FrameWitnessMeasurement {
+  readonly painting: true;
   /** Renderer-side milliseconds from the request to the second frame. */
   readonly frameIntervalMs: number;
 }
 
 /** No frame arrived inside the budget. */
-export interface FramesMissing {
+export interface FramesMissing extends FrameWitnessMeasurement {
   readonly painting: false;
-  readonly waitedMs: number;
 }
 
 export type FrameWitnessOutcome = FramesWitnessed | FramesMissing;
@@ -119,18 +135,28 @@ export class FrameWitness {
     const framesDelivered = this.#frameSource.awaitTwoFrames();
     // An ABANDONED probe must not take the process down. When the budget wins the
     // race the probe is still outstanding, and the caller's next act is to close
-    // the application — which rejects it. Without this the rejection arrives with
-    // no handler attached and vitest fails the tier on an unhandled rejection
-    // instead of on the witness's own verdict. Attaching a handler here does not
-    // remove `framesDelivered` from the race, so a rejection that arrives BEFORE
-    // the budget expires still propagates: a crashed renderer reports as a crash.
-    framesDelivered.catch(() => undefined);
+    // the application — which rejects it; unhandled, that fails the tier on
+    // something other than this witness's verdict.
+    //
+    // The race is what stops that, and it is the race and nothing else:
+    // `Promise.race` calls `then` on BOTH promises, so the loser stays handled
+    // for the rest of its life. A bare `framesDelivered.catch(() => undefined)`
+    // used to sit here claiming to be the mechanism, and it was a second handler
+    // on an already-handled promise — removing it changes nothing, which is how
+    // it was found. The claim lives in `architecture/frame-witness.test.ts`
+    // instead, where an abandoned probe is rejected and the process is asserted
+    // never to have been told: that case fails if this stops being a race.
+    //
+    // Racing rather than only bounding also keeps the OTHER direction: a
+    // rejection arriving before the budget expires still propagates, so a
+    // crashed renderer reports as a crash.
     try {
       const frameIntervalMs = await Promise.race([framesDelivered, budgetExpired]);
       const waitedMs = Date.now() - startedAt;
+      const budgetMs = this.#budgetMs;
       return frameIntervalMs === null
-        ? { painting: false, waitedMs }
-        : { painting: true, waitedMs, frameIntervalMs };
+        ? { painting: false, waitedMs, budgetMs }
+        : { painting: true, waitedMs, budgetMs, frameIntervalMs };
     } finally {
       clearTimeout(timeoutHandle);
     }

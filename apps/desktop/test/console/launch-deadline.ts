@@ -180,10 +180,18 @@ export class LaunchDeadline {
     });
     // An ABANDONED operation must not take the process down. When the budget
     // wins, the work is still outstanding and the caller's next act is to close
-    // the application — which rejects it, with no handler attached unless one is
-    // put here. Attaching does not remove `work` from the race, so a rejection
-    // that arrives first still propagates.
-    work.catch(() => undefined);
+    // the application — which rejects it; unhandled, that fails the tier on
+    // something other than the phase's verdict. The same is true in reverse:
+    // when the work wins, the expiry promise above rejects into nothing.
+    //
+    // `Promise.race` is what stops both, by calling `then` on each promise, so
+    // whichever loses stays handled for the rest of its life. A bare
+    // `work.catch(() => undefined)` used to sit here claiming to be the
+    // mechanism, and it was a second handler on an already-handled promise. The
+    // claim lives in `architecture/launch-deadline.test.ts` instead, where an
+    // abandoned operation is rejected and the process is asserted never to have
+    // been told. Racing rather than only bounding also keeps a rejection that
+    // arrives first propagating as itself.
     try {
       return await Promise.race([work, budgetExpired]);
     } finally {

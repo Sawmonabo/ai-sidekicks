@@ -48,9 +48,10 @@ export interface ClosableApplication {
  * Force-termination, as a seam.
  *
  * A constructor argument so a test can assert the SIGKILL happened without
- * signalling anything: a spy is an object literal, and a terminator that really
- * killed something would take the test runner's own process tree with it on the
- * negative-pid arm below.
+ * signalling anything: a spy is an object literal, and these cases run INSIDE
+ * the runner, where a terminator that really killed something would deliver to
+ * a whole process group — the launched tree only because playwright-core spawns
+ * detached, and somebody else's group for any other pid it is handed.
  */
 export interface ProcessTerminator {
   /** Kill the tree led by `processId`. Returns whether a signal was delivered. */
@@ -122,8 +123,8 @@ export interface CleanupOutcome {
  * `test/helpers/process-tree.ts`, shared with the Tier-1 smoke probe, because
  * two copies of them had already disagreed about whether `taskkill`'s exit
  * status counts. `BoundedCleanup` still takes the seam as a constructor
- * argument — a terminator that really killed something would take this test
- * runner's own process tree with it on the negative-pid arm.
+ * argument — a terminator that really killed something would signal a whole
+ * process group from inside the runner, and a test must signal nothing.
  */
 export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
   isRunning: (processId: number): boolean => processExists(processId),
@@ -167,10 +168,14 @@ export class BoundedCleanup {
     const closing = this.#application.close().then(() => "closed" as const);
     // An ABANDONED close must not take the process down. When the budget wins it
     // is still outstanding, and killing the process underneath it is precisely
-    // what makes it reject — with no handler attached unless one is put here.
-    // Attaching does not remove it from the race, so a close that fails FAST
-    // still settles the race rather than waiting out the budget.
-    closing.catch(() => undefined);
+    // what makes it reject; unhandled, that would fail the tier on something
+    // other than the failure that started the cleanup. The race is what stops it
+    // — `Promise.race` calls `then` on both promises, so the loser stays handled
+    // for the rest of its life, and a close that fails FAST still settles the
+    // race rather than waiting the budget out. A bare `.catch(() => undefined)`
+    // used to sit here claiming to be that mechanism; it was a second handler on
+    // an already-handled promise. The claim is made where it can fail instead,
+    // in `architecture/bounded-cleanup.test.ts`.
     let raced: "closed" | "expired" | "rejected";
     let closeRejection: unknown;
     try {
@@ -232,6 +237,10 @@ export class BoundedCleanup {
  * could not otherwise know: that a process may still be running. Silent on a
  * clean close, because a sentence about cleanup on every failure would train a
  * reader to skip the one that matters.
+ *
+ * The sentence names no phase, deliberately: it is reached from the launch's own
+ * failure path AND from `closeAfterBody`, where the failure kept is a test
+ * body's assertion, and "a launch failed" would misdescribe that run.
  */
 export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | undefined): unknown {
   if (outcome === undefined || outcome.settlement === "closed") {
@@ -243,8 +252,8 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
       : "";
   if (outcome.settlement === "closed-after-rejection") {
     return new Error(
-      `a launch failed, and closing the Electron process then failed too${rejectionNote} — though the ` +
-        `process did exit, so nothing was left running; the failure that started this is the cause below`,
+      `closing the launched Electron failed${rejectionNote} — though the process did exit, so nothing ` +
+        `was left running; the failure that started this is the cause below`,
       { cause: error },
     );
   }
@@ -254,15 +263,15 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
       : "and could not be terminated either, so it may still be running and holding its profile — " +
         "a later launch in the same job losing `requestSingleInstanceLock()` starts here";
   return new Error(
-    `a launch failed, and the Electron process then did not close within the ${String(outcome.budgetMs)} ms ` +
-      "it was given " +
-      `(waited ${String(outcome.waitedMs)} ms)${rejectionNote} ${consequence}; the failure that started this is the cause below`,
+    `the launched Electron did not close within the ${String(outcome.budgetMs)} ms it was given ` +
+      `(waited ${String(outcome.waitedMs)} ms)${rejectionNote} ${consequence}; the failure that started ` +
+      "this is the cause below",
     { cause: error },
   );
 }
 
 /**
- * Raised when a launch's cleanup did not end in a clean close.
+ * Raised when cleanup may have left something behind, or failed outright.
  *
  * Thrown rather than logged, which is the whole point. A `console.error` is not a
  * failure to vitest, so a tier whose assertions passed reported success while
@@ -274,8 +283,15 @@ export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | und
  * was refused has nothing to look for.
  */
 export class CleanupFailedError extends Error {
-  readonly settlement: CleanupSettlement;
-  readonly processId: number | undefined;
+  /**
+   * The verdict this error was built from, carried whole.
+   *
+   * A caller folding this cleanup into a failure of its own needs the outcome,
+   * not a re-derivation of it from the message — and two copied fields used to
+   * be the only way through. `closeAfterBody` reads it and hands it straight to
+   * `withCleanupOutcome`.
+   */
+  readonly outcome: CleanupOutcome;
 
   constructor(outcome: CleanupOutcome) {
     const target =
@@ -292,18 +308,93 @@ export class CleanupFailedError extends Error {
       outcome.closeRejection === undefined ? undefined : { cause: outcome.closeRejection },
     );
     this.name = "CleanupFailedError";
-    this.settlement = outcome.settlement;
-    this.processId = outcome.processId;
+    this.outcome = outcome;
+  }
+
+  get settlement(): CleanupSettlement {
+    return this.outcome.settlement;
+  }
+
+  get processId(): number | undefined {
+    return this.outcome.processId;
   }
 }
 
 /**
- * The error a caller must be shown, or `undefined` when cleanup was clean.
+ * The error a caller must be shown, or `undefined` when nothing was left behind.
  *
- * A function rather than a conditional at the call site so the rule — every
- * settlement but `closed` is a failure — is stated once and can be tested without
- * launching Electron, which is the only way to reach these settlements for real.
+ * A function rather than a conditional at the call site so the rule is stated
+ * once and can be tested without launching Electron, which is the only way to
+ * reach these settlements for real. Two raise, and they are the two a later
+ * launch can feel: `unterminable`, where a process nothing could kill may still
+ * be holding its profile, and `closed-after-rejection`, where the close failed
+ * outright and the caller would otherwise never hear the rejection.
+ *
+ * `terminated` is deliberately NOT one of them. It says the tree was SIGKILLed,
+ * which `withCleanupOutcome` reports in the same breath as "later launches are
+ * unaffected" — and a verdict cannot both say that and fail a tier over it. What
+ * failing it would catch is a healthy shutdown that ran long: the endurance tier
+ * closes minutes after its launch deadline is spent, so the applied bound is the
+ * reserve alone, and an Electron flushing a session store on a loaded two-core
+ * runner can lose that race with nothing leaked. It is a breadcrumb, not a red
+ * check.
  */
 export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | undefined {
-  return outcome.settlement === "closed" ? undefined : new CleanupFailedError(outcome);
+  return outcome.settlement === "unterminable" || outcome.settlement === "closed-after-rejection"
+    ? new CleanupFailedError(outcome)
+    : undefined;
+}
+
+/**
+ * Run `body`, then close — and when both fail, keep the body's failure.
+ *
+ * `close()` is not total: it rejects when cleanup may have left something
+ * behind. A caller that awaited it in a bare `finally` therefore DESTROYED
+ * whatever the body had thrown, because JavaScript discards the in-flight
+ * completion when a `finally` block throws — and the two co-occur by
+ * construction rather than by coincidence, since a wedged renderer is exactly
+ * the state in which an assertion fails AND the close then loses its race.
+ *
+ * The disposition is `withCleanupOutcome`'s, applied rather than restated: the
+ * failure that explains the run stays as the cause, and cleanup adds only what
+ * the reader could not otherwise know. A cleanup failure surfaces on its own
+ * exactly when the body SUCCEEDED, which is where it IS that failure.
+ *
+ * Takes the close alone rather than a whole launched application, which is what
+ * makes the interesting case reachable: a body that fails while the close also
+ * fails is one object literal, and unproducible with a real Electron.
+ */
+export async function closeAfterBody<TResult>(
+  application: Pick<ClosableApplication, "close">,
+  body: () => Promise<TResult>,
+): Promise<TResult> {
+  let bodyOutcome:
+    | { readonly succeeded: true; readonly value: TResult }
+    | { readonly succeeded: false; readonly failure: unknown };
+  try {
+    bodyOutcome = { succeeded: true, value: await body() };
+  } catch (failure: unknown) {
+    bodyOutcome = { succeeded: false, failure };
+  }
+  try {
+    await application.close();
+  } catch (cleanupError: unknown) {
+    if (bodyOutcome.succeeded) {
+      throw cleanupError;
+    }
+    // A close that rejected with something other than the verdict has no
+    // settlement to fold, and `withCleanupOutcome` hands the body's failure back
+    // untouched there rather than inventing a sentence about a cleanup it cannot
+    // describe. The launcher's own close does not produce that arm — it raises
+    // the verdict and breadcrumbs everything else — so this is the guard for a
+    // caller that closes some other way, not a path in the tiers.
+    throw withCleanupOutcome(
+      bodyOutcome.failure,
+      cleanupError instanceof CleanupFailedError ? cleanupError.outcome : undefined,
+    );
+  }
+  if (!bodyOutcome.succeeded) {
+    throw bodyOutcome.failure;
+  }
+  return bodyOutcome.value;
 }

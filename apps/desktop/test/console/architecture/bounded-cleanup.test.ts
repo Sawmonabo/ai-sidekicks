@@ -12,30 +12,32 @@
 // it was the case nothing checked. So `BoundedCleanup` takes both collaborators
 // as constructor arguments — the application and the terminator — and a close
 // that never settles is one object literal, while a terminator that RECORDS
-// rather than signals is another. That second seam is not a convenience: a
-// terminator that really killed something would take this test runner's own
-// process tree with it on the negative-pid arm.
+// rather than signals is another. That second seam is not a convenience: these
+// cases run inside the runner, and a terminator that really killed something
+// would deliver to a whole process group — the launched tree only because
+// playwright-core spawns detached, and somebody else's for any other pid.
+//
+// What this file holds is the RACE — which settlement a close reaches. What a
+// caller is then TOLD about that settlement, and which of two failures a reader
+// sees when the body failed too, is `cleanup-disposition.test.ts`: the two were
+// one file until it passed 400 lines carrying both subjects, which is the split
+// `frame-witness.test.ts` and `launch-deadline.test.ts` already made for the
+// same reason.
 //
 // The clock these cases draw from is `launch-deadline.test.ts`; the verdict the
 // witness renders just before them is `frame-witness.test.ts`.
-
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
 import {
   BoundedCleanup,
-  CleanupFailedError,
-  type CleanupOutcome,
   type ClosableApplication,
   type ProcessTerminator,
-  cleanupFailure,
   withCleanupOutcome,
 } from "../bounded-cleanup.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
 import { LaunchDeadline } from "../launch-deadline.js";
+import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
 
 describe("bounded cleanup — a close that never settles", () => {
   /** A close bound short enough that exhausting it costs the suite nothing. */
@@ -245,135 +247,20 @@ describe("bounded cleanup — a close that never settles", () => {
     // Killing the process is what MAKES the outstanding close reject, so this is
     // the ordinary path rather than an edge: unhandled, it would fail the tier on
     // something other than the failure that started the cleanup.
-    let rejectAbandoned: (reason: Error) => void = () => undefined;
+    const abandonedClose = deferredRejection();
     const outcome = await new BoundedCleanup(
-      {
-        close: () =>
-          new Promise<void>((_resolveNever, reject) => {
-            rejectAbandoned = reject;
-          }),
-        processId: () => 4242,
-      },
+      { close: () => abandonedClose.promise, processId: () => 4242 },
       terminatorSpy(true),
       spentDeadline(),
       TEST_RESERVE_MS,
     ).close();
     expect(outcome.settlement).toBe("terminated");
-    rejectAbandoned(new Error("Target page, context or browser has been closed"));
-    await new Promise((resolveTick) => {
-      setTimeout(resolveTick, 10);
+    // Asserted rather than waited out. This is what holds the cleanup to racing
+    // the close rather than merely bounding it: `Promise.race` calls `then` on
+    // the loser, so it stays handled — abandon it outside a race and this line
+    // fails.
+    await expectNoUnhandledRejection(() => {
+      abandonedClose.reject(new Error("Target page, context or browser has been closed"));
     });
-  });
-});
-
-describe("bounded cleanup — what a caller is told", () => {
-  /** An outcome carrying whichever settlement a case is about. */
-  function outcomeOf(settlement: CleanupOutcome["settlement"]): CleanupOutcome {
-    return { settlement, waitedMs: 10_000, budgetMs: 10_000, processId: 4242 };
-  }
-
-  it("tells the caller nothing at all when the close was clean", () => {
-    // The ordinary path. A sentence about cleanup on a run that cleaned up would
-    // train a reader to skip the one that did not.
-    expect(
-      cleanupFailure({ settlement: "closed", waitedMs: 31, budgetMs: 10_000 }),
-    ).toBeUndefined();
-  });
-
-  it.each(["terminated", "unterminable", "closed-after-rejection"] as const)(
-    "raises a failure the caller cannot ignore when the close settled %s",
-    (settlement) => {
-      // THE FINDING. Cleanup that went wrong was breadcrumbed with `console.error`
-      // and the harness resolved anyway — and a log line is not a failure to
-      // vitest, so a tier whose assertions passed reported success while leaving
-      // an Electron alive for every launch after it. Every settlement but a clean
-      // close is now raised, `terminated` included: a run that had to SIGKILL its
-      // browser did not close it.
-      const failure = cleanupFailure(outcomeOf(settlement));
-      expect(failure).toBeInstanceOf(CleanupFailedError);
-      expect(failure?.settlement).toBe(settlement);
-      // Named, not merely counted: an operator told only that cleanup failed has
-      // nothing to look for.
-      expect(failure?.processId).toBe(4242);
-      expect(failure?.message).toContain(settlement);
-      expect(failure?.message).toContain("4242");
-    },
-  );
-
-  it("says so plainly when the process that would not close cannot be named", () => {
-    // `processId()` answers `undefined` once Playwright has reaped the child, and
-    // an error reading "pid undefined" is worse than one that admits it.
-    // Built by hand: a default parameter would take `undefined` as "not supplied".
-    const failure = cleanupFailure({ settlement: "unterminable", waitedMs: 10, budgetMs: 10_000 });
-    expect(failure?.message).toContain("an unidentified process");
-    expect(failure?.message).not.toContain("undefined");
-  });
-
-  it("warns about the profile lock only where a process may still hold it", () => {
-    // `unterminable` is the settlement that breaks the NEXT launch —
-    // `requestSingleInstanceLock()` is lost to a process nothing could kill — and
-    // the one that earns the extra sentence. A terminated tree does not.
-    expect(cleanupFailure(outcomeOf("unterminable"))?.message).toContain(
-      "requestSingleInstanceLock",
-    );
-    expect(cleanupFailure(outcomeOf("terminated"))?.message).not.toContain(
-      "requestSingleInstanceLock",
-    );
-  });
-
-  it("carries a rejected close as the cause rather than discarding it", () => {
-    const rejection = new Error("Target page, context or browser has been closed");
-    const failure = cleanupFailure({ ...outcomeOf("terminated"), closeRejection: rejection });
-    expect(failure?.cause).toBe(rejection);
-  });
-
-  it("keeps a launch failure on top and folds the cleanup into it", () => {
-    // The launch-failure path. Two errors with the wrong one on top is how a
-    // readiness timeout gets read as a cleanup defect, so there is one error: the
-    // launch failure as `cause`, the cleanup as the sentence above it.
-    const launchFailure = new Error("no animation frame arrived within 2000 ms");
-    const folded = withCleanupOutcome(launchFailure, {
-      ...outcomeOf("unterminable"),
-      closeRejection: new Error("browser has been closed"),
-    });
-    expect(folded).toBeInstanceOf(Error);
-    expect((folded as Error).cause).toBe(launchFailure);
-    expect((folded as Error).message).toContain("close rejected: browser has been closed");
-    expect((folded as Error).message).toContain("may still be running");
-  });
-
-  it("leaves a launch failure exactly as it was when the close was clean", () => {
-    const launchFailure = new Error("no animation frame arrived within 2000 ms");
-    expect(
-      withCleanupOutcome(launchFailure, { settlement: "closed", waitedMs: 31, budgetMs: 10_000 }),
-    ).toBe(launchFailure);
-    // And when cleanup never ran at all, which is how the pre-readiness arms fail.
-    expect(withCleanupOutcome(launchFailure, undefined)).toBe(launchFailure);
-  });
-});
-
-describe("bounded cleanup — the harness spends both dispositions", () => {
-  // The two call sites are inside a closure `launchConsole()` returns, reachable
-  // only by launching a real Electron and then wedging it — which no fixture can
-  // do. So the wiring is asserted against the source, the same instrument five
-  // other tests in this tier already use for claims a running program cannot make
-  // about itself. It is deliberately narrow: it checks that each disposition is
-  // spent on its own path, not how the surrounding code reads.
-  const harness = readFileSync(
-    resolve(dirname(fileURLToPath(import.meta.url)), "..", "electron-harness.ts"),
-    "utf8",
-  );
-
-  it("throws the failure on the ordinary path", () => {
-    // Not `console.error(...)` and fall through, which is what it used to do.
-    expect(harness).toMatch(/const failure = cleanupFailure\(cleanupOutcome\);/);
-    expect(harness).toMatch(/\n\s*throw failure;/);
-  });
-
-  it("swallows that throw on the launch-failure path and attaches the outcome", () => {
-    // `close()` now rejects, and on this path that rejection must not win — the
-    // launch failure is the error that explains the run.
-    expect(harness).toMatch(/try \{\s*await close\(\);\s*\} catch \{/);
-    expect(harness).toMatch(/throw withCleanupOutcome\(error, cleanupOutcome\);/);
   });
 });

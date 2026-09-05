@@ -34,6 +34,7 @@ import {
   type RendererFrameSource,
 } from "../frame-witness.js";
 import { FRAME_WITNESS_TIMEOUT_MS, READINESS_BUDGET_MS } from "../launch-budgets.js";
+import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
 
 /** A budget short enough that exhausting it costs the suite nothing. */
 const TEST_BUDGET_MS = 200;
@@ -114,21 +115,47 @@ describe("frame witness — late is not the same as never", () => {
     // rejects the probe that is still outstanding. Unhandled, that rejection
     // fails the whole tier on something other than the witness's own verdict —
     // so the outcome must settle AND the late rejection must reach a handler.
-    let rejectAbandonedProbe: (reason: Error) => void = () => undefined;
-    const abandoned: RendererFrameSource = {
-      awaitTwoFrames: () =>
-        new Promise<number>((_resolveInterval, reject) => {
-          rejectAbandonedProbe = reject;
-        }),
-    };
-    const outcome = await new FrameWitness(abandoned, TEST_BUDGET_MS).witness();
+    const abandonedProbe = deferredRejection();
+    const outcome = await new FrameWitness(
+      { awaitTwoFrames: () => abandonedProbe.promise },
+      TEST_BUDGET_MS,
+    ).witness();
     expect(outcome.painting).toBe(false);
-    rejectAbandonedProbe(new Error("Target page, context or browser has been closed"));
-    // Give the rejection a turn to surface. If the witness had left it
-    // unhandled, this is where the process would report it.
-    await new Promise((resolveTick) => {
-      setTimeout(resolveTick, 10);
+    // Asserted rather than waited out. This is what holds the witness to racing
+    // the probe rather than merely bounding it: `Promise.race` calls `then` on
+    // the loser, so it stays handled — abandon it outside a race and this line
+    // fails.
+    await expectNoUnhandledRejection(() => {
+      abandonedProbe.reject(new Error("Target page, context or browser has been closed"));
     });
+  });
+});
+
+describe("frame witness — the verdict names the bound it applied", () => {
+  it("reports the injected bound on both sides of the race", async () => {
+    // THE FINDING. The budget is a constructor argument with a default, and the
+    // outcome used to carry no trace of it — so the harness interpolated the
+    // module constant into its sentence and would have named 15 000 ms for a
+    // witness held to 200. Both arms carry it, because both arms are reported:
+    // the failure sentence names the bound that was missed, and the passing
+    // breadcrumb names the bound the figure it prints was measured against.
+    const missed = await new FrameWitness(frameSourceThatNeverDelivers(), TEST_BUDGET_MS).witness();
+    const witnessed = await new FrameWitness(
+      frameSourceDeliveringAfter(TEST_BUDGET_MS * 0.4, 12),
+      TEST_BUDGET_MS,
+    ).witness();
+    expect([missed.budgetMs, witnessed.budgetMs]).toStrictEqual([TEST_BUDGET_MS, TEST_BUDGET_MS]);
+    // Non-vacuous: the injected bound is not the shipped one, so an outcome that
+    // reported the constant would differ here rather than agree by coincidence.
+    expect(TEST_BUDGET_MS).not.toBe(FRAME_WITNESS_TIMEOUT_MS);
+  });
+
+  it("negative control: a witness given no bound reports the shipped default", async () => {
+    // Without this the case above is ambiguous between "the outcome carries the
+    // bound it was constructed with" and "the outcome carries 200". The source
+    // delivers at once, so taking the shipped default costs no wall time.
+    const outcome = await new FrameWitness(frameSourceDeliveringAfter(0, 3)).witness();
+    expect(outcome.budgetMs).toBe(FRAME_WITNESS_TIMEOUT_MS);
   });
 });
 

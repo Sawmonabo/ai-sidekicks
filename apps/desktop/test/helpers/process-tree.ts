@@ -13,10 +13,14 @@
 //     `playwright-core` spawns with `detached: process.platform !== "win32"`
 //     (`lib/coreBundle.js`), and the smoke probe passes `detached: true` itself,
 //     so on POSIX the launched Electron LEADS its own process group and `-pid`
-//     reaches the browser, its zygote, and every renderer at once. An ATTACHED
-//     child shares this runner's group, and the identical call would signal
-//     vitest itself — which is why the fallback below narrows to the leader and
-//     never widens.
+//     reaches the browser, its zygote, and every renderer at once. The negative
+//     form addresses a whole GROUP — the one whose id is that number — and the
+//     only reason that group is the launched tree is the detached spawn above.
+//     Hand the same call a pid that leads somebody else's group and it takes
+//     that group down instead, which is why the fallback below narrows to the
+//     leader and never widens. An ATTACHED child leads no group at all, so the
+//     negative call finds none, fails `ESRCH`, and falls through to that arm;
+//     this runner's own group is a different number and is never passed.
 //
 //   • Windows has no process group to signal, and its "signals" are
 //     `TerminateProcess` calls that are never forwarded, so signalling the
@@ -68,8 +72,8 @@ export function processExists(processId: number): boolean {
  *
  * Splitting the probe out as an argument is what makes both arms testable at
  * all: the real one signals a real process, so a test exercising it would kill
- * something, and on the POSIX arm that something is this test runner's own
- * process group.
+ * something — on the POSIX arm a whole process group, which is the launched
+ * tree only because of the detached spawn described above.
  */
 export function terminationSucceeded(
   signalDelivered: boolean,
