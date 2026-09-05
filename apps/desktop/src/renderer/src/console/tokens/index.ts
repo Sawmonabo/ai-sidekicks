@@ -60,11 +60,15 @@ export type { GlyphName } from "./glyphs.js";
 // was its only reader, and a door that publishes three steps of a four-step scale
 // makes the fourth look like a private detail rather than the standalone size.
 //
-// The GEOMETRY beside them — the paths, the stroke width, the viewBox — stays behind
-// the declaring module on purpose: its one reader is `Glyph.tsx`, which draws with it
-// rather than sizing with it, and it reaches `./glyphs.js` directly.
+// THE GEOMETRY LEAVES THROUGH THIS DOOR TOO — the paths, the stroke width, the
+// viewBox — for the same reason every other token does, and not because it has many
+// readers. `Glyph.tsx` is its only one, and it reached past this barrel for the module
+// that happens to hold the constants today; a move inside this family would then break
+// a file with no business knowing this family has more than one module. That is the
+// edge `console-cross-family-deep-import` names, and the fix it names is this one.
 export {
   GLYPH_DEFAULT_SIZE,
+  GLYPH_PATHS,
   GLYPH_SIZE_CHROME,
   /**
    * The dense step's one reader is the repos family's diff gutter, which is not in
@@ -76,6 +80,8 @@ export {
    */
   GLYPH_SIZE_DENSE,
   GLYPH_SIZE_ROW,
+  GLYPH_STROKE_WIDTH,
+  GLYPH_VIEWBOX_SIZE,
 } from "./glyphs.js";
 
 export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";

@@ -1,11 +1,14 @@
-// The two layering rules that had no failing control until now.
+// The five layering rules that had no failing control until now.
 //
 // `structure:layering` is a command, not a suite: it reports on THIS tree, and a
 // tree that happens not to contain a violation reports clean whether the rule
 // exists or not. Two rules landed here whose subject does not exist yet — the six
 // view families are unlanded branches, and the console carries exactly one
 // barrel-to-barrel forward that this same change removed — so without a planted
-// control both would have shipped green and unproven.
+// control both would have shipped green and unproven. The door rule and the two
+// pane-board rules are the same shape for the same reason: the change that added them
+// also hoisted or moved every module that violated them, so the tree they land on is
+// clean by construction and their green says nothing about whether they bite.
 //
 // WHAT IS PLANTED AND WHY IT IS NOT A REIMPLEMENTATION. The rule set under test is
 // the real `.dependency-cruiser.mjs`, loaded through dependency-cruiser's own
@@ -13,163 +16,49 @@
 // Only the SUBJECT is synthetic: a module tree written into a temporary directory
 // at the same relative paths the rules are anchored on (`src/renderer/src/console/…`),
 // so `baseDir` is the whole of the difference between this run and the CLI's. No
-// path regex, family list, or dependency type is restated here.
+// path regex, family list, or dependency type is restated here. The subjects are
+// `console-layering-trees.ts` and the cruise machinery is `console-layering-cruise.ts`,
+// both beside this file on the seam `barrel-census.ts` already takes — a tree, a
+// budget, and a claim are three things to change and this file holds only the third.
 //
 // WHY NOT PLANT INTO THE REAL TREE. The aggregate `test` script runs this tier
 // alongside `console-unit` in one Turbo batch, so a fixture written under `src/`
 // would be visible to a concurrently building sibling; and a crash between the
 // write and the delete would leave a violation in the tree that the next
 // `structure` run reports as real.
-//
-// ONE CRUISE PER TREE, AND THE TIMEOUT IS DERIVED FROM THAT. A cruise is the
-// expensive thing here, and the file used to run six for four cases: three cases
-// cruised their own tree and the fourth re-cruised all three to assert a negative
-// over the same outputs. Six cruises against vitest's 5 000 ms default passed alone
-// and timed out under aggregate tier load, and the case that timed out was the one
-// asserting the negative — the one that had computed nothing new. So a tree is
-// cruised at most ONCE for the whole file and every case reads that result, which
-// makes an aggregate case free and leaves each case with at most one cruise to pay
-// for. The timeout then follows the shape `tierTimeoutFor()` uses next door — the
-// slices a case can spend, plus the settlement residual that module already owns —
-// rather than a literal chosen to be comfortable.
 
 import { existsSync } from "node:fs";
-import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 
-import { cruise } from "dependency-cruiser";
-import extractDepcruiseConfig from "dependency-cruiser/config-utl/extract-depcruise-config";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { MINIMUM_SETTLEMENT_RESIDUAL_MS } from "../launch-deadline.js";
-
-const HERE = dirname(fileURLToPath(import.meta.url));
-const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
-const CONFIG_PATH = resolve(PACKAGE_ROOT, ".dependency-cruiser.mjs");
-
-/** Where the rules are anchored, relative to the package root they are run from. */
-const CONSOLE_ROOT = join("src", "renderer", "src", "console");
-
-/** The rule names this file owns. Everything else the cruise reports is another test's. */
-const BARREL_CHAIN_RULE = "console-no-barrel-chain";
-const VIEW_FAMILY_ISOLATION_RULE = "console-view-family-isolation";
-const PANE_BODY_RULE = "console-panes-hold-no-body";
-const IMPORTED_PANE_BODY_RULE = "console-panes-hold-no-imported-body";
-
-/** The rules this file reads out of a cruise. Everything else it reports is another test's. */
-const RULES_UNDER_TEST: readonly string[] = [
+import {
   BARREL_CHAIN_RULE,
-  VIEW_FAMILY_ISOLATION_RULE,
-  PANE_BODY_RULE,
+  CONSOLE_ROOT,
+  CONSOLE_ROOT_RULE,
+  DEEP_IMPORT_RULE,
   IMPORTED_PANE_BODY_RULE,
-];
-
-type PlantedTree = Readonly<Record<string, string>>;
-
-/**
- * The shape the console has AFTER this change, reduced to the modules the two rules
- * can see.
- *
- * Every member is here because a rule could misfire on it: the sub-module door that
- * must stay legal, the family door that must reach past it to the declaring module,
- * the composition site that imports a family door for a type in its signature, and
- * two view families that mind their own business.
- */
-const CLEAN_TREE: PlantedTree = {
-  "core/refusal.ts": `export interface ConsoleRefusal {\n  readonly code: string;\n}\n`,
-  "bridge/growth-values/sessions.ts": `export interface GrowthSessionSummary {\n  readonly sessionId: string;\n}\n`,
-  "bridge/growth-values/index.ts": `export type { GrowthSessionSummary } from "./sessions.js";\n`,
-  "bridge/growth-signatures.ts": `import type { GrowthSessionSummary } from "./growth-values/index.js";\n\nexport type SessionDirectoryReply = readonly GrowthSessionSummary[];\n`,
-  "bridge/index.ts": `export type { GrowthSessionSummary } from "./growth-values/sessions.js";\nexport type { SessionDirectoryReply } from "./growth-signatures.js";\n`,
-  "seats/pane-address.ts": `export interface ConsolePaneRegistry {\n  readonly size: number;\n}\n`,
-  "seats/index.ts": `export type { ConsolePaneRegistry } from "./pane-address.js";\n`,
-  "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  return registry.size;\n}\n`,
-  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/refusal.js";\n\nexport type InviteRefusal = ConsoleRefusal;\n`,
-  "repos/RepoList.ts": `import type { ConsoleRefusal } from "../core/refusal.js";\n\nexport type RepoRefusal = ConsoleRefusal;\n`,
-};
-
-/** The forward this change removed: a family door reaching another door instead of a module. */
-const BARREL_CHAIN_TREE: PlantedTree = {
-  ...CLEAN_TREE,
-  "bridge/index.ts": `export type { GrowthSessionSummary } from "./growth-values/index.js";\nexport type { SessionDirectoryReply } from "./growth-signatures.js";\n`,
-};
-
-/** The sibling edge the r9 rule set left green: one view family reaching another. */
-const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
-  ...CLEAN_TREE,
-  "collaboration/SentInvites.ts": `import type { RepoRefusal } from "../repos/RepoList.js";\n\nexport type InviteRefusal = RepoRefusal;\n`,
-};
-
-/**
- * A pane body parked under the board, which is the shape the flatness rules forbid.
- *
- * Both endpoints are planted deliberately: the body has its own outgoing edge and the
- * board imports the body. Only the first is reported by a rule reading `from`, and a
- * body that imported nothing — a table, a closed set — would be reported by neither that
- * rule nor the orphan rule, because the board gives it a dependent.
- *
- * The body reaches for another VIEW family rather than for a layer, and that is the
- * second claim: under the board's old directory-wide exemption this edge was subtracted
- * from the sibling-isolation rule on both endpoints and passed in silence. The
- * `collaboration/` → `repos/` case below is the same rule with neither endpoint
- * exempted; this one is the rule reaching a module that used to be outside it.
- */
-const PANE_BOARD_SUBDIRECTORY_TREE: PlantedTree = {
-  ...CLEAN_TREE,
-  "panes/runs/RunsPaneBody.ts": `import type { RepoRefusal } from "../../repos/RepoList.js";\n\nexport type RunsPaneRefusal = RepoRefusal;\n`,
-  "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\nimport type { RunsPaneRefusal } from "./runs/RunsPaneBody.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  const refusal: RunsPaneRefusal | undefined = undefined;\n  return refusal === undefined ? registry.size : 0;\n}\n`,
-};
-
-/**
- * The clean shape again under a FRESH identity, for the cleanup proof below.
- *
- * A distinct object rather than one of the three above, because the memo answers a
- * tree a case has already named without planting anything — so a proof about planting
- * has to be the case that plants. Clean, so it asserts the same nothing the first case
- * does and adds no second claim about the rules.
- */
-const PROOF_TREE: PlantedTree = { ...CLEAN_TREE, "core/clock.ts": `export const NOW = 0;\n` };
-
-/** What the config loader answers, named so the memo below can hold its promise. */
-type LayeringConfiguration = Awaited<ReturnType<typeof extractDepcruiseConfig>>;
-
-/** Every tree this file plants. The memo control bounds the cruise count on it. */
-const EVERY_PLANTED_TREE: readonly PlantedTree[] = [
-  CLEAN_TREE,
+  OUTSIDE_DOOR_RULE,
+  PANE_BODY_RULE,
+  PlantedTreeCache,
+  VIEW_FAMILY_ISOLATION_RULE,
+  layeringTimeoutFor,
+} from "./console-layering-cruise.js";
+import {
   BARREL_CHAIN_TREE,
-  VIEW_FAMILY_EDGE_TREE,
+  CLEAN_TREE,
+  CONSOLE_ROOT_TREE,
+  DEEP_IMPORT_TREE,
+  EVERY_PLANTED_TREE,
+  OUTSIDE_RENDERER_TREE,
+  PANE_BOARD_DEEP_IMPORT_TREE,
   PANE_BOARD_SUBDIRECTORY_TREE,
   PROOF_TREE,
-];
-
-/**
- * What one cruise of a planted tree may cost, in milliseconds.
- *
- * A CEILING FOR A WEDGED CRUISE, not an expectation, on the same posture the launch
- * budgets take: what it guards is a cruise that never settles, so what matters is
- * that some finite figure is enforced and that a case which overruns it says which
- * cruise it was rather than taking vitest's undiagnosable kill.
- *
- * Measured rather than chosen. On an idle eight-core Apple-silicon host each of the
- * three cruises settles in 65-110 ms and the whole file in 262 ms of test time. Ten
- * seconds is two orders of magnitude over that, which is the margin the tier needs:
- * the failure this replaces was not a slow cruise but a cruise queued behind
- * twenty-eight other architecture files under the pool's default parallelism, where
- * what a case waits out is contention rather than work.
- *
- * It is a constant here rather than a `budgets.json` row for the reason that registry
- * states about `MINIMUM_SETTLEMENT_RESIDUAL_MS`: the rows there are the slices of the
- * ONE launch-tier timeout, a set claim their derivation makes explicitly, and this
- * tier launches nothing.
- */
-const CRUISE_ALLOWANCE_MS = 10_000;
-
-/** What a case may spend, given how many cruises it can be the first to reach. */
-function layeringTimeoutFor(cruises: number): number {
-  return cruises * CRUISE_ALLOWANCE_MS + MINIMUM_SETTLEMENT_RESIDUAL_MS;
-}
+  RULE_CONTROL_TREES,
+  SUB_MODULE_DOOR_TREE,
+  TEST_SUPPORT_SUBTRACTION_TREE,
+  VIEW_FAMILY_EDGE_TREE,
+} from "./console-layering-trees.js";
 
 /** What a case naming ONE tree may spend. */
 const ONE_TREE_MS = layeringTimeoutFor(1);
@@ -182,140 +71,7 @@ const ONE_TREE_MS = layeringTimeoutFor(1);
  * the figure independent of the order the cases run in, which a budget that assumed
  * a warm memo would not be.
  */
-const EVERY_TREE_MS = layeringTimeoutFor(3);
-
-/**
- * The cruise results this file has paid for, and the directories it planted to get
- * them.
- *
- * TWO LIFETIMES, AND THEY ARE DELIBERATELY DIFFERENT. A completed cruise RESULT is
- * shared across cases — that is what makes the aggregate case free and keeps each
- * case at one cruise — while the planted DIRECTORY is finished the instant the cruise
- * that read it settles. So the result is kept and the tree is removed at the end of
- * the case that planted it, which is what `apps/desktop/AGENTS.md` requires of every
- * temporary directory and what a removal deferred to the suite's end could not give:
- * every tree on disk for the whole run, and all of them leaked if the worker exits
- * before teardown.
- *
- * Behind private fields on one object rather than two module-level collections,
- * because module-level mutable state is shared by every case in the file and a prior
- * failure or a changed case order then reaches into a later observation.
- */
-class PlantedTreeCache {
-  readonly #violationsByTree = new Map<PlantedTree, Promise<readonly string[]>>();
-  #plantedRoots: string[] = [];
-  #removedRoots: string[] = [];
-  // The rule set, loaded ONCE for the file rather than once per cruise. Extracting it
-  // resolves and imports `.dependency-cruiser.mjs` through the same loader the CLI
-  // uses, which is a real module load and has nothing to do with the tree being
-  // cruised — so a file that cruises four trees paid for four identical loads, and
-  // each landed inside the per-case budget of whichever case reached a tree first.
-  // Held as the PROMISE rather than the value so two cases racing for it still load
-  // once, exactly as the cruise results above are.
-  #configuration: Promise<LayeringConfiguration> | undefined = undefined;
-  #configurationLoadCount = 0;
-
-  /** The rule set every cruise runs, loaded on first use and remembered. */
-  #configurationOnce(): Promise<LayeringConfiguration> {
-    if (this.#configuration === undefined) {
-      this.#configurationLoadCount += 1;
-      this.#configuration = extractDepcruiseConfig(CONFIG_PATH);
-    }
-    return this.#configuration;
-  }
-
-  /** How many times the rule set has been loaded, for the control that it is once. */
-  public get configurationLoadCount(): number {
-    return this.#configurationLoadCount;
-  }
-
-  /**
-   * Which rules fired on `tree`, on which edge — cruised once and remembered.
-   *
-   * Keyed on the tree OBJECT rather than on its contents: every tree is a constant,
-   * so identity is exactly the right key and no hashing of file contents has to agree
-   * with it. A case that asks for the same tree twice is answered from the pending
-   * promise, so two cases racing for one tree still cruise it once.
-   */
-  public violationsFor(tree: PlantedTree): Promise<readonly string[]> {
-    const already = this.#violationsByTree.get(tree);
-    if (already !== undefined) {
-      return already;
-    }
-    const cruising = this.#cruiseOnce(tree);
-    this.#violationsByTree.set(tree, cruising);
-    return cruising;
-  }
-
-  /** The directories planted since the last removal, and still on disk. */
-  public get plantedRoots(): readonly string[] {
-    return [...this.#plantedRoots];
-  }
-
-  /** Every directory this cache has removed, for the case that asserts they are gone. */
-  public get removedRoots(): readonly string[] {
-    return [...this.#removedRoots];
-  }
-
-  /** How many trees have been cruised, for the control that no tree is cruised twice. */
-  public get cruisedTreeCount(): number {
-    return this.#violationsByTree.size;
-  }
-
-  /** Remove every directory planted so far, keeping the results read out of them. */
-  public async removePlantedTrees(): Promise<void> {
-    const planted = this.#plantedRoots;
-    this.#plantedRoots = [];
-    this.#removedRoots = [...this.#removedRoots, ...planted];
-    await Promise.all(planted.map((root) => rm(root, { recursive: true, force: true })));
-  }
-
-  async #plant(tree: PlantedTree): Promise<string> {
-    // `realpath` is load-bearing on macOS, where `tmpdir()` is `/var/folders/…`, a symlink
-    // to `/private/var/…`: dependency-cruiser resolves modules to their real paths, so a
-    // `baseDir` on the symlinked side leaves every module absolute and outside it, and every
-    // path-anchored rule silently matches nothing. Measured — without it all four cases
-    // report zero violations, including the two that must fail.
-    const plantRoot = await realpath(await mkdtemp(join(tmpdir(), "console-layering-")));
-    this.#plantedRoots.push(plantRoot);
-    for (const [relativePath, contents] of Object.entries(tree)) {
-      const absolutePath = join(plantRoot, CONSOLE_ROOT, relativePath);
-      await mkdir(dirname(absolutePath), { recursive: true });
-      await writeFile(absolutePath, contents, "utf8");
-    }
-    return plantRoot;
-  }
-
-  /**
-   * Run the REAL rule set over the planted tree and report which rules fired, on which edge.
-   *
-   * `baseDir` is the only thing that differs from a `pnpm structure:layering` run; the
-   * forbidden set, the resolver extensions, and the test-file exclusion all come out of
-   * the config file itself.
-   */
-  async #cruiseOnce(tree: PlantedTree): Promise<readonly string[]> {
-    const plantRoot = await this.#plant(tree);
-    const configuration = await this.#configurationOnce();
-    const { forbidden } = configuration;
-    if (forbidden === undefined) {
-      // The loader types the set as optional, and a run over an empty rule set would
-      // report clean for every tree — the failure this whole file exists to prevent.
-      throw new TypeError("the layering config declares no forbidden rules");
-    }
-    const cruised = await cruise(["src"], {
-      ...configuration.options,
-      ruleSet: { forbidden },
-      validate: true,
-      baseDir: plantRoot,
-    });
-    if (typeof cruised.output === "string") {
-      throw new TypeError("expected a cruise result object, not a formatted report");
-    }
-    return cruised.output.summary.violations
-      .filter((violation) => RULES_UNDER_TEST.includes(violation.rule.name))
-      .map((violation) => `${violation.rule.name}: ${violation.from} → ${violation.to}`);
-  }
-}
+const EVERY_TREE_MS = layeringTimeoutFor(RULE_CONTROL_TREES.length);
 
 describe("console layering rules", () => {
   const cruiseCache = new PlantedTreeCache();
@@ -351,7 +107,27 @@ describe("console layering rules", () => {
     "fails one view family importing another",
     async () => {
       expect(await cruiseCache.violationsFor(VIEW_FAMILY_EDGE_TREE)).toEqual([
-        `${VIEW_FAMILY_ISOLATION_RULE}: ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")} → ${join(CONSOLE_ROOT, "repos/RepoList.ts")}`,
+        `${VIEW_FAMILY_ISOLATION_RULE}: ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")} → ${join(CONSOLE_ROOT, "repos/index.ts")}`,
+      ]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "fails a cross-family import that names a module instead of the family door",
+    async () => {
+      expect(await cruiseCache.violationsFor(DEEP_IMPORT_TREE)).toEqual([
+        `${DEEP_IMPORT_RULE}: ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")} → ${join(CONSOLE_ROOT, "frame/session-lifecycle.ts")}`,
+      ]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "fails a sub-module door reached from outside its own family",
+    async () => {
+      expect(await cruiseCache.violationsFor(SUB_MODULE_DOOR_TREE)).toEqual([
+        `${DEEP_IMPORT_RULE}: ${join(CONSOLE_ROOT, "repos/RepoList.ts")} → ${join(CONSOLE_ROOT, "bridge/growth-values/index.ts")}`,
       ]);
     },
     ONE_TREE_MS,
@@ -367,16 +143,18 @@ describe("console layering rules", () => {
       // it liked and no rule said a word.
       const body = join(CONSOLE_ROOT, "panes/runs/RunsPaneBody.ts");
       const sibling = join(CONSOLE_ROOT, "repos/RepoList.ts");
-      // Sorted, because three rules fire on two edges and the order dependency-cruiser
+      // Sorted, because four rules fire on two edges and the order dependency-cruiser
       // reports them in is its own — asserting it would be asserting the reporter.
       expect([...(await cruiseCache.violationsFor(PANE_BOARD_SUBDIRECTORY_TREE))].sort()).toEqual(
         [
           `${PANE_BODY_RULE}: ${body} → ${sibling}`,
           `${IMPORTED_PANE_BODY_RULE}: ${join(CONSOLE_ROOT, "panes/index.ts")} → ${body}`,
-          // The narrowing, witnessed: the board's exemption is now the FILES on it, so a
-          // body under it is an ordinary view family and its edge into `repos/` is the
-          // sibling edge every other family is held to.
+          // The narrowing, witnessed twice: the board's exemption is now the FILES on it,
+          // so a body under it is an ordinary view family — its edge into `repos/` is the
+          // sibling edge every other family is held to, and its specifier past that
+          // family's door is the deep import every other family is held to.
           `${VIEW_FAMILY_ISOLATION_RULE}: ${body} → ${sibling}`,
+          `${DEEP_IMPORT_RULE}: ${body} → ${sibling}`,
         ].sort(),
       );
     },
@@ -384,41 +162,87 @@ describe("console layering rules", () => {
   );
 
   it(
-    "control: the board's own files are composition and are left alone",
+    "fails the pane board reaching past a family door",
     async () => {
-      // The other direction, and the reason the narrowing is a file pattern rather than
-      // a directory: `panes/index.ts` is the seat board itself, it sits in every tree
-      // above, and a rule that reported it would make the board unwritable.
-      const everyViolation = [
-        ...(await cruiseCache.violationsFor(CLEAN_TREE)),
-        ...(await cruiseCache.violationsFor(PANE_BOARD_SUBDIRECTORY_TREE)),
-      ];
-      expect(
-        everyViolation.filter(
-          (line) => line.startsWith(PANE_BODY_RULE) || line.startsWith(IMPORTED_PANE_BODY_RULE),
-        ),
-      ).toHaveLength(2);
-      expect(everyViolation.filter((line) => line.includes("panes/index.ts → ../"))).toEqual([]);
-      expect(await cruiseCache.violationsFor(CLEAN_TREE)).toEqual([]);
+      expect(await cruiseCache.violationsFor(PANE_BOARD_DEEP_IMPORT_TREE)).toEqual([
+        `${DEEP_IMPORT_RULE}: ${join(CONSOLE_ROOT, "panes/pane-chrome.ts")} → ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")}`,
+      ]);
     },
-    layeringTimeoutFor(2),
+    ONE_TREE_MS,
   );
 
   it(
     "leaves the composition site's import of a family door alone",
     async () => {
-      // `panes/index.ts` is in every tree above and never appears in a violation. Stated as
-      // its own case because it is the one edge the barrel-chain rule would catch if it
-      // matched on the module pair rather than on the `export … from` dependency type, and
-      // a rule that reported it would make the pane board unwritable.
-      const everyViolation = [
-        ...(await cruiseCache.violationsFor(CLEAN_TREE)),
-        ...(await cruiseCache.violationsFor(BARREL_CHAIN_TREE)),
-        ...(await cruiseCache.violationsFor(VIEW_FAMILY_EDGE_TREE)),
-      ];
-      expect(everyViolation.filter((line) => line.includes("panes/index.ts"))).toEqual([]);
+      // `panes/index.ts` is the board itself and it imports `seats/index.js` in every tree
+      // above. Across every control tree it is named by exactly ONE violation — the
+      // imported-body rule's, whose whole point is that the board imported a body that
+      // should not exist — and by none for the door edge it is written to carry. That edge
+      // is the one the barrel-chain rule would catch if it matched on the module pair
+      // rather than on the `export … from` dependency type, and a rule that reported it
+      // would make the pane board unwritable. Quantified over `RULE_CONTROL_TREES` so a
+      // control added for a sixth rule joins this claim by construction.
+      const violationsPerTree = await Promise.all(
+        RULE_CONTROL_TREES.map((tree) => cruiseCache.violationsFor(tree)),
+      );
+      const board = join(CONSOLE_ROOT, "panes/index.ts");
+      expect(violationsPerTree.flat().filter((line) => line.includes(board))).toEqual([
+        `${IMPORTED_PANE_BODY_RULE}: ${board} → ${join(CONSOLE_ROOT, "panes/runs/RunsPaneBody.ts")}`,
+      ]);
     },
     EVERY_TREE_MS,
+  );
+
+  it(
+    "exempts a harness from the door rule and nothing else from it",
+    async () => {
+      // THE SUBTRACTION'S OWN CONTROL, and the one arm of this rule set that had none.
+      // Two modules write the SAME edge; only the ordinary one is reported. A pattern
+      // widened by a character would exempt both and this case would read an empty list,
+      // which is the failure it exists to produce.
+      const violations = await cruiseCache.violationsFor(TEST_SUPPORT_SUBTRACTION_TREE);
+      const harness = join(CONSOLE_ROOT, "repos/fixtures.test-support.ts");
+      const ordinary = join(CONSOLE_ROOT, "repos/RepoList.ts");
+      const target = join(CONSOLE_ROOT, "frame/session-lifecycle.ts");
+
+      expect(violations).toContain(`${DEEP_IMPORT_RULE}: ${ordinary} → ${target}`);
+      expect(violations.filter((line) => line.includes(harness))).toEqual([]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "fails a renderer subtree outside the console that reaches past a door",
+    async () => {
+      // The rule every other one here is blind to: they are all `from`-scoped to
+      // `console/`, so an importer beside the console matches none of them. The sibling
+      // that imports the DOOR is planted in the same tree and must not be reported.
+      const outside = join("src", "renderer", "src", "session-bootstrap", "SessionBootstrap.ts");
+      const through = join("src", "renderer", "src", "session-members", "SessionMembers.ts");
+      const violations = await cruiseCache.violationsFor(OUTSIDE_RENDERER_TREE);
+
+      expect(violations).toEqual([
+        `${OUTSIDE_DOOR_RULE}: ${outside} → ${join(CONSOLE_ROOT, "frame/session-lifecycle.ts")}`,
+      ]);
+      expect(violations.filter((line) => line.includes(through))).toEqual([]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "fails a console root module that is not an enumerated composition site",
+    async () => {
+      // The enumeration as a claim rather than as a ban on root files: `families.ts`
+      // writes the identical edge from the identical directory and is left alone, so a
+      // wildcard restored here would take the rogue module's violation with it.
+      const violations = await cruiseCache.violationsFor(CONSOLE_ROOT_TREE);
+
+      expect(violations).toEqual([
+        `${CONSOLE_ROOT_RULE}: ${join(CONSOLE_ROOT, "rogue-composition.ts")} → ${join(CONSOLE_ROOT, "repos/index.ts")}`,
+      ]);
+      expect(violations.filter((line) => line.includes("families.ts"))).toEqual([]);
+    },
+    ONE_TREE_MS,
   );
 
   it(
@@ -442,7 +266,7 @@ describe("console layering rules", () => {
       // loader, which has nothing to do with the tree being cruised — so a load per
       // cruise put that cost inside the budget of whichever case reached a tree first.
       // Asserted after a cruise has been awaited, so a count of zero cannot pass it.
-      // Perturbed by unmemoizing: the count reads 4.
+      // Perturbed by unmemoizing: the count reads one per tree cruised.
       await cruiseCache.violationsFor(CLEAN_TREE);
       expect(cruiseCache.cruisedTreeCount).toBeGreaterThan(0);
       expect(cruiseCache.configurationLoadCount).toBe(1);
