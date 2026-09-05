@@ -90,12 +90,7 @@ export {
 // — and because what it publishes is state a surface renders against rather than
 // anything it draws. It arms the only timer in the console outside those two
 // schedulers and the live announcer's hold.
-export {
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
-  earliestFutureDeadline,
-  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
-  useDeadlineWake,
-} from "./deadline-wake.js";
+export { earliestFutureDeadline, useDeadlineWake } from "./deadline-wake.js";
 
 // THE TWO SUBJECT PRIMITIVES, and why they ship through this door rather than being
 // re-implemented per family. State that outlives its subject was the recurring defect
@@ -132,13 +127,11 @@ export type {
 } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
 export {
-  /** @consumedBy T-023p-1C-8 */
   GenerationLatch,
   /** @consumedBy T-023p-1C-8 */
   useGenerationLatch,
 } from "./generation-latch.js";
 export type {
-  /** @consumedBy T-023p-1C-8 */
   CurrentGenerationClaim,
   /** @consumedBy T-023p-1C-8 */
   GenerationClaim,

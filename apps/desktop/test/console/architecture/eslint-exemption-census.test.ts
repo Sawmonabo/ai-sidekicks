@@ -112,13 +112,25 @@ export function suppressedGuardedRules(source: string): readonly string[] {
 }
 
 /**
- * The module that proves the needle reads a real directive rather than nothing.
+ * The directive this tree used to carry, kept as the control now that nothing does.
  *
- * It suppresses a DIFFERENT rule, which is what makes it the honest control: the
- * directive form is already in this tree, so the clean result above is a finding about
- * which rules are suppressed rather than about whether any directive exists to find.
+ * `console/panes/index.ts` held it — a `no-unused-vars` suppression on the pane
+ * registrar's parameter, unread until the first view family registered a pane body —
+ * and the family that landed that registration deleted it, exactly as the directive's
+ * own reason said it would. So the tree now carries NO inline directive at all, which
+ * is a stronger clean result than the one this control was written against and a
+ * weaker control: with no carrier, "nothing suppresses a guarded rule" and "the needle
+ * finds nothing anywhere" are the same sentence.
+ *
+ * The text is therefore planted rather than read, and the census asserts the absence
+ * separately. Verbatim, including the trailing reason, because the form the needle has
+ * to read is the multi-line block one and a hand-simplified copy would not be it.
  */
-const MODULE_CARRYING_A_DIRECTIVE = "console/panes/index.ts";
+const DIRECTIVE_THIS_TREE_ONCE_CARRIED = `/* eslint-disable-next-line @typescript-eslint/no-unused-vars --
+   Unused until the first family lands, and named \`registry\` rather than
+   \`_registry\` deliberately. */
+export function registerConsolePanes(registry: ConsolePaneRegistry): void {}
+`;
 
 /** Whether the audited rule is configured and ON for `absolutePath`. */
 async function restrictsSyntaxAt(linter: ESLint, absolutePath: string): Promise<boolean> {
@@ -230,14 +242,27 @@ describe("eslint exemption census — every excused file trips something", () =>
     expect(offenders).toStrictEqual([]);
   });
 
-  it("negative control: the needle reads the directive this tree already carries", () => {
-    // Both halves. The real one proves a directive is findable at all; the planted rows
-    // prove the rule list is read rather than the word `eslint-disable` alone.
-    const carrier = readConsoleSourceModule(
-      moduleNamed(modules, MODULE_CARRYING_A_DIRECTIVE, "the module carrying a directive"),
-    );
-    expect(inlineDirectives(carrier).length).toBeGreaterThan(0);
-    expect(suppressedGuardedRules(carrier)).toStrictEqual([]);
+  it("carries no inline directive at all, which is why the control below is planted", () => {
+    // The stronger reading of the claim above: not merely that no directive switches a
+    // guarded rule off, but that the governed roots hold no directive of any kind. The
+    // day one lands, this fails and the reviewer decides whether it earned its place.
+    const carriers = modules
+      .map((module) => ({
+        module: module.displayPath,
+        directives: inlineDirectives(readConsoleSourceModule(module)),
+      }))
+      .filter((entry) => entry.directives.length > 0)
+      .map((entry) => entry.module);
+    expect(carriers).toStrictEqual([]);
+  });
+
+  it("negative control: the needle reads a real directive rather than nothing", () => {
+    // Both halves. The first proves the block form this tree actually carried is
+    // findable — see `DIRECTIVE_THIS_TREE_ONCE_CARRIED` for why it is planted rather
+    // than read; the planted rows prove the rule list is read rather than the word
+    // `eslint-disable` alone.
+    expect(inlineDirectives(DIRECTIVE_THIS_TREE_ONCE_CARRIED).length).toBeGreaterThan(0);
+    expect(suppressedGuardedRules(DIRECTIVE_THIS_TREE_ONCE_CARRIED)).toStrictEqual([]);
     for (const planted of [
       "/* eslint-disable no-restricted-syntax */\nexport const at = Date.parse(iso);\n",
       "// eslint-disable-next-line no-restricted-syntax -- a reason\nexport const at = Date.parse(iso);\n",

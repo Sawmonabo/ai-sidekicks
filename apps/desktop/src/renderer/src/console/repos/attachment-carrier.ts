@@ -41,7 +41,7 @@ import {
   type ScheduledHandle,
   type Unsubscribe,
 } from "../core/index.js";
-import { useSubjectScopedResource } from "../store/index.js";
+import { earliestFutureDeadline, useSubjectScopedResource } from "../store/index.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
 import { ingestStallDisclosureAtMs } from "./attachment-presentation.js";
 import { attachmentSourceFrom, type AttachmentIngestEntry } from "./attachment-shapes.js";
@@ -201,20 +201,24 @@ export class AttachmentCarrier {
     }, deadlineMilliseconds - this.#clock.now());
   }
 
-  /** The soonest disclosure deadline still ahead of now, or `undefined` for none. */
+  /**
+   * The soonest disclosure deadline still ahead of now, or `undefined` for none.
+   *
+   * WHICH ENTRIES HAVE A DEADLINE IS THIS CLASS'S QUESTION; which of them is next is
+   * the console's, and `earliestFutureDeadline` answers it for every surface that
+   * renders against one. A carrier is not a render, so it arms its own single shot
+   * rather than taking the hook beside that rule — but a second copy of the rule was
+   * the part worth removing, and this is the whole of what is left.
+   */
   #earliestStallDeadlineMs(): number | undefined {
-    const nowMilliseconds = this.#clock.now();
-    let earliestMilliseconds: number | undefined;
+    const deadlines: number[] = [];
     for (const entry of this.#snapshot.entries) {
       const deadlineMilliseconds = ingestStallDisclosureAtMs(entry);
-      if (deadlineMilliseconds === undefined || deadlineMilliseconds <= nowMilliseconds) {
-        continue;
-      }
-      if (earliestMilliseconds === undefined || deadlineMilliseconds < earliestMilliseconds) {
-        earliestMilliseconds = deadlineMilliseconds;
+      if (deadlineMilliseconds !== undefined) {
+        deadlines.push(deadlineMilliseconds);
       }
     }
-    return earliestMilliseconds;
+    return earliestFutureDeadline(deadlines, this.#clock.now());
   }
 
   #cancelStallWakeUp(): void {

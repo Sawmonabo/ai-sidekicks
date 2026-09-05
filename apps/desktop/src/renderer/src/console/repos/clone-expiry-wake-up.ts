@@ -10,15 +10,17 @@
 // window focus, and no reconnect stayed on the neutral arm for as long as the sidebar
 // stayed open, which is exactly the situation a person leaves a session in.
 //
-// ONE TIMER FOR THE LIST, AT THE EARLIEST DEADLINE STILL AHEAD OF NOW —
-// `attachment-carrier.ts`'s stall wake-up in this same family, and every word of it is
-// load-bearing here too. A timer per card would arm one per clone for a threshold that
-// is the same sentence on each; a deadline already behind now needs no wake-up, because
-// the instant the list is rendering against is already past it; and firing publishes an
+// ONE TIMER FOR THE LIST, AND IT IS THE CONSOLE'S — `store/deadline-wake.ts`, which is
+// where the arming rule lives for every surface that renders against a deadline rather
+// than against an age. A timer per card would arm one per clone for a threshold that is
+// the same sentence on each; a deadline already behind now needs no wake-up, because the
+// instant the list is rendering against is already past it; and firing publishes an
 // instant rather than reading anything, so this is not a refresh and does not belong to
-// `store/scheduling.ts`. When it fires it lands back here and re-arms for the next
-// deadline: a chain of single shots that stops on its own the moment nothing is
-// outstanding. There is still no interval in this family, and there can be none.
+// `store/scheduling.ts`. The hook also holds the part this module's own copy got wrong:
+// a disposal scheduled more than about 24.8 days out overflows a platform timer, which
+// fires on the next tick rather than late — publishing that far-future instant at once
+// and rendering every clone past its deadline, permanently, with nothing left to re-arm.
+// It steps to a far deadline instead. There is still no interval in this family.
 //
 // THE INSTANT IS THE LATER OF THE TWO, NEVER A SECOND CLOCK. The section stamps its
 // reading when the read lands, and this hook can only ever move that stamp FORWARD to a
@@ -26,34 +28,28 @@
 // countdown are the read's own until it is re-read. Nothing here reads a wall clock: the
 // clock is the window's, so under the fixture it is the scenario's frozen one.
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
+import { useDeadlineWake } from "../store/index.js";
 import { cloneExpiryAtMs, type EphemeralCloneStatusRecord } from "./worktree-model.js";
 
 /**
- * The soonest disposal deadline still ahead of the instant given, or `undefined`.
+ * Every disposal deadline this list holds, in the order the records came in.
  *
- * Pure and exported, so the arming rule is provable by driving it rather than by
- * reaching into the hook below. A row whose deadline has already passed is skipped
- * because the card is rendering its elapsed arm as this runs, and a swept or unparseable
- * row has no deadline at all — `cloneExpiryAtMs` is the one place that decides which.
+ * Which rows have one at all is `cloneExpiryAtMs`'s decision and stays here — a swept
+ * or unparseable row has no deadline — and which of them is next is the wake-up's,
+ * which is the split that keeps this module holding no arming rule of its own.
  */
-export function earliestCloneExpiryDeadlineMs(
-  records: readonly EphemeralCloneStatusRecord[],
-  nowMilliseconds: number,
-): number | undefined {
-  let earliestMilliseconds: number | undefined;
+function cloneExpiryDeadlines(records: readonly EphemeralCloneStatusRecord[]): readonly number[] {
+  const deadlines: number[] = [];
   for (const record of records) {
     const deadlineMilliseconds = cloneExpiryAtMs(record);
-    if (deadlineMilliseconds === undefined || deadlineMilliseconds <= nowMilliseconds) {
-      continue;
-    }
-    if (earliestMilliseconds === undefined || deadlineMilliseconds < earliestMilliseconds) {
-      earliestMilliseconds = deadlineMilliseconds;
+    if (deadlineMilliseconds !== undefined) {
+      deadlines.push(deadlineMilliseconds);
     }
   }
-  return earliestMilliseconds;
+  return deadlines;
 }
 
 /**
@@ -71,25 +67,8 @@ export function useCloneExpiryInstant(
   bridge: ConsoleBridge,
 ): number {
   const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
-  const [wokeAtMilliseconds, setWokeAtMilliseconds] = useState(readAtMilliseconds);
-  const nowMilliseconds = Math.max(readAtMilliseconds, wokeAtMilliseconds);
-  useEffect(() => {
-    const deadlineMilliseconds = earliestCloneExpiryDeadlineMs(records, nowMilliseconds);
-    if (deadlineMilliseconds === undefined) {
-      return;
-    }
-    const handle = clock.scheduleTimeout(() => {
-      // The deadline itself and not the clock's reading of now: the card's own arm
-      // turns on whether that instant has passed, and waking to a later one would put
-      // an instant on screen no threshold in this list corresponds to.
-      setWokeAtMilliseconds(deadlineMilliseconds);
-    }, deadlineMilliseconds - clock.now());
-    return () => {
-      // Cancelled when the record set changes, when the wake-up has landed, and when
-      // the section unmounts — a timeout that outlived its surface would set state on a
-      // component that is gone.
-      clock.cancel(handle);
-    };
-  }, [records, nowMilliseconds, clock]);
-  return nowMilliseconds;
+  const wokeAtMilliseconds = useDeadlineWake(clock, cloneExpiryDeadlines(records));
+  // The later of the two, which is what makes a fresh read always win: the wake-up can
+  // only move the instant forward to a deadline the read did not reach.
+  return Math.max(readAtMilliseconds, wokeAtMilliseconds);
 }

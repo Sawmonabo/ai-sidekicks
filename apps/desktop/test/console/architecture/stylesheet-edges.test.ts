@@ -24,14 +24,17 @@
 // legitimately imports `panes/diff/diff.css` and `panes/artifact/artifact.css`
 // alongside its own. What it may never do is let a second module import one.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const CONSOLE_DIRECTORY = resolve(HERE, "..", "..", "..", "src", "renderer", "src", "console");
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  consoleStylesheets,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
+
+/** The console root alone: the shell composes seats and ships no sheet of its own. */
+const CONSOLE_ROOT_ONLY = { roots: [CONSOLE_DIRECTORY] } as const;
 
 /**
  * Every stylesheet specifier a module imports for its side effect.
@@ -58,25 +61,12 @@ function isFamilyDoor(moduleRelativePath: string): boolean {
   return segments.length === 2 && segments[1] === "index.ts";
 }
 
-function consoleSourceModules(): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx") &&
-        !entry.endsWith(".d.ts"),
-    )
-    .map((entry) => entry.split("\\").join("/"))
-    .sort();
-}
-
 /** Every module that imports a stylesheet, with what it imported. */
 function stylesheetImporters(): readonly { module: string; sheets: readonly string[] }[] {
-  return consoleSourceModules()
+  return consoleSourceModules(CONSOLE_ROOT_ONLY)
     .map((module) => ({
-      module,
-      sheets: importedStylesheets(readFileSync(join(CONSOLE_DIRECTORY, module), "utf8")),
+      module: module.relativePath.split("\\").join("/"),
+      sheets: importedStylesheets(readConsoleSourceModule(module)),
     }))
     .filter((entry) => entry.sheets.length > 0);
 }
@@ -89,9 +79,8 @@ describe("stylesheet edges — a sheet is imported from its family's door and no
     // not match would scan nothing and the assertion below would pass over the
     // empty set. Every `.css` file in the tree is accounted for by an importer, so
     // a sheet nobody imports is caught here rather than shipping unreferenced.
-    const stylesheets = readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
-      .filter((entry) => entry.endsWith(".css"))
-      .map((entry) => entry.split("\\").join("/").split("/").at(-1) ?? "")
+    const stylesheets = consoleStylesheets(CONSOLE_ROOT_ONLY)
+      .map((sheet) => sheet.relativePath.split("\\").join("/").split("/").at(-1) ?? "")
       .sort();
     expect(stylesheets.length).toBeGreaterThan(3);
     const imported = importers

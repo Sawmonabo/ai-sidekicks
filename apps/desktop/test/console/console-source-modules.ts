@@ -81,8 +81,17 @@ export interface ConsoleSourceScan {
  * Every source module under the roots given, sorted, declarations always excluded.
  */
 export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly ConsoleSourceModule[] {
-  const roots = scan.roots ?? CONSOLE_SOURCE_ROOTS;
   const tests = scan.tests ?? false;
+  return walkRoots(scan.roots ?? CONSOLE_SOURCE_ROOTS, (relativePath) =>
+    isSourceModulePath(relativePath, tests),
+  );
+}
+
+/** The one enumeration under both public walks: which roots, and which files inside them. */
+function walkRoots(
+  roots: readonly string[],
+  admits: (relativePath: string) => boolean,
+): readonly ConsoleSourceModule[] {
   const modules: ConsoleSourceModule[] = [];
   for (const directory of roots) {
     if (!existsSync(directory)) {
@@ -92,7 +101,7 @@ export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly Con
     for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
       const absolutePath = join(entry.parentPath, entry.name);
       const relativePath = relative(directory, absolutePath);
-      if (!entry.isFile() || !isSourceModulePath(relativePath, tests)) {
+      if (!entry.isFile() || !admits(relativePath)) {
         continue;
       }
       modules.push({
@@ -109,6 +118,22 @@ export function consoleSourceModules(scan: ConsoleSourceScan = {}): readonly Con
 /** Read one module's text. Separate from the walk so a caller can filter first. */
 export function readConsoleSourceModule(module: ConsoleSourceModule): string {
   return readFileSync(module.absolutePath, "utf8");
+}
+
+/**
+ * Every stylesheet under the roots given, sorted, in the same shape a module takes.
+ *
+ * A SECOND FILE KIND ON ONE WALK, not a second walk. The stylesheet-edges gate asks
+ * two questions about the same tree — which modules import a sheet, and which sheets
+ * exist — and the second is a directory listing that the module walk deliberately
+ * does not answer, since a `.css` file is not a source module. Answered here, beside
+ * the walk it shares its roots and its sorting with, so that gate holds no
+ * `readdirSync` of its own and no second opinion about where the console is.
+ */
+export function consoleStylesheets(scan: ConsoleSourceScan = {}): readonly ConsoleSourceModule[] {
+  return walkRoots(scan.roots ?? CONSOLE_SOURCE_ROOTS, (relativePath) =>
+    relativePath.endsWith(".css"),
+  );
 }
 
 /**

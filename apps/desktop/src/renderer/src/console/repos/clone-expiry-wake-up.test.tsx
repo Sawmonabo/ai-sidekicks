@@ -15,13 +15,16 @@ import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { ManualClock } from "../core/index.js";
 import { EphemeralCloneCard } from "./EphemeralCloneCard.js";
-import { earliestCloneExpiryDeadlineMs, useCloneExpiryInstant } from "./clone-expiry-wake-up.js";
+import { useCloneExpiryInstant } from "./clone-expiry-wake-up.js";
 import { CLONE_EXPIRY_COPY, type EphemeralCloneStatusRecord } from "./worktree-model.js";
 
-const READ_AT = Date.parse("2026-01-01T09:00:00.000Z");
+// The instants are built rather than parsed: a fixture that read its own bases through
+// a parser would be asserting against whatever that parser answered, and the console's
+// one reader of a wire stamp is `parseInstant`, which is the thing under test here.
+const READ_AT = Date.UTC(2026, 0, 1, 9, 0, 0);
 const EXPIRES_AT = "2026-01-01T09:30:00.000Z";
 const LATER_EXPIRES_AT = "2026-01-01T11:00:00.000Z";
-const EXPIRY_MILLISECONDS = Date.parse(EXPIRES_AT) - READ_AT;
+const EXPIRY_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0) - READ_AT;
 
 function cloneRecord(
   cloneId: string,
@@ -71,29 +74,46 @@ function CloneListProbe(props: {
 }
 
 describe("clone expiry — the earliest outstanding deadline, and only that one", () => {
-  it("takes the soonest deadline still ahead of the instant", () => {
-    const deadline = earliestCloneExpiryDeadlineMs(
-      [
-        cloneRecord("clone-late", { expiresAt: LATER_EXPIRES_AT }),
-        cloneRecord("clone-soon", { expiresAt: EXPIRES_AT }),
-      ],
-      READ_AT,
+  it("arms for the soonest deadline still ahead of the instant", () => {
+    // Two clones outstanding and ONE timer, armed for the nearer of them: advancing to
+    // that deadline reaches the amber arm on the soon row while the late one is still
+    // counting, which is what "the earliest, and only that one" means on screen.
+    const clock = new ManualClock(READ_AT);
+    const { container } = render(
+      <CloneListProbe
+        records={[
+          cloneRecord("clone-late", { expiresAt: LATER_EXPIRES_AT }),
+          cloneRecord("clone-soon", { expiresAt: EXPIRES_AT }),
+        ]}
+        bridge={bridgeOnClock(clock)}
+      />,
     );
-    expect(deadline).toBe(Date.parse(EXPIRES_AT));
+    expect(clock.pendingCount).toBe(1);
+
+    act(() => {
+      clock.advance(EXPIRY_MILLISECONDS);
+    });
+
+    expect(container.textContent).toContain(CLONE_EXPIRY_COPY.elapsed);
+    expect(container.textContent).toContain(CLONE_EXPIRY_COPY.scheduled);
   });
 
   it("skips a swept row, an unparseable stamp, and a deadline already behind", () => {
     // None of the three is something to wake for: the sweep already ran, the console
     // could not read the stamp, and the card is drawing its elapsed arm as this runs.
-    const deadline = earliestCloneExpiryDeadlineMs(
-      [
-        cloneRecord("clone-swept", { cleanedAt: "2026-01-01T08:30:00.000Z" }),
-        cloneRecord("clone-unreadable", { expiresAt: "not a timestamp" }),
-        cloneRecord("clone-past", { expiresAt: "2026-01-01T08:45:00.000Z" }),
-      ],
-      READ_AT,
+    const clock = new ManualClock(READ_AT);
+    render(
+      <CloneListProbe
+        records={[
+          cloneRecord("clone-swept", { cleanedAt: "2026-01-01T08:30:00.000Z" }),
+          cloneRecord("clone-unreadable", { expiresAt: "not a timestamp" }),
+          cloneRecord("clone-past", { expiresAt: "2026-01-01T08:45:00.000Z" }),
+        ]}
+        bridge={bridgeOnClock(clock)}
+      />,
     );
-    expect(deadline).toBeUndefined();
+
+    expect(clock.pendingCount).toBe(0);
   });
 });
 

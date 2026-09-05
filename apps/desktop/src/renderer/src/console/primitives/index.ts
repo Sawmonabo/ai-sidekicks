@@ -130,13 +130,7 @@ export {
   WindowAbsences,
 } from "./WindowAbsences.js";
 
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  InlineRefusal,
-  RefusalBanner,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  RefusalCard,
-} from "./Refusal.js";
+export { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -163,10 +157,7 @@ export type {
   /** @consumedBy T-023p-1C-5 */
   WindowedListRowProps,
 } from "./WindowedListRow.js";
-export {
-  /** @consumedBy T-023p-1C-5 */
-  WindowedListRow,
-} from "./WindowedListRow.js";
+export { WindowedListRow } from "./WindowedListRow.js";
 export type {
   /** @consumedBy T-023p-1C-5 */
   WindowedRovingIndex,
@@ -184,7 +175,6 @@ export {
   clampedRowIndex,
   /** @consumedBy T-023p-1C-5 */
   movedRowIndex,
-  /** @consumedBy T-023p-1C-5 */
   useWindowedRovingIndex,
 } from "./windowed-row-index.js";
 
