@@ -18,13 +18,20 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, posix, sep } from "node:path";
 
+import ts from "typescript";
+
 import { CONSOLE_SOURCE_DIRECTORY } from "../paths.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
-/** A module that imports a stylesheet for its side effect, and the sheet it names. */
-export const STYLESHEET_IMPORT: RegExp = /^import\s+"([^"]+\.css)";$/gmu;
-
-/** An `@import` at the head of a stylesheet, and the sheet it pulls in. */
-export const STYLESHEET_AT_IMPORT: RegExp = /^@import\s+"([^"]+\.css)";$/gmu;
+/**
+ * How a file's stylesheet specifiers are read out of it.
+ *
+ * A function per LANGUAGE rather than a pattern per shape, because the two questions
+ * are asked of two grammars and neither is answerable by a line match. Both readers
+ * take the file's name as well as its text: one needs it to choose a script kind, and
+ * the other reports it.
+ */
+export type StylesheetSpecifierReader = (fileName: string, source: string) => readonly string[];
 
 /**
  * The tree a walk reads: which modules and stylesheets exist, and their text.
@@ -59,14 +66,87 @@ export interface StylesheetEdgeOffences {
 }
 
 /**
- * Every stylesheet `source` pulls in, by the specifier it wrote.
+ * Every stylesheet a TypeScript module imports for its side effect.
  *
- * A pure function over text so a control can drive it with a string whose verdict is
- * known, rather than perturbing a real module to prove the pattern matches.
+ * READ FROM THE PARSE, because the question is about a declaration boundary and a
+ * regular expression cannot see one. The pattern this replaced was a whole-LINE match,
+ * so `import "./parks.css"; // ships with the parks module` was not an edge, and
+ * neither was a specifier broken across two lines: the sheet then read as unreached
+ * and the gate reported a tree with an orphaned stylesheet as clean. A side-effect
+ * import is exactly `ts.isImportDeclaration(node) && node.importClause === undefined`,
+ * and the specifier is the string literal the declaration already holds — no text
+ * between the two for a pattern to run past.
+ *
+ * `.css` and nothing else, because this walk is about stylesheets and a module also
+ * side-effect-imports polyfills and registries that are not sheets.
  */
-export function stylesheetSpecifiers(source: string, pattern: RegExp): readonly string[] {
-  return [...source.matchAll(pattern)].map((match) => match[1] ?? "");
-}
+export const moduleStylesheetImports: StylesheetSpecifierReader = (fileName, source) => {
+  // A STYLESHEET HANDED HERE ANSWERS WITH ITS OWN AT-RULES, measured: TypeScript's
+  // error recovery reads `@import "./surface.css";` as a decorator followed by a
+  // side-effect import, so this reader is not blind to CSS by parsing alone. The walk
+  // never hands it one — `CONSOLE_STYLESHEET_TREE.modulePaths` holds `.ts` and `.tsx`
+  // — and this guard makes that a property of the reader rather than of its callers.
+  if (!fileName.endsWith(".ts") && !fileName.endsWith(".tsx")) {
+    return [];
+  }
+  const specifiers: string[] = [];
+  const parsed = parseSourceText(fileName, source);
+  forEachDescendant(parsed, (node) => {
+    if (
+      ts.isImportDeclaration(node) &&
+      node.importClause === undefined &&
+      ts.isStringLiteral(node.moduleSpecifier) &&
+      node.moduleSpecifier.text.endsWith(".css")
+    ) {
+      specifiers.push(node.moduleSpecifier.text);
+    }
+  });
+  return specifiers;
+};
+
+/** A comment in a stylesheet, so a commented-out `@import` is not read as one. */
+const CSS_COMMENT = /\/\*[\s\S]*?\*\//gu;
+
+/** The head of an `@import` at-rule: the keyword and whatever follows it, to its end. */
+const CSS_AT_IMPORT_PRELUDE = /@import\b(?<prelude>[^;{]*)/gu;
+
+/** The target of an `@import` prelude, quoted directly or wrapped in `url()`. */
+const CSS_IMPORT_TARGET =
+  /url\(\s*(?<quoted>"[^"]*"|'[^']*'|[^)\s]*)\s*\)|"(?<double>[^"]*)"|'(?<single>[^']*)'/u;
+
+/**
+ * Every stylesheet an `@import` at-rule pulls into this sheet.
+ *
+ * ANCHORED ON THE AT-RULE, not on a line. The pattern this replaced matched a whole
+ * line and required the closing `";` to end it, so an `@import` carrying a media
+ * query, a cascade layer, or a trailing comment disappeared from the graph — and a
+ * sheet reached only that way was reported as unreached while a sheet reached twice
+ * was reported as reached once. The prelude runs from the keyword to the `;` or `{`
+ * that ends it, and the target is the first string in it however it is written, which
+ * is what the CSS grammar says an `@import` names.
+ *
+ * Comments are stripped first, so a commented-out `@import` is not an edge — the one
+ * way this question can be asked wrongly that anchoring alone does not answer.
+ */
+export const stylesheetAtImports: StylesheetSpecifierReader = (_fileName, source) => {
+  const withoutComments = source.replace(CSS_COMMENT, " ");
+  const specifiers: string[] = [];
+  for (const atRule of withoutComments.matchAll(CSS_AT_IMPORT_PRELUDE)) {
+    const target = CSS_IMPORT_TARGET.exec(atRule.groups?.["prelude"] ?? "");
+    if (target === null) {
+      continue;
+    }
+    const quoted = target.groups?.["quoted"];
+    const unwrapped =
+      quoted === undefined
+        ? (target.groups?.["double"] ?? target.groups?.["single"])
+        : quoted.replace(/^["']|["']$/gu, "");
+    if (unwrapped !== undefined && unwrapped !== "") {
+      specifiers.push(unwrapped);
+    }
+  }
+  return specifiers;
+};
 
 /**
  * Whether a tree-relative module path is a barrel — a family's door or a lazily
@@ -108,11 +188,11 @@ function recordStylesheetEdges(
   tree: StylesheetTree,
   importer: string,
   owningBarrel: string,
-  pattern: RegExp,
+  readSpecifiers: StylesheetSpecifierReader,
   edges: Map<string, StylesheetEdge[]>,
   pending: string[],
 ): void {
-  for (const specifier of stylesheetSpecifiers(tree.read(importer), pattern)) {
+  for (const specifier of readSpecifiers(importer, tree.read(importer))) {
     const resolved = resolveStylesheet(importer, specifier);
     if (resolved === undefined) {
       continue;
@@ -144,14 +224,21 @@ export function collectStylesheetEdges(tree: StylesheetTree): StylesheetEdgeGrap
   for (const owningBarrel of tree.modulePaths.filter(isOwningBarrel)) {
     const visited = new Set<string>();
     const pending: string[] = [];
-    recordStylesheetEdges(tree, owningBarrel, owningBarrel, STYLESHEET_IMPORT, edges, pending);
+    recordStylesheetEdges(
+      tree,
+      owningBarrel,
+      owningBarrel,
+      moduleStylesheetImports,
+      edges,
+      pending,
+    );
     while (pending.length > 0) {
       const sheet = pending.pop() ?? "";
       if (visited.has(sheet)) {
         continue;
       }
       visited.add(sheet);
-      recordStylesheetEdges(tree, sheet, owningBarrel, STYLESHEET_AT_IMPORT, edges, pending);
+      recordStylesheetEdges(tree, sheet, owningBarrel, stylesheetAtImports, edges, pending);
     }
   }
   return edges;

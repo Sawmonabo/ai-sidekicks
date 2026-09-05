@@ -41,10 +41,9 @@ import {
   isOwningBarrel,
   readConsoleFile,
   stylesheetEdgeOffences,
-  stylesheetSpecifiers,
+  moduleStylesheetImports,
+  stylesheetAtImports,
   CONSOLE_STYLESHEET_TREE,
-  STYLESHEET_AT_IMPORT,
-  STYLESHEET_IMPORT,
 } from "./stylesheet-edge-graph.js";
 
 describe("stylesheet edges — a family's rules enter the bundle once", () => {
@@ -66,7 +65,7 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
       .filter((modulePath) => !isOwningBarrel(modulePath))
       .map((modulePath) => ({
         modulePath,
-        sheets: stylesheetSpecifiers(readConsoleFile(modulePath), STYLESHEET_IMPORT),
+        sheets: moduleStylesheetImports(modulePath, readConsoleFile(modulePath)),
       }))
       .filter((entry) => entry.sheets.length > 0)
       .map((entry) => `${relative(".", entry.modulePath)}: ${entry.sheets.join(", ")}`);
@@ -93,12 +92,15 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     // and a pattern that matched none of the console's real text would still satisfy
     // them.
     expect(
-      stylesheetSpecifiers(readConsoleFile(join("workflows", "index.ts")), STYLESHEET_IMPORT),
+      moduleStylesheetImports(
+        join("workflows", "index.ts"),
+        readConsoleFile(join("workflows", "index.ts")),
+      ),
     ).toStrictEqual(["./workflows.css"]);
     expect(
-      stylesheetSpecifiers(
+      stylesheetAtImports(
+        join("workflows", "workflows.css"),
         readConsoleFile(join("workflows", "workflows.css")),
-        STYLESHEET_AT_IMPORT,
       ).length,
     ).toBeGreaterThan(1);
   });
@@ -107,9 +109,9 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     // The two sides of the line, driven through the predicate rather than through
     // whichever module happens to hold an edge today.
     const componentSource = 'import "./workflows-destination.css";\n';
-    expect(stylesheetSpecifiers(componentSource, STYLESHEET_IMPORT)).toStrictEqual([
-      "./workflows-destination.css",
-    ]);
+    expect(
+      moduleStylesheetImports(join("workflows", "WorkflowsDestination.tsx"), componentSource),
+    ).toStrictEqual(["./workflows-destination.css"]);
     expect(isOwningBarrel(join("workflows", "WorkflowsDestination.tsx"))).toBe(false);
     expect(isOwningBarrel(join("workflows", "index.ts"))).toBe(true);
   });
@@ -122,12 +124,15 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     // which is two ways into one sheet and the cascade order back to a coincidence.
     const chunkDirectory = join("workflows", "pane", "run", "phase-graph");
     expect(
-      stylesheetSpecifiers(readConsoleFile(join(chunkDirectory, "index.ts")), STYLESHEET_IMPORT),
+      moduleStylesheetImports(
+        join(chunkDirectory, "index.ts"),
+        readConsoleFile(join(chunkDirectory, "index.ts")),
+      ),
     ).toStrictEqual(["@xyflow/react/dist/base.css", "./phase-graph.css"]);
     expect(
-      stylesheetSpecifiers(
+      moduleStylesheetImports(
+        join(chunkDirectory, "PhaseGraphCanvas.tsx"),
         readConsoleFile(join(chunkDirectory, "PhaseGraphCanvas.tsx")),
-        STYLESHEET_IMPORT,
       ),
     ).toStrictEqual([]);
   });
