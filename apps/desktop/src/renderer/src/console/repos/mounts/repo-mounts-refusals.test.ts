@@ -1,4 +1,4 @@
-// Which half of the per-workspace refusal register a read is allowed to rebuild.
+// Which half of the per-workspace refusals a read is allowed to rebuild.
 //
 // THE SEAM BETWEEN THE TWO CLASSES THAT WRITE THE READING, and the one bug it exists to
 // keep fixed: `RepoMountsReader` rebuilds its refusal map from the capabilities loop on
@@ -7,7 +7,7 @@
 // cause and cannot see — silently deleted the sentence saying why their last press did
 // nothing, because a served capabilities answer for that workspace overwrote it.
 //
-// CARRYING THE MAP FORWARD DOES NOT FIX IT, which is why the register is split by
+// CARRYING THE MAP FORWARD DOES NOT FIX IT, which is why the pair is split by
 // PRODUCER rather than merged more carefully. After a served roster read every
 // workspace key is one the capabilities loop answered for, so a rebuild-then-merge
 // deletes exactly the entry that has to survive. The cases below assert both directions
@@ -152,7 +152,7 @@ async function openSection(behaviour: PortBehaviour = {}): Promise<ReadUnderTest
   };
 }
 
-describe("the per-workspace refusal register — one half per producer", () => {
+describe("the per-workspace refusals — one half per producer", () => {
   it("leaves a refused mode switch standing through a lifecycle-triggered read", async () => {
     const section = await openSection({ parkModeSelects: true });
 

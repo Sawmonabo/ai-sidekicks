@@ -12,7 +12,7 @@
 // separates "not checked", "empty", "not loaded", and a refusal, and this shape is
 // where that separation is paid for: a status, two section-scoped refusal fields, a
 // read-position marker, a per-workspace capabilities map, a per-workspace pending-mode
-// map, and a per-workspace refusal register that is itself split by producer.
+// map, and the per-workspace refusals, which are themselves split by producer.
 // Collapsing any pair would make one absence render as another.
 
 import type {
