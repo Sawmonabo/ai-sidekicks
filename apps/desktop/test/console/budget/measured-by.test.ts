@@ -14,9 +14,9 @@
 // drives a class, or declared, for a script that runs a measurer it owns. A row
 // whose harness never touches its subject is red.
 //
-// This claim lives beside `budgets.test.ts` rather than inside it because the two
-// are different subjects: that file holds the registry's SHAPE — which rows exist,
-// which are enforced, how a unit reduces — and this one holds the relationship
+// This claim lives beside `budget-registry.test.ts` rather than inside it because
+// the two are different subjects: that file holds the registry's SHAPE — which rows
+// exist, which are enforced, how a unit reduces — and this one holds the relationship
 // between a row and a file on disk, which is the only claim here that reads
 // anything outside the registry.
 

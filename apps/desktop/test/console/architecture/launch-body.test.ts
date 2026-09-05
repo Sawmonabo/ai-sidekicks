@@ -67,6 +67,30 @@ describe("body allowance — what is left, and what an overrun says", () => {
     expect(allowance.remainingMs()).toBe(1);
   });
 
+  it("gives a wait the smaller of its own bound and what is left", () => {
+    // Both directions, because each loses a different sentence. While the
+    // allowance is long the wait keeps its own bound, so a stalled step reports
+    // as a stalled step rather than as a body that ran long; once the allowance
+    // is the shorter figure the wait takes THAT, so it cannot run past the
+    // allowance and let the enclosing race replace its message with the generic
+    // overrun.
+    const clock = stoppedClock(1_000);
+    const allowance = new BodyAllowance(30_000, clock.now);
+    expect(allowance.boundedMs(10_000)).toBe(10_000);
+    clock.advance(25_000);
+    expect(allowance.boundedMs(10_000)).toBe(5_000);
+  });
+
+  it("never hands a wait zero, however spent the allowance is", () => {
+    // The floor `remainingMs` carries has to survive the minimum, for the same
+    // reason it exists: `timeout: 0` is no timeout at all to Playwright, so an
+    // exhausted allowance would convert an overrun into an unbounded wait.
+    const clock = stoppedClock(1_000);
+    const allowance = new BodyAllowance(5_000, clock.now);
+    clock.advance(500_000);
+    expect(allowance.boundedMs(10_000)).toBe(1);
+  });
+
   it("lets a body that settles in time through untouched", async () => {
     await expect(
       new BodyAllowance(TEST_ALLOWANCE_MS).settle(() => Promise.resolve("asserted")),

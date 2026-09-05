@@ -243,12 +243,12 @@
       "id": "console-launch-body",
       "label": "Console launch test-body allowance",
       "subject": "The wall time a test body gets between a settled launch and its cleanup — the interval `withLaunchedConsole` runs the caller's own function in, and the default for a tier that states no allowance of its own.",
-      "specTarget": "≤ 60 000 ms between a settled launch and its cleanup",
+      "specTarget": "≤ 70 000 ms between a settled launch and its cleanup",
       "limit": {
         "comparison": "<=",
-        "value": 60000,
+        "value": 70000,
         "unit": "ms",
-        "canonicalValue": 60000,
+        "canonicalValue": 70000,
         "canonicalUnit": "ms"
       },
       "scope": "harness",
@@ -256,7 +256,7 @@
       "producedBy": "T-023p-1C-8",
       "measuredBy": "apps/desktop/test/console/architecture/launch-body.test.ts",
       "subjectSymbol": "BodyAllowance",
-      "notes": "Counted from the worst body in the tree rather than chosen. `e2e/frame-boot.test.ts`'s scheme-persistence case declares three 10 000 ms `expect.poll` waits — 30 000 ms in all — and additionally reloads the window, whose renderer boot is the same subject `console-launch-readiness` bounds at 30 000 ms; 30 000 + 30 000 is this figure. A bound under a body's own declared waits would fire first and replace that body's message (\"the scheme did not change\") with a sentence about a clock, which is the inversion the launch deadline exists to undo. A body is handed what is LEFT of this allowance, so it can pass the figure to its own polls instead of restating one. The derivation these rows share is stated once in `harnessBudgetDerivation`."
+      "notes": "Counted from the worst body in the tree rather than chosen, and RE-COUNTED on 2026-09-05 once every wait in that body was made to draw on this allowance. `e2e/frame-boot.test.ts`'s scheme-persistence case declares, in order: the palette overlay opening at 10 000 ms; three 10 000 ms `expect.poll` waits, on the applied attribute, on the durable write, and on the attribute after a reload — 30 000 ms in all; and the reload, whose navigation and the frame element it must produce share ONE 30 000 ms clock, because the renderer boot they perform between them is the same subject `console-launch-readiness` bounds. 10 000 + 30 000 + 30 000 is this figure. The 60 000 it replaces counted the polls and the reload and omitted the overlay wait, which carried Playwright's default rather than any figure written down here. A bound under a body's own declared waits would fire first and replace that body's message (\"the scheme did not change\") with a sentence about a clock, which is the inversion the launch deadline exists to undo. A body is handed what is LEFT of this allowance and asks for `boundedMs(<its own bound>)`, the smaller of the two, so the first wait that cannot fit fails with ITS sentence rather than the generic overrun; `architecture/body-allowance-consumption.test.ts` reads both launching tiers and fails a bounded wait that names no allowance. The derivation these rows share is stated once in `harnessBudgetDerivation`."
     },
     {
       "id": "console-endurance-body",
@@ -275,7 +275,7 @@
       "producedBy": "T-023p-1C-8",
       "measuredBy": "apps/desktop/test/console/architecture/launch-body.test.ts",
       "subjectSymbol": "ENDURANCE_BODY_ALLOWANCE_MS",
-      "notes": "A separate figure because the endurance body is a different subject from an end-to-end one, not a slower version of it: `steady-state.test.ts` drives 200 churn cycles twice over with settling heap samples either side, which its own count comment measures at roughly 50 ms a cycle — well under a minute warm, and the reason that tier has always carried a patience an order of magnitude past the end-to-end one. Nine minutes keeps the derived tier timeout at the 597 000 ms this tier effectively had before the arithmetic was made explicit, so nothing about a tier nobody has complained about is tightened here. The derivation these rows share is stated once in `harnessBudgetDerivation`."
+      "notes": "A separate figure because the endurance body is a different subject from an end-to-end one, not a slower version of it: `steady-state.test.ts` drives 200 churn cycles twice over with settling heap samples either side, which its own count comment measures at roughly 50 ms a cycle — well under a minute warm, and the reason that tier has always carried a patience an order of magnitude past the end-to-end one. Nine minutes keeps the derived tier timeout at the 597 000 ms this tier effectively had before the arithmetic was made explicit, so nothing about a tier nobody has complained about is tightened here. Its own waits draw on this allowance through the same `boundedMs` the end-to-end bodies use, but this FIGURE is deliberately not re-counted from them: a churn cycle's declared bounds are ceilings for a wedged console rather than intervals a run spends, and 200 of them summed would describe no run this tier has ever performed. The derivation these rows share is stated once in `harnessBudgetDerivation`."
     }
   ]
 }
