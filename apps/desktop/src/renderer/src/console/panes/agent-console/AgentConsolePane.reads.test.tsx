@@ -11,10 +11,7 @@
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  growthRefusing,
-  growthServing,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
+import { growthRefusing, growthServing } from "../../bridge/fixture-bridge.test-support.js";
 import {
   OWNED_AGENT_ID,
   projectingStore,

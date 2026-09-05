@@ -7,16 +7,9 @@
 import { describe, expect, it } from "vitest";
 
 import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
-import { PERSISTENCE_GLOBAL_PARTITION, UiStateStore } from "../../persistence/index.js";
+import { PERSISTENCE_GLOBAL_PARTITION } from "../../persistence/index.js";
+import { openStore, openStoreOver } from "../sessions.test-support.js";
 import { SESSION_PIN_TIERS_KEY, SessionPinStore, narrowSessionPinMap } from "./session-pins.js";
-
-function openStore(options: { readonly capacityBytes?: number } = {}): UiStateStore {
-  return new UiStateStore({
-    adapter: new MemoryPersistenceAdapter(
-      options.capacityBytes === undefined ? {} : { capacityBytes: options.capacityBytes },
-    ),
-  });
-}
 
 describe("pins in the durable store", () => {
   it("writes a front pin through the chokepoint, under the global partition", async () => {
@@ -43,10 +36,10 @@ describe("pins in the durable store", () => {
 
   it("reads its own writes back on a second store over the same adapter", async () => {
     const adapter = new MemoryPersistenceAdapter();
-    const first = new SessionPinStore(new UiStateStore({ adapter }));
+    const first = new SessionPinStore(openStoreOver(adapter));
     await first.setTier("session-a", "front");
 
-    const second = new SessionPinStore(new UiStateStore({ adapter }));
+    const second = new SessionPinStore(openStoreOver(adapter));
     expect(second.tiers).toStrictEqual({});
     await second.hydrate();
     expect(second.tiers).toStrictEqual({ "session-a": "front" });
@@ -54,7 +47,7 @@ describe("pins in the durable store", () => {
 
   it("hydrates once, so a remount cannot overwrite a change made since", async () => {
     const adapter = new MemoryPersistenceAdapter();
-    const pins = new SessionPinStore(new UiStateStore({ adapter }));
+    const pins = new SessionPinStore(openStoreOver(adapter));
     await pins.hydrate();
     await pins.setTier("session-a", "front");
     await pins.hydrate();

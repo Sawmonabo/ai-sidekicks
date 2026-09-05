@@ -21,10 +21,6 @@
 // on its first paint — which would silently run both cases against the light
 // palette and report the contrast rules as clean in a scheme nobody measured.
 
-import type {
-  ChannelListResponseChannel,
-  PresenceReadResponseParticipant,
-} from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, renderSettled } from "../console-harness.js";
@@ -52,62 +48,30 @@ import {
   COLLABORATION_SCENARIO,
   COLLABORATION_SCENARIO_ID,
 } from "../../../src/renderer/src/console/bridge/scenarios/collaboration.js";
-import {
-  ActivityIndicatorRegistry,
-  type ChannelActivityLabels,
-} from "../../../src/renderer/src/console/collaboration/activity-model.js";
+import { ActivityIndicatorRegistry } from "../../../src/renderer/src/console/collaboration/activity-model.js";
 import { ChannelList } from "../../../src/renderer/src/console/collaboration/channels/ChannelList.js";
 import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/members/presence-model.js";
 import { Roster } from "../../../src/renderer/src/console/collaboration/members/Roster.js";
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/invites/SentInvites.js";
 import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
 import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
-import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";
+import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
-
-/** The instant the roster's relative stamps are measured against. */
-const AUDIT_INSTANT_MILLISECONDS = Date.parse("2026-01-01T10:00:00.000Z");
-
-/** The tick this scenario's two machine-health axes disagree at, so both render. */
-const ROSTER_AXES_DISAGREE_MS = 640;
-
-/** Identifiers render as themselves: an audit must not depend on a name read. */
-const LABELS: ChannelActivityLabels = {
-  participantLabel: (participantId) => participantId.replace("participant-", ""),
-  runLabel: (runId) => runId,
-};
+import {
+  COLLABORATION_INSTANT_MILLISECONDS,
+  LABELS,
+  ROSTER_AXES_DISAGREE_MS,
+  channel,
+  participant,
+} from "../surfaces/collaboration-fixtures.js";
 
 /** Every destination this family owns, by the address a person types. */
 const FAMILY_DESTINATIONS: readonly { readonly label: string; readonly hash: string }[] = [
   { label: "all-sessions list", hash: "#/sessions" },
   { label: "settings frame", hash: "#/settings" },
 ];
-
-function channel(
-  id: string,
-  name: string,
-  state: ChannelListResponseChannel["state"],
-): ChannelListResponseChannel {
-  return {
-    id: id as ChannelListResponseChannel["id"],
-    name,
-    state,
-    participantCount: 4,
-  };
-}
-
-function participant(
-  participantId: string,
-  state: PresenceReadResponseParticipant["state"],
-): PresenceReadResponseParticipant {
-  return {
-    participantId: participantId as PresenceReadResponseParticipant["participantId"],
-    state,
-    lastSeen: "2026-01-01T09:59:30.000Z",
-  };
-}
 
 beforeEach(() => {
   document.location.hash = "";
@@ -166,13 +130,16 @@ describe("accessibility — the surfaces this family fills a seat with", () => {
     ];
     const { container } = await renderSettled(
       <Roster
-        state={{ kind: "loaded", value: participants }}
+        state={{
+          kind: "loaded",
+          value: { participants, readAtMilliseconds: COLLABORATION_INSTANT_MILLISECONDS },
+        }}
         rows={rosterRowsFrom(
           participants,
           (participantId) => allocator.assignmentFor(participantId),
           "participant-sawyer",
         )}
-        nowMilliseconds={AUDIT_INSTANT_MILLISECONDS}
+        nowMilliseconds={COLLABORATION_INSTANT_MILLISECONDS}
         labels={LABELS}
         composingChannelFor={(participantId) =>
           participantId === "participant-priya" ? "review" : undefined

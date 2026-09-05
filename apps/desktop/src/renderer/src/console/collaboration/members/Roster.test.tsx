@@ -5,10 +5,10 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
-import { frozenStartMilliseconds } from "../frozen-start.test-support.js";
+import { frozenStartMilliseconds } from "../../core/frozen-instant.test-support.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
-import { rosterRowsFrom, type RosterRow } from "./presence-model.js";
+import { rosterRowsFrom, type PresenceReading, type RosterRow } from "./presence-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
 import { Roster } from "./Roster.js";
 
@@ -45,9 +45,9 @@ function renderRoster(
     (participantId) => allocator.assignmentFor(participantId),
     overrides?.selfParticipantId,
   );
-  const state: PushDrivenReadState<readonly PresenceReadResponseParticipant[]> = {
+  const state: PushDrivenReadState<PresenceReading> = {
     kind: "loaded",
-    value: participants,
+    value: { participants, readAtMilliseconds: NOW_MILLISECONDS },
   };
   return render(
     <Roster

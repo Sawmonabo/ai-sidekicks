@@ -31,14 +31,20 @@
 //
 // `./agents/index.js`, never `./agents/DefinitionsPage.js`. A deep import would work
 // and would also be the first one, which is how a barrel stops being the boundary it
-// exists to be. The settings registry is reached deep because the section vocabulary
-// and the descriptor shape are that family's intra-family contract, which its own
-// door deliberately does not publish.
+// exists to be.
+//
+// THE SETTINGS FAMILY IS REACHED FOR EXACTLY ONE DECLARED THING: `SettingsPageRegistrar`,
+// the one-method view of its registry that family declares for the page registered
+// from outside it. Not the registry CLASS, which the door withholds on purpose, and
+// not the section vocabulary or the descriptor shape — so nothing here can read the
+// rail or unregister a sibling lane's page. The import is deep rather than through
+// `settings/index.js` because that door imports THIS file to compose the page, and a
+// type line back through it closes a module cycle `no-circular` fails on.
 
 import { createElement } from "react";
 
 import { SidekickDefinitionsPage } from "./agents/index.js";
-import type { SettingsPageRegistry } from "./settings/settings-page-registry.js";
+import type { SettingsPageRegistrar } from "./settings/settings-page-registry.js";
 
 /** The lane that owns this registration, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-sidekicks";
@@ -52,7 +58,7 @@ const OWNER = "collaboration-settings-sidekicks";
  * deliberately not threaded, because the page navigates nowhere and its subject is
  * node-local rather than scoped to whichever session this window happens to hold.
  */
-export function registerSidekicksPage(registry: SettingsPageRegistry): void {
+export function registerSidekicksPage(registry: SettingsPageRegistrar): void {
   registry.register({
     section: "sidekicks",
     owner: OWNER,

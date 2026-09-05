@@ -1,51 +1,24 @@
 // The inventory composes two registered reads, settles each mount independently,
 // and never asks for more mounts than its cap.
 
-import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, ManualClock, refuse } from "../../../core/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { MOUNT_INVENTORY_READ_CAP } from "../../../core/index.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../../store/index.js";
+import type { SessionStore } from "../../../store/index.js";
 import { createMountInventoryRead, distinctMountIds } from "./mount-inventory.js";
-
-/**
- * The ids this file sends over the wire.
- *
- * UUIDs rather than readable strings, because the call door parses the REQUEST
- * against the registered schema before it sends: `sessionId` and `repoMountId` are
- * both branded UUID scalars, so a readable id is refused as `request-unsendable` and
- * the daemon is never asked at all. Named, so the cases still read as "the first
- * mount" rather than as a hex string.
- */
-const SESSION_ID = "019b7911-0000-7000-8000-000000000001";
-const NODE_ID = "019b7911-0003-7000-8000-000000000001";
-const MOUNT_A = "019b7911-0001-7000-8000-00000000000a";
-const MOUNT_B = "019b7911-0001-7000-8000-00000000000b";
-
-/** An initialised store, so an appended event is admitted rather than buffered. */
-function initialisedStore(sessionId: string): SessionStore {
-  const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-  return sessionStore;
-}
-
-/** One admitted event of the given kind, numbered so the store's cursor moves. */
-function eventOfKind(
-  sessionStore: SessionStore,
-  kind: ConsoleSessionEvent["kind"],
-  sequence: number,
-): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: sessionStore.sessionId,
-    sequence,
-    kind,
-    occurredAt: "2026-09-02T10:00:00.000Z",
-    payload: {},
-  };
-}
+import {
+  MOUNT_A,
+  MOUNT_B,
+  SESSION_ID,
+  eventOfKind,
+  initialisedStore,
+  mountIdAt,
+  mountReadFor,
+  workspaceListWith,
+} from "./mounts.test-support.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "../../../core/settle.test-support.js";
 
 /**
  * Let the scheduler's in-flight read settle without advancing the clock.
@@ -60,56 +33,6 @@ async function settle(): Promise<void> {
   await new Promise((resolve) => {
     setTimeout(resolve, 0);
   });
-}
-
-/**
- * One workspace id, derived from its position so a list of any length is on-contract.
- *
- * The id is a branded UUID on the wire, so a readable `workspace-0` is refused as a
- * REPLY the build does not register — the call door parses both directions, and a
- * fixture that scripted a readable id would be teaching this surface a frame the
- * daemon cannot send.
- */
-function workspaceIdAt(index: number): WorkspaceListResponse["workspaces"][number]["id"] {
-  const suffix = String(index).padStart(12, "0");
-  return `019b7911-0002-7000-8000-${suffix}` as WorkspaceListResponse["workspaces"][number]["id"];
-}
-
-/**
- * One mount id, derived from its position so a list of any length is on-contract.
- *
- * The id is a branded UUID on the wire, so a readable `mount-007` is refused as a
- * REQUEST the daemon would not accept: the call door parses before it sends, and a
- * generator producing readable ids would have every case in the cap block failing on
- * the request rather than exercising the cap.
- */
-function mountIdAt(index: number): string {
-  return `019b7911-0004-7000-8000-${String(index).padStart(12, "0")}`;
-}
-
-function workspaceListWith(mountIds: readonly string[]): WorkspaceListResponse {
-  return {
-    workspaces: mountIds.map((repoMountId, index) => ({
-      id: workspaceIdAt(index),
-      repoMountId: repoMountId as WorkspaceListResponse["workspaces"][number]["repoMountId"],
-      executionMode: "worktree",
-      state: "ready",
-    })),
-  };
-}
-
-function mountReadFor(repoMountId: string): RepoMountReadResponse {
-  return {
-    id: repoMountId as RepoMountReadResponse["id"],
-    sessionId: SESSION_ID as RepoMountReadResponse["sessionId"],
-    nodeId: NODE_ID as RepoMountReadResponse["nodeId"],
-    localPath: `/repos/${repoMountId}`,
-    canonicalRoot: `/repos/${repoMountId}`,
-    vcsType: "git",
-    state: "attached",
-    health: { status: "healthy", checkedAt: "2026-09-02T10:00:00.000Z" },
-    attachedAt: "2026-09-01T10:00:00.000Z",
-  };
 }
 
 /**
@@ -174,7 +97,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     expect(calls[0]?.method).toBe("repo.workspaceList");
     expect(calls.filter((call) => call.method === "repo.mountRead")).toHaveLength(2);
@@ -196,7 +119,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     const state = read.state;
     expect(state.kind).toBe("loaded");
@@ -232,7 +155,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     expect(read.state.kind).toBe("failed");
     read.dispose();
@@ -251,7 +174,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     const state = read.state;
     expect(calls.filter((call) => call.method === "repo.mountRead")).toHaveLength(
@@ -272,7 +195,7 @@ describe("mount inventory read", () => {
       sessionStore: undefined,
     });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     expect(read.isSubscribed).toBe(true);
     read.dispose();
@@ -299,7 +222,7 @@ describe("what refreshes the inventory", () => {
     const { bridge, calls } = bridgeAnswering({ mountIds: [MOUNT_A] });
     const read = createMountInventoryRead({ bridge, sessionId: SESSION_ID, clock, sessionStore });
     read.start();
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
     return {
       clock,
@@ -314,7 +237,7 @@ describe("what refreshes the inventory", () => {
     expect(listCallCount()).toBe(1);
 
     sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(2);
@@ -326,7 +249,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "repo.detached", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(2);
@@ -338,7 +261,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "workspace.ready", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(2);
@@ -356,7 +279,7 @@ describe("what refreshes the inventory", () => {
       eventOfKind(sessionStore, "repo.attached", 2),
       eventOfKind(sessionStore, "workspace.ready", 3),
     ]);
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(2);
@@ -370,7 +293,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(sessionStore);
 
     sessionStore.apply(eventOfKind(sessionStore, "run.starting", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(1);
@@ -385,7 +308,7 @@ describe("what refreshes the inventory", () => {
     const { clock, read, listCallCount } = await startedRead(undefined);
 
     sessionStore.apply(eventOfKind(sessionStore, "run.completed", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(1);
@@ -398,7 +321,7 @@ describe("what refreshes the inventory", () => {
     read.dispose();
 
     sessionStore.apply(eventOfKind(sessionStore, "run.failed", 1));
-    clock.advance(500);
+    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
     await settle();
 
     expect(listCallCount()).toBe(1);

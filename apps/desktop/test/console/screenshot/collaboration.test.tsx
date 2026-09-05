@@ -29,10 +29,6 @@
 // else, which is the honest state — a lane that wrote its own references would have
 // committed images no CI run reproduces.
 
-import type {
-  ChannelListResponseChannel,
-  PresenceReadResponseParticipant,
-} from "@ai-sidekicks/contracts";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
@@ -64,64 +60,24 @@ import {
   createFixtureBridge,
   growthUnavailable,
 } from "../../../src/renderer/src/console/bridge/index.js";
-import {
-  ActivityIndicatorRegistry,
-  type ChannelActivityLabels,
-} from "../../../src/renderer/src/console/collaboration/activity-model.js";
+import { ActivityIndicatorRegistry } from "../../../src/renderer/src/console/collaboration/activity-model.js";
 import { ChannelList } from "../../../src/renderer/src/console/collaboration/channels/ChannelList.js";
 import { rosterRowsFrom } from "../../../src/renderer/src/console/collaboration/members/presence-model.js";
 import { Roster } from "../../../src/renderer/src/console/collaboration/members/Roster.js";
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/invites/SentInvites.js";
 import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
 import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
-import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";
+import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
-
-/** The instant the roster's "last seen" figures are relative to. Fixed, so the capture is. */
-const CAPTURE_INSTANT_MILLISECONDS = Date.parse("2026-01-01T10:00:00.000Z");
-
-/**
- * The tick this scenario's two machine-health axes disagree at.
- *
- * The runner's attachment has ended while the heartbeat sweep still reads it
- * healthy, which is the reading the never-mask rule exists for — and the one a page
- * that collapsed the two axes into a single scalar could not draw. The capture is
- * taken here rather than at an earlier frame precisely because a picture of two
- * agreeing axes would look the same either way.
- */
-const ROSTER_AXES_DISAGREE_MS = 640;
-
-/** Identifiers render as themselves here: a capture must not depend on a name read. */
-const LABELS: ChannelActivityLabels = {
-  participantLabel: (participantId) => participantId.replace("participant-", ""),
-  runLabel: (runId) => runId,
-};
-
-function channel(
-  id: string,
-  name: string,
-  state: ChannelListResponseChannel["state"],
-): ChannelListResponseChannel {
-  return {
-    id: id as ChannelListResponseChannel["id"],
-    name,
-    state,
-    participantCount: 4,
-  };
-}
-
-function participant(
-  participantId: string,
-  state: PresenceReadResponseParticipant["state"],
-): PresenceReadResponseParticipant {
-  return {
-    participantId: participantId as PresenceReadResponseParticipant["participantId"],
-    state,
-    lastSeen: "2026-01-01T09:59:30.000Z",
-  };
-}
+import {
+  COLLABORATION_INSTANT_MILLISECONDS,
+  LABELS,
+  ROSTER_AXES_DISAGREE_MS,
+  channel,
+  participant,
+} from "../surfaces/collaboration-fixtures.js";
 
 beforeEach(() => {
   document.location.hash = "";
@@ -217,13 +173,16 @@ describe("screenshot — the surfaces this family fills a seat with", () => {
     ];
     const { container } = await renderSettled(
       <Roster
-        state={{ kind: "loaded", value: participants }}
+        state={{
+          kind: "loaded",
+          value: { participants, readAtMilliseconds: COLLABORATION_INSTANT_MILLISECONDS },
+        }}
         rows={rosterRowsFrom(
           participants,
           (participantId) => allocator.assignmentFor(participantId),
           "participant-sawyer",
         )}
-        nowMilliseconds={CAPTURE_INSTANT_MILLISECONDS}
+        nowMilliseconds={COLLABORATION_INSTANT_MILLISECONDS}
         labels={LABELS}
         composingChannelFor={(participantId) =>
           participantId === "participant-priya" ? "review" : undefined

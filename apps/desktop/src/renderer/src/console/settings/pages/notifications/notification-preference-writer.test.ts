@@ -260,6 +260,10 @@ describe("the preference writer — a write the daemon refused", () => {
     // The port answers a refusal rather than throwing, so this is the arm nobody is
     // supposed to reach. Without it a rejection leaves the record locked for the
     // window's life: every switch in it dead, with nothing on screen saying why.
+    //
+    // The rejection carries no code, so the seam's own fallback answers: a transport
+    // string names a socket rather than a next move, and this console says what it
+    // knows instead of paraphrasing one.
     const writer = writerFor({
       attentionPreferenceUpdate: () => Promise.reject(new Error("the preference store is gone")),
       attentionPreferenceRead: () =>
@@ -271,8 +275,11 @@ describe("the preference writer — a write the daemon refused", () => {
     await drain();
 
     expect(writer.snapshot().busyRecordKeys.has(record.key)).toBe(false);
-    expect(writer.snapshot().refusalByMemberKey.get(mentions.memberKey)?.detail).toContain(
-      "the preference store is gone",
+    expect(writer.snapshot().refusalByMemberKey.get(mentions.memberKey)?.code).toBe(
+      "write-rejected",
+    );
+    expect(writer.snapshot().refusalByMemberKey.get(mentions.memberKey)?.detail).toBe(
+      "This change was not saved.",
     );
   });
 

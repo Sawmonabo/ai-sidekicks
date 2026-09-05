@@ -13,7 +13,7 @@
 // WHEN the seam is read, and what re-reads it, is `attention-read.ts` — this module
 // owns the fold and holds no lifetime at all.
 
-import type { ConsoleRefusal } from "../../core/index.js";
+import { compareInstants, parseInstant, type ConsoleRefusal } from "../../core/index.js";
 import { unreadableDeliveryReading, type ReadingState } from "../../primitives/index.js";
 import type { AttentionItem, AttentionSeverity } from "../../bridge/index.js";
 import type { RefusedAttentionSession } from "./attention-projection-read.js";
@@ -49,7 +49,7 @@ export class AttentionPlane {
   readonly #severityBySessionId: ReadonlyMap<string, AttentionSeverity>;
 
   public constructor(items: readonly AttentionItem[]) {
-    this.#liveItems = items.filter((item) => item.resolvedAt === undefined);
+    this.#liveItems = oldestFirst(items.filter((item) => item.resolvedAt === undefined));
     this.#groups = groupBySession(this.#liveItems);
     this.#severityBySessionId = new Map(
       this.#groups.map((group) => [
@@ -59,12 +59,26 @@ export class AttentionPlane {
     );
   }
 
-  /** Every unresolved item, oldest first. Ordering is the projection's own. */
+  /**
+   * Every unresolved item, oldest first — established here, not assumed.
+   *
+   * `attentionProjectionRead` is a growth row and registers no ordering, so a
+   * projection answering newest-first is a frame nothing forbids. This getter used
+   * to promise an order the constructor only filtered for, and the notification
+   * center listed a newer session's attention above an older one's while both
+   * getters said the reverse.
+   */
   public get liveItems(): readonly AttentionItem[] {
     return this.#liveItems;
   }
 
-  /** Live items grouped by session, sessions ordered by their oldest item. */
+  /**
+   * Live items grouped by session, sessions ordered by their oldest item.
+   *
+   * Derived from {@link liveItems} rather than sorted a second time: the grouping
+   * keys on first appearance, and over an oldest-first list first appearance IS the
+   * session's oldest item.
+   */
   public get groups(): readonly AttentionSessionGroup[] {
     return this.#groups;
   }
@@ -85,6 +99,25 @@ export class AttentionPlane {
   public severityFor(sessionId: string): AttentionSeverity | undefined {
     return this.#severityBySessionId.get(sessionId);
   }
+}
+
+/**
+ * The live items in the order a person reads them: oldest first.
+ *
+ * Each stamp is parsed ONCE and the readings are sorted, rather than parsing inside
+ * the comparator, where a list of n items costs n log n parses of the same strings.
+ *
+ * `compareInstants` sorts an unreadable stamp last, which is the corpus rule for one
+ * everywhere else: a row whose instant no reader can parse renders an em dash and
+ * sits at the end rather than claiming a position it did not earn. The sort is
+ * stable, so two items the wire stamped at the same instant keep the projection's
+ * own order between them.
+ */
+function oldestFirst(items: readonly AttentionItem[]): readonly AttentionItem[] {
+  return items
+    .map((item) => ({ item, createdAt: parseInstant(item.createdAt) }))
+    .sort((left, right) => compareInstants(left.createdAt, right.createdAt, "oldest-first"))
+    .map((stamped) => stamped.item);
 }
 
 function groupBySession(items: readonly AttentionItem[]): readonly AttentionSessionGroup[] {

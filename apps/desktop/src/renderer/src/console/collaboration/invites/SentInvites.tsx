@@ -72,17 +72,18 @@
 // to read. A timer counting down from a number the console invented would be
 // worse than the sentence.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
-import { heldIdAsWireId, type ConsoleBridge } from "../../bridge/index.js";
+import { heldIdAsWireId, type ConsoleBridge, type InvitesListOutcome } from "../../bridge/index.js";
 import { Nothing } from "../../primitives/index.js";
-import { partitionInvites, withSettledInvite, type InvitesListOutcome } from "./invite-ledger.js";
+import { useSubjectScopedState } from "../../store/index.js";
+import { partitionInvites, withSettledInvite } from "./invite-ledger.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
   useWireMutation,
 } from "../mutation-coordinator.js";
-import { LedgerBody } from "./SentInvitesLedger.js";
+import { SentInvitesLedger } from "./SentInvitesLedger.js";
 
 /** The wire method the revoke control calls, through the daemon gateway. */
 const INVITE_REVOKE_METHOD = "invite.revoke";
@@ -93,23 +94,23 @@ export interface SentInvitesProps {
   readonly sessionId: string | undefined;
 }
 
-/**
- * One `invitesList` answer, and the exact subject it was asked of.
- *
- * The bridge is compared by identity beside the session id rather than trusted to
- * follow it: a window handed a replacement bridge for the same session is holding
- * an answer from a transport that no longer exists, and the ledger's own control
- * would dispatch through the replacement while showing the retired one's rows.
- */
-interface StampedInvitesOutcome {
-  readonly bridge: ConsoleBridge;
-  readonly sessionId: string;
-  readonly outcome: InvitesListOutcome;
-}
-
 export function SentInvites(props: SentInvitesProps): React.JSX.Element {
   const { bridge, sessionId } = props;
-  const [stamped, setStamped] = useState<StampedInvitesOutcome | undefined>(undefined);
+  // One `invitesList` answer, held against the exact subject it was asked of.
+  //
+  // The bridge is the subject and the session is the key, because a window handed a
+  // replacement bridge for the same session is holding an answer from a transport
+  // that no longer exists, and the ledger's own control would dispatch through the
+  // replacement while showing the retired one's rows.
+  //
+  // Through the family's one holder rather than a `useState` and a render-time pair
+  // comparison: the pair is EQUAL on the first and third visit of an A to B to A
+  // round-trip and the holder's addressing is not, so the hand-written version rested
+  // on a per-effect-run flag whose correctness was not the holder's — a second copy of
+  // the primitive this family had just rebound onto.
+  const { value: outcome, publish: publishOutcome } = useSubjectScopedState<
+    InvitesListOutcome | undefined
+  >(bridge, sessionId, () => undefined);
 
   const revokeCoordinator = useMemo(
     () =>
@@ -139,26 +140,14 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
     // seam refuses today, so a repeat would re-ask a question with no answer, and
     // `store/scheduling.ts` is where a real re-read will go when there is one.
     if (sessionId === undefined) {
-      return undefined;
+      return;
     }
-    let isAttached = true;
-    void bridge.growth.invitesList({ sessionId }).then((result) => {
-      if (isAttached) {
-        setStamped({ bridge, sessionId, outcome: result });
-      }
-    });
-    return () => {
-      isAttached = false;
-    };
-  }, [bridge, sessionId]);
-
-  // The stamp is read HERE rather than trusted from the effect that installed it:
-  // an effect's state lands one committed frame after the render that renamed the
-  // subject, and that frame is the one this whole surface has to get right.
-  const outcome =
-    stamped !== undefined && stamped.bridge === bridge && stamped.sessionId === sessionId
-      ? stamped.outcome
-      : undefined;
+    // The publisher was captured during this render, so it names the subject that
+    // asked. A settlement arriving after a re-address publishes nowhere — including
+    // on the round-trip back to a subject this surface has already been on, which is
+    // the case an `isAttached` flag and a pair comparison both read as current.
+    void bridge.growth.invitesList({ sessionId }).then(publishOutcome);
+  }, [bridge, sessionId, publishOutcome]);
 
   const ledger = useMemo(
     () => (outcome?.status === "served" ? partitionInvites(outcome.value) : undefined),
@@ -177,7 +166,7 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
 
       <InviteCreationAbsence />
 
-      <LedgerBody
+      <SentInvitesLedger
         sessionId={sessionId}
         outcome={outcome}
         ledger={ledger}
@@ -200,17 +189,16 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
               if (settlement === undefined) {
                 return;
               }
-              setStamped((held) => {
-                if (held === undefined || held.bridge !== bridge || held.sessionId !== sessionId) {
-                  return held;
-                }
-                const settled = withSettledInvite(held.outcome, settlement);
+              // Published through the holder's own updater, so the subject check
+              // that used to be written out here is the holder's: a settlement
+              // arriving after a re-address is dropped rather than folded into
+              // whichever ledger is on screen now.
+              publishOutcome((held) => {
+                const settled = withSettledInvite(held, settlement);
                 // `undefined` here would mean the ledger held no answer at all, and
                 // this one does; identity means the settlement named no row it
                 // holds. Both leave the ledger exactly as it stands.
-                return settled === undefined || settled === held.outcome
-                  ? held
-                  : { ...held, outcome: settled };
+                return settled ?? held;
               });
             });
         }}

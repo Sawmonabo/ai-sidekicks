@@ -16,25 +16,35 @@
 // A page lane reaches the section vocabulary and the descriptor shape by importing
 // `settings-page-registry.ts` DEEP, which is what an intra-family import is — this
 // door carries only what crosses the family boundary, which is the two registrars
-// below. A lane edits that module for one reason only: the design placed a page in
+// below.
+//
+// THE ONE PAGE REGISTERED FROM OUTSIDE THIS FAMILY takes `SettingsPageRegistrar`, a
+// one-method view of the registry declared beside it in `settings-page-registry.ts`.
+// It is deliberately not re-exported HERE, and the reason is the graph rather than a
+// preference: this door imports `../sidekicks-settings-page.js` to compose that page,
+// so a type line pointing the other way closes a module cycle and `no-circular` fails.
+// The family still declares what crosses its boundary — it is the narrow interface
+// and not the registry class — and the page holds `register` and nothing else: no
+// rail read, no `unregister`, and no section vocabulary. A lane edits that module for one reason only: the design placed a page in
 // settings and named no section id for it, which is why `sidekicks` is there and
 // why the other twelve are the design's own.
 
 import "./settings.css";
+import "./shared/settings-page.css";
 
 import { createElement } from "react";
 
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
-import { registerAppearancePage } from "./pages/AppearancePage.js";
-import { registerApplicationPage } from "./pages/ApplicationPage.js";
+import { registerAppearancePage } from "./pages/appearance/AppearancePage.js";
+import { registerApplicationPage } from "./pages/application/ApplicationPage.js";
 import { registerCostReceiptPage } from "./pages/cost/CostReceiptPage.js";
-import { registerDataErasurePage } from "./pages/DataErasurePage.js";
-import { registerDiagnosticsPage } from "./pages/DiagnosticsPage.js";
+import { registerDataErasurePage } from "./pages/data-erasure/DataErasurePage.js";
+import { registerDiagnosticsPage } from "./pages/diagnostics/DiagnosticsPage.js";
 import { registerKeyboardPage } from "./pages/keyboard/KeyboardPage.js";
-import { registerMcpServersPage } from "./pages/McpServersPage.js";
+import { registerMcpServersPage } from "./pages/mcp-servers/McpServersPage.js";
 import { registerNotificationsPage } from "./pages/notifications/NotificationsPage.js";
-import { registerProviderAccountsPage } from "./pages/ProviderAccountsPage.js";
-import { registerRuntimeNodesPage } from "./pages/RuntimeNodesPage.js";
+import { registerProviderAccountsPage } from "./pages/provider-accounts/ProviderAccountsPage.js";
+import { registerRuntimeNodesPage } from "./pages/runtime-nodes/RuntimeNodesPage.js";
 import { registerSidekicksPage } from "../sidekicks-settings-page.js";
 import { registerWorkspaceMountsPage } from "./pages/mounts/WorkspaceMountsPage.js";
 import { SettingsPageRegistry } from "./settings-page-registry.js";

@@ -20,8 +20,6 @@
 // same colour here, in the log, and on a pane's focus ring. A participant the wheel
 // has not admitted renders unattributed rather than borrowing a neighbour's colour.
 
-import type { PresenceReadResponseParticipant } from "@ai-sidekicks/contracts";
-
 import {
   Chip,
   DerivedFigure,
@@ -34,10 +32,10 @@ import {
 import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
-import type { RosterRow } from "./presence-model.js";
+import type { PresenceReading, RosterRow } from "./presence-model.js";
 
 export interface RosterProps {
-  readonly state: PushDrivenReadState<readonly PresenceReadResponseParticipant[]>;
+  readonly state: PushDrivenReadState<PresenceReading>;
   /** The read's participants, ordered and hue-attached. Derived by the caller, once. */
   readonly rows: readonly RosterRow[];
   /** The instant relative stamps are measured against — the console's clock, never the wire's. */

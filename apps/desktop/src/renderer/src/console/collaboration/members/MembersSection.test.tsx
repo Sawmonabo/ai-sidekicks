@@ -25,6 +25,7 @@ import {
   type SidebarSectionId,
 } from "../../seats/index.js";
 import { registerCollaborationSections } from "../sections.js";
+import { PAST_REFRESH_DEBOUNCE_MS } from "../../core/settle.test-support.js";
 
 /**
  * The session id both section reads send over the wire.
@@ -135,7 +136,7 @@ const DEGRADED_LINE_SELECTOR: Readonly<Record<string, string>> = {
 async function sectionWithItsReadSettled(id: SidebarSectionId): Promise<MountedSection> {
   const mounted = renderSection(id);
   await act(async () => {
-    mounted.bridge.scenarioEngine?.advance(500);
+    mounted.bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
     for (let pass = 0; pass < 4; pass += 1) {
       await Promise.resolve();
     }
@@ -180,4 +181,96 @@ describe("a degraded transition that settles no read", () => {
       expect(container.querySelector(DEGRADED_LINE_SELECTOR[id] ?? "")).toBeNull();
     },
   );
+});
+
+describe("a roster age with nothing else moving", () => {
+  /**
+   * The one participant on the roster.
+   *
+   * A UUID for `SESSION_ID`'s reason: the call door parses the REPLY too, and a
+   * readable id is refused as `reply-off-contract`, which renders a refusal card
+   * where the row would be.
+   */
+  const PARTICIPANT_ID = "019b7910-0006-7000-8000-000000000001";
+
+  /** Half a minute before the scenario starts, so the row opens on a seconds figure. */
+  const SEEN_THIRTY_SECONDS_AGO = "2026-01-01T10:04:30.000Z";
+
+  /** Long enough to cross the seconds band, the minute boundaries, and nothing else. */
+  const FORTY_FIVE_MINUTES_MS = 45 * 60 * 1000;
+
+  function bridgeServingOneParticipant(): ConsoleBridge {
+    return createFixtureBridge({
+      scenario: {
+        id: "collaboration-members-age-test",
+        label: "One participant, last seen half a minute ago",
+        purpose: "Drives the roster's relative age against a clock the case advances.",
+        sessionId: SESSION_ID,
+        participantIdsInJoinOrder: [],
+        beats: [],
+        replies: [
+          {
+            call: "presence.read",
+            result: {
+              participants: [
+                { participantId: PARTICIPANT_ID, state: "idle", lastSeen: SEEN_THIRTY_SECONDS_AGO },
+              ],
+            },
+          },
+          { call: "channel.list", result: { channels: [] } },
+        ],
+        startedAtIso: "2026-01-01T10:05:00.000Z",
+      },
+    });
+  }
+
+  async function rosterWithOneParticipant(): Promise<MountedSection> {
+    registerCollaborationSections();
+    const sessionStore = new SessionStore({ sessionId: SESSION_ID });
+    const bridge = bridgeServingOneParticipant();
+    const context: SidebarSectionContext = {
+      sessionStore,
+      bridge,
+      openPane: () => undefined,
+      isOpen: true,
+    };
+    const renderSectionBody = sidebarSectionRegistry.descriptorFor("members")?.render;
+    const container = render(<>{renderSectionBody?.(context)}</>).container;
+    await act(async () => {
+      bridge.scenarioEngine?.advance(PAST_REFRESH_DEBOUNCE_MS);
+      for (let pass = 0; pass < 4; pass += 1) {
+        await Promise.resolve();
+      }
+    });
+    return { container, sessionStore, bridge };
+  }
+
+  function ageTextIn(container: HTMLElement): string {
+    return container.querySelector(".meridian-roster-row__seen")?.textContent ?? "";
+  }
+
+  it("ages the row when the clock passes a boundary and nothing else re-renders it", async () => {
+    const mounted = await rosterWithOneParticipant();
+    expect(ageTextIn(mounted.container)).toContain("30 seconds ago");
+
+    // Nothing is asked, nothing is signalled, no prop moves: only time passes. The
+    // section re-renders because the wake-up it armed fired, which is the whole
+    // claim.
+    await act(async () => {
+      mounted.bridge.scenarioEngine?.advance(FORTY_FIVE_MINUTES_MS);
+      for (let pass = 0; pass < 4; pass += 1) {
+        await Promise.resolve();
+      }
+    });
+
+    expect(ageTextIn(mounted.container)).toContain("45 minutes ago");
+  });
+
+  it("negative control: the figure it opens on is not already the aged one", async () => {
+    // Without this, a roster that rendered "45 minutes ago" from the first paint —
+    // because it measured against the wrong instant — would pass the case above.
+    const mounted = await rosterWithOneParticipant();
+
+    expect(ageTextIn(mounted.container)).not.toContain("45 minutes ago");
+  });
 });

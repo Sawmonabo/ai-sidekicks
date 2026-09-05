@@ -21,7 +21,7 @@ import {
   fixtureBridgeWithGrowth,
   growthRefusing,
   unscriptedScenario,
-} from "../../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge, GrowthPort } from "../../../bridge/index.js";
 import { consoleShellPreferences, useShellPreferences } from "./shell-preferences-holder.js";
 import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./shell-preference-snapshot.js";

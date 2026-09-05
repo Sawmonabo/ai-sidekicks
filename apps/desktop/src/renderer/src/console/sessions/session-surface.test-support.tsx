@@ -9,10 +9,10 @@
 
 import { act, render } from "@testing-library/react";
 
-import { ManualClock, REFRESH_DEBOUNCE_MS } from "../core/index.js";
+import { ManualClock } from "../core/index.js";
+import { PAST_REFRESH_DEBOUNCE_MS, settle as settlePasses } from "../core/settle.test-support.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../primitives/index.js";
-import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
-import { UiStateStore } from "../persistence/index.js";
+import { openStore } from "./sessions.test-support.js";
 import { SessionStore } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 
@@ -31,14 +31,10 @@ import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
  * surface driven against the real fixture advances the frozen clock instead.
  */
 export async function settle(): Promise<void> {
-  for (let pass = 0; pass < 4; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
+  await settlePasses(4);
   await act(async () => {
     await new Promise((resolveAfterDebounce) => {
-      setTimeout(resolveAfterDebounce, REFRESH_DEBOUNCE_MS * 2);
+      setTimeout(resolveAfterDebounce, PAST_REFRESH_DEBOUNCE_MS);
     });
   });
 }
@@ -186,7 +182,7 @@ export function contextWith(options: {
         (options.openStores ?? []).find((store) => store.sessionId === sessionId),
       subscribe: () => () => undefined,
     },
-    uiStateStore: new UiStateStore({ adapter: new MemoryPersistenceAdapter() }),
+    uiStateStore: openStore(),
     draftStore: undefined,
   } as unknown as ConsoleSurfaceContext;
 }

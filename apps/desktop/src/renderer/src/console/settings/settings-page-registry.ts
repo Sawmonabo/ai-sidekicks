@@ -153,7 +153,21 @@ export interface SettingsPageDescriptor {
   readonly render: SettingsPageBody;
 }
 
-export class SettingsPageRegistry {
+/**
+ * The one operation a registration site outside this family performs.
+ *
+ * Published through the family's door so a root composition file registers a page
+ * without holding the registry class, the section vocabulary, or the descriptor
+ * shape — which are this family's intra-family contract and stay deep. A door that
+ * withheld the whole registry left `sidekicks-settings-page.ts` reaching around it,
+ * which inverts the decision rather than respecting it: the registration this file
+ * performs is exactly the public surface a door exists to expose.
+ */
+export interface SettingsPageRegistrar {
+  register(descriptor: SettingsPageDescriptor): void;
+}
+
+export class SettingsPageRegistry implements SettingsPageRegistrar {
   // `"owner-scoped"`, for `frame/surface-registry.ts`'s reason: a hot reload re-runs
   // the owning lane's module and must replace, while two lanes on one section is a
   // conflict rather than a swap decided by module import order.

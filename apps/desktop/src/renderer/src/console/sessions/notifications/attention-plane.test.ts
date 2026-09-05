@@ -18,7 +18,7 @@ import {
 import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../bridge/fixture-bridge.test-support.js";
 import { AttentionPlane } from "./attention-plane.js";
 import {
   READS_NO_ATTENTION_PROJECTION,
@@ -176,6 +176,56 @@ describe("the fold over one read", () => {
   });
 });
 
+describe("the order the fold establishes", () => {
+  // `attentionProjectionRead` is a growth row with no registered ordering, so a
+  // projection is free to answer newest-first. These cases feed exactly that, and
+  // the two items differ only in `createdAt`, which is the documented key — so
+  // nothing but the rule under test can separate them.
+  const NEWEST_FIRST: readonly AttentionItem[] = [
+    item({ id: "newer", sessionId: "session-b", createdAt: "2026-01-02T10:00:00.000Z" }),
+    item({ id: "older", sessionId: "session-a", createdAt: "2026-01-01T10:00:00.000Z" }),
+  ];
+
+  it("puts the oldest live item first whatever order the projection answered in", () => {
+    const plane = new AttentionPlane(NEWEST_FIRST);
+
+    expect(plane.liveItems.map((live) => live.id)).toStrictEqual(["older", "newer"]);
+  });
+
+  it("orders the sessions by their oldest item, not by first appearance", () => {
+    // The negative control for the group order. Before the fold established one,
+    // `groups` was `Map` insertion order — the projection's own — so this exact
+    // input listed the newer session above the older one while the getter promised
+    // the reverse. `session-a` appears SECOND in the input and must come first.
+    const plane = new AttentionPlane(NEWEST_FIRST);
+
+    expect(plane.groups.map((group) => group.sessionId)).toStrictEqual(["session-a", "session-b"]);
+  });
+
+  it("keeps the projection's own order between two items stamped at one instant", () => {
+    const plane = new AttentionPlane([
+      item({ id: "second-in-frame", createdAt: "2026-01-01T10:00:00.000Z" }),
+      item({ id: "third-in-frame", createdAt: "2026-01-01T10:00:00.000Z" }),
+    ]);
+
+    expect(plane.liveItems.map((live) => live.id)).toStrictEqual([
+      "second-in-frame",
+      "third-in-frame",
+    ]);
+  });
+
+  it("sorts an item whose stamp no reader can parse last rather than first", () => {
+    // February 30 is the stamp `Date.parse` would answer March 2 for. The console's
+    // reader refuses it, and a row that earned no position takes the end.
+    const plane = new AttentionPlane([
+      item({ id: "unreadable", createdAt: "2026-02-30T10:00:00.000Z" }),
+      item({ id: "readable", createdAt: "2026-01-01T10:00:00.000Z" }),
+    ]);
+
+    expect(plane.liveItems.map((live) => live.id)).toStrictEqual(["readable", "unreadable"]);
+  });
+});
+
 describe("the reader that ships today", () => {
   it("answers 'nothing was read' rather than an empty projection", async () => {
     // The distinction the whole surface rests on: `undefined` is "no question was
@@ -188,7 +238,7 @@ describe("the reader that ships today", () => {
  * A growth port that answers the attention read per session, over the real fixture.
  *
  * The shipped bridge with one operation replaced rather than a cast literal, for
- * the reason `bridge/fixture-bridge-overrides.test-support.ts` states: a cast port
+ * the reason `bridge/fixture-bridge.test-support.ts` states: a cast port
  * is shape-identical to nothing, so a reader that started asking a second operation
  * would find `undefined` at runtime instead of failing to compile. The refusal is
  * the shipped `growthUnavailable`, so these cases assert against the sentence a

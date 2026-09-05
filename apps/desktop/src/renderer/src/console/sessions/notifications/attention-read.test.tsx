@@ -23,6 +23,7 @@ import type {
   AttentionProjectionReader,
 } from "./attention-projection-read.js";
 import { useAttentionProjection } from "./attention-read.js";
+import { settle as settlePasses } from "../../core/settle.test-support.js";
 
 const FIRST_SESSION_ID = "session-attention-one";
 const SECOND_SESSION_ID = "session-attention-two";
@@ -111,11 +112,7 @@ function AttentionProbe(props: {
 
 /** Let the read's promise settle after the frozen clock released it. */
 async function settle(): Promise<void> {
-  for (let pass = 0; pass < 3; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
+  await settlePasses(3);
 }
 
 /** Move past the coalescing window and let whatever it released land. */
