@@ -11,7 +11,9 @@
 // So the console has exactly one holder and exactly one latch, and this is the
 // tripwire that keeps it that way. It is a source-text check on the
 // `wire-figure-chokepoint.test.ts` precedent: the claim is about what the tree
-// CONTAINS, which no type and no runtime assertion can reach.
+// CONTAINS, which no type and no runtime assertion can reach. The predicates it runs
+// live in `subject-state-census.ts` beside it, on the `barrel-census.ts` pattern —
+// this file is the rule applied to the real tree, that one is the rule.
 //
 // TWO CLAIMS, DELIBERATELY DISJOINT.
 //
@@ -27,32 +29,6 @@
 //      four lines in a component that needed to remember something about the session
 //      it was looking at — and it is the shape that never arrives as a deliberate
 //      decision.
-//
-// CLAIM 2 READS FOUR HOOKS, NOT TWO, and the four are the ordinary React holders:
-// `useState`, `useRef`, `useMemo`, `useReducer`. A `useMemo` with an empty dependency
-// list and a `useReducer` are mount-lifetime holders with exactly the semantics of the
-// first two, and a copy written with either was invisible to a scan that read only the
-// first two. What separates a holder from a DERIVATION is the dependency list, so that
-// is what this reads: a memo naming a bridge in its factory AND in its dependencies
-// re-derives when the bridge moves, which is correct and is not flagged; one that names
-// it in the factory alone is a value keyed on a subject it will never re-derive for,
-// which is the defect. `useState` and `useRef` have no dependency list, so every subject
-// they name is flagged.
-//
-// CLAIM 2 IS COARSE ON PURPOSE, and it offers NO EXEMPTION LIST. It flags a
-// `useState(() => new SomethingBoundTo(bridge))` even where that something disposes
-// itself correctly, and it flags a `useRef` holding a mutable handle that is never
-// rendered. Both are the class this file is about — a value whose lifetime is a
-// subject's kept in a cell whose lifetime is a mount's — so the only answer is to go
-// through the holder. It is case-sensitive: `BridgeScopedLatch` in an initialiser is a
-// construction and not a captured subject, and only the lower-case identifiers a
-// component receives as props are the signature.
-//
-// WHAT IT DOES NOT REACH, said plainly rather than left to be discovered: a subject
-// read through a local alias (`const transport = bridge` and then a cell naming
-// `transport`), and a declaration nested inside a function body rather than at a
-// module's top level. Both need a parser rather than a source-text scan; the claim
-// here is the coarse one, and the alias is not the shape a copy is written in.
 //
 // THE ONE MODULE THAT IS NOT SUBJECT TO IT is `bridge/BridgeProvider.tsx`, and it is
 // named a CHOKEPOINT rather than an exemption because that is what it is: it does not
@@ -72,6 +48,12 @@ import {
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
+import {
+  capturedSubjectIdentifiers,
+  declaredSymbolNames,
+  moduleSymbolNames,
+  SECOND_IMPLEMENTATION_NAMES,
+} from "./subject-state-census.js";
 
 /**
  * The walk, done once, and shared with every other source-text gate.
@@ -107,35 +89,6 @@ const CHOKEPOINT_DOORS: readonly string[] = [
 ];
 
 /**
- * The names the six replaced copies went by, as one expression.
- *
- * Two hook shapes and one suffix family. A hook pairs a SUBJECT word with either a
- * scoping word or a state word, which is what a copy is called whether or not it spells
- * every word of the one it replaced — `useSubjectState` is the same object with a word
- * dropped, and `usePaneScopedValue` is the same object at a different subject. The
- * suffixes are the class names: `Latch$`, `Register$`, and `Generation$` are anchored
- * because a state type named for one — `MutationAttemptState` — is a caller's own
- * vocabulary and not a second latch. `AttemptGeneration` is not anchored: it was a
- * whole class, and any name containing it is that class under a prefix.
- *
- * The subject words are deliberately not paired with `Store`: `useSessionStore` and
- * `useSessionStoreRegistry` are reads of a store this console already has one of, and
- * a naming rule that swept them in would be answered by renaming rather than by going
- * through the holder.
- */
-const SECOND_IMPLEMENTATION_NAMES =
-  /use(?:Subject|Session|Bridge|Pane|Run|Agent)(?:Scoped|Stamped)|use(?:Subject|Session|Bridge|Pane|Run|Agent)(?:State|Value|Holder)|(?:Latch|Register|Generation)$|AttemptGeneration|MutationAttempt$/;
-
-/** What a hand-rolled holder captures: the two identities a surface is addressed by. */
-const SUBJECT_IDENTIFIERS: readonly string[] = ["bridge", "sessionId"];
-
-/** The React hooks that hold a value for the life of a mount. */
-const STATE_CELL_HOOKS = /\buse(State|Ref|Memo|Reducer)\s*(?:<[^;=]*?>)?\s*\(/g;
-
-/** Openers whose closer has to be counted before a comma can be a top-level one. */
-const ARGUMENT_GROUPINGS: Readonly<Record<string, string>> = { "(": ")", "[": "]", "{": "}" };
-
-/**
  * The one module that resolves the bridge rather than being addressed by one.
  *
  * A chokepoint on the same terms as the two above: the rule lives here, so the module
@@ -148,156 +101,6 @@ const SUBJECT_RESOLUTION_ROOT = "console/bridge/BridgeProvider.tsx";
 
 /** The construction whose single site defines the bridge root, in source text. */
 const SUBJECT_RESOLUTION_CONSTRUCTOR = "new ResolvedConsoleBridge(";
-
-/**
- * Every name `source` DECLARES at its top level, exported or not.
- *
- * Separate from the re-export specifiers below because the two answer different
- * questions: what a module implements, and what it merely publishes. The door rule
- * rests on the first — a module that only forwards declares nothing.
- */
-export function declaredSymbolNames(source: string): readonly string[] {
-  return [
-    ...source.matchAll(
-      /^(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
-    ),
-  ]
-    .map((match) => match[1] ?? "")
-    .filter((name) => name.length > 0);
-}
-
-/** Every name `source` publishes from somewhere else, through an export specifier. */
-export function reExportedSymbolNames(source: string): readonly string[] {
-  return [...source.matchAll(/^export\s+(?:type\s+)?\{([^}]*)\}/gm)]
-    .flatMap((match) =>
-      (match[1] ?? "")
-        .split(",")
-        .map((specifier) => specifier.replace(/\/\*[\s\S]*?\*\//g, "").trim())
-        .filter((specifier) => specifier.length > 0)
-        // `A as B` exports B; a bare `A` exports A. `type` prefixes are stripped.
-        .map(
-          (specifier) =>
-            specifier
-              .split(/\s+as\s+/)
-              .at(-1)
-              ?.replace(/^type\s+/, "")
-              .trim() ?? "",
-        ),
-    )
-    .filter((name) => name.length > 0);
-}
-
-/**
- * Every name a module either declares or publishes, which is what claim 1 scans.
- *
- * Both halves, because a copy is reachable either way: written in place, or written
- * elsewhere and re-exported into position by a barrel.
- */
-export function moduleSymbolNames(source: string): readonly string[] {
-  return [...declaredSymbolNames(source), ...reExportedSymbolNames(source)];
-}
-
-/** One state cell: what becomes the held value, and what would re-derive it. */
-export interface StateCell {
-  /** The argument texts that produce the value the cell holds. */
-  readonly held: readonly string[];
-  /** The argument texts that decide when it is produced again. Empty where none can. */
-  readonly dependencies: readonly string[];
-}
-
-/**
- * Split one call's argument text at its top-level commas.
- *
- * Grouping-aware rather than a plain split, because every interesting argument here is
- * a function body, an object literal, or a dependency array, and each carries commas
- * of its own. A dependency list is an argument like any other, so a scan that could not
- * tell one argument from the next could not tell a holder from a derivation.
- */
-export function splitTopLevelArguments(text: string): readonly string[] {
-  const argumentTexts: string[] = [];
-  const closers: string[] = [];
-  let start = 0;
-  for (let cursor = 0; cursor < text.length; cursor += 1) {
-    const character = text[cursor] ?? "";
-    const closer = ARGUMENT_GROUPINGS[character];
-    if (closer !== undefined) {
-      closers.push(closer);
-    } else if (closers.length > 0 && character === closers.at(-1)) {
-      closers.pop();
-    } else if (character === "," && closers.length === 0) {
-      argumentTexts.push(text.slice(start, cursor));
-      start = cursor + 1;
-    }
-  }
-  argumentTexts.push(text.slice(start));
-  return argumentTexts.map((argumentText) => argumentText.trim()).filter((text) => text.length > 0);
-}
-
-/**
- * Every mount-lifetime state cell in `source`, split into what it holds and what
- * re-derives it.
- *
- * Balanced-paren scanning rather than a single regular expression: an initialiser is
- * routinely a function body containing its own parentheses, and a lazy match would
- * stop at the first one and read a fragment.
- *
- * Which argument holds the value is the hook's own answer and differs per hook.
- * `useState` and `useRef` take one and it is the seed. `useMemo` takes a factory and
- * then the dependencies that decide when it runs again. `useReducer` takes a reducer
- * FIRST and the initial state after it, so its held text is everything but the first
- * argument — and it has no dependency list at all, which is exactly why it is a holder.
- */
-export function stateCells(source: string): readonly StateCell[] {
-  const cells: StateCell[] = [];
-  for (const opening of source.matchAll(STATE_CELL_HOOKS)) {
-    const start = opening.index + opening[0].length;
-    let depth = 1;
-    let cursor = start;
-    while (cursor < source.length && depth > 0) {
-      const character = source[cursor];
-      if (character === "(") {
-        depth += 1;
-      } else if (character === ")") {
-        depth -= 1;
-      }
-      cursor += 1;
-    }
-    const argumentTexts = splitTopLevelArguments(source.slice(start, cursor - 1));
-    if (opening[1] === "Memo") {
-      cells.push({ held: argumentTexts.slice(0, 1), dependencies: argumentTexts.slice(1) });
-    } else if (opening[1] === "Reducer") {
-      cells.push({ held: argumentTexts.slice(1), dependencies: [] });
-    } else {
-      cells.push({ held: argumentTexts, dependencies: [] });
-    }
-  }
-  return cells;
-}
-
-/**
- * Which subject identifiers `source` captures in a state cell, or `[]`.
- *
- * An identifier named where the cell is PRODUCED and not where it is re-derived. A
- * memo that names the bridge in both re-derives when the bridge moves, which is the
- * correct shape and the one the palette's command list is written in; a cell that
- * names it only in the first is a value keyed on a subject it will never be produced
- * for again.
- */
-export function capturedSubjectIdentifiers(source: string): readonly string[] {
-  const captured = new Set<string>();
-  for (const cell of stateCells(source)) {
-    for (const identifier of SUBJECT_IDENTIFIERS) {
-      const named = new RegExp(`\\b${identifier}\\b`);
-      if (
-        cell.held.some((text) => named.test(text)) &&
-        !cell.dependencies.some((text) => named.test(text))
-      ) {
-        captured.add(identifier);
-      }
-    }
-  }
-  return [...captured].sort();
-}
 
 function scannedModules(): readonly string[] {
   return CONSOLE_MODULES.map((module) => module.displayPath);
@@ -409,6 +212,12 @@ describe("subject-scoped state — one holder and one latch in the whole console
       "AttemptGeneration",
       "SendAttemptGeneration",
       "MutationAttempt",
+      // The three the two rigid hook alternatives and the anchored suffixes missed: a
+      // word between the subject and the state word, and a class name carrying its
+      // family term as a prefix or in the middle.
+      "useBridgeKeyedState",
+      "SubjectEpoch",
+      "SessionGenerationCounter",
     ]) {
       expect(SECOND_IMPLEMENTATION_NAMES.test(planted), `${planted} slipped past`).toBe(true);
     }
@@ -525,6 +334,33 @@ describe("subject-scoped state — no state cell captures a subject by hand", ()
         "const models = useMemo(() => modelsFor(sessionId), [somethingElse]);",
       ),
     ).toStrictEqual(["sessionId"]);
+    // The two the four-hook scan could not see at all. Both hold a retired transport for
+    // the life of the mount and neither is a `useState`, `useRef`, `useMemo`, or
+    // `useReducer`.
+    expect(
+      capturedSubjectIdentifiers(
+        "const send = useCallback(() => callDaemon(bridge, method, params), []);",
+      ),
+    ).toStrictEqual(["bridge"]);
+    expect(
+      capturedSubjectIdentifiers("useEffect(() => { subscribe(bridge, onFrame); }, []);"),
+    ).toStrictEqual(["bridge"]);
+  });
+
+  it("an effect that re-runs on its subject, or on every render, is not a holder", () => {
+    // The other side of the empty-list rule. Reading every effect would report the
+    // ordinary shape — an effect keyed on the subject it names is the correct one — and
+    // a rule that fired on it would be answered by moving the effect somewhere the scan
+    // cannot see.
+    expect(
+      capturedSubjectIdentifiers("useEffect(() => { subscribe(bridge, onFrame); }, [bridge]);"),
+    ).toStrictEqual([]);
+    expect(
+      capturedSubjectIdentifiers("useEffect(() => { subscribe(bridge, onFrame); });"),
+    ).toStrictEqual([]);
+    expect(
+      capturedSubjectIdentifiers("const send = useCallback(() => read(bridge), [bridge]);"),
+    ).toStrictEqual([]);
   });
 
   it("a derivation that re-derives on its subject is not a holder and is not flagged", () => {
