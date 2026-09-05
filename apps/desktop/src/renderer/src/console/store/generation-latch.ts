@@ -211,6 +211,26 @@ export class GenerationLatch {
   }
 
   /**
+   * Whether one key has an act in flight right now, without taking it.
+   *
+   * For the caller that must REFUSE BECAUSE a key is held and has nothing to dispatch
+   * if it is free — a retry offered against an entry whose continuation is still
+   * running. `claim` cannot answer that question: it answers by taking the key, so a
+   * caller using it as a predicate either holds a key it never meant to and blocks the
+   * act it was asking about, or releases it and has performed a claim-and-release for
+   * a dispatch that never happened.
+   *
+   * IT IS A READ, SO IT RACES THE NEXT CLAIM. The answer is true of the moment it was
+   * taken and nothing more: a claim taken between this call and whatever the caller
+   * does next is not covered, exactly as `heldKeyCount` is not. A caller whose
+   * correctness depends on the key still being free when it dispatches asks `claim`,
+   * which decides and takes in one act; this is for the caller deciding what to SHOW.
+   */
+  public isHeld(subject: object, key: string): boolean {
+    return this.#serialsBySubject.get(subject)?.has(key) ?? false;
+  }
+
+  /**
    * How many keys this subject currently holds.
    *
    * The register's bound, observable. Read by the endurance assertion that a
