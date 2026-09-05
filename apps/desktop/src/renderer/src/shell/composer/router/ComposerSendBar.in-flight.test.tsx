@@ -9,12 +9,8 @@ import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
-import {
-  QUEUE_CREATED,
-  mountAddressable,
-  mountBar,
-  openSessionStore,
-} from "./composer-send-bar.test-support.js";
+import { QUEUE_CREATED } from "./send-router.test-support.js";
+import { mountAddressable, mountBar, openSessionStore } from "./composer-send-bar.test-support.js";
 
 describe("ComposerSendBar — one interrupt in flight", () => {
   function stopButton(container: HTMLElement): HTMLButtonElement {

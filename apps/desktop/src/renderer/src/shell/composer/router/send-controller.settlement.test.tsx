@@ -19,8 +19,8 @@ import type {
 } from "../chips/chip-models.js";
 import type { SendController } from "./send-controller-contract.js";
 import { useSendController } from "./send-controller.js";
+import { QUEUE_CREATED, SESSION_ID } from "./send-router.test-support.js";
 
-const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 const CHANNEL_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
 const CHANNEL_B = "2c3d4e5f-6071-4283-8495-bc6d7e8f9012";
 /** `RunIdSchema` is a branded UUID and the stop path parses the run before it calls. */
@@ -30,19 +30,6 @@ const AGENT_B = "agent-beta";
 
 const QUEUE_FULL_CODE = "queue.full";
 const QUEUE_FULL_MESSAGE = "That channel's queue is full.";
-
-/**
- * The registered `run.queueCreate` reply, so the send below actually succeeds.
- *
- * The router parses the response before reporting a send, so an empty object is the
- * unreadable-reply refusal rather than the success this case sets beside the Stop's
- * own refusal.
- */
-const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
-  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
-  state: "queued",
-  createdAt: "2026-09-02T09:00:00.000Z",
-};
 
 function channelTarget(channelId: string): ComposerChannelTarget {
   return {

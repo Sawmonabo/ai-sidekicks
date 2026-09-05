@@ -16,8 +16,7 @@ import type { CommandExecutor } from "./command-executor.js";
 import { composerDraftKey } from "./draft-key.js";
 import type { SendController } from "./send-controller-contract.js";
 import { useSendController } from "./send-controller.js";
-
-const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
+import { SESSION_ID } from "./send-router.test-support.js";
 
 const CHANNEL_TARGET: ComposerChannelTarget = {
   path: "channel-message",

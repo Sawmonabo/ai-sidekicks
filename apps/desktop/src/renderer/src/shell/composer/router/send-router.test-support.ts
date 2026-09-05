@@ -1,8 +1,15 @@
-// The send router's shared scaffolding: one router, one fixture bridge, one ledger.
+// The send router's shared scaffolding: one router, one fixture bridge, one ledger —
+// and the composer family's one copy of the wire shapes a send travels on.
 //
 // Lives here because both suites build the SAME router — resolution and dispatch are
 // two halves of one send — and a second builder written beside one of them would let
 // the two drift into routers that resolve alike and dispatch differently.
+//
+// THE REGISTERED REPLIES AND THE IDS ARE HERE FOR THE SAME REASON, and every suite in
+// this directory takes them from here. There had been three `QUEUE_CREATED` literals,
+// two `STEER_APPLIED`s that disagreed about `runVersion`, and three `SESSION_ID`s —
+// which is three chances for a case to be written against a reply the wire would
+// refuse, and to pass on the unreadable-reply arm while reading like a success.
 
 import type { Mock } from "vitest";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";

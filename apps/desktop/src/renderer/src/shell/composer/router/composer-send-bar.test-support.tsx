@@ -13,24 +13,8 @@ import { DraftStore } from "../../../console/persistence/index.js";
 import { SessionStore } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
+import { SESSION_ID, STEER_APPLIED } from "./send-router.test-support.js";
 import { ComposerSendBar } from "./ComposerSendBar.js";
-
-export const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
-export const CHANNEL_ID = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
-
-/**
- * The registered `run.queueCreate` reply, for the cases that need a send to LAND.
- *
- * The router parses this response before reporting a send, so a stub answering
- * `undefined` settles as the unreadable-reply refusal and the draft it was written
- * on is kept — which is the shipped behaviour, and not what a case about clearing
- * the line is asking about.
- */
-export const QUEUE_CREATED: Readonly<Record<string, unknown>> = {
-  queueItemId: "5e6f7a8b-9c0d-4e1f-8a2b-7c8d9e0f1a2b",
-  state: "queued",
-  createdAt: "2026-09-02T09:00:00.000Z",
-};
 
 export function openSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
@@ -71,20 +55,6 @@ export function mountBar(options: {
 
 export const FIRST_AGENT_ID = "agent-ada";
 export const SECOND_AGENT_ID = "agent-grace";
-/**
- * The registered `run.intervene` answer a steer gets when the run takes it.
- *
- * The router parses this reply and reads the lifecycle state off it, so a stub that
- * answered `undefined` would put every steer below on the unreadable arm — which
- * keeps the draft and offers no resend, and would make these cases assert the
- * opposite of what they are about.
- */
-export const STEER_APPLIED = {
-  interventionId: "5e6f7081-9203-4415-8627-ab8c9d0e1f23",
-  interventionType: "steer",
-  state: "applied",
-  runVersion: 9,
-};
 
 /** An answering arm that serves a steer and nothing else. */
 export async function answerSteer(call: RecordedDaemonCall): Promise<unknown> {

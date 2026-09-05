@@ -10,9 +10,8 @@ import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { DraftStore } from "../../../console/persistence/index.js";
 import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { CHANNEL_ID, QUEUE_CREATED } from "./send-router.test-support.js";
 import {
-  CHANNEL_ID,
-  QUEUE_CREATED,
   answerSteer,
   mountAddressable,
   mountBar,
