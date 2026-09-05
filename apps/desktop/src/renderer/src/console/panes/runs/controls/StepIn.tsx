@@ -21,9 +21,9 @@
 // floor still has to ask for the terminal.
 
 import { useCallback, useRef, useState } from "react";
-import { refuse } from "../../../console/core/index.js";
-import { callDaemon, readRunId, type ConsoleBridge } from "../../../console/bridge/index.js";
-import { Glyph } from "../../../console/primitives/index.js";
+import { refuse } from "../../../core/index.js";
+import { callDaemon, readRunId, type ConsoleBridge } from "../../../bridge/index.js";
+import { Glyph } from "../../../primitives/index.js";
 import { StepInReceipt } from "./StepInReceipt.js";
 import { STEP_IN_REFUSAL_ORIGIN, type StepInState } from "./step-in-state.js";
 

@@ -30,7 +30,6 @@
 // buttons for one call, which is the redundancy rule 7 exists to prevent.
 
 import { useCallback, useMemo, useState } from "react";
-import { StepIn } from "../../../../shell/composer/accessories/index.js";
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../../bridge/index.js";
 import { Glyph, InlineRefusal } from "../../../primitives/index.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
@@ -40,6 +39,7 @@ import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js
 import { type RunProjection } from "../run-state-projection.js";
 import { isLiveRunState } from "../run-status.js";
 import { CONTROL_GLYPH_SIZE, ControlButton } from "./ControlButton.js";
+import { StepIn } from "./StepIn.js";
 
 /**
  * The controls that live one click away, in the design's own order.

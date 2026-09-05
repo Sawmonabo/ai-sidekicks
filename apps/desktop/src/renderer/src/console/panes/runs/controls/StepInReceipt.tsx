@@ -7,7 +7,7 @@
 // family renders a step-in receipt, and a door line for it would advertise a seam
 // that has no reader.
 
-import { InlineRefusal, WireFigure } from "../../../console/primitives/index.js";
+import { InlineRefusal, WireFigure } from "../../../primitives/index.js";
 import type { StepInState } from "./step-in-state.js";
 
 /** What happened, said once, in the daemon's own figures. */

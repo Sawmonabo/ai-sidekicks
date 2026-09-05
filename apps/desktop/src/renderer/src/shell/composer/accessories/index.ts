@@ -12,9 +12,3 @@
 import "./accessories.css";
 
 export { ComposerAccessoryRail } from "./ComposerAccessoryRail.js";
-
-// `StepIn` leaves through this door because the surface that mounts it is the runs
-// pane rather than the rail: pausing a run and taking the floor is one act, and the
-// place a person meets a run they want to take over is the row that lists it. The
-// door is what keeps that a barrel import rather than a reach into this directory.
-export { StepIn } from "./StepIn.js";

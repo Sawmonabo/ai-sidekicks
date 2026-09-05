@@ -124,8 +124,8 @@ function isBridgeFamilyModule(module: string): boolean {
  * called the daemon at all was not making the claim this file's title makes.
  *
  * It is no longer vacuous. The five are the composer's send router, its compaction
- * dispatch, its step-in control, its provider-command read, and the runs pane's
- * run-control dispatch — every surface in this family that reaches the wire, each
+ * dispatch, and its provider-command read, and the runs pane's run-control dispatch
+ * and its step-in control — every surface in this family that reaches the wire, each
  * through `callDaemon` and none around it.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:

@@ -15,9 +15,8 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { createFixtureBridge } from "../../../console/bridge/index.js";
-import type { ConsoleScenario } from "../../../console/bridge/scenario.js";
-import {} from "../../../console/bridge/index.js";
+import { createFixtureBridge } from "../../../bridge/index.js";
+import type { ConsoleScenario } from "../../../bridge/scenario.js";
 import { StepIn } from "./StepIn.js";
 
 /** A real UUID, because the registered run identifier is a branded UUID. */
