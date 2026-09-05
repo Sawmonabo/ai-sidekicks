@@ -31,7 +31,7 @@
 // than a zero, because "nothing is using this" and "nobody measured" are different
 // facts and only one of them is true today.
 
-import { BROWSER_BOUND_NAMES, type BrowserBoundName } from "../core/index.js";
+import { BROWSER_BOUND_NAMES, type BrowserBoundName } from "./browser-bounds.js";
 import { BoundRow } from "./BoundRow.js";
 
 /** A live reading for a scalar bound. Absent means nobody measured, not zero. */

@@ -20,17 +20,27 @@
 // what keeps it renderable in a test, in a screenshot tier, and in an auxiliary
 // window without a second code path — and it is why the sizes can be honest, since a
 // size that could not be measured arrives as a refusal rather than as a zero. The one
-// thing on the page that is not a projection is the clear control, which holds which
-// step of its two-step act is in flight; it lives in its own module beside this one so
-// that boundary is a file boundary rather than a promise.
+// thing on the page that is not a projection is the clear act, whose two-step progress
+// and verdict live in `partition-clear-rounds.ts` beside this file, so that boundary is
+// a file boundary rather than a promise.
 //
 // FOLD, NOT PAGINATE. 13.16: "Two switches and a table; the table folds past ten
 // partitions." The fold is a native disclosure rather than a remembered flag — the
-// page keeps no state, the control is keyboard-reachable and announced as
-// expandable, and there is nothing to restore after a re-render.
+// control is keyboard-reachable and announced as expandable, and there is nothing to
+// restore after a re-render.
+//
+// AND THE FOLD IS WHY THIS PAGE HOLDS ONE THING. A listing that refreshes while a
+// clear is running can move that partition's row across the fold, which is a different
+// parent element and therefore a remount: a round recorded in the row came back idle
+// mid-act, with the button enabled again and both settlements writing into a component
+// that no longer existed. `PartitionClearRounds` is minted here, above the fold, and
+// threaded down. It is still no fetch, no store, and no effect.
+
+import { useState } from "react";
 
 import { BrowserPolicySettings, type BrowserPolicySettingsProps } from "./PolicySettings.js";
 import { PartitionTable } from "./PartitionTable.js";
+import { PartitionClearRounds } from "./partition-clear-rounds.js";
 import type { BrowserPolicySwitchWriter } from "./policy-switches.js";
 import type { BrowserPartitionListing } from "./site-partitions.js";
 import type { SiteDataAct } from "./site-data-clear.js";
@@ -56,6 +66,11 @@ export interface BrowserSettingsPageProps {
 }
 
 export function BrowserSettingsPage(props: BrowserSettingsPageProps): React.JSX.Element {
+  // The one thing this page holds, and it holds it because nothing below it can: the
+  // table folds, so a listing that refreshes mid-clear moves a row between two lists
+  // and React remounts it. A round recorded in the row would be lost there.
+  const [clearRounds] = useState(() => new PartitionClearRounds());
+
   return (
     <section
       className="meridian-browser-settings"
@@ -80,6 +95,7 @@ export function BrowserSettingsPage(props: BrowserSettingsPageProps): React.JSX.
         <h3 className="meridian-browser-settings__section-title">Site data</h3>
         <PartitionTable
           listing={props.partitions}
+          rounds={clearRounds}
           onClearSiteData={props.onClearSiteData}
           onClosePane={props.onClosePane}
         />

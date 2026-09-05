@@ -5,7 +5,7 @@
 // metering a bound and a bound sitting at zero are different facts and only one of
 // them is a reading.
 
-import type { BrowserBoundMeasure } from "../core/index.js";
+import type { BrowserBoundMeasure } from "./browser-bounds.js";
 import { Glyph, Nothing } from "../primitives/index.js";
 import { exactFigureTitle, scaleScalarFigure } from "./bound-figures.js";
 

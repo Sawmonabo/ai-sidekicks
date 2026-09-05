@@ -7,24 +7,37 @@
 // person clearing site data has to be able to tell them apart.
 //
 // FOLD, NOT PAGINATE. 13.16: "the table folds past ten partitions." The fold is a
-// native disclosure rather than a remembered flag — nothing here holds state, the
-// control is keyboard-reachable and announced as expandable, and there is nothing to
-// restore after a re-render.
+// native disclosure rather than a remembered flag — the control is keyboard-reachable
+// and announced as expandable, and there is nothing to restore after a re-render.
+//
+// THE FOLD IS ALSO A REMOUNT BOUNDARY, and that is why the rounds arrive as a prop. A
+// row that crosses it moves between two `<ul>`s, which React reconciles as an unmount
+// and a mount despite the `key` — so a clear in flight has to be recorded above this
+// table, never inside the row that is about to be rebuilt.
 
 import { Nothing, formatCount } from "../primitives/index.js";
 import { PARTITION_FOLD_THRESHOLD } from "../core/index.js";
 import { PartitionRow } from "./PartitionRow.js";
+import type { PartitionClearRounds } from "./partition-clear-rounds.js";
 import type { BrowserPartitionListing } from "./site-partitions.js";
 import type { SiteDataAct } from "./site-data-clear.js";
 
 export interface PartitionTableProps {
   readonly listing: BrowserPartitionListing;
+  /**
+   * The page's record of running clears.
+   *
+   * Threaded through rather than held here, and that is the whole point of the fold
+   * below: a row that moves between the two lists is remounted, so anything it holds
+   * itself is lost mid-act.
+   */
+  readonly rounds: PartitionClearRounds;
   readonly onClearSiteData?: SiteDataAct | undefined;
   readonly onClosePane?: SiteDataAct | undefined;
 }
 
 export function PartitionTable(props: PartitionTableProps): React.JSX.Element {
-  if (props.listing.status === "not-read") {
+  if (props.listing.kind === "refused") {
     return (
       <Nothing
         kind="error"
@@ -35,7 +48,7 @@ export function PartitionTable(props: PartitionTableProps): React.JSX.Element {
     );
   }
 
-  if (props.listing.status === "reading") {
+  if (props.listing.kind === "reading") {
     return <Nothing kind="not-loaded" placement="surface" title="Reading stored site data" />;
   }
 
@@ -65,6 +78,7 @@ export function PartitionTable(props: PartitionTableProps): React.JSX.Element {
           <PartitionRow
             key={partition.sessionId}
             partition={partition}
+            rounds={props.rounds}
             onClearSiteData={props.onClearSiteData}
             onClosePane={props.onClosePane}
           />
@@ -78,6 +92,7 @@ export function PartitionTable(props: PartitionTableProps): React.JSX.Element {
               <PartitionRow
                 key={partition.sessionId}
                 partition={partition}
+                rounds={props.rounds}
                 onClearSiteData={props.onClearSiteData}
                 onClosePane={props.onClosePane}
               />

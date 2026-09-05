@@ -149,6 +149,45 @@ describe("the terminal lease claim, stamped to its subject", () => {
     expect(log.newestFrame.refusal?.code).toBe(HeldLeaseWire.LEASE_CONFLICT.code);
   });
 
+  it("hands a RETURNING visit a control whose press reaches the wire", async () => {
+    // s1 -> s2 -> s1, with the first call never answered. The state re-seeds on the
+    // return — the holder mints a new addressing because the same pair visited twice
+    // is two visits — so the control renders idle and enabled. A register keyed on
+    // `(bridge, sessionId)` would still be holding the FIRST visit's round: the press
+    // was refused by a key the control cannot see, no request went out, nothing was
+    // said, and the button stayed enabled for as long as the first call stayed out.
+    const heldWire = new HeldLeaseWire();
+    const log = new ClaimFrameLog();
+    const view = renderClaim(heldWire, log);
+    act(() => {
+      log.newestFrame.acquire();
+    });
+    expect(log.newestFrame.isInFlight).toBe(true);
+
+    view.showSession(OTHER_SESSION_ID);
+    view.showSession(SESSION_ID);
+
+    const firstFrameBack = log.newestFrame;
+    expect(firstFrameBack.isInFlight).toBe(false);
+
+    act(() => {
+      firstFrameBack.acquire();
+    });
+
+    expect(heldWire.heldCallCount).toBe(2);
+    expect(heldWire.sessionIdOfCall(1)).toBe(SESSION_ID);
+    expect(log.newestFrame.isInFlight).toBe(true);
+
+    // And the FIRST visit's answer still installs nowhere: it is about a round the
+    // holder has retired, so the returning visit's own call goes on being the one
+    // the control is waiting for.
+    heldWire.rejectCall(0);
+    await settle();
+
+    expect(log.newestFrame.isInFlight).toBe(true);
+    expect(log.newestFrame.refusal).toBeUndefined();
+  });
+
   it("drops a settlement that lands after the pane closed", async () => {
     const heldWire = new HeldLeaseWire();
     const log = new ClaimFrameLog();

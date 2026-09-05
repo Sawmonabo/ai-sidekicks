@@ -11,7 +11,13 @@ import { act, render, screen, waitFor, type RenderResult } from "@testing-librar
 import { expect } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
-import { createFixtureBridge, createLiveBridge, type ConsoleBridge } from "../../bridge/index.js";
+import {
+  consoleClockFor,
+  createFixtureBridge,
+  createLiveBridge,
+  type ConsoleBridge,
+} from "../../bridge/index.js";
+import { ManualClock } from "../../core/index.js";
 import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/pane-view-host-script.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { FrameStore } from "../../store/index.js";
@@ -185,6 +191,34 @@ export async function renderBrowserPane(bridge?: ConsoleBridge): Promise<{
     render(<BrowserPane {...built.context} />);
   });
   return { region: screen.getByRole("region", { name: "Browser" }), bridge: built.bridge };
+}
+
+/**
+ * Run the frames this window's clock is holding, and let the commit they cause land.
+ *
+ * THE PANE'S GEOMETRY PUBLISHER READS ON INVALIDATION AND WRITES ON THE NEXT FRAME,
+ * and that frame is armed on the window's own clock — which under the fixture is the
+ * scenario's frozen one. So a publish is reached by a state change and never by
+ * elapsed wall time, which is the whole point of a frozen clock and the reason this
+ * has to be said out loud: while the publisher minted a private `RealClock`, every
+ * caller below got its publish for free from whichever animation frame happened to
+ * fire first, and whether it had happened yet was decided by how fast the runner was.
+ *
+ * Inside `act` because the publish records an outcome the pane is subscribed to.
+ *
+ * Under a live bridge the clock is real and the browser fires its own frames, so the
+ * narrowing is the whole condition rather than a guard around one: there is nothing
+ * here to do.
+ */
+export async function releaseQueuedPaneFrames(bridge: ConsoleBridge): Promise<void> {
+  const clock = consoleClockFor(bridge);
+  if (!(clock instanceof ManualClock)) {
+    return;
+  }
+  await act(async () => {
+    clock.runFrame();
+    await Promise.resolve();
+  });
 }
 
 /** The address field itself, read by its label so the query names what a person sees. */

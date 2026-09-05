@@ -8,38 +8,25 @@
 // refused, and says which step it is waiting on while it waits.
 
 import { render, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { refuse, type ConsoleRefusal } from "../core/index.js";
+import { PartitionClearRounds } from "./partition-clear-rounds.js";
 import { PartitionClearControl, type PartitionClearControlProps } from "./PartitionClearControl.js";
-import type { SiteDataAct, SiteDataActOutcome } from "./site-data-clear.js";
-
-const SESSION_ID = "session-07";
-
-const PANE_HELD_OPEN: ConsoleRefusal = refuse(
-  "browser",
-  "browser.pane_busy",
-  "The pane is mid-navigation and would not close.",
-);
-
-const PROJECTED_FAILURE: ConsoleRefusal = refuse(
-  "browser",
-  "browser.partition_stale",
-  "An earlier clear left the directory half removed.",
-);
-
-const mountedControls: HTMLElement[] = [];
-
-function servingAct(callLog: string[], name: string): SiteDataAct {
-  return (sessionId) => {
-    callLog.push(`${name}:${sessionId}`);
-    return Promise.resolve({ status: "done" });
-  };
-}
+import {
+  controlIn,
+  pendingAct,
+  PANE_HELD_OPEN,
+  PROJECTED_FAILURE,
+  servingAct,
+  SESSION_ID,
+} from "./PartitionClearControl.test-support.js";
 
 function renderControl(overrides: Partial<PartitionClearControlProps>): HTMLElement {
+  // A fresh page record per case: what happens when one is SHARED across a remount is
+  // the sibling suite's subject.
   const { container } = render(
     <PartitionClearControl
+      rounds={new PartitionClearRounds()}
       sessionId={SESSION_ID}
       hasOpenPane={false}
       lastClearRefusal={undefined}
@@ -48,28 +35,7 @@ function renderControl(overrides: Partial<PartitionClearControlProps>): HTMLElem
       {...overrides}
     />,
   );
-  const control = container.querySelector(".meridian-browser-partitions__control");
-  if (!(control instanceof HTMLElement)) {
-    throw new Error("PartitionClearControl rendered no control");
-  }
-  mountedControls.push(control);
-  return control;
-}
-
-/** An act held open, so the control can be read mid-step. */
-function pendingAct(): { readonly promise: Promise<SiteDataActOutcome>; succeed(): void } {
-  let resolveOutcome: () => void = () => undefined;
-  const promise = new Promise<SiteDataActOutcome>((resolve) => {
-    resolveOutcome = () => {
-      resolve({ status: "done" });
-    };
-  });
-  return {
-    promise,
-    succeed: () => {
-      resolveOutcome();
-    },
-  };
+  return controlIn(container);
 }
 
 function confirmButton(control: HTMLElement): HTMLButtonElement {
@@ -81,10 +47,6 @@ function confirmButton(control: HTMLElement): HTMLButtonElement {
   }
   return button;
 }
-
-afterEach(() => {
-  mountedControls.length = 0;
-});
 
 describe("PartitionClearControl — an open partition still gets its control", () => {
   it("keeps the armed control beside the chip that says a pane is open", () => {

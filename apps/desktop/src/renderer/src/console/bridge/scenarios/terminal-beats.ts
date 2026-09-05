@@ -10,7 +10,9 @@
 // with it by hand, which is two spellings of one fact — and the fixture's own frozen
 // clock advances on `atMs`, so a drifted `occurredAt` would put a timestamp on screen
 // that no tick of this scenario corresponds to. One of them is now computed from the
-// other, so they cannot disagree.
+// other, so they cannot disagree. The rule applies to the module's OWN base instant
+// too: tick zero is derived rather than spelled a second time, which is why no test
+// file stands beside this one holding two spellings together.
 //
 // THE ROW ID IS STAMPED HERE TOO, and it is a different kind of claim. `id` is the
 // daemon's own opaque identifier for the event — the member the hydrated-event read
@@ -28,18 +30,24 @@ import { TERMINAL_SCENARIO_SESSION_ID } from "./terminal-cast.js";
 /**
  * Wall-clock instant the frozen clock reports as "now" at tick zero.
  *
- * Stated twice — once as the text the wire carries and once as the number the tick
- * arithmetic below adds to — because the alternative is to parse the first into the
- * second, and a stamp read that way is read in the HOST's zone the moment its
- * spelling loses its `Z`. `Date.UTC` names the fields instead, so a fixture instant
- * is declared rather than interpreted, and `terminal-beats.test.ts` asserts the two
- * spellings agree so a change to either without the other fails rather than shifts
- * every beat.
+ * `Date.UTC` names the fields rather than parsing a text, so a fixture instant is
+ * declared and never interpreted: a stamp read the other way round is read in the
+ * HOST's zone the moment its spelling loses its `Z`, which makes this a different
+ * scenario on a machine east of London.
  */
-export const TERMINAL_SCENARIO_STARTED_AT_ISO = "2026-01-01T16:40:00.000Z";
-
-/** The same instant as epoch milliseconds. */
 export const TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS: number = Date.UTC(2026, 0, 1, 16, 40, 0, 0);
+
+/**
+ * The same instant as the text the wire carries — DERIVED, which is this module's own
+ * rule applied to its own base.
+ *
+ * It was spelled out a second time by hand, defended on the grounds that deriving it
+ * needs a banned parse. It does not: the tick arithmetic below already turns a number
+ * into exactly this text through the permitted `new Date(<sum>)` form, so tick zero
+ * IS this value and a whole test file existed to hold two spellings of it together.
+ * One of them is now computed from the other, so they cannot disagree.
+ */
+export const TERMINAL_SCENARIO_STARTED_AT_ISO: string = terminalScenarioInstantAt(0);
 
 /** The scenario's own event-id prefix, shared by every beat's opaque row id. */
 const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
@@ -64,7 +72,13 @@ export const TERMINAL_HOST_NODE_ATTACHED_AT_MS = 160;
  */
 export const TERMINAL_HOST_NODE_LAST_HEARTBEAT_AT_MS = 3_780;
 
-/** The instant a tick lands on, in the frozen clock's own wall time. */
+/**
+ * The instant a tick lands on, in the frozen clock's own wall time.
+ *
+ * A function declaration, so the base instant above may be derived from it at tick
+ * zero: hoisting is what lets the one derivation sit beside the number it derives
+ * from rather than below the table that reads it.
+ */
 export function terminalScenarioInstantAt(atMs: number): string {
   return new Date(TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS + atMs).toISOString();
 }

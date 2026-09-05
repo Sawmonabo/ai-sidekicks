@@ -31,6 +31,19 @@
 // session the pane has left is dropped; so is a reply for a call a LATER press on the
 // same session superseded; and an unmount needs no flag of its own, because there is
 // no longer a committed state for a late settlement to reach.
+//
+// AND THE SINGLE-FLIGHT REGISTER IS KEYED ON THE VISIT, NOT ON THE PAIR, because the
+// state beside it is. A surface routed s1 -> s2 -> s1 is at the same pair twice and
+// the holder re-seeds on both visits — that is what its addressing serial exists to
+// say. A register keyed on `(bridge, sessionId)` has no visit concept at all, so on
+// the return it would still be holding the FIRST visit's round while the flag the
+// control renders came from the re-seeded state: an enabled control whose press is
+// refused by a key it cannot see and swallowed without a word, which is exactly what
+// `lease-acquisition.ts` calls neither an offer nor a refusal. So the subject handed
+// to the latch is the PUBLISHER, whose identity the holder re-mints on precisely the
+// addressings it re-seeds on and on nothing else — the same fact as the addressing
+// serial, in the one form this hook is handed. The returning visit therefore finds a
+// free slot, and within one visit the register behaves exactly as it did.
 
 import { useCallback } from "react";
 
@@ -120,7 +133,14 @@ export function useTerminalLeaseClaim(
       // The subject is read out of the closure, and the closure is rebuilt whenever
       // either input changes — so a press on session B's FIRST committed render
       // carries B, with no effect having had to flush first.
-      const dispatch = dispatches.claim(bridge, sessionId);
+      //
+      // `publish` IS the visit, and that is the whole of the header's last paragraph:
+      // the holder re-mints it on exactly the addressings it re-seeds this state on,
+      // so one publisher names one visit and the register can never be holding a
+      // round the flag beside it has already forgotten. The session id stays the KEY
+      // so the register's entry still names the shell the round is about, and so
+      // taking the shell and handing it back share one slot.
+      const dispatch = dispatches.claim(publish, sessionId);
       if (dispatch === undefined) {
         // A call is already out for this subject. The control is disabled for exactly
         // that lifetime, so there is nothing to start and nothing new to say.

@@ -39,7 +39,8 @@
 // consumers move with it. It is minted here because this is the surface that reads
 // it, and a registry nobody can reach is a plan rather than a seam.
 
-import { Emitter, RealClock, type ConsoleClock, type Unsubscribe } from "../core/index.js";
+import { Emitter, type ConsoleClock, type Unsubscribe } from "../core/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../bridge/index.js";
 import { observeElementResize } from "../primitives/index.js";
 import { hasRunningMotion, observeMotionStarts, sharesMotionWith } from "./element-motion.js";
 import { MotionFrameSampler } from "./motion-sampling.js";
@@ -85,8 +86,15 @@ export interface OverlayRegistration {
 }
 
 export interface PaneOcclusionRegistryOptions {
-  /** The frame source motion sampling runs on. A real clock unless a test says otherwise. */
-  readonly clock?: ConsoleClock | undefined;
+  /**
+   * The frame source motion sampling runs on. REQUIRED, and required rather than
+   * defaulted for the reason a default is usually chosen: a `RealClock` minted here
+   * is invisible to `ManualClock`, which is the instrument the console counts timers
+   * with, so a registry that quietly minted one sampled on wall time inside a window
+   * whose every other timer was frozen. There is no clock this module can pick that
+   * is right for both windows; the window's owner knows, and now has to say.
+   */
+  readonly clock: ConsoleClock;
 }
 
 interface RegisteredOverlay {
@@ -113,8 +121,8 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
   #detachMotionStarts: Unsubscribe | undefined;
   #nextToken = 1;
 
-  public constructor(options: PaneOcclusionRegistryOptions = {}) {
-    this.#clock = options.clock ?? new RealClock();
+  public constructor(options: PaneOcclusionRegistryOptions) {
+    this.#clock = options.clock;
   }
 
   /**
@@ -273,5 +281,35 @@ export class PaneOcclusionRegistry implements PaneOverlaySource {
   }
 }
 
-/** One per renderer process, like every other console registry. */
-export const consoleOcclusionRegistry: PaneOcclusionRegistry = new PaneOcclusionRegistry();
+/**
+ * The registries this process holds, one per window, held weakly by that window.
+ *
+ * A `WeakMap` rather than a module-level instance because the instance could not be
+ * constructed at all any more, and that is the correction rather than a consequence
+ * of it: a registry minted at module load has no window to take a clock from, so it
+ * took a `RealClock` — and under the fixture that put overlay motion sampling on wall
+ * time inside a window whose scenario beats, refresh scheduler, and stores all ran on
+ * the frozen one. Keyed on the BRIDGE and not on the clock, because
+ * `consoleClockFor` mints a fresh `RealClock` per caller on the live arm, so a
+ * clock-keyed table would hand every pane in one window a registry of its own and the
+ * view would yield to whichever overlays happened to register through the same one.
+ */
+const occlusionRegistriesByWindow = new WeakMap<ConsoleBridge, PaneOcclusionRegistry>();
+
+/**
+ * The one registry this window's overlays share, minted against this window's clock.
+ *
+ * ONE PER WINDOW, which is what "one per renderer process" meant when the console had
+ * a single bridge: an auxiliary window is its own renderer process with its own
+ * overlays, and a second bridge in one process — which every suite that builds two
+ * fixture bridges has — is two windows for every purpose this registry serves.
+ */
+export function consoleOcclusionRegistryFor(bridge: ConsoleBridge): PaneOcclusionRegistry {
+  const held = occlusionRegistriesByWindow.get(bridge);
+  if (held !== undefined) {
+    return held;
+  }
+  const created = new PaneOcclusionRegistry({ clock: consoleClockFor(bridge) });
+  occlusionRegistriesByWindow.set(bridge, created);
+  return created;
+}

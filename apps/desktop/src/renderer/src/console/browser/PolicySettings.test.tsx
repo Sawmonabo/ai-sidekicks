@@ -24,8 +24,8 @@ function bothRead(
   pageTools: boolean,
 ): BrowserPolicySettingsProps["readings"] {
   return {
-    "file-boundary": { status: "read", enabled: fileBoundary },
-    "page-tools": { status: "read", enabled: pageTools },
+    "file-boundary": { kind: "served", enabled: fileBoundary },
+    "page-tools": { kind: "served", enabled: pageTools },
   };
 }
 
@@ -98,8 +98,8 @@ describe("browser policy rows — a reading, drawn", () => {
 
 describe("browser policy rows — an absent reading", () => {
   const unread: BrowserPolicySettingsProps["readings"] = {
-    "file-boundary": { status: "unread", refusal: UNREAD_REFUSAL },
-    "page-tools": { status: "unread", refusal: UNREAD_REFUSAL },
+    "file-boundary": { kind: "refused", scope: "whole-answer", refusal: UNREAD_REFUSAL },
+    "page-tools": { kind: "refused", scope: "whole-answer", refusal: UNREAD_REFUSAL },
   };
 
   it("draws the enforcing position", () => {

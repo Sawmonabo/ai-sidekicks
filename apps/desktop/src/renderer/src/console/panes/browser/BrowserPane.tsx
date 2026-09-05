@@ -88,7 +88,7 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
   // Only the REPORTING arm is a reading. An ended subscription's last frame is not
   // one, so it reaches nothing here: every history control falls back to disabled and
   // the address field stops following a location nobody is reporting any more.
-  const reported = navigation.status === "reported" ? navigation.state : undefined;
+  const reported = navigation.kind === "served" ? navigation.state : undefined;
   const reportedUrl = reported?.url;
 
   const dispatch = useCallback(
@@ -231,7 +231,7 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
       {/* The subscription's own end, said once and where the controls are. It is a
           receipt rather than a refusal — the producer finished cleanly — so it takes
           the quiet reading line and the polite live region, not the banner. */}
-      {navigation.status === "ended" ? (
+      {navigation.kind === "ended" ? (
         <p className="meridian-browser-pane__reading" role="status">
           This pane is no longer being told where the page is. The chrome acts on nothing until the
           pane is opened again.
@@ -264,10 +264,16 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
         />
       </div>
 
+      {/* No `readings` at all, and that is the honest prop rather than an omission.
+          Nothing in this window meters a browser bound — the namespace that would
+          count live views is not registered — so every row takes the not-checked arm.
+          A literal `VIEWS_MAX: 0` here would render through the same live-figure span
+          a genuinely metered ceiling renders through, and tell a reviewer this window
+          holds zero browser views while the pane he is reading it in is one. */}
       <details className="meridian-browser-disclosure meridian-browser-pane__ceiling">
         <summary>Resource ceiling</summary>
         <div className="meridian-browser-pane__ceiling-body">
-          <BudgetMeter readings={{ VIEWS_MAX: 0 }} />
+          <BudgetMeter />
         </div>
       </details>
     </section>
@@ -290,10 +296,10 @@ function viewportDetail(
   if (geometry?.status === "suppressed") {
     return geometry.refusal.detail;
   }
-  if (navigation.status === "refused") {
+  if (navigation.kind === "refused") {
     return navigation.refusal.detail;
   }
-  if (navigation.status === "ended") {
+  if (navigation.kind === "ended") {
     return "No page is reported here any more, so this pane reports its rectangle and shows nothing.";
   }
   return "This pane has not been told which page it holds, so it reports its rectangle and shows nothing.";

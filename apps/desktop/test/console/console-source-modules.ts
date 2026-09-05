@@ -159,3 +159,44 @@ function isTestModulePath(entry: string): boolean {
     entry.endsWith(".test-support.tsx")
   );
 }
+
+/**
+ * The console-relative paths of a console scan, in scan order.
+ *
+ * Three gates wrote `module.displayPath.slice("console/".length)` inline, which is a
+ * literal about this module's own naming convention copied into files that do not own
+ * it: the day a root is renamed, three private slices go on reporting paths with a
+ * stale prefix stripped and nothing says so. It takes the modules rather than
+ * re-walking, because a caller has already filtered by the time it wants names.
+ *
+ * A module found under a root OTHER than the console keeps its whole `displayPath` —
+ * there is no console prefix on it to strip, and silently returning the shell path
+ * unchanged beside stripped console ones would hand a caller two spellings of one
+ * thing. A mixed-root scan wants `displayPath` and not this.
+ */
+export function consoleRelativePaths(modules: readonly ConsoleSourceModule[]): readonly string[] {
+  const consolePrefix = `${relative(RENDERER_SOURCE_ROOT, CONSOLE_DIRECTORY).split("\\").join("/")}/`;
+  return modules.map((module) =>
+    module.displayPath.startsWith(consolePrefix)
+      ? module.displayPath.slice(consolePrefix.length)
+      : module.displayPath,
+  );
+}
+
+/**
+ * One named module's text, or the failure `moduleNamed` raises.
+ *
+ * The composition four gates wrote out by hand, and it is the pair that belongs
+ * together: every caller of `moduleNamed` in this tier immediately reads the module it
+ * found, and a lookup that succeeds is never the thing a gate wanted. Naming the pair
+ * is also what keeps the failure message singular — a private
+ * `readConsoleSourceModule(moduleNamed(...))` in each gate is four call sites that can
+ * drift into four ideas of what to say when the scan did not reach a path.
+ */
+export function readModuleNamed(
+  modules: readonly ConsoleSourceModule[],
+  displayPath: string,
+  what?: string,
+): string {
+  return readConsoleSourceModule(moduleNamed(modules, displayPath, what));
+}

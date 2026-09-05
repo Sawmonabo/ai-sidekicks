@@ -32,7 +32,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
@@ -51,7 +51,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     clock.runFrame();
@@ -77,7 +77,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
@@ -95,7 +95,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host: unavailablePaneViewHost("no host in this window"),
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
@@ -117,7 +117,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     const sinkFailure = new Error("the outcome sink refused the rejection");
     publisher.subscribeToOutcomes(() => {
@@ -151,7 +151,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
@@ -174,7 +174,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));

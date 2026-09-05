@@ -11,7 +11,7 @@ import { describe, expect, it } from "vitest";
 import { isConsoleRefusal } from "../core/index.js";
 import type { ChordPlatform } from "../primitives/index.js";
 import {
-  CHORD_MODIFIER_TOKENS,
+  CLAIMABLE_MODIFIER_TOKENS,
   CLOSE_TAB_CHORD,
   KEYBOARD_HANDBACK_REFUSAL_ORIGIN,
   KeyboardHandback,
@@ -89,10 +89,42 @@ describe("projectClaimableChords", () => {
   });
 
   it("accepts every modifier token the grammar names, including a bracketed one", () => {
-    for (const modifier of CHORD_MODIFIER_TOKENS) {
+    for (const modifier of CLAIMABLE_MODIFIER_TOKENS) {
       expect(chordCarriesApplicationModifier(`${modifier}+KeyK`)).toBe(true);
     }
     expect(chordCarriesApplicationModifier("[Alt]+KeyK")).toBe(true);
+  });
+
+  it("subtracts only shift from the console's chord vocabulary", () => {
+    // The set is derived, so this asserts the ONE subtraction rather than the members:
+    // a modifier added to the vocabulary shows up here without an edit, and a
+    // shift-only combination — a capital letter — stays with the page.
+    expect(CLAIMABLE_MODIFIER_TOKENS).not.toContain("Shift");
+    expect(chordCarriesApplicationModifier("Shift+KeyS")).toBe(false);
+  });
+
+  it("reads the plus key chord the grammar spells `$mod++`", () => {
+    // A preservation case, not a change: tinykeys splits a press on `+` PRECEDED by a
+    // word character, so `$mod++` is meta-plus, and the printer's splitter is the one
+    // that agrees with the parser about that. It is pinned because the predicate now
+    // reads through that splitter and this is the chord the two disagree on.
+    expect(chordCarriesApplicationModifier("$mod++")).toBe(true);
+    expect(projectClaimableChords(["$mod++"])).toStrictEqual(["$mod++"]);
+  });
+
+  it("keeps a multi-press sequence out of the mirror", () => {
+    // `parseChord` refuses a sequence, so a mirrored one is a chord the main process
+    // takes from the page and the renderer can never match: the operator would get a
+    // not-claimable refusal for a keystroke that should simply have reached the page.
+    expect(chordCarriesApplicationModifier("$mod+KeyK $mod+KeyB")).toBe(false);
+    expect(projectClaimableChords(["$mod+KeyK $mod+KeyB"])).toStrictEqual([]);
+  });
+
+  it("negative control: the sequence rule is not rejecting every modified chord", () => {
+    // A predicate that answered false for everything would satisfy the two cases above
+    // and would empty the mirror, which is the failure the projection exists to avoid.
+    expect(chordCarriesApplicationModifier("$mod+KeyK")).toBe(true);
+    expect(chordCarriesApplicationModifier(" $mod+KeyK ")).toBe(true);
   });
 
   it("deduplicates and sorts, so two mirrors of one set compare equal", () => {

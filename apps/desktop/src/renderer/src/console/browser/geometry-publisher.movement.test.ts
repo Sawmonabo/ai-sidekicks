@@ -57,7 +57,7 @@ describe("PaneGeometryPublisher — the move source", () => {
     const publisher = new PaneGeometryPublisher({
       host,
       clock,
-      occlusion: new PaneOcclusionRegistry(),
+      occlusion: new PaneOcclusionRegistry({ clock }),
     });
     publisher.observe(hostElement);
     clock.runFrame();

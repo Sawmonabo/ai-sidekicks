@@ -60,13 +60,38 @@
 // paragraph above names, because a second chord grammar is that same drift by another
 // route.
 //
+// AND ONE CHORD VOCABULARY. The modifier token set, the resolution of `$mod`, and the
+// splitter that separates a press into its modifiers and its key all come from
+// `primitives/chord-format.ts` — the console's chord printer, which needs those same
+// three facts to render a chord for a platform that is not the host. All three were
+// copies here, one of them with a comment admitting it, and the splitter copy was a
+// `chord.split("+")` that answers differently from the parser on exactly the chords
+// the grammar exists for.
+//
 // The close-tab chord of 12.2 lives here too, and not beside the tab strip, because it
 // is the same question — is this keystroke the application's? — and a second modifier
 // comparison written next to the strip is how the two answers start to disagree.
+//
+// WHAT IS BUILT AHEAD OF ITS WIRE, AND WHY IT SAYS SO. The close-tab half already has a
+// caller: `panes/browser/BrowserPane.tsx` reads a descriptor off a real event and asks
+// this module whether it is the chord. The CLAIM half does not, and cannot until the
+// browser bridge namespace exists to carry a mirror between the main process and the
+// renderer — so `KeyboardHandback`, `projectClaimableChords`,
+// `chordCarriesApplicationModifier`, and the token set they share carry a one-line
+// claim naming the growth slate row that owns that wire. The claim is the difference
+// between a symbol waiting for a named consumer and one nothing will ever import.
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { chordMatchesEvent, parseChord } from "../palette/index.js";
-import { decodeChordKeyToken, type ChordPlatform } from "../primitives/index.js";
+import {
+  CHORD_MODIFIER_TOKENS,
+  PLATFORM_MODIFIER_CHORD_TOKEN,
+  PLATFORM_MODIFIER_TOKEN,
+  decodeChordKeyToken,
+  splitChordTokens,
+  type ChordModifierToken,
+  type ChordPlatform,
+} from "../primitives/index.js";
 
 /** The subsystem name every refusal this module raises carries. */
 export const KEYBOARD_HANDBACK_REFUSAL_ORIGIN = "browser-keyboard-handback";
@@ -121,42 +146,42 @@ export function carriesApplicationModifier(descriptor: ChordDescriptor): boolean
 }
 
 /**
- * The token an authored chord names for "this platform's own application modifier".
- * Spelled out again in `CHORD_MODIFIER_TOKENS` rather than referenced there, because
- * `isolatedDeclarations` will not emit an exported tuple whose members it would have
- * to infer from another declaration.
- */
-const PLATFORM_MODIFIER_CHORD_TOKEN = "$mod";
-
-/**
- * Which modifier `$mod` stands for on each platform — meta on macOS, control
- * elsewhere.
+ * The modifier tokens that make an authored chord claimable at all.
  *
- * The ONE resolution in this module, and both halves read it: the claim rule
- * substitutes it into an authored chord before parsing, and the close-tab predicate
- * asks which of a descriptor's two modifiers it names. A second comparison written
- * beside either one is how the two answers start to disagree.
- */
-const PLATFORM_MODIFIER_TOKEN: Readonly<Record<ChordPlatform, "Meta" | "Control">> = {
-  darwin: "Meta",
-  win32: "Control",
-  linux: "Control",
-};
-
-/**
- * The modifier tokens an authored chord can name.
+ * DERIVED from the console's one chord vocabulary rather than restated beside it, so a
+ * modifier added there cannot go unconsidered here. Shift is the one subtraction, and
+ * it is the same subtraction `carriesApplicationModifier` makes above: a shift-only
+ * combination is a capital letter. `$mod` stays, because it resolves to meta on macOS
+ * and control elsewhere, so it counts on every platform.
  *
- * `$mod` resolves to meta on macOS and control elsewhere, so it counts on every
- * platform. This is a PRESENCE test over a closed token set and not a chord parser —
- * it resolves no key, no sequence, and no optional modifier, and the console's one
- * chord parser stays `palette/keybinding-chord.ts`.
+ * This is a PRESENCE test and not a chord parser — it resolves no key and decides no
+ * optional modifier, and the console's one chord parser stays
+ * `palette/keybinding-chord.ts`.
  */
-export const CHORD_MODIFIER_TOKENS = ["$mod", "Meta", "Control", "Ctrl", "Alt", "Option"] as const;
+// Consumed by growth slate row `browser-pane-namespace`
+export const CLAIMABLE_MODIFIER_TOKENS: readonly ChordModifierToken[] =
+  CHORD_MODIFIER_TOKENS.filter((token) => token !== "Shift");
 
 /** Whether an authored chord names a modifier that makes it claimable at all. */
+// Consumed by growth slate row `browser-pane-namespace`
 export function chordCarriesApplicationModifier(chord: string): boolean {
-  const tokens = new Set(chord.split("+").map((token) => token.trim().replace(/^\[|\]$/gu, "")));
-  return CHORD_MODIFIER_TOKENS.some((modifier) => tokens.has(modifier));
+  const authored = chord.trim();
+  // A SEQUENCE IS NOT CLAIMABLE, and it has to be refused here rather than left to the
+  // parser. tinykeys spells a multi-press binding with a space (`$mod+KeyK $mod+KeyB`)
+  // and `parseChord` refuses one, so a sequence that reached the mirror would be a
+  // chord the main process takes from the page and the renderer can never match: the
+  // operator gets a not-claimable refusal for a keystroke that should simply have
+  // reached the page. A `chord.split("+")` could not see this at all — it yields
+  // `"KeyK $mod"` as one token and finds `$mod` inside it.
+  if (/\s/u.test(authored)) {
+    return false;
+  }
+  // The printer's splitter, not a split on `+`: tinykeys' grammar makes `$mod++` a real
+  // chord, and a naive split reads its key as an empty token and its modifier set as
+  // one member too many.
+  const { modifiers } = splitChordTokens(authored);
+  const named = new Set(modifiers.map((token) => token.trim().replace(/^\[|\]$/gu, "")));
+  return CLAIMABLE_MODIFIER_TOKENS.some((modifier) => named.has(modifier));
 }
 
 /**
@@ -166,6 +191,7 @@ export function chordCarriesApplicationModifier(chord: string): boolean {
  * ever holding a chord it must not claim: a bare `KeyS` binding never reaches the
  * mirror, so no amount of main-process logic can take `S` away from a page.
  */
+// Consumed by growth slate row `browser-pane-namespace`
 export function projectClaimableChords(chords: readonly string[]): readonly string[] {
   return [...new Set(chords.filter((chord) => chordCarriesApplicationModifier(chord)))].sort();
 }
@@ -257,6 +283,7 @@ export interface KeyboardHandbackOptions {
  * between calls, and because a replay has to be attributable: `replayCount` is what a
  * test asserts against instead of trusting that a dispatched event was delivered.
  */
+// Consumed by growth slate row `browser-pane-namespace`
 export class KeyboardHandback {
   readonly #readInstalledChords: () => readonly string[] | undefined;
   readonly #platform: ChordPlatform;
