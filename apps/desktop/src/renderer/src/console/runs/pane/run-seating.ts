@@ -31,9 +31,20 @@
 // stream, so the surface can say how many and which — never a bare skeleton with no
 // count, and never a list presented as current while a run the session knows is
 // missing from it.
+//
+// AND THE LIST IS BOUNDED, LIKE EVERY OTHER WIRE-CONTROLLED LIST THIS PANE HOLDS.
+// The partition is folded from the log and nothing evicts it, so a long-lived
+// session's un-projected runs are as many as the session is old — and this function
+// used to append every one of them, past the `PROJECTED_RUN_CAP` the projection fold
+// spends two files away, sorting all of them on every partition change. So the tail
+// is cut at `SEATED_KNOWN_RUN_CAP` and what was cut is COUNTED: `runs-bounds.ts` says
+// the rule for this family's other capped list — "above it the surface says how many
+// rows it is not drawing rather than drawing them all" — and a bound that dropped
+// rows silently would be the pane asserting a session has fewer runs than it has.
 
 import { compareInstants, parseInstant, readWireString } from "../../core/index.js";
 import type { ConsoleEntity } from "../../store/index.js";
+import { SEATED_KNOWN_RUN_CAP } from "./runs-bounds.js";
 import type { RunProjection } from "./run-state-projection.js";
 
 /**
@@ -78,8 +89,17 @@ export type SeatedRun =
 /** What the pane draws, and what it is still missing a live reading for. */
 export interface RunSeating {
   readonly rows: readonly SeatedRun[];
-  /** Runs the session knows that the stream has not described. In row order. */
+  /** Runs the session knows that the stream has not described, SEATED. In row order. */
   readonly awaitingProjectionRunIds: readonly string[];
+  /**
+   * Further such runs the cap kept off the pane.
+   *
+   * Reported rather than implied by a short list: the ids above are the rows that
+   * exist, and this is how many runs the session knows that no row was drawn for.
+   * A surface that rendered the ids and dropped this would say the session has
+   * exactly as many un-projected runs as it happens to be drawing.
+   */
+  readonly withheldKnownRunCount: number;
 }
 
 /**
@@ -99,6 +119,10 @@ export function seatRuns(
     .filter((entity) => !projectedRunIds.has(entity.id))
     .map(readKnownRun)
     .sort(byNewestTouched);
+  // Newest-touched first is already the order, so the cut takes the coldest runs —
+  // and it is taken AFTER the sort rather than as a bound on the fold, because which
+  // fifty are newest is not known until every candidate has been ranked.
+  const seated = awaiting.slice(0, SEATED_KNOWN_RUN_CAP);
   return {
     rows: [
       ...projections.map(
@@ -108,9 +132,10 @@ export function seatRuns(
           projection,
         }),
       ),
-      ...awaiting.map((known): SeatedRun => ({ source: "known", runId: known.runId, known })),
+      ...seated.map((known): SeatedRun => ({ source: "known", runId: known.runId, known })),
     ],
-    awaitingProjectionRunIds: awaiting.map((known) => known.runId),
+    awaitingProjectionRunIds: seated.map((known) => known.runId),
+    withheldKnownRunCount: awaiting.length - seated.length,
   };
 }
 

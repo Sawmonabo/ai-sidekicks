@@ -125,7 +125,10 @@ export function RunsPaneBody(props: {
           // session's record knows these runs and the live tail has not described
           // them. Said with the count AND the ids, because "some rows are not live"
           // is unactionable and "these two are not live" is what a person checks.
-          <AwaitingProjection runIds={seating.awaitingProjectionRunIds} />
+          <AwaitingProjection
+            runIds={seating.awaitingProjectionRunIds}
+            withheldCount={seating.withheldKnownRunCount}
+          />
         ) : null}
         {seating.rows.length === 0 ? (
           <NoRuns hasRead={stateFeed.hasRead} openRefusal={stateFeed.openRefusal} />
