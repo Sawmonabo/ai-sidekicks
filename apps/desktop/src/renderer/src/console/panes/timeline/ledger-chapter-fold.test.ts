@@ -6,14 +6,24 @@
 // a window whatever the fold admitted.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
+import { act, renderHook } from "@testing-library/react";
+import { createElement, useCallback, useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { CHAPTER_VISIBLE_ROW_CAP } from "../../ledger/structure/index.js";
+import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index.js";
+import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
+import {
+  CHAPTER_VISIBLE_ROW_CAP,
+  ChapterCollapseState,
+  type LedgerChapter,
+} from "../../ledger/structure/index.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   chapterRowIdsWithinCap,
   foldChapterHeaders,
   narrowChapterToAdmittedRows,
+  useChapterDisclosure,
+  type LedgerChapterDisclosure,
 } from "./ledger-chapter-fold.js";
 import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
@@ -155,5 +165,116 @@ describe("a chapter re-sealed over the rows a narrowing admitted", () => {
   it("negative control: a narrowing that took nothing returns the chapter by identity", () => {
     const chapter = wholeChapter();
     expect(narrowChapterToAdmittedRows(chapter, new Set(chapter.rowIds))).toBe(chapter);
+  });
+});
+
+/**
+ * A finished chapter to press the disclosure on.
+ *
+ * Derived through the real projection rather than written out, so the object the
+ * toggle is handed is the one the fold produces — a hand-built chapter would let a
+ * disclosure that keyed on the wrong member pass.
+ */
+function terminalChapter(): LedgerChapter {
+  const chapter = deriveLedgerWindow(oneRunLog(3), false).chapterByHeaderKey.get(RUN_ID);
+  if (chapter === undefined) {
+    throw new Error("the fixture log produced no terminal chapter");
+  }
+  return chapter;
+}
+
+/**
+ * The arrangement this hook replaced: both halves held for the life of the MOUNT.
+ *
+ * Not a stand-in — it drives the real `ChapterCollapseState` and publishes its real
+ * opened set, and differs in the one thing these cases are about: what the holder is
+ * keyed on.
+ */
+function useMountScopedChapterDisclosure(): LedgerChapterDisclosure {
+  const [collapseState] = useState(() => new ChapterCollapseState());
+  const [openedTerminalRunIds, setOpenedTerminalRunIds] = useState<ReadonlySet<string>>(
+    () => new Set<string>(),
+  );
+  const publish = useCallback(() => {
+    setOpenedTerminalRunIds(new Set(collapseState.openedTerminalRunIds));
+  }, [collapseState]);
+  const toggle = useCallback(
+    (chapter: LedgerChapter) => {
+      if (collapseState.isOpen(chapter)) {
+        collapseState.close(chapter);
+      } else {
+        collapseState.open(chapter);
+      }
+      publish();
+    },
+    [collapseState, publish],
+  );
+  return { openedTerminalRunIds, toggle, collapseAllTerminal: () => undefined };
+}
+
+describe("the chapter disclosure follows the session the pane is a log of", () => {
+  const OTHER_SESSION_ID = "session-the-reader-moved-to";
+
+  /**
+   * One disclosure under a bridge, over a session the caller can move.
+   *
+   * The pane is not remounted between the two sessions, which is the whole case: the
+   * shell opens session stores and never closes them, so navigating between two open
+   * sessions re-renders this position rather than unmounting it.
+   */
+  function mountDisclosureOver(
+    useDisclosure: (sessionId: string) => LedgerChapterDisclosure,
+  ): ReturnType<typeof renderHook<LedgerChapterDisclosure, { readonly sessionId: string }>> {
+    const bridge = createFixtureBridge({ scenario: LEDGER_QUIET_SCENARIO });
+    return renderHook((props: { readonly sessionId: string }) => useDisclosure(props.sessionId), {
+      initialProps: { sessionId: SESSION_ID },
+      wrapper: ({ children }: { readonly children?: React.ReactNode }) =>
+        createElement(SidekicksBridgeProvider, { bridge, children }),
+    });
+  }
+
+  it("opens the next session's chapters fresh, whatever was opened in the last", () => {
+    const disclosure = mountDisclosureOver(useChapterDisclosure);
+    act(() => {
+      disclosure.result.current.toggle(terminalChapter());
+    });
+    expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([RUN_ID]);
+
+    act(() => {
+      disclosure.rerender({ sessionId: OTHER_SESSION_ID });
+    });
+
+    // A run id is a fact about the session that minted it, so carrying this set
+    // across opens a chapter of B by a decision made in A and folds every other one.
+    expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([]);
+  });
+
+  it("holds a session's own disclosure across a re-render at that same session", () => {
+    // The negative control on the SCOPE: without it the fix could be "reset on every
+    // render", which would fold a chapter the moment any row arrived.
+    const disclosure = mountDisclosureOver(useChapterDisclosure);
+    act(() => {
+      disclosure.result.current.toggle(terminalChapter());
+    });
+
+    act(() => {
+      disclosure.rerender({ sessionId: SESSION_ID });
+    });
+
+    expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([RUN_ID]);
+  });
+
+  it("negative control: a mount-scoped holder carries the last session's disclosure", () => {
+    const disclosure = mountDisclosureOver(useMountScopedChapterDisclosure);
+    act(() => {
+      disclosure.result.current.toggle(terminalChapter());
+    });
+
+    act(() => {
+      disclosure.rerender({ sessionId: OTHER_SESSION_ID });
+    });
+
+    // The defect, stated as a case: session B renders with session A's decisions.
+    expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([RUN_ID]);
   });
 });

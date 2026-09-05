@@ -49,10 +49,11 @@
 // minted a fresh object for every unchanged row re-rendered the whole mounted window
 // on every admitted event for a change none of the rows could see.
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
+import { useConsoleBridge } from "../../bridge/index.js";
 import { projectFixtureShellRows } from "../../ledger/cards/index.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 import {
@@ -63,6 +64,7 @@ import {
   type LedgerChapter,
   type LedgerSeam,
 } from "../../ledger/structure/index.js";
+import { useSessionScopedState } from "../../seats/index.js";
 import { useSessionStore, type ConsoleSessionEvent, type SessionStore } from "../../store/index.js";
 
 /** Everything one render of the ledger needs, derived once per store revision. */
@@ -378,14 +380,22 @@ export function useLedgerProjection(
 ): LedgerWindowModel {
   const timeline = useSessionStore(sessionStore, readTimeline);
   const hasUnreceivedEntries = useSessionStore(sessionStore, readHasGaps);
-  // One table for the life of the mount, so a pass has a predecessor to retain from.
-  // Minted through the lazy initialiser rather than held in a ref, because a ref's
-  // first value is written during render and this one has to exist before the memo
-  // below runs on the very first pass.
-  const [retention] = useState(() => new LedgerRowRetention());
+  // One table per SESSION, so a pass has a predecessor to retain from — and so a
+  // pane that follows a navigation to another session starts that session with an
+  // empty table rather than with the rows of the one it left. Seeded during the
+  // render for the subject-scoped holder's reason: the pass that first sees a new
+  // session already reads that session's own table, which a ref written in the body
+  // could not promise and an effect would deliver one commit late.
+  const bridge = useConsoleBridge();
+  const retention = useSessionScopedState(
+    bridge,
+    sessionStore.sessionId,
+    () => new LedgerRowRetention(),
+  );
+  const heldRetention = retention.value;
   return useMemo(
-    () => deriveLedgerWindow(timeline, hasUnreceivedEntries, retention, channelId),
-    [timeline, hasUnreceivedEntries, retention, channelId],
+    () => deriveLedgerWindow(timeline, hasUnreceivedEntries, heldRetention, channelId),
+    [timeline, hasUnreceivedEntries, heldRetention, channelId],
   );
 }
 /** The log this window holds. A named function, so the selector identity is stable. */

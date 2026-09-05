@@ -16,17 +16,18 @@
 //     decides both.
 //   • Which chapters a person has opened, which is this mount's and not the log's.
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
+import { useConsoleBridge } from "../../bridge/index.js";
 import { type LedgerViewportRow } from "../../ledger/frame/index.js";
 import {
   CHAPTER_VISIBLE_ROW_CAP,
   ChapterCollapseState,
   type LedgerChapter,
 } from "../../ledger/structure/index.js";
-import { type TimelineRowDensity } from "../../seats/index.js";
+import { useSessionScopedState, type TimelineRowDensity } from "../../seats/index.js";
 import { LedgerRowRetention, chapterKeyFor, type LedgerWindowModel } from "./ledger-window.js";
 
 /**
@@ -182,13 +183,19 @@ export function narrowChapterToAdmittedRows(
 export function useFoldedChapters(
   model: LedgerWindowModel,
   openedTerminalRunIds: ReadonlySet<string>,
+  sessionId: string,
 ): LedgerWindowModel {
-  // One table for the life of the mount — the projection hook's own idiom, for its
-  // reason, and a second INSTANCE rather than a second class.
-  const [retention] = useState(() => new LedgerRowRetention());
+  // One table per SESSION rather than per mount — the projection hook's own idiom,
+  // for its reason, and a second INSTANCE rather than a second class. The session is
+  // the subject because this pane follows a navigation that changes which log it is
+  // of without unmounting, and a table carried across that holds the rows of a
+  // session nobody is reading.
+  const bridge = useConsoleBridge();
+  const retention = useSessionScopedState(bridge, sessionId, () => new LedgerRowRetention());
+  const heldRetention = retention.value;
   return useMemo(
-    () => foldChapterHeaders(model, openedTerminalRunIds, retention),
-    [model, openedTerminalRunIds, retention],
+    () => foldChapterHeaders(model, openedTerminalRunIds, heldRetention),
+    [model, openedTerminalRunIds, heldRetention],
   );
 }
 
@@ -203,22 +210,36 @@ export interface LedgerChapterDisclosure {
 }
 
 /**
- * Hold one mount's chapter disclosure.
+ * Hold one session's chapter disclosure.
  *
  * `ChapterCollapseState` is the single owner of the rule — a live chapter answers
  * open before any stored state is read — so this hook does not restate it; it
- * publishes the instance's opened set into React state so a toggle repaints. The
- * set is derived from the instance and written nowhere else, which is what keeps it
- * one source of truth mirrored rather than two states kept in step.
+ * publishes the instance's opened set so a toggle repaints. The set is derived from
+ * the instance and written nowhere else, which is what keeps it one source of truth
+ * mirrored rather than two states kept in step.
+ *
+ * SCOPED TO THE SESSION, NOT TO THE MOUNT, and the difference is not academic: the
+ * shell opens session stores and never closes them, so moving from one open session
+ * to another re-renders this pane at the same position rather than unmounting it. A
+ * `useState` holder therefore carried session A's decisions into session B — its
+ * opened run ids are A's, so a B chapter that happens to share a run id opens by
+ * itself and every other terminal chapter in B is folded by a decision made in A.
+ * BOTH halves are held per session, because the instance and its published mirror
+ * are one fact: re-seeding the instance alone would leave the mirror standing.
  */
-export function useChapterDisclosure(): LedgerChapterDisclosure {
-  const [collapseState] = useState(() => new ChapterCollapseState());
-  const [openedTerminalRunIds, setOpenedTerminalRunIds] = useState<ReadonlySet<string>>(
+export function useChapterDisclosure(sessionId: string): LedgerChapterDisclosure {
+  const bridge = useConsoleBridge();
+  const collapse = useSessionScopedState(bridge, sessionId, () => new ChapterCollapseState());
+  const opened = useSessionScopedState<ReadonlySet<string>>(
+    bridge,
+    sessionId,
     () => new Set<string>(),
   );
+  const collapseState = collapse.value;
+  const publishOpened = opened.publish;
   const publish = useCallback(() => {
-    setOpenedTerminalRunIds(new Set(collapseState.openedTerminalRunIds));
-  }, [collapseState]);
+    publishOpened(new Set(collapseState.openedTerminalRunIds));
+  }, [collapseState, publishOpened]);
   const toggle = useCallback(
     (chapter: LedgerChapter) => {
       if (collapseState.isOpen(chapter)) {
@@ -237,6 +258,7 @@ export function useChapterDisclosure(): LedgerChapterDisclosure {
     },
     [collapseState, publish],
   );
+  const openedTerminalRunIds = opened.value;
   return useMemo(
     () => ({ openedTerminalRunIds, toggle, collapseAllTerminal }),
     [openedTerminalRunIds, toggle, collapseAllTerminal],

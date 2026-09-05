@@ -131,7 +131,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // The fold is this MOUNT's, not the log's: which finished chapters a person has
   // opened is a fact about who is reading, so it is held here and handed to the
   // derivation rather than folded into it.
-  const chapterDisclosure = useChapterDisclosure();
+  const chapterDisclosure = useChapterDisclosure(props.sessionStore.sessionId);
   // THE UNFURLED PROJECTION — every member row of every chapter, before any fold.
   const unfurledWindow = useLedgerProjection(props.sessionStore, props.channelId);
   // THE NARROWING RUNS ON THAT PROJECTION, BEFORE ANYTHING ELSE SEES IT. Everything
@@ -147,7 +147,11 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
   // unreachable by narrowing until somebody expands the chapter by hand.
   const ledgerFilter = useLedgerFilter(unfurledWindow);
   const narrowedWindow = useFilteredLedgerWindow(unfurledWindow, ledgerFilter.filter);
-  const ledgerWindow = useFoldedChapters(narrowedWindow, chapterDisclosure.openedTerminalRunIds);
+  const ledgerWindow = useFoldedChapters(
+    narrowedWindow,
+    chapterDisclosure.openedTerminalRunIds,
+    props.sessionStore.sessionId,
+  );
   const replay = useLedgerReplay({ ledgerWindow, loadedWindow: unfurledWindow });
   // What the replay position has reached. The whole window while nobody is
   // replaying, so a ledger with the dock closed pays nothing and reconciles nothing.
