@@ -61,9 +61,9 @@ import type { ConsolePaneRegistry } from "../seats/index.js";
  */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
   // T-023p-1C-2 timeline
-  registerRunsPane(registry);
-  registerApprovalsPane(registry);
-  registerInspectorPane(registry);
+  registerRunsPane(registry); // runs
+  registerApprovalsPane(registry); // approvals
+  registerInspectorPane(registry); // inspector
   // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact
   // T-023p-1C-6 workflow-run workflow-builder

@@ -44,11 +44,13 @@ export const PROJECTED_RUN_CAP = 200;
 export const INTERVENTION_OUTCOME_CAP = 16;
 
 /**
- * Queue rows rendered before the list virtualizes.
+ * Queue rows rendered before the remainder is folded into a count.
  *
- * Below this the list is a plain block, which keeps the common case free of a
- * windowing layer's measurement cost; above it the surface says how many rows it
- * is not drawing rather than drawing them all. The queue is FIFO and the head is
- * what matters, so the ceiling truncates the tail and never the front.
+ * The cap is spent by a `slice` and a withheld count, which is the whole mechanism:
+ * this family windows nothing and imports no windowing layer, so a comment promising
+ * virtualization would describe a component that does not exist. Below the cap the
+ * list is a plain block; above it the surface says how many rows it is not drawing
+ * rather than drawing them all. The queue is FIFO and the head is what matters, so
+ * the ceiling truncates the tail and never the front.
  */
 export const QUEUE_ROWS_RENDERED_CAP = 50;

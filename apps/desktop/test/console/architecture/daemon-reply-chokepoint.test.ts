@@ -123,10 +123,13 @@ function isBridgeFamilyModule(module: string): boolean {
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The five are the composer's send router, its compaction
- * dispatch, and its provider-command read, and the runs pane's run-control dispatch
- * and its step-in control — every surface in this family that reaches the wire, each
- * through `callDaemon` and none around it.
+ * It is no longer vacuous. The five are the composer's `router/send-dispatch.ts`,
+ * its compaction dispatch, and its provider-command read, and the runs pane's
+ * run-control dispatch and its step-in control — every surface in this family that
+ * reaches the wire, each through `callDaemon` and none around it. The send half is
+ * named by its module rather than as "the send router": the router was split and
+ * imports the door nowhere, so a reader reconciling this number against the tree
+ * would have gone looking in the wrong file.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
