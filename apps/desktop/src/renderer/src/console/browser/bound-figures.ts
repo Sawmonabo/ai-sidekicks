@@ -10,12 +10,12 @@
 // Pure and React-free, so the rounding rules below are driven without rendering a
 // table around them.
 
+import { formatByteQuantity, formatCount } from "../primitives/index.js";
 import {
   BROWSER_SCALAR_UNIT_BYTE_QUALIFIER,
   type BrowserBoundMeasure,
   type BrowserScalarUnit,
-} from "../core/index.js";
-import { formatByteQuantity, formatCount } from "../primitives/index.js";
+} from "./browser-bounds.js";
 
 export function describeMeasure(measure: BrowserBoundMeasure): string {
   if (measure.kind === "deferred") {
@@ -36,7 +36,7 @@ export function describeMeasure(measure: BrowserBoundMeasure): string {
  * figure beside a decimal byte count and invite exactly the comparison that is wrong.
  *
  * The dispatch is a lookup rather than a test here. This surface owns the layout;
- * which chokepoint a unit goes through is `core/constants.ts`'s declaration.
+ * which chokepoint a unit goes through is `browser-bounds.ts`'s declaration.
  */
 export function scaleScalarFigure(value: number, unit: BrowserScalarUnit): string {
   return BROWSER_SCALAR_UNIT_BYTE_QUALIFIER[unit] === undefined

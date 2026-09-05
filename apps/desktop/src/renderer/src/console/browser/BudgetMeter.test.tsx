@@ -14,7 +14,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { BROWSER_BOUNDS, BROWSER_BOUND_NAMES } from "../core/index.js";
+import { BROWSER_BOUNDS, BROWSER_BOUND_NAMES } from "./browser-bounds.js";
 import { formatByteQuantity } from "../primitives/index.js";
 import { BudgetMeter } from "./BudgetMeter.js";
 

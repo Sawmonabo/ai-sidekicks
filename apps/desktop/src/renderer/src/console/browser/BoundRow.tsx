@@ -6,7 +6,7 @@
 // composition, and a bound row rendered outside that table would be a ceiling
 // reported with no ledger around it.
 
-import { BROWSER_BOUNDS, type BrowserBoundName } from "../core/index.js";
+import { BROWSER_BOUNDS, type BrowserBoundName } from "./browser-bounds.js";
 import { BoundReading } from "./BoundReading.js";
 import { describeMeasure, scalarFigureTitle } from "./bound-figures.js";
 

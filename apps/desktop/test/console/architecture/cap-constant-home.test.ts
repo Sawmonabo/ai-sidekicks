@@ -62,7 +62,7 @@ import {
   readModuleNamed,
   CONSOLE_DIRECTORY,
 } from "../console-source-modules.js";
-import { forEachDescendant, parseSourceText } from "../typescript-source.js";
+import { parseSourceText } from "../typescript-source.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
@@ -115,55 +115,41 @@ function isCapName(identifier: string): boolean {
 }
 
 /**
- * The name a declaring node binds, if it binds a plain one.
- *
- * A destructuring pattern binds several and none of them is a declared bound in this
- * tree, so it contributes nothing rather than being unpacked — which would report a
- * module for a cap it IMPORTS, which is the opposite of the claim.
- */
-function declaredName(node: ts.Node): string | undefined {
-  if (ts.isVariableDeclaration(node) || ts.isEnumMember(node)) {
-    return ts.isIdentifier(node.name) ? node.name.text : undefined;
-  }
-  if (ts.isPropertyAssignment(node) || ts.isPropertySignature(node)) {
-    return ts.isIdentifier(node.name) || ts.isStringLiteral(node.name) ? node.name.text : undefined;
-  }
-  if (ts.isShorthandPropertyAssignment(node)) {
-    return node.name.text;
-  }
-  return undefined;
-}
-
-/**
  * Every bound `source` declares, or `[]`.
  *
  * A pure function over text rather than a loop inside a test, so the controls below
  * can drive it with strings whose verdict is known and the checker is proved to bite
- * without perturbing a real module. Four declaring shapes, each a node kind rather
- * than a formatting habit: a variable, an object-literal key, an interface member, and
- * an enum member — plus the closed-set tuple form, where the name is a string LITERAL
- * inside an array rather than a binding. The array element is why the shape is checked
- * and not just the text: a quoted name anywhere else in a module is prose or an
- * argument, and the pattern that read them by punctuation had to carve out backticks
- * to stop reporting this tree's own doc comments.
+ * without perturbing a real module.
+ *
+ * MODULE-SCOPE VARIABLE STATEMENTS, and nothing else. That is the shape the rule is
+ * actually about — a ceiling given a name and a home — and the three patterns this
+ * replaced reached past it in a way that decided a layering question by accident. An
+ * object-literal KEY and a string literal inside a tuple are how a family names the
+ * bounds it already declared somewhere: `BROWSER_BOUND_NAMES` lists twenty of them and
+ * `BROWSER_BOUNDS` is keyed by the same twenty, so a checker that read either shape
+ * reported a family's own bound TABLE as twenty invented ceilings — and the only
+ * placement it would accept was `core/`, two layers below every reader, which the
+ * layering rule and `core/constants.ts`'s own header both argue against. Reading the
+ * declaration lets the table sit with its readers and still catches what the gate was
+ * built for: `terminal/constants.ts`'s pool cap and the settings page's fold threshold
+ * were both module-scope declarations.
+ *
+ * A destructuring pattern binds several names and none of them is a declaration in
+ * this tree — it is how a module READS a bound — so it contributes nothing rather than
+ * being unpacked into a report against the module that imports the cap.
  */
 function capNamesDeclaredIn(fileName: string, source: string): readonly string[] {
   const found = new Set<string>();
-  forEachDescendant(parseSourceText(fileName, source), (node) => {
-    const bound = declaredName(node);
-    if (bound !== undefined && isCapName(bound)) {
-      found.add(bound);
-      return;
+  for (const statement of parseSourceText(fileName, source).statements) {
+    if (!ts.isVariableStatement(statement)) {
+      continue;
     }
-    if (!ts.isArrayLiteralExpression(node)) {
-      return;
-    }
-    for (const element of node.elements) {
-      if (ts.isStringLiteral(element) && isCapName(element.text)) {
-        found.add(element.text);
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && isCapName(declaration.name.text)) {
+        found.add(declaration.name.text);
       }
     }
-  });
+  }
   return [...found].sort();
 }
 
@@ -235,20 +221,30 @@ describe("cap-constant-home — a bound is declared in one module", () => {
     expect(
       capNamesDeclaredIn("terminal.ts", "export const TERMINAL_WEBGL_POOL_CAP = 12;"),
     ).toStrictEqual(["TERMINAL_WEBGL_POOL_CAP"]);
-    expect(
-      capNamesDeclaredIn(
-        "meter.ts",
-        'const bounds = {\n  PAGES_PER_RUN_MAX: scalarBound(\n    8,\n    "pages",\n  ),\n};',
-      ),
-    ).toStrictEqual(["PAGES_PER_RUN_MAX"]);
-    expect(capNamesDeclaredIn("names.ts", 'const names = ["SNAPSHOT_TEXT_MAX"];')).toStrictEqual([
-      "SNAPSHOT_TEXT_MAX",
-    ]);
-    // The third shape, and the one the widened segment set exists for: the browser
+    // The second shape, and the one the widened segment set exists for: the browser
     // settings page's fold threshold, verbatim as it stood in that view family.
     expect(capNamesDeclaredIn("page.tsx", "const PARTITION_FOLD_THRESHOLD = 10;")).toStrictEqual([
       "PARTITION_FOLD_THRESHOLD",
     ]);
+  });
+
+  it("negative control: naming a declared bound is not declaring one", () => {
+    // The narrowing, as a case, and the reason the browser's bounds block could move
+    // out of `core/`. A family's own table is keyed by the names it already declared
+    // in one tuple; a checker that counted a key or a tuple member reported that table
+    // as twenty invented ceilings and would accept only a home two layers below every
+    // reader.
+    expect(
+      capNamesDeclaredIn(
+        "browser-bounds.ts",
+        'const bounds = {\n  PAGES_PER_RUN_MAX: scalarBound(\n    8,\n    "pages",\n  ),\n};',
+      ),
+    ).toStrictEqual([]);
+    expect(
+      capNamesDeclaredIn("browser-bounds.ts", 'const names = ["SNAPSHOT_TEXT_MAX"];'),
+    ).toStrictEqual([]);
+    // And the real module, so the claim is about the tree and not only the predicate.
+    expect(capNamesIn("browser/browser-bounds.ts")).toStrictEqual([]);
   });
 
   it("negative control: a layout literal and a measurement are not bounds", () => {
@@ -290,20 +286,15 @@ describe("cap-constant-home — a bound is declared in one module", () => {
     ).toStrictEqual([]);
   });
 
-  it("negative control: the parse finds declarations the patterns could not", () => {
-    // The other direction, and the reason this is a rewrite rather than a tidy. Each
-    // of these is a real declaration the three patterns missed: a name that wrapped
-    // past its `const`, a key nested more than one level deep, and an array element
-    // with no trailing comma.
+  it("negative control: the parse finds a declaration the patterns could not", () => {
+    // The other direction, and the reason this is a rewrite rather than a tidy: a name
+    // that wrapped past its `const` carried no `const NAME` anywhere, so the pattern
+    // read the module as clean.
     expect(
       capNamesDeclaredIn("wrapped.ts", "export const\n  TERMINAL_SCROLLBACK_CAP = 5000;"),
     ).toStrictEqual(["TERMINAL_SCROLLBACK_CAP"]);
-    expect(
-      capNamesDeclaredIn("nested.ts", "const table = { outer: { inner: { PAGE_LIMIT: 4 } } };"),
-    ).toStrictEqual(["PAGE_LIMIT"]);
-    expect(capNamesDeclaredIn("tuple.ts", 'const names = [\n  "VIEWS_MAX"\n];')).toStrictEqual([
-      "VIEWS_MAX",
-    ]);
+    // And a `let`, which the pattern did not consider a declaration at all.
+    expect(capNamesDeclaredIn("mutable.ts", "let VIEWS_MAX = 8;")).toStrictEqual(["VIEWS_MAX"]);
   });
 
   it("negative control: the home itself is full of them", async () => {
