@@ -11,7 +11,7 @@
 // missing row has something a person can press — and which, being a question about
 // ONE row rather than a count, can say which of the four is hiding it.
 
-import { Nothing } from "../../primitives/index.js";
+import { Nothing, WindowAbsences } from "../../primitives/index.js";
 import { type LedgerScope } from "../../ledger/frame/index.js";
 import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "../../ledger/structure/index.js";
 import { type LedgerJumpReach } from "./ledger-jump.js";
@@ -195,45 +195,18 @@ export function LedgerMatchesNotYetReplayedNotice(props: {
 }
 
 /**
- * The two absences that are facts about the SESSION however the pane is scoped.
+ * What the window holds, named so the sentence says WHOSE absence it is.
  *
- * WHY THEY ARE NOT COUNTED PER CHANNEL. Both are measured before a channel scope
- * can apply, and neither could be scoped afterwards without inventing an answer:
- * an event whose type this build does not recognise is projected into no row, so
- * there is nothing carrying a channel to count it under, and a numbered entry the
- * store never received names nothing at all. A channel pane therefore says whose
- * fact it is instead of implying the channel's — which is what it did, by printing
- * the session's counts under a header naming one channel.
- *
- * The other two absences below are already the channel's: the cap and the replay
- * position both act on the scoped window, so their figures need no scoping and no
- * second wording.
+ * The unrecognised count is measured before a channel scope can apply, and an event
+ * this build cannot place carries no channel it could be counted under — so a channel
+ * pane says it is the session's fact rather than implying its own. It is a subject
+ * noun and not a second set of sentences: `primitives/window-absence.ts` writes the
+ * words, and this decides only which things they are about.
  */
-interface LedgerSessionWideAbsenceWords {
-  readonly unrecognisedTitle: string;
-  readonly unrecognisedDetail: (count: number) => string;
-  readonly unreceivedTitle: string;
-  readonly unreceivedDetail: string;
-}
-
-const SESSION_WIDE_ABSENCE_WORDS = {
-  session: {
-    unrecognisedTitle: "Some entries could not be placed.",
-    unrecognisedDetail: (count: number) =>
-      `${String(count)} event${count === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown.`,
-    unreceivedTitle: "Some entries never arrived.",
-    unreceivedDetail:
-      "The session numbered entries this window did not receive. They come back only when the whole session is read again, which the store asks for on its own; no read here fetches a range.",
-  },
-  channel: {
-    unrecognisedTitle: "Some of the session's entries could not be placed.",
-    unrecognisedDetail: (count: number) =>
-      `${String(count)} event${count === 1 ? "" : "s"} arrived with a type this build does not recognise, so they are not shown. An entry it cannot place names no channel either, so the count is the session's rather than this channel's.`,
-    unreceivedTitle: "Some of the session's entries never arrived.",
-    unreceivedDetail:
-      "The session numbered entries this window did not receive, and a numbered entry that never arrived names no channel — so this is the session's gap rather than this channel's. They come back only when the whole session is read again, which the store asks for on its own; no read here fetches a range.",
-  },
-} satisfies Readonly<Record<LedgerScope, LedgerSessionWideAbsenceWords>>;
+const SESSION_WIDE_SUBJECT: Readonly<Record<LedgerScope, string>> = {
+  session: "entries",
+  channel: "of the session's entries",
+};
 
 interface LedgerWindowAbsencesProps {
   /** Events the contract package registers no category for. */
@@ -244,7 +217,7 @@ interface LedgerWindowAbsencesProps {
   readonly withheldByReplayRowCount: number;
   /** The store recorded sequences it never received. */
   readonly hasUnreceivedEntries: boolean;
-  /** What this ledger is a log of — whose absence the first and last are. */
+  /** What this ledger is a log of — whose absence the first one is. */
   readonly scope: LedgerScope;
 }
 
@@ -258,56 +231,40 @@ interface LedgerWindowAbsencesProps {
  * failed where it merely stopped holding, or the reverse — and collapsing the middle
  * two told them rows they can scrub back to in a keystroke were gone for good.
  *
- * Three of them name the read that is missing rather than offering a control for
- * it, which is what replaced the "load earlier" button: this console holds one live
- * subscription and a whole-session snapshot read, and neither takes a cursor. The
- * replay one is the exception, and it is the honest one — the control that would
- * undo it is on screen.
+ * THE SENTENCES ARE THE CONSOLE'S NOW, NOT THIS LEDGER'S. Six families each wrote
+ * their own wording for this case and they disagreed; `primitives/window-absence.ts`
+ * says it once and this hands it the readings it derived. One behaviour change comes
+ * with that, on purpose: the never-received arm used to render as `not-loaded`, whose
+ * skeleton branch drops `title` and `detail`, so its sentence reached nobody. The
+ * shared module renders it as the settled absence it is, so it is shown.
+ *
+ * TWO GROUPS AND NOT ONE, because the two session-wide absences and the two window
+ * absences are about different things and the subject noun is how the shared
+ * sentences say which. The unrecognised count takes the scoped noun; the rest take
+ * the plain one. The never-received arm is in the second group even though its fact
+ * is the session's as well — the shared sentence for it puts the subject inside its
+ * detail line too, where "of the session's entries" does not parse — so a channel
+ * pane no longer qualifies that one. That is the honest limit of the shared shape,
+ * and it is worth less than a seventh copy of all four sentences.
  */
 export function LedgerWindowAbsences(props: LedgerWindowAbsencesProps): React.JSX.Element | null {
-  if (
-    props.unprojectableEventCount === 0 &&
-    props.droppedRowCount === 0 &&
-    props.withheldByReplayRowCount === 0 &&
-    !props.hasUnreceivedEntries
-  ) {
-    return null;
-  }
-  const words = SESSION_WIDE_ABSENCE_WORDS[props.scope];
   return (
     <>
-      {props.unprojectableEventCount === 0 ? null : (
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title={words.unrecognisedTitle}
-          detail={words.unrecognisedDetail(props.unprojectableEventCount)}
-        />
-      )}
-      {props.droppedRowCount === 0 ? null : (
-        <Nothing
-          kind="not-loaded"
-          placement="surface"
-          title="Older entries are no longer in this window."
-          detail={`${String(props.droppedRowCount)} entr${props.droppedRowCount === 1 ? "y" : "ies"} left the window as the session grew. This console subscribes to the log and holds no read that fetches a range of it, so there is nothing to press here.`}
-        />
-      )}
-      {props.withheldByReplayRowCount === 0 ? null : (
-        <Nothing
-          kind="not-loaded"
-          placement="surface"
-          title="Later entries are behind the replay position."
-          detail={`${String(props.withheldByReplayRowCount)} entr${props.withheldByReplayRowCount === 1 ? "y" : "ies"} in this window come after where the replay dock is parked. Scrub forward, or play on, and they come back.`}
-        />
-      )}
-      {props.hasUnreceivedEntries ? (
-        <Nothing
-          kind="not-loaded"
-          placement="surface"
-          title={words.unreceivedTitle}
-          detail={words.unreceivedDetail}
-        />
-      ) : null}
+      <WindowAbsences
+        absences={[{ kind: "unprojectable", count: props.unprojectableEventCount }]}
+        subject={SESSION_WIDE_SUBJECT[props.scope]}
+      />
+      <WindowAbsences
+        // The order is the pipeline's: what the cap took, what the replay is
+        // holding, and what never arrived. Counted absences at zero are dropped by
+        // the model, so nothing is guarded here.
+        absences={[
+          { kind: "dropped", count: props.droppedRowCount },
+          { kind: "withheld-by-replay", count: props.withheldByReplayRowCount },
+          ...(props.hasUnreceivedEntries ? ([{ kind: "never-received" }] as const) : []),
+        ]}
+        subject="entries"
+      />
     </>
   );
 }
