@@ -13,7 +13,8 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { ConsoleBridge, GrowthAnswer } from "../../bridge/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
+import type { GrowthPortAnswer } from "../../bridge/growth-port.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { PARTICIPANT_YOU } from "../../bridge/scenarios/repos-fixture-data.js";
@@ -146,13 +147,13 @@ describe("ProposalGateActions — the context an act was admitted against", () =
    */
   interface HeldIdentityPort {
     readonly bridge: ConsoleBridge;
-    readonly serveContext: (answer: GrowthAnswer<"gitflowBranchContextRead">) => void;
+    readonly serveContext: (answer: GrowthPortAnswer<"gitflowBranchContextRead">) => void;
     readonly answerIdentity: () => void;
     readonly gitActionCallCount: () => number;
   }
 
   function bridgeHoldingIdentity(): HeldIdentityPort {
-    let branchContext: GrowthAnswer<"gitflowBranchContextRead"> = SERVED_CONTEXT;
+    let branchContext: GrowthPortAnswer<"gitflowBranchContextRead"> = SERVED_CONTEXT;
     let gitActionCalls = 0;
     let release = (): void => {};
     const held = new Promise<void>((settleHeld) => {
@@ -173,7 +174,7 @@ describe("ProposalGateActions — the context an act was admitted against", () =
           return SERVED_CALLER_PARTICIPANT;
         },
       }),
-      serveContext: (answer: GrowthAnswer<"gitflowBranchContextRead">) => {
+      serveContext: (answer: GrowthPortAnswer<"gitflowBranchContextRead">) => {
         branchContext = answer;
       },
       answerIdentity: release,
@@ -203,7 +204,7 @@ describe("ProposalGateActions — the context an act was admitted against", () =
     port: HeldIdentityPort,
     clock: ManualClock,
     reader: ProposalGateReader,
-    next: GrowthAnswer<"gitflowBranchContextRead">,
+    next: GrowthPortAnswer<"gitflowBranchContextRead">,
   ): Promise<void> {
     port.serveContext(next);
     window.dispatchEvent(new Event("focus"));
@@ -258,14 +259,14 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
   interface IdentityPort {
     readonly bridge: ConsoleBridge;
     readonly answerIdentityWith: (
-      answer: () => Promise<GrowthAnswer<"callerParticipantRead">>,
+      answer: () => Promise<GrowthPortAnswer<"callerParticipantRead">>,
     ) => void;
     readonly identityReadCount: () => number;
     readonly gitActionRequests: () => readonly unknown[];
   }
 
   function bridgeWithMovingIdentity(): IdentityPort {
-    let answerIdentity: () => Promise<GrowthAnswer<"callerParticipantRead">> = async () =>
+    let answerIdentity: () => Promise<GrowthPortAnswer<"callerParticipantRead">> = async () =>
       WIRE_UNREGISTERED;
     let identityReads = 0;
     const gitActionRequests: unknown[] = [];
@@ -282,7 +283,7 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
           return await answerIdentity();
         },
       }),
-      answerIdentityWith: (answer: () => Promise<GrowthAnswer<"callerParticipantRead">>) => {
+      answerIdentityWith: (answer: () => Promise<GrowthPortAnswer<"callerParticipantRead">>) => {
         answerIdentity = answer;
       },
       identityReadCount: () => identityReads,

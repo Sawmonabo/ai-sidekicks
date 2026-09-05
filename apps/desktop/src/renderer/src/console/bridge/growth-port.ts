@@ -67,21 +67,28 @@ export type GrowthPort = {
  * one cast switching off the checking on every operation in the object to get past the
  * one member that did not fit. With the answer nameable, a fixture is annotated with
  * the thing it has to be and the casts are unnecessary.
+ *
+ * `Port` IS IN THE NAME BECAUSE THE FAMILY ALREADY HAD A `GrowthAnswer`.
+ * `repos/artifact-pane/artifact-pane-reading.ts` declares one keyed by the VALUE a
+ * served answer carries; this one is keyed by the OPERATION that answers. Two types,
+ * one name, one directory — `growth-call.ts` and `artifact-pane.test-support.ts` sit
+ * beside each other and would each have meant a different thing by it — so the one
+ * published family-wide takes the qualifier and says which axis it is keyed on.
  */
-export type GrowthAnswer<TOperationId extends GrowthOperationId> = Awaited<
+export type GrowthPortAnswer<TOperationId extends GrowthOperationId> = Awaited<
   ReturnType<GrowthPort[TOperationId]>
 >;
 
 /**
  * The VALUE inside a served answer, for a fixture that builds one member at a time.
  *
- * `GrowthAnswer` is the whole union, so `.value` is unreachable on it — correct for a
+ * `GrowthPortAnswer` is the whole union, so `.value` is unreachable on it — correct for a
  * consumer, which must narrow before reading, and useless for a fixture, which is
  * declaring the served arm and knows it. Extracted from the same projection rather
  * than named again, so the two cannot describe different shapes.
  */
 export type GrowthServedValue<TOperationId extends GrowthOperationId> = Extract<
-  GrowthAnswer<TOperationId>,
+  GrowthPortAnswer<TOperationId>,
   { readonly status: "served" }
 >["value"];
 

@@ -28,7 +28,7 @@ import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 import {
-  type GrowthAnswer,
+  type GrowthPortAnswer,
   DELETE_RECEIPT,
   OTHER_ARTIFACT_ID,
   SERVED_DELETE,
@@ -119,12 +119,12 @@ describe("artifact pane actions — a served delete reconciles, superseded or no
 function readerWithHeldManifestReads(clock: ManualClock): {
   readonly reader: ArtifactPaneReader;
   readonly artifactRead: ReturnType<typeof vi.fn>;
-  readonly releaseNthRead: (index: number, answer: GrowthAnswer<"artifactRead">) => void;
+  readonly releaseNthRead: (index: number, answer: GrowthPortAnswer<"artifactRead">) => void;
 } {
-  const parked: ((answer: GrowthAnswer<"artifactRead">) => void)[] = [];
+  const parked: ((answer: GrowthPortAnswer<"artifactRead">) => void)[] = [];
   const artifactRead = vi.fn(
     async () =>
-      new Promise<GrowthAnswer<"artifactRead">>((resolve) => {
+      new Promise<GrowthPortAnswer<"artifactRead">>((resolve) => {
         parked.push(resolve);
       }),
   );
@@ -147,7 +147,7 @@ function readerWithHeldManifestReads(clock: ManualClock): {
 }
 
 /** One served manifest re-read, carrying a digest a case can tell from its sibling. */
-function servedManifest(digest: string): GrowthAnswer<"artifactRead"> {
+function servedManifest(digest: string): GrowthPortAnswer<"artifactRead"> {
   return {
     status: "served",
     value: { manifest: { ...SERVED_SUMMARY, digest }, payloadHandle: "sha256:2b4c" },

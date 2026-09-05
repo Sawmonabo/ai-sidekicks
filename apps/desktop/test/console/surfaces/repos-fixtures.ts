@@ -27,11 +27,11 @@ import {
 } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
 import {
   type ConsoleBridge,
-  type GrowthAnswer,
   type GrowthArtifactSummary,
   createFixtureBridge,
   growthUnavailable,
 } from "../../../src/renderer/src/console/bridge/index.js";
+import type { GrowthPortAnswer } from "../../../src/renderer/src/console/bridge/growth-port.js";
 import { refuse, type ConsoleRefusal } from "../../../src/renderer/src/console/core/index.js";
 import { fixtureBridgeWithGrowth } from "../../../src/renderer/src/console/bridge/fixture-bridge.test-support.js";
 import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.js";
@@ -142,7 +142,7 @@ export function extendedHeaderChangeSet(): ConsoleDiffModel {
  * or bytes beside the encoding to read them by — so what a payload mount pins is the
  * composition the registered shape produces, not one this file invented.
  */
-export function scriptedArtifactPort(readAnswer: GrowthAnswer<"artifactRead">): ConsoleBridge {
+export function scriptedArtifactPort(readAnswer: GrowthPortAnswer<"artifactRead">): ConsoleBridge {
   return fixtureBridgeWithGrowth(REPOS_SCENARIO, {
     artifactList: async () => ({ status: "served", value: [] }),
     // The port's own refusal, not a hand-built one: `growthUnavailable` composes the
@@ -169,7 +169,7 @@ const SERVED_ARTIFACT_MANIFEST: GrowthArtifactSummary = {
 };
 
 /** The DEFERRED arm of a served read: a content-addressed handle and no bytes. */
-export const DEFERRED_PAYLOAD_READ: GrowthAnswer<"artifactRead"> = {
+export const DEFERRED_PAYLOAD_READ: GrowthPortAnswer<"artifactRead"> = {
   status: "served",
   value: {
     manifest: SERVED_ARTIFACT_MANIFEST,
@@ -178,7 +178,7 @@ export const DEFERRED_PAYLOAD_READ: GrowthAnswer<"artifactRead"> = {
 };
 
 /** The INLINE arm: the bytes, and the encoding a reader switches on. */
-export const INLINE_PAYLOAD_READ: GrowthAnswer<"artifactRead"> = {
+export const INLINE_PAYLOAD_READ: GrowthPortAnswer<"artifactRead"> = {
   status: "served",
   value: {
     manifest: SERVED_ARTIFACT_MANIFEST,

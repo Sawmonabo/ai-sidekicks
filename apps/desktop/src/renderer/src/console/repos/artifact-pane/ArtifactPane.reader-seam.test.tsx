@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import {
-  type GrowthAnswer,
+  type GrowthPortAnswer,
   LISTED_ONE_ROW,
   SESSION_ID,
   artifactBridgeAnswering,
@@ -108,7 +108,7 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // port is not asked again.
     const clock = new ManualClock();
     const artifactList = vi
-      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const bridge = artifactBridgeAnswering({ artifactList, clock });
@@ -136,7 +136,7 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // on the new artifact's not-read absence rather than on the previous one's rows.
     const clock = new ManualClock();
     const artifactList = vi
-      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const bridge = artifactBridgeAnswering({ artifactList, clock });
@@ -167,7 +167,7 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // and never hear another artifact frame from the live one.
     const clock = new ManualClock();
     const artifactList = vi
-      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
     const bridge = artifactBridgeAnswering({ artifactList, clock });
     const announcerClock = new ManualClock();
@@ -209,7 +209,7 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // clock advanced afterwards reaches nothing.
     const clock = new ManualClock();
     const artifactList = vi
-      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
     const { unmount } = renderPane(
       contextFor(ARTIFACT_ENTITY, {

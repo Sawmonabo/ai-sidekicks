@@ -32,17 +32,17 @@ import type {
   GrowthArtifactPayloadEncoding,
   GrowthArtifactState,
   GrowthArtifactSummary,
-  GrowthAnswer,
   GrowthOperationId,
   GrowthUnavailable,
 } from "../../bridge/index.js";
+import type { GrowthPortAnswer } from "../../bridge/growth-port.js";
 import { growthUnavailable } from "../../bridge/index.js";
 
 // Re-exported so a suite scripting this pane's port names one import rather than two.
 // A type alias, so this is not the barrel chain `console-no-barrel-chain` forbids —
 // that rule is about a DOOR forwarding another door's symbols, and this module is a
 // leaf the suites beside it read.
-export type { GrowthAnswer };
+export type { GrowthPortAnswer };
 import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS, type ConsoleClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -109,7 +109,7 @@ export const DELETE_RECEIPT: GrowthArtifactDeleteReceipt = {
 } as const;
 
 /** The envelope the port answers with, BUILT FROM the receipt rather than beside it. */
-export const SERVED_DELETE: GrowthAnswer<"artifactDelete"> = {
+export const SERVED_DELETE: GrowthPortAnswer<"artifactDelete"> = {
   status: "served",
   value: DELETE_RECEIPT,
 };
@@ -126,7 +126,7 @@ export const SERVED_DELETE: GrowthAnswer<"artifactDelete"> = {
 // it — and the casts are gone.
 
 /** One served list of exactly the row above. */
-export const LISTED_ONE_ROW: GrowthAnswer<"artifactList"> = {
+export const LISTED_ONE_ROW: GrowthPortAnswer<"artifactList"> = {
   status: "served",
   value: [SERVED_SUMMARY],
 };
@@ -139,7 +139,7 @@ export const LISTED_ONE_ROW: GrowthAnswer<"artifactList"> = {
  * scripting a shape the port never sends and this pane would compile against it. On
  * the DEFERRED arm, which is what a metadata read lands on.
  */
-export function readAnswering(state: GrowthArtifactState): GrowthAnswer<"artifactRead"> {
+export function readAnswering(state: GrowthArtifactState): GrowthPortAnswer<"artifactRead"> {
   return {
     status: "served",
     value: { manifest: summary(state), payloadHandle: `sha256:2b4c/${state}` },
@@ -150,7 +150,7 @@ export function readAnswering(state: GrowthArtifactState): GrowthAnswer<"artifac
 export function inlineReadAnswering(
   payload: string,
   encoding: GrowthArtifactPayloadEncoding,
-): GrowthAnswer<"artifactRead"> {
+): GrowthPortAnswer<"artifactRead"> {
   return {
     status: "served",
     value: { manifest: summary("published"), payload, payloadEncoding: encoding },
@@ -158,7 +158,7 @@ export function inlineReadAnswering(
 }
 
 /** One served inline payload for a named artifact, as the reply's own union carries it. */
-export function servedPayload(artifactId: string, text: string): GrowthAnswer<"artifactRead"> {
+export function servedPayload(artifactId: string, text: string): GrowthPortAnswer<"artifactRead"> {
   return {
     status: "served",
     value: {
@@ -178,7 +178,9 @@ export function servedPayload(artifactId: string, text: string): GrowthAnswer<"a
  * operation returns — a read answer scripted onto the delete slot is a compile error
  * rather than a pane rendering a receipt as a manifest.
  */
-type ScriptedAnswer<TOperationId extends GrowthOperationId> = GrowthAnswer<TOperationId> | Error;
+type ScriptedAnswer<TOperationId extends GrowthOperationId> =
+  | GrowthPortAnswer<TOperationId>
+  | Error;
 
 /** What a case scripts each of the pane's four port operations to answer. */
 export interface ArtifactPortScript {
@@ -187,7 +189,7 @@ export interface ArtifactPortScript {
   readonly readAnswer?: ScriptedAnswer<"artifactRead">;
   readonly deleteAnswer?: ScriptedAnswer<"artifactDelete">;
   /** Supplied where a case counts the list reads or varies them between reads. */
-  readonly artifactList?: () => Promise<GrowthAnswer<"artifactList">>;
+  readonly artifactList?: () => Promise<GrowthPortAnswer<"artifactList">>;
   /**
    * The clock the pane's own subsystems run on, where a case freezes them.
    *

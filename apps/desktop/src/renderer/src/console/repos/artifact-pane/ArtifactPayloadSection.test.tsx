@@ -27,7 +27,7 @@ import {
   readAnswering,
   readThrough,
   settleAct,
-  type GrowthAnswer,
+  type GrowthPortAnswer,
 } from "./artifact-pane.test-support.js";
 import {
   ARTIFACT_ENTITY,
@@ -252,7 +252,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     // Without this, a pane that removed the row optimistically would pass the case
     // above and still be wrong about every delete the daemon turns down.
     const artifactList = vi
-      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
@@ -363,7 +363,7 @@ describe("artifact pane — the reader is stamped to its subject", () => {
     // and mint a reader — and a read pair — on every render the deck performs, which
     // is the cost the stamp is deliberately narrow to avoid.
     const artifactList = vi
-      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
     const context = contextFor(ARTIFACT_ENTITY, {
       bridge: artifactBridgeAnswering({

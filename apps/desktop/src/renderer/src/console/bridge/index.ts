@@ -85,7 +85,12 @@ export type {
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
 export { growthUnavailable } from "./growth-port.js";
-export type { GrowthAnswer, GrowthPort, GrowthServedValue } from "./growth-port.js";
+// `GrowthPortAnswer` and `GrowthServedValue` are DELIBERATELY NOT HERE. Both exist to
+// type a fixture, so neither will ever have a production consumer, and a door
+// specifier that only tests reach is what `barrel-census` fails. They are imported
+// from `./growth-port.js` directly, which is where `createRefusingGrowthPort` — a
+// test-facing helper for the same reason — is already reached from.
+export type { GrowthPort } from "./growth-port.js";
 // The operation id, beside the port and the builder that both speak it. Withheld, it
 // made `GrowthPort` unusable through this door by anyone composing a partial one: the
 // port's method types and `growthUnavailable`'s parameter are BOTH written in this

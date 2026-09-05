@@ -20,11 +20,10 @@ import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-suppor
 import {
   growthUnavailable,
   type ConsoleBridge,
-  type GrowthAnswer,
   type GrowthPort,
-  type GrowthServedValue,
   type GrowthUnavailable,
 } from "../../bridge/index.js";
+import type { GrowthPortAnswer, GrowthServedValue } from "../../bridge/growth-port.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import {
   GIT_MOUNT_ID,
@@ -102,13 +101,13 @@ export const SERVED_CONTEXT_VALUE: GrowthServedValue<"gitflowBranchContextRead">
   worktreeId: IMPLEMENTER_WORKTREE_ID,
 };
 
-export const SERVED_CONTEXT: GrowthAnswer<"gitflowBranchContextRead"> = {
+export const SERVED_CONTEXT: GrowthPortAnswer<"gitflowBranchContextRead"> = {
   status: "served",
   value: SERVED_CONTEXT_VALUE,
 };
 
 /** A preparation the port serves, so a case can hold a proposal and then move the context. */
-export const SERVED_PREPARATION: GrowthAnswer<"gitflowPrPrepare"> = {
+export const SERVED_PREPARATION: GrowthPortAnswer<"gitflowPrPrepare"> = {
   status: "served",
   value: {
     prPreparationId: "019b7b30-0280-7c11-8420-b1a5c0de2401",
@@ -123,13 +122,13 @@ export const SERVED_PREPARATION: GrowthAnswer<"gitflowPrPrepare"> = {
  * `success`, which is `GitActionExecuteResponse`'s own member. The `accepted` this used
  * to carry was never on that reply at all.
  */
-export const ACCEPTED_ACTION: GrowthAnswer<"gitActionExecute"> = {
+export const ACCEPTED_ACTION: GrowthPortAnswer<"gitActionExecute"> = {
   status: "served",
   value: { success: true },
 };
 
 /** The identity the caller read answers with, so an act carries the fixture's causation. */
-export const SERVED_CALLER_PARTICIPANT: GrowthAnswer<"callerParticipantRead"> = {
+export const SERVED_CALLER_PARTICIPANT: GrowthPortAnswer<"callerParticipantRead"> = {
   status: "served",
   value: { participantId: PARTICIPANT_YOU },
 };
@@ -137,7 +136,7 @@ export const SERVED_CALLER_PARTICIPANT: GrowthAnswer<"callerParticipantRead"> = 
 /** One served context, with whichever of the pairing members a case wants moved. */
 export function servedContext(
   overrides: Partial<ProposalContextKey>,
-): GrowthAnswer<"gitflowBranchContextRead"> {
+): GrowthPortAnswer<"gitflowBranchContextRead"> {
   return {
     status: "served",
     value: { ...SERVED_CONTEXT_VALUE, ...overrides },

@@ -15,10 +15,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { growthUnavailable } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "../artifacts/artifact-model.js";
+import { ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "../artifacts/artifact-copy.js";
 import { ArtifactPane } from "./ArtifactPane.js";
 import {
-  type GrowthAnswer,
+  type GrowthPortAnswer,
   SERVED_DELETE,
   LISTED_ONE_ROW,
   SESSION_ID,
@@ -148,7 +148,7 @@ describe("artifact pane — deleting one row", () => {
     // The case a discarded reply fails: a served delete used to leave the manifest on
     // screen, so a participant could keep acting on something the daemon destroyed.
     const artifactList = vi
-      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValueOnce(LISTED_ONE_ROW)
       .mockResolvedValue({ status: "served", value: [] });
     const { container, getByRole } = renderPane(
@@ -220,7 +220,7 @@ describe("artifact pane — deleting one row", () => {
     // A consequence left standing over a re-read would read as a fact about the list
     // now on screen rather than about the row that is gone.
     const artifactList = vi
-      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .fn<() => Promise<GrowthPortAnswer<"artifactList">>>()
       .mockResolvedValue(LISTED_ONE_ROW);
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
