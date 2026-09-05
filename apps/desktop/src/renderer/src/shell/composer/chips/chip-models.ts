@@ -33,6 +33,7 @@
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
 import { stampedExecutionPostureOf } from "../../../console/bridge/index.js";
+import { readWireNumber, readWireString } from "../../../console/core/index.js";
 import type { ConsoleEntity, ConsoleEntityRef } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { resolveAddressedRun } from "./addressed-run.js";
@@ -168,12 +169,12 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
       path: "provider-bound",
       sessionId: input.sessionId,
       agentId: agentRef.id,
-      agentName: readWireString(agent?.body, "name"),
-      driverName: readWireString(agent?.body, "driverName"),
+      agentName: readWireString(agent?.body?.["name"]),
+      driverName: readWireString(agent?.body?.["driverName"]),
       targetRunId: run.id,
-      expectedRunVersion: readWireNumber(run.body, "runVersion"),
+      expectedRunVersion: readWireNumber(run.body?.["runVersion"]),
       runState: run.state,
-      providerFailureDetail: readWireString(run.body, "providerFailureDetail"),
+      providerFailureDetail: readWireString(run.body?.["providerFailureDetail"]),
     };
   }
   // The channel arm addresses the pane's channel when the pane names one, and the
@@ -186,8 +187,8 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
     path: "channel-message",
     sessionId: input.sessionId,
     channelId: channelRef?.id,
-    workspaceId: readWireString(channel?.body, "workspaceId"),
-    channelLabel: readWireString(channel?.body, "name"),
+    workspaceId: readWireString(channel?.body?.["workspaceId"]),
+    channelLabel: readWireString(channel?.body?.["name"]),
   };
 }
 
@@ -250,26 +251,8 @@ function focusedRefOfKind(
 function composeBindingClause(
   body: Readonly<Record<string, unknown>> | undefined,
 ): string | undefined {
-  const axes = BINDING_CLAUSE_AXES.map((axis) => readWireString(body, axis)).filter(
+  const axes = BINDING_CLAUSE_AXES.map((axis) => readWireString(body?.[axis])).filter(
     (value): value is string => value !== undefined,
   );
   return axes.length === 0 ? undefined : axes.join(BINDING_CLAUSE_SEPARATOR);
-}
-
-/** One wire-supplied string from an entity body, or `undefined`. */
-function readWireString(
-  body: Readonly<Record<string, unknown>> | undefined,
-  key: string,
-): string | undefined {
-  const value = body?.[key];
-  return typeof value === "string" && value.length > 0 ? value : undefined;
-}
-
-/** One wire-supplied finite number from an entity body, or `undefined`. */
-function readWireNumber(
-  body: Readonly<Record<string, unknown>> | undefined,
-  key: string,
-): number | undefined {
-  const value = body?.[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

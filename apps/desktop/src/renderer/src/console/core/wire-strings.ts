@@ -1,12 +1,21 @@
-// Reading one wire-supplied member as a string.
+// Reading one wire-supplied member as a string, or as a finite number.
 //
 // A `ConsoleEntity.body` is wire-verbatim: the store holds what the daemon sent and
 // narrows nothing, so every member arrives `unknown` and every surface that reads one
-// has to decide what counts as present. Three surfaces had each decided, identically
+// has to decide what counts as present. Four surfaces had each decided, identically
 // and separately — `runs/pane/run-seating.ts` as `readString(body, member)`,
-// `approvals/pane/card/provider-ask.ts` as `nonEmptyString(value)`, and
-// `inspector/pane/entity-detail/entity-facets.ts` inline in its wire facet — which is
-// one rule with three spellings and no instrument holding them together.
+// `approvals/pane/card/provider-ask.ts` as `nonEmptyString(value)`,
+// `inspector/pane/entity-detail/entity-facets.ts` inline in its wire facet, and
+// `shell/composer/chips/chip-models.ts` under this module's OWN exported name at a
+// different arity — which is one rule with four spellings and no instrument holding
+// them together. The fourth is the reason the census is stated here rather than
+// counted: a private copy sharing the export's name is unfindable by a reader and
+// invisible to a change of the rule the name records.
+//
+// THE NUMBER READ IS THE SAME RULE ABOUT A DIFFERENT TYPE, and it is here for the
+// same reason and not a weaker one: `run-seating.ts` and `chip-models.ts` carried
+// byte-identical bodies under two names in two VIEW families, and siblings may not
+// import each other, so the only home either could share is this one.
 //
 // IT LIVES IN `core/` BECAUSE ITS READERS ARE SIBLINGS. Three VIEW families need it
 // and view families never import each other, so the rule has to sit in the lowest
@@ -41,4 +50,17 @@
  */
 export function readWireString(value: unknown): string | undefined {
   return typeof value === "string" && value.length > 0 ? value : undefined;
+}
+
+/**
+ * One wire-supplied value as a finite number, or `undefined` for anything else.
+ *
+ * `Number.isFinite` and not a bare `typeof`, which is the decision this predicate
+ * records: `NaN` and both infinities are numbers to JavaScript and are not figures a
+ * surface may render. A wire member arriving as one is a member the daemon could not
+ * compute, and rendering it would put `NaN` in front of a person as though it were a
+ * reading.
+ */
+export function readWireNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }

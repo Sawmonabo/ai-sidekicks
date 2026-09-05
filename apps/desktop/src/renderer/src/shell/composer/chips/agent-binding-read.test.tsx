@@ -4,7 +4,7 @@
 // fact reaches the chip from the wire that carries it, and every arm where a wire
 // carries nothing is a stated absence rather than a value the console picked.
 
-import { act, renderHook } from "@testing-library/react";
+import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,11 +14,10 @@ import {
   type GrowthAgentSummary,
   type GrowthOutcome,
 } from "../../../console/bridge/index.js";
-import {
-  drainMicrotasks,
-  withDaemonCall,
-} from "../../../console/bridge/fixture-bridge.test-support.js";
+import { withDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { settleScheduledRead } from "../../../console/bridge/scheduled-read.test-support.js";
 import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import { SessionStore } from "../../../console/store/index.js";
 import {
   AGENT_IMPLEMENTER,
   AGENT_REVIEWER,
@@ -56,13 +55,29 @@ function rosterRow(overrides: Partial<GrowthAgentSummary> = {}): GrowthAgentSumm
   };
 }
 
+/**
+ * A store for the scenario's session, which the reading's triggers are wired to.
+ *
+ * Empty and un-fed: what these cases drive is the roster read and the join, and the
+ * store is here because the session half of the trigger set reads a degraded cause
+ * and a timeline off one. Its own triggers are asserted next door in
+ * `agent-roster-reading.test.tsx`, over a store that is fed.
+ */
+function composerSessionStore(): SessionStore {
+  const store = new SessionStore({ sessionId: COMPOSER_SCENARIO.sessionId });
+  store.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
+  return store;
+}
+
 async function readBinding(bridge: ConsoleBridge, agentId: string | undefined) {
-  const rendered = renderHook(() =>
-    useAgentBindingReading(bridge, COMPOSER_SCENARIO.sessionId, agentId),
-  );
-  await act(async () => {
-    await drainMicrotasks();
-  });
+  // One store per mount, built OUTSIDE the render callback: a fresh store on every
+  // pass would mint a fresh trigger memory on every pass, and the reading would ask
+  // again for a signal it had already answered.
+  const sessionStore = composerSessionStore();
+  const rendered = renderHook(() => useAgentBindingReading(bridge, sessionStore, agentId));
+  // The read is scheduled now, so the frozen clock has to reach the deadline before
+  // there is an answer to assert. `settleScheduledRead` is the one helper for that.
+  await settleScheduledRead(bridge);
   return rendered;
 }
 

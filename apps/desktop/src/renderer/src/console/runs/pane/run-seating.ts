@@ -42,7 +42,7 @@
 // rows it is not drawing rather than drawing them all" — and a bound that dropped
 // rows silently would be the pane asserting a session has fewer runs than it has.
 
-import { compareInstants, parseInstant, readWireString } from "../../core/index.js";
+import { compareInstants, parseInstant, readWireNumber, readWireString } from "../../core/index.js";
 import type { ConsoleEntity } from "../../store/index.js";
 import { SEATED_KNOWN_RUN_CAP } from "./runs-bounds.js";
 import type { RunProjection } from "./run-state-projection.js";
@@ -153,18 +153,13 @@ function readKnownRun(entity: ConsoleEntity): KnownRun {
   return {
     runId: entity.id,
     state: entity.state,
-    runVersion: readNumber(body, "runVersion"),
+    runVersion: readWireNumber(body["runVersion"]),
     touchedAtIso: entity.touchedAt,
     stopTrigger: readWireString(body["trigger"]),
     intendedClose: body["intendedClose"] === true,
     failureCategory: readWireString(body["failureCategory"]),
     providerFailureDetail: readWireString(body["providerFailureDetail"]),
   };
-}
-
-function readNumber(body: Readonly<Record<string, unknown>>, member: string): number | undefined {
-  const value = body[member];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
 /**
