@@ -20,9 +20,8 @@
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { RunControlAckSchema } from "@ai-sidekicks/contracts";
-
 import type { ConsoleBridge } from "../../../bridge/index.js";
+import { readRunId } from "../../../bridge/index.js";
 import { RunControlDispatcher, type RunControlOutcome } from "./run-control-dispatch.js";
 import {
   inFlightKeyFor,
@@ -59,10 +58,16 @@ function recordingBridge(calls: RecordedDaemonCall[]): ConsoleBridge {
  * Parsed through the registered acknowledgment schema rather than cast, so the canned
  * answer is one the daemon could have sent.
  */
+/** The branded identifier the registered acknowledgment carries, read once. */
+const ACKNOWLEDGED_RUN_ID = readRunId(RUN_ID);
+if (ACKNOWLEDGED_RUN_ID === undefined) {
+  throw new Error("the acknowledgment fixture names a run identifier the wire refuses");
+}
+
 const ACKNOWLEDGED: RunControlOutcome = {
   kind: "acknowledged",
   control: "interrupt",
-  ack: RunControlAckSchema.parse({ runId: RUN_ID, currentState: "paused", runVersion: 7 }),
+  ack: { runId: ACKNOWLEDGED_RUN_ID, currentState: "paused", runVersion: 7 },
 };
 
 describe("one control per run is in flight at a time", () => {

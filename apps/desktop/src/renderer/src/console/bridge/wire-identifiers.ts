@@ -27,11 +27,13 @@
 
 import {
   ChannelIdSchema,
+  QueueItemIdSchema,
   RunIdSchema,
   RunStateSchema,
   SessionIdSchema,
   WorkspaceIdSchema,
   type ChannelId,
+  type QueueItemId,
   type RunId,
   type RunState,
   type SessionId,
@@ -53,6 +55,12 @@ export function readRunId(value: string): RunId | undefined {
 /** The channel identifier the wire admits, or `undefined` where it admits none. */
 export function readChannelId(value: string): ChannelId | undefined {
   const parsed = ChannelIdSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** The queue-item identifier the wire admits, or `undefined` where it admits none. */
+export function readQueueItemId(value: string): QueueItemId | undefined {
+  const parsed = QueueItemIdSchema.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 

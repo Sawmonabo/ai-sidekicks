@@ -10,9 +10,9 @@ import { useMemo } from "react";
 import { act, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { QueueItemSummarySchema } from "@ai-sidekicks/contracts";
+import { createFixtureBridge, readQueueItemId } from "../../../bridge/index.js";
+import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
-import { createFixtureBridge } from "../../../bridge/index.js";
 import type { QueueFeed } from "../../../bridge/index.js";
 import { RUNS_SCENARIO } from "../../../bridge/scenarios/runs.js";
 import { refuse } from "../../../core/index.js";
@@ -104,14 +104,19 @@ describe("a partial reading is said beside the rows, never in place of them", ()
     };
   }
 
+  const READ_ROW_ID = readQueueItemId("7c6b5a49-3827-4615-9403-2e1d0c9b8a77");
+  if (READ_ROW_ID === undefined) {
+    throw new Error("the queue-row fixture names an item identifier the wire refuses");
+  }
+
   /** One row of the registered shape, so the list has something to be behind on. */
-  const READ_ROW = QueueItemSummarySchema.parse({
-    id: "7c6b5a49-3827-4615-9403-2e1d0c9b8a77",
+  const READ_ROW: QueueItemSummary = {
+    id: READ_ROW_ID,
     state: "queued",
     priority: 0,
     createdAt: "2026-09-02T09:00:00.000Z",
     updatedAt: "2026-09-02T09:00:00.000Z",
-  });
+  };
 
   it("keeps the rows and names how many deliveries could not be read", () => {
     const { container } = render(<QueueContents feed={partialFeed([READ_ROW])} />);
