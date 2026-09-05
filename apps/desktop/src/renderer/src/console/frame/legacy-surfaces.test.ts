@@ -10,7 +10,7 @@
 import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleBridgeSource } from "../bridge/index.js";
+import type { ConsoleBridgeSource } from "../bridge/console-bridge.js";
 import type { ConsoleRoute } from "../routing/index.js";
 import { NodeRoster } from "../../runtime-node-attach/index.js";
 import { SessionBootstrap } from "../../session-bootstrap/index.js";

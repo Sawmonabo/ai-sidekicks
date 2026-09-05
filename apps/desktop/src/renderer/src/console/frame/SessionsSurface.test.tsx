@@ -13,7 +13,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { SidekicksBridge } from "@ai-sidekicks/contracts";
 
 import { FrameStore, SessionStoreRegistry } from "../store/index.js";
-import { createFixtureBridge, type ConsoleBridgeSource, type GrowthPort } from "../bridge/index.js";
+import { createFixtureBridge, type GrowthPort } from "../bridge/index.js";
+import type { ConsoleBridgeSource } from "../bridge/console-bridge.js";
 import { createRefusingGrowthPort } from "../bridge/growth-port.js";
 import { FLAGSHIP_SCENARIO } from "../bridge/scenarios/flagship.js";
 import { registerLegacySurfaces } from "./legacy-surfaces.js";

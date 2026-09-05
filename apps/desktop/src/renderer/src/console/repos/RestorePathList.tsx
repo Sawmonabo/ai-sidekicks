@@ -37,7 +37,7 @@ import {
   RESTORE_PATH_VIRTUALIZATION_THRESHOLD,
   RESTORE_PATH_VISIBLE_ROW_CAP,
 } from "../core/index.js";
-import { WireFigure, windowedRowPosition } from "../primitives/index.js";
+import { WindowedListRow, WireFigure } from "../primitives/index.js";
 
 /** The tallest a windowed enumeration's scroll container may grow, in CSS pixels. */
 const RESTORE_PATH_WINDOW_MAX_BLOCK_SIZE_PX =
@@ -87,7 +87,9 @@ export function RestorePathList(props: RestorePathListProps): React.JSX.Element 
  */
 function WindowedRestorePathList(props: RestorePathListProps): React.JSX.Element {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const virtualizer = useVirtualizer<HTMLDivElement, HTMLLIElement>({
+  // The row element is typed at the primitive's own width, because the measurement
+  // callback is handed to `WindowedListRow` and a narrower parameter would not take it.
+  const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
     count: props.paths.length,
     getScrollElement: () => scrollerRef.current,
     estimateSize: () => RESTORE_PATH_ROW_HEIGHT_PX,
@@ -129,19 +131,21 @@ function WindowedRestorePathList(props: RestorePathListProps): React.JSX.Element
           {virtualRows.map((virtualRow) => {
             const path = props.paths[virtualRow.index];
             return path === undefined ? null : (
-              <li
+              // The window holds a slice, so each row says where it sits in the
+              // whole enumeration; without it a screen reader would be told the
+              // list is as long as the window. The row primitive writes that pair
+              // and the index attribute the virtualizer measures against, so the
+              // changed-file list and this one cannot come to disagree about
+              // whether a position is counted from zero or one.
+              <WindowedListRow
+                as="li"
                 key={virtualRow.key}
-                data-index={virtualRow.index}
-                ref={virtualizer.measureElement}
-                // The window holds a slice, so each row says where it sits in the
-                // whole enumeration; without it a screen reader would be told the
-                // list is as long as the window. The pair is the primitives' —
-                // the changed-file list draws a windowed list too, and one of the
-                // two would eventually count its positions from zero.
-                {...windowedRowPosition(virtualRow.index, props.paths.length)}
+                rowIndex={virtualRow.index}
+                totalRowCount={props.paths.length}
+                rowRef={virtualizer.measureElement}
               >
                 <RestorePathCell path={path} onOpenPath={props.onOpenPath} />
-              </li>
+              </WindowedListRow>
             );
           })}
         </ul>

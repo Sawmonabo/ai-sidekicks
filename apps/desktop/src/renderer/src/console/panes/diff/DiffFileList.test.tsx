@@ -234,11 +234,10 @@ describe("diff file list — a change set too long to mount", () => {
 });
 
 describe("diff file list — reaching an entry the window has not mounted", () => {
-  /** The entry a browser would move focus to, by the index the row carries. */
+  /** The entry a browser would move focus to, by the index its own row carries. */
   function focusedEntryIndex(container: HTMLElement): number {
-    return Number(
-      container.ownerDocument.activeElement?.getAttribute("data-entry-index") ?? Number.NaN,
-    );
+    const row = container.ownerDocument.activeElement?.closest(".meridian-diff-files__row");
+    return Number(row?.getAttribute("data-index") ?? Number.NaN);
   }
 
   function firstEntry(container: HTMLElement): HTMLElement {
@@ -401,7 +400,9 @@ describe("diff file list — a move made in a list that then changed", () => {
     fireEvent.keyDown(firstEntry(container), { key: "End" });
 
     const tabbable = container.querySelector('.meridian-diff-files__entry[tabindex="0"]');
-    expect(tabbable?.getAttribute("data-entry-index")).toBe(String(SMALL_DIFF_SHAPE.fileCount));
+    expect(tabbable?.closest(".meridian-diff-files__row")?.getAttribute("data-index")).toBe(
+      String(SMALL_DIFF_SHAPE.fileCount),
+    );
   });
 });
 

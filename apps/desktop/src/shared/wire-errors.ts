@@ -33,19 +33,83 @@ export interface WireErrorEnvelope {
 }
 
 /**
- * Whether `value` is a wire error envelope.
+ * Read one property off an arbitrary rejected value, and cannot throw.
+ *
+ * A plain `value.code` is NOT safe on a value nobody validated: a property access
+ * runs a getter, and a getter that throws propagates out of the very guard that
+ * exists to decide whether the value is renderable. A Proxy's `get` trap throws the
+ * same way, and so does any accessor a hostile or merely broken producer defined.
+ * The absent reading and the throwing reading collapse to the same `undefined`,
+ * because to every caller here they mean the same thing: this value does not carry
+ * that member in any usable form.
+ *
+ * `function` joins `object` in the accepted set because a function is a property
+ * container too — a null-prototype function carrying `code` and `message` is a
+ * perfectly good envelope and `typeof` reports it as neither `"object"` nor null.
+ */
+export function readGuardedProperty(value: unknown, key: string): unknown {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+    return undefined;
+  }
+  try {
+    return (value as Record<string, unknown>)[key];
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether `value` is an `Error`, and cannot throw.
+ *
+ * `instanceof` is not a safe question to ask a value nobody validated: it performs
+ * `[[GetPrototypeOf]]`, which throws on a REVOKED Proxy and on any `getPrototypeOf`
+ * trap that throws. Both reach the failure paths below on the ordinary route — a
+ * rejection is whatever a producer threw, and a value that crossed a realm or a
+ * structured clone is exactly the shape a producer hands over — and a throw there
+ * happens inside the expression that exists to report a failure.
+ *
+ * The unreadable prototype and the absent one collapse to the same `false` for the
+ * same reason {@link readGuardedProperty} collapses its two: a value whose prototype
+ * chain cannot be walked is not one any caller here can treat as an `Error`.
+ */
+export function isErrorInstance(value: unknown): value is Error {
+  try {
+    return value instanceof Error;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Read `value` as a wire error envelope, or answer `undefined`.
+ *
+ * THE READER, and {@link isWireErrorEnvelope} is the predicate spelled on top of it.
+ * That direction is the point: a predicate promises a caller that `.code` is a
+ * string, and the caller's own read is then a SECOND property access on the same
+ * unvalidated value — which a getter that throws on its second read defeats, in the
+ * one line the narrowing was supposed to make safe. A reader hands back the strings
+ * it already read, on a fresh object, so there is no second access to defeat.
  *
  * Shape-generic — any string `code` plus any string `message` — deliberately not
  * bound to specific code literals: a caller that needs to branch on a particular
  * code uses {@link isWireErrorEnvelopeWithCode}, and one that only needs to
  * render `code: message` must not have to enumerate every code that exists.
  */
+export function readWireErrorEnvelope(value: unknown): WireErrorEnvelope | undefined {
+  const code = readGuardedProperty(value, "code");
+  const message = readGuardedProperty(value, "message");
+  return typeof code === "string" && typeof message === "string" ? { code, message } : undefined;
+}
+
+/**
+ * Whether `value` is a wire error envelope.
+ *
+ * Kept as a predicate for the arms that only need to BRANCH; an arm that goes on to
+ * read the members takes {@link readWireErrorEnvelope} instead, for the reason that
+ * function's own note gives.
+ */
 export function isWireErrorEnvelope(value: unknown): value is WireErrorEnvelope {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as { code?: unknown; message?: unknown };
-  return typeof candidate.code === "string" && typeof candidate.message === "string";
+  return readWireErrorEnvelope(value) !== undefined;
 }
 
 /**
@@ -56,12 +120,15 @@ export function isWireErrorEnvelope(value: unknown): value is WireErrorEnvelope 
  * every wire code is a plain single-sourced string-literal type and not a
  * nominal brand; passing the contracts-exported const rather than a free string
  * is what keeps the comparison compile-time-bound to the contract.
+ *
+ * The comparison is against the code the READER returned, not against a second read
+ * of the candidate's own property — one access per member, whatever the answer.
  */
 export function isWireErrorEnvelopeWithCode<TCode extends string>(
   value: unknown,
   code: TCode,
 ): value is { readonly code: TCode; readonly message: string } {
-  return isWireErrorEnvelope(value) && value.code === code;
+  return readWireErrorEnvelope(value)?.code === code;
 }
 
 /**
@@ -84,8 +151,8 @@ export function lossyStringify(value: unknown): string {
   }
 }
 
-/** How far {@link normalizeWireRejection} must go to render a hostile value. */
-export interface NormalizeWireRejectionOptions {
+/** How far {@link wireRejectionToError} must go to render a hostile value. */
+export interface WireRejectionToErrorOptions {
   /**
    * `true` renders a non-`Error`, non-envelope rejection through
    * {@link lossyStringify} instead of bare `String(...)`.
@@ -103,7 +170,16 @@ export interface NormalizeWireRejectionOptions {
 }
 
 /**
- * Normalizes a rejection into a render-ready `Error`.
+ * Renders a rejection as an `Error`, for a surface whose view state holds one.
+ *
+ * NAMED FOR WHAT IT ANSWERS, not for what it does to its input. It was
+ * `normalizeWireRejection`, which is also what `console/core/wire-rejection.ts` is
+ * called — and that one answers a `ConsoleRefusal` and keeps the daemon's own code
+ * where this one flattens it onto `Error.name`. Two functions, one name, two return
+ * types, and an import from the wrong module compiles wherever the result is only
+ * rendered. The console's cannot live here (its answer is a renderer-only shape and
+ * `src/shared/` may import the contracts package and nothing else), so the collision
+ * is closed by naming rather than by a lint rule.
  *
  *   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt as
  *     a fresh `Error` with the wire `code` as `Error.name`, so the rendered
@@ -113,17 +189,30 @@ export interface NormalizeWireRejectionOptions {
  *   • Any other `Error` passes through unchanged.
  *   • Anything else is wrapped, per `options.total`.
  */
-export function normalizeWireRejection(
+export function wireRejectionToError(
   rejection: unknown,
-  options: NormalizeWireRejectionOptions = {},
+  options: WireRejectionToErrorOptions = {},
 ): Error {
-  if (isWireErrorEnvelope(rejection)) {
-    const envelopeError = new Error(rejection.message);
-    envelopeError.name = rejection.code;
+  const envelope = readWireErrorEnvelope(rejection);
+  if (envelope !== undefined) {
+    const envelopeError = new Error(envelope.message);
+    envelopeError.name = envelope.code;
     return envelopeError;
   }
-  if (rejection instanceof Error) {
+  if (isErrorInstance(rejection)) {
     return rejection;
   }
-  return new Error(options.total === true ? lossyStringify(rejection) : String(rejection));
+  if (options.total === true) {
+    return new Error(lossyStringify(rejection));
+  }
+  try {
+    return new Error(String(rejection));
+  } catch {
+    // The BACKSTOP, not the mechanism. `total: false` states that a rejection off a
+    // bridge CATCH binding is not realistically a ToPrimitive-failing shape, and that
+    // stays the claim the option makes — it chooses which stringifier is attempted,
+    // and nothing here changes that. What the option may not do is make the one
+    // function that exists to render a failure the place a failure becomes a throw.
+    return new Error(lossyStringify(rejection));
+  }
 }

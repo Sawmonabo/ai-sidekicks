@@ -13,7 +13,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ATTACHMENT_CHUNK_BYTE_CAP, consoleTripwires } from "../core/index.js";
+import { ATTACHMENT_CHUNK_BYTE_CAP } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import {
   SMALL_SOURCE,
   ScriptedGrowthPort,

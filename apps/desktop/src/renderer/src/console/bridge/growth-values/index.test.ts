@@ -115,7 +115,11 @@ const VALUE_EXPORTS: readonly string[] = [
 function exportedNames(source: string): readonly string[] {
   const names: string[] = [];
   for (const clause of source.matchAll(/export (?:type )?\{([^}]*)\}/g)) {
-    for (const entry of (clause[1] ?? "").split(",")) {
+    // Comments are cut before the split, not after: a per-specifier marker naming
+    // the task that will import a name is not itself a name, and one naming two
+    // tasks carries a comma that would otherwise split one entry into two.
+    const listed = (clause[1] ?? "").replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, "");
+    for (const entry of listed.split(",")) {
       const name = entry.replace(/^\s*(?:type\s+)?/, "").trim();
       if (name.length > 0) {
         names.push(name);

@@ -34,6 +34,7 @@ import {
   ManualClock,
   SCENARIO_PENDING_REPLY_CAP,
   SCENARIO_TICK_MS,
+  parseInstant,
   reportTripwire,
   type ConsoleClock,
   type EmitterSink,
@@ -184,7 +185,13 @@ export class ScenarioEngine {
 
   public constructor(options: ScenarioEngineOptions) {
     this.#scenario = options.scenario;
-    this.#clock = options.clock ?? new ManualClock(Date.parse(options.scenario.startedAtIso));
+    // The declared start read through the console's one instant reading rather than
+    // `Date.parse`, which answers `NaN` for a manifest whose start is not an instant
+    // — and every `dueAt` derived from `NaN` is `NaN`, so no beat is ever due and the
+    // fixture silently delivers nothing. The epoch is a visibly wrong start; silence
+    // is an invisible one.
+    const declaredStart = parseInstant(options.scenario.startedAtIso);
+    this.#clock = options.clock ?? new ManualClock(declaredStart.epochMilliseconds ?? 0);
     this.#tickMs = options.tickMs ?? SCENARIO_TICK_MS;
   }
 

@@ -7,7 +7,8 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires, encodeBase64 } from "../core/index.js";
+import { encodeBase64 } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import {
   SMALL_SOURCE,
   ScriptedGrowthPort,

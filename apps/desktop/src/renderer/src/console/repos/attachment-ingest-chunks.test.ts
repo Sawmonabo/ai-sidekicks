@@ -8,7 +8,8 @@
 import { MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { ATTACHMENT_CHUNK_BYTE_CAP, consoleTripwires, encodeBase64 } from "../core/index.js";
+import { ATTACHMENT_CHUNK_BYTE_CAP, encodeBase64 } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import { CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE } from "./attachment-ingest-acknowledgement.js";
 import {
   ScriptedGrowthPort,

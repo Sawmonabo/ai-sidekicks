@@ -26,6 +26,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
+import { terminateProcessTree } from "./process-tree.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -629,45 +630,23 @@ function renderDiagnosticDump(result: SpawnResult): string {
 // SIGKILL cannot be forwarded by definition, so killing the shim outright
 // orphans the browser holding the inherited stdout write end: `close` never
 // fires, the "bounded" spawn promise never settles, and the orphan keeps its
-// profile lock. The spawn below is `detached` on POSIX, so the child leads its
-// own process group and a negative-pid signal reaches every process in the
-// tree at once; on Windows, where no process group exists, `taskkill /t`
-// walks the descendant tree to the same effect. The direct-child fallback
-// covers the group already being reaped (ESRCH) and a child that never
-// received a pid.
+// profile lock.
+//
+// HOW the tree is reached is `process-tree.ts`, shared with the console
+// launcher, which spawns Electron for its own tiers. The copy that used to sit
+// here and that launcher's copy had already diverged — only one of them read
+// `taskkill`'s exit status, so the other reported kills it had not performed.
+//
+// The direct-handle fallback stays here and nowhere else: it answers a question
+// the shared helper cannot be asked — a child that never received a pid, which
+// is a spawn that failed outright — and is reachable only from a caller holding
+// the handle. The group-already-reaped case (ESRCH) is the helper's.
 function terminateElectronTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (process.platform === "win32") {
-    // No POSIX process group exists here, and `child.kill` reaches only the
-    // launcher: Windows "signals" are TerminateProcess calls, which are never
-    // forwarded, so the browser would survive holding the inherited stdout
-    // write end — the same orphan the group delivery prevents on POSIX.
-    // `taskkill /t` walks the launcher's descendant tree instead: without
-    // `/f` it posts WM_CLOSE to each windowed process (the graceful analog —
-    // exactly the tree members that matter here have windows), with `/f` it
-    // terminates every node outright (the SIGKILL analog). A tree already
-    // gone makes taskkill exit non-zero, which is the same no-op the POSIX
-    // arm absorbs via ESRCH.
-    if (child.pid !== undefined) {
-      const forcedArguments = signal === "SIGKILL" ? ["/f"] : [];
-      spawnSync("taskkill", ["/pid", String(child.pid), "/t", ...forcedArguments], {
-        stdio: "ignore",
-      });
-      return;
-    }
+  if (child.pid === undefined) {
     child.kill(signal);
     return;
   }
-  const groupLeaderPid = child.pid;
-  if (groupLeaderPid !== undefined) {
-    try {
-      process.kill(-groupLeaderPid, signal);
-      return;
-    } catch {
-      // Group gone or unsupported — fall through so escalation still lands on
-      // whatever the direct child handle can reach.
-    }
-  }
-  child.kill(signal);
+  terminateProcessTree(child.pid, signal);
 }
 
 /**

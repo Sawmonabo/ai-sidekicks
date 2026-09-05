@@ -1,0 +1,164 @@
+/*
+ * Two shapes, five kinds, and the split between them is the split the markup makes:
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 8 — five
+ * absences render as five different shapes, never collapsed.
+ * a kind supplies copy, a glyph, and a tone, and the PLACEMENT supplies the box
+ * those are carried in. So every layout rule below is scoped to one shape and every
+ * colour rule to neither — which is what lets `not-checked` keep the dotted boundary
+ * rule 8 names for it while standing in for a whole pane rather than a value.
+ *
+ * `--block`: an absence standing in for a surface that is not there. It carries only
+ * what all five blocks share; the measure each kind sits on is scoped beside it.
+ */
+.meridian-nothing--block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * `not-loaded`: a skeleton in the row's shape. The neutral inline-start edge is the
+ * ledger row's attribution edge with no attribution yet — which is exactly what is
+ * true while the read is in flight. Both belong to the row, so both are the block's.
+ */
+.meridian-nothing--block.meridian-nothing--not-loaded {
+  padding-block: var(--meridian-space-3);
+  padding-inline-start: var(--meridian-space-4);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+}
+
+.meridian-nothing__skeleton-bar {
+  block-size: 0.75rem;
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+  animation: meridian-skeleton-pulse 1100ms var(--meridian-ease-settle) infinite alternate;
+}
+
+@keyframes meridian-skeleton-pulse {
+  from {
+    opacity: 0.5;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+/* `empty`: a quiet line with the escape hatch. */
+.meridian-nothing--block.meridian-nothing--empty {
+  padding: var(--meridian-space-5) var(--meridian-space-4);
+}
+
+.meridian-nothing__title {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-md);
+}
+
+.meridian-nothing__detail {
+  /* A measure, not a column width: absence copy is prose and reads badly full-bleed. */
+  max-inline-size: 52ch;
+  margin: 0;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+}
+
+.meridian-nothing__action {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-block-start: var(--meridian-space-1);
+}
+
+/* `error`: the red edge and ground are the kind's, at either shape. */
+.meridian-nothing--error {
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+}
+
+/* The row it becomes when it stands in for a surface. The two end-side radii only:
+   the start side is the red edge, and a radius there would round the mark itself. */
+.meridian-nothing--block.meridian-nothing--error {
+  padding: var(--meridian-space-3) var(--meridian-space-4);
+  border-start-end-radius: var(--meridian-radius-sm);
+  border-end-end-radius: var(--meridian-radius-sm);
+}
+
+.meridian-nothing--error .meridian-nothing__title,
+.meridian-nothing--error .meridian-nothing__badge-label {
+  color: var(--meridian-red-text);
+}
+
+.meridian-nothing--error .meridian-glyph {
+  color: var(--meridian-red-mark);
+}
+
+.meridian-nothing__message {
+  max-inline-size: 62ch;
+  margin: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  line-height: 1.55;
+}
+
+/*
+ * `--badge`: an absence that qualifies a value sitting beside it. Two of the five
+ * kinds are mounted here by default; all five render here when a caller says so.
+ */
+.meridian-nothing--badge {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  block-size: 1.375rem;
+  padding-inline: var(--meridian-space-2);
+  border-radius: var(--meridian-radius-sm);
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+/* One bar rather than three, and sized in text units because a badge has no measure
+   of its own for a percentage to be a fraction of. */
+.meridian-nothing--badge .meridian-nothing__skeleton-bar {
+  inline-size: 6ch;
+}
+
+/* Rule 8 names this one's treatment in terms: a dotted badge. Nobody asked; the
+   dotted boundary says the question is still open rather than answered "no". The
+   boundary is the kind's, so it survives into the block a whole-surface mount takes. */
+.meridian-nothing--not-checked {
+  border: 1px dotted var(--meridian-edge-strong);
+}
+
+.meridian-nothing--computing {
+  border: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+/* The two boundary-bearing kinds carry their border on all four sides, so in block
+   form the measure has to sit inside it — the other three either carry no boundary
+   or carry it on the one edge, where the block's own padding already clears it. */
+.meridian-nothing--block.meridian-nothing--not-checked,
+.meridian-nothing--block.meridian-nothing--computing {
+  box-sizing: border-box;
+  padding: var(--meridian-space-5) var(--meridian-space-4);
+  border-radius: var(--meridian-radius-sm);
+}

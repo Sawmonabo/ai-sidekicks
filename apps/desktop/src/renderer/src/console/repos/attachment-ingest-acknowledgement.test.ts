@@ -15,7 +15,7 @@
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { consoleTripwires } from "../core/index.js";
+import { consoleTripwires } from "../core/tripwires.js";
 import {
   ATTACHMENT_ACKNOWLEDGEMENT_SITE,
   readChunkAcknowledgement,

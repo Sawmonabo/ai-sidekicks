@@ -18,7 +18,8 @@ import { describe, expect, it } from "vitest";
 import type { DaemonMethod } from "@ai-sidekicks/contracts";
 
 import { SCENARIO_PENDING_REPLY_CAP } from "../core/index.js";
-import { createFixtureBridge, FixtureBridgeError } from "./fixture-bridge.js";
+import { FixtureBridgeError } from "./fixture-bridge.js";
+import { createFixture } from "./fixture-bridge.test-support.js";
 import { GROWTH_PORT_REFUSAL_CODES, type GrowthOutcome } from "./growth-outcome.js";
 import type { GrowthPort } from "./growth-port.js";
 import { createLiveBridge } from "./live-bridge.js";
@@ -56,11 +57,35 @@ const HEALTHY_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000001";
 const UNREACHABLE_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000002";
 const UNSCRIPTED_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000003";
 
-/** What each mount answers. Distinct values, so one cannot pass for the other. */
+/**
+ * What each mount answers. Distinct values, so one cannot pass for the other.
+ *
+ * WHOLE `RepoMountReadResponse`s and not two-member stand-ins. `repo.mountRead` is
+ * a method the corpus registers, so the fixture holds a scripted reply for it to
+ * that shape (`fixture-bridge.wire-contract.test.ts`) — and a scenario that could
+ * answer it with `{id, health}` would be teaching every mount surface a frame the
+ * daemon cannot send. Only `id` and `health.status` vary between the two, which is
+ * what these cases read.
+ */
 const MOUNT_ANSWERS: Readonly<Record<string, unknown>> = {
-  [HEALTHY_MOUNT_ID]: { id: HEALTHY_MOUNT_ID, health: { status: "healthy" } },
-  [UNREACHABLE_MOUNT_ID]: { id: UNREACHABLE_MOUNT_ID, health: { status: "unreachable" } },
+  [HEALTHY_MOUNT_ID]: mountReadResponse(HEALTHY_MOUNT_ID, "healthy"),
+  [UNREACHABLE_MOUNT_ID]: mountReadResponse(UNREACHABLE_MOUNT_ID, "unreachable"),
 };
+
+/** One registered mount-read reply, varying only in the two members these cases read. */
+function mountReadResponse(repoMountId: string, status: "healthy" | "unreachable"): unknown {
+  return {
+    id: repoMountId,
+    sessionId: FLAGSHIP_SCENARIO.sessionId,
+    nodeId: "9f2c4a10-1111-4000-8000-000000000100",
+    localPath: "/Users/probe/dev/ai-sidekicks",
+    canonicalRoot: "/Users/probe/dev/ai-sidekicks",
+    vcsType: "git",
+    state: "attached",
+    health: { status, checkedAt: "2026-01-01T14:20:00.500Z" },
+    attachedAt: "2026-01-01T14:00:00.000Z",
+  };
+}
 
 /** A scenario whose one reply is COMPUTED from the request rather than constant. */
 function scenarioComputingMountRead(): ConsoleScenario {
@@ -117,18 +142,16 @@ interface ScriptedFixture {
   readonly engine: ScenarioEngine;
 }
 
+/**
+ * The growth port and the engine driving it, over one scenario.
+ *
+ * The bridge and its engine come from `createFixture`, which is where this family
+ * keeps that pair and the refusal for a bridge that built no engine; this adds only
+ * the projection onto the port, which is the half these cases read.
+ */
 function fixtureFor(scenario: ConsoleScenario): ScriptedFixture {
-  const bridge = createFixtureBridge({ scenario });
-  return { port: bridge.growth, engine: engineOf(bridge) };
-}
-
-/** The engine a fixture bridge built. Optional on the contract; never absent here. */
-function engineOf(bridge: ReturnType<typeof createFixtureBridge>): ScenarioEngine {
-  const engine = bridge.scenarioEngine;
-  if (engine === undefined) {
-    throw new Error("the fixture bridge built no scenario engine, so there is nothing to drive");
-  }
-  return engine;
+  const { bridge, engine } = createFixture(scenario);
+  return { port: bridge.growth, engine };
 }
 
 function readBranchContext(fixture: ScriptedFixture): Promise<GrowthOutcome<unknown>> {
@@ -269,11 +292,10 @@ describe("the fixture growth port's scripted reads — served, refused, or named
 
 describe("the fixture bridge's scripted calls — the same seam, rejecting instead", () => {
   it("rejects with the shared code when the engine is torn down under a call", async () => {
-    const scenario = scenarioScriptingBranchContext(SCRIPTED_LATENCY_MS);
-    const bridge = createFixtureBridge({ scenario });
+    const { bridge, engine } = createFixture(scenarioScriptingBranchContext(SCRIPTED_LATENCY_MS));
     const pending = bridge.sidekicks.daemon.call(BRANCH_CONTEXT_CALL as DaemonMethod, undefined);
 
-    engineOf(bridge).dispose();
+    engine.dispose();
 
     // Same engine state, same code, different shape: a `SidekicksBridge` method may
     // only resolve or reject, so the bridge rejects where the port returns an outcome.
@@ -285,7 +307,7 @@ describe("the fixture bridge's scripted calls — the same seam, rejecting inste
   });
 
   it("negative control: the same call resolves once the caller advances the clock", async () => {
-    const bridge = createFixtureBridge({ scenario: scenarioScriptingBranchContext() });
+    const { bridge } = createFixture(scenarioScriptingBranchContext());
 
     await expect(
       bridge.sidekicks.daemon.call(BRANCH_CONTEXT_CALL as DaemonMethod, undefined),
@@ -299,7 +321,7 @@ describe("a computed reply — one call, one answer per entity", () => {
     // session holding two mounts asked twice and got the same mount back both times.
     // Both calls go through the real bridge, so what is asserted is what a surface
     // would have received.
-    const bridge = createFixtureBridge({ scenario: scenarioComputingMountRead() });
+    const { bridge } = createFixture(scenarioComputingMountRead());
 
     await expect(
       bridge.sidekicks.daemon.call(MOUNT_READ_CALL, { repoMountId: HEALTHY_MOUNT_ID }),
@@ -314,7 +336,7 @@ describe("a computed reply — one call, one answer per entity", () => {
     // which about a mount the scenario simply does not script is a claim nothing
     // checked. The scenario scripts the METHOD and not this entity, and the fixture's
     // own authoring refusal is what says so.
-    const bridge = createFixtureBridge({ scenario: scenarioComputingMountRead() });
+    const { bridge } = createFixture(scenarioComputingMountRead());
 
     const pending = bridge.sidekicks.daemon.call(MOUNT_READ_CALL, {
       repoMountId: UNSCRIPTED_MOUNT_ID,
@@ -331,7 +353,7 @@ describe("a computed reply — one call, one answer per entity", () => {
     // seam says so. The alternative a fixture reaches for — answering with the table's
     // first row — is how a surface ships having only ever been drawn against one
     // entity, which is the whole defect this arm exists to close.
-    const bridge = createFixtureBridge({ scenario: scenarioComputingMountRead() });
+    const { bridge } = createFixture(scenarioComputingMountRead());
 
     await expect(bridge.sidekicks.daemon.call(MOUNT_READ_CALL, undefined)).rejects.toBeInstanceOf(
       FixtureBridgeError,
@@ -341,7 +363,7 @@ describe("a computed reply — one call, one answer per entity", () => {
   it("negative control: the constant form still answers every request the same way", async () => {
     // Without this, a seam that had made EVERY reply request-sensitive would pass the
     // three cases above while breaking every session-scoped read in the corpus.
-    const bridge = createFixtureBridge({ scenario: scenarioConstantMountRead() });
+    const { bridge } = createFixture(scenarioConstantMountRead());
 
     await expect(
       bridge.sidekicks.daemon.call(MOUNT_READ_CALL, { repoMountId: HEALTHY_MOUNT_ID }),
