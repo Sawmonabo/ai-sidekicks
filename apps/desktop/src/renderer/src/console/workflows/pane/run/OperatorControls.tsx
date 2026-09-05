@@ -55,6 +55,15 @@
 // run B a target the operator had never seen. Both are therefore held against the same
 // `(growth, workflowRunId)` pair the pane's own read is addressed at, so the render
 // that re-addresses already reads an empty field and no target.
+//
+// SCOPED IS NOT RESOLVED, AND THE RE-PIN NEEDED BOTH. Scoping answers which RUN the
+// target was chosen for; it says nothing about whether that run's chain still offers
+// it. A version published while the pane stood open, or a resume control re-served
+// after a refusal, replaces `versionChain` on a run that never moved — so the state
+// survives, the `<select>` matches no option and displays blank, and the line beside
+// it still quotes the id the submit would still send. The held id is therefore
+// RESOLVED against the chain on screen each render, exactly as `human-form-selection.ts`
+// resolves its held phase id against the mounts the current snapshot carries.
 
 import { useId, useMemo, useRef } from "react";
 
@@ -112,11 +121,14 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
     workflowRunId,
     () => "",
   );
-  const { value: repinTarget, publish: setRepinTarget } = useSubjectScopedState<string>(
+  const { value: heldRepinTarget, publish: setRepinTarget } = useSubjectScopedState<string>(
     growth,
     workflowRunId,
     () => NO_REPIN,
   );
+  // Resolved before either renderer can see it, so no arm of this file is able to
+  // print, offer or submit a target the chain in hand does not carry.
+  const repinTarget = repinTargetWithinChain(heldRepinTarget, props.resume);
   const reasonFieldId = useId();
   const repinFieldId = useId();
   // Refs rather than a controlled `open`, deliberately. The disclosure below is the
@@ -145,6 +157,28 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
       {renderResume(props.resume, { repinTarget, setRepinTarget, repinFieldId })}
     </section>
   );
+}
+
+/**
+ * The held re-pin target, or no re-pin where the chain on screen does not offer it.
+ *
+ * The fallback is `NO_REPIN` rather than the chain's first entry, and that is the
+ * substance of it: falling back to a version would be this surface choosing a target
+ * the operator never named, which is the "no server-resolved latest" rule with the
+ * server swapped out for the renderer. Every reader of this value already handles the
+ * no-re-pin arm — the picker shows "Keep the pinned version", the target line is
+ * absent, and the submit sends `undefined` — so an unofferable id resolves to a state
+ * the surface can render honestly instead of one it can only render wrongly.
+ *
+ * The refused arm answers `NO_REPIN` because a refused resume has no chain at all; it
+ * renders no picker, and a held id surviving behind the refusal would come back the
+ * moment the control was re-served.
+ */
+function repinTargetWithinChain(held: string, resume: WorkflowResumeControl): string {
+  if (resume.kind === "refused") {
+    return NO_REPIN;
+  }
+  return resume.versionChain.some((choice) => choice.workflowVersionId === held) ? held : NO_REPIN;
 }
 
 /** Everything the cancel control needs beyond the control itself. */
