@@ -6,6 +6,10 @@
 // this file is about: which frames a re-address paints, and which render a publisher
 // captured at is the one it writes into.
 //
+// The publisher's own claim — that it names the visit on screen even after a render
+// React dropped moved the addressing underneath it — is a third subject and lives in
+// `subject-scoped-dropped-pass.test.tsx`, beside the resource hook's half of it.
+//
 // Every clean assertion here is paired with a NEGATIVE CONTROL that drives the shape
 // five families each wrote before this module existed — a plain `useState` reset from
 // an effect — over the identical script, and shows it failing. Without that pairing

@@ -98,8 +98,12 @@ export interface SubjectScopedState<TValue> {
    *
    * Captured at render, so a closure a caller carried into a `.then` still names the
    * subject that dispatched the call: if the subject has moved since, the publish is
-   * dropped. Its identity changes exactly when the subject does, which is what makes
-   * it a correct dependency for an effect that must re-run on a re-address.
+   * dropped. Its identity changes exactly when the ADDRESSING does — which is a
+   * strictly finer fact than the pair, and the correct one: a surface routed away
+   * and back is at the same pair on two different visits, and only the addressing
+   * tells them apart. So it is still a correct dependency for an effect that must
+   * re-run on a re-address, and it is stable across every render that did not
+   * re-address.
    */
   readonly publish: SubjectScopedPublish<TValue>;
   /**
@@ -212,6 +216,25 @@ export class SubjectScopedHolder<TValue> {
       throw new Error("A subject-scoped holder was read before it was addressed at a subject");
     }
     return this.#held.value;
+  }
+
+  /**
+   * The addressing the holder is on NOW, for the caller that memoizes a publisher.
+   *
+   * A publisher is bound to one addressing, so the question "is the publisher I
+   * handed out still the live one" has exactly one honest answer, and it is this
+   * number. The pair cannot stand in for it: React compares a memo's dependencies
+   * against the last COMMITTED render's, so a pass React discarded can move the
+   * addressing while leaving the pair equal — an A -> B -> A round-trip inside one
+   * commit — and a publisher keyed on the pair alone then names a visit that is
+   * over. It publishes nowhere, silently, taking whatever the caller had just
+   * opened for it with it.
+   *
+   * `NO_ADDRESSING` before anything is addressed, so a caller cannot key a memo on
+   * a number that names no visit and then find it equal to one that does.
+   */
+  public get addressing(): number {
+    return this.#held?.epoch ?? NO_ADDRESSING;
   }
 
   /** Subscribe to publishes. Returns an idempotent unsubscribe. */
@@ -333,9 +356,20 @@ export function useHeldSubjectValue<TValue>(
   const read = useCallback(() => holder.value, [holder]);
   const value = useSyncExternalStore(subscribe, read, read);
 
-  // Re-captured exactly when the subject moves, and by nothing else — a caller that
-  // carried this into a settlement still names the subject that dispatched it.
-  const publish = useMemo(() => holder.publisherFor(subject, key), [holder, subject, key]);
+  // Re-captured exactly when the ADDRESSING moves, and by nothing else. The pair is
+  // read here too, because it is what `publisherFor` is asked about; the addressing
+  // is what makes the memo correct, and it is read LIVE from the holder the caller
+  // has already addressed on this pass.
+  //
+  // Not resolved at publish time instead. A stable callback that asked the holder
+  // for its publisher when the settlement arrived would be referentially stable too
+  // — and it would re-open the defect the epoch exists to close, because the caller
+  // that captured it on the first visit to a pair would find it valid on the third.
+  // The capture moment has to be the render; only its VALIDITY is a live read.
+  const publish = useMemo(
+    () => holder.publisherFor(subject, key),
+    [holder, subject, key, holder.addressing],
+  );
   // Stable for the mount: captured when CALLED, so a holder built once may keep it.
   const settle = useCallback(() => holder.settle(), [holder]);
 
