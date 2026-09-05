@@ -51,7 +51,7 @@
 //      the spread of the row's own target props. Anything else is an offence.
 //
 // THE REGEX IS COARSE AND SAYS SO. `WINDOWED_ROW_ROLE_TAG` is
-// `/<[A-Za-z][^>]*\brole="(?:row|option)"[^>]*>/g` — an opening tag, up to its first
+// `/<[A-Za-z][^>]*\brole="(?:row|option|article)"[^>]*>/g` — an opening tag, up to its first
 // `>`. A tag containing a `>` inside an expression (`onSelect={() => choose(row)}`)
 // is therefore cut short, and a cut-short tag whose members sat past the cut is
 // reported as an offence. That error direction is deliberate: a false alarm is a
@@ -84,7 +84,7 @@ const WINDOWED_ROW_MODULE = "console/primitives/WindowedListRow.tsx";
 const POSITION_MEMBERS: readonly string[] = ["aria-setsize", "aria-posinset"];
 
 /** An opening tag that declares a row or option role. See the header on its width. */
-const WINDOWED_ROW_ROLE_TAG = /<[A-Za-z][^>]*\brole="(?:row|option)"[^>]*>/g;
+const WINDOWED_ROW_ROLE_TAG = /<[A-Za-z][^>]*\brole="(?:row|option|article)"[^>]*>/g;
 
 function writesPositionMembers(source: string): boolean {
   return POSITION_MEMBERS.some((member) => source.includes(member));

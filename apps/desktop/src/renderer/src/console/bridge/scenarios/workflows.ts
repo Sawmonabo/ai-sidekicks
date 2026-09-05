@@ -75,7 +75,7 @@ export const WORKFLOWS_SCENARIO_ID = "workflows";
  * The routing key this scenario's run enumeration is answered under.
  *
  * Keyed on the growth OPERATION rather than on a wire method, because this one read
- * has none: `growth-operations.ts` registers `workflowRunList` with no
+ * has none: `growth-operations/workflows.ts` registers `workflowRunList` with no
  * `expectedWireMethod` under the note that an invented string there would be a wire
  * fact traceable to nothing, and writing one here instead would put the same
  * invention one file further from the ledger that refused it. The `growth:` prefix is

@@ -16,7 +16,7 @@ import { ConsoleRefusalError, refuse } from "../core/index.js";
 import { answerFromScriptedReply } from "./fixture-scripted-answer.js";
 import type { GrowthOutcome } from "./growth-outcome.js";
 import { growthUnavailable } from "./growth-port.js";
-import type { GrowthOperationSignatures } from "./growth-signatures.js";
+import type { GrowthOperationSignatures } from "./growth-signatures/index.js";
 import { ScenarioEngine } from "./scenario-engine.js";
 import { READ_SETTLEMENT_REFUSAL_ORIGIN, settleGrowthRead } from "./read-settlement.js";
 import { PROBE_PARTICIPANT_ID, PROBE_SESSION_ID } from "./scripted-probe.test-support.js";

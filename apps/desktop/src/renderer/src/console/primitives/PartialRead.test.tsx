@@ -28,6 +28,7 @@ const STATE_BY_KIND: Readonly<Record<ReadingStateKind, ReadingState>> = {
   stale: { kind: "stale", refusal: PARSE_REFUSAL },
   partial: { kind: "partial", unreadableCount: 3, newestRefusal: PARSE_REFUSAL },
   cut: { kind: "cut", servedCount: 12 },
+  unchecked: { kind: "unchecked", uncheckedCount: 4, newestRefusal: PARSE_REFUSAL },
 };
 
 /** Every element that is a live region, however it is spelled. */
@@ -125,6 +126,7 @@ describe("PartialRead — the console keeps one announcer", () => {
     stale: 1,
     partial: 1,
     cut: 0,
+    unchecked: 1,
   };
 
   it("creates no live region of its own on any arm", () => {

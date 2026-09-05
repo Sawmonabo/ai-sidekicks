@@ -12,7 +12,7 @@ import {
   CONSOLE_DAEMON_METHOD_BINDINGS,
   daemonMethodBindingFor,
 } from "./daemon-reply-registry.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 
 /**
  * Registered method names the canonical-format regex does not accept.

@@ -57,6 +57,13 @@ export interface ModuleReach {
    * symbol whose one production consumer is a family door permanently claimed: the
    * claim's retiring event was an import through the door that the rule refused to
    * count.
+   *
+   * The third form is `import { X } from "./m.js"` followed by `export { X }`, which
+   * MOVES `X` in two statements rather than one. Reading the statement kind alone
+   * called it a use, so a re-export chain written that way passed the door-forwarding
+   * comparison AND retired the source door's claim. It is one reach per DISPOSITION
+   * rather than per statement, so a clause that republishes some of what it took and
+   * builds with the rest is read correctly on both halves.
    */
   readonly forwarded: boolean;
 }
@@ -95,15 +102,13 @@ function readOneModule(module: CensusModule): ModuleSyntax {
   // is handed — most of this corpus is `.tsx`. A second `createSourceFile` here
   // would be a second set of parse options for the same question.
   const sourceFile = parseSourceText(module.path, module.source);
+  const forwardedBindings = bindingsOnlyReexported(sourceFile);
   const doorSpecifiers: DoorSpecifier[] = [];
   const reaches: ModuleReach[] = [];
   let forwardsUnnamedSet = false;
   for (const statement of sourceFile.statements) {
     if (ts.isImportDeclaration(statement)) {
-      const reach = importReach(statement);
-      if (reach !== undefined) {
-        reaches.push(reach);
-      }
+      reaches.push(...importReaches(statement, forwardedBindings));
       continue;
     }
     if (!ts.isExportDeclaration(statement)) {
@@ -180,24 +185,94 @@ function claimDecorates(element: ts.ExportSpecifier, trailingFrom: number, text:
 }
 
 /**
- * What an import statement takes, or nothing where it binds no named symbol.
+ * What an import statement takes, SPLIT BY WHAT THE MODULE DOES WITH IT.
  *
  * The names are what the SOURCE module calls each binding — the property name
  * wherever an alias makes the two different — because that is the name the census
  * resolves against the module that declares it.
+ *
+ * ONE STATEMENT CAN BE BOTH KINDS OF REACH, which is why this answers a list. A
+ * barrel may take four names from a module, build a table out of one and republish
+ * the other three, and `forwarded` is what the census rests its whole disposition
+ * on: a name a module USES retires the source door's claim, and a name it MOVES does
+ * not. Reading the statement kind alone called every such import a use, so the pair
+ * `import { X } from "./m.js"; export { X };` — the re-export form written wherever
+ * a door republishes a name it also has to name in a type position, or wherever a
+ * clause carries no `from` — read as a production consumer of `X` and retired a
+ * claim nothing had come to collect. Split per binding rather than per statement,
+ * because a rule that had to judge the whole statement would have to be wrong about
+ * one half of a mixed one.
  */
-function importReach(statement: ts.ImportDeclaration): ModuleReach | undefined {
+function importReaches(
+  statement: ts.ImportDeclaration,
+  forwardedBindings: ReadonlySet<string>,
+): readonly ModuleReach[] {
   const bindings = statement.importClause?.namedBindings;
   if (bindings === undefined) {
-    return undefined;
+    return [];
   }
-  return {
-    moduleSpecifier: moduleSpecifierOf(statement),
-    names: ts.isNamespaceImport(bindings)
-      ? "namespace"
-      : bindings.elements.map((element) => element.propertyName?.text ?? element.name.text),
-    forwarded: false,
+  const moduleSpecifier = moduleSpecifierOf(statement);
+  if (ts.isNamespaceImport(bindings)) {
+    return [
+      { moduleSpecifier, names: "namespace", forwarded: forwardedBindings.has(bindings.name.text) },
+    ];
+  }
+  // Grouped by the LOCAL name, which is what an `export { … }` clause names, while
+  // the reach carries the SOURCE name the census resolves with. An alias is exactly
+  // where those two part, so reading either one for both jobs mis-attributes it.
+  const used: string[] = [];
+  const forwarded: string[] = [];
+  for (const element of bindings.elements) {
+    const sourceName = element.propertyName?.text ?? element.name.text;
+    (forwardedBindings.has(element.name.text) ? forwarded : used).push(sourceName);
+  }
+  return [
+    ...(used.length > 0 ? [{ moduleSpecifier, names: used, forwarded: false }] : []),
+    ...(forwarded.length > 0 ? [{ moduleSpecifier, names: forwarded, forwarded: true }] : []),
+  ];
+}
+
+/**
+ * Every local binding a module republishes and does not otherwise read.
+ *
+ * The whole of "only locally re-exported": a name listed in an `export { … }` clause
+ * that names no module of its own, and appearing nowhere else in the module. A
+ * binding a module both republishes and BUILDS with is a production use as well, so
+ * it stays out of this set and its reach stays a use.
+ *
+ * DELETION RATHER THAN A COUNT, and every identifier outside an import or export
+ * statement deletes: a property name in `holder.X`, a shorthand key, a name in a
+ * type position. Over-counting a reference is the safe direction — it leaves the
+ * reach classified exactly as it was before this reading existed — while missing one
+ * would call a real consumer a forward and re-open the claim the census retired.
+ */
+function bindingsOnlyReexported(sourceFile: ts.SourceFile): ReadonlySet<string> {
+  const reexported = new Set<string>();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.moduleSpecifier !== undefined) {
+      continue;
+    }
+    const { exportClause } = statement;
+    if (exportClause !== undefined && ts.isNamedExports(exportClause)) {
+      for (const element of exportClause.elements) {
+        reexported.add(element.propertyName?.text ?? element.name.text);
+      }
+    }
+  }
+  if (reexported.size === 0) {
+    return reexported;
+  }
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+      return;
+    }
+    if (ts.isIdentifier(node)) {
+      reexported.delete(node.text);
+    }
+    ts.forEachChild(node, visit);
   };
+  ts.forEachChild(sourceFile, visit);
+  return reexported;
 }
 
 /**

@@ -21,6 +21,17 @@
 // between a `<ul>` and its items is not. A list whose semantics are the element's
 // passes `"li"`; a grid whose semantics are its roles passes `"div"` and the role.
 //
+// THE ROLE IS A CLOSED SET, AND WHAT CLOSES IT IS THE PAIR. A role belongs here only
+// where `aria-posinset` and `aria-setsize` are defined on it, because those two
+// members are the whole of what this component writes: on a role that does not take
+// them the primitive would be rendering a claim the accessibility tree drops, which
+// is the silent half of the very failure it exists to prevent. `row` and `option`
+// take them as a grid row and a listbox option; `article` takes them as an article
+// inside a `feed`, which is the pattern a chronological stream of long entries is
+// (WAI-ARIA Authoring Practices, "Feed Pattern": a feed's articles carry
+// `aria-posinset` and `aria-setsize` so a reader knows where in the stream it is).
+// A role outside the set is a compile error rather than a silently dropped pair.
+//
 // FAIL-CLOSED ON AN INDEX THAT IS NOT A POSITION, ON EVERY MEMBER THAT CARRIES ONE.
 // A row index outside the enumeration cannot be clamped into a neighbour's position
 // — that would attribute the row to a place in the list it does not hold, which is
@@ -98,8 +109,14 @@ export interface WindowedListRowProps {
   readonly rowIndex: number;
   /** The whole enumeration's length — never the mounted window's. */
   readonly totalRowCount: number;
-  /** An explicit role, for a list whose semantics are not its element's. */
-  readonly role?: "row" | "option";
+  /**
+   * An explicit role, for a list whose semantics are not its element's.
+   *
+   * Closed at the three roles `aria-posinset` and `aria-setsize` are defined on — a
+   * grid row, a listbox option, and an article inside a `feed`. See this module's
+   * header on why a role that does not take the pair does not belong in the set.
+   */
+  readonly role?: "row" | "option" | "article";
   readonly className?: string;
   /** Where the caller's window places this row. Imposed here for nothing else. */
   readonly style?: React.CSSProperties;

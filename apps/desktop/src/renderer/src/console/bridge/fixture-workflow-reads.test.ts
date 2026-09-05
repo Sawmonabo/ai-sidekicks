@@ -34,7 +34,7 @@ import { callOperation, fixturePort } from "./fixture-growth-port.test-support.j
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
 import type { GrowthOperationId } from "./growth-entry.js";
 import type { GrowthPort } from "./growth-port.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./scenarios/workflow-fixture-definitions.js";
 import {

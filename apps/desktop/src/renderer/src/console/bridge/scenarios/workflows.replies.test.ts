@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { GROWTH_OPERATIONS } from "../growth-operations.js";
+import { GROWTH_OPERATIONS } from "../growth-operations/index.js";
 
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "./workflow-fixture-definitions.js";
 import {
@@ -108,7 +108,7 @@ describe("the workflows scenario — what a caller is answered with", () => {
   it("keys the run enumeration on its growth operation and not on an invented method", () => {
     // The console has one rule about method strings — a name is transcribed from a
     // registered contract or it is not written — and this scenario is where the
-    // workflow plane's names get written. `growth-operations.ts` registers
+    // workflow plane's names get written. `growth-operations/workflows.ts` registers
     // `workflowRunList` with `expectedWireMethod` undefined, under the note that an
     // invented string there would be a wire fact traceable to nothing; a
     // `workflow.runList` literal HERE is that same invention one file further from
