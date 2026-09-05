@@ -1,12 +1,16 @@
-// The one notice a surface renders when what it is showing is not the whole answer.
+// The notices a surface renders when what it is showing is not the whole answer.
 //
 // The model beside it (`partial-read.ts`) owns the vocabulary and the sentence set;
-// this owns the box they are carried in, which is three decisions and no copy:
+// this owns the box they are carried in, which is four decisions and no copy:
 //
 //   • **Above the rows, never instead of them.** The rows on screen are still the best
-//     reading there is; what the notice withdraws is the claim that they are all of
+//     reading there is; what a notice withdraws is the claim that they are all of
 //     it. A notice that replaced the list would throw away a partial answer to avoid
 //     overstating it, which is the worse of the two errors.
+//   • **Every reading the surface holds, or none of them.** The props take the SET,
+//     so a surface cannot mount a notice for its snapshot and quietly leave its tail
+//     unreported. A single-reading caller passes one member; nothing renders when
+//     every member is served.
 //   • **The consequence is the sentence; the cause is the refusal beneath it.** Rule 9
 //     puts a refusal's code in mono and its message verbatim, so the cause renders
 //     through `InlineRefusal` and this component paraphrases none of it.
@@ -15,20 +19,31 @@
 //     nothing else — the model does the formatting, so a caller cannot reach a second
 //     `toLocaleString` on the way here.
 //
-// ONE LIVE REGION OF ITS OWN, AND ONLY WHERE THIS COMPONENT WRITES THE PROSE. The
-// `reading` arm delegates to `Nothing`, which carries its own `role="status"`;
-// wrapping that in a second status region would announce one sentence twice. So the
-// wrapper — and its role — exists on the prose arms alone. The nested `InlineRefusal`
-// keeps the region rule 9's refusal grammar gives it: this notice may not take a
-// refusal's region away, and it does not add a second one beside its own.
+// THIS COMPONENT CREATES NO LIVE REGION. `LiveAnnouncerProvider` states the console's
+// standing absolute — one announcer per window, and no other component making a
+// region — and the two regions a notice can touch are already spoken for: the
+// `reading` arm delegates to `Nothing`, which carries its own, and a prose arm nests
+// `InlineRefusal`, which carries rule 9's. A wrapper of its own would have been a
+// second region announcing the same sentence, nested inside the refusal's, and
+// mounting with its content already in it — the shape screen readers do not reliably
+// announce at all. Where the SENTENCE itself has to be spoken, the surface calls
+// `useReadingAnnouncement`, which routes it through the announcer's persistent,
+// `aria-atomic` pair rather than through a region invented at the moment it spoke.
 
 import { Nothing } from "./Nothing.js";
 import { DerivedFigure } from "./Figure.js";
 import { InlineRefusal } from "./Refusal.js";
-import { partialReadNotice, type ReadingState } from "./partial-read.js";
+import { partialReadNotices, type PartialReadNotice, type ReadingState } from "./partial-read.js";
 
 export interface PartialReadProps {
-  readonly state: ReadingState;
+  /**
+   * Every reading this surface holds about what it is showing.
+   *
+   * A set rather than one reading, because a surface is incomplete once for each
+   * producer that could not finish: a snapshot that refused and a tail that carried
+   * an unreadable delivery are two facts a person acts on differently.
+   */
+  readonly states: readonly ReadingState[];
   /**
    * What was read, as a lowercase noun phrase: "the queue", "these quotas".
    *
@@ -39,14 +54,29 @@ export interface PartialReadProps {
 }
 
 /**
- * The reading's own account of how complete it is.
+ * The readings' own account of how complete they are.
  *
- * Renders nothing for a served reading, and something for every other state — which
- * is the whole claim: a surface that mounts this can only ever say less than
- * complete, never more.
+ * Renders nothing when every reading served, and something for every one that did
+ * not — which is the whole claim: a surface that mounts this can only ever say less
+ * than complete, never more.
  */
 export function PartialRead(props: PartialReadProps): React.JSX.Element | null {
-  const notice = partialReadNotice(props.state, props.subject);
+  const notices = partialReadNotices(props.states, props.subject);
+  if (notices.length === 0) {
+    return null;
+  }
+  return (
+    <>
+      {notices.map((notice, noticeOrdinal) => (
+        <ReadingNotice key={`${notice.shape}-${String(noticeOrdinal)}`} notice={notice} />
+      ))}
+    </>
+  );
+}
+
+/** One notice, in the shape its instruction names. */
+function ReadingNotice(props: { readonly notice: PartialReadNotice }): React.JSX.Element | null {
+  const { notice } = props;
   if (notice.shape === "none") {
     return null;
   }
@@ -57,13 +87,13 @@ export function PartialRead(props: PartialReadProps): React.JSX.Element | null {
     return <Nothing kind="not-loaded" placement="inline" title={notice.title} />;
   }
   return (
-    <div className="meridian-partial-read" role="status">
+    <div className="meridian-partial-read">
       <p className="meridian-partial-read__copy">
-        {notice.figure === undefined ? null : (
+        {notice.shape === "counted-sentence" ? (
           <>
             <DerivedFigure text={notice.figure} />{" "}
           </>
-        )}
+        ) : null}
         {notice.copy}
       </p>
       {notice.refusal === undefined ? null : (
