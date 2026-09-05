@@ -11,6 +11,7 @@
 // allow-list from another. Every case there fails on a reader that skips the
 // scheduler.
 
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
@@ -18,7 +19,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
-import { ArtifactPaneReader } from "./artifact-reader.js";
+import { ARTIFACT_TERMINAL_EVENT_KINDS, ArtifactPaneReader } from "./artifact-reader.js";
 import {
   REFUSAL,
   SERVED_SUMMARY,
@@ -311,5 +312,35 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     await drainMicrotasks();
 
     expect(reader.snapshot.artifacts.kind).toBe("loading");
+  });
+});
+
+describe("artifact reader — the frames this pane re-reads on", () => {
+  it("watches every registered artifact kind, derived from the contract's census", () => {
+    // A SET claim rather than a behaviour, so the case re-derives the expected members
+    // from the same registry the module reads. A literal list here would be the
+    // hand-written list the derivation exists to retire, restated where nothing could
+    // catch its drift — and it is exactly how a fourth `artifact.*` kind would have
+    // gone unwatched with every case green.
+    const registered = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter((eventType) =>
+      eventType.startsWith("artifact."),
+    );
+    expect([...ARTIFACT_TERMINAL_EVENT_KINDS].sort()).toStrictEqual([...registered].sort());
+    // Non-vacuity: a filter that matched nothing would satisfy the equality above on
+    // both sides, and the pane would re-read on no frame at all.
+    expect(ARTIFACT_TERMINAL_EVENT_KINDS.length).toBeGreaterThan(1);
+  });
+
+  it("negative control: neither the whole category nor the whole census", () => {
+    // Two over-reaches at once. Selecting `artifact_publication` — the category the
+    // artifact kinds live in — also takes three frames about other entities, and the
+    // pane would re-read on a pull request it does not draw. Selecting nothing at all
+    // would make it re-read on every run frame and every token count, which is
+    // interval polling with extra steps.
+    expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("diff.created");
+    expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("pr.prepared");
+    expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("pr.submitted");
+    expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("run.queued");
+    expect(ARTIFACT_TERMINAL_EVENT_KINDS).not.toContain("session.created");
   });
 });

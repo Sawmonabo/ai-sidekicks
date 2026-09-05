@@ -69,7 +69,7 @@
 // reach a second object to press a control would put the pane's own composition into
 // every caller.
 
-import type { SessionEventType } from "@ai-sidekicks/contracts";
+import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { Emitter, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
@@ -91,21 +91,36 @@ import {
 import type { ArtifactPayloadOutcome } from "./artifact-payload.js";
 import { readArtifactAllowlist, readArtifactList } from "./artifact-pane-reads.js";
 
+/** The namespace every frame about an artifact is registered under. */
+const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
+
 /**
- * The three frames this pane re-reads on.
+ * Every registered frame that names an artifact.
  *
- * `satisfies SessionEventType` rather than bare strings: the type is the contract's
- * own census (`packages/contracts/src/event.ts`), so a kind renamed on the wire fails
- * to compile here instead of silently matching nothing for the life of the release.
- * All three, because each changes what one of this pane's two reads would answer — a
- * publish or a supersession changes the list, and a visibility update changes a row's
- * class, which is a member the row draws.
+ * DERIVED FROM THE CONTRACT'S OWN CENSUS rather than hand-listed, on
+ * `repos/repo-refresh-triggers.ts`'s shape and for its reason: the three kinds this
+ * used to spell out are a snapshot of a registry that grows, so a fourth
+ * `artifact.*` kind — a retention sweep, a re-publication — would have reached this
+ * pane and been ignored, with the list on screen going stale and nothing anywhere
+ * saying why. `SESSION_EVENT_CATEGORY_BY_TYPE` is the canonical type registry and its
+ * keys are the whole census, so a kind is watched the day it is registered and a kind
+ * renamed stops matching nothing silently rather than compiling and doing so.
+ *
+ * THE SELECTOR IS THE NAMESPACE AND NOT THE CATEGORY, which is the question this pane
+ * is actually asking. Both of its reads are about artifacts, so any frame that names
+ * one changes what one of them would answer — while `artifact_publication`, the
+ * category the three live in, also holds `diff.created`, `pr.prepared`, and
+ * `pr.submitted`, which are publications of other entities and change neither read. It
+ * deliberately does not infer a category from the prefix either, which
+ * `packages/contracts/src/event.ts` warns against: a type's category is the registry's
+ * to state, and this set never reads one.
+ *
+ * The annotation is explicit rather than inferred, because `isolatedDeclarations`
+ * requires one on every exported binding.
  */
-const ARTIFACT_TERMINAL_EVENT_KINDS = [
-  "artifact.published",
-  "artifact.superseded",
-  "artifact.visibility_updated",
-] satisfies readonly SessionEventType[];
+export const ARTIFACT_TERMINAL_EVENT_KINDS: readonly SessionEventType[] = [
+  ...SESSION_EVENT_CATEGORY_BY_TYPE.keys(),
+].filter((eventType) => eventType.startsWith(ARTIFACT_EVENT_NAMESPACE_PREFIX));
 
 /**
  * The one key this pane's scheduled read is claimed under.
