@@ -87,9 +87,18 @@ export function paneViewHostRefusing(detail: string): ConsoleBridge {
   };
 }
 
-function paneContext(
+/**
+ * The context the deck hands this pane, built once for every suite that mounts it.
+ *
+ * Exported because a second suite mounts the pane itself rather than through the
+ * mounts below — the geometry binding's double-mount case needs the tree inside
+ * `StrictMode`, which is a wrapper no shared mount can impose on the suites that do
+ * not want it — and a per-suite copy of the address would be a second answer to which
+ * members the `browser` arm carries.
+ */
+export function paneContext(
   bridge: ConsoleBridge = fixtureBrowserBridge(),
-  paneId = DEFAULT_TEST_PANE_ID,
+  paneId: string = DEFAULT_TEST_PANE_ID,
 ): {
   readonly context: PaneContextOf<"browser">;
   readonly bridge: ConsoleBridge;
