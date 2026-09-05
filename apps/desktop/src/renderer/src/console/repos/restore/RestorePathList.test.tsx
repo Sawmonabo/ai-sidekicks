@@ -119,8 +119,9 @@ describe("restore path list — past the threshold it holds a window", () => {
     );
     expect(scroller?.style.maxBlockSize).toBe(`${String(SCROLLER_HEIGHT_PX)}px`);
     expect(scroller?.getAttribute("aria-label")).toBe("Overwritten ignored paths");
-    // A region that scrolls and cannot be reached from the keyboard is a region half
-    // the operators cannot read.
+    // The NO-CONTROL arm: with no diff to open, the rows hold nothing focusable, so
+    // the region keeps the one stop it always had. A region that scrolls and cannot be
+    // reached from the keyboard is a region half the operators cannot read.
     expect(scroller?.getAttribute("tabindex")).toBe("0");
   });
 
@@ -175,5 +176,72 @@ describe("restore path list — a windowed row is still a path row", () => {
       <RestorePathList label="Overwritten ignored paths" paths={paths} onOpenPath={undefined} />,
     );
     expect(container.querySelectorAll("button")).toHaveLength(0);
+  });
+});
+
+describe("restore path list — one tab stop, wherever the window happens to be", () => {
+  /** Every element in the document that the tab order would stop on. */
+  function tabStops(container: HTMLElement): readonly HTMLElement[] {
+    return [...container.querySelectorAll<HTMLElement>("[tabindex]")].filter(
+      (element) => element.getAttribute("tabindex") === "0",
+    );
+  }
+
+  it("puts one stop in the tab order for an enumeration of a hundred openable paths", () => {
+    // The defect: every drawn row carried a control and every control was a stop, so
+    // the number of stops this region added to the page changed as it scrolled — a
+    // reader tabbing past the enumeration walked whichever slice was mounted.
+    const paths = enumeratedPaths(100);
+    const { container } = render(
+      <RestorePathList label="Overwritten ignored paths" paths={paths} onOpenPath={vi.fn()} />,
+    );
+
+    // Non-vacuous by construction: several rows ARE mounted, and exactly one of them
+    // is reachable by Tab.
+    expect(renderedRowCount(container)).toBeGreaterThan(1);
+    expect(tabStops(container)).toHaveLength(1);
+    // And the stop is the control, not the row and not the region: a stop on the `<li>`
+    // would answer Enter with nothing.
+    expect(tabStops(container)[0]?.tagName).toBe("BUTTON");
+    expect(
+      container
+        .querySelector(".meridian-restore-disclosure__path-scroller")
+        ?.getAttribute("tabindex"),
+    ).toBeNull();
+  });
+
+  it("moves the stop with the arrow keys, and Home takes it back", () => {
+    const paths = enumeratedPaths(100);
+    const { container } = render(
+      <RestorePathList label="Overwritten ignored paths" paths={paths} onOpenPath={vi.fn()} />,
+    );
+    const list = container.querySelector(".meridian-restore-disclosure__paths");
+    expect(list).not.toBeNull();
+    const openingStop = tabStops(container)[0];
+
+    fireEvent.keyDown(list as HTMLElement, { key: "ArrowDown" });
+
+    const movedStop = tabStops(container)[0];
+    expect(tabStops(container)).toHaveLength(1);
+    expect(movedStop).not.toBe(openingStop);
+
+    fireEvent.keyDown(list as HTMLElement, { key: "Home" });
+
+    expect(tabStops(container)).toHaveLength(1);
+    expect(tabStops(container)[0]).toBe(openingStop);
+  });
+
+  it("negative control: with no navigation the region is the stop and no row is", () => {
+    // Without this the pair above would pass against a list that dropped the region's
+    // stop unconditionally — which would leave a scroll region holding nothing
+    // focusable unreachable from the keyboard, which is what that stop was always for.
+    const paths = enumeratedPaths(100);
+    const { container } = render(
+      <RestorePathList label="Overwritten ignored paths" paths={paths} onOpenPath={undefined} />,
+    );
+
+    const stops = tabStops(container);
+    expect(stops).toHaveLength(1);
+    expect(stops[0]?.classList.contains("meridian-restore-disclosure__path-scroller")).toBe(true);
   });
 });
