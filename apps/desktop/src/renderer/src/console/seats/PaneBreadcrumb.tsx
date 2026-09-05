@@ -26,7 +26,7 @@
 
 import { Glyph, WireFigure } from "../primitives/index.js";
 import { type ConsoleEntityRef } from "../store/index.js";
-import { PANE_CONTROL_GLYPH_SIZE } from "./pane-controls.js";
+import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 
 /**
  * Where a pane is, as far as its address reaches.
@@ -86,15 +86,13 @@ export function PaneBreadcrumb(props: PaneBreadcrumbProps): React.JSX.Element {
         ) : (
           scopeCrumbs.map((crumb, position) => (
             <li className="meridian-pane__crumb" key={crumb}>
-              {position === 0 ? null : (
-                <Glyph name="chevron-right" size={PANE_CONTROL_GLYPH_SIZE} />
-              )}
+              {position === 0 ? null : <Glyph name="chevron-right" size={GLYPH_SIZE_CHROME} />}
               <WireFigure value={crumb} />
             </li>
           ))
         )}
         <li className="meridian-pane__crumb meridian-pane__heading" aria-current="page">
-          <Glyph name="chevron-right" size={PANE_CONTROL_GLYPH_SIZE} />
+          <Glyph name="chevron-right" size={GLYPH_SIZE_CHROME} />
           {props.currentCrumb}
         </li>
       </ol>

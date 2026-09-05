@@ -33,15 +33,12 @@
 
 import { createContext, useContext } from "react";
 
-/**
- * How large a glyph in a pane's own chrome is drawn, in CSS pixels.
- *
- * Here rather than in either module that draws one: the head's controls and the
- * breadcrumb's separators are one chrome at one size, and a second copy is a second
- * answer waiting to drift. The kind glyph is deliberately NOT this size — it sits
- * beside a 600-weight heading and is set where it is drawn.
- */
-export const PANE_CONTROL_GLYPH_SIZE = 14;
+// NO GLYPH SIZE IS DECLARED HERE. The head's controls and the breadcrumb's
+// separators are one chrome at one size, and that size is `GLYPH_SIZE_CHROME` in
+// `tokens/glyphs.ts` — a console-wide token rather than a per-family constant,
+// because the same mark drawn in another family's chrome has to match this one and
+// two constants agree only while someone keeps them in step. The kind glyph is
+// deliberately NOT that size: it takes `GLYPH_DEFAULT_SIZE` from the same module.
 
 /** The acts a host can perform on the pane its chrome frames. */
 export interface PaneControls {

@@ -4,8 +4,9 @@
 // props they share; this module decides only what "nothing changed" looks like —
 // one line beside the control, with the control still there.
 
+import { GLYPH_SIZE_CHROME } from "../tokens/index.js";
 import { Glyph } from "./Glyph.js";
-import { REFUSAL_GLYPH_SIZE, type RefusalProps } from "./refusal-contract.js";
+import { type RefusalProps } from "./refusal-contract.js";
 import { WireFigure } from "./WireFigure.js";
 import { formatWireString } from "./wire-figures.js";
 
@@ -13,7 +14,7 @@ import { formatWireString } from "./wire-figures.js";
 export function InlineRefusal(props: RefusalProps): React.JSX.Element {
   return (
     <span className="meridian-refusal meridian-refusal--inline" role="status">
-      <Glyph name="alert" size={REFUSAL_GLYPH_SIZE} />
+      <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
       <WireFigure value={props.code} />
       <span className="meridian-refusal__message">{formatWireString(props.detail)}</span>
       {props.action !== undefined ? (

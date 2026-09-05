@@ -44,9 +44,9 @@ import { useId } from "react";
 
 import { Glyph, InlineRefusal } from "../primitives/index.js";
 import { type ConsoleEntityRef } from "../store/index.js";
-import { type GlyphName } from "../tokens/index.js";
+import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "../tokens/index.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
-import { PANE_CONTROL_GLYPH_SIZE, usePaneControls } from "./pane-controls.js";
+import { usePaneControls } from "./pane-controls.js";
 import { type PaneKind } from "./pane-kinds.js";
 import { type ConsolePaneContext } from "./pane-registry.js";
 
@@ -103,11 +103,13 @@ export const TITLE_BY_PANE_KIND: Readonly<Record<PaneKind, string>> = {
 /**
  * How large the kind glyph is drawn, in CSS pixels.
  *
- * Larger than `PANE_CONTROL_GLYPH_SIZE`, and not by preference: this mark sits beside
- * the 600-weight current crumb and is the pane's identity, while a control glyph sits
- * inside a quiet 26 px target and a separator sits between two ids.
+ * Larger than `GLYPH_SIZE_CHROME`, and not by preference: this mark sits beside the
+ * 600-weight current crumb and is the pane's identity, while a control glyph sits
+ * inside a quiet 26 px target and a separator sits between two ids. It is the
+ * console's default size and takes it from the token rather than restating `16`,
+ * which is what makes the two sizes one ratio instead of two literals.
  */
-const PANE_KIND_GLYPH_SIZE = 16;
+const PANE_KIND_GLYPH_SIZE = GLYPH_DEFAULT_SIZE;
 
 /** The subsystem a pane-composition refusal names as its author. */
 const PANE_COMPOSITION_ORIGIN = "pane-composition";
@@ -236,7 +238,7 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
               onClick={onOpenInWindow}
               aria-label={`Open this ${title.toLowerCase()} in its own window`}
             >
-              <Glyph name="external" size={PANE_CONTROL_GLYPH_SIZE} />
+              <Glyph name="external" size={GLYPH_SIZE_CHROME} />
             </button>
           )}
           {onClose === undefined ? null : (
@@ -246,7 +248,7 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
               onClick={onClose}
               aria-label="Close this pane"
             >
-              <Glyph name="close" size={PANE_CONTROL_GLYPH_SIZE} />
+              <Glyph name="close" size={GLYPH_SIZE_CHROME} />
             </button>
           )}
         </span>
