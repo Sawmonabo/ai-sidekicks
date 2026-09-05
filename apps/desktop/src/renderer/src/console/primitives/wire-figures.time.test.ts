@@ -13,6 +13,13 @@
 // `Intl.DateTimeFormat` with no `timeZone` renders in the runner's zone, so a
 // literal expectation would pin the test to whoever ran it first and fail in CI for
 // a reason that has nothing to do with the console.
+//
+// Both readers take their instant from `core/instant.ts`, so both refuse what that
+// module refuses. The `Date.parse` leniency cases are asserted here as well as in
+// that module's own test, because "the parser refuses it" and "the FIGURE refuses
+// it" are two claims and only the second is what a person sees. The instants these
+// tests need are built with `Date.UTC` rather than parsed, so the test never asks a
+// second parser what the module under test is for.
 
 import { describe, expect, it } from "vitest";
 
@@ -66,7 +73,7 @@ describe("formatDuration — the unit changes rather than the number growing", (
 });
 
 describe("formatRelativeTime — the platform composes the phrase", () => {
-  const now = Date.parse("2026-09-01T12:00:00Z");
+  const now = Date.UTC(2026, 8, 1, 12, 0, 0);
 
   it("picks its unit by magnitude and lets Intl write the words", () => {
     expect(formatRelativeTime("2026-09-01T12:00:00Z", now, "en-US")).toBe("now");
@@ -90,6 +97,23 @@ describe("formatRelativeTime — the platform composes the phrase", () => {
     expect(formatRelativeTime("not an instant", now, "en-US")).toBe("—");
     expect(formatRelativeTime("", now, "en-US")).toBe("—");
   });
+
+  it("reads a numeric offset as the instant it names", () => {
+    // 10:00+02:00 is 08:00Z, four hours before `now`. Rendering the digits rather
+    // than the instant would read "2 hours ago".
+    expect(formatRelativeTime("2026-09-01T10:00:00+02:00", now, "en-US")).toBe("4 hours ago");
+  });
+
+  it("refuses the stamps Date.parse would have rendered a figure for", () => {
+    // The negative control for the whole repoint: each of these produced a rendered
+    // figure before, and the second assertion is why — `Date.parse` answers a number
+    // for all three, normalizing a day that does not exist and reading a
+    // timezone-less stamp in whatever zone the runner happens to be in.
+    for (const text of ["2026-02-30T10:00:00Z", "2026-01-01T24:00:00Z", "2026-09-01T10:00:00"]) {
+      expect(formatRelativeTime(text, now, "en-US")).toBe("—");
+      expect(Number.isNaN(Date.parse(text))).toBe(false);
+    }
+  });
 });
 
 describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
@@ -110,7 +134,7 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
         hour: "2-digit",
         minute: "2-digit",
         second: "2-digit",
-      }).format(Date.parse(instant)),
+      }).format(Date.UTC(2026, 8, 1, 13, 4, 5)),
     ).toMatch(/AM|PM/u);
   });
 
@@ -134,5 +158,10 @@ describe("formatClockTime — a fixed-width 24-hour reading, no date", () => {
 
   it("renders a dash for an instant it cannot parse", () => {
     expect(formatClockTime("nope", "en-US")).toBe("—");
+  });
+
+  it("refuses a day that does not exist rather than rendering the day after it", () => {
+    expect(formatClockTime("2026-02-30T10:00:00Z", "en-US")).toBe("—");
+    expect(Number.isNaN(Date.parse("2026-02-30T10:00:00Z"))).toBe(false);
   });
 });

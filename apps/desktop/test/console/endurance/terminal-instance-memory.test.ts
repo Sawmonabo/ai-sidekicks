@@ -71,7 +71,9 @@ import process from "node:process";
 
 import { describe, expect, it } from "vitest";
 
-import { fixtureBundleExists, launchConsole } from "../electron-harness.js";
+import { withLaunchedConsole } from "../electron-harness.js";
+import { fixtureBundleExists } from "../fixture-bundle.js";
+import { ENDURANCE_BODY_ALLOWANCE_MS } from "../launch-budgets.js";
 import { HeapSampler } from "../heap-sampling.js";
 import {
   measureFullScrollbackRetainedBytes,
@@ -234,114 +236,118 @@ describe.skipIf(!bundleIsBuilt)("endurance — one populated terminal pane, held
       adapterWorkload.disposeEverything();
     }
 
-    const consoleApplication = await launchConsole({ scenarioId: TERMINAL_SCENARIO.id });
-    const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
-    try {
-      await openHarnessOnDeliveredSession(consoleApplication);
+    await withLaunchedConsole(
+      { scenarioId: TERMINAL_SCENARIO.id, bodyAllowanceMs: ENDURANCE_BODY_ALLOWANCE_MS },
+      async (consoleApplication) => {
+        const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
+        try {
+          await openHarnessOnDeliveredSession(consoleApplication);
 
-      // The warm-up cycle. Its whole purpose is to move the emulator chunk and every
-      // other one-time page cost to the LEFT of the baseline, so the first instance's
-      // delta below is an instance and not a library.
-      await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
-      await closeEveryPane(consoleApplication, 1);
+          // The warm-up cycle. Its whole purpose is to move the emulator chunk and every
+          // other one-time page cost to the LEFT of the baseline, so the first instance's
+          // delta below is an instance and not a library.
+          await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
+          await closeEveryPane(consoleApplication, 1);
 
-      const baselineHeapBytes = await heapProbe.readSettledBytes();
+          const baselineHeapBytes = await heapProbe.readSettledBytes();
 
-      await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
-      const oneInstanceHeapBytes = await heapProbe.readSettledBytes();
-      const paneStandingBytes = oneInstanceHeapBytes - baselineHeapBytes;
+          await openPaneAndAwaitWebglReadiness(consoleApplication, 1);
+          const oneInstanceHeapBytes = await heapProbe.readSettledBytes();
+          const paneStandingBytes = oneInstanceHeapBytes - baselineHeapBytes;
 
-      for (let instance = 2; instance <= MEASURED_INSTANCE_COUNT; instance += 1) {
-        await openPaneAndAwaitWebglReadiness(consoleApplication, instance);
-      }
-      const everyInstanceHeapBytes = await heapProbe.readSettledBytes();
-      const laterInstanceBytes =
-        (everyInstanceHeapBytes - oneInstanceHeapBytes) / (MEASURED_INSTANCE_COUNT - 1);
+          for (let instance = 2; instance <= MEASURED_INSTANCE_COUNT; instance += 1) {
+            await openPaneAndAwaitWebglReadiness(consoleApplication, instance);
+          }
+          const everyInstanceHeapBytes = await heapProbe.readSettledBytes();
+          const laterInstanceBytes =
+            (everyInstanceHeapBytes - oneInstanceHeapBytes) / (MEASURED_INSTANCE_COUNT - 1);
 
-      await closeEveryPane(consoleApplication, MEASURED_INSTANCE_COUNT);
-      const afterTeardownHeapBytes = await heapProbe.readSettledBytes();
-      const teardownResidueBytes = Math.max(0, afterTeardownHeapBytes - baselineHeapBytes);
+          await closeEveryPane(consoleApplication, MEASURED_INSTANCE_COUNT);
+          const afterTeardownHeapBytes = await heapProbe.readSettledBytes();
+          const teardownResidueBytes = Math.max(0, afterTeardownHeapBytes - baselineHeapBytes);
 
-      // One subject, one verdict.
-      const populatedInstanceBytes = paneStandingBytes + fullScrollbackBytes;
-      const verdict = evaluateBudget(budget, populatedInstanceBytes);
+          // One subject, one verdict.
+          const populatedInstanceBytes = paneStandingBytes + fullScrollbackBytes;
+          const verdict = evaluateBudget(budget, populatedInstanceBytes);
 
-      // Reported before the assertions, on the reason the two readings beside it in
-      // this tier print theirs: a gate that speaks only when it fails gives a
-      // reviewer no way to watch a margin shrink over months until the day it
-      // crosses. Both halves are named, because a sum that moved is a question about
-      // which half moved.
-      process.stdout.write(
-        `[console-endurance] populated terminal pane ` +
-          `${String(Math.round(populatedInstanceBytes / 1024))} kB ` +
-          `of ${String(Math.round(budget.limit.canonicalValue / 1024))} kB ` +
-          `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) = ` +
-          `pane ${String(Math.round(paneStandingBytes / 1024))} kB + scrollback ` +
-          `${String(Math.round(fullScrollbackBytes / 1024))} kB at ` +
-          `${String(TERMINAL_DEFAULT_SCROLLBACK_LINES)} lines × ` +
-          `${String(TERMINAL_BUDGET_MEASUREMENT_COLUMNS)} columns; ` +
-          `later panes ${String(Math.round(laterInstanceBytes / 1024))} kB each; ` +
-          `${String(Math.round(teardownResidueBytes / 1024))} kB still held after closing ` +
-          `${String(MEASURED_INSTANCE_COUNT)}\n`,
-      );
+          // Reported before the assertions, on the reason the two readings beside it in
+          // this tier print theirs: a gate that speaks only when it fails gives a
+          // reviewer no way to watch a margin shrink over months until the day it
+          // crosses. Both halves are named, because a sum that moved is a question about
+          // which half moved.
+          process.stdout.write(
+            `[console-endurance] populated terminal pane ` +
+              `${String(Math.round(populatedInstanceBytes / 1024))} kB ` +
+              `of ${String(Math.round(budget.limit.canonicalValue / 1024))} kB ` +
+              `(${(verdict.utilizationFraction * 100).toFixed(1)} % of budget) = ` +
+              `pane ${String(Math.round(paneStandingBytes / 1024))} kB + scrollback ` +
+              `${String(Math.round(fullScrollbackBytes / 1024))} kB at ` +
+              `${String(TERMINAL_DEFAULT_SCROLLBACK_LINES)} lines × ` +
+              `${String(TERMINAL_BUDGET_MEASUREMENT_COLUMNS)} columns; ` +
+              `later panes ${String(Math.round(laterInstanceBytes / 1024))} kB each; ` +
+              `${String(Math.round(teardownResidueBytes / 1024))} kB still held after closing ` +
+              `${String(MEASURED_INSTANCE_COUNT)}\n`,
+          );
 
-      // The verdict is taken on the SUM, and this is the assertion that keeps it
-      // there: a gate quietly returned to pricing one half would still satisfy every
-      // other expectation in this case.
-      expect(
-        verdict.measuredCanonicalValue,
-        "this row's verdict must be taken on the populated pane, not on either half of it",
-      ).toBe(paneStandingBytes + fullScrollbackBytes);
+          // The verdict is taken on the SUM, and this is the assertion that keeps it
+          // there: a gate quietly returned to pricing one half would still satisfy every
+          // other expectation in this case.
+          expect(
+            verdict.measuredCanonicalValue,
+            "this row's verdict must be taken on the populated pane, not on either half of it",
+          ).toBe(paneStandingBytes + fullScrollbackBytes);
 
-      expect(
-        verdict.withinBudget,
-        `${budget.label}: ${String(populatedInstanceBytes)} B (pane ${String(paneStandingBytes)} B ` +
-          `+ scrollback ${String(fullScrollbackBytes)} B) against a ` +
-          `${String(budget.limit.canonicalValue)} B ceiling`,
-      ).toBe(true);
+          expect(
+            verdict.withinBudget,
+            `${budget.label}: ${String(populatedInstanceBytes)} B (pane ${String(paneStandingBytes)} B ` +
+              `+ scrollback ${String(fullScrollbackBytes)} B) against a ` +
+              `${String(budget.limit.canonicalValue)} B ceiling`,
+          ).toBe(true);
 
-      // Each half has to be a figure. A pane delta at or below zero means the reading
-      // moved the wrong way, and a scrollback half at zero means the sum above was
-      // the pane alone — the exact state this gate was rebuilt to end.
-      expect(
-        paneStandingBytes,
-        "mounting a terminal pane did not raise the renderer's heap at all, so the comparison above measured nothing",
-      ).toBeGreaterThan(0);
-      expect(
-        fullScrollbackBytes,
-        "a full scrollback retained nothing, so the gated sum is the empty pane again",
-      ).toBeGreaterThan(0);
+          // Each half has to be a figure. A pane delta at or below zero means the reading
+          // moved the wrong way, and a scrollback half at zero means the sum above was
+          // the pane alone — the exact state this gate was rebuilt to end.
+          expect(
+            paneStandingBytes,
+            "mounting a terminal pane did not raise the renderer's heap at all, so the comparison above measured nothing",
+          ).toBeGreaterThan(0);
+          expect(
+            fullScrollbackBytes,
+            "a full scrollback retained nothing, so the gated sum is the empty pane again",
+          ).toBeGreaterThan(0);
 
-      // The slope control: the later panes cost about what the first one did, so the
-      // pane half of the gated figure is the price of an instance rather than a
-      // one-time cost the first instance happened to carry.
-      expect(
-        laterInstanceBytes,
-        `later panes cost ${String(Math.round(laterInstanceBytes / 1024))} kB against the first pane's ` +
-          `${String(Math.round(paneStandingBytes / 1024))} kB, so the gated figure is dominated by a cost that is ` +
-          "paid once rather than per instance",
-      ).toBeGreaterThan(paneStandingBytes * SLOPE_AGREEMENT_LOWER_FACTOR);
-      expect(laterInstanceBytes).toBeLessThan(paneStandingBytes * SLOPE_AGREEMENT_UPPER_FACTOR);
+          // The slope control: the later panes cost about what the first one did, so the
+          // pane half of the gated figure is the price of an instance rather than a
+          // one-time cost the first instance happened to carry.
+          expect(
+            laterInstanceBytes,
+            `later panes cost ${String(Math.round(laterInstanceBytes / 1024))} kB against the first pane's ` +
+              `${String(Math.round(paneStandingBytes / 1024))} kB, so the gated figure is dominated by a cost that is ` +
+              "paid once rather than per instance",
+          ).toBeGreaterThan(paneStandingBytes * SLOPE_AGREEMENT_LOWER_FACTOR);
+          expect(laterInstanceBytes).toBeLessThan(paneStandingBytes * SLOPE_AGREEMENT_UPPER_FACTOR);
 
-      // The leak half, pane-shaped: three whole panes came and went and the page is
-      // back within one pane of where it started.
-      expect(
-        teardownResidueBytes,
-        `${String(MEASURED_INSTANCE_COUNT)} panes were closed and ${String(Math.round(teardownResidueBytes / 1024))} kB is still held`,
-      ).toBeLessThan(paneStandingBytes * TEARDOWN_RESIDUE_FACTOR);
+          // The leak half, pane-shaped: three whole panes came and went and the page is
+          // back within one pane of where it started.
+          expect(
+            teardownResidueBytes,
+            `${String(MEASURED_INSTANCE_COUNT)} panes were closed and ${String(Math.round(teardownResidueBytes / 1024))} kB is still held`,
+          ).toBeLessThan(paneStandingBytes * TEARDOWN_RESIDUE_FACTOR);
 
-      // A ceiling planted one byte under the reading must fail the same comparison
-      // this gate just passed.
-      expect(
-        evaluateBudget(budgetWithCeilingBelow(populatedInstanceBytes), populatedInstanceBytes)
-          .withinBudget,
-      ).toBe(false);
-    } finally {
-      // The session before the window: detaching a DevTools session from a closed
-      // application raises, and the raise would replace whatever the body was
-      // failing on with a teardown error.
-      await heapProbe.detach();
-      await consoleApplication.close();
-    }
+          // A ceiling planted one byte under the reading must fail the same comparison
+          // this gate just passed.
+          expect(
+            evaluateBudget(budgetWithCeilingBelow(populatedInstanceBytes), populatedInstanceBytes)
+              .withinBudget,
+          ).toBe(false);
+        } finally {
+          // Detached before the wrapper closes the window: detaching a DevTools
+          // session from a closed application raises, and the raise would replace
+          // whatever the body was failing on with a teardown error. The window
+          // itself is `withLaunchedConsole`'s to close.
+          await heapProbe.detach();
+        }
+      },
+    );
   });
 });

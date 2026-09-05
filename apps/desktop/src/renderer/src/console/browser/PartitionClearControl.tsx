@@ -30,7 +30,7 @@
 
 import { useCallback, useState } from "react";
 
-import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
 import { Chip, InlineRefusal, Nothing } from "../primitives/index.js";
 import {
   closeThenClearSiteData,
@@ -134,7 +134,7 @@ export function PartitionClearControl(props: PartitionClearControlProps): React.
           outcome: {
             status: "refused",
             at: reachedStep,
-            refusal: refusalFromRejection(CLEAR_CONTROL_REFUSAL_ORIGIN, failure, {
+            refusal: normalizeWireRejection(CLEAR_CONTROL_REFUSAL_ORIGIN, failure, {
               code: "site-data-act-failed",
               detail:
                 "The node stopped answering during this step, so how far it got is not known from here. Re-reading the site-data list is what says where this partition ended up.",

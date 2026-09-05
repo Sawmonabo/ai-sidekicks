@@ -23,21 +23,12 @@
 // A closed union here would make this module import each producer, inverting the
 // DAG: `core/` is the bottom family and knows none of them. Each producer keeps
 // its own closed code union and widens into this shape at its boundary.
+//
+// The one import is `src/shared/wire-errors.ts`, which is not a producer and not a
+// family: it is the cross-process leaf, it imports nothing itself, and what is taken
+// from it is the total property reader. See {@link isConsoleRefusal}.
 
-import { isWireErrorEnvelope, lossyStringify } from "../../../../shared/wire-errors.js";
-
-/**
- * A caller-written refusal for a rejection that carries no code of its own.
- *
- * Some seams know their failure better than the thrown value does: "the call into
- * the browser never answered" names what a person can do next, where the preload's
- * own message names a transport. Supplied to {@link refusalFromRejection} it
- * replaces the synthesized `<origin>-call-failed` pair — and only that pair.
- */
-export interface RejectionFallback {
-  readonly code: string;
-  readonly detail: string;
-}
+import { readGuardedProperty } from "../../../../shared/wire-errors.js";
 
 export interface ConsoleRefusal {
   /** Machine-readable, rendered verbatim. */
@@ -77,78 +68,29 @@ export class ConsoleRefusalError extends Error {
   }
 }
 
-/** True when a value is a refusal, for a seam that returns a result or a refusal. */
-export function isConsoleRefusal(value: unknown): value is ConsoleRefusal {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const candidate = value as {
-    readonly code?: unknown;
-    readonly detail?: unknown;
-    readonly origin?: unknown;
-  };
-  return (
-    typeof candidate.code === "string" &&
-    typeof candidate.detail === "string" &&
-    typeof candidate.origin === "string"
-  );
-}
-
 /**
- * A REJECTED promise, as the one refusal shape the console renders.
+ * True when a value is a refusal, for a seam that returns a result or a refusal.
  *
- * Four arms, in this order, because each earlier one carries a code the later ones
- * would throw away:
+ * TOTAL, and that is the point rather than a nicety. Every caller is on a failure
+ * path: the value being asked about is a caught rejection or an `unknown` result
+ * that crossed a family boundary, so it is whatever a producer threw. A plain
+ * `candidate.code` runs a getter, and a getter that throws — a hostile accessor, a
+ * Proxy `get` trap, or merely a broken one — propagates out of the guard, out of the
+ * `catch` that has already been left, and takes down the surface whose whole job was
+ * to say that something failed. The reads therefore go through
+ * `readGuardedProperty`, which collapses "absent" and "unreadable" to the same
+ * `undefined`; here those mean the same thing, because a refusal whose `code` cannot
+ * be read is not one this console can render.
  *
- *   1. A `ConsoleRefusal` that travelled as a rejection is already this shape and
- *      already names its own author, so it passes through untouched.
- *   2. A {@link ConsoleRefusalError} is unwrapped to the refusal it carries. Left
- *      to arm 4 it would render `<origin>-call-failed` over an `Error` whose
- *      message happens to read `origin: code: detail` — the code a person pastes
- *      into an issue replaced by one this function invented.
- *   3. A wire envelope — `{ code, message }`, whether it arrived as a plain object
- *      across the preload boundary or as an `Error` subclass carrying the code —
- *      keeps its code VERBATIM, which is the whole point: `permission_denied` and
- *      a lease conflict are different next moves, and both are unactionable once
- *      flattened into one call-failed code. The guard is
- *      `src/shared/wire-errors.ts`'s rather than a second structural check or a
- *      schema parse: that module owns this shape for every renderer surface, and
- *      it records why the recognition is structural — the same envelope arrives
- *      as an object and as an `Error`, and a schema bound to one set of codes
- *      would narrow it below what its callers need.
- *   4. Anything else is this caller's own refusal. When the caller wrote a
- *      {@link RejectionFallback} it is used verbatim — a sentence that names the
- *      person's next move beats a thrown value's message. Otherwise an `Error`
- *      gives up its message; anything else goes through the total stringifier
- *      rather than through `String(...)`, which itself throws on a null-prototype
- *      object — the value a surface exists to SURFACE must not take the surface
- *      down.
- *
- * `origin` is the caller's subsystem name and is what arm 4's synthesized code is
- * built from, so a call-failed refusal still says which seam failed. The fallback
- * never displaces arms 1–3: a code the other side sent is more actionable than any
- * prose written here, which is the whole reason this function exists.
+ * The `typeof value !== "object"` pre-check is gone rather than kept beside the
+ * guarded reads: the reader already answers `undefined` for every primitive, and a
+ * null-prototype FUNCTION carrying the three members is a refusal that the old
+ * pre-check rejected outright.
  */
-export function refusalFromRejection(
-  origin: string,
-  error: unknown,
-  fallback?: RejectionFallback,
-): ConsoleRefusal {
-  if (isConsoleRefusal(error)) {
-    return error;
-  }
-  if (error instanceof ConsoleRefusalError) {
-    return error.refusal;
-  }
-  if (isWireErrorEnvelope(error)) {
-    return refuse(origin, error.code, error.message);
-  }
-  if (fallback !== undefined) {
-    return refuse(origin, fallback.code, fallback.detail);
-  }
-  return refuse(
-    origin,
-    `${origin}-call-failed`,
-    error instanceof Error ? error.message : lossyStringify(error),
+export function isConsoleRefusal(value: unknown): value is ConsoleRefusal {
+  return (
+    typeof readGuardedProperty(value, "code") === "string" &&
+    typeof readGuardedProperty(value, "detail") === "string" &&
+    typeof readGuardedProperty(value, "origin") === "string"
   );
 }

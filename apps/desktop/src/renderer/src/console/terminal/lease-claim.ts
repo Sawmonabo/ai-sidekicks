@@ -34,7 +34,7 @@
 
 import { useCallback, useState } from "react";
 
-import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 
 /**
@@ -155,7 +155,7 @@ export function useTerminalLeaseClaim(
             isStillCurrent(previous)
               ? {
                   ...previous,
-                  refusal: refusalFromRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error),
+                  refusal: normalizeWireRejection(TERMINAL_LEASE_REFUSAL_ORIGIN, error),
                 }
               : previous,
           );

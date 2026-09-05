@@ -16,7 +16,7 @@
 import { useEffect, useState } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
 import { isCurrentPaneSubject, type PaneSubject } from "./pane-subject.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
@@ -39,7 +39,7 @@ const NAVIGATION_REFUSAL_ORIGIN = "browser-navigation";
  * has stopped being told anything at all — which is why the sentence names the
  * remedy for THIS failure rather than repeating the thrown value's message.
  *
- * It is a fallback and not a mapping. `refusalFromRejection` is the console's one
+ * It is a fallback and not a mapping. `normalizeWireRejection` is the console's one
  * rejection normalizer, and it is what runs here: a refusal the bridge itself raised
  * travels through untouched because it already names its own author, and a typed wire
  * envelope keeps its own code and message, since flattening `browser.pane_not_found`
@@ -202,7 +202,7 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
         if (!cancelled) {
           setReading({
             status: "refused",
-            refusal: refusalFromRejection(
+            refusal: normalizeWireRejection(
               NAVIGATION_REFUSAL_ORIGIN,
               failure,
               SUBSCRIPTION_FAILURE_FALLBACK,

@@ -17,11 +17,8 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  PARTICIPANT_HUE_STEPS,
-  RING_TREATMENTS,
-  participantHueTokenName,
-} from "../tokens/index.js";
+import { PARTICIPANT_HUE_STEPS, participantHueTokenName } from "../tokens/index.js";
+import { RING_TREATMENTS } from "../tokens/participant-hue.js";
 import { LedgerRow } from "./LedgerRow.js";
 import { formatClockTime } from "./wire-figures.js";
 
@@ -100,7 +97,7 @@ describe("LedgerRow — attribution fails closed rather than into someone else's
 
   it("varies the edge along its length rather than its width", () => {
     // A 2 px strip has no room for a `double` border-style, so each treatment is a
-    // fill pattern named on the row and drawn in `primitives.css`.
+    // fill pattern named on the row and drawn in `ledger-row.css`.
     for (const treatment of RING_TREATMENTS) {
       expect(
         basicRow({ ringTreatment: treatment }).classList.contains(

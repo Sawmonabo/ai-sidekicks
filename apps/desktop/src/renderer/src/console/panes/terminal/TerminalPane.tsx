@@ -50,8 +50,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { membershipRoleOf } from "../../bridge/entity-body-reads.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { refusalFromRejection, type ConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../../core/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import {
   useCallerMembershipRole,
@@ -132,7 +133,7 @@ function BoundTerminalPane(props: {
     });
     return outcome.status === "served" ? outcome.value.participantId : outcome;
   }, [bridge, sessionStore]);
-  const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore);
+  const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore, membershipRoleOf);
 
   // Derivation under `useMemo`, which is where `store/hooks.ts` puts it: the
   // selector returns the stored array and the fold runs only when that array's
@@ -262,7 +263,7 @@ function useTerminalOutputStream(bridge: ConsoleBridge, terminalId: string): Ter
         if (isMounted) {
           publish({
             status: "refused",
-            refusal: refusalFromRejection(
+            refusal: normalizeWireRejection(
               OUTPUT_STREAM_REFUSAL_ORIGIN,
               failure,
               OUTPUT_STREAM_REJECTION_FALLBACK,

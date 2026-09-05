@@ -35,7 +35,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { refusalFromRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
+import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
@@ -45,7 +45,7 @@ const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
  * from the normalizer that consumes it rather than restated here — a second
  * declaration of that shape would agree with the first only until one was widened.
  */
-type ActRejectionFallback = NonNullable<Parameters<typeof refusalFromRejection>[2]>;
+type ActRejectionFallback = NonNullable<Parameters<typeof normalizeWireRejection>[2]>;
 
 /**
  * Which dispatched act is the newest one.
@@ -158,7 +158,7 @@ export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): Brows
         },
         (failure: unknown) => {
           if (sequence.isNewest(token)) {
-            publish(refusalFromRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, fallback));
+            publish(normalizeWireRejection(BROWSER_PANE_REFUSAL_ORIGIN, failure, fallback));
           }
         },
       );

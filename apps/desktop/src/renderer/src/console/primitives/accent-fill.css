@@ -1,0 +1,74 @@
+/*
+ * The one filled-accent treatment: a control whose whole face is the accent, with
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3 (one
+ * accent hue and no other colour) and rule 5 (motion settles).
+ * `accent-ink` as its label. Two surfaces reach for this — an approval's approve
+ * action and a goal's save — and both were painting `accent-text` on `accent`,
+ * which is 1.53:1 in light and 1.48:1 in dark against rule 3's 4.5:1 floor. One
+ * class, so the pairing is made once and `tokens/contrast.test.ts` measures the
+ * pair it makes.
+ *
+ * A BLOCK RATHER THAN A `--modifier`, deliberately. These primitives carry no
+ * `.meridian-button` block, and minting one here would mean minting a button
+ * primitive — geometry, disabled state, sizes — that the console has not settled
+ * and that neither consumer needs: both already own their control's padding and
+ * type. So this class carries the FILL and what the fill implies (its own edge,
+ * its corner, its ink, and how it responds to a pointer) and nothing about size.
+ *
+ * The border matches the fill rather than being omitted, so a control that sits
+ * against `surface-raised` still has a definite boundary at its edge — and so a
+ * consumer replacing a bordered button with this one does not lose a pixel of
+ * geometry in the swap.
+ */
+.meridian-accent-fill {
+  border: 1px solid var(--meridian-accent);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-accent);
+  color: var(--meridian-accent-ink);
+  cursor: pointer;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    border-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    filter var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+/*
+ * Hover LIFTS the face, and a filter is the right instrument for that one
+ * direction: the ink is dark in both schemes, so brightening the fill moves the
+ * pair apart — 4.73:1 to 5.26:1 in light, 7.41:1 to 8.32:1 in dark, both measured
+ * in `tokens/contrast.test.ts` against the same brightness this rule spends.
+ */
+.meridian-accent-fill:hover {
+  filter: brightness(1.06);
+}
+
+/*
+ * Press SETTLES the face, and that direction is a token rather than a filter.
+ * Scaling both rendered colours does not preserve their ratio — relative luminance
+ * carries a 0.05 offset a multiplication does not distribute over — so the
+ * `brightness(0.94)` this rule used to spend took the light scheme's measured
+ * ink-on-fill pair from 4.73:1 to 4.27:1, through rule 3's floor in the one state
+ * the treatment existed to keep legible. `accent-pressed` is measured on that pair
+ * like every other fill.
+ *
+ * The boundary takes the control's own ink, and it is carrying most of the press in
+ * the light scheme: the ink floor leaves that face about 6% of luminance to spend
+ * (see `tokens/palette.ts`), which is below what an eye resolves on its own. A ring
+ * in a colour already measured against this face costs no ratio to add.
+ */
+.meridian-accent-fill:active {
+  border-color: var(--meridian-accent-ink);
+  background: var(--meridian-accent-pressed);
+}

@@ -19,7 +19,11 @@
 // EVERY kind — a list of the admitted ones grows a hole the day a kind is added,
 // which is how repo and invite went missing from the inspector's scope.
 export { CONSOLE_ENTITY_KINDS } from "./entities.js";
-export type { ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
+// `ConsoleEntity` leaves the family because the two validating body reads live in
+// `bridge/entity-body-reads.ts`: a read that narrows a wire member has to sit where
+// the registered shapes may be imported, and it still takes and returns this
+// family's own entity.
+export type { ConsoleEntity, ConsoleEntityRef, ConsoleSessionEvent } from "./entities.js";
 // The projection contract leaves the family with its first producer: the
 // composition root's run-lifecycle projector. A projector reads WIRE member names
 // and this family deliberately knows none, so the type travels out and the
@@ -81,6 +85,64 @@ export {
   useSessionPartition,
 } from "./hooks.js";
 
+// The wall-clock wake-up. In this family rather than in `primitives/` because it is
+// a scheduling decision — the console's other one, `scheduling.ts`, is its neighbour
+// — and because what it publishes is state a surface renders against rather than
+// anything it draws. It arms the only timer in the console outside those two
+// schedulers and the live announcer's hold.
+export {
+  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
+  earliestFutureDeadline,
+  /** @consumedBy T-023p-1C-4, T-023p-1C-5 */
+  useDeadlineWake,
+} from "./deadline-wake.js";
+
+// THE TWO SUBJECT PRIMITIVES, and why they ship through this door rather than being
+// re-implemented per family. State that outlives its subject was the recurring defect
+// class across every console family: a pane rebound from one session to another kept
+// the previous one's editor text, busy flag, roster, or outcome for a frame, and a
+// call still in flight against the previous subject settled into the new one. Five
+// families each wrote their own holder and their own generation counter, and the
+// place copies of a guard drift is the predicate.
+//
+// `subject-scoped-holder.ts` holds the rule and `subject-scoped-state.ts` is its
+// React half, which together answer what a surface RENDERS for the subject it is
+// bound to; `generation-latch.ts` answers whether an act may be dispatched at all,
+// which a handler settles inside its own tick. `test/console/architecture/
+// subject-state-chokepoint.test.ts` fails the build on a second implementation of
+// either.
+//
+// The `@consumedBy` tags are the dead-code gate's one exemption, on this package's
+// terms: they name the task that imports the symbol, and they are deleted in the PR
+// that does. See `apps/desktop/AGENTS.md` §Mechanical gates.
+export {
+  /** @consumedBy T-023p-1C-8 */
+  SubjectScopedHolder,
+} from "./subject-scoped-holder.js";
+export { useSubjectScopedState } from "./subject-scoped-state.js";
+// The disposal half, from the module that DECLARES it. A value a drop releases takes
+// the holder above; a value that owns a subscription or a connection takes this,
+// because the render that seeded it may be one React throws away.
+export { useSubjectScopedResource } from "./subject-scoped-resource.js";
+export type {
+  /** @consumedBy T-023p-1C-8 */
+  SubjectKey,
+  /** @consumedBy T-023p-1C-8 */
+  SubjectScopedPublish,
+} from "./subject-scoped-holder.js";
+export type { SubjectScopedState } from "./subject-scoped-state.js";
+export {
+  /** @consumedBy T-023p-1C-8 */
+  GenerationLatch,
+  /** @consumedBy T-023p-1C-8 */
+  useGenerationLatch,
+} from "./generation-latch.js";
+export type {
+  /** @consumedBy T-023p-1C-8 */
+  CurrentGenerationClaim,
+  /** @consumedBy T-023p-1C-8 */
+  GenerationClaim,
+} from "./generation-latch.js";
 // The caller's own membership role, forwarded with the two types a caller has to name
 // to use it. Its first surface consumer is the terminal lease line: taking the shell
 // is owner/collaborator-only, so a control offered on identity alone offered viewers

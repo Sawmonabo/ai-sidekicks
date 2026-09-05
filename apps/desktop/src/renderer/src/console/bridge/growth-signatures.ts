@@ -24,6 +24,18 @@
 // the console it is stated as a named empty request rather than `unknown`, so a
 // caller that starts passing something has to come here and say what.
 //
+// WHERE THIS TABLE MEETS THE REGISTERED-WIRE ONE, AND WHY THEY ARE TWO. A method the
+// corpus HAS registered is not a growth operation and has no row here: it is bound to
+// its published request and response schemas in `daemon-reply-registry.ts` and
+// reached through `callDaemon`, which parses both directions. The split is not
+// duplication — it is the difference between narrowing an `unknown` a real wire sent
+// and standing in for a wire that does not exist. This table's types are the
+// console's own because no published shape exists to derive them from; that
+// registry's types are the contract's because one does, and inventing them here
+// instead would put a fiction in front of the parse. A slate row landing is the only
+// crossing: its operations leave this table, join that registry, and their callers
+// move from `bridge.growth.<operation>(…)` to `callDaemon(bridge, "<method>", …)`.
+//
 // THIS MODULE IS A DECLARED DATA TABLE, AND ITS LENGTH IS ITS ROW COUNT. The
 // package's "a file over about 400 lines is doing two jobs" rule is a heuristic for
 // a module that grew a second job; this one has exactly one — say what each growth

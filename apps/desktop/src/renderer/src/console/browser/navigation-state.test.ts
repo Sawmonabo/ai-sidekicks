@@ -331,7 +331,7 @@ describe("useReportedNavigation — a subscription that ends", () => {
 
 // What a rejecting subscription refuses AS.
 //
-// The hook normalizes through `core/refusal.ts`'s `refusalFromRejection`, which is
+// The hook normalizes through `core/refusal.ts`'s `normalizeWireRejection`, which is
 // the console's one rejection normalizer, and supplies only the pair that names this
 // failure's own remedy. A second mapping stood in this module and re-derived three of
 // that function's four arms; the case it was missing is the first one below, and it

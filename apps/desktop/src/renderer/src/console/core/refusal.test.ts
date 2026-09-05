@@ -8,7 +8,7 @@
 // message an error carries, and the refusal an error still holds after the throw.
 
 import { describe, expect, it } from "vitest";
-import { ConsoleRefusalError, isConsoleRefusal, refuse, refusalFromRejection } from "./refusal.js";
+import { ConsoleRefusalError, isConsoleRefusal, refuse } from "./refusal.js";
 
 describe("refuse — one builder, one field order", () => {
   it("carries the three fields the renderers read", () => {
@@ -98,126 +98,63 @@ describe("isConsoleRefusal — recognition across a family boundary", () => {
   });
 });
 
-describe("refusalFromRejection — a rejected call, without losing what refused it", () => {
-  it("passes a refusal that travelled as a rejection through untouched", () => {
-    const raised = refuse("growth-port", "wire-unregistered", "Nobody serves this yet.");
-    expect(refusalFromRejection("terminal-lease", raised)).toBe(raised);
-  });
+describe("isConsoleRefusal — total, because every caller is already on a failure path", () => {
+  /** The unguarded read the guard used to perform, so the counterfactual is runnable. */
+  const readDirectly = (value: unknown): unknown => (value as { readonly code?: unknown }).code;
 
-  it("unwraps the refusal a ConsoleRefusalError carries", () => {
-    const carried = refuse("persistence", "quota-exhausted", "There is no room left.");
-    expect(refusalFromRejection("terminal-lease", new ConsoleRefusalError(carried))).toStrictEqual(
-      carried,
+  it("answers false for a value whose property access throws", () => {
+    const hostile = new Proxy(
+      {},
+      {
+        get() {
+          throw new Error("this getter is hostile");
+        },
+      },
     );
+    // The negative control, and it is the whole reason this case exists: the read the
+    // guard used to perform THROWS on this value. A predicate that throws is not a
+    // guard — it escapes the `catch` that called it and unmounts the surface whose
+    // only job was to report the failure.
+    expect(() => readDirectly(hostile)).toThrow();
+    expect(isConsoleRefusal(hostile)).toBe(false);
   });
 
-  it("keeps a wire envelope's own code, which is the actionable half", () => {
-    // The arm this function exists for. A lease conflict and a denied permission
-    // are different next moves for the person reading the line, and both are
-    // unactionable once flattened into one call-failed code.
-    expect(
-      refusalFromRejection("terminal-lease", {
-        code: "terminal.lease_conflict",
-        message: "Another participant holds the shell.",
-      }),
-    ).toStrictEqual({
-      code: "terminal.lease_conflict",
-      detail: "Another participant holds the shell.",
-      origin: "terminal-lease",
+  it("answers false when only one of the three members is unreadable", () => {
+    // The partial case, which is the realistic one: two members read fine and the
+    // third throws, so a guard that short-circuits on the first two still reaches it.
+    const partiallyHostile = {
+      code: "c",
+      detail: "d",
+      get origin(): never {
+        throw new Error("this getter is hostile");
+      },
+    };
+    expect(() => partiallyHostile.origin).toThrow();
+    expect(isConsoleRefusal(partiallyHostile)).toBe(false);
+  });
+
+  it("answers false for a null-prototype object carrying nothing", () => {
+    expect(isConsoleRefusal(Object.create(null))).toBe(false);
+  });
+
+  it("accepts a null-prototype carrier, object or function, that holds the three members", () => {
+    // A refusal that crossed a structured clone or arrived from another realm has no
+    // prototype chain left, and it is still a refusal. The function case is the one
+    // the old `typeof value !== "object"` pre-check rejected outright: a function is a
+    // property container too, and `typeof` calls it neither `"object"` nor `null`.
+    const nullPrototypeObject = Object.assign(Object.create(null) as object, {
+      code: "c",
+      detail: "d",
+      origin: "o",
     });
-  });
+    expect(isConsoleRefusal(nullPrototypeObject)).toBe(true);
 
-  it("keeps that code when the envelope arrived as an Error subclass carrying it", () => {
-    // The same shape crosses the preload boundary both ways, which is why
-    // `src/shared/wire-errors.ts` recognises it structurally rather than by class.
-    class WireError extends Error {
-      public readonly code = "permission_denied";
-    }
-    expect(
-      refusalFromRejection("terminal-lease", new WireError("You may not do that.")),
-    ).toStrictEqual({
-      code: "permission_denied",
-      detail: "You may not do that.",
-      origin: "terminal-lease",
+    const carrierFunction = Object.assign(function carrier(): void {}, {
+      code: "c",
+      detail: "d",
+      origin: "o",
     });
-  });
-
-  it("names the caller's own seam for a rejection that carries no code", () => {
-    expect(
-      refusalFromRejection("terminal-lease", new Error("the preload went away")),
-    ).toStrictEqual({
-      code: "terminal-lease-call-failed",
-      detail: "the preload went away",
-      origin: "terminal-lease",
-    });
-  });
-
-  it("takes the caller's own sentence for a rejection that carries no code", () => {
-    // A seam that knows its failure better than the thrown value does hands the
-    // person its own next move rather than the transport's message.
-    expect(
-      refusalFromRejection("browser-pane", new Error("IPC channel closed"), {
-        code: "navigation-call-failed",
-        detail: "The page could not be reached from this window.",
-      }),
-    ).toStrictEqual({
-      code: "navigation-call-failed",
-      detail: "The page could not be reached from this window.",
-      origin: "browser-pane",
-    });
-  });
-
-  it("negative control: a fallback never displaces the code the other side sent", () => {
-    // The fallback replaces arm 4 only. Were it consulted first, a supplied sentence
-    // would flatten `permission_denied` into the caller's guess — the exact loss
-    // this function exists to prevent.
-    expect(
-      refusalFromRejection(
-        "browser-pane",
-        { code: "permission_denied", message: "You may not do that." },
-        { code: "navigation-call-failed", detail: "The page could not be reached." },
-      ),
-    ).toStrictEqual({
-      code: "permission_denied",
-      detail: "You may not do that.",
-      origin: "browser-pane",
-    });
-  });
-
-  it("renders a hostile rejected value rather than throwing while surfacing it", () => {
-    // `String(...)` runs ToPrimitive, which throws for a null-prototype object
-    // carrying no `toString` — and a refusal renderer that crashed on the value it
-    // exists to surface would take the tree down instead of the call.
-    const unrenderable = Object.create(null) as object;
-    const refusal = refusalFromRejection("terminal-lease", unrenderable);
-    expect(refusal.code).toBe("terminal-lease-call-failed");
-    expect(refusal.detail.length).toBeGreaterThan(0);
-  });
-
-  it("negative control: the arms are ordered, so an earlier one is not reachable by a later", () => {
-    // Without the order, each of these would render `terminal-lease-call-failed`:
-    // a `ConsoleRefusalError` stringifies to `origin: code: detail`, and a wire
-    // envelope to `[object Object]`. Both are codes this function invented over a
-    // code the other side sent.
-    const carried = refuse("growth-port", "reply-abandoned", "The reply never came.");
-    expect(refusalFromRejection("terminal-lease", new ConsoleRefusalError(carried)).code).not.toBe(
-      "terminal-lease-call-failed",
-    );
-    expect(
-      refusalFromRejection("terminal-lease", { code: "terminal.lease_conflict", message: "held" })
-        .detail,
-    ).not.toBe("[object Object]");
-  });
-
-  it("negative control: what it returns is recognisable as a refusal on every arm", () => {
-    for (const rejection of [
-      refuse("growth-port", "wire-unregistered", "detail"),
-      new ConsoleRefusalError(refuse("persistence", "quota-exhausted", "detail")),
-      { code: "terminal.lease_conflict", message: "held" },
-      new Error("boom"),
-      42,
-    ]) {
-      expect(isConsoleRefusal(refusalFromRejection("terminal-lease", rejection))).toBe(true);
-    }
+    Object.setPrototypeOf(carrierFunction, null);
+    expect(isConsoleRefusal(carrierFunction)).toBe(true);
   });
 });

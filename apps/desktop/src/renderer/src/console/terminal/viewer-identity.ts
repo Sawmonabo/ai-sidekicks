@@ -32,7 +32,7 @@
 import { useEffect, useState } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { refusalFromRejection, type ConsoleRefusal } from "../core/index.js";
+import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
 
 /**
  * Who this window is, or why the console cannot say.
@@ -117,7 +117,7 @@ export function useTerminalViewerIdentity(
           sessionId,
           identity: {
             status: "refused",
-            refusal: refusalFromRejection(
+            refusal: normalizeWireRejection(
               VIEWER_IDENTITY_REFUSAL_ORIGIN,
               failure,
               VIEWER_IDENTITY_REJECTION_FALLBACK,

@@ -1,0 +1,47 @@
+/*
+ * Figures: the mono wire signature, and the derived form beside it.
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 4 — mono is
+ * the signature that a figure came from the wire.
+ */
+
+.meridian-figure {
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/*
+ * Rule 4: mono IS the provenance signature. Both classes of wire figure wear it —
+ * a byte-for-byte string and an `Intl`-formatted quantity — so a reader can tell at
+ * a glance which numbers on a screen the daemon actually sent.
+ *
+ * `user-select: text` is stated rather than inherited because a digest a person
+ * cannot select is a digest they have to retype, and console chrome elsewhere is
+ * routinely made unselectable.
+ */
+.meridian-figure--wire {
+  font-family: var(--meridian-font-mono);
+  /* Mono faces run optically larger than the sans face at the same px; a hair under
+     one em keeps a figure and its label on the same visual weight. */
+  font-size: 0.93em;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/*
+ * The console's own reading, never the wire's. Proportional and muted precisely so
+ * it cannot be mistaken for something the daemon said.
+ */
+.meridian-figure--derived {
+  color: var(--meridian-text-muted);
+}

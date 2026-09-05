@@ -1,0 +1,167 @@
+/*
+ * Rule 1's shape, as a three-column grid: the 2 px edge, a fixed gutter, one measure.
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 1 (the
+ * row's anatomy), rule 3's edge hues, and rule 7's hover footer.
+ * The edge spans both rows of the grid so a revealed footer does not leave a gap in
+ * the attribution — a ledger line is one line, footer or no footer.
+ */
+.meridian-ledger-row {
+  display: grid;
+  grid-template-areas:
+    "edge gutter body"
+    "edge gutter footer";
+  grid-template-columns: var(--meridian-attribution-edge) minmax(0, 9.5rem) minmax(0, 1fr);
+  column-gap: var(--meridian-space-3);
+  padding-block: var(--meridian-space-2);
+  padding-inline-end: var(--meridian-space-4);
+  transition: background-color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-ledger-row:hover {
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-ledger-row__edge {
+  grid-area: edge;
+  border-radius: 1px;
+  background: var(--meridian-row-hue);
+}
+
+/*
+ * The four ring treatments, as four fill patterns down the edge's LENGTH.
+ *
+ * Past twelve participants the hue wheel wraps and `ParticipantRingTreatment` is the
+ * only thing keeping two people on one hue apart. A 2 px strip cannot carry a
+ * `double` border-style — CSS collapses it to a solid hairline — so varying the
+ * pattern along the edge is what preserves BOTH rule 1's width and rule 2's wrap
+ * disambiguation. Each pattern's period differs from every other, so two adjacent
+ * rows on the same hue are told apart by rhythm, not by squinting at a hairline.
+ */
+.meridian-ledger-row--dashed .meridian-ledger-row__edge {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--meridian-row-hue) 0 6px,
+    transparent 6px 10px
+  );
+}
+
+.meridian-ledger-row--double .meridian-ledger-row__edge {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--meridian-row-hue) 0 3px,
+    transparent 3px 5px,
+    var(--meridian-row-hue) 5px 8px,
+    transparent 8px 14px
+  );
+}
+
+.meridian-ledger-row--dotted .meridian-ledger-row__edge {
+  background: repeating-linear-gradient(
+    to bottom,
+    var(--meridian-row-hue) 0 2px,
+    transparent 2px 5px
+  );
+}
+
+/* No participant owns this row, so the edge reads as a boundary rather than an
+   identity. Dimmed, never coloured — a guess would be worse than an absence. */
+.meridian-ledger-row--unattributed .meridian-ledger-row__edge {
+  opacity: 0.6;
+}
+
+.meridian-ledger-row__gutter {
+  display: flex;
+  grid-area: gutter;
+  flex-direction: column;
+  gap: 2px;
+  min-inline-size: 0;
+}
+
+.meridian-ledger-row__actor {
+  overflow: hidden;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-ledger-row__gutter .meridian-figure--wire {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-ledger-row__body {
+  grid-area: body;
+  /* "Content in a single measure" — rule 1, literally. */
+  max-inline-size: 78ch;
+  min-inline-size: 0;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-md);
+  line-height: 1.55;
+}
+
+.meridian-ledger-row__meta {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-block-end: var(--meridian-space-1);
+}
+
+.meridian-ledger-row__kind .meridian-figure--wire {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-ledger-row__superseded-mark {
+  color: var(--meridian-text-faint);
+  font-size: var(--meridian-text-xs);
+}
+
+/*
+ * A superseded turn is still part of the log — it is dimmed, never removed and never
+ * struck through, because the row still says what happened at the time it happened.
+ */
+.meridian-ledger-row--superseded .meridian-ledger-row__body {
+  opacity: 0.62;
+}
+
+.meridian-ledger-row--superseded .meridian-ledger-row__edge {
+  opacity: 0.45;
+}
+
+/*
+ * Rule 7: a row's secondary controls live in its hover footer, never as a second
+ * visible button. `:focus-within` is not an afterthought — without it the footer is
+ * unreachable by keyboard, and `pointer-events` is what stops an invisible control
+ * from swallowing a click. Tab reaches a `pointer-events: none` element perfectly
+ * well, so the keyboard path is unaffected by the pointer guard.
+ */
+.meridian-ledger-row__footer {
+  display: flex;
+  grid-area: footer;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin-block-start: var(--meridian-space-1);
+  opacity: 0;
+  transition: opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
+  pointer-events: none;
+}
+
+.meridian-ledger-row:hover .meridian-ledger-row__footer,
+.meridian-ledger-row:focus-within .meridian-ledger-row__footer {
+  opacity: 1;
+  pointer-events: auto;
+}

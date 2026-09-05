@@ -117,8 +117,8 @@ describe("every formatted quantity is rendered in the caller's locale", () => {
     ["money", formatMoney(1234.5, "EUR", "en-US"), formatMoney(1234.5, "EUR", "de-DE")],
     [
       "relative time",
-      formatRelativeTime("2026-08-29T12:00:00Z", Date.parse("2026-09-01T12:00:00Z"), "en-US"),
-      formatRelativeTime("2026-08-29T12:00:00Z", Date.parse("2026-09-01T12:00:00Z"), "de-DE"),
+      formatRelativeTime("2026-08-29T12:00:00Z", Date.UTC(2026, 8, 1, 12, 0, 0), "en-US"),
+      formatRelativeTime("2026-08-29T12:00:00Z", Date.UTC(2026, 8, 1, 12, 0, 0), "de-DE"),
     ],
   ];
 

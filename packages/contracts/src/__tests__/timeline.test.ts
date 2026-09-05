@@ -1734,45 +1734,54 @@ describe("paged replies are ordered, run-scoped, and frame-safe (T1.3)", () => {
     expect(jsonUtf8ByteLength(frameBody)).toBeLessThan(MAX_MESSAGE_BYTES);
   });
 
-  it("F60 — the same budget bounds the expansion and the reasoning surface", () => {
-    expect(
-      ChildRunExpandResponseSchema.safeParse({
-        runId: RUN_ID,
-        parentRunId: PARENT_RUN_ID,
-        state: "completed",
-        entries: worstCasePage,
-        hasMore: false,
-      }).success,
-    ).toBe(false);
+  // This case parses a frame-sized payload on purpose — REASONING_SURFACE_ENTRIES_MAX
+  // entries of REASONING_ENTRY_CONTENT_MAX_LEN control characters, each encoded as
+  // six JSON bytes — so its cost is the workload, not waste: 0.3 s bare, past the
+  // 5 s default under coverage instrumentation on the runner. The bound is
+  // explicit for the same reason the desktop's instrumented tier states its own.
+  it(
+    "F60 — the same budget bounds the expansion and the reasoning surface",
+    { timeout: 60_000 },
+    () => {
+      expect(
+        ChildRunExpandResponseSchema.safeParse({
+          runId: RUN_ID,
+          parentRunId: PARENT_RUN_ID,
+          state: "completed",
+          entries: worstCasePage,
+          hasMore: false,
+        }).success,
+      ).toBe(false);
 
-    const worstCaseEntries = Array.from(
-      { length: REASONING_SURFACE_ENTRIES_MAX },
-      (_unused, index) => ({
-        sequence: index,
-        content: worstCaseUnit.repeat(REASONING_ENTRY_CONTENT_MAX_LEN),
-        timestamp: TIMESTAMP,
-      }),
-    );
-    expect(jsonUtf8ByteLength(worstCaseEntries)).toBeGreaterThan(MAX_MESSAGE_BYTES);
-    expect(
-      ReasoningSurfaceReadResponseSchema.safeParse({
-        availability: "available",
-        reasoningEntries: worstCaseEntries,
-        hasMore: false,
-      }).success,
-    ).toBe(false);
-    // Positive control on the same axis: the fitted prefix parses.
-    const fitted = countEntriesFittingOneFrame(worstCaseEntries, REASONING_SURFACE_ENTRIES_MAX);
-    expect(fitted).toBeGreaterThan(0);
-    expect(
-      ReasoningSurfaceReadResponseSchema.safeParse({
-        availability: "available",
-        reasoningEntries: worstCaseEntries.slice(0, fitted),
-        hasMore: true,
-        nextCursor: cursor,
-      }).success,
-    ).toBe(true);
-  });
+      const worstCaseEntries = Array.from(
+        { length: REASONING_SURFACE_ENTRIES_MAX },
+        (_unused, index) => ({
+          sequence: index,
+          content: worstCaseUnit.repeat(REASONING_ENTRY_CONTENT_MAX_LEN),
+          timestamp: TIMESTAMP,
+        }),
+      );
+      expect(jsonUtf8ByteLength(worstCaseEntries)).toBeGreaterThan(MAX_MESSAGE_BYTES);
+      expect(
+        ReasoningSurfaceReadResponseSchema.safeParse({
+          availability: "available",
+          reasoningEntries: worstCaseEntries,
+          hasMore: false,
+        }).success,
+      ).toBe(false);
+      // Positive control on the same axis: the fitted prefix parses.
+      const fitted = countEntriesFittingOneFrame(worstCaseEntries, REASONING_SURFACE_ENTRIES_MAX);
+      expect(fitted).toBeGreaterThan(0);
+      expect(
+        ReasoningSurfaceReadResponseSchema.safeParse({
+          availability: "available",
+          reasoningEntries: worstCaseEntries.slice(0, fitted),
+          hasMore: true,
+          nextCursor: cursor,
+        }).success,
+      ).toBe(true);
+    },
+  );
 
   it("the budget is the frame cap less a reserve, and the measure is exact", () => {
     expect(TIMELINE_PAGE_MAX_BYTES).toBe(MAX_MESSAGE_BYTES - TIMELINE_PAGE_FRAME_RESERVE_BYTES);
