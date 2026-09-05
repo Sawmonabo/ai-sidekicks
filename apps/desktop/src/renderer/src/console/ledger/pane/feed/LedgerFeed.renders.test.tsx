@@ -25,7 +25,7 @@
 //
 // The mount is composed here rather than taken from `LedgerFeedFixtures.test-support.tsx`
 // because this case needs the PARENT in its hands, which that helper deliberately
-// does not expose — `LedgerFeedSeats.test.tsx`' precedent, for its reason.
+// does not expose — `LedgerFeed.seats.test.tsx`' precedent, for its reason.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

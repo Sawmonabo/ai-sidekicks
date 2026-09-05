@@ -8,8 +8,8 @@
 // and assert the seam rather than the pieces.
 //
 // The feed's other three subjects are their own files, on this package's ~400-line
-// rule: `LedgerFeedAbsences.test.tsx`, `LedgerFeedReplay.test.tsx`, and
-// `LedgerFeedSeats.test.tsx`. The scaffolding they share is `LedgerFeedFixtures.test-support.tsx`.
+// rule: `LedgerFeed.absences.test.tsx`, `LedgerFeed.replay.test.tsx`, and
+// `LedgerFeed.seats.test.tsx`. The scaffolding they share is `LedgerFeedFixtures.test-support.tsx`.
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

@@ -13,7 +13,7 @@
 /* --- The provenance rail -------------------------------------------------- */
 
 /*
- * The strip is the hit target and the canvas is the ink. `structure/rail-model.ts`
+ * The strip is the hit target and the canvas is the ink. `structure/rail/rail-model.ts`
  * fixes the strip at ≥32 px with a dead gutter, and the gutter is what the difference
  * between the two widths IS: a pointer aimed a little wide still lands on the rail
  * rather than on the pane behind it, and a pointer aimed at the pane is not stolen by

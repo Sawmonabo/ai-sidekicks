@@ -51,13 +51,15 @@ export function ledgerFixtureEventId(sequence: number): string {
 }
 
 /**
- * Two participants whose PREFERRED wheel step is the same, so which of them takes
- * it is decided by admission order and by nothing else.
+ * The first of two participants whose PREFERRED wheel step is the same, so which of
+ * them takes it is decided by admission order and by nothing else.
  *
  * The collision is the instrument: with distinct preferred steps both orders agree
- * and the cases that use it would pass over either allocator.
+ * and the cases that use this pair would pass over either allocator.
  */
 export const EARLY_JOINER = "participant-alba";
+
+/** The second of that pair — the one whose preferred step is already taken. */
 export const LATE_JOINER = "participant-enzo";
 
 /** A real store holding a log of `count` run events, oldest first. */
@@ -108,19 +110,12 @@ export function openStoreWhereJoinOrderIsNotEventOrder(): SessionStore {
   return sessionStore;
 }
 
-/** One run's id, so a case can name the chapter it expects a header for. */
+/** A run that has ENDED, so a case can name the chapter it expects a header for. */
 export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
+
+/** A run still going, so a case can tell an open chapter from a closed one. */
 export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
 
-/**
- * A log with two participants, two event families, and a rollback boundary.
- *
- * Built for the narrowing cases, and shaped so the load-bearing rule can fail: the
- * boundary carries a DIFFERENT actor from the run it belongs to, so admitting the
- * agent's rows admits the boundary only if the filter's second pass does its job.
- * With one actor throughout, a filter that had dropped the boundary rule entirely
- * would still have passed.
- */
 /**
  * A session id the CONTRACT accepts, which the boundary arm's payload needs.
  *
@@ -150,6 +145,15 @@ export function filterableRowId(sequence: number): string {
   return projectedRowId(FILTERABLE_SESSION_ID, sequence);
 }
 
+/**
+ * A log with two participants, two event families, and a rollback boundary.
+ *
+ * Built for the narrowing cases, and shaped so the load-bearing rule can fail: the
+ * boundary carries a DIFFERENT actor from the run it belongs to, so admitting the
+ * agent's rows admits the boundary only if the filter's second pass does its job.
+ * With one actor throughout, a filter that had dropped the boundary rule entirely
+ * would still have passed.
+ */
 export function openSessionStoreWithFilterableLog(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: FILTERABLE_SESSION_ID });
   sessionStore.initialise({

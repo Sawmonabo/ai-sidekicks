@@ -4,7 +4,7 @@
 // absences, the narrowing, the replay dock, and the two seats — and every one of
 // them needs the same three things: a laid-out box, a mount under a bridge, and a
 // way to press a contributed palette row. Written once here, on
-// `ledger/structure/row-fixtures.ts`' terms: a module beside the code it serves,
+// `ledger/structure/timeline-rows.test-support.ts`' terms: a module beside the code it serves,
 // consumed by tests and by nothing else.
 //
 // THE LOGS ARE NOT HERE. A store builder needs no DOM and no React, and the pane's

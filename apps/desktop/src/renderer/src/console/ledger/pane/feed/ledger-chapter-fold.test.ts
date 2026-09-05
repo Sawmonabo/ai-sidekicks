@@ -1,6 +1,6 @@
 // The chapter fold, driven with no store and no React — what it admits per row.
 //
-// `LedgerFeedRows.test.tsx` proves the fold reaches the screen; this file proves what
+// `LedgerFeed.rows.test.tsx` proves the fold reaches the screen; this file proves what
 // it selects, which the mounted feed cannot show at this size: the cases below need a
 // run longer than the chapter cap, and a virtualized feed mounts a range rather than
 // a window whatever the fold admitted.

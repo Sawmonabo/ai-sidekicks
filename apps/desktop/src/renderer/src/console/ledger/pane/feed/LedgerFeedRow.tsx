@@ -29,7 +29,7 @@
 //
 // AND THE RENDERER IS THE SEAT'S, handed down from the pane and stable for the life of
 // the registration. A caller that rebuilt it per render would move this memo on every
-// render, which is the defect `LedgerFeedRenders.test.tsx` drives one level up.
+// render, which is the defect `LedgerFeed.renders.test.tsx` drives one level up.
 
 import { memo, useCallback } from "react";
 
