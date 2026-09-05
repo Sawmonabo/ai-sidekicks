@@ -15,7 +15,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
 import { SessionStore } from "../../store/index.js";
 import { PROJECTION_SESSION_ID } from "./agent-console.test-support.js";
-import { AgentConsolePane } from "./AgentConsolePane.js";
+import { AgentConsoleBody } from "./AgentConsoleBody.js";
 
 /** The agent every owned-pane case is pointed at. */
 export const OWNED_AGENT_ID = "agent-scout";
@@ -33,7 +33,7 @@ export function projectingStore(): SessionStore {
 /** Mount the pane over a store and a bridge the case owns. */
 export function renderOwnedPane(bridge: ConsoleBridge, sessionStore?: SessionStore): HTMLElement {
   const { container } = render(
-    <AgentConsolePane
+    <AgentConsoleBody
       sessionId={PROJECTION_SESSION_ID}
       agentId={OWNED_AGENT_ID}
       bridge={bridge}

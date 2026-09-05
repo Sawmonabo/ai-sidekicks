@@ -29,7 +29,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { RUN_LIFECYCLE_PROJECTORS } from "../../frame/run-lifecycle-projector.js";
 import { SessionStore } from "../../store/index.js";
 import { settleReads } from "./agent-console.test-support.js";
-import { AgentConsolePane } from "./AgentConsolePane.js";
+import { AgentConsoleBody } from "./AgentConsoleBody.js";
 
 const FIRST_SESSION_ID = "session-first";
 const SECOND_SESSION_ID = "session-second";
@@ -138,7 +138,7 @@ function switchState(container: HTMLElement): boolean | undefined {
 
 function pane(bridge: ConsoleBridge, sessionStore: SessionStore): React.JSX.Element {
   return (
-    <AgentConsolePane
+    <AgentConsoleBody
       sessionId={sessionStore.sessionId}
       agentId={OWNED_AGENT_ID}
       bridge={bridge}

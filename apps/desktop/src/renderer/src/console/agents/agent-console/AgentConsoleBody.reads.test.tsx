@@ -5,8 +5,8 @@
 // case drives a store this file owns rather than the played scenario's. A scenario
 // that already carried both would assert nothing about either.
 //
-// What the pane DRAWS is `AgentConsolePane.render.test.tsx`; how long a linkage read
-// lives once it is keyed is `AgentConsolePane.linkage-lifetime.test.tsx`.
+// What the pane DRAWS is `AgentConsoleBody.render.test.tsx`; how long a linkage read
+// lives once it is keyed is `AgentConsoleBody.linkage-lifetime.test.tsx`.
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -16,7 +16,7 @@ import {
   OWNED_AGENT_ID,
   projectingStore,
   renderOwnedPane,
-} from "./agent-console-pane.test-support.js";
+} from "./agent-console-body.test-support.js";
 import {
   PROJECTION_SESSION_ID,
   bridgeReadingProjection,

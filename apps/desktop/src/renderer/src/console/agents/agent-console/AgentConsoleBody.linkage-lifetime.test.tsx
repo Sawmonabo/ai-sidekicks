@@ -20,13 +20,13 @@ import {
   OWNED_AGENT_ID,
   projectingStore,
   renderOwnedPane,
-} from "./agent-console-pane.test-support.js";
+} from "./agent-console-body.test-support.js";
 import {
   PROJECTION_SESSION_ID,
   bridgeReadingProjection,
   settleReads,
 } from "./agent-console.test-support.js";
-import { AgentConsolePane } from "./AgentConsolePane.js";
+import { AgentConsoleBody } from "./AgentConsoleBody.js";
 
 /** A fixture bridge whose child-link reads are counted by the run they asked about. */
 interface LinkageCountingBridge {
@@ -168,7 +168,7 @@ describe("agent console — the linkage read's lifetime", () => {
     const counted = linkageCountingBridge();
     const sessionStore = projectingStore();
     const view = render(
-      <AgentConsolePane
+      <AgentConsoleBody
         sessionId={PROJECTION_SESSION_ID}
         agentId={OWNED_AGENT_ID}
         bridge={counted.bridge}

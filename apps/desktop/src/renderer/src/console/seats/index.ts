@@ -184,20 +184,38 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
-// named by all six pane-body tasks; `PaneControls` and its context are named by the one
-// that builds the deck, which is the only host that provides them.
+// The pane chrome and the seam its two host controls travel on, and four markers now
+// in three different states — which is the marker rule working rather than three
+// spellings of one thing.
+//
+// `ConsolePaneChrome` and `paneBodyForKind` carry NOTHING: the agent console's deck
+// mount composes the chrome around its body through both, so each has a production
+// reader and a surviving `@consumedBy` would fail the dead-code gate under
+// `--treat-tag-hints-as-errors` rather than exempt anything.
+//
+// `PaneContextOf` keeps its TAG, minus this task. That mount takes its narrowing from
+// the callback's own inference and never names the type, and the five bodies still to
+// land are what the exemption is now for.
+//
+// `PaneControlsContext` swaps its tag for the `// Consumed by` LINE, which is the other
+// half of the same rule. The agent console is one of the two kinds the window model can
+// open, so whether its deck mount reaches the chrome decides whether the detach control
+// can be drawn at all — and the only honest way to assert that is to provide the host's
+// controls through the seam a deck provides them through, which its mounts' suite now
+// does. A test reader makes knip's exemption unnecessary and is not the production
+// reader the barrel census wants, so the claim moves to the marker the package standard
+// pairs with exactly that case. `PaneControls` keeps its tag: the value a deck
+// constructs is still nobody's until the deck lands, and that reader hands the provider
+// an inline object rather than naming the type.
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ConsolePaneChrome,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   paneBodyForKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type PaneContextOf,
 } from "./ConsolePaneChrome.js";
 
 export {
-  /** @consumedBy T-023p-1C-2 */
+  // Consumed by T-023p-1C-2
   PaneControlsContext,
   /** @consumedBy T-023p-1C-2 */
   type PaneControls,

@@ -5,8 +5,11 @@
 // The agent card and its binding vocabulary, the two forms that move a binding
 // (attach and the provider-axis switch), the settlement projection those replies are
 // read through, the peer-invocation grant, the child-run linkage view, the seat for a
-// body another plan authors, and the agent console — the pane body that composes all
-// of them.
+// body another plan authors, and the agent console — the body that composes all of
+// them, plus the window frame the second of its two mounts draws around it. The FIRST
+// mount draws no frame of this family's: the deck wraps this body in the console's one
+// pane chrome, which lives in `seats/` because the deck that provides its host controls
+// is itself a view family.
 //
 // WHY THE AGENT CONSOLE'S BODY IS IN THIS FAMILY AND NOT IN `panes/`
 //
@@ -51,11 +54,12 @@ import "./run-console/run-console.css";
 // it leaves this family through the door rather than by a deep import.
 export { SidekickDefinitionsPage } from "./definitions/DefinitionsPage.js";
 
-// The agent console's two mounts. Straight from the module that DECLARES them rather
-// than through a door of that directory's own, which would be the barrel chain
-// `console-no-barrel-chain` fails. `panes/index.ts` calls the pane registrar from its
-// own reserved line and `collaboration-family.ts` calls the surface one, so the two
-// composition sites reach one module through one door.
+// The agent console's two mounts — the deck's pane kind, wearing the shared chrome, and
+// the auxiliary window's surface slot, wearing its own heading. Straight from the module
+// that DECLARES them rather than through a door of that directory's own, which would be
+// the barrel chain `console-no-barrel-chain` fails. `panes/index.ts` calls the pane
+// registrar from its own reserved line and `collaboration-family.ts` calls the surface
+// one, so the two composition sites reach one module through one door.
 export {
   registerAgentConsolePane,
   registerAgentConsoleSurface,

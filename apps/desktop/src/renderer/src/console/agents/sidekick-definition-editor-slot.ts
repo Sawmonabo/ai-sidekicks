@@ -4,7 +4,7 @@
 // was. The one surface that mounts it — the agent console — is inside this family, so
 // a mount reaching the door for it would close a cycle the moment the door published
 // the console's own registrars: `index.ts` → `agent-console/agent-console-mounts.ts`
-// → `AgentConsolePane.tsx` → `SidekickDefinitionEditorMount.tsx` → `index.ts`, which
+// → `AgentConsoleBody.tsx` → `SidekickDefinitionEditorMount.tsx` → `index.ts`, which
 // `no-circular` fails. A door that DECLARES rather than re-exports is what makes an
 // intra-family consumer unable to reach the symbol deeply, so the declaration moved to
 // a module of its own and the door re-exports it like every other name it carries.

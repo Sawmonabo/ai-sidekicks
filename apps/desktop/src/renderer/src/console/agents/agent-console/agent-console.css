@@ -1,38 +1,26 @@
-/* The agent console's own styles.
+/* The agent console's own styles: the body's columns, and the window's own head.
  *
- * Two equal columns at pane width and one column when the pane is narrow: this body
- * is mounted both in the deck, where it may be half a window wide, and as a whole
- * auxiliary window, where it is not. The breakpoint is on the CONTAINER rather than
- * the viewport for exactly that reason — the same body, two very different widths,
- * and a viewport query would answer about the wrong box in the deck.
+ * TWO BLOCKS BECAUSE THERE ARE TWO FRAMES. `meridian-agent-console` is the BODY, and
+ * it is mounted inside two different frames — the deck's `meridian-pane`, drawn by
+ * `seats/ConsolePaneChrome`, and this file's own window block. Nothing here draws a
+ * pane head, a pane border, or a focus ring any more: the chrome's sheet owns all
+ * three for every pane kind in the console, and a second set of rules here would be
+ * this family answering a question the chrome settles.
+ *
+ * Two equal columns at body width and one column when the body is narrow: it may be
+ * half a window wide in the deck and a whole window on its own. The breakpoint is on
+ * the CONTAINER rather than the viewport for exactly that reason — the same body, two
+ * very different widths, and a viewport query would answer about the wrong box in the
+ * deck.
  */
 
 .meridian-agent-console {
   container-type: inline-size;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--meridian-space-5);
   padding: var(--meridian-space-5);
-  min-height: 100%;
-}
-
-.meridian-agent-console__head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-}
-
-.meridian-agent-console__title {
-  margin: 0;
-  font-size: var(--meridian-text-lg);
-  font-weight: 500;
-  color: var(--meridian-text);
-}
-
-.meridian-agent-console__subject {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
 }
 
 .meridian-agent-console__columns {
@@ -66,4 +54,35 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--meridian-text-faint);
+}
+
+/* --- The window mount --------------------------------------------------- */
+
+/* The auxiliary window's own frame. It carries the surface's full height so the body
+   below the head is what grows, which is what the body's `flex: 1 1 auto` fills — the
+   deck's `meridian-pane__body` gives it the same job on the other mount. */
+.meridian-agent-console-window {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.meridian-agent-console-window__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  padding: var(--meridian-space-5) var(--meridian-space-5) 0;
+}
+
+.meridian-agent-console-window__title {
+  margin: 0;
+  font-size: var(--meridian-text-lg);
+  font-weight: 500;
+  color: var(--meridian-text);
+}
+
+.meridian-agent-console-window__subject {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
 }
