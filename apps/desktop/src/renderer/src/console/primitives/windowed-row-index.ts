@@ -22,10 +22,20 @@
 // caller renders against is therefore always a position in the CURRENT set, and the
 // remembered move is what is discarded, never the list's reachability.
 //
-// FOCUS IS ONLY EVER TAKEN, NEVER GIVEN BACK. The effect moves focus for a key this
-// handler itself consumed, so it cannot steal focus from elsewhere on the page:
-// nothing sets the pending flag but the handler, and the handler runs only on a key
-// delivered to the list.
+// FOCUS IS ONLY EVER TAKEN, NEVER GIVEN BACK, AND THE CLAIM EXPIRES. The effect
+// moves focus for a key this handler itself consumed, so nothing sets the pending
+// claim but the handler and the handler runs only on a key delivered to the list.
+// That says who arms it and not how long it lives, and a claim that never expires is
+// the second half of the defect: a move whose row the window never mounted left a
+// standing flag, so an unrelated store update thirty seconds later — a render this
+// list did not cause and the reader had long since tabbed away from — found the row
+// mounted and pulled focus out of whatever they were typing in. So the claim names
+// the row it was armed for and the mounted window it was armed against, and it is
+// consumed exactly once: it focuses that row, or it is dropped. It is dropped when
+// the set narrowed under it and the index now points at a DIFFERENT row (focusing
+// there would answer a key press about row 39 by moving to row 4), and it is dropped
+// after one window change that did not bring the row in — one retry, which is what
+// an asynchronous `revealIndex` needs, and not a standing claim on the page's focus.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -135,39 +145,65 @@ export interface WindowedRovingIndex {
 }
 
 /**
+ * A move waiting for its row to mount, and the two facts that bound it.
+ *
+ * `rowIndex` is the row the key press asked for, so a set that narrows underneath
+ * is answered by dropping the move rather than by focusing whichever row the clamp
+ * now points at. `armedAtWindowRevision` is the mounted window the move was armed
+ * against, so "the window has not answered yet" and "the window answered and this
+ * row was not in it" are distinguishable — the first is worth one more render, the
+ * second is over.
+ */
+interface PendingRowFocus {
+  readonly rowIndex: number;
+  readonly armedAtWindowRevision: unknown;
+}
+
+/**
  * One tab stop, arrow keys inside it, and the moved-to row focused once it mounts.
  */
 export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): WindowedRovingIndex {
   const { rowCount, anchorIndex, containerRef, revealIndex, windowRevision } = options;
   const [movedToIndex, setMovedToIndex] = useState<number | undefined>(undefined);
-  const pendingFocus = useRef(false);
+  const pendingFocus = useRef<PendingRowFocus | undefined>(undefined);
 
   const activeIndex = clampedRowIndex(movedToIndex ?? anchorIndex, rowCount);
 
   useEffect(() => {
-    if (!pendingFocus.current) {
+    const pending = pendingFocus.current;
+    if (pending === undefined) {
+      return;
+    }
+    if (pending.rowIndex !== activeIndex) {
+      // The set narrowed under the move, so the index now names a row nobody asked
+      // for. Dropped rather than followed: answering a key press about row 39 by
+      // focusing row 4 is a different act, not a smaller one.
+      pendingFocus.current = undefined;
       return;
     }
     const row = containerRef.current?.querySelector<HTMLElement>(
       `[${WINDOWED_ROW_INDEX_ATTRIBUTE}="${String(activeIndex)}"]`,
     );
     if (row === null || row === undefined) {
-      // The window has not mounted it yet. The flag stays set and this effect runs
-      // again on the render that brings the row in — which is what `windowRevision`
-      // is a dependency for.
+      if (!Object.is(pending.armedAtWindowRevision, windowRevision)) {
+        // The window changed and this row was not in it. A `revealIndex` that
+        // scrolls asynchronously gets exactly that one change to answer; past it
+        // the claim on the page's focus is dropped rather than left standing for
+        // whatever renders next.
+        pendingFocus.current = undefined;
+      }
       return;
     }
+    // Consumed here, before the focus call, so every path out of this effect has
+    // spent the claim exactly once.
+    pendingFocus.current = undefined;
     const target = row.matches(FOCUSABLE_WITHIN_ROW)
       ? row
       : row.querySelector<HTMLElement>(FOCUSABLE_WITHIN_ROW);
     if (target === null) {
       // A row with nothing focusable in it is a row the keyboard cannot land on.
-      // The flag is cleared rather than left armed, so the next window change does
-      // not chase a target that will never exist.
-      pendingFocus.current = false;
       return;
     }
-    pendingFocus.current = false;
     target.focus();
   }, [activeIndex, containerRef, windowRevision]);
 
@@ -179,11 +215,11 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       }
       keyEvent.preventDefault();
       const moved = movedRowIndex(move, activeIndex, rowCount);
-      pendingFocus.current = true;
+      pendingFocus.current = { rowIndex: moved, armedAtWindowRevision: windowRevision };
       setMovedToIndex(moved);
       revealIndex(moved);
     },
-    [activeIndex, revealIndex, rowCount],
+    [activeIndex, revealIndex, rowCount, windowRevision],
   );
 
   return { activeIndex, onKeyDown };

@@ -12,6 +12,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { WindowedListRow } from "./WindowedListRow.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "./windowed-row-index.js";
 
 function renderRow(element: React.JSX.Element): HTMLElement {
   const { container } = render(element);
@@ -104,5 +105,27 @@ describe("WindowedListRow — fail-closed on an index that is not a position", (
     const row = renderRow(<WindowedListRow as="li" rowIndex={4} totalRowCount={5} />);
     expect(row.getAttribute("aria-setsize")).toBe("5");
     expect(row.getAttribute("aria-posinset")).toBe("5");
+  });
+
+  it("withholds the index attribute the keyboard resolves against", () => {
+    // The rule applied to the member a person actually moves through the list with.
+    // `windowed-row-index.ts` resolves `[data-index="N"]` with `querySelector`,
+    // which takes the FIRST match, so two rows written with the same out-of-range
+    // index are one row to the keyboard — a position claimed in the one place the
+    // ARIA pair had just refused to claim it.
+    for (const rowIndex of [-1, 5, 1.5, Number.NaN]) {
+      const row = renderRow(<WindowedListRow as="li" rowIndex={rowIndex} totalRowCount={5} />);
+      expect(row.hasAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE), `index ${String(rowIndex)}`).toBe(
+        false,
+      );
+    }
+  });
+
+  it("negative control: a row that holds a position still carries it", () => {
+    // Without this the withholding above would also be satisfied by a component
+    // that never wrote the attribute at all, which is a list no keyboard can move
+    // through.
+    const row = renderRow(<WindowedListRow as="li" rowIndex={3} totalRowCount={5} />);
+    expect(row.getAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE)).toBe("3");
   });
 });

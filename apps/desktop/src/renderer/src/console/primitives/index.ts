@@ -1,9 +1,18 @@
 // The primitives door.
 //
-// Every console surface imports its primitives from here, and the stylesheet is
+// Every console surface imports its primitives from here, and every sheet is
 // imported exactly once — here — so a surface can never render a primitive that
-// arrived without its CSS, and the bundler sees one edge into the sheet rather than
-// one per component.
+// arrived without its CSS, and the bundler sees one edge per sheet rather than one
+// per component.
+//
+// ONE SHEET PER PRIMITIVE, and the rule `apps/desktop/AGENTS.md` sets is about the
+// door rather than about the count: "a family's CSS is imported from that family's
+// barrel and from nowhere else". The single sheet these were split out of had
+// reached 720 lines over a dozen unrelated primitives — two jobs by that file's own
+// standard several times over — and a stylesheet nobody can hold in their head is
+// where a second treatment for one thing gets added without anybody noticing. The
+// order below is the cascade's: `shared.css` first because the focus ring and the
+// hidden region qualify everything after it, then one sheet per primitive.
 //
 // `wire-figures.js` is re-exported through the same door on purpose: the formatting
 // rule (`Spec-023 §Console Design (Meridian)` §The eight rules) is that a figure is
@@ -16,7 +25,16 @@
 // caller that wants keycaps are reading one table. It lives in this family rather
 // than in `palette/` so a primitive never imports upward.
 
-import "./primitives.css";
+import "./shared.css";
+import "./accent-fill.css";
+import "./glyph.css";
+import "./figure.css";
+import "./chip.css";
+import "./chord.css";
+import "./nothing.css";
+import "./refusal.css";
+import "./ledger-row.css";
+import "./partial-read.css";
 
 export type { GlyphName } from "./Glyph.js";
 export { Glyph } from "./Glyph.js";
@@ -49,12 +67,22 @@ export type {
   ReadingState,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   ReadingStateKind,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  RefusalScope,
 } from "./partial-read.js";
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   READING_STATE_KINDS,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  partialReadNotice,
+  REFUSAL_SCOPES,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  behindProducerReading,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  partialReadNotices,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  readingNoticeFor,
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  unreadableDeliveryReading,
 } from "./partial-read.js";
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
@@ -64,6 +92,43 @@ export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   PartialRead,
 } from "./PartialRead.js";
+
+// The reading's sentence, said out loud. Through the door because it is the ONLY
+// route a surface has to the announcer for this case: a family that wrote its own
+// "announce once" latch would be the second latch, and one that made its own region
+// would be the second speaker `LiveAnnouncerProvider` forbids.
+export {
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  useReadingAnnouncement,
+} from "./reading-announcement.js";
+
+// A window's own cap, which is a different fact from a read's completeness — see the
+// module header for why the two vocabularies sit beside each other rather than one
+// inside the other.
+export type {
+  /** @consumedBy T-023p-1C-3 */
+  WindowAbsence,
+  /** @consumedBy T-023p-1C-3 */
+  WindowAbsenceKind,
+  /** @consumedBy T-023p-1C-3 */
+  WindowAbsenceNotice,
+} from "./window-absence.js";
+export {
+  /** @consumedBy T-023p-1C-3 */
+  WINDOW_ABSENCE_KINDS,
+  /** @consumedBy T-023p-1C-3 */
+  windowAbsenceNotice,
+  /** @consumedBy T-023p-1C-3 */
+  windowAbsenceNotices,
+} from "./window-absence.js";
+export type {
+  /** @consumedBy T-023p-1C-3 */
+  WindowAbsencesProps,
+} from "./WindowAbsences.js";
+export {
+  /** @consumedBy T-023p-1C-3 */
+  WindowAbsences,
+} from "./WindowAbsences.js";
 
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */

@@ -21,12 +21,23 @@
 // between a `<ul>` and its items is not. A list whose semantics are the element's
 // passes `"li"`; a grid whose semantics are its roles passes `"div"` and the role.
 //
-// FAIL-CLOSED ON AN INDEX THAT IS NOT A POSITION. A row index outside the
-// enumeration cannot be clamped into a neighbour's position — that would attribute
-// the row to a place in the list it does not hold, which is the same error as
-// clamping a participant hue into someone else's colour. The row instead declares the
-// set size UNKNOWN, which `aria-setsize="-1"` means exactly, and claims no position
-// at all. A reader is told less rather than told something false.
+// FAIL-CLOSED ON AN INDEX THAT IS NOT A POSITION, ON EVERY MEMBER THAT CARRIES ONE.
+// A row index outside the enumeration cannot be clamped into a neighbour's position
+// — that would attribute the row to a place in the list it does not hold, which is
+// the same error as clamping a participant hue into someone else's colour. The row
+// instead declares the set size UNKNOWN, which `aria-setsize="-1"` means exactly,
+// and claims no position at all. A reader is told less rather than told something
+// false.
+//
+// The index ATTRIBUTE is one of those members and not an exemption from the rule.
+// It is what the roving keyboard resolves a move against, and it is resolved with
+// `querySelector`, which takes the first match — so two rows written with the same
+// out-of-range index are one row as far as the keyboard is concerned. A row that
+// withheld its position from a screen reader and still offered it to the keyboard
+// would be fail-closed in the tree and fail-open in the one place a person moves
+// through the list, so the attribute is omitted on exactly the same predicate. A row
+// with no position is a row the keyboard cannot land on, which the effect that reads
+// it already handles.
 
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "./windowed-row-index.js";
 
@@ -61,16 +72,16 @@ export function WindowedListRow(props: WindowedListRowProps): React.JSX.Element 
   const isPosition =
     Number.isInteger(props.rowIndex) && props.rowIndex >= 0 && props.rowIndex < props.totalRowCount;
 
-  // Assembled once and spread, because the two members are one claim: a row that
-  // carried a set size and no position, or the reverse, would be a half-made
-  // statement about where it sits, and the pair is what the console's own gate
-  // reads.
+  // Assembled once and spread, because the three members are one claim: a row that
+  // carried a set size and no position, or an index attribute and neither, would be
+  // a half-made statement about where it sits, and the ARIA pair is what the
+  // console's own gate reads.
   const rowProps = {
     className: props.className,
     style: props.style,
     role: props.role,
     tabIndex: props.isTabbable === undefined ? undefined : props.isTabbable ? 0 : -1,
-    [WINDOWED_ROW_INDEX_ATTRIBUTE]: props.rowIndex,
+    [WINDOWED_ROW_INDEX_ATTRIBUTE]: isPosition ? props.rowIndex : undefined,
     "aria-setsize": isPosition ? props.totalRowCount : UNKNOWN_SET_SIZE,
     "aria-posinset": isPosition ? props.rowIndex + 1 : undefined,
   };

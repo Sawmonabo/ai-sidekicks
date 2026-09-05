@@ -1,9 +1,10 @@
-// The notice, rendered — and the one thing it must never do.
+// The notices, rendered — and the one thing they must never do.
 //
-// The model's test proves the sentence set; this proves the box. Three claims:
-// a served reading renders nothing at all, every other state renders something a
-// person can see, and the cause reaches the screen through the refusal primitive
-// rather than as prose this component wrote.
+// The model's test proves the sentence set; this proves the box. Four claims: a set
+// of served readings renders nothing at all, every other state renders something a
+// person can see, the cause reaches the screen through the refusal primitive rather
+// than as prose this component wrote, and the tree carries exactly one live region
+// per notice — the one the nested primitive already owns.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -23,19 +24,25 @@ const PARSE_REFUSAL = refuse(
 const STATE_BY_KIND: Readonly<Record<ReadingStateKind, ReadingState>> = {
   served: { kind: "served" },
   reading: { kind: "reading" },
-  refused: { kind: "refused", refusal: PARSE_REFUSAL },
+  refused: { kind: "refused", scope: "beside-an-answer", refusal: PARSE_REFUSAL },
+  stale: { kind: "stale", refusal: PARSE_REFUSAL },
   partial: { kind: "partial", unreadableCount: 3, newestRefusal: PARSE_REFUSAL },
   cut: { kind: "cut", servedCount: 12 },
 };
 
-function renderNotice(state: ReadingState): HTMLElement {
-  const { container } = render(<PartialRead state={state} subject={SUBJECT} />);
+/** Every element that is a live region, however it is spelled. */
+function liveRegions(container: HTMLElement): readonly Element[] {
+  return [...container.querySelectorAll('[role="status"], [role="alert"], [aria-live]')];
+}
+
+function renderNotice(...states: readonly ReadingState[]): HTMLElement {
+  const { container } = render(<PartialRead states={states} subject={SUBJECT} />);
   return container;
 }
 
 describe("PartialRead — a surface says less than complete, never more", () => {
-  it("renders nothing for a served reading", () => {
-    expect(renderNotice(STATE_BY_KIND.served).innerHTML).toBe("");
+  it("renders nothing when every reading served", () => {
+    expect(renderNotice({ kind: "served" }, { kind: "served" }).innerHTML).toBe("");
   });
 
   it("renders something visible for every other state", () => {
@@ -46,6 +53,17 @@ describe("PartialRead — a surface says less than complete, never more", () => 
       const container = renderNotice(STATE_BY_KIND[kind]);
       expect(container.innerHTML, `the ${kind} state rendered nothing`).not.toBe("");
     }
+  });
+
+  it("mounts one notice per reading a surface holds", () => {
+    // The mechanism, not the discipline: a served snapshot beside an unreadable tail
+    // is one notice, and two incomplete readings are two.
+    const container = renderNotice(
+      { kind: "served" },
+      STATE_BY_KIND.partial,
+      STATE_BY_KIND.refused,
+    );
+    expect(container.querySelectorAll(".meridian-partial-read").length).toBe(2);
   });
 
   it("negative control: the emptiness check reads the real tree", () => {
@@ -73,29 +91,76 @@ describe("PartialRead — what each arm puts on screen", () => {
     expect(copy?.querySelector(".meridian-figure--wire")).toBeNull();
   });
 
+  it("leads a whole-sentence arm with no figure at all", () => {
+    const copy = renderNotice(STATE_BY_KIND.stale).querySelector(".meridian-partial-read__copy");
+    expect(copy?.querySelector(".meridian-figure--derived")).toBeNull();
+    expect(copy?.textContent?.startsWith("Some of what arrived")).toBe(true);
+  });
+
   it("renders the in-flight read as the not-loaded absence and not as prose", () => {
     const container = renderNotice(STATE_BY_KIND.reading);
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
-    // One live region, not two: the absence carries its own `role="status"`, so the
-    // prose wrapper must not be around it announcing the same sentence again.
     expect(container.querySelector(".meridian-partial-read")).toBeNull();
-  });
-
-  it("contributes one live region of its own, whichever arm it renders", () => {
-    // Its own, measured by discounting the refusal primitive's: rule 9 gives a
-    // refusal its region and this notice does not get to take it away. What must
-    // not happen is the notice adding a SECOND region of its own beside it, which
-    // is what a wrapper per arm would have produced.
-    for (const kind of ["refused", "partial", "cut"] as const) {
-      const container = renderNotice(STATE_BY_KIND[kind]);
-      expect(
-        container.querySelectorAll('[role="status"]:not(.meridian-refusal)').length,
-        `${kind} regions`,
-      ).toBe(1);
-    }
   });
 
   it("renders no refusal where the state carries none", () => {
     expect(renderNotice(STATE_BY_KIND.cut).querySelector(".meridian-refusal")).toBeNull();
+  });
+});
+
+describe("PartialRead — the console keeps one announcer", () => {
+  /**
+   * How many regions each arm's tree is entitled to, and whose they are.
+   *
+   * Every one belongs to a primitive this component MOUNTS — rule 9's refusal region
+   * on the three arms that carry a refusal, rule 8's `not-loaded` region on the
+   * in-flight arm. The `cut` arm carries neither, and it is the arm that makes the
+   * claim checkable: a wrapper of this component's own would show up there as a
+   * region with no owner.
+   */
+  const REGIONS_BY_KIND: Readonly<Record<ReadingStateKind, number>> = {
+    served: 0,
+    reading: 1,
+    refused: 1,
+    stale: 1,
+    partial: 1,
+    cut: 0,
+  };
+
+  it("creates no live region of its own on any arm", () => {
+    // `LiveAnnouncerProvider` states the absolute this holds to: one announcer per
+    // window, and no other component making a region. A wrapper here was a second
+    // region announcing the same sentence, nested inside the refusal's own — which
+    // is announced by both, and which mounts with its content already in it, the
+    // shape screen readers do not reliably announce at all.
+    for (const kind of READING_STATE_KINDS) {
+      const container = renderNotice(STATE_BY_KIND[kind]);
+      expect(liveRegions(container).length, `${kind} regions`).toBe(REGIONS_BY_KIND[kind]);
+    }
+  });
+
+  it("leaves the regions it does mount with the primitive that owns them", () => {
+    // Not merely "one region" but "the refusal's region": a wrapper that took rule
+    // 9's region away and put its own around it would also count one.
+    const refusalRegion = liveRegions(renderNotice(STATE_BY_KIND.partial))[0];
+    expect(refusalRegion?.classList.contains("meridian-refusal")).toBe(true);
+    const absenceRegion = liveRegions(renderNotice(STATE_BY_KIND.reading))[0];
+    expect(absenceRegion?.classList.contains("meridian-nothing")).toBe(true);
+  });
+
+  it("writes the aria-live attribute nowhere", () => {
+    // The absolute as written: the provider's pair are the only `aria-live` nodes in
+    // the console, and they are the only ones carrying `aria-atomic` with it.
+    for (const kind of READING_STATE_KINDS) {
+      const container = renderNotice(STATE_BY_KIND[kind]);
+      expect(container.querySelectorAll("[aria-live]").length, `${kind}`).toBe(0);
+    }
+  });
+
+  it("negative control: the region scan finds the regions that are there", () => {
+    // Without this the counts above would also be satisfied by a query that matched
+    // nothing, which would make every arm look clean including a wrapper-bearing one.
+    expect(liveRegions(renderNotice(STATE_BY_KIND.reading)).length).toBe(1);
+    expect(REGIONS_BY_KIND.cut).toBeLessThan(REGIONS_BY_KIND.partial);
   });
 });

@@ -1,0 +1,66 @@
+/*
+ * `box-sizing` is stated on every primitive that pairs a fixed size with a border.
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 3 — amber
+ * means a person is needed, red means something failed.
+ * The generated base sheet sets no global `border-box` reset, and a token-driven
+ * height that silently grows by its own boundary is a row of chips that no longer
+ * shares a baseline with the text beside it.
+ */
+.meridian-chip {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  block-size: 1.375rem;
+  max-inline-size: 100%;
+  padding-inline: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.meridian-chip__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meridian-chip--mono .meridian-chip__label {
+  font-family: var(--meridian-font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/* `neutral` is the common case and is the base rule above: no colour at all. */
+
+.meridian-chip--attention {
+  border-color: var(--meridian-amber-mark);
+  background: var(--meridian-amber-ground);
+  color: var(--meridian-amber-text);
+}
+
+.meridian-chip--failure {
+  border-color: var(--meridian-red-mark);
+  background: var(--meridian-red-ground);
+  color: var(--meridian-red-text);
+}
+
+.meridian-chip--accent {
+  border-color: var(--meridian-accent);
+  background: transparent;
+  color: var(--meridian-accent-text);
+}
