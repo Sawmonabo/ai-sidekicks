@@ -16,9 +16,9 @@
 // chokepoints take toward the console's own source: name the one module that may do
 // the thing, and assert nothing else does.
 //
-// THE INSTRUMENT IS SOURCE TEXT, and it has to be: "this gate draws its module set
-// from the shared walk" is a claim about how a test file is written, which no type
-// and no runtime assertion inside those tests can reach.
+// THE INSTRUMENT IS THE PARSER over source text, and it has to be: "this gate draws its
+// module set from the shared walk" is a claim about how a test file is written, which no
+// type and no runtime assertion inside those tests can reach.
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -253,12 +253,11 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
     // reads them itself, a sixth opinion about what counts as source wearing a different
     // shape — names the reader nowhere and was therefore outside its own subject.
     //
-    // The subject is now every gate that reads a FILE at all, which is decidable from
-    // the read rather than from the gate's compliance, and the escape is DERIVED rather
-    // than listed: a gate whose reads reach no renderer path holds no opinion about what
-    // counts as console source. The tier gates that read a harness, the CI workflow, or
-    // a launched body's own text are that, and they pass without anybody adding them to
-    // a list.
+    // The subject is now every gate that reads a FILE at all, decidable from the read
+    // rather than from the gate's compliance, and the escape is DERIVED rather than
+    // listed: a gate whose reads reach no renderer path — the tier gates that read a
+    // harness, the CI workflow, or a launched body's own text — holds no opinion about
+    // what counts as console source and passes without being added to a list.
     const readers = gates.filter(
       (gate) => gate !== FORM_DECLARING_GATE && readsAFile(readArchitectureGate(gate)),
     );
@@ -271,8 +270,8 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
   });
 
   it("negative control: the walk scan reads an import and not a mention of one", () => {
-    // Both sides of the line, against the predicate rather than against whichever gate
-    // happens to name a walk in prose today — this file's own header does.
+    // Both sides, against the predicate rather than against whichever gate names a walk
+    // in prose today — this file's own header does.
     expect(directoryWalkImports('import { readdirSync } from "node:fs";', "probe.ts")) //
       .toStrictEqual(["readdirSync"]);
     // The three spellings the text needles missed, each measured passing them.
