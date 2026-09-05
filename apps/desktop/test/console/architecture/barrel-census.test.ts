@@ -36,9 +36,10 @@
 //         says so; it cannot wherever knip already counts the specifier referenced,
 //         which is why the retirement is stated here too.
 //
-// The rule itself is `barrel-census.ts` beside this file, so the controls below can
-// hand it corpora written to fail. The walk stays here, where the source-walk
-// chokepoint can see that it is the shared one.
+// The rule itself is `barrel-census.ts` beside this file, and the reading it judges
+// is `barrel-syntax.ts` beside that, so the controls below can hand either one
+// corpora written to fail. The walk stays here, where the source-walk chokepoint can
+// see that it is the shared one.
 
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,8 +57,8 @@ import {
   findingLines,
   isConsoleBarrel,
   starReexportingBarrels,
-  type CensusModule,
 } from "./barrel-census.js";
+import type { CensusModule } from "./barrel-syntax.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEST_CONSOLE_ROOT = resolve(HERE, "..");
@@ -256,6 +257,53 @@ describe("barrel census — the rule, against corpora written to fail it", () =>
     // The tag covers the entry it precedes and no more: the second name is untagged
     // and unread, so it is still a finding.
     expect(findingLines(censusFindings([declaringModule, multiTagged]))).toStrictEqual([
+      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_GAP_PX — reached only by no importer at all`,
+    ]);
+  });
+
+  it("attributes a trailing claim to the specifier it decorates", () => {
+    // The placement `apps/desktop/AGENTS.md` describes for the line form is
+    // trailing, and it is the natural one to write. A reader that ended an entry at
+    // the comma read this claim as belonging to the name on the NEXT line.
+    const trailingOnFirst = syntheticModule(
+      `${CONSOLE_PREFIX}/tokens/index.ts`,
+      'export {\n  RING_WIDTH_PX, // Consumed by T-023p-1C-2\n  RING_GAP_PX,\n} from "./palette.js";\n',
+    );
+
+    expect(findingLines(censusFindings([declaringModule, trailingOnFirst]))).toStrictEqual([
+      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_GAP_PX — reached only by no importer at all`,
+    ]);
+  });
+
+  it("keeps a trailing claim written against the LAST name in a clause", () => {
+    // Nothing follows it, so a reader that flushed its entry on the comma and its
+    // claim with it discarded this one outright.
+    const trailingOnLast = syntheticModule(
+      `${CONSOLE_PREFIX}/tokens/index.ts`,
+      'export {\n  RING_GAP_PX,\n  RING_WIDTH_PX, // Consumed by T-023p-1C-2\n} from "./palette.js";\n',
+    );
+
+    expect(findingLines(censusFindings([declaringModule, trailingOnLast]))).toStrictEqual([
+      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_GAP_PX — reached only by no importer at all`,
+    ]);
+  });
+
+  it("reports both halves of a stale claim and the neighbour it used to exempt", () => {
+    // The negative control for the two cases above, and the smallest corpus a
+    // comma-flushing reader passed WHOLE: the claim moved one name down, so
+    // `RING_WIDTH_PX` read as unclaimed with a production reader and `RING_GAP_PX`
+    // read as claimed with none. Two findings in one clause, and neither reported.
+    const staleClaim = syntheticModule(
+      `${CONSOLE_PREFIX}/tokens/index.ts`,
+      'export {\n  RING_WIDTH_PX, // Consumed by T-023p-1C-2\n  RING_GAP_PX,\n} from "./palette.js";\n',
+    );
+    const doorReader = syntheticModule(
+      `${CONSOLE_PREFIX}/frame/Ring.tsx`,
+      'import { RING_WIDTH_PX } from "../tokens/index.js";\n',
+    );
+
+    expect(findingLines(censusFindings([declaringModule, staleClaim, doorReader]))).toStrictEqual([
+      `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — claimed, and already imported in production; delete the claim`,
       `${CONSOLE_PREFIX}/tokens/index.ts :: RING_GAP_PX — reached only by no importer at all`,
     ]);
   });

@@ -8,19 +8,15 @@
 // a parameter for exactly that reason; the walk that produces the real one stays in
 // the gate, where `source-walk-chokepoint.test.ts` can see it.
 //
-// THE INSTRUMENT IS SOURCE TEXT, and it has to be: whether a name travels through a
-// barrel or straight from the module that declares it is a property of the specifier
-// someone wrote, which no type and no runtime value reports. The clause reading is
-// the posture `bridge/growth-values/index.test.ts` established for its own census.
+// THE RULE, and `barrel-syntax.ts` beside it is the READING. Nothing here touches a
+// syntax tree: it is handed the door specifiers, the reaches, and the claim on each
+// name, and it decides which of them fail. The two jobs fail in two ways — a reading
+// defect drops a clause out of the universe, a rule defect judges the universe
+// wrongly — and neither module can hide the other's.
 
 import { posix } from "node:path";
 
-/** One module the census reads, keyed by its path from the package root. */
-export interface CensusModule {
-  readonly path: string;
-  readonly source: string;
-  readonly isTest: boolean;
-}
+import { readModuleSyntax, type CensusModule, type ModuleSyntax } from "./barrel-syntax.js";
 
 /** One `export { name } from "./module.js"` entry in a barrel. */
 export interface BarrelSpecifier {
@@ -66,31 +62,6 @@ interface ImportEdge {
 /** How many doors a symbol may travel through before the resolver calls it a cycle. */
 const MAX_DOOR_HOPS = 8;
 
-/**
- * The two forms a specifier names its future consumer in, both already in the tree.
- *
- * `@consumedBy` is the JSDoc tag `knip.json` admits as its one per-symbol exemption,
- * and it is what a specifier carries wherever the dead-code gate would otherwise
- * report the symbol. `// Consumed by` is the line comment `apps/desktop/AGENTS.md`
- * describes for the same claim where no exemption is being asked for — a tag knip
- * does not need is a tag `--treat-tag-hints-as-errors` fails the run on. This census
- * reads the CLAIM, so both forms answer it, and the rule below retires either one.
- */
-const CLAIM_MARKERS: readonly string[] = ["@consumedBy", "Consumed by"];
-
-const EXPORT_CLAUSE = /export\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"([^"]+)"/g;
-const IMPORT_CLAUSE = /import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*"([^"]+)"/g;
-const NAMESPACE_IMPORT = /import\s+\*\s+as\s+[A-Za-z_$][\w$]*\s+from\s*"([^"]+)"/g;
-const STAR_REEXPORT = /export\s+\*(?:\s+as\s+[A-Za-z_$][\w$]*)?\s+from\s*"([^"]+)"/g;
-
-/**
- * One clause entry at a time: a comment, a comma, or a word.
- *
- * The comment arms come first so a tag naming several tasks — whose commas would
- * otherwise split one entry into three — is consumed whole.
- */
-const CLAUSE_TOKEN = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|[A-Za-z_$][\w$]*|,/g;
-
 /** A console family door or sub-module door. */
 export function isConsoleBarrel(path: string): boolean {
   return path.includes("/console/") && path.endsWith("/index.ts");
@@ -98,26 +69,7 @@ export function isConsoleBarrel(path: string): boolean {
 
 /** Every barrel specifier in the module set, in walk order. */
 export function barrelSpecifiers(modules: readonly CensusModule[]): readonly BarrelSpecifier[] {
-  const known = new Set(modules.map((module) => module.path));
-  const specifiers: BarrelSpecifier[] = [];
-  for (const module of modules) {
-    if (!isConsoleBarrel(module.path)) {
-      continue;
-    }
-    for (const [, clauseBody, specifier] of module.source.matchAll(EXPORT_CLAUSE)) {
-      const fromPath = resolveSpecifier(module.path, specifier ?? "", known);
-      for (const entry of clauseEntries(clauseBody ?? "")) {
-        specifiers.push({
-          barrelPath: module.path,
-          exportedName: entry.exported,
-          localName: entry.local,
-          fromPath,
-          claimed: entry.claimed,
-        });
-      }
-    }
-  }
-  return specifiers;
+  return specifiersOf(readModuleSyntax(modules));
 }
 
 /**
@@ -127,15 +79,15 @@ export function barrelSpecifiers(modules: readonly CensusModule[]): readonly Bar
  * clean census means less than it says wherever one appears.
  */
 export function starReexportingBarrels(modules: readonly CensusModule[]): readonly string[] {
-  return modules
-    .filter((module) => isConsoleBarrel(module.path))
-    .filter((module) => new RegExp(STAR_REEXPORT.source).test(module.source))
+  return readModuleSyntax(modules)
+    .filter((module) => isConsoleBarrel(module.path) && module.forwardsUnnamedSet)
     .map((module) => module.path);
 }
 
 /** Every specifier the gate's rule fails, in walk order. */
 export function censusFindings(modules: readonly CensusModule[]): readonly CensusFinding[] {
-  const specifiers = barrelSpecifiers(modules);
+  const syntax = readModuleSyntax(modules);
+  const specifiers = specifiersOf(syntax);
   const specifiersByModule = new Map<string, BarrelSpecifier[]>();
   for (const entry of specifiers) {
     const forModule = specifiersByModule.get(entry.barrelPath) ?? [];
@@ -145,7 +97,7 @@ export function censusFindings(modules: readonly CensusModule[]): readonly Censu
   const productionIdentities = new Set<string>();
   const productionDoorReads = new Set<string>();
   const testImportersBySpecifier = new Map<string, Set<string>>();
-  for (const edge of importEdges(modules)) {
+  for (const edge of importEdges(syntax)) {
     if (edge.importerPath === edge.targetPath) {
       continue;
     }
@@ -212,35 +164,48 @@ export function findingLines(findings: readonly CensusFinding[]): readonly strin
   });
 }
 
-/** Every entry a clause lists, with the tag that precedes each one. */
-function clauseEntries(
-  clauseBody: string,
-): readonly { readonly local: string; readonly exported: string; readonly claimed: boolean }[] {
-  const entries: { local: string; exported: string; claimed: boolean }[] = [];
-  let words: string[] = [];
-  let claimed = false;
-  const flush = (): void => {
-    const named = words.filter((word) => word !== "type");
-    const first = named[0];
-    if (named.length === 1 && first !== undefined) {
-      entries.push({ local: first, exported: first, claimed });
-    } else if (named.length === 3 && named[1] === "as" && first !== undefined) {
-      entries.push({ local: first, exported: named[2] ?? first, claimed });
+/** Every door line a console barrel publishes, resolved against the module set. */
+function specifiersOf(modules: readonly ModuleSyntax[]): readonly BarrelSpecifier[] {
+  const known = new Set(modules.map((module) => module.path));
+  const specifiers: BarrelSpecifier[] = [];
+  for (const module of modules) {
+    if (!isConsoleBarrel(module.path)) {
+      continue;
     }
-    words = [];
-    claimed = false;
-  };
-  for (const [token] of clauseBody.matchAll(CLAUSE_TOKEN)) {
-    if (token.startsWith("/")) {
-      claimed = claimed || CLAIM_MARKERS.some((marker) => token.includes(marker));
-    } else if (token === ",") {
-      flush();
-    } else {
-      words.push(token);
+    for (const door of module.doorSpecifiers) {
+      if (door.moduleSpecifier === undefined) {
+        continue;
+      }
+      specifiers.push({
+        barrelPath: module.path,
+        exportedName: door.exportedName,
+        localName: door.localName,
+        fromPath: resolveSpecifier(module.path, door.moduleSpecifier, known),
+        claimed: door.claimed,
+      });
     }
   }
-  flush();
-  return entries;
+  return specifiers;
+}
+
+/** Every import and re-export edge that stays inside the module set. */
+function importEdges(modules: readonly ModuleSyntax[]): readonly ImportEdge[] {
+  const known = new Set(modules.map((module) => module.path));
+  const edges: ImportEdge[] = [];
+  for (const module of modules) {
+    for (const reach of module.reaches) {
+      const targetPath = resolveSpecifier(module.path, reach.moduleSpecifier, known);
+      if (targetPath !== null) {
+        edges.push({
+          importerPath: module.path,
+          isTest: module.isTest,
+          targetPath,
+          names: reach.names,
+        });
+      }
+    }
+  }
+  return edges;
 }
 
 /**
@@ -252,10 +217,10 @@ function clauseEntries(
  */
 function resolveSpecifier(
   fromPath: string,
-  specifier: string,
+  specifier: string | undefined,
   known: ReadonlySet<string>,
 ): string | null {
-  if (!specifier.startsWith(".")) {
+  if (specifier === undefined || !specifier.startsWith(".")) {
     return null;
   }
   const base = posix.join(posix.dirname(fromPath), specifier).replace(/\.js$/, "");
@@ -265,39 +230,6 @@ function resolveSpecifier(
     }
   }
   return null;
-}
-
-/** Every import and re-export edge in the module set. */
-function importEdges(modules: readonly CensusModule[]): readonly ImportEdge[] {
-  const known = new Set(modules.map((module) => module.path));
-  const edges: ImportEdge[] = [];
-  for (const module of modules) {
-    for (const pattern of [IMPORT_CLAUSE, EXPORT_CLAUSE]) {
-      for (const [, clauseBody, specifier] of module.source.matchAll(pattern)) {
-        const targetPath = resolveSpecifier(module.path, specifier ?? "", known);
-        if (targetPath !== null) {
-          edges.push({
-            importerPath: module.path,
-            isTest: module.isTest,
-            targetPath,
-            names: clauseEntries(clauseBody ?? "").map((entry) => entry.local),
-          });
-        }
-      }
-    }
-    for (const [, specifier] of module.source.matchAll(NAMESPACE_IMPORT)) {
-      const targetPath = resolveSpecifier(module.path, specifier ?? "", known);
-      if (targetPath !== null) {
-        edges.push({
-          importerPath: module.path,
-          isTest: module.isTest,
-          targetPath,
-          names: "namespace",
-        });
-      }
-    }
-  }
-  return edges;
 }
 
 /**
