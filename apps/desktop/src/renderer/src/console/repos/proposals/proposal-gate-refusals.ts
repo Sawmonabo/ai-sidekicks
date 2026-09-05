@@ -79,6 +79,23 @@ export function actionNotAcceptedRefusal(
   );
 }
 
+/**
+ * A preparation the daemon served in a state this console has no reading for.
+ *
+ * The received word is carried verbatim and quoted, because the participant's next
+ * question is which state came back — and paraphrasing it would be the console
+ * describing a value it did not author. Nothing was sent: preparation is the step
+ * before any remote mutation, so the honest sentence says the proposal was not held
+ * rather than that an act failed.
+ */
+export function preparedStateUnreadableRefusal(receivedState: unknown): ConsoleRefusal {
+  return refuse(
+    PROPOSAL_GATE_REFUSAL_ORIGIN,
+    "prepared-state-unreadable" satisfies ProposalGateRefusalCode,
+    `The daemon prepared this proposal in a state this console has no reading for (${JSON.stringify(receivedState)}), so it was not held. Nothing was sent.`,
+  );
+}
+
 /** Put one act's failure on the gate, beside the control that produced it. */
 export function recordActionRefusal(
   host: ProposalGateActionHost,

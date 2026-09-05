@@ -79,7 +79,6 @@ export type {
 export type { GrowthAttentionPreference } from "./attention.js";
 
 export {
-  // Consumed by T-023p-1C-5
   GROWTH_PR_PREPARATION_STATES,
   type GrowthBranchContext,
   type GrowthBranchContextReadRequest,

@@ -9,11 +9,12 @@
 
 import { describe, expect, it } from "vitest";
 
+import { GROWTH_PR_PREPARATION_STATES } from "../../bridge/index.js";
 import {
   PROPOSAL_BLOB_UNRENDERABLE,
   PROPOSAL_MEMBERS_NOT_ON_THE_WIRE,
   PROPOSAL_MEMBER_UNSUPPLIED_COPY,
-  PROPOSAL_STATES,
+  isProposalState,
   proposalBlobRows,
   proposalContextKeyOf,
   proposalContextKeysMatch,
@@ -21,12 +22,24 @@ import {
 } from "./prepared-proposal.js";
 
 describe("the proposal vocabularies — declared once, and closed where the wire closes them", () => {
-  it("negative control: the proposal state vocabulary is the wire's own two words and no host verdict", () => {
-    // A tuple can hold two of the wrong members, so the members themselves are
-    // asserted — and a host-side state leaking in here would let the gate report a
-    // proposal as open or merged before anything reached a host.
-    expect([...PROPOSAL_STATES]).toStrictEqual(["draft", "ready"]);
-    expect([...PROPOSAL_STATES]).not.toContain("open");
+  it("admits the wire's own words and refuses a host verdict", () => {
+    // The vocabulary itself is the BRIDGE's — this family aliases it rather than
+    // declaring a twin — so what is asserted here is the guard the gate reads it
+    // through. A host-side state passing would let the gate report a proposal as open
+    // or merged before anything reached a host.
+    for (const state of GROWTH_PR_PREPARATION_STATES) {
+      expect(isProposalState(state)).toBe(true);
+    }
+    expect(isProposalState("open")).toBe(false);
+    expect(isProposalState("merged")).toBe(false);
+  });
+
+  it("negative control: the guard is not a typeof-string check", () => {
+    // Without this, a guard that answered `true` for every string would pass the case
+    // above's positive half and let any word the wire sent through.
+    expect(isProposalState("")).toBe(false);
+    expect(isProposalState(undefined)).toBe(false);
+    expect(isProposalState({ state: "ready" })).toBe(false);
   });
 
   it("gives every unsupplied proposal member a sentence, and no key beyond them", () => {
