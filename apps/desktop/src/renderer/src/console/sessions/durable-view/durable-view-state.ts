@@ -54,8 +54,17 @@ type PersistedValueClassName = Parameters<UiStateStore["writeGlobal"]>[1];
 /** What the chokepoint admits as a value, taken from the chokepoint. */
 type PersistedValue = Parameters<UiStateStore["writeGlobal"]>[2];
 
-/** What one write answered, taken from the chokepoint. */
-type PersistenceWriteOutcome = Awaited<ReturnType<UiStateStore["writeGlobal"]>>;
+/**
+ * What one write answered, taken from the chokepoint.
+ *
+ * Exported because this module's own suite drives the state with a store whose
+ * writes are held at the door, and a test that re-derived the outcome under a second
+ * name would go on type-checking against the store's full return type the day this
+ * module narrowed its own — driving the state with an arm it no longer models while
+ * asserting nothing about the narrowing. `knip.json`'s `ignoreExportsUsedInFile`
+ * means the export costs nothing at the dead-code gate.
+ */
+export type PersistenceWriteOutcome = Awaited<ReturnType<UiStateStore["writeGlobal"]>>;
 
 export interface DurableViewStateOptions<TValue extends PersistedValue> {
   readonly store: UiStateStore;

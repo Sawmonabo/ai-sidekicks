@@ -38,10 +38,6 @@ export const NOTIFICATION_PREFERENCE_REFUSAL_CODES: readonly [
   "record-no-longer-switches",
 ] = ["write-rejected", "record-no-longer-switches"];
 
-/** One code this pair of modules mints. */
-export type NotificationPreferenceRefusalCode =
-  (typeof NOTIFICATION_PREFERENCE_REFUSAL_CODES)[number];
-
 const [
   WRITE_REJECTED_CODE,
   RECORD_NO_LONGER_SWITCHES_CODE,

@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
 import { UiStateStore } from "../../persistence/index.js";
 import { openStore } from "../sessions.test-support.js";
-import { DurableViewState } from "./durable-view-state.js";
+import { DurableViewState, type PersistenceWriteOutcome } from "./durable-view-state.js";
 
 /** The record these cases read and write. Any global key would do; this one is theirs. */
 const VIEW_STATE_KEY = "durable-view-state-test";
@@ -233,9 +233,6 @@ describe("a refusal this state has recovered from", () => {
   });
 });
 
-/** What one write to the chokepoint answers. Derived off the chokepoint, as the state derives it. */
-type StoreWriteOutcome = Awaited<ReturnType<UiStateStore["writeGlobal"]>>;
-
 /**
  * The real store, with every global write stopped at the door until a case admits it.
  *
@@ -254,7 +251,7 @@ class HeldWriteStore extends UiStateStore {
     key: string,
     valueClass: Parameters<UiStateStore["writeGlobal"]>[1],
     value: Parameters<UiStateStore["writeGlobal"]>[2],
-  ): Promise<StoreWriteOutcome> {
+  ): Promise<PersistenceWriteOutcome> {
     this.valuesWritten.push(value);
     const admitted = new Promise<void>((admit) => {
       this.#writesAtDoor.push(admit);

@@ -16,7 +16,16 @@
 // A page lane reaches the section vocabulary and the descriptor shape by importing
 // `settings-page-registry.ts` DEEP, which is what an intra-family import is — this
 // door carries only what crosses the family boundary, which is the two registrars
-// below. A lane edits that module for one reason only: the design placed a page in
+// below.
+//
+// THE ONE PAGE REGISTERED FROM OUTSIDE THIS FAMILY takes `SettingsPageRegistrar`, a
+// one-method view of the registry declared beside it in `settings-page-registry.ts`.
+// It is deliberately not re-exported HERE, and the reason is the graph rather than a
+// preference: this door imports `../sidekicks-settings-page.js` to compose that page,
+// so a type line pointing the other way closes a module cycle and `no-circular` fails.
+// The family still declares what crosses its boundary — it is the narrow interface
+// and not the registry class — and the page holds `register` and nothing else: no
+// rail read, no `unregister`, and no section vocabulary. A lane edits that module for one reason only: the design placed a page in
 // settings and named no section id for it, which is why `sidekicks` is there and
 // why the other twelve are the design's own.
 
