@@ -8,6 +8,7 @@
 import type { ConsoleSessionEvent, EntityProjectorRegistry } from "./entities.js";
 import type { SessionSnapshotReader } from "./open-session-entry.js";
 import type { SessionSnapshot } from "./session-store.js";
+import { eventOfKind } from "./session-event.test-support.js";
 
 /** A reader that establishes nothing. The honest "no wire is registered" answer. */
 export const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
@@ -29,14 +30,7 @@ export const projectors: EntityProjectorRegistry = {
 
 /** One event at `sequence`, carrying the run id the projector reads. */
 export function eventAt(sequence: number, runId: string): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: "session-1",
-    sequence,
-    kind: "run.starting",
-    occurredAt: new Date(Date.UTC(2026, 0, 1, 0, 0, sequence)).toISOString(),
-    payload: { runId },
-  };
+  return eventOfKind("session-1", "run.starting", sequence, { runId });
 }
 
 /** A base state at `cursor` holding nothing, which the read answers with. */

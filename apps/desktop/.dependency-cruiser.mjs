@@ -16,141 +16,39 @@
 // `foo.ts` sources.
 //
 // Paths are relative to `apps/desktop`; run it through `pnpm structure:layering`.
+//
+// The family vocabulary this reasons over — the homes, the ladders, and the named
+// exemptions — is `.dependency-cruiser.families.mjs` beside this file.
 
-/** Console family homes, low to high. A family may import any home below it and none above. */
-const CONSOLE = "^src/renderer/src/console";
-
-// `core/` is the DAG floor: `constants.ts`, `tripwires.ts`, `keyed-registry.ts`, `refusal.ts`,
-// `emitter.ts`, `clock.ts`. Nothing below it, so its rule below is the only one that forbids
-// every other family at once.
-const CORE = `${CONSOLE}/core/`;
-const TOKENS = `${CONSOLE}/tokens/`;
-const ROUTING = `${CONSOLE}/routing/`;
-const PRIMITIVES = `${CONSOLE}/primitives/`;
-const STATE = `${CONSOLE}/(store|persistence)/`;
-const BRIDGE = `${CONSOLE}/bridge/`;
-// `seats/` holds the contracts through which view families hand each other bodies — the
-// pane registry and its kinds and addresses, the composer seat, sidebar sections, the
-// timeline row slot, the inline-card seats. It sits HERE, directly above `bridge/`,
-// because that is the highest family a seat imports; and below `palette/` and `frame/`
-// because the frame composes the pane-registry singleton and a seat reaches for neither.
-// It lived at `workspace/seats/` until this position was named, which made the frame
-// import a VIEW family — the edge the `console-layering-view-families` rule below now
-// forbids outright.
-const SEATS = `${CONSOLE}/seats/`;
-const PALETTE = `${CONSOLE}/palette/`;
-const FRAME = `${CONSOLE}/frame/`;
-
-// The composition sites. `families.ts` and `panes/index.ts` are the two files whose whole
-// job is to name every view family, so they are the one place a downward-only ladder
-// cannot apply: they sit above every family by construction. They are named here so the
-// view-family rule below can subtract them rather than report the console's own entry
-// wiring as a violation.
-const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
-// The pane board is the FILES directly under `panes/`, not the directory. After the
-// pane-body rule below, `panes/` holds composition and nothing else, so a
-// `panes/<something>/` subtree is not a composition site and must not inherit the
-// exemption one gets: with the directory spelled here, a pane body parked under
-// `panes/runs/` would have been subtracted from the view-family set on both endpoints
-// and could import any view family it liked.
-const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
-
-/** Any module under a subdirectory of the pane board — the shape that is forbidden. */
-const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
-
-/**
- * The one cross-family deep specifier the tree still carries, and why it is named here.
- *
- * `frame/surface-registry.ts` declares `ConsoleSurfaceContext` and the registry a view
- * family registers itself into, and a view family cannot import the FRAME's door to
- * reach them: that door composes the view families through `families.ts`, so an import
- * back closes a cycle `no-circular` fails. Its right home is `seats/` — it is a contract
- * through which families hand each other bodies, and it imports nothing above `bridge/`
- * — and the pane registry now travels through the surface context, but the module still
- * sits in `frame/`; moving it is the cross-family structure audit's, at which point this
- * exemption is deleted and the rule covers the whole console. Naming the one module
- * rather than excepting `frame/` keeps the rule's reach exact: a second deep specifier
- * into this family, including one into this same module's neighbours, still fails.
- */
-const FRAME_SURFACE_REGISTRY = `${CONSOLE}/frame/surface-registry\\.ts$`;
-
-/**
- * Test scaffolding, subtracted from the DOOR rule alone and from no other rule here.
- *
- * A `.test-support.*` module is a module like any other — `apps/desktop/AGENTS.md`
- * §Module shape says so — and it stays a subject of every rule in this file that is
- * about module SHAPE: cycles, orphans, the process boundary, the family ordering, and
- * view-family isolation all still bite it. What it cannot be a subject of is the rule
- * that says "import the door instead", because two gates would then contradict each
- * other and leave the module class with no legal form at all:
- * `test/console/architecture/barrel-census.test.ts` fails a door line whose only
- * reader is a test, and the symbols a harness reaches for are exactly that class —
- * `createLiveBridge`, which the shipped console resolves inside the bridge family, and
- * the per-family scenario seats, which `bridge/index.ts`'s own header records as
- * deliberately unpublished so that six family branches each edit one file rather than
- * one shared door.
- *
- * The narrowness is the repair. This subtraction replaces an `options.exclude` entry
- * that removed `.test-support.*` from the graph outright — which took it out of every
- * rule at once, including the orphan rule whose own comment explains why it must stay
- * in — and which landed in the same change as the one import it made legal.
- */
-const TEST_SUPPORT_MODULES = "\\.test-support\\.(ts|tsx)$";
-
-/** Every family door, and only a family door — a sub-module door is one segment deeper. */
-const CONSOLE_FAMILY_DOORS = `${CONSOLE}/[^/]+/index\\.ts$`;
-
-/**
- * Every barrel under `console/` — a family door and a sub-module door alike.
- *
- * Two alternatives rather than one `(?:[^/]+/)*` because dependency-cruiser refuses a rule
- * whose regular expression has a star height above one: a quantified group containing its own
- * quantifier is the catastrophic-backtracking shape, and the cruise bails on it outright
- * rather than running slowly. Measured — the nested form fails with "has an unsafe regular
- * expression. Bailing out."
- */
-const CONSOLE_BARRELS = [`${CONSOLE}/index\\.ts$`, `${CONSOLE}/.+/index\\.ts$`];
-
-/** Every layer family, low to high — the closed set the DAG orders. */
-const LAYER_FAMILIES = [CORE, TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
-
-/**
- * A VIEW family is any console home that is not a layer family and not a composition site.
- *
- * Stated as the COMPLEMENT rather than as a list of directory names, because a list is the
- * exact thing that failed here: the ladders below stopped at `frame/`, so no rule named the
- * view families and `frame/` → `workspace/` passed a gate whose own standard forbids it. A
- * list would have to be extended by each of the seven family branches, and the one that
- * forgot would reopen the same hole silently. The complement needs no line at all when a
- * family lands, and it cannot be forgotten.
- */
-const VIEW_FAMILIES = {
-  path: `${CONSOLE}/`,
-  pathNot: [...LAYER_FAMILIES, COMPOSITION_PANE_BOARD, COMPOSITION_ROOT_FILES],
-};
-
-/** Everything strictly above each family, as one alternation. */
-const ABOVE_CORE = [TOKENS, ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_TOKENS = [ROUTING, PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_ROUTING = [PRIMITIVES, STATE, BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_PRIMITIVES = [STATE, BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_STATE = [BRIDGE, SEATS, PALETTE, FRAME];
-const ABOVE_BRIDGE = [SEATS, PALETTE, FRAME];
-const ABOVE_SEATS = [PALETTE, FRAME];
-const ABOVE_PALETTE = [FRAME];
-
-/** One forbidden rule per family: an edge from that family to anything above it. */
-function upwardEdge(family, fromPath, toPaths) {
-  return {
-    name: `console-layering-${family}`,
-    comment:
-      `\`console/${family}\` sits below the families it imported. Hoist the symbol down to the ` +
-      `lowest family that needs it; never deep-import around the edge.`,
-    severity: "error",
-    from: { path: fromPath },
-    to: { path: toPaths },
-  };
-}
+import {
+  ABOVE_BRIDGE,
+  ABOVE_CORE,
+  ABOVE_PALETTE,
+  ABOVE_PRIMITIVES,
+  ABOVE_ROUTING,
+  ABOVE_SEATS,
+  ABOVE_STATE,
+  ABOVE_TOKENS,
+  BRIDGE,
+  COMPOSITION_PANE_BOARD,
+  COMPOSITION_ROOT_FILES,
+  CONSOLE,
+  CONSOLE_BARRELS,
+  CONSOLE_FAMILY_DOORS,
+  CORE,
+  FRAME_SURFACE_REGISTRY,
+  LAYER_FAMILIES,
+  PALETTE,
+  PANE_BOARD_SUBDIRECTORY,
+  PRIMITIVES,
+  ROUTING,
+  SEATS,
+  STATE,
+  TEST_SUPPORT_MODULES,
+  TOKENS,
+  VIEW_FAMILIES,
+  upwardEdge,
+} from "./.dependency-cruiser.families.mjs";
 
 export default {
   forbidden: [
@@ -242,6 +140,22 @@ export default {
           "sidekick-definitions|mcp-governance)/",
       },
     },
+    {
+      name: "renderer-reaches-console-through-doors",
+      comment:
+        "A renderer subtree OUTSIDE the console deep-imported a console module. Every layering " +
+        "rule here is `from`-scoped to `console/`, so an importer that lives beside the console " +
+        "rather than inside it matches none of them — which is how a Tier-1 subtree came to hold " +
+        "`console/store/subject-scoped-state.js` while three gates reported clean and the door " +
+        "the symbol is published from could have been deleted without one of them noticing. " +
+        "Import the family door instead (`console/store/index.js` publishes the subject-scoped " +
+        "holder for exactly this reason). A symbol no door publishes is a symbol the console has " +
+        "not offered, and reaching around the door inverts that decision rather than respecting " +
+        "it.",
+      severity: "error",
+      from: { path: "^src/renderer/src/(?!console/)" },
+      to: { path: `${CONSOLE}/`, pathNot: CONSOLE_FAMILY_DOORS },
+    },
     upwardEdge("core", CORE, ABOVE_CORE),
     upwardEdge("tokens", TOKENS, ABOVE_TOKENS),
     upwardEdge("routing", ROUTING, ABOVE_ROUTING),
@@ -283,6 +197,27 @@ export default {
       // the ones `$1` removes.
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: VIEW_FAMILIES.pathNot },
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
+    },
+    {
+      name: "console-root-is-composition-only",
+      comment:
+        "A module at the console ROOT that is not one of the enumerated composition sites " +
+        "imported a console module. The root is where a composition lives because a composition " +
+        "is the one thing that may name more than one view family — so a file that lands there " +
+        "and is not on the list is a family importing a sibling with the isolation rule stepped " +
+        "around, which is one `git mv` of work. `console-view-family-isolation` cannot see it: " +
+        "its `from` captures the owning DIRECTORY (`console/<family>/`) so it can subtract that " +
+        "family from its own target set, and a root file has no directory to capture. This rule " +
+        "is that complement, so the console root is closed from the SOURCE side and the " +
+        "enumeration closes it from the target side. A family whose registrar belongs at the " +
+        "root adds one alternative to `COMPOSITION_ROOT_FILES` and names itself doing it.",
+      severity: "error",
+      // Declaration files are subtracted for the reason `no-orphans` subtracts them: they
+      // declare ambient types rather than participate in the graph. `console-env.d.ts`
+      // imports nothing today, so it is an edge source in no cruise — the entry states the
+      // disposition rather than waiting for one that does.
+      from: { path: `${CONSOLE}/[^/]+$`, pathNot: [COMPOSITION_ROOT_FILES, "\\.d\\.ts$"] },
+      to: { path: `${CONSOLE}/` },
     },
     {
       name: "console-cross-family-deep-import",
@@ -363,13 +298,6 @@ export default {
     // Test files are not subjects of the layering DAG: a `console-unit` test legitimately
     // reaches across families to drive the module it covers, and reaches both process trees to
     // assert the boundary between them.
-    //
-    // `*.test-support.*` IS A SUBJECT, and the difference is what the two classes are. A test
-    // file is a leaf nothing imports; scaffolding is a MODULE, imported by name from several
-    // suites, and `apps/desktop/AGENTS.md` §Module shape says so outright — ".test-support.tsx
-    // scaffolding included, since a shared harness is a module like any other". Excluding it
-    // here would exempt it from every layering rule at once, which is how a harness comes to
-    // deep-import past a family door and take four suites with it.
     exclude: { path: "\\.(test|bench)\\.(ts|tsx)$|__tests__/" },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {

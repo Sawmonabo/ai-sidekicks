@@ -53,15 +53,33 @@ export {
 export { formatOklch } from "./color.js";
 
 export type { GlyphName } from "./glyphs.js";
-// The glyph family's drawing constants leave through this door beside its name type,
-// for the same reason every other token does: `primitives/Glyph.tsx` is the one
-// component that draws them, and reaching past this barrel for the module that
-// happens to hold them today would make a move inside this family break a file with
-// no business knowing this family has more than one module.
+// The icon scale — all four steps, because all four are SPENT by surfaces that render
+// a glyph at a named density and have no business knowing which module holds the
+// paths. The default is here with the other three now that `seats/ConsolePaneChrome`
+// draws a pane's kind mark at it; it had been withheld while `primitives/Glyph.tsx`
+// was its only reader, and a door that publishes three steps of a four-step scale
+// makes the fourth look like a private detail rather than the standalone size.
+//
+// THE GEOMETRY LEAVES THROUGH THIS DOOR TOO — the paths, the stroke width, the
+// viewBox — for the same reason every other token does, and not because it has many
+// readers. `Glyph.tsx` is its only one, and it reached past this barrel for the module
+// that happens to hold the constants today; a move inside this family would then break
+// a file with no business knowing this family has more than one module. That is the
+// edge `console-cross-family-deep-import` names, and the fix it names is this one.
 export {
   GLYPH_DEFAULT_SIZE,
   GLYPH_PATHS,
   GLYPH_SIZE_CHROME,
+  /**
+   * The dense step's one reader is the repos family's diff gutter, which is not in
+   * this tree yet — so the step is published and tagged rather than withheld, because
+   * a scale missing its smallest step is not a scale and the family that spends it
+   * would have to mint the value again to use it.
+   *
+   * @consumedBy T-023p-1C-5
+   */
+  GLYPH_SIZE_DENSE,
+  GLYPH_SIZE_ROW,
   GLYPH_STROKE_WIDTH,
   GLYPH_VIEWBOX_SIZE,
 } from "./glyphs.js";

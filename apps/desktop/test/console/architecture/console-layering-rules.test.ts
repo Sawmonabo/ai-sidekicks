@@ -35,8 +35,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   BARREL_CHAIN_RULE,
   CONSOLE_ROOT,
+  CONSOLE_ROOT_RULE,
   DEEP_IMPORT_RULE,
   IMPORTED_PANE_BODY_RULE,
+  OUTSIDE_DOOR_RULE,
   PANE_BODY_RULE,
   PlantedTreeCache,
   VIEW_FAMILY_ISOLATION_RULE,
@@ -45,13 +47,17 @@ import {
 import {
   BARREL_CHAIN_TREE,
   CLEAN_TREE,
+  CONSOLE_ROOT_TREE,
   DEEP_IMPORT_TREE,
+  DEEP_SOURCE_TREE,
   EVERY_PLANTED_TREE,
+  OUTSIDE_RENDERER_TREE,
   PANE_BOARD_DEEP_IMPORT_TREE,
   PANE_BOARD_SUBDIRECTORY_TREE,
   PROOF_TREE,
   RULE_CONTROL_TREES,
   SUB_MODULE_DOOR_TREE,
+  TEST_SUPPORT_SUBTRACTION_TREE,
   VIEW_FAMILY_EDGE_TREE,
 } from "./console-layering-trees.js";
 
@@ -186,6 +192,72 @@ describe("console layering rules", () => {
       ]);
     },
     EVERY_TREE_MS,
+  );
+
+  it(
+    "fails a deep import written from inside a family's own sub-directory",
+    async () => {
+      // The production shape this rule was written for, and the one whose SOURCE depth
+      // could be got wrong: the rule captures the owning family from the first path
+      // segment, so a body two directories in has to resolve to the same owner and be
+      // held to the same target set as one at the family root.
+      expect(await cruiseCache.violationsFor(DEEP_SOURCE_TREE)).toEqual([
+        `${DEEP_IMPORT_RULE}: ${join(CONSOLE_ROOT, "repos/pane/node-presence-model.ts")} → ${join(CONSOLE_ROOT, "bridge/growth-signatures.ts")}`,
+      ]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "exempts a harness from the door rule and nothing else from it",
+    async () => {
+      // THE SUBTRACTION'S OWN CONTROL, and the one arm of this rule set that had none.
+      // Two modules write the SAME edge; only the ordinary one is reported. A pattern
+      // widened by a character would exempt both and this case would read an empty list,
+      // which is the failure it exists to produce.
+      const violations = await cruiseCache.violationsFor(TEST_SUPPORT_SUBTRACTION_TREE);
+      const harness = join(CONSOLE_ROOT, "repos/fixtures.test-support.ts");
+      const ordinary = join(CONSOLE_ROOT, "repos/RepoList.ts");
+      const target = join(CONSOLE_ROOT, "frame/session-lifecycle.ts");
+
+      expect(violations).toContain(`${DEEP_IMPORT_RULE}: ${ordinary} → ${target}`);
+      expect(violations.filter((line) => line.includes(harness))).toEqual([]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "fails a renderer subtree outside the console that reaches past a door",
+    async () => {
+      // The rule every other one here is blind to: they are all `from`-scoped to
+      // `console/`, so an importer beside the console matches none of them. The sibling
+      // that imports the DOOR is planted in the same tree and must not be reported.
+      const outside = join("src", "renderer", "src", "session-bootstrap", "SessionBootstrap.ts");
+      const through = join("src", "renderer", "src", "session-members", "SessionMembers.ts");
+      const violations = await cruiseCache.violationsFor(OUTSIDE_RENDERER_TREE);
+
+      expect(violations).toEqual([
+        `${OUTSIDE_DOOR_RULE}: ${outside} → ${join(CONSOLE_ROOT, "frame/session-lifecycle.ts")}`,
+      ]);
+      expect(violations.filter((line) => line.includes(through))).toEqual([]);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "fails a console root module that is not an enumerated composition site",
+    async () => {
+      // The enumeration as a claim rather than as a ban on root files: `families.ts`
+      // writes the identical edge from the identical directory and is left alone, so a
+      // wildcard restored here would take the rogue module's violation with it.
+      const violations = await cruiseCache.violationsFor(CONSOLE_ROOT_TREE);
+
+      expect(violations).toEqual([
+        `${CONSOLE_ROOT_RULE}: ${join(CONSOLE_ROOT, "rogue-composition.ts")} → ${join(CONSOLE_ROOT, "repos/index.ts")}`,
+      ]);
+      expect(violations.filter((line) => line.includes("families.ts"))).toEqual([]);
+    },
+    ONE_TREE_MS,
   );
 
   it(

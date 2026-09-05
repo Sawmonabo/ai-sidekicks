@@ -121,6 +121,11 @@ export type { SubjectRead } from "./subject-read-start.js";
 // the holder above; a value that owns a subscription or a connection takes this,
 // because the render that seeded it may be one React throws away.
 export { useSubjectScopedResource } from "./subject-scoped-resource.js";
+// The disposal SHAPE travels with the hook, because it is how a caller says which
+// kind of ending its resource has and the hook refuses to guess.
+// The union alone — the two arms are reached by writing one of them, never by naming
+// it, so a door line for each would be a name nothing outside this family ever types.
+export type { SubjectScopedDisposal } from "./subject-scoped-resource.js";
 // The subject key and the publisher a settled read hands its answer through. Both
 // claims retired: `bridge/read-settlement.ts`'s `useSettledGrowthRead` — the one read
 // hook the four growth reads on this seam now share — names both in its signature.
