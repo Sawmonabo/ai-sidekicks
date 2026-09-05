@@ -52,10 +52,9 @@ import {
   deliverWholeScenario,
   ENDURANCE_LAUNCH_OPTIONS,
   expectFlagshipSessionCarriesContent,
-  expectPreciseHeapInstrument,
   openFlagshipSessionRoute,
-  readSettledHeapBytes,
 } from "./console-workload.js";
+import { expectPreciseHeapInstrument, readSettledHeapBytes } from "./heap-instrument.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 import {
   ConsoleBudgetRegistry,

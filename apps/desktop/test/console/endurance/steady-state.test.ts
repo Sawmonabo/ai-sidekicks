@@ -82,17 +82,16 @@ import {
 import {
   churnOnce,
   ENDURANCE_LAUNCH_OPTIONS,
-  expectPreciseHeapInstrument,
   FLAGSHIP_SESSION_ID,
   openFlagshipSessionRoute,
   openSettingsRoute,
   readAppliedEventCount,
   readBoundSessionIds,
   readPlayingScenarioId,
-  readSettledHeapBytes,
   SETTINGS_SURFACE_SELECTOR,
   WORKSPACE_SURFACE_SELECTOR,
 } from "./console-workload.js";
+import { expectPreciseHeapInstrument, readSettledHeapBytes } from "./heap-instrument.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 
 const bundleIsBuilt = fixtureBundleExists();

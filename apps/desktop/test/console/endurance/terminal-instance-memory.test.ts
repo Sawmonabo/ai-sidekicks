@@ -74,7 +74,8 @@ import { describe, expect, it } from "vitest";
 import { withLaunchedConsole } from "../electron-harness.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";
 import { HeapSampler } from "../heap-sampling.js";
-import { enduranceLaunchOptions, expectPreciseHeapInstrument } from "./console-workload.js";
+import { enduranceLaunchOptions } from "./console-workload.js";
+import { expectPreciseHeapInstrument } from "./heap-instrument.js";
 import {
   measureFullScrollbackRetainedBytes,
   requireHeapCollector,
