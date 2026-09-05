@@ -12,7 +12,11 @@ import type { ConsoleBridge } from "../../../bridge/index.js";
 import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
 import { useRunControlSurface } from "../controls/run-control-surface.js";
 import { RunStateProjection, type RunProjection } from "../run-state-projection.js";
-import type { RecordedDaemonCall } from "../../../bridge/fixture-bridge.test-support.js";
+import {
+  createFixture,
+  withDaemonCall,
+  type RecordedDaemonCall,
+} from "../../../bridge/fixture-bridge.test-support.js";
 import { RUN_ID } from "../runs-pane.test-support.js";
 
 /** What the stub daemon answers one call with. Throwing is the refusal arm. */
@@ -27,21 +31,20 @@ export const APPLIED_ROLLBACK: ScriptedAnswer = () => ({
   result: { disposition: "conversation-only" },
 });
 
+/**
+ * The shipped fixture with a call arm this suite answers, recording into the array
+ * the CASE holds.
+ *
+ * `withDaemonCall` keeps a record of its own, and this one takes the caller's array
+ * beside it deliberately: the harness below receives the array as a prop and mounts
+ * the bridge inside itself, so the record a case can read has to be a value it
+ * already held before the mount.
+ */
 export function stubBridge(calls: RecordedDaemonCall[], answer: ScriptedAnswer): ConsoleBridge {
-  return {
-    sidekicks: {
-      daemon: {
-        call: async (method: string, params: unknown): Promise<unknown> => {
-          calls.push({ method, params });
-          return answer();
-        },
-        subscribe: () => () => undefined,
-      },
-    },
-    growth: {},
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
+  return withDaemonCall(createFixture().bridge, async (call) => {
+    calls.push(call);
+    return answer();
+  }).bridge;
 }
 
 export function runAt(state: RunState, runVersion = 8, runId: string = RUN_ID): RunProjection {

@@ -18,7 +18,18 @@ import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ConsoleRefusalError, ManualClock, refuse } from "../core/index.js";
+import { ConsoleRefusalError, refuse } from "../core/index.js";
+import { QUEUE_SUBSCRIBE_STREAM } from "./daemon-streams.js";
+import {
+  withRecordedStreamLifecycle,
+  withUnopenableStream,
+} from "./daemon-streams.test-support.js";
+import {
+  createFixture,
+  withCapturedStream,
+  withDaemonCall,
+  type RecordedDaemonCall,
+} from "./fixture-bridge.test-support.js";
 import { settleScheduledRead } from "./scheduled-read.test-support.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import { useQueueFeed } from "./queue-feed.js";
@@ -48,39 +59,47 @@ const ENVELOPE_SHAPED_DELIVERY = {
   payload: REGISTERED_ROW_DELIVERY,
 };
 
-/** A bridge that hands the test the subscription handler and an empty snapshot. */
+/**
+ * The shipped fixture with the queue snapshot scripted and its stream captured.
+ *
+ * Composed out of the family's own wrappers rather than fabricated. What stood here
+ * was an object cast to `ConsoleBridge`, and the cast is what made it wrong in three
+ * ways at once: it answered EVERY method with a queue snapshot, it captured EVERY
+ * stream rather than the queue's, and it had to carry a hand-made scenario engine
+ * because a cast is not a bridge and has no frozen clock for the scheduler to arm on.
+ * Each wrapper below names the one thing it replaces, and the fixture answers the
+ * rest.
+ *
+ * The recorder is OUTERMOST, and that ordering is load-bearing: the capture answers
+ * the queue stream itself rather than forwarding it, so a recorder inside it would
+ * never see that open and would report every case compliant at zero.
+ */
 function stubBridge(snapshot: readonly unknown[] = []): {
   bridge: ConsoleBridge;
   deliver: (payload: unknown) => void;
-  openedStreams: string[];
-  calledMethods: string[];
+  openedStreams: readonly string[];
+  calls: readonly RecordedDaemonCall[];
 } {
-  let deliverToFeed: (payload: unknown) => void = () => undefined;
-  const openedStreams: string[] = [];
-  const calledMethods: string[] = [];
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (method: string): Promise<unknown> => {
-          calledMethods.push(method);
-          return { items: snapshot };
-        },
-        subscribe: (stream: string, handler: (payload: unknown) => void) => {
-          openedStreams.push(stream);
-          deliverToFeed = handler;
-          return () => undefined;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "fixture",
-    // The snapshot read is scheduled rather than taken inside the open, so this double
-    // carries the frozen clock the scheduler arms on: a case that never advanced it
-    // would assert the absence of a read it gave the scheduler no chance to perform.
-    scenarioEngine: { clock: new ManualClock() },
-  } as unknown as ConsoleBridge;
-  return { bridge, deliver: (payload) => deliverToFeed(payload), openedStreams, calledMethods };
+  const answered = withDaemonCall(createFixture().bridge, async () => ({ items: snapshot }));
+  const captured = withCapturedStream(answered.bridge, QUEUE_SUBSCRIBE_STREAM);
+  const recorded = withRecordedStreamLifecycle(captured.bridge);
+  return {
+    bridge: recorded.bridge,
+    deliver: captured.deliver,
+    openedStreams: recorded.openedStreams,
+    calls: answered.calls,
+  };
+}
+
+/**
+ * The methods a bridge was asked for, read at assert time off its own record.
+ *
+ * A function rather than a member, because the record is live: every case here
+ * destructures at the top and asserts at the bottom, so a mapped copy taken at
+ * destructure time would be empty for the whole of the case.
+ */
+function methodsOf(calls: readonly RecordedDaemonCall[]): readonly string[] {
+  return calls.map((call) => call.method);
 }
 
 /** Reports the feed out of the tree, so a case reads the hook's own answer. */
@@ -163,17 +182,17 @@ function TwoQueueSurfaces(props: {
 
 describe("one session's queue is read once for every surface", () => {
   it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
-    const { bridge, openedStreams, calledMethods } = stubBridge();
+    const { bridge, openedStreams, calls } = stubBridge();
     render(
       <TwoQueueSurfaces bridge={bridge} firstSessionId={SESSION_ID} secondSessionId={SESSION_ID} />,
     );
     await settleScheduledRead(bridge);
     expect(openedStreams).toStrictEqual(["run.subscribeQueue"]);
-    expect(calledMethods).toStrictEqual(["run.queueList"]);
+    expect(methodsOf(calls)).toStrictEqual(["run.queueList"]);
   });
 
   it("negative control: two sessions on one bridge are two readings", async () => {
-    const { bridge, openedStreams, calledMethods } = stubBridge();
+    const { bridge, openedStreams, calls } = stubBridge();
     render(
       <TwoQueueSurfaces
         bridge={bridge}
@@ -183,7 +202,7 @@ describe("one session's queue is read once for every surface", () => {
     );
     await settleScheduledRead(bridge);
     expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
-    expect(calledMethods).toStrictEqual(["run.queueList", "run.queueList"]);
+    expect(methodsOf(calls)).toStrictEqual(["run.queueList", "run.queueList"]);
   });
 
   it("negative control: two bridges are two readings of the same session", async () => {
@@ -210,7 +229,7 @@ describe("one session's queue is read once for every surface", () => {
     // subscribed through the reading it captured at render revived that one — live,
     // open, and outside the registry — and the next surface then minted a second,
     // so one session carried two snapshot reads and two tails.
-    const { bridge, openedStreams, calledMethods } = stubBridge();
+    const { bridge, openedStreams, calls } = stubBridge();
     const view = render(
       <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
@@ -228,7 +247,7 @@ describe("one session's queue is read once for every surface", () => {
     );
     await settleScheduledRead(bridge);
     expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
-    expect(calledMethods).toStrictEqual(["run.queueList", "run.queueList"]);
+    expect(methodsOf(calls)).toStrictEqual(["run.queueList", "run.queueList"]);
   });
 
   it("keeps the successor registered when the reading it replaced goes idle", async () => {
@@ -322,30 +341,16 @@ describe("the queue stream is opened with its registered request", () => {
 });
 
 describe("an unopenable queue stream is a refusal, not a crash", () => {
-  /** A bridge whose subscription throws synchronously, as the shipped live one does. */
+  /** The shipped fixture whose queue subscription throws, as the live one does. */
   function bridgeRefusingTheStream(thrown: unknown): {
     bridge: ConsoleBridge;
-    calledMethods: string[];
+    calls: readonly RecordedDaemonCall[];
   } {
-    const calledMethods: string[] = [];
-    const bridge = {
-      sidekicks: {
-        daemon: {
-          call: async (method: string): Promise<unknown> => {
-            calledMethods.push(method);
-            return { items: [] };
-          },
-          subscribe: () => {
-            throw thrown;
-          },
-        },
-      },
-      growth: {},
-      growthServedOperations: new Set(),
-      source: "fixture",
-      scenarioEngine: undefined,
-    } as unknown as ConsoleBridge;
-    return { bridge, calledMethods };
+    const answered = withDaemonCall(createFixture().bridge, async () => ({ items: [] }));
+    return {
+      bridge: withUnopenableStream(answered.bridge, QUEUE_SUBSCRIBE_STREAM, thrown),
+      calls: answered.calls,
+    };
   }
 
   it("settles refused with the thrown refusal's own code and lets nothing escape", async () => {
@@ -353,7 +358,7 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
     // throw unwind out of `render`, so this case failed as an uncaught exception
     // rather than as an assertion — a mounted surface rendered nothing at all.
     const refusal = refuse("console-daemon-stream", "stream-unavailable", "The daemon is a stub.");
-    const { bridge, calledMethods } = bridgeRefusingTheStream(new ConsoleRefusalError(refusal));
+    const { bridge, calls } = bridgeRefusingTheStream(new ConsoleRefusalError(refusal));
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -366,7 +371,7 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
     expect(held?.readRefusal?.origin).toBe("console-daemon-stream");
     // The snapshot is not attempted: the tail is what keeps the list current, so a
     // list read off a bridge that cannot stream would stop being true immediately.
-    expect(calledMethods).toStrictEqual([]);
+    expect(methodsOf(calls)).toStrictEqual([]);
   });
 
   it("normalizes a rejection that carries no refusal of its own", async () => {
@@ -395,7 +400,7 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
 
 describe("a queued item is cancelled once", () => {
   it("issues one mutation for two synchronous presses on one row", async () => {
-    const { bridge, calledMethods } = stubBridge();
+    const { bridge, calls } = stubBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -413,14 +418,14 @@ describe("a queued item is cancelled once", () => {
       cancelItem(QUEUE_ITEM_ID);
       cancelItem(QUEUE_ITEM_ID);
     });
-    expect(calledMethods.filter((method) => method === "run.queueCancel")).toHaveLength(1);
+    expect(methodsOf(calls).filter((method) => method === "run.queueCancel")).toHaveLength(1);
   });
 
   it("negative control: two rows pressed once each are two mutations", async () => {
     // Without this the case above would pass over a chokepoint that dispatched
     // NOTHING, which is a different defect with the same count. The latch is per id,
     // and this is the case that says so.
-    const { bridge, calledMethods } = stubBridge();
+    const { bridge, calls } = stubBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -432,11 +437,11 @@ describe("a queued item is cancelled once", () => {
       held?.cancelItem(QUEUE_ITEM_A);
       held?.cancelItem(QUEUE_ITEM_B);
     });
-    expect(calledMethods.filter((method) => method === "run.queueCancel")).toHaveLength(2);
+    expect(methodsOf(calls).filter((method) => method === "run.queueCancel")).toHaveLength(2);
   });
 
   it("takes the row's cancel again once the first has settled", async () => {
-    const { bridge, calledMethods } = stubBridge();
+    const { bridge, calls } = stubBridge();
     let held: QueueFeed | undefined;
     render(
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
@@ -452,7 +457,7 @@ describe("a queued item is cancelled once", () => {
     act(() => {
       held?.cancelItem(QUEUE_ITEM_ID);
     });
-    expect(calledMethods.filter((method) => method === "run.queueCancel")).toHaveLength(2);
+    expect(methodsOf(calls).filter((method) => method === "run.queueCancel")).toHaveLength(2);
   });
 
   it("holds one row's cancel without holding another's", async () => {

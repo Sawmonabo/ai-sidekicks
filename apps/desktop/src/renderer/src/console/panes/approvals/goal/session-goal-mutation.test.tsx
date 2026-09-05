@@ -13,6 +13,7 @@ import {
   type GrowthUnavailable,
 } from "../../../bridge/index.js";
 import { createRefusingGrowthPort, growthUnavailable } from "../../../bridge/growth-port.js";
+import { createFixture } from "../../../bridge/fixture-bridge.test-support.js";
 import { useSessionGoalMutation } from "../approvals-hooks.js";
 import { SECOND_SESSION_ID, SESSION_ID } from "../approvals-hooks.test-support.js";
 
@@ -39,21 +40,17 @@ describe("the goal mutation is keyed to the session it mutates", () => {
         settleBySessionId.set(sessionId, resolve);
       });
     };
-    const bridge = {
-      sidekicks: {
-        daemon: {
-          call: async (): Promise<unknown> => undefined,
-          subscribe: () => () => undefined,
-        },
-      },
+    // The shipped fixture with only the two goal arms replaced. Spread over a real
+    // bridge rather than cast from an object, so a hook that reached any other seam
+    // is answered by the fixture rather than by whatever this block remembered.
+    const bridge: ConsoleBridge = {
+      ...createFixture().bridge,
       growth: {
         ...createRefusingGrowthPort(),
         sessionGoalUpdate: park,
         sessionGoalClear: park,
       },
-      source: "fixture",
-      scenarioEngine: undefined,
-    } as unknown as ConsoleBridge;
+    };
     return {
       bridge,
       refuseFor: (sessionId, refusal) => {

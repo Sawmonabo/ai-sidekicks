@@ -8,7 +8,7 @@
 
 import { act, render, screen } from "@testing-library/react";
 import { ApprovalsPane } from "./ApprovalsPane.js";
-import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import {
   createFixtureBridge,
   type ApprovalRecord,
@@ -162,17 +162,15 @@ export interface ApprovalProjectionSource {
  * The growth port is spread over the refusing one, which is the console's shape for
  * standing in for a single operation: an arm this suite does not name refuses by name
  * instead of being absent, so a pane reaching for one renders a refusal rather than
- * failing on `undefined`.
+ * failing on `undefined`. The port is spread over the SHIPPED FIXTURE for the same
+ * reason one layer up — what stood here was an object cast to `ConsoleBridge`, so
+ * this file also decided what the daemon arm answered and had to carry a hand-made
+ * scenario engine to give the reader a clock. Only the two arms this suite scripts
+ * are replaced now, and the frozen clock is the fixture's own.
  */
 export function stubApprovalsBridge(reads: ApprovalProjectionSource): ConsoleBridge {
-  const clock = new ManualClock();
   return {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: () => () => undefined,
-      },
-    },
+    ...createFixtureBridge({ scenario: APPROVALS_SCENARIO }),
     growth: {
       ...createRefusingGrowthPort(),
       approvalProjectionRead: async () => ({ status: "served", value: reads.reply() }),
@@ -181,12 +179,7 @@ export function stubApprovalsBridge(reads: ApprovalProjectionSource): ConsoleBri
         value: { rows: [], unreadableCount: 0 },
       }),
     },
-    source: "fixture",
-    // Shaped so the frozen-clock helper above drives this stub unchanged: the reader
-    // resolves its clock off the scenario engine, and the tier has exactly one way
-    // to move time.
-    scenarioEngine: { clock, advance: (deltaMs: number) => clock.advance(deltaMs) },
-  } as unknown as ConsoleBridge;
+  };
 }
 
 /** A composer holding focus, which is the precondition the focus rule is gated on. */

@@ -6,7 +6,8 @@
 // about what a valid frame looks like.
 
 import { createElement, useEffect } from "react";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { createFixture, drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import { withRecordedStreamLifecycle } from "../../bridge/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -56,27 +57,6 @@ export const ENVELOPE_SHAPED_DELIVERY: EnvelopeShapedDelivery = {
   payload: STATE_CHANGE_DELIVERY,
 };
 
-/** A bridge that records which stream name reached `daemon.subscribe`. */
-export function recordingBridge(): { bridge: ConsoleBridge; openedStreams: string[] } {
-  const openedStreams: string[] = [];
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: (stream: string) => {
-          openedStreams.push(stream);
-          return () => undefined;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
-  return { bridge, openedStreams };
-}
-
 /**
  * Mount the feed against one bridge and one store, and report what it answered.
  *
@@ -109,7 +89,7 @@ export async function mountStateFeed(
   };
 }
 
-/** Open the feed for one session over the recording bridge. */
+/** Open the feed for one session over the shipped fixture, recording what it opened. */
 export async function openStateFeed(
   sessionId: string,
   seed?: (store: SessionStore) => void,
@@ -117,7 +97,7 @@ export async function openStateFeed(
   readonly openedStreams: readonly string[];
   readonly feed: RunStateFeed;
 }> {
-  const { bridge, openedStreams } = recordingBridge();
+  const { bridge, openedStreams } = withRecordedStreamLifecycle(createFixture().bridge);
   const sessionStore = new SessionStore({ sessionId });
   seed?.(sessionStore);
   const readFeed = await mountStateFeed(bridge, sessionStore);

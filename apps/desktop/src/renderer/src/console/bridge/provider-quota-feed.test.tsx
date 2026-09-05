@@ -26,7 +26,17 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock, PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "../core/index.js";
+import { PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP } from "../core/index.js";
+import { PROVIDER_ACCOUNT_SUBSCRIBE_STREAM } from "./daemon-streams.js";
+import {
+  withRecordedStreamLifecycle,
+  type RecordedStreamLifecycle,
+} from "./daemon-streams.test-support.js";
+import {
+  createFixture,
+  withCapturedStream,
+  withDaemonCall,
+} from "./fixture-bridge.test-support.js";
 import { settleScheduledRead } from "./scheduled-read.test-support.js";
 
 import { useProviderQuotas } from "./provider-quota-feed.js";
@@ -93,70 +103,61 @@ interface AccountPlaneOptions {
 }
 
 /**
- * A bridge that answers the registry read and hands the case its own tail.
+ * The shipped fixture answering the registry read, with the case holding the tail.
  *
  * The subscription is captured rather than scripted, because half these cases are
  * about what arrives AFTER the read has settled and a scripted beat would put that
  * moment on the fixture's clock instead of on the case's.
+ *
+ * COMPOSED FROM THE FAMILY'S OWN WRAPPERS, never a fabricated object. What stood here
+ * built `this.bridge` by casting an object literal, which meant this class also
+ * decided what every other seam answered and had to mint a hand-made scenario engine
+ * so the scheduled read had a clock to arm on — a clock the fixture already carries,
+ * and the one `settleScheduledRead` moves.
+ *
+ * The lifecycle recorder is OUTERMOST, and that ordering is load-bearing: the capture
+ * answers the account-plane stream itself rather than forwarding it, so a recorder
+ * inside it would see no open at all and report every case compliant at zero.
  */
 class AccountPlaneBridge {
   readonly bridge: ConsoleBridge;
-  #deliver: ((payload: unknown) => void) | undefined = undefined;
   readonly #parkedReads: (() => void)[] = [];
-  #openCount = 0;
-  #closeCount = 0;
+  readonly #deliverFrame: (payload: unknown) => void;
+  readonly #lifecycle: RecordedStreamLifecycle;
   #listCallCount = 0;
 
   public constructor(
     private readonly reply: unknown,
     private readonly options: AccountPlaneOptions = {},
   ) {
-    this.bridge = {
-      sidekicks: {
-        daemon: {
-          call: async (method: string) => {
-            if (method !== "providerAccount.list") {
-              throw new Error(`unexpected daemon call: ${method}`);
-            }
-            this.#listCallCount += 1;
-            const replyForThisCall =
-              this.#listCallCount === 1 ? this.reply : (this.options.laterReply ?? this.reply);
-            if (this.options.holdsReads !== true) {
-              return replyForThisCall;
-            }
-            return new Promise<unknown>((resolveRead) => {
-              this.#parkedReads.push(() => {
-                resolveRead(replyForThisCall);
-              });
-            });
-          },
-          subscribe: (_event: string, handler: (payload: unknown) => void) => {
-            this.#openCount += 1;
-            this.#deliver = handler;
-            return () => {
-              this.#closeCount += 1;
-              this.#deliver = undefined;
-            };
-          },
-        },
-      },
-      growth: {},
-      growthServedOperations: new Set(),
-      source: "fixture",
-      // The registry read is scheduled rather than taken inside the open, so this
-      // double carries the frozen clock the scheduler arms on: a case that never
-      // advanced it would assert the absence of a read it never let the scheduler
-      // perform.
-      scenarioEngine: { clock: new ManualClock() },
-    } as unknown as ConsoleBridge;
+    const answered = withDaemonCall(createFixture().bridge, async ({ method }) => {
+      if (method !== "providerAccount.list") {
+        throw new Error(`unexpected daemon call: ${method}`);
+      }
+      this.#listCallCount += 1;
+      const replyForThisCall =
+        this.#listCallCount === 1 ? this.reply : (this.options.laterReply ?? this.reply);
+      if (this.options.holdsReads !== true) {
+        return replyForThisCall;
+      }
+      return new Promise<unknown>((resolveRead) => {
+        this.#parkedReads.push(() => {
+          resolveRead(replyForThisCall);
+        });
+      });
+    });
+    const captured = withCapturedStream(answered.bridge, PROVIDER_ACCOUNT_SUBSCRIBE_STREAM);
+    this.#deliverFrame = captured.deliver;
+    this.#lifecycle = withRecordedStreamLifecycle(captured.bridge);
+    this.bridge = this.#lifecycle.bridge;
   }
 
   public get openCount(): number {
-    return this.#openCount;
+    return this.#lifecycle.openCountFor(PROVIDER_ACCOUNT_SUBSCRIBE_STREAM);
   }
 
   public get closeCount(): number {
-    return this.#closeCount;
+    return this.#lifecycle.closeCountFor(PROVIDER_ACCOUNT_SUBSCRIBE_STREAM);
   }
 
   public get listCallCount(): number {
@@ -165,10 +166,7 @@ class AccountPlaneBridge {
 
   /** Push one frame down the tail, exactly as the daemon would. */
   public deliver(payload: unknown): void {
-    if (this.#deliver === undefined) {
-      throw new Error("nothing is subscribed to the account plane");
-    }
-    this.#deliver(payload);
+    this.#deliverFrame(payload);
   }
 
   /**

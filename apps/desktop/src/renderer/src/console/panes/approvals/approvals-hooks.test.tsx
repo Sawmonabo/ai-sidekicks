@@ -8,8 +8,8 @@
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { REFRESH_MAX_WAIT_MS } from "../../core/index.js";
 import { type ConsoleBridge } from "../../bridge/index.js";
+import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
 import {
@@ -116,7 +116,7 @@ describe("the reader is bound to the session it reads", () => {
     // The negative control is the old initializer itself: it handed back the same
     // reader object across the rebind, and every read it performed named the first
     // session — which is the whole finding.
-    const { bridge, clock, calls } = observableBridge();
+    const { bridge, calls } = observableBridge();
     const readers = await mountThenRebind({
       bridge,
       first: initialisedStore(),
@@ -124,9 +124,7 @@ describe("the reader is bound to the session it reads", () => {
     });
     expect(readers.second).not.toBe(readers.first);
 
-    await act(async () => {
-      clock.advance(REFRESH_MAX_WAIT_MS);
-    });
+    await settleScheduledRead(bridge);
     expect(sessionIdsRead(calls)).toContain(SECOND_SESSION_ID);
   });
 

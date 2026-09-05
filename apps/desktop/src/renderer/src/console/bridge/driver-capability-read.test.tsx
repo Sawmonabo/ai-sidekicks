@@ -19,7 +19,9 @@ import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import { ManualClock, REFRESH_MAX_WAIT_MS, type ConsoleRefusal } from "../core/index.js";
+import { type ConsoleRefusal } from "../core/index.js";
+import { bridgeAnswering, type RecordedDaemonCall } from "./fixture-bridge.test-support.js";
+import { settleScheduledRead } from "./scheduled-read.test-support.js";
 import { SessionStore } from "../store/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 import {
@@ -48,62 +50,38 @@ function reportFor(driverName: string, declared: readonly DriverCapabilityFlag[]
 
 interface CountingBridge {
   readonly bridge: ConsoleBridge;
-  readonly methodCalls: string[];
-  readonly clock: ManualClock;
+  readonly calls: readonly RecordedDaemonCall[];
 }
 
 /**
- * A bridge that answers the capability read and records every call it is given.
+ * The shipped fixture answering the capability read, and the record of every call.
  *
  * `answers` is walked in order, so a case about a node whose drivers changed between
  * two reads says so by supplying two replies; the last one stands for every read
  * after it, which is what a node that stopped changing does.
- */
-function bridgeAnswering(...answers: readonly unknown[]): CountingBridge {
-  const methodCalls: string[] = [];
-  const clock = new ManualClock();
-  let answered = 0;
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (method: string) => {
-          methodCalls.push(method);
-          if (method !== "driver.listCapabilities") {
-            return undefined;
-          }
-          const reply = answers[Math.min(answered, answers.length - 1)];
-          answered += 1;
-          return reply;
-        },
-        subscribe: () => () => undefined,
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "fixture",
-    scenarioEngine: { clock },
-  } as unknown as ConsoleBridge;
-  return { bridge, methodCalls, clock };
-}
-
-/**
- * Let the scheduler's window elapse and the read that follows it settle.
  *
- * The absolute deadline rather than the debounce, so a case that asked more than
- * once still reaches a performed read; the awaits drain the promise the call itself
- * is.
+ * Over the family's own `bridgeAnswering` rather than a second one of this file's
+ * own. What stood here was a private function of the same name built on an object
+ * cast to `ConsoleBridge`, which answered every other seam with whatever it happened
+ * to carry and had to mint a hand-made scenario engine so the scheduler had a clock —
+ * a member the fixture already has, and the reason `settleScheduledRead` can now
+ * settle these reads with the same call every other console suite makes.
  */
-async function settleRead(clock: ManualClock): Promise<void> {
-  await act(async () => {
-    clock.advance(REFRESH_MAX_WAIT_MS);
-    await Promise.resolve();
-    await Promise.resolve();
+function answeringCapabilityReads(...answers: readonly unknown[]): CountingBridge {
+  let answered = 0;
+  return bridgeAnswering(async ({ method }) => {
+    if (method !== "driver.listCapabilities") {
+      return undefined;
+    }
+    const reply = answers[Math.min(answered, answers.length - 1)];
+    answered += 1;
+    return reply;
   });
 }
 
 /** How many times one bridge was asked for the declarations. */
 function capabilityCallCount(counted: CountingBridge): number {
-  return counted.methodCalls.filter((method) => method === "driver.listCapabilities").length;
+  return counted.calls.filter((call) => call.method === "driver.listCapabilities").length;
 }
 
 /** One consumer of the read, standing in for a view family that gates on it. */
@@ -131,7 +109,9 @@ function neverRead(): DriverCapabilityReadout {
 
 describe("useDriverCapabilities — one read, every consumer", () => {
   it("asks once for two consumers sharing one bridge", async () => {
-    const counted = bridgeAnswering({ drivers: [reportFor("claude", ["context_compaction"])] });
+    const counted = answeringCapabilityReads({
+      drivers: [reportFor("claude", ["context_compaction"])],
+    });
     const readoutsByLabel = new Map<string, DriverCapabilityReadout | undefined>();
     const record =
       (label: string) =>
@@ -147,7 +127,7 @@ describe("useDriverCapabilities — one read, every consumer", () => {
         </>,
       );
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
 
     expect(capabilityCallCount(counted)).toBe(1);
     // Both consumers see the same settled reading, not one served and one waiting.
@@ -158,8 +138,10 @@ describe("useDriverCapabilities — one read, every consumer", () => {
   });
 
   it("negative control: a second bridge is a second reading and is asked again", async () => {
-    const first = bridgeAnswering({ drivers: [reportFor("claude", ["context_compaction"])] });
-    const second = bridgeAnswering({ drivers: [reportFor("codex", [])] });
+    const first = answeringCapabilityReads({
+      drivers: [reportFor("claude", ["context_compaction"])],
+    });
+    const second = answeringCapabilityReads({ drivers: [reportFor("codex", [])] });
     const readoutsByLabel = new Map<string, DriverCapabilityReadout | undefined>();
     const record =
       (label: string) =>
@@ -175,8 +157,8 @@ describe("useDriverCapabilities — one read, every consumer", () => {
         </>,
       );
     });
-    await settleRead(first.clock);
-    await settleRead(second.clock);
+    await settleScheduledRead(first.bridge);
+    await settleScheduledRead(second.bridge);
 
     expect(capabilityCallCount(first)).toBe(1);
     expect(capabilityCallCount(second)).toBe(1);
@@ -188,7 +170,7 @@ describe("useDriverCapabilities — one read, every consumer", () => {
   });
 
   it("keeps a consumer that mounts late off the wire", async () => {
-    const counted = bridgeAnswering({ drivers: [reportFor("claude", ["steer"])] });
+    const counted = answeringCapabilityReads({ drivers: [reportFor("claude", ["steer"])] });
     const readoutsByLabel = new Map<string, DriverCapabilityReadout | undefined>();
     const record =
       (label: string) =>
@@ -199,7 +181,7 @@ describe("useDriverCapabilities — one read, every consumer", () => {
     await act(async () => {
       render(<CapabilityProbe bridge={counted.bridge} onReadout={record("first")} />);
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
     await act(async () => {
       render(<CapabilityProbe bridge={counted.bridge} onReadout={record("second")} />);
     });
@@ -208,14 +190,14 @@ describe("useDriverCapabilities — one read, every consumer", () => {
     // absence, and its own `subscribe` reason is coalesced into one further read
     // rather than one per consumer.
     expect(declaredFlagsForDriver(readoutsByLabel.get("second"), "claude")?.steer).toBe(true);
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
     expect(capabilityCallCount(counted)).toBe(2);
   });
 });
 
 describe("useDriverCapabilities — a read that failed says so", () => {
   it("settles with the reason when the reply does not parse", async () => {
-    const counted = bridgeAnswering({ drivers: [{ driverName: "claude" }] });
+    const counted = answeringCapabilityReads({ drivers: [{ driverName: "claude" }] });
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
       render(
@@ -227,7 +209,7 @@ describe("useDriverCapabilities — a read that failed says so", () => {
         />,
       );
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
 
     // The gating stays fail-closed — no driver declares anything — and the reason is
     // on the reading rather than swallowed, so a surface can say why its controls went.
@@ -238,23 +220,9 @@ describe("useDriverCapabilities — a read that failed says so", () => {
   });
 
   it("carries the daemon's own code when the daemon rejects the read", async () => {
-    const methodCalls: string[] = [];
-    const clock = new ManualClock();
-    const bridge = {
-      sidekicks: {
-        daemon: {
-          call: async (method: string) => {
-            methodCalls.push(method);
-            throw { code: "driver.unavailable", message: "No driver process is bound." };
-          },
-          subscribe: () => () => undefined,
-        },
-      },
-      growth: {},
-      growthServedOperations: new Set(),
-      source: "fixture",
-      scenarioEngine: { clock },
-    } as unknown as ConsoleBridge;
+    const { bridge, calls } = bridgeAnswering(async () => {
+      throw { code: "driver.unavailable", message: "No driver process is bound." };
+    });
 
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
@@ -267,17 +235,17 @@ describe("useDriverCapabilities — a read that failed says so", () => {
         />,
       );
     });
-    await settleRead(clock);
+    await settleScheduledRead(bridge);
 
     expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
     expect(settledRefusalOf(readout).code).toBe("driver.unavailable");
-    expect(methodCalls).toStrictEqual(["driver.listCapabilities"]);
+    expect(calls.map((call) => call.method)).toStrictEqual(["driver.listCapabilities"]);
   });
 
   it("negative control: a reply naming no driver is answered, not refused", async () => {
     // An empty declaration set is a fact about the node. Reporting it as a failure
     // would put a refusal on screen for a session that is working exactly as it is.
-    const counted = bridgeAnswering({ drivers: [] });
+    const counted = answeringCapabilityReads({ drivers: [] });
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
       render(
@@ -289,7 +257,7 @@ describe("useDriverCapabilities — a read that failed says so", () => {
         />,
       );
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
 
     expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
     expect(readout?.readRefusal).toBeUndefined();
@@ -320,7 +288,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
   it("re-reads on window focus, so a refused first read stops hiding the controls", async () => {
     // The first read is refused and the second answers, which is the transient this
     // is about: a daemon that was not ready when the window opened.
-    const counted = bridgeAnswering(
+    const counted = answeringCapabilityReads(
       { drivers: [{ driverName: "claude" }] },
       { drivers: [reportFor("claude", ["steer", "rollback"])] },
     );
@@ -335,13 +303,13 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
         />,
       );
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
     expect(settledRefusalOf(readout).code).toBe("reply-unreadable");
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
 
     expect(capabilityCallCount(counted)).toBe(2);
     expect(declaredFlagsForDriver(readout, "claude")?.steer).toBe(true);
@@ -349,7 +317,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
   });
 
   it("re-reads when a degraded session is repaired", async () => {
-    const counted = bridgeAnswering(
+    const counted = answeringCapabilityReads(
       { drivers: [reportFor("claude", [])] },
       { drivers: [reportFor("claude", ["rollback"])] },
     );
@@ -366,7 +334,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
         />,
       );
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
     expect(declaredFlagsForDriver(readout, "claude")?.rollback).toBe(false);
 
     act(() => {
@@ -374,13 +342,13 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     });
     // Losing the stream is not the moment: the read would go to a wire that is not
     // answering. The repair is.
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
     expect(capabilityCallCount(counted)).toBe(1);
 
     act(() => {
       sessionStore.initialise({ cursor: 4, entities: [], participantJoinLog: [] });
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
 
     expect(capabilityCallCount(counted)).toBe(2);
     // A driver installed while the daemon was away is now declared, which the latch
@@ -392,7 +360,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     // Rule 8's `not-loaded` is entered once and never re-entered on a refresh: a
     // control that vanished and came back on every window focus would be a worse
     // reading than a slightly stale one.
-    const counted = bridgeAnswering({ drivers: [reportFor("claude", ["steer"])] });
+    const counted = answeringCapabilityReads({ drivers: [reportFor("claude", ["steer"])] });
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
       render(
@@ -404,7 +372,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
         />,
       );
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
 
     await act(async () => {
       window.dispatchEvent(new Event("focus"));
@@ -415,15 +383,15 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
   it("negative control: nothing re-reads without a reason", async () => {
     // Without this, a cache that had simply started polling would pass every case
     // above. Time passes, no reason is given, and the wire stays quiet.
-    const counted = bridgeAnswering({ drivers: [reportFor("claude", ["steer"])] });
+    const counted = answeringCapabilityReads({ drivers: [reportFor("claude", ["steer"])] });
     await act(async () => {
       render(<CapabilityProbe bridge={counted.bridge} onReadout={() => undefined} />);
     });
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
     expect(capabilityCallCount(counted)).toBe(1);
 
-    await settleRead(counted.clock);
-    await settleRead(counted.clock);
+    await settleScheduledRead(counted.bridge);
+    await settleScheduledRead(counted.bridge);
     expect(capabilityCallCount(counted)).toBe(1);
   });
 });

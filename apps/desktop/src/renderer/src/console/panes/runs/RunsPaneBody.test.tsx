@@ -18,20 +18,18 @@ import { RunControls } from "./controls/RunControls.js";
 import { RunStateProjection } from "./run-state-projection.js";
 import { useRunControlSurface } from "./controls/run-control-surface.js";
 import type { DriverCapabilityReadout } from "../../bridge/index.js";
-import { RUN_ID, renderPane, scriptedBridge, transition } from "./runs-pane.test-support.js";
+import { RUN_ID, refusingBridge, renderPane, transition } from "./runs-pane.test-support.js";
 
 describe("the row states the wire's own figures", () => {
   it("renders the nine-member state verbatim and never a gloss", async () => {
-    const container = await renderPane(scriptedBridge([transition("running", "failed", 5)]), true);
+    const container = await renderPane([transition("running", "failed", 5)], true);
     expect(container.textContent).toContain("failed");
     expect(container.textContent).not.toContain("errored");
   });
 
   it("names the limit that fired, in those words", async () => {
     const container = await renderPane(
-      scriptedBridge([
-        { ...(transition("running", "completed", 6) as object), trigger: "turn_limit" },
-      ]),
+      [{ ...(transition("running", "completed", 6) as object), trigger: "turn_limit" }],
       true,
     );
     expect(container.textContent).toContain("reached its turn limit");
@@ -39,19 +37,14 @@ describe("the row states the wire's own figures", () => {
 
   it("says a daemon-initiated close is not a crash", async () => {
     const container = await renderPane(
-      scriptedBridge([
-        { ...(transition("running", "completed", 6) as object), intendedClose: true },
-      ]),
+      [{ ...(transition("running", "completed", 6) as object), intendedClose: true }],
       true,
     );
     expect(container.textContent).toContain("not a crash");
   });
 
   it("reads a blocked run as blocked and never as paused", async () => {
-    const container = await renderPane(
-      scriptedBridge([transition("running", "waiting_for_approval", 4)]),
-      true,
-    );
+    const container = await renderPane([transition("running", "waiting_for_approval", 4)], true);
     expect(container.textContent).toContain("blocked on someone");
     expect(container.textContent).toContain("It is not paused");
   });
@@ -117,7 +110,7 @@ describe("controls are a fail-closed projection, never a local decision", () => 
     // Pinned for the harness's whole life: the surface holds its records, its busy
     // set and its latch under the bridge, so a stub rebuilt on every render would be
     // a new transport on every render.
-    const [bridge] = useState(() => scriptedBridge([]));
+    const [bridge] = useState(refusingBridge);
     const surface = useRunControlSurface(bridge);
     const fold = new RunStateProjection();
     fold.accept(transition("queued", props.state, 2));
@@ -199,7 +192,7 @@ describe("a partial stream is visible, and is neither an absence nor a refusal",
   const UNREADABLE_DELIVERY = { runId: RUN_ID, state: "running", version: 7 };
 
   it("says the stream is incomplete, with the count, once a delivery could not be read", async () => {
-    const container = await renderPane(scriptedBridge([UNREADABLE_DELIVERY]), true);
+    const container = await renderPane([UNREADABLE_DELIVERY], true);
     expect(container.textContent).toContain("could not read");
     expect(container.querySelector(".meridian-runs__incomplete-stream")?.textContent).toContain(
       "1 delivery",
@@ -210,7 +203,7 @@ describe("a partial stream is visible, and is neither an absence nor a refusal",
     // The point of the indication: the rows are current for what was readable and
     // still behind for what was not, and one readable delivery does not undo that.
     const container = await renderPane(
-      scriptedBridge([UNREADABLE_DELIVERY, transition("queued", "running", 2)]),
+      [UNREADABLE_DELIVERY, transition("queued", "running", 2)],
       true,
     );
     expect(container.textContent).toContain(RUN_ID);
@@ -218,7 +211,7 @@ describe("a partial stream is visible, and is neither an absence nor a refusal",
   });
 
   it("says nothing about the stream when every delivery read cleanly", async () => {
-    const container = await renderPane(scriptedBridge([transition("queued", "running", 2)]), true);
+    const container = await renderPane([transition("queued", "running", 2)], true);
     expect(container.querySelector(".meridian-runs__incomplete-stream")).toBeNull();
   });
 

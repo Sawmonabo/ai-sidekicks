@@ -19,7 +19,7 @@ import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js
 
 import { RUN_STATE_SUBSCRIBE_STREAM, type ConsoleBridge } from "../../bridge/index.js";
 import { createFixture, withCapturedStream } from "../../bridge/fixture-bridge.test-support.js";
-import { withCountedRunStateOpens } from "../../bridge/run-state-events.test-support.js";
+import { withRecordedStreamLifecycle } from "../../bridge/daemon-streams.test-support.js";
 import { SessionStore } from "../../store/index.js";
 import { useRunFeed, type RunStateFeed } from "./run-state-feed.js";
 import { SESSION_ID, STATE_CHANGE_DELIVERY } from "./run-state-feed.test-support.js";
@@ -45,7 +45,7 @@ function mountedFeed(): {
   // answers the run-state stream itself rather than forwarding it — a counter inside
   // it would never be reached and would report every case compliant at zero.
   const captured = withCapturedStream(createFixture().bridge, RUN_STATE_SUBSCRIBE_STREAM);
-  const counted = withCountedRunStateOpens(captured.bridge);
+  const counted = withRecordedStreamLifecycle(captured.bridge);
 
   const sessionStore = initialisedStore();
   let held: RunStateFeed | undefined;
@@ -58,7 +58,7 @@ function mountedFeed(): {
     bridge: counted.bridge,
     sessionStore,
     deliver: captured.deliver,
-    openCount: counted.openCount,
+    openCount: () => counted.openCountFor(RUN_STATE_SUBSCRIBE_STREAM),
     feed: () => {
       if (held === undefined) {
         throw new Error("the run-state feed reported nothing, so there is no reading to assert");

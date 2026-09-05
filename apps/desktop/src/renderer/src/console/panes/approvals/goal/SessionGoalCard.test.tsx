@@ -12,6 +12,7 @@ import { SessionGoalCard } from "./SessionGoalCard.js";
 import { ACCENT_FILL_CLASS } from "../../../primitives/index.js";
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
+import { createFixture } from "../../../bridge/fixture-bridge.test-support.js";
 import { type SessionGoalProjection } from "./session-goal.js";
 
 // The revisions below stand for whatever entry the fold read each projection from.
@@ -31,12 +32,17 @@ const SECOND_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";
  * A bridge this card only ever compares by identity.
  *
  * The card reads no member of it — the subject the editor is held under is the pair
- * `(bridge, sessionId)` and the comparison is `===` — so a stub with nothing on it
- * is the honest double here, and a second one below stands for a replaced window
- * transport.
+ * `(bridge, sessionId)` and the comparison is `===` — and a fresh fixture per call is
+ * what makes the identity cases mean anything: two of them stand for a replaced
+ * window transport, which is the same shape the console really hands the card.
+ *
+ * The shipped fixture rather than an empty object cast to the type, because "reads no
+ * member of it" is the claim under test rather than a licence: a card that started
+ * reading one would get a real answer and be caught by what it renders, where a cast
+ * stand-in fails on `undefined` somewhere that names neither the read nor the card.
  */
 function inertBridge(): ConsoleBridge {
-  return {} as unknown as ConsoleBridge;
+  return createFixture().bridge;
 }
 
 function renderCard(

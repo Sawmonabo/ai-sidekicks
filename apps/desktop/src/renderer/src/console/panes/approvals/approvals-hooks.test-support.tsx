@@ -7,20 +7,21 @@
 
 import { act, render } from "@testing-library/react";
 import { useEffect } from "react";
-import { ManualClock } from "../../core/index.js";
 import { type ConsoleBridge, type GrowthOutcome, type ParsedRows } from "../../bridge/index.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { useApprovalsReader } from "./approvals-hooks.js";
 import { type ApprovalsReader } from "./approvals-reader.js";
-import type { RecordedDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
+import {
+  createFixture,
+  type RecordedDaemonCall,
+} from "../../bridge/fixture-bridge.test-support.js";
 
 export const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 export const SECOND_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";
 
 export interface ObservableBridge {
   readonly bridge: ConsoleBridge;
-  readonly clock: ManualClock;
   readonly calls: readonly RecordedDaemonCall[];
 }
 
@@ -29,12 +30,21 @@ export interface ObservableBridge {
  *
  * The reads go through the growth port — `@ai-sidekicks/contracts` publishes neither
  * half of their pairs — so the recorder sits on the port's arms and the `method` it
- * records is the OPERATION the surface called. The daemon arm answers nothing: this
- * hook reaches it through no path, and a stand-in that resolved calls it never makes
- * would hide the day it started making one.
+ * records is the OPERATION the surface called.
+ *
+ * A SPREAD OVER THE SHIPPED FIXTURE, and only the port is replaced. What stood here
+ * was an object cast to `ConsoleBridge` carrying a hand-written daemon arm and a
+ * hand-made scenario engine, which meant this file decided what every OTHER seam
+ * answered too — so a hook that grew a second read was answered by whatever the cast
+ * happened to contain rather than by the fixture the console really runs on. The
+ * The clock goes with it, and is no longer handed back: it was a second `ManualClock`
+ * this file minted and wrote onto the cast, which is a second time base in a tier
+ * whose whole rule is that there is one. The reading schedules against the fixture's
+ * frozen clock, and the one case that has to move it now says so through
+ * `settleScheduledRead`.
  */
 export function observableBridge(): ObservableBridge {
-  const clock = new ManualClock();
+  const fixture = createFixture().bridge;
   const calls: RecordedDaemonCall[] = [];
   const recordEmptyRows = async (
     method: string,
@@ -43,23 +53,16 @@ export function observableBridge(): ObservableBridge {
     calls.push({ method, params });
     return { status: "served", value: { rows: [], unreadableCount: 0 } };
   };
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: () => () => undefined,
-      },
-    },
+  const bridge: ConsoleBridge = {
+    ...fixture,
     growth: {
       ...createRefusingGrowthPort(),
       approvalProjectionRead: async (request: unknown) =>
         recordEmptyRows("approvalProjectionRead", request),
       approvalRuleList: async (request: unknown) => recordEmptyRows("approvalRuleList", request),
     },
-    source: "fixture",
-    scenarioEngine: { clock },
-  } as unknown as ConsoleBridge;
-  return { bridge, clock, calls };
+  };
+  return { bridge, calls };
 }
 
 /** A bridge that answers nothing: no read is performed by the callers of this one. */

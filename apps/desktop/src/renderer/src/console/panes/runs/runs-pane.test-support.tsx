@@ -9,8 +9,10 @@ import { render } from "@testing-library/react";
 import { type RunState } from "@ai-sidekicks/contracts";
 import { paneContext } from "../pane-chrome.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { createFixture, withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
+import { withReplayedStream } from "../../bridge/daemon-streams.test-support.js";
+import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon-streams.js";
 import { settleScheduledRead } from "../../bridge/scheduled-read.test-support.js";
-import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { RunsPane } from "./RunsPane.js";
 
@@ -34,37 +36,50 @@ export function transition(
   };
 }
 
-/** A bridge whose state stream replays a script and whose calls all refuse. */
-export function scriptedBridge(deliveries: readonly unknown[]): ConsoleBridge {
-  return {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => {
-          throw { code: "run.not_found", message: "no such run" };
-        },
-        subscribe: (_event: string, handler: (payload: unknown) => void) => {
-          for (const delivery of deliveries) {
-            handler(delivery);
-          }
-          return () => undefined;
-        },
-      },
-    },
-    growth: {},
-    source: "fixture",
-    // The pane's snapshot reads are scheduled rather than taken inside their opens,
-    // so this double carries the frozen clock they arm on: without it the queue shelf
-    // would render its read-in-flight skeleton for the whole of every case, and a
-    // case asserting that no skeleton is on screen would be failing on the wrong one.
-    scenarioEngine: { clock: new ManualClock() },
-  } as unknown as ConsoleBridge;
+/**
+ * The shipped fixture with a run-state script on it and every call refusing.
+ *
+ * Composed from the bridge family's own wrappers rather than fabricated: what stood
+ * here was an object cast to `ConsoleBridge`, which answered EVERY stream with the
+ * same script and every call with the same refusal, so a pane that opened a second
+ * read was answered by whatever this file happened to say rather than by the fixture.
+ * It also had to carry a hand-made scenario engine so the scheduled reads had a clock
+ * to arm on — a member that exists here only because the object was not a bridge.
+ *
+ * Private, and the pane mount below is the only way in: every case in both suites
+ * renders the pane, so a bridge on the exported surface would be an object a case
+ * could hold without ever mounting anything.
+ */
+function paneBridge(deliveries: readonly unknown[]): ConsoleBridge {
+  return withReplayedStream(refusingBridge(), RUN_STATE_SUBSCRIBE_STREAM, deliveries);
 }
 
+/**
+ * The shipped fixture with every call refusing, and no stream script on it.
+ *
+ * Exported for the one harness in this family that mounts a CONTROL row rather than
+ * the pane: it holds the surface's records under the bridge, so it needs one that is
+ * stable across renders and answers nothing readable, and it opens no stream at all.
+ */
+export function refusingBridge(): ConsoleBridge {
+  return withDaemonCall(createFixture().bridge, async () => {
+    throw { code: "run.not_found", message: "no such run" };
+  }).bridge;
+}
+
+/**
+ * Mount the pane over the fixture, with one run-state script and one seeded store.
+ *
+ * Takes the DELIVERIES rather than a bridge, which is what let the stand-in go: every
+ * case in both suites passed `scriptedBridge(...)` here and nowhere else, so the
+ * bridge was a value each one built to hand straight back.
+ */
 export async function renderPane(
-  bridge: ConsoleBridge,
+  deliveries: readonly unknown[],
   withSession: boolean,
   seed?: (store: SessionStore) => void,
 ): Promise<HTMLElement> {
+  const bridge = paneBridge(deliveries);
   const sessionStore = withSession ? new SessionStore({ sessionId: SESSION_ID }) : undefined;
   if (sessionStore !== undefined) {
     seed?.(sessionStore);

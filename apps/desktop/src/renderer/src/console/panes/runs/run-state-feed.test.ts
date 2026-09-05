@@ -6,7 +6,16 @@
 // for another — both are properties of the subscription rather than of the fold.
 
 import { createElement } from "react";
-import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
+import {
+  createFixture,
+  drainMicrotasks,
+  withCapturedStream,
+} from "../../bridge/fixture-bridge.test-support.js";
+import { RUN_STATE_SUBSCRIBE_STREAM } from "../../bridge/daemon-streams.js";
+import {
+  withRecordedStreamSinks,
+  withUnopenableStream,
+} from "../../bridge/daemon-streams.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -66,11 +75,14 @@ describe("an empty read completes", () => {
   it("negative control: a delivery alone does not complete the read", async () => {
     // The old rule flipped `hasRead` on exactly this, which is what made
     // `hasRead && runs.length === 0` unreachable.
-    const { bridge, deliverToFeed } = deliveringBridge([STATE_CHANGE_DELIVERY]);
+    const { bridge, deliver } = withCapturedStream(
+      createFixture().bridge,
+      RUN_STATE_SUBSCRIBE_STREAM,
+    );
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const readFeed = await mountStateFeed(bridge, sessionStore);
     await act(async () => {
-      deliverToFeed();
+      deliver(STATE_CHANGE_DELIVERY);
       await drainMicrotasks();
     });
     expect(readFeed().runs).toHaveLength(1);
@@ -78,56 +90,12 @@ describe("an empty read completes", () => {
   });
 });
 
-/** A bridge that replays a script into the run-state subscription on demand. */
-function deliveringBridge(deliveries: readonly unknown[]): {
-  bridge: ConsoleBridge;
-  deliverToFeed: () => void;
-} {
-  let handleDelivery: (payload: unknown) => void = () => undefined;
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: (_stream: string, handler: (payload: unknown) => void) => {
-          handleDelivery = handler;
-          return () => undefined;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
-  return {
-    bridge,
-    deliverToFeed: () => {
-      for (const delivery of deliveries) {
-        handleDelivery(delivery);
-      }
-    },
-  };
-}
-
 /** The refusal the shipped Tier-1 preload raises when a stream is opened: a throw. */
 const TIER_ONE_STUB_REFUSAL = { code: "bridge.not_wired", message: "no daemon is attached" };
 
-/** A bridge whose `daemon.subscribe` throws in the caller's own frame, as the stub does. */
+/** The shipped fixture with its run-state subscription refusing to open. */
 function unopenableBridge(thrown: unknown): ConsoleBridge {
-  return {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: (): never => {
-          throw thrown;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "live",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
+  return withUnopenableStream(createFixture().bridge, RUN_STATE_SUBSCRIBE_STREAM, thrown);
 }
 
 describe("a stream that cannot be opened is a refusal, not a crash", () => {
@@ -185,23 +153,11 @@ function multiSubscriptionBridge(): {
   readonly bridge: ConsoleBridge;
   readonly handlers: readonly ((payload: unknown) => void)[];
 } {
-  const handlers: ((payload: unknown) => void)[] = [];
-  const bridge = {
-    sidekicks: {
-      daemon: {
-        call: async (): Promise<unknown> => undefined,
-        subscribe: (_stream: string, handler: (payload: unknown) => void) => {
-          handlers.push(handler);
-          return () => undefined;
-        },
-      },
-    },
-    growth: {},
-    growthServedOperations: new Set(),
-    source: "fixture",
-    scenarioEngine: undefined,
-  } as unknown as ConsoleBridge;
-  return { bridge, handlers };
+  const { bridge, sinks } = withRecordedStreamSinks(
+    createFixture().bridge,
+    RUN_STATE_SUBSCRIBE_STREAM,
+  );
+  return { bridge, handlers: sinks };
 }
 
 /**
