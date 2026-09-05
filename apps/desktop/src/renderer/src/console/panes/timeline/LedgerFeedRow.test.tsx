@@ -20,12 +20,13 @@ import { type LedgerRowLease, type LedgerViewportRow } from "../../ledger/frame/
 import { type TimelineRowSlotProps } from "../../seats/index.js";
 import { foldChapterHeaders } from "./ledger-chapter-fold.js";
 import { useLedgerRowRenderer, type LedgerRowRendererOptions } from "./LedgerFeedRow.js";
+import { TERMINAL_RUN_ID } from "./ledger-feed-logs.test-support.js";
 import {
-  TERMINAL_RUN_ID,
   openSessionStoreWithSeam,
   openSessionStoreWithTerminalChapter,
-} from "./ledger-feed-logs.test-support.js";
-import { deriveLedgerWindow, LedgerRowRetention, type LedgerWindowModel } from "./ledger-window.js";
+} from "./ledger-chapter-logs.test-support.js";
+import { LedgerRowRetention } from "./ledger-row-retention.js";
+import { deriveLedgerWindow, type LedgerWindowModel } from "./ledger-window.js";
 
 /** A viewport row is a key and its place in the list; the dispatch reads the key. */
 function viewportRowFor(ledgerWindow: LedgerWindowModel, key: string): LedgerViewportRow {

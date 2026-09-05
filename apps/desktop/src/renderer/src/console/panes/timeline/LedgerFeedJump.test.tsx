@@ -26,16 +26,18 @@ import {
   withdrawLedgerCommands,
 } from "./LedgerFeedFixtures.test-support.js";
 import {
-  FOLDED_CHAPTER_MESSAGE_ROW_COUNT,
   LATE_JOINER,
   SESSION_ID,
   filterableRowId,
   openSessionStoreWithFilterableLog,
-  openSessionStoreWithFoldedMessageChapter,
   openSessionStoreWithGeneralLog,
   openSessionStoreWithLog,
   projectedRowId,
 } from "./ledger-feed-logs.test-support.js";
+import {
+  FOLDED_CHAPTER_MESSAGE_ROW_COUNT,
+  openSessionStoreWithFoldedMessageChapter,
+} from "./ledger-chapter-logs.test-support.js";
 
 afterEach(() => {
   withdrawLedgerCommands();

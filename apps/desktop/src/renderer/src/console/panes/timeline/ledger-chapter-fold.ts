@@ -28,7 +28,8 @@ import {
   type LedgerChapter,
 } from "../../ledger/structure/index.js";
 import { useSessionScopedState, type TimelineRowDensity } from "../../seats/index.js";
-import { LedgerRowRetention, chapterKeyFor, type LedgerWindowModel } from "./ledger-window.js";
+import { LedgerRowRetention } from "./ledger-row-retention.js";
+import { chapterKeyFor, type LedgerWindowModel } from "./ledger-window.js";
 
 /**
  * Fold every terminal chapter that is not open into a header and its receipt.

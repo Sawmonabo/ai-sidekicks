@@ -18,9 +18,10 @@ import { describe, expect, it } from "vitest";
 
 import { type ConsoleSessionEvent } from "../../store/index.js";
 import { ledgerFixtureEventId, ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
-import { LedgerRowRetention, deriveLedgerWindow } from "./ledger-window.js";
+import { LedgerRowRetention } from "./ledger-row-retention.js";
+import { deriveLedgerWindow } from "./ledger-window.js";
 
-const SESSION_ID = "session-ledger-window";
+const SESSION_ID = "session-ledger-row-retention";
 
 /** A log entry the fixture shell can project. The row id it takes is derived from these. */
 function logEntry(
