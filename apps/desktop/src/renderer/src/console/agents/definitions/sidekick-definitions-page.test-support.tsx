@@ -18,7 +18,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { LIVE_ANNOUNCEMENT_HOLD_MS, ManualClock } from "../../core/index.js";
 import { settle as settlePasses } from "../../core/settle.test-support.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { SidekickDefinitionsPage } from "./DefinitionsPage.js";
+import { SidekickDefinitionsPage } from "./SidekickDefinitionsPage.js";
 import type { SidekickDefinitionRecord } from "./definition-rows.js";
 
 type FixtureScenario = Parameters<typeof createFixtureBridge>[0]["scenario"];

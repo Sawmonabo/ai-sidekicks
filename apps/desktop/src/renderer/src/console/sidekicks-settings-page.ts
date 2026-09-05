@@ -29,7 +29,7 @@
 //
 // EACH FAMILY IS STILL REACHED THROUGH ITS DOOR
 //
-// `./agents/index.js`, never `./agents/DefinitionsPage.js`. A deep import would work
+// `./agents/index.js`, never `./agents/SidekickDefinitionsPage.js`. A deep import would work
 // and would also be the first one, which is how a barrel stops being the boundary it
 // exists to be.
 //

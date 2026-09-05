@@ -38,8 +38,6 @@
 
 import { useEffect, type ReactNode } from "react";
 
-import "./cost-receipt.css";
-
 import { Chip, useAnnounce } from "../../../primitives/index.js";
 import { consoleRefusalFrom } from "../../../seats/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";

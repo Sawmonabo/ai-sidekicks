@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import { Nothing } from "../../../primitives/index.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
-import "./mounts.css";
 import { MountInventoryList } from "./MountInventoryList.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */

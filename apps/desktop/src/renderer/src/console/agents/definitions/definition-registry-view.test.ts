@@ -13,7 +13,12 @@ import {
   SIDEKICK_REGISTRY_REFUSAL_ORIGIN,
   SidekickRegistryView,
 } from "./definition-registry-view.js";
-import { RegistryStub, definition, served, settle } from "./definitions-page.test-support.js";
+import {
+  RegistryStub,
+  definition,
+  served,
+  settle,
+} from "./sidekick-definitions-page.test-support.js";
 
 const REVIEWER = definition();
 const AUDITOR = definition({ definitionId: "definition-2", name: "Auditor" });

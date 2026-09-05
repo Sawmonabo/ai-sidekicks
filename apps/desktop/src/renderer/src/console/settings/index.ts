@@ -1,8 +1,15 @@
 // The settings family's door.
 //
 // The surface, the section vocabulary, and the page registry the four page lanes
-// fill. The stylesheet is imported here and nowhere else, so a page can never
-// render into a pane whose sheet arrived by accident.
+// fill.
+//
+// EVERY STYLESHEET IN THIS FAMILY IS IMPORTED HERE AND NOWHERE ELSE, so a page can
+// never render into a pane whose sheet arrived by accident, and the bundler sees one
+// edge into each sheet rather than one per component. There are eight rather than one
+// because six pages and one shared row carry their own; that is a split of the SHEETS
+// and not of the rule — the rule is one import site, and it is this one. The sibling
+// families paid for learning it the other way round: `agents/index.ts` records how one
+// BEM block came to be written across two files when a page imported its own sheet.
 //
 // WHY THE PAGE SEAT BOARD LIVES IN THIS FILE
 //
@@ -31,6 +38,12 @@
 
 import "./settings.css";
 import "./shared/settings-page.css";
+import "./shared/preference-toggle-row.css";
+import "./pages/appearance/appearance.css";
+import "./pages/cost/cost-receipt.css";
+import "./pages/keyboard/keyboard.css";
+import "./pages/mounts/mounts.css";
+import "./pages/notifications/notifications.css";
 
 import { createElement } from "react";
 

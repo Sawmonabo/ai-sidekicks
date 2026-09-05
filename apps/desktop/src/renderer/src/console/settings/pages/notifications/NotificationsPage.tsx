@@ -61,7 +61,6 @@ import {
   type ReactNode,
 } from "react";
 
-import "./notifications.css";
 import { useAnnounce } from "../../../primitives/index.js";
 import { consoleRefusalFrom } from "../../../seats/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";

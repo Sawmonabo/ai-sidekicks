@@ -37,7 +37,7 @@
 
 import "./agents.css";
 import "./agent-console/agent-console.css";
-import "./definitions/definitions-page.css";
+import "./definitions/sidekick-definitions-page.css";
 import "./provider-switch/provider-switch.css";
 import "./run-console/run-console.css";
 
@@ -52,7 +52,7 @@ import "./run-console/run-console.css";
 // pane because the design puts a saved sidekick's configuration in settings and
 // reaches it from the in-session attach picker, and it crosses a family boundary, so
 // it leaves this family through the door rather than by a deep import.
-export { SidekickDefinitionsPage } from "./definitions/DefinitionsPage.js";
+export { SidekickDefinitionsPage } from "./definitions/SidekickDefinitionsPage.js";
 
 // The agent console's two mounts — the deck's pane kind, wearing the shared chrome, and
 // the auxiliary window's surface slot, wearing its own heading. Straight from the module

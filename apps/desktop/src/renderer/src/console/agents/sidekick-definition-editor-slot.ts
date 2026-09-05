@@ -7,7 +7,8 @@
 // → `AgentConsoleBody.tsx` → `SidekickDefinitionEditorMount.tsx` → `index.ts`, which
 // `no-circular` fails. A door that DECLARES rather than re-exports is what makes an
 // intra-family consumer unable to reach the symbol deeply, so the declaration moved to
-// a module of its own and the door re-exports it like every other name it carries.
+// a module of its own — reached deeply from inside this family, and named on the door
+// nowhere, which is what keeps the cycle open.
 //
 // WHY THE SEAT LIVES IN THIS FAMILY AND NOT WHERE IT IS MOUNTED. The editor is about
 // an agent's DEFINITION — its instructions, its goal, its tool allowlist, its
