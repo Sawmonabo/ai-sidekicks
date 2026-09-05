@@ -24,7 +24,8 @@
 //
 // FIVE COUNT AND ONE DOES NOT, and that asymmetry is the wire's rather than a
 // shortcut. A window can count the rows it dropped, the rows it is withholding, the
-// rows it refused to draw twice, and the rows past its ceiling; what it knows about
+// rows that arrived under an identifier it already held, and the rows past its
+// ceiling; what it knows about
 // sequences it never received is that it was told of some, which is a fact with no
 // figure in it. The arm carries no count rather than carrying a zero or inventing one.
 //
@@ -90,7 +91,16 @@ export type WindowAbsence =
    * naming it would say nothing, and the sentence then reads as it always has.
    */
   | { readonly kind: "never-received"; readonly producer?: string }
-  /** Entries this window would not draw twice under one identifier. */
+  /**
+   * Entries that arrived under an identifier another entry in this window carries.
+   *
+   * The sentence says the collision and NOT what the window did about it, because
+   * that is the window's decision and not this vocabulary's: one may drop the
+   * repeat, another may draw it under a key of its own — the ledger's does, so a
+   * detail line asserting the rows "were not drawn" was false on the only surface
+   * that renders this arm. What is true either way is that two entries claim one
+   * name and nothing on this side can tell them apart.
+   */
   | { readonly kind: "duplicate-key"; readonly count: number }
   /** Entries this window still holds and cannot draw, because it ran out of height. */
   | { readonly kind: "past-element-ceiling"; readonly count: number };
@@ -164,7 +174,7 @@ export function windowAbsenceNotice(absence: WindowAbsence, subject: string): Wi
       return {
         kind: "empty",
         title: `Some ${subject} share an identifier.`,
-        detail: `${formatCount(absence.count)} were not drawn, because one already in this window carries the same identifier. Nothing here can tell two of them apart, so there is nothing to press.`,
+        detail: `${formatCount(absence.count)} arrived carrying the same identifier as one already in this window. Nothing here can tell them apart, so there is nothing to press.`,
       };
     case "past-element-ceiling":
       return {

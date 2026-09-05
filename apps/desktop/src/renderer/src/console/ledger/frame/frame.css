@@ -134,13 +134,6 @@
   outline-offset: 2px;
 }
 
-.meridian-ledger-viewport__notices {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--meridian-space-2);
-  padding: var(--meridian-space-2) var(--meridian-space-3);
-}
-
 /* Ranked slots: the highest is a card, the rest sit under it as one quiet row. */
 .meridian-ledger-errors {
   display: flex;
