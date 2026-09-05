@@ -46,7 +46,7 @@
 // browser passes none and the surface below declares none.
 
 import type { GrowthPort } from "../bridge/index.js";
-import type { ConsoleRefusal } from "../core/index.js";
+import type { ReadingState } from "../primitives/index.js";
 import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { useReadSettlementAnnouncement } from "./read-announcement.js";
@@ -90,12 +90,38 @@ function continuationActionFor(
     : undefined;
 }
 
-/** The refusal a continuation came back with, if the last one did. */
-function continuationRefusalFor(
+/**
+ * How complete the pages on screen are, read off the continuation the state carries.
+ *
+ * The read arm and the refused arm are the same question — is what is shown the whole
+ * of it — so they leave here as ONE reading rather than as a boolean beside a refusal.
+ * Held apart, a surface could render both at once or neither, and both readings would
+ * be false.
+ *
+ * `beside-an-answer` on the refused arm, and that is the substance of it: the pages
+ * already served stay on screen because they were served and are still true, so the
+ * refusal qualifies them rather than replacing them. `whole-answer` would say none of
+ * it is shown, over a list a person is looking at.
+ *
+ * Every other arm has nothing to report, including a directory that itself refused:
+ * that refusal is the surface's own state and the chrome renders it, and a second
+ * sentence under groups that are not there would be the same refusal said twice.
+ * Nothing to report leaves as an absent reading rather than a second spelling of
+ * `served` — the browser owns that constant, and one home is what keeps the two from
+ * disagreeing about what an unstated continuation means.
+ */
+function continuationReadingFor(
   directory: WorkflowDefinitionDirectoryState,
-): ConsoleRefusal | undefined {
-  return directory.status === "served" && directory.continuation.status === "unavailable"
-    ? directory.continuation.refusal
+): ReadingState | undefined {
+  if (directory.status !== "served") {
+    return undefined;
+  }
+  const { continuation } = directory;
+  if (continuation.status === "reading") {
+    return { kind: "reading" };
+  }
+  return continuation.status === "unavailable"
+    ? { kind: "refused", scope: "beside-an-answer", refusal: continuation.refusal }
     : undefined;
 }
 
@@ -174,8 +200,7 @@ export function WorkflowsBrowser(props: WorkflowsBrowserProps): React.JSX.Elemen
       pendingScopes={scopeResolution.pendingScopes}
       hasUnreadPages={scopeResolution.hasUnreadPages}
       onContinueReading={continuationActionFor(state, continueReading)}
-      isContinuing={state.status === "served" && state.continuation.status === "reading"}
-      continuationRefusal={continuationRefusalFor(state)}
+      continuationReading={continuationReadingFor(state)}
       onOpenDefinition={props.onOpenDefinition}
       {...(props.onNewDefinition === undefined ? {} : { onNewDefinition: props.onNewDefinition })}
     />

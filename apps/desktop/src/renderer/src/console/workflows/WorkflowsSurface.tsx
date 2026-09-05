@@ -31,7 +31,7 @@
 // click away in the detail pane by design (rule 7's density budget), so none of them
 // appears in this list.
 
-import type { ConsoleRefusal } from "../core/index.js";
+import type { ReadingState } from "../primitives/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
 import { WorkflowChrome } from "./WorkflowChrome.js";
 import type { WorkflowChromeState } from "./chrome-state.js";
@@ -67,10 +67,8 @@ export interface WorkflowsSurfaceProps {
   readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
   /** Asks for the page after the ones shown. Absent while no cursor is held. */
   readonly onContinueReading?: (() => void) | undefined;
-  /** True while that page is in flight, so its absence reads as a wait. */
-  readonly isContinuing?: boolean | undefined;
-  /** A refused continuation, rendered beside the control. The rows shown stay. */
-  readonly continuationRefusal?: ConsoleRefusal | undefined;
+  /** How complete the pages shown are: a wait, a refusal beside them, or nothing. */
+  readonly continuationReading?: ReadingState | undefined;
 }
 
 /** The definitions browser's chrome, grouped by scope in resolution order. */
@@ -101,8 +99,7 @@ export function WorkflowsSurface(props: WorkflowsSurfaceProps): React.JSX.Elemen
         onOpenDefinition={props.onOpenDefinition}
         onImportDefinition={props.onImportDefinition}
         onContinueReading={props.onContinueReading}
-        isContinuing={props.isContinuing}
-        continuationRefusal={props.continuationRefusal}
+        continuationReading={props.continuationReading}
       />
       <ChatStartSlot sessionId={props.sessionId} />
     </WorkflowChrome>

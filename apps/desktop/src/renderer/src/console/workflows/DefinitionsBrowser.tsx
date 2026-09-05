@@ -61,8 +61,14 @@ import {
   type WorkflowDefinitionScope,
   type WorkflowDefinitionSummary,
 } from "../bridge/index.js";
-import type { ConsoleRefusal } from "../core/index.js";
-import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../primitives/index.js";
+import {
+  Chip,
+  Nothing,
+  PartialRead,
+  WireFigure,
+  formatCount,
+  type ReadingState,
+} from "../primitives/index.js";
 
 /**
  * The three definition scopes, in the daemon's own resolution order, and the row the
@@ -301,11 +307,31 @@ export interface DefinitionsBrowserProps {
   readonly onImportDefinition?: (() => void) | undefined;
   /** Asks for the page after these. Absent while no cursor is held. */
   readonly onContinueReading?: (() => void) | undefined;
-  /** True while that page is in flight, so its absence reads as a wait. */
-  readonly isContinuing?: boolean | undefined;
-  /** A refused continuation, rendered beside the control. The rows held stay. */
-  readonly continuationRefusal?: ConsoleRefusal | undefined;
+  /**
+   * How complete the pages on screen are, as one reading.
+   *
+   * One member rather than the wait and the refusal as two, because they are two
+   * arms of a single question — is what is shown the whole of it — and a surface
+   * holding them apart is a surface that can render both or neither. The caller
+   * reads the arm off the continuation it already holds; absent is `served`, which
+   * is the only arm that renders nothing.
+   */
+  readonly continuationReading?: ReadingState | undefined;
 }
+
+/**
+ * What the continuation's notices are ABOUT, mid-sentence.
+ *
+ * "more definitions" rather than "the definitions": the pages on screen were served
+ * and are still true, so every sentence this subject appears in — the wait, and the
+ * refusal that says what is shown is not the whole of it — is about the pages BEYOND
+ * them. A subject naming the whole list would make a refused continuation read as a
+ * refusal of what a person is already looking at.
+ */
+const CONTINUATION_SUBJECT = "more definitions";
+
+/** The continuation with nothing to report, which is what an absent one means. */
+const WHOLE_CONTINUATION: ReadingState = { kind: "served" };
 
 /**
  * What stands under the groups: the handle to the next page, or a wait, or nothing.
@@ -315,22 +341,20 @@ export interface DefinitionsBrowserProps {
  * three arms are exhaustive over what a caller can say about the pages beyond these.
  */
 function renderContinuation(props: DefinitionsBrowserProps): React.ReactNode {
-  if (props.isContinuing === true) {
+  const continuation = props.continuationReading ?? WHOLE_CONTINUATION;
+  if (continuation.kind === "reading") {
     // A wait ON the pages held, never in place of them: the rows above stay on screen
-    // while the next page arrives, because they were served and are still true.
-    return <Nothing kind="not-loaded" placement="inline" title="Reading more definitions." />;
+    // while the next page arrives, because they were served and are still true. It
+    // stands alone rather than inside the row below, which exists to put a control
+    // beside a sentence and has no control to put there while a page is in flight.
+    return <PartialRead states={[continuation]} subject={CONTINUATION_SUBJECT} />;
   }
-  if (props.onContinueReading === undefined && props.continuationRefusal === undefined) {
+  if (props.onContinueReading === undefined && continuation.kind === "served") {
     return null;
   }
   return (
     <div className="meridian-definitions-continuation">
-      {props.continuationRefusal === undefined ? null : (
-        <InlineRefusal
-          code={props.continuationRefusal.code}
-          detail={props.continuationRefusal.detail}
-        />
-      )}
+      <PartialRead states={[continuation]} subject={CONTINUATION_SUBJECT} />
       {props.onContinueReading === undefined ? null : (
         <button
           type="button"

@@ -83,10 +83,15 @@ describe("the continuation", () => {
 
   it("reads as a wait rather than as a control while the next page is in flight", () => {
     const container = renderDefinitionsBrowser(
-      <DefinitionsBrowser definitions={held} isContinuing onContinueReading={() => undefined} />,
+      <DefinitionsBrowser
+        definitions={held}
+        continuationReading={{ kind: "reading" }}
+        onContinueReading={() => undefined}
+      />,
     );
 
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
+    expect(container.textContent).toContain("Reading more definitions.");
     expect(continuationControl(container)).toBe(null);
     // The rows held stay on screen through the wait: they were served, and a page in
     // flight says nothing about them.
@@ -102,13 +107,20 @@ describe("the continuation", () => {
     const container = renderDefinitionsBrowser(
       <DefinitionsBrowser
         definitions={held}
-        continuationRefusal={refused}
+        continuationReading={{ kind: "refused", scope: "beside-an-answer", refusal: refused }}
         onContinueReading={() => undefined}
       />,
     );
 
     expect(container.textContent).toContain("workflow.definition_not_found");
     expect(container.textContent).toContain(refused.detail);
+    // The refusal names what it is a refusal OF, and says the rows below it stand.
+    // Before the shared reading vocabulary this was a bare code and detail, which a
+    // person met with no sentence saying whether the list they were looking at had
+    // just been withdrawn.
+    expect(container.textContent).toContain(
+      "The read of more definitions was refused, so what is shown here is not the whole of it.",
+    );
     // Beside, not instead of: the same ask is what a person retries.
     expect(continuationControl(container)).not.toBe(null);
     expect(rowNames(groupFor(container, "session"))).toStrictEqual(["Held one"]);
