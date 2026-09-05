@@ -25,7 +25,14 @@
 // modules, and the layering gate admits them as roots because the only dependents it
 // leaves in the graph would be production ones.
 
-import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
+import type {
+  ConsoleBridge,
+  GrowthOperationId,
+  GrowthPort,
+  GrowthPortRefusalCode,
+  GrowthUnavailable,
+} from "../../bridge/index.js";
+import { growthUnavailable } from "../../bridge/index.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import type { ConsoleClock } from "../../core/index.js";
@@ -61,6 +68,31 @@ function manualGate(): { readonly promise: Promise<void>; readonly open: () => v
     open: (): void => {
       release();
     },
+  };
+}
+
+/**
+ * One scripted refusal, built from the port's own refusal rather than beside it.
+ *
+ * WHY THE CODE IS THE ONE CAST AND EVERYTHING ELSE IS REAL. `GrowthUnavailable`
+ * carries seven members and this file used to hand back four, so the whole port had to
+ * be cast to `Partial<GrowthPort>` — which switched off the checking on every method,
+ * including the served arms that were perfectly correct. Spreading `growthUnavailable`
+ * gives the four the scripts never set (`origin`, `operationId`, `slateRow`,
+ * `owningDocument`) their real values, so a case reading any of them reads what the
+ * port would have said.
+ *
+ * `code` alone is cast, and deliberately: `GrowthPortRefusalCode` is closed at the
+ * three the CONSOLE mints, while these cases script the codes a DAEMON sends
+ * (`artifact.ingest_not_found` among them) to drive the ingest client against answers
+ * it must survive. That is off the port's contract on one member, which is exactly
+ * what a narrow cast should say — and it is checked everywhere else.
+ */
+function scriptedRefusal(operationId: GrowthOperationId, code: string): GrowthUnavailable {
+  return {
+    ...growthUnavailable(operationId),
+    code: code as GrowthPortRefusalCode,
+    detail: "scripted refusal",
   };
 }
 
@@ -221,7 +253,7 @@ export class ScriptedGrowthPort {
    * a `RealClock` of its own.
    */
   public asBridge(clock?: ConsoleClock): ConsoleBridge {
-    const port = {
+    const port: Partial<GrowthPort> = {
       artifactIngestBegin: async (request: RecordedInit) => {
         this.initCalls.push(request);
         const ingestId = `ingest-${String(this.#nextIngestNumber)}`;
@@ -232,7 +264,7 @@ export class ScriptedGrowthPort {
         }
         return this.#beginRefusalCode === undefined
           ? { status: "served", value: { ingestId } }
-          : { status: "unavailable", code: this.#beginRefusalCode, detail: "scripted refusal" };
+          : scriptedRefusal("artifactIngestBegin", this.#beginRefusalCode);
       },
       artifactIngestWriteChunk: async (request: RecordedChunk) => {
         this.chunkCalls.push(request);
@@ -241,11 +273,7 @@ export class ScriptedGrowthPort {
           throw this.#chunkRejection;
         }
         if (this.#chunkRefusalCode !== undefined) {
-          return {
-            status: "unavailable",
-            code: this.#chunkRefusalCode,
-            detail: "scripted refusal",
-          };
+          return scriptedRefusal("artifactIngestWriteChunk", this.#chunkRefusalCode);
         }
         return {
           status: "served",
@@ -271,11 +299,7 @@ export class ScriptedGrowthPort {
                 derivedSizeBytes: 300,
               },
             }
-          : {
-              status: "unavailable",
-              code: this.#completeRefusalCode,
-              detail: "scripted refusal",
-            };
+          : scriptedRefusal("artifactIngestComplete", this.#completeRefusalCode);
       },
       artifactIngestAbort: async (request: { readonly ingestId: string }) => {
         this.abortedIngestIds.push(request.ingestId);
@@ -284,14 +308,14 @@ export class ScriptedGrowthPort {
         }
         return this.#abortRefusalCode === undefined
           ? { status: "served", value: undefined }
-          : { status: "unavailable", code: this.#abortRefusalCode, detail: "scripted refusal" };
+          : scriptedRefusal("artifactIngestAbort", this.#abortRefusalCode);
       },
     };
     // The REAL fixture bridge with this scripted port spread onto its growth
     // namespace, rather than a `{ growth }` object cast to a bridge. Every other
     // namespace is the fixture's own, and an ingest operation this port does not
     // declare answers the fixture's typed refusal rather than `undefined`.
-    const bridge = fixtureBridgeWithGrowth(REPOS_SCENARIO, port as unknown as Partial<GrowthPort>);
+    const bridge = fixtureBridgeWithGrowth(REPOS_SCENARIO, port);
     if (clock === undefined) {
       return bridge;
     }

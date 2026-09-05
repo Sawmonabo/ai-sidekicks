@@ -27,7 +27,23 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { StrictMode, createElement, type ReactElement } from "react";
 import { vi } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type {
+  ConsoleBridge,
+  GrowthArtifactDeleteReceipt,
+  GrowthArtifactPayloadEncoding,
+  GrowthArtifactState,
+  GrowthArtifactSummary,
+  GrowthAnswer,
+  GrowthOperationId,
+  GrowthUnavailable,
+} from "../../bridge/index.js";
+import { growthUnavailable } from "../../bridge/index.js";
+
+// Re-exported so a suite scripting this pane's port names one import rather than two.
+// A type alias, so this is not the barrel chain `console-no-barrel-chain` forbids —
+// that rule is about a DOOR forwarding another door's symbols, and this module is a
+// leaf the suites beside it read.
+export type { GrowthAnswer };
 import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS, type ConsoleClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
@@ -47,8 +63,15 @@ export const OTHER_ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2299";
 // constant here would either widen every fixture or need a hand-written type beside
 // each one. The `as const` is what the suites actually rely on, so the literals repeat.
 
-/** One manifest row as the growth port serves it, with every member populated. */
-export const SERVED_SUMMARY = {
+/**
+ * One manifest row as the growth port serves it, with every member populated.
+ *
+ * TYPED BY THE PORT'S OWN VOCABULARY rather than left as a literal the suites cast
+ * past. A fixture annotated `GrowthArtifactSummary` fails to compile the day the wire
+ * grows a member or narrows one of these unions, which is the only reason a fixture
+ * is worth having: an untyped one goes on describing a reply the port stopped sending.
+ */
+export const SERVED_SUMMARY: GrowthArtifactSummary = {
   artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
   sessionId: "019b7b30-0280-7c11-8420-b1a5c0de2200",
   runId: "019b7b30-0280-7c11-8420-b1a5c0de2202",
@@ -71,13 +94,17 @@ export const SERVED_SUMMARY = {
  * out separately, so the reader suites proved themselves against a fully populated
  * manifest while the mounted suites proved themselves against a thinner one, and
  * neither said so.
+ *
+ * `state` is the wire's own union rather than `string`, so a case that varies it to a
+ * value the contract does not carry is a compile error rather than a fixture drawing
+ * a state no daemon sends.
  */
-export function summary(state: string): Record<string, unknown> {
+export function summary(state: GrowthArtifactState): GrowthArtifactSummary {
   return { ...SERVED_SUMMARY, state };
 }
 
 /** The receipt a served delete answers with. Every member required, so all are here. */
-export const DELETE_RECEIPT = {
+export const DELETE_RECEIPT: GrowthArtifactDeleteReceipt = {
   artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
   payloadDisposition: "retained_by_references",
   rePublishForeclosed: true,
@@ -85,18 +112,24 @@ export const DELETE_RECEIPT = {
 } as const;
 
 /** The envelope the port answers with, BUILT FROM the receipt rather than beside it. */
-export const SERVED_DELETE: Record<string, unknown> = { status: "served", value: DELETE_RECEIPT };
+export const SERVED_DELETE: GrowthAnswer<"artifactDelete"> = {
+  status: "served",
+  value: DELETE_RECEIPT,
+};
 
-/** What the port answers for an operation whose wire nobody has registered. */
-export const REFUSAL = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  detail: "Not checked — the artifact CRUD method strings are not registered yet.",
-  origin: "growth-port",
-} as const;
+// NO REFUSAL FIXTURE LIVES HERE. This module used to declare a four-member twin of the
+// port's refusal — `status`, `code`, `detail`, `origin` — while `GrowthUnavailable`
+// carries seven: the three it omitted (`operationId`, `slateRow`, `owningDocument`) are
+// what tell a reader WHICH operation refused and who owes the wire. Because the twin
+// did not satisfy the port's return type, every scripted port that used it needed
+// `as unknown as Partial<GrowthPort>`, and that cast switched off the checking on the
+// whole object rather than on the one member that did not fit. A case now scripts
+// `growthUnavailable(operationId)` — the port's own builder, which composes the
+// sentence a person would actually read off the slate row rather than a paraphrase of
+// it — and the casts are gone.
 
 /** One served list of exactly the row above. */
-export const LISTED_ONE_ROW: Record<string, unknown> = {
+export const LISTED_ONE_ROW: GrowthAnswer<"artifactList"> = {
   status: "served",
   value: [SERVED_SUMMARY],
 };
@@ -109,7 +142,7 @@ export const LISTED_ONE_ROW: Record<string, unknown> = {
  * scripting a shape the port never sends and this pane would compile against it. On
  * the DEFERRED arm, which is what a metadata read lands on.
  */
-export function readAnswering(state: string): Record<string, unknown> {
+export function readAnswering(state: GrowthArtifactState): GrowthAnswer<"artifactRead"> {
   return {
     status: "served",
     value: { manifest: summary(state), payloadHandle: `sha256:2b4c/${state}` },
@@ -117,7 +150,10 @@ export function readAnswering(state: string): Record<string, unknown> {
 }
 
 /** A served payload read on the INLINE arm, with the bytes and the encoding to read them by. */
-export function inlineReadAnswering(payload: string, encoding: string): Record<string, unknown> {
+export function inlineReadAnswering(
+  payload: string,
+  encoding: GrowthArtifactPayloadEncoding,
+): GrowthAnswer<"artifactRead"> {
   return {
     status: "served",
     value: { manifest: summary("published"), payload, payloadEncoding: encoding },
@@ -125,7 +161,7 @@ export function inlineReadAnswering(payload: string, encoding: string): Record<s
 }
 
 /** One served inline payload for a named artifact, as the reply's own union carries it. */
-export function servedPayload(artifactId: string, text: string): unknown {
+export function servedPayload(artifactId: string, text: string): GrowthAnswer<"artifactRead"> {
   return {
     status: "served",
     value: {
@@ -137,14 +173,24 @@ export function servedPayload(artifactId: string, text: string): unknown {
   };
 }
 
+/**
+ * What one operation may be scripted with: the answer it serves, or the `Error` it
+ * throws.
+ *
+ * Keyed by the operation id so each member below is checked against the value THAT
+ * operation returns — a read answer scripted onto the delete slot is a compile error
+ * rather than a pane rendering a receipt as a manifest.
+ */
+type ScriptedAnswer<TOperationId extends GrowthOperationId> = GrowthAnswer<TOperationId> | Error;
+
 /** What a case scripts each of the pane's four port operations to answer. */
 export interface ArtifactPortScript {
-  readonly listAnswer?: unknown;
-  readonly allowlistAnswer?: unknown;
-  readonly readAnswer?: unknown;
-  readonly deleteAnswer?: unknown;
+  readonly listAnswer?: ScriptedAnswer<"artifactList">;
+  readonly allowlistAnswer?: ScriptedAnswer<"artifactAllowlistRead">;
+  readonly readAnswer?: ScriptedAnswer<"artifactRead">;
+  readonly deleteAnswer?: ScriptedAnswer<"artifactDelete">;
   /** Supplied where a case counts the list reads or varies them between reads. */
-  readonly artifactList?: () => Promise<unknown>;
+  readonly artifactList?: () => Promise<GrowthAnswer<"artifactList">>;
   /**
    * The clock the pane's own subsystems run on, where a case freezes them.
    *
@@ -171,21 +217,33 @@ export interface ArtifactPortScript {
 export function artifactBridgeAnswering(script: ArtifactPortScript): ConsoleBridge {
   return {
     growth: {
-      artifactList: script.artifactList ?? (async () => scriptedAnswer(script.listAnswer)),
-      artifactAllowlistRead: async () => scriptedAnswer(script.allowlistAnswer),
-      artifactRead: async () => scriptedAnswer(script.readAnswer),
-      artifactDelete: async () => scriptedAnswer(script.deleteAnswer),
+      artifactList:
+        script.artifactList ?? (async () => scriptedAnswer("artifactList", script.listAnswer)),
+      artifactAllowlistRead: async () =>
+        scriptedAnswer("artifactAllowlistRead", script.allowlistAnswer),
+      artifactRead: async () => scriptedAnswer("artifactRead", script.readAnswer),
+      artifactDelete: async () => scriptedAnswer("artifactDelete", script.deleteAnswer),
     },
     ...(script.clock === undefined ? {} : { scenarioEngine: { clock: script.clock } }),
   } as unknown as ConsoleBridge;
 }
 
-/** An unscripted operation answers the port's own refusal, never `undefined`. */
-async function scriptedAnswer(scripted: unknown): Promise<unknown> {
+/**
+ * An unscripted operation answers the port's own refusal, never `undefined`.
+ *
+ * The operation id is passed rather than a shared refusal value because a refusal
+ * names the operation that raised it: one fixture answering every unscripted call
+ * would report the same `operationId` for a list, a read and a delete, which is the
+ * one thing a reader consults it for.
+ */
+async function scriptedAnswer<TAnswer>(
+  operationId: GrowthOperationId,
+  scripted: TAnswer | Error | undefined,
+): Promise<TAnswer | GrowthUnavailable> {
   if (scripted instanceof Error) {
     throw scripted;
   }
-  return scripted ?? REFUSAL;
+  return scripted ?? growthUnavailable(operationId);
 }
 
 /**
@@ -241,7 +299,7 @@ export function readerRacingADelete(clock: ManualClock): {
     bridge: {
       growth: {
         artifactList: async () => ({ status: "served", value: listedSummaries }),
-        artifactAllowlistRead: async () => REFUSAL,
+        artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
         artifactDelete: () =>
           new Promise((resolve) => {
             releaseDelete = resolve;
@@ -287,7 +345,7 @@ export function readerWithHeldPayloadFetch(clock: ManualClock): {
     bridge: {
       growth: {
         artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-        artifactAllowlistRead: async () => REFUSAL,
+        artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
         artifactRead,
         // Served for whichever row was asked about, so a case can delete the
         // artifact whose bytes are on the wire AND a case can delete a different

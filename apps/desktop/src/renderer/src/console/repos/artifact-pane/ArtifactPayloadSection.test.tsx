@@ -14,6 +14,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { growthUnavailable } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
@@ -22,7 +23,6 @@ import {
   ARTIFACT_ENTITY,
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ENTITY,
-  REFUSAL,
   SESSION_ID,
   artifactBridgeAnswering,
   confirmDelete,
@@ -32,6 +32,7 @@ import {
   readThrough,
   renderPane,
   settleAct,
+  type GrowthAnswer,
   type ArtifactPaneContext,
 } from "./artifact-pane.test-support.js";
 
@@ -47,15 +48,15 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   it("asks for nothing until the control is pressed", async () => {
     // A payload is bounded only by the ingest cap, so a fetch that ran on mount would
     // spend a hundred megabytes of somebody's link on a pane they passed through.
-    const artifactRead = vi.fn<() => Promise<unknown>>().mockResolvedValue(REFUSAL);
+    const artifactRead = vi.fn(async () => growthUnavailable("artifactRead"));
     renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: {
           growth: {
             artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => REFUSAL,
+            artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
             artifactRead,
-            artifactDelete: async () => REFUSAL,
+            artifactDelete: async () => growthUnavailable("artifactDelete"),
           },
         } as unknown as ConsoleBridge,
         sessionId: SESSION_ID,
@@ -74,9 +75,9 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
         bridge: {
           growth: {
             artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => REFUSAL,
+            artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
             artifactRead,
-            artifactDelete: async () => REFUSAL,
+            artifactDelete: async () => growthUnavailable("artifactDelete"),
           },
         } as unknown as ConsoleBridge,
         sessionId: SESSION_ID,
@@ -187,7 +188,7 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
     await settleAct();
 
     expect(container.querySelector(".meridian-artifact-payload")?.textContent).toContain(
-      REFUSAL.detail,
+      growthUnavailable("artifactRead").detail,
     );
   });
 
@@ -208,9 +209,9 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
         bridge: {
           growth: {
             artifactList: async () => LISTED_ONE_ROW,
-            artifactAllowlistRead: async () => REFUSAL,
+            artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
             artifactRead,
-            artifactDelete: async () => REFUSAL,
+            artifactDelete: async () => growthUnavailable("artifactDelete"),
           },
         } as unknown as ConsoleBridge,
         sessionId: SESSION_ID,
@@ -248,7 +249,9 @@ describe("artifact pane — fetching the payload is an act, and both arms are dr
   it("negative control: a refused delete leaves the row and renders the refusal", async () => {
     // Without this, a pane that removed the row optimistically would pass the case
     // above and still be wrong about every delete the daemon turns down.
-    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const artifactList = vi
+      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .mockResolvedValue(LISTED_ONE_ROW);
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ artifactList }),
@@ -333,10 +336,10 @@ describe("artifact pane — the reader is stamped to its subject", () => {
       bridge: {
         growth: {
           artifactList: async () => LISTED_ONE_ROW,
-          artifactAllowlistRead: async () => REFUSAL,
+          artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
           // Never answers: the fetch stays on the wire for the rest of the case.
           artifactRead: () => new Promise<unknown>(() => undefined),
-          artifactDelete: async () => REFUSAL,
+          artifactDelete: async () => growthUnavailable("artifactDelete"),
         },
       } as unknown as ConsoleBridge,
       sessionId: SESSION_ID,
@@ -357,7 +360,9 @@ describe("artifact pane — the reader is stamped to its subject", () => {
     // Without this, a memo keyed on the address OBJECT would pass both cases above
     // and mint a reader — and a read pair — on every render the deck performs, which
     // is the cost the stamp is deliberately narrow to avoid.
-    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const artifactList = vi
+      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .mockResolvedValue(LISTED_ONE_ROW);
     const context = contextFor(ARTIFACT_ENTITY, {
       bridge: artifactBridgeAnswering({
         listAnswer: LISTED_ONE_ROW,

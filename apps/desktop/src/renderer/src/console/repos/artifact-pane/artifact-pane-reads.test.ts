@@ -17,10 +17,10 @@
 
 import { describe, expect, it } from "vitest";
 
+import { growthUnavailable } from "../../bridge/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import { readArtifactAllowlist, readArtifactList } from "./artifact-pane-reads.js";
 import {
-  REFUSAL,
   SERVED_SUMMARY,
   SESSION_ID,
   artifactBridgeAnswering,
@@ -28,7 +28,7 @@ import {
 } from "./artifact-pane.test-support.js";
 
 /** The bounds read served, so a case can assert the leg that DID answer. */
-const SERVED_ALLOWLIST = {
+const SERVED_ALLOWLIST: NonNullable<ArtifactPortScript["allowlistAnswer"]> = {
   status: "served",
   value: { contentTypes: ["image/svg+xml"], maximumByteLength: 42 },
 };
@@ -52,7 +52,10 @@ async function bothLegs(script: ArtifactPortScript): Promise<{
 describe("artifact pane reads — a refused list and a served one", () => {
   it("carries the port's refusal verbatim rather than reporting an empty list", async () => {
     const state = await readArtifactList(
-      artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+      artifactBridgeAnswering({
+        listAnswer: growthUnavailable("artifactList"),
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
+      }),
       SESSION_ID,
     );
     expect(state.kind).toBe("refused");
@@ -63,7 +66,7 @@ describe("artifact pane reads — a refused list and a served one", () => {
     const state = await readArtifactList(
       artifactBridgeAnswering({
         listAnswer: { status: "served", value: [SERVED_SUMMARY] },
-        allowlistAnswer: REFUSAL,
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
       }),
       SESSION_ID,
     );
@@ -97,7 +100,7 @@ describe("artifact pane reads — a refused list and a served one", () => {
     const state = await readArtifactList(
       artifactBridgeAnswering({
         listAnswer: { status: "served", value: [] },
-        allowlistAnswer: REFUSAL,
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
       }),
       SESSION_ID,
     );
@@ -109,7 +112,10 @@ describe("artifact pane reads — a refused list and a served one", () => {
 describe("artifact pane reads — the allow-list hint", () => {
   it("falls back to the shipped default and says so, carrying the refusal", async () => {
     const allowlist = await readArtifactAllowlist(
-      artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+      artifactBridgeAnswering({
+        listAnswer: growthUnavailable("artifactList"),
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
+      }),
       SESSION_ID,
     );
     expect(allowlist.source).toBe("shipped-default");
@@ -127,11 +133,17 @@ describe("artifact pane reads — the allow-list hint", () => {
     // beside it: the failure this catches took both down at once.
     const { artifacts, allowlist } = await bothLegs({
       listAnswer: { status: "served", value: [SERVED_SUMMARY] },
+      // THE ONE DELIBERATELY OFF-CONTRACT SCRIPT IN THIS FAMILY, and the cast is
+      // narrow on purpose. `GrowthUnavailable` requires `status`, so the port's own
+      // type cannot express the shape this case is about — which is the point: the
+      // regression was a leg reading a `status`-less value as served. Asserting the
+      // one member the port forbids is what makes this a negative control rather
+      // than a restatement of the type.
       allowlistAnswer: {
         code: "wire-unregistered",
         detail: "Not checked — the artifact CRUD method strings are not registered yet.",
         origin: "growth-port",
-      },
+      } as unknown as NonNullable<ArtifactPortScript["allowlistAnswer"]>,
     });
     expect(allowlist.source).toBe("shipped-default");
     expect(allowlist.mediaTypes).toStrictEqual(ATTACHMENT_ALLOWLIST_DEFAULT);
@@ -143,7 +155,10 @@ describe("artifact pane reads — the allow-list hint", () => {
     // Wholesale, never merged: an operator override REPLACES the default, so a reading
     // that unioned the two would describe a deployment that does not exist.
     const allowlist = await readArtifactAllowlist(
-      artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: SERVED_ALLOWLIST }),
+      artifactBridgeAnswering({
+        listAnswer: growthUnavailable("artifactList"),
+        allowlistAnswer: SERVED_ALLOWLIST,
+      }),
       SESSION_ID,
     );
     expect(allowlist.source).toBe("effective");

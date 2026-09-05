@@ -22,15 +22,15 @@ import {
   drainMicrotasks,
   fixtureBridgeWithGrowth,
 } from "../../bridge/fixture-bridge.test-support.js";
-import type { GrowthPort } from "../../bridge/index.js";
+import { growthUnavailable } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
 import {
+  type GrowthAnswer,
   DELETE_RECEIPT,
   OTHER_ARTIFACT_ID,
-  REFUSAL,
   SERVED_DELETE,
   SERVED_SUMMARY,
   SESSION_ID,
@@ -119,21 +119,21 @@ describe("artifact pane actions — a served delete reconciles, superseded or no
 function readerWithHeldManifestReads(clock: ManualClock): {
   readonly reader: ArtifactPaneReader;
   readonly artifactRead: ReturnType<typeof vi.fn>;
-  readonly releaseNthRead: (index: number, answer: unknown) => void;
+  readonly releaseNthRead: (index: number, answer: GrowthAnswer<"artifactRead">) => void;
 } {
-  const parked: ((answer: unknown) => void)[] = [];
+  const parked: ((answer: GrowthAnswer<"artifactRead">) => void)[] = [];
   const artifactRead = vi.fn(
-    () =>
-      new Promise((resolve) => {
+    async () =>
+      new Promise<GrowthAnswer<"artifactRead">>((resolve) => {
         parked.push(resolve);
       }),
   );
   const reader = new ArtifactPaneReader({
     bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
       artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-      artifactAllowlistRead: async () => REFUSAL,
+      artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
       artifactRead,
-    } as unknown as Partial<GrowthPort>),
+    }),
     sessionStore: new SessionStore({ sessionId: SESSION_ID }),
     clock,
   });
@@ -147,7 +147,7 @@ function readerWithHeldManifestReads(clock: ManualClock): {
 }
 
 /** One served manifest re-read, carrying a digest a case can tell from its sibling. */
-function servedManifest(digest: string): unknown {
+function servedManifest(digest: string): GrowthAnswer<"artifactRead"> {
   return {
     status: "served",
     value: { manifest: { ...SERVED_SUMMARY, digest }, payloadHandle: "sha256:2b4c" },

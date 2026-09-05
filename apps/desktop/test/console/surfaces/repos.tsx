@@ -59,6 +59,7 @@ import {
   scenarioCollaborators,
   scriptedArtifactPort,
 } from "./repos-fixtures.js";
+import type { GrowthAnswer } from "../../../src/renderer/src/console/bridge/index.js";
 
 import {
   REPOS_GIT_WORKSPACE_ID,
@@ -359,7 +360,7 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
  * has passed.
  */
 async function mountArtifactPanePayload(
-  readAnswer: Record<string, unknown>,
+  readAnswer: GrowthAnswer<"artifactRead">,
 ): Promise<MountedFamilySurface> {
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
   const bridge = scriptedArtifactPort(readAnswer);

@@ -20,7 +20,9 @@ import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-suppor
 import {
   growthUnavailable,
   type ConsoleBridge,
+  type GrowthAnswer,
   type GrowthPort,
+  type GrowthServedValue,
   type GrowthUnavailable,
 } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
@@ -90,30 +92,30 @@ export const REPLY_ABANDONED: GrowthUnavailable = {
  * reaches through an import, so the shape is stated here and the ids stay the
  * fixture's rather than being respelled.
  */
-export const SERVED_CONTEXT: {
-  readonly status: "served";
-  readonly value: Record<string, unknown>;
-} = {
+/** The context itself, so a case reading one member does not narrow the outcome first. */
+export const SERVED_CONTEXT_VALUE: GrowthServedValue<"gitflowBranchContextRead"> = {
+  branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
+  workspaceId: GIT_WORKSPACE_ID,
+  baseBranch: "develop",
+  headBranch: "feat/rate-limit-wiring",
+  upstreamRef: "origin/feat/rate-limit-wiring",
+  worktreeId: IMPLEMENTER_WORKTREE_ID,
+};
+
+export const SERVED_CONTEXT: GrowthAnswer<"gitflowBranchContextRead"> = {
   status: "served",
-  value: {
-    branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
-    workspaceId: GIT_WORKSPACE_ID,
-    baseBranch: "develop",
-    headBranch: "feat/rate-limit-wiring",
-    upstreamRef: "origin/feat/rate-limit-wiring",
-    worktreeId: IMPLEMENTER_WORKTREE_ID,
-  },
+  value: SERVED_CONTEXT_VALUE,
 };
 
 /** A preparation the port serves, so a case can hold a proposal and then move the context. */
-export const SERVED_PREPARATION = {
+export const SERVED_PREPARATION: GrowthAnswer<"gitflowPrPrepare"> = {
   status: "served",
   value: {
     prPreparationId: "019b7b30-0280-7c11-8420-b1a5c0de2401",
     state: "ready",
     proposalBlob: { summary: "the rate limiter" },
   },
-} as const;
+};
 
 /**
  * What the daemon answers an act it took with. Named once because three cases send one.
@@ -121,22 +123,24 @@ export const SERVED_PREPARATION = {
  * `success`, which is `GitActionExecuteResponse`'s own member. The `accepted` this used
  * to carry was never on that reply at all.
  */
-export const ACCEPTED_ACTION = { status: "served", value: { success: true } } as const;
+export const ACCEPTED_ACTION: GrowthAnswer<"gitActionExecute"> = {
+  status: "served",
+  value: { success: true },
+};
 
 /** The identity the caller read answers with, so an act carries the fixture's causation. */
-export const SERVED_CALLER_PARTICIPANT: {
-  readonly status: "served";
-  readonly value: Record<string, unknown>;
-} = { status: "served", value: { participantId: PARTICIPANT_YOU } };
+export const SERVED_CALLER_PARTICIPANT: GrowthAnswer<"callerParticipantRead"> = {
+  status: "served",
+  value: { participantId: PARTICIPANT_YOU },
+};
 
 /** One served context, with whichever of the pairing members a case wants moved. */
-export function servedContext(overrides: Partial<ProposalContextKey>): {
-  status: "served";
-  value: Record<string, unknown>;
-} {
+export function servedContext(
+  overrides: Partial<ProposalContextKey>,
+): GrowthAnswer<"gitflowBranchContextRead"> {
   return {
     status: "served",
-    value: { ...SERVED_CONTEXT.value, ...overrides },
+    value: { ...SERVED_CONTEXT_VALUE, ...overrides },
   };
 }
 

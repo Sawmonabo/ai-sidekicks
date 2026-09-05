@@ -18,14 +18,14 @@ import {
   drainMicrotasks,
   fixtureBridgeWithGrowth,
 } from "../../bridge/fixture-bridge.test-support.js";
-import type { GrowthPort } from "../../bridge/index.js";
+import { growthUnavailable } from "../../bridge/index.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import type { ArtifactPaneReading } from "./artifact-pane-reading.js";
 import { ARTIFACT_TERMINAL_EVENT_KINDS, ArtifactPaneReader } from "./artifact-reader.js";
 import {
-  REFUSAL,
+  type GrowthAnswer,
   SERVED_SUMMARY,
   SESSION_ID,
   artifactBridgeAnswering,
@@ -35,7 +35,10 @@ import {
 describe("artifact pane reader — before anything is asked", () => {
   it("starts on the absence that says nobody asked", () => {
     const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+      bridge: artifactBridgeAnswering({
+        listAnswer: growthUnavailable("artifactList"),
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
+      }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock: new ManualClock(),
     });
@@ -47,7 +50,10 @@ describe("artifact pane reader — before anything is asked", () => {
     // session id, so the reader stays where it was.
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+      bridge: artifactBridgeAnswering({
+        listAnswer: growthUnavailable("artifactList"),
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
+      }),
       sessionStore: undefined,
       clock,
     });
@@ -72,7 +78,10 @@ function frame(sequence: number, kind: string): Parameters<SessionStore["applyBa
 /** A reader over a store a case drives, with the two reads refusing throughout. */
 function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactPaneReader {
   return new ArtifactPaneReader({
-    bridge: artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+    bridge: artifactBridgeAnswering({
+      listAnswer: growthUnavailable("artifactList"),
+      allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
+    }),
     sessionStore,
     clock,
   });
@@ -171,7 +180,10 @@ describe("artifact pane reader — a pane that has gone", () => {
   it("negative control: a disposed reader publishes nothing further", async () => {
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
-      bridge: artifactBridgeAnswering({ listAnswer: REFUSAL, allowlistAnswer: REFUSAL }),
+      bridge: artifactBridgeAnswering({
+        listAnswer: growthUnavailable("artifactList"),
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
+      }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
@@ -188,13 +200,13 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // reader that called the port on every press issues two list calls and two
     // allow-list calls here.
     const clock = new ManualClock();
-    const artifactList = vi.fn(async () => REFUSAL);
-    const artifactAllowlistRead = vi.fn(async () => REFUSAL);
+    const artifactList = vi.fn(async () => growthUnavailable("artifactList"));
+    const artifactAllowlistRead = vi.fn(async () => growthUnavailable("artifactAllowlistRead"));
     const reader = new ArtifactPaneReader({
       bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
         artifactList,
         artifactAllowlistRead,
-      } as unknown as Partial<GrowthPort>),
+      }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });
@@ -247,7 +259,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     const reader = new ArtifactPaneReader({
       bridge: artifactBridgeAnswering({
         listAnswer: { status: "served", value: [SERVED_SUMMARY] },
-        allowlistAnswer: REFUSAL,
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
       }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
@@ -271,14 +283,16 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // DRIVEN THROUGH A SERVED ROW THE MAPPING CANNOT READ, which is what still
     // reaches this sink: a call that REJECTS is now read by the leg that made it and
     // becomes that leg's own refusal, so the sink is the backstop for everything else
-    // the read does — and the port is assembled behind a cast, so a served list whose
-    // rows are not the shape the mapping expects is a live possibility rather than a
-    // hypothetical.
+    // the read does. The row below is off the port's contract — the scripted port is
+    // typed now and would refuse it — and the cast is deliberately on this one value:
+    // the DAEMON is what sends the list, and a wire that gains a nullable row or a
+    // renamed member sends exactly this, so the backstop has to be driven with the
+    // shape the type system cannot produce.
     const clock = new ManualClock();
     const reader = new ArtifactPaneReader({
       bridge: artifactBridgeAnswering({
-        listAnswer: { status: "served", value: [null] },
-        allowlistAnswer: REFUSAL,
+        listAnswer: { status: "served", value: [null] } as unknown as GrowthAnswer<"artifactList">,
+        allowlistAnswer: growthUnavailable("artifactAllowlistRead"),
       }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
@@ -295,15 +309,15 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     // The generation stamp, exercised: the read is in flight when the pane unmounts,
     // and its answer arrives afterwards with a stamp that is no longer current.
     const clock = new ManualClock();
-    let releaseList: (answer: unknown) => void = () => undefined;
+    let releaseList: (answer: GrowthAnswer<"artifactList">) => void = () => undefined;
     const reader = new ArtifactPaneReader({
       bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
         artifactList: () =>
           new Promise((resolve) => {
             releaseList = resolve;
           }),
-        artifactAllowlistRead: async () => REFUSAL,
-      } as unknown as Partial<GrowthPort>),
+        artifactAllowlistRead: async () => growthUnavailable("artifactAllowlistRead"),
+      }),
       sessionStore: new SessionStore({ sessionId: SESSION_ID }),
       clock,
     });

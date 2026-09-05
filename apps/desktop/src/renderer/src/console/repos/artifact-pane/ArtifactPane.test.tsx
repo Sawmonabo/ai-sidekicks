@@ -21,6 +21,7 @@ import { fireEvent, render, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
+import { growthUnavailable } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "../artifacts/artifact-model.js";
@@ -29,6 +30,7 @@ import { SessionStore } from "../../store/index.js";
 import { ArtifactPane } from "./ArtifactPane.js";
 import {
   ARTIFACT_ENTITY,
+  type GrowthAnswer,
   SERVED_DELETE,
   LISTED_ONE_ROW,
   OTHER_ARTIFACT_ENTITY,
@@ -250,8 +252,11 @@ describe("artifact pane — reading one row's manifest", () => {
     const row = container.querySelector(".meridian-artifact-row") as HTMLElement;
     expect(row.textContent).toContain("wire-unregistered");
     expect(within(row).getByText("published")).toBeDefined();
+    // Off the port's own builder rather than a transcribed sentence: the words come
+    // from the slate row, so a hand-copied string here would keep passing while the
+    // announcement a person hears moved.
     expect(container.querySelector('[role="status"]')?.textContent).toContain(
-      "the artifact CRUD method strings are not registered yet",
+      growthUnavailable("artifactRead").detail,
     );
   });
 
@@ -280,7 +285,7 @@ describe("artifact pane — deleting one row", () => {
     // The case a discarded reply fails: a served delete used to leave the manifest on
     // screen, so a participant could keep acting on something the daemon destroyed.
     const artifactList = vi
-      .fn<() => Promise<unknown>>()
+      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
       .mockResolvedValueOnce(LISTED_ONE_ROW)
       .mockResolvedValue({ status: "served", value: [] });
     const { container, getByRole } = renderPane(
@@ -351,7 +356,9 @@ describe("artifact pane — deleting one row", () => {
   it("negative control: the receipt is cleared by the list read that follows it", async () => {
     // A consequence left standing over a re-read would read as a fact about the list
     // now on screen rather than about the row that is gone.
-    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const artifactList = vi
+      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .mockResolvedValue(LISTED_ONE_ROW);
     const { container, getByRole } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ artifactList, deleteAnswer: SERVED_DELETE }),
@@ -436,7 +443,9 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // so a re-render at the same subject reaches the same one: the row stands and the
     // port is not asked again.
     const clock = new ManualClock();
-    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const artifactList = vi
+      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .mockResolvedValue(LISTED_ONE_ROW);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const bridge = artifactBridgeAnswering({ artifactList, clock });
     const announcerClock = new ManualClock();
@@ -462,7 +471,9 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // The subject IS the key, so a moved subject is a new reader — and the pane opens
     // on the new artifact's not-read absence rather than on the previous one's rows.
     const clock = new ManualClock();
-    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const artifactList = vi
+      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .mockResolvedValue(LISTED_ONE_ROW);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
     const bridge = artifactBridgeAnswering({ artifactList, clock });
     const announcerClock = new ManualClock();
@@ -491,7 +502,9 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // reader instead. Without that arm the pane would go on observing a retired store
     // and never hear another artifact frame from the live one.
     const clock = new ManualClock();
-    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const artifactList = vi
+      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .mockResolvedValue(LISTED_ONE_ROW);
     const bridge = artifactBridgeAnswering({ artifactList, clock });
     const announcerClock = new ManualClock();
     const { rerender } = render(
@@ -531,7 +544,9 @@ describe("artifact pane — the reader is held by the subject-scoped seam", () =
     // an unmount: the seam's own cleanup disposes what the last commit held, and a
     // clock advanced afterwards reaches nothing.
     const clock = new ManualClock();
-    const artifactList = vi.fn<() => Promise<unknown>>().mockResolvedValue(LISTED_ONE_ROW);
+    const artifactList = vi
+      .fn<() => Promise<GrowthAnswer<"artifactList">>>()
+      .mockResolvedValue(LISTED_ONE_ROW);
     const { unmount } = renderPane(
       contextFor(ARTIFACT_ENTITY, {
         bridge: artifactBridgeAnswering({ artifactList, clock }),

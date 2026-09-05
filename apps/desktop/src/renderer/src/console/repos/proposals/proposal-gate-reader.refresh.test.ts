@@ -11,7 +11,7 @@ import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
 import { GIT_MOUNT_ID, GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
-import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
+import type { ConsoleBridge } from "../../bridge/index.js";
 import {
   BRANCH_ROOT_UNADDRESSABLE_COPY,
   EPHEMERAL_CLONE_UNADDRESSABLE_COPY,
@@ -157,7 +157,7 @@ describe("ProposalGateReader — the roots the registered read has no key for", 
           calls += 1;
           return SERVED_CONTEXT;
         },
-      } as unknown as Partial<GrowthPort>),
+      }),
       calls: () => calls,
     };
   }
