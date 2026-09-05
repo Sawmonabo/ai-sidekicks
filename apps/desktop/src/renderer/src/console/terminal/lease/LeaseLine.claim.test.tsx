@@ -20,10 +20,8 @@ import { LeaseLine } from "./LeaseLine.js";
 import { UNREAD_TERMINAL_LEASE } from "./lease-model.js";
 import {
   CALLER_ROLE_COLLABORATOR,
-  HOLDER,
   OTHER_SESSION_ID,
   SESSION_ID,
-  VIEWER,
   VIEWER_IDENTITY_READ,
   bridgeRejectingWith,
   HeldLeaseWire,
@@ -35,6 +33,7 @@ import {
   requestShapeOf,
   servingBridge,
 } from "./LeaseLine.test-support.js";
+import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 
 /**
  * How far past any plausible retry the frozen clock is advanced.
@@ -161,7 +160,7 @@ describe("the claim control — one affordance, and three things it never does",
     const { container } = renderLease(
       leaseState({
         holding: "held-by-you",
-        holderParticipantId: VIEWER,
+        holderParticipantId: VIEWER_PARTICIPANT,
         holderVouching: "vouched",
       }),
       bridge,
@@ -187,7 +186,7 @@ describe("the claim control — one affordance, and three things it never does",
       const { container } = renderLease(
         leaseState({
           holding: registered.holding,
-          holderParticipantId: registered.holding === "held-by-you" ? VIEWER : null,
+          holderParticipantId: registered.holding === "held-by-you" ? VIEWER_PARTICIPANT : null,
           holderVouching: "vouched",
         }),
         bridge,
@@ -281,7 +280,7 @@ describe("the claim control — one affordance, and three things it never does",
     const { container } = renderLease(
       leaseState({
         holding: "held-by-another",
-        holderParticipantId: HOLDER,
+        holderParticipantId: OTHER_PARTICIPANT,
         holderVouching: "vouched",
       }),
       bridge,

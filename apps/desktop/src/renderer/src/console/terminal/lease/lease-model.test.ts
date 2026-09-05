@@ -15,11 +15,15 @@ import { describe, expect, it } from "vitest";
 
 import { TERMINAL_LEASE_LEDGER_CAP } from "../../core/index.js";
 import { UNREAD_TERMINAL_LEASE, projectTerminalLease } from "./lease-model.js";
-import { OTHER, VIEWER, transitionEvent } from "./lease-model.test-support.js";
+import {
+  OTHER_PARTICIPANT,
+  VIEWER_PARTICIPANT,
+  transitionEvent,
+} from "./lease-model.test-support.js";
 
 describe("the lease fold — what the wire said, and only that", () => {
   it("reads nothing as `not-checked`, which is not the free lease", () => {
-    const state = projectTerminalLease([], { viewerParticipantId: VIEWER });
+    const state = projectTerminalLease([], { viewerParticipantId: VIEWER_PARTICIPANT });
     expect(state).toStrictEqual(UNREAD_TERMINAL_LEASE);
     // The whole point of the fifth state: an unread lease and a free one are two
     // different facts, and a surface that collapsed them would offer a claim
@@ -30,35 +34,35 @@ describe("the lease fold — what the wire said, and only that", () => {
   it("takes the holder from the newest transition's own payload", () => {
     const state = projectTerminalLease(
       [
-        transitionEvent(1, "taken", OTHER),
-        transitionEvent(2, "released", null, OTHER),
-        transitionEvent(3, "taken", VIEWER),
+        transitionEvent(1, "taken", OTHER_PARTICIPANT),
+        transitionEvent(2, "released", null, OTHER_PARTICIPANT),
+        transitionEvent(3, "taken", VIEWER_PARTICIPANT),
       ],
-      { viewerParticipantId: VIEWER },
+      { viewerParticipantId: VIEWER_PARTICIPANT },
     );
     expect(state.holding).toBe("held-by-you");
-    expect(state.holderParticipantId).toBe(VIEWER);
+    expect(state.holderParticipantId).toBe(VIEWER_PARTICIPANT);
     expect(state.transitionCount).toBe(3);
   });
 
   it("renders a null holder as the free lease, explicitly", () => {
     const state = projectTerminalLease(
       [
-        transitionEvent(1, "taken", OTHER),
-        transitionEvent(2, "auto_released_disconnect", null, OTHER),
+        transitionEvent(1, "taken", OTHER_PARTICIPANT),
+        transitionEvent(2, "auto_released_disconnect", null, OTHER_PARTICIPANT),
       ],
-      { viewerParticipantId: VIEWER },
+      { viewerParticipantId: VIEWER_PARTICIPANT },
     );
     expect(state.holding).toBe("unheld");
     expect(state.holderParticipantId).toBeNull();
   });
 
   it("tells the viewer's hold apart from somebody else's", () => {
-    const events = [transitionEvent(1, "taken", OTHER)];
-    expect(projectTerminalLease(events, { viewerParticipantId: VIEWER }).holding).toBe(
+    const events = [transitionEvent(1, "taken", OTHER_PARTICIPANT)];
+    expect(projectTerminalLease(events, { viewerParticipantId: VIEWER_PARTICIPANT }).holding).toBe(
       "held-by-another",
     );
-    expect(projectTerminalLease(events, { viewerParticipantId: OTHER }).holding).toBe(
+    expect(projectTerminalLease(events, { viewerParticipantId: OTHER_PARTICIPANT }).holding).toBe(
       "held-by-you",
     );
     // No viewer read at all is the console's state today, and it fails closed:
@@ -71,10 +75,10 @@ describe("the lease fold — what the wire said, and only that", () => {
   it("gives a reason outside the closed set no ledger row and no sentence", () => {
     const state = projectTerminalLease(
       [
-        transitionEvent(1, "taken", OTHER),
-        transitionEvent(2, "auto_released_timeout", null, OTHER),
+        transitionEvent(1, "taken", OTHER_PARTICIPANT),
+        transitionEvent(2, "auto_released_timeout", null, OTHER_PARTICIPANT),
       ],
-      { viewerParticipantId: VIEWER },
+      { viewerParticipantId: VIEWER_PARTICIPANT },
     );
     // One READABLE transition, so one row and one count. The other is reported as
     // the unread transition rather than rendered as a nameless one — inventing a
@@ -94,9 +98,9 @@ describe("the lease fold — what the wire said, and only that", () => {
           kind: "session.created",
           occurredAt: "x",
         },
-        transitionEvent(2, "taken", OTHER),
+        transitionEvent(2, "taken", OTHER_PARTICIPANT),
       ],
-      { viewerParticipantId: VIEWER },
+      { viewerParticipantId: VIEWER_PARTICIPANT },
     );
     expect(state.transitionCount).toBe(1);
   });
@@ -106,10 +110,10 @@ describe("the lease fold — what the wire said, and only that", () => {
       transitionEvent(
         index + 1,
         index % 2 === 0 ? "taken" : "released",
-        index % 2 === 0 ? OTHER : null,
+        index % 2 === 0 ? OTHER_PARTICIPANT : null,
       ),
     );
-    const state = projectTerminalLease(events, { viewerParticipantId: VIEWER });
+    const state = projectTerminalLease(events, { viewerParticipantId: VIEWER_PARTICIPANT });
     expect(state.transitions).toHaveLength(TERMINAL_LEASE_LEDGER_CAP);
     expect(state.transitionCount).toBe(TERMINAL_LEASE_LEDGER_CAP + 5);
     // The cap drops the OLDEST, so the newest transition — the one the holder is
@@ -124,13 +128,13 @@ describe("the lease fold — what the wire said, and only that", () => {
     // three-row ledger claim to be the whole history of five moves.
     const state = projectTerminalLease(
       [
-        transitionEvent(1, "taken", OTHER),
-        transitionEvent(2, "seized", OTHER),
-        transitionEvent(3, "released", null, OTHER),
-        transitionEvent(4, "auto_released_quota_exhausted", null, OTHER),
-        transitionEvent(5, "taken", VIEWER),
+        transitionEvent(1, "taken", OTHER_PARTICIPANT),
+        transitionEvent(2, "seized", OTHER_PARTICIPANT),
+        transitionEvent(3, "released", null, OTHER_PARTICIPANT),
+        transitionEvent(4, "auto_released_quota_exhausted", null, OTHER_PARTICIPANT),
+        transitionEvent(5, "taken", VIEWER_PARTICIPANT),
       ],
-      { viewerParticipantId: VIEWER },
+      { viewerParticipantId: VIEWER_PARTICIPANT },
     );
     expect(state.unreadableTransitionCount).toBe(2);
     expect(state.unreadTransition).toBeUndefined();
@@ -141,8 +145,11 @@ describe("the lease fold — what the wire said, and only that", () => {
     // Without it the case above would pass against a counter that incremented on
     // every event, which would put a notice on every ledger the console renders.
     const state = projectTerminalLease(
-      [transitionEvent(1, "taken", OTHER), transitionEvent(2, "released", null, OTHER)],
-      { viewerParticipantId: VIEWER },
+      [
+        transitionEvent(1, "taken", OTHER_PARTICIPANT),
+        transitionEvent(2, "released", null, OTHER_PARTICIPANT),
+      ],
+      { viewerParticipantId: VIEWER_PARTICIPANT },
     );
     expect(state.unreadableTransitionCount).toBe(0);
   });
@@ -150,8 +157,8 @@ describe("the lease fold — what the wire said, and only that", () => {
   it("negative control: a fold that echoed the payload would pass every case above", () => {
     // It would not pass this one. A payload naming a holder is not a holder when
     // the reason it arrived under is not one the console understands.
-    const state = projectTerminalLease([transitionEvent(1, "seized", OTHER)], {
-      viewerParticipantId: VIEWER,
+    const state = projectTerminalLease([transitionEvent(1, "seized", OTHER_PARTICIPANT)], {
+      viewerParticipantId: VIEWER_PARTICIPANT,
     });
     expect(state.holderParticipantId).toBeNull();
     expect(state.holding).toBe("unrecognized-transition");

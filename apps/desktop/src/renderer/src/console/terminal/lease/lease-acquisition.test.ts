@@ -13,14 +13,13 @@ import type { CallerMembershipRoleResult } from "../../store/index.js";
 import { ACQUIRING_MEMBERSHIP_ROLES, resolveTerminalClaimAffordance } from "./lease-acquisition.js";
 import type { TerminalLeaseHolding } from "./lease-model.js";
 import type { TerminalViewerIdentity } from "./viewer-identity.js";
+import { VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 
-const VIEWER = "participant-viewer";
-
-const IDENTITY_READ: TerminalViewerIdentity = { status: "read", participantId: VIEWER };
+const IDENTITY_READ: TerminalViewerIdentity = { status: "read", participantId: VIEWER_PARTICIPANT };
 const READ_REFUSAL: ConsoleRefusal = refuse("terminal-viewer-identity", "wire-unregistered", "No.");
 
 function roleRead(role: MembershipRole): CallerMembershipRoleResult {
-  return { status: "read", participantId: VIEWER, role };
+  return { status: "read", participantId: VIEWER_PARTICIPANT, role };
 }
 
 function resolve(
@@ -74,7 +73,11 @@ describe("the acquisition control is offered by role", () => {
     // Two different facts under rule 8: the roster naming no role for this
     // participant is nobody having asked, not a refusal to let them claim.
     expect(
-      resolve("unheld", IDENTITY_READ, { status: "read", participantId: VIEWER, role: undefined }),
+      resolve("unheld", IDENTITY_READ, {
+        status: "read",
+        participantId: VIEWER_PARTICIPANT,
+        role: undefined,
+      }),
     ).toStrictEqual({ control: "none", withheld: { reason: "role-unread-in-roster" } });
   });
 

@@ -13,19 +13,18 @@ import { describe, expect, it } from "vitest";
 import type { MembershipRole } from "@ai-sidekicks/contracts";
 import type { CallerMembershipRoleResult } from "../../store/index.js";
 import {
-  HOLDER,
-  VIEWER,
   VIEWER_IDENTITY_READ,
   claimControl,
   leaseState,
   refusingBridge,
   renderLease,
 } from "./LeaseLine.test-support.js";
+import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 
 describe("the lease line offers acquisition by role", () => {
   const roleRead = (role: MembershipRole): CallerMembershipRoleResult => ({
     status: "read",
-    participantId: VIEWER,
+    participantId: VIEWER_PARTICIPANT,
     role,
   });
 
@@ -74,7 +73,7 @@ describe("the lease line offers acquisition by role", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-you",
-        holderParticipantId: VIEWER,
+        holderParticipantId: VIEWER_PARTICIPANT,
         holderVouching: "vouched",
       }),
       refusingBridge(),
@@ -104,7 +103,7 @@ describe("the lease line offers acquisition by role", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-another",
-        holderParticipantId: HOLDER,
+        holderParticipantId: OTHER_PARTICIPANT,
         holderVouching: "vouched",
       }),
       refusingBridge(),
@@ -113,6 +112,6 @@ describe("the lease line offers acquisition by role", () => {
     );
 
     expect(container.textContent).toContain("Held by");
-    expect(container.textContent).toContain(HOLDER);
+    expect(container.textContent).toContain(OTHER_PARTICIPANT);
   });
 });

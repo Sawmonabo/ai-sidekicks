@@ -18,14 +18,13 @@ import type { TerminalParticipantMark } from "./participant-mark.js";
 import { TERMINAL_LEASE_HOLDINGS, UNREAD_TERMINAL_LEASE } from "./lease-model.js";
 import {
   CALLER_ROLE_COLLABORATOR,
-  HOLDER,
   SESSION_ID,
-  VIEWER,
   VIEWER_IDENTITY_READ,
   leaseState,
   refusingBridge,
   renderLease,
 } from "./LeaseLine.test-support.js";
+import { OTHER_PARTICIPANT, VIEWER_PARTICIPANT } from "./lease-model.test-support.js";
 
 describe("the holder line — every state 8.8 names", () => {
   it("says the lease has not been read, which is not the lease being free", () => {
@@ -45,18 +44,18 @@ describe("the holder line — every state 8.8 names", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-another",
-        holderParticipantId: HOLDER,
+        holderParticipantId: OTHER_PARTICIPANT,
         holderVouching: "vouched",
       }),
     );
     expect(container.textContent).toContain("Held by");
-    expect(container.textContent).toContain(HOLDER);
+    expect(container.textContent).toContain(OTHER_PARTICIPANT);
     expect(container.querySelector(".meridian-lease-line__mark--dashed")).not.toBeNull();
   });
 
   it("uses the roster's name where there is one, rather than the id", () => {
     const named = (participantId: string): TerminalParticipantMark | undefined =>
-      participantId === HOLDER
+      participantId === OTHER_PARTICIPANT
         ? { hueStep: 3, ringTreatment: "dashed", displayName: "Priya" }
         : undefined;
     const { container } = render(
@@ -65,7 +64,7 @@ describe("the holder line — every state 8.8 names", () => {
         sessionId={SESSION_ID}
         state={leaseState({
           holding: "held-by-another",
-          holderParticipantId: HOLDER,
+          holderParticipantId: OTHER_PARTICIPANT,
           holderVouching: "vouched",
         })}
         markFor={named}
@@ -74,14 +73,14 @@ describe("the holder line — every state 8.8 names", () => {
       />,
     );
     expect(container.textContent).toContain("Priya holds the shell.");
-    expect(container.textContent).not.toContain(HOLDER);
+    expect(container.textContent).not.toContain(OTHER_PARTICIPANT);
   });
 
   it("tells the holder they may type, and offers the handback rather than a claim", () => {
     const { container } = renderLease(
       leaseState({
         holding: "held-by-you",
-        holderParticipantId: VIEWER,
+        holderParticipantId: VIEWER_PARTICIPANT,
         holderVouching: "vouched",
       }),
     );
@@ -96,7 +95,7 @@ describe("the holder line — every state 8.8 names", () => {
 
   it("reports an unread node roster rather than vouching for a holder it cannot check", () => {
     const { container } = renderLease(
-      leaseState({ holding: "held-by-another", holderParticipantId: HOLDER }),
+      leaseState({ holding: "held-by-another", holderParticipantId: OTHER_PARTICIPANT }),
     );
     const absence = container.querySelector(".meridian-nothing");
     expect(absence?.className).toContain("meridian-nothing--not-checked");
@@ -105,7 +104,7 @@ describe("the holder line — every state 8.8 names", () => {
     // two below: a gate that silenced the block for every state would satisfy both
     // of them and leave a real holder standing with no word about the node it sits
     // on, which is the one reading 8.8 spends this absence on.
-    expect(container.textContent).toContain(HOLDER);
+    expect(container.textContent).toContain(OTHER_PARTICIPANT);
   });
 
   it("says nothing about a holding node's health when the line says the shell is free", () => {
@@ -247,12 +246,12 @@ describe("the holder line — every state 8.8 names", () => {
           leaseState({ holding: "unheld", holderVouching: "vouched" }),
           leaseState({
             holding: "held-by-another",
-            holderParticipantId: HOLDER,
+            holderParticipantId: OTHER_PARTICIPANT,
             holderVouching: "vouched",
           }),
           leaseState({
             holding: "held-by-you",
-            holderParticipantId: VIEWER,
+            holderParticipantId: VIEWER_PARTICIPANT,
             holderVouching: "vouched",
           }),
           leaseState({
