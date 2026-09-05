@@ -24,6 +24,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -39,19 +40,90 @@ const ARCHITECTURE_TIER_DIRECTORY = HERE;
 const SHARED_WALK_MODULE = resolve(HERE, "..", "console-source-modules.ts");
 
 /**
- * How a module shows it walked a directory itself.
+ * The `node:fs` bindings that enumerate a directory.
  *
- * `readdirSync` is the only spelling the tier has ever used and the only one the two
- * replaced copies used. `readdir(` covers the promise form, which nothing here writes
- * yet and which is the shape a sixth walk would most plausibly arrive as.
+ * Read from the IMPORT rather than from call text, which is the whole of this claim's
+ * strength: three spellings carry no `readdirSync(` anywhere —
+ * `import { readdirSync as listEntries }`, `const walkDirectory = readdirSync`, and
+ * `globSync(pattern)` — and each was a hole in the text needles this replaced. A binding
+ * has to be imported before it can be aliased, so the import list sees all three. It
+ * also cannot fire on prose: a header explaining why a gate does NOT walk names the
+ * function in a comment, and a comment is not an import.
+ *
+ * `globSync` is in the list because it was live in this tier when the list was written,
+ * not as a hypothetical: `browser-mode-optimize-deps.test.ts` walked the whole of `src/`
+ * with it, with its own idea of what counts as source and no exclusion for declaration
+ * files.
  */
-const DIRECTORY_WALK_FORMS: readonly string[] = ["readdirSync(", "readdir("];
+const DIRECTORY_WALK_BINDINGS: readonly string[] = [
+  "readdirSync",
+  "readdir",
+  "globSync",
+  "glob",
+  "opendirSync",
+  "opendir",
+];
+
+/** The module specifiers a directory walk is imported from. */
+const FILE_SYSTEM_SPECIFIERS: readonly string[] = [
+  "node:fs",
+  "fs",
+  "node:fs/promises",
+  "fs/promises",
+];
 
 /** How a module shows it drew its set from the shared walk instead. */
 const SHARED_WALK_IMPORT = "console-source-modules.js";
 
 /**
- * The one gate that names the forms above, which is this one.
+ * The gates admitted to walk a directory because they enumerate PATHS and read no text.
+ *
+ * `vitest-project-globs.test.ts` asks which test-shaped FILES exist anywhere in the
+ * package, so that every one of them is matched by exactly one project glob. That is a
+ * different universe from console source — it must reach `src/main`, `__tests__`, and
+ * every tier at once — and it never opens one of them. The chokepoint this file enforces
+ * is about what counts as SOURCE for a source-text claim, and a gate that reads no text
+ * makes no such claim. The admission is conditional and the condition is asserted below.
+ */
+const PATH_ONLY_WALK_GATES: readonly string[] = ["vitest-project-globs.test.ts"];
+
+/** How a module shows it reads a file at all, which is claim 2's subject. */
+const FILE_READ_FORMS: readonly string[] = ["readFileSync(", "readFile("];
+
+/**
+ * The gates admitted to read a file without drawing a module set from the shared walk.
+ *
+ * Each reads a CONFIG artifact — the package manifest and the CI workflow — which is not
+ * renderer source and which the shared walk has no view of. The admission is narrow and
+ * checked: the case below asserts an admitted gate composes no path into the renderer
+ * tree, so a gate added here to launder a hard-coded console reader fails on the way in.
+ */
+const CONFIG_READING_GATES: readonly string[] = ["ci-tier-coverage.test.ts"];
+
+/** The path segment every renderer path in this tier is composed from. */
+const RENDERER_PATH_SEGMENT = "renderer";
+
+/** Whether `source` reads a file itself. */
+function readsAFile(source: string): boolean {
+  return FILE_READ_FORMS.some((form) => source.includes(form));
+}
+
+/** Every string literal `source` contains, read through the parser and not by regex. */
+export function stringLiteralsIn(source: string, fileName: string): readonly string[] {
+  const parsed = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const literals: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isStringLiteralLike(node)) {
+      literals.push(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return literals;
+}
+
+/**
+ * The one gate that names the walk API, which is this one.
  *
  * A chokepoint's own declaration of what it forbids is the one place the forbidden
  * text has to appear, and the byte-scaling gate next door draws the same line the
@@ -62,9 +134,45 @@ const SHARED_WALK_IMPORT = "console-source-modules.js";
  */
 const FORM_DECLARING_GATE = "source-walk-chokepoint.test.ts";
 
-/** Every way `source` shows it walked a directory of its own, or `[]`. */
-function directoryWalkSignatures(source: string): readonly string[] {
-  return DIRECTORY_WALK_FORMS.filter((form) => source.includes(form));
+/**
+ * Every directory-walking binding `source` imports from the file system, or `[]`.
+ *
+ * The TypeScript parser rather than a regular expression, per the package's own rule for
+ * questions about source text: which bindings a module imports is a property of its
+ * import declarations, and a regular expression that reads them runs past a declaration
+ * boundary the first time a specifier list wraps.
+ *
+ * A NAMESPACE import of the file system is reported as its own finding rather than
+ * resolved through: `import * as fs` puts every walk in the module's reach under a name
+ * this scan cannot enumerate, and no gate in this tier needs one — `readFileSync` is a
+ * named import everywhere it is used.
+ */
+export function directoryWalkImports(source: string, fileName: string): readonly string[] {
+  const parsed = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const found: string[] = [];
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+      continue;
+    }
+    if (!FILE_SYSTEM_SPECIFIERS.includes(statement.moduleSpecifier.text)) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings === undefined) {
+      continue;
+    }
+    if (ts.isNamespaceImport(bindings)) {
+      found.push(`* as ${bindings.name.text}`);
+      continue;
+    }
+    for (const element of bindings.elements) {
+      const imported = (element.propertyName ?? element.name).text;
+      if (DIRECTORY_WALK_BINDINGS.includes(imported)) {
+        found.push(imported);
+      }
+    }
+  }
+  return found;
 }
 
 /** Every gate in this directory, by file name. */
@@ -92,54 +200,100 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
 
   it("no gate walks a directory of its own", () => {
     const offenders = gates
-      .filter((gate) => gate !== FORM_DECLARING_GATE)
-      .map((gate) => ({ gate, signatures: directoryWalkSignatures(readArchitectureGate(gate)) }))
-      .filter((entry) => entry.signatures.length > 0)
-      .map((entry) => `${entry.gate}: ${entry.signatures.join(", ")}`);
+      .filter((gate) => gate !== FORM_DECLARING_GATE && !PATH_ONLY_WALK_GATES.includes(gate))
+      .map((gate) => ({ gate, walks: directoryWalkImports(readArchitectureGate(gate), gate) }))
+      .filter((entry) => entry.walks.length > 0)
+      .map((entry) => `${entry.gate}: ${entry.walks.join(", ")}`);
     expect(offenders).toStrictEqual([]);
   });
 
-  it("negative control: the one admitted gate still trips the needles", () => {
+  it("negative control: the one admitted gate still imports the walk API", () => {
     // See `FORM_DECLARING_GATE`. Without this the admission is a hole rather than a
-    // declaration: a renamed walk API would leave every needle matching nothing
-    // anywhere, and the clean result above would be clean for that reason instead.
-    expect(directoryWalkSignatures(readArchitectureGate(FORM_DECLARING_GATE))).toStrictEqual([
-      ...DIRECTORY_WALK_FORMS,
-    ]);
+    // declaration: a renamed walk API would leave the scan matching nothing anywhere,
+    // and the clean result above would be clean for that reason instead.
+    expect(directoryWalkImports(readArchitectureGate(FORM_DECLARING_GATE), FORM_DECLARING_GATE)) //
+      .toStrictEqual(["readdirSync"]);
   });
 
-  it("every gate that reads source text draws its set from the shared walk", () => {
-    // The other direction, and it is not the same claim: a gate could avoid
-    // `readdirSync` by hard-coding a list of paths, which is a fifth opinion about
-    // what counts as source wearing a different shape. The gates that read source are
-    // exactly the ones that name the reader, so the set is derived rather than listed.
-    const readers = gates.filter((gate) =>
-      readArchitectureGate(gate).includes("readConsoleSourceModule"),
+  it("every gate that reads a file draws its module set from the shared walk", () => {
+    // RE-SUBJECTED, because the subject this claim used to take was circular: it read
+    // "the gates that name `readConsoleSourceModule`", which is the set of gates that
+    // already go through the shared walk. It could only ever find compliant gates. The
+    // shape it was written to catch — a gate that hard-codes a list of console paths and
+    // reads them itself, a sixth opinion about what counts as source wearing a different
+    // shape — names the reader nowhere and was therefore outside its own subject.
+    //
+    // The subject is now every gate that reads a FILE at all, which is decidable from
+    // the read rather than from the gate's compliance, minus this gate and the module
+    // that owns the walk. The escape is `CONFIG_READING_GATES`, and it is asserted
+    // rather than trusted.
+    const readers = gates.filter(
+      (gate) => gate !== FORM_DECLARING_GATE && readsAFile(readArchitectureGate(gate)),
     );
-    expect(readers.length).toBeGreaterThan(3);
+    expect(readers.length).toBeGreaterThan(0);
     const offenders = readers.filter(
-      (gate) => !readArchitectureGate(gate).includes(SHARED_WALK_IMPORT),
+      (gate) =>
+        !readArchitectureGate(gate).includes(SHARED_WALK_IMPORT) &&
+        !CONFIG_READING_GATES.includes(gate),
     );
     expect(offenders).toStrictEqual([]);
   });
 
-  it("negative control: the predicate reads a walk and not a mention of one", () => {
-    // Both sides of the line, against the predicate rather than against whichever
-    // gate happens to name a walk in prose today — this file's own header does.
+  it("every admitted directory walker reads no file's text", () => {
+    // The condition the walk admission rests on. A gate added to that list to get past
+    // claim 1 while reading source is caught here, so the escape cannot be widened into
+    // the sixth opinion about what counts as source that this file exists to refuse.
+    for (const gate of PATH_ONLY_WALK_GATES) {
+      expect(readsAFile(readArchitectureGate(gate)), `${gate} reads a file's text`).toBe(false);
+    }
+  });
+
+  it("every admitted config reader builds no path into the renderer tree", () => {
+    // What keeps the admission from laundering a hard-coded console reader. The test is
+    // on STRING LITERALS through the parser and not on the file's text: every renderer
+    // path in this tier is composed segment by segment, so a gate that reaches renderer
+    // source carries the literal, while a gate that merely discusses the renderer in
+    // prose does not — and `ci-tier-coverage.test.ts` is the second of those, which a
+    // text scan would have read as the first.
+    for (const gate of CONFIG_READING_GATES) {
+      expect(
+        stringLiteralsIn(readArchitectureGate(gate), gate),
+        `${gate} composes a path into the renderer source tree`,
+      ).not.toContain(RENDERER_PATH_SEGMENT);
+    }
+  });
+
+  it("negative control: the walk scan reads an import and not a mention of one", () => {
+    // Both sides of the line, against the predicate rather than against whichever gate
+    // happens to name a walk in prose today — this file's own header does.
+    expect(directoryWalkImports('import { readdirSync } from "node:fs";', "probe.ts")) //
+      .toStrictEqual(["readdirSync"]);
+    // The three spellings the text needles missed, each measured passing them.
     expect(
-      directoryWalkSignatures("const entries = readdirSync(root, { recursive: true });"),
-    ).toStrictEqual(["readdirSync("]);
-    expect(directoryWalkSignatures("await readdir(root, { recursive: true });")).toStrictEqual([
-      "readdir(",
-    ]);
-    // Each needle carries its open paren, so a header explaining why a gate does NOT
-    // walk is not an offence — two of them say exactly that about themselves.
+      directoryWalkImports('import { readdirSync as listEntries } from "node:fs";', "probe.ts"),
+    ).toStrictEqual(["readdirSync"]);
+    expect(directoryWalkImports('import { globSync } from "node:fs";', "probe.ts")) //
+      .toStrictEqual(["globSync"]);
+    expect(directoryWalkImports('import * as fs from "node:fs";', "probe.ts")) //
+      .toStrictEqual(["* as fs"]);
+    // And a walk named in prose, or a file read that is not a walk, is not an offence.
     expect(
-      directoryWalkSignatures("// this file used to carry its own `readdirSync`"),
+      directoryWalkImports("// this file used to carry its own `readdirSync(root)`", "probe.ts"),
     ).toStrictEqual([]);
-    expect(
-      directoryWalkSignatures("const modules = consoleSourceModules({ tests: true });"),
-    ).toStrictEqual([]);
+    expect(directoryWalkImports('import { readFileSync } from "node:fs";', "probe.ts")) //
+      .toStrictEqual([]);
+  });
+
+  it("negative control: the file-read and literal predicates separate their two sides", () => {
+    expect(readsAFile('const source = readFileSync(path, "utf8");')).toBe(true);
+    expect(readsAFile("await readFile(path);")).toBe(true);
+    expect(readsAFile("// a gate that reads a file names the shared walk")).toBe(false);
+    expect(stringLiteralsIn('const at = resolve(HERE, "renderer", "src");', "probe.ts")).toContain(
+      RENDERER_PATH_SEGMENT,
+    );
+    expect(stringLiteralsIn("// the renderer tier is selected twice", "probe.ts")).not.toContain(
+      RENDERER_PATH_SEGMENT,
+    );
   });
 
   it("negative control: the shared walk itself is the one module that walks", () => {
@@ -147,9 +301,9 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
     // the one place they must match is the module that owns the walk. It is outside
     // this directory, so it is not an offender — and asserting it still trips turns a
     // renamed API into a red gate rather than a silent hole.
-    expect(directoryWalkSignatures(readFileSync(SHARED_WALK_MODULE, "utf8"))).toContain(
-      "readdirSync(",
-    );
+    expect(
+      directoryWalkImports(readFileSync(SHARED_WALK_MODULE, "utf8"), SHARED_WALK_MODULE),
+    ).toContain("readdirSync");
   });
 });
 
