@@ -47,25 +47,26 @@
 // nothing about anyone's bytes. So the fetch is settled by ITS OWN id, and disposal is
 // asked separately.
 //
-// AND THE RE-READ HAS AN IDENTITY OF ITS OWN, BECAUSE THE REFRESH STAMP IS NOT ONE.
+// AND THE RE-READ HAS A ROUND OF ITS OWN, BECAUSE THE REFRESH STAMP IS NOT ONE.
 // Two presses on one row before the first settles capture the SAME
 // scheduled read round — starting an act does not supersede it, and it is the
 // reader's to move — so both continuations passed the supersession check and whichever
 // reply the bridge delivered LAST decided what the row says. Two reads of one manifest
 // can settle in either order, so that is the older answer overwriting the newer one,
 // silently, on a row the participant pressed twice precisely because they wanted the
-// fresher reading. The request's identity is therefore minted AT ISSUE — the keyed
-// register `execution-mode-selection.ts` already uses one directory over, keyed by
-// artifact id because two rows re-reading are two independent calls that cannot collide
-// — and the reading names the rows whose reads are outstanding, which is what holds
-// each one's control. A press that reached here anyway is refused in words.
+// fresher reading. The round is therefore taken AT ISSUE from `store/generation-latch.
+// ts`, KEYED BY ARTIFACT ID because two rows re-reading are two independent calls that
+// cannot collide — and the reading names the rows whose reads are outstanding, which is
+// what holds each one's control. A press that reached here anyway is refused in words.
 //
-// SETTLED BY REQUEST IDENTITY, NOT MERELY BY LIVENESS. A register alone answers "is
-// one pending"; a continuation coming back from its await also has to answer "is the
-// pending one MINE", because a reply for a request the register has moved past
-// describes state a later act has already superseded, and writing it would put the
-// older answer back on the reading. Both registers here obey it — the keyed one below
-// and the payload one next door.
+// THE ROUND IS THE CONSOLE'S ONE REGISTER AND NEVER A COUNTER OF THIS FILE'S OWN.
+// A hand-rolled table of request ids answered exactly the three questions
+// `GenerationLatch` answers — may I dispatch, is this settlement still mine, give the
+// key back — and the place copies of a guard drift is the predicate. `claim` refuses
+// the second press rather than superseding it, which is this act's rule; `isCurrent`
+// answers supersession and disposal in one question, because `dispose` supersedes
+// every key; and `release` is guarded by the round's own serial, so a continuation
+// that no longer holds the key cannot free its successor's.
 //
 // AND A CALL THAT REJECTS IS AN ANSWER, WHICH IS WHY NO ACT HERE AWAITS THE PORT
 // BARE. The live bridge crosses a process boundary, so an IPC disconnect makes the
@@ -82,6 +83,7 @@
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { artifactManifestRowFromSummary } from "../../repos/artifacts/index.js";
+import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 import { recordRowRefusal, type ArtifactActionHost } from "./artifact-action-host.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
 import { readGrowthAnswer } from "./growth-call.js";
@@ -96,19 +98,6 @@ import {
   type ArtifactRowActOutcome,
 } from "./artifact-pane-reading.js";
 import { type ArtifactPayloadOutcome } from "./artifact-payload.js";
-
-/**
- * One manifest re-read awaiting the bridge, and the identity that tells it from its
- * successor.
- *
- * The artifact is carried because the register is keyed by it and a released entry has
- * to name which row's control comes back; the id is what makes a settlement
- * attributable to the request that issued it rather than to whichever one is standing.
- */
-interface InFlightManifestRead {
-  readonly artifactId: string;
-  readonly requestId: number;
-}
 
 export interface ArtifactPaneActionsOptions {
   readonly bridge: ConsoleBridge;
@@ -125,14 +114,12 @@ export class ArtifactPaneActions {
    * The manifest re-read awaiting the bridge on each row. One per row, and the reading
    * says which rows those are.
    *
-   * KEYED AND NEVER PER PANE, on `execution-mode-selection.ts`'s reason for its own
-   * keyed register: two rows re-reading are two calls about two manifests that cannot
-   * collide, and a pane holding one row's control because another row is waiting would
-   * hold it for a reason that is not about it.
+   * KEYED BY ARTIFACT ID AND NEVER PER PANE: two rows re-reading are two calls about
+   * two manifests that cannot collide, and a pane holding one row's control because
+   * another row is waiting would hold it for a reason that is not about it. The latch
+   * is keyed exactly that way, so the rule is the key rather than a mode.
    */
-  readonly #inFlightManifestReadByArtifactId = new Map<string, InFlightManifestRead>();
-  /** Monotonic within this register, and compared only against this register's own. */
-  #nextRequestId = 1;
+  readonly #manifestReads = new GenerationLatch();
 
   public constructor(options: ArtifactPaneActionsOptions) {
     this.#bridge = options.bridge;
@@ -177,27 +164,26 @@ export class ArtifactPaneActions {
    *
    * ONE PER ROW, AND THE SECOND PRESS IS REFUSED RATHER THAN SENT. Two reads of one
    * manifest settle in either order, and the refresh stamp cannot tell them apart
-   * because neither of them moved it — see the header. So the request takes this row's
-   * register at issue, the reading names the row while it is held, and a settlement
-   * whose request the register has moved past writes nothing.
+   * because neither of them moved it — see the header. So the press takes this row's
+   * key at issue, the reading names the row while it is held, and a settlement whose
+   * round the latch has moved past writes nothing.
    */
   public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
-    if (this.#inFlightManifestReadByArtifactId.has(artifactId)) {
+    const manifestRound = this.#manifestReads.claim(this, artifactId);
+    if (manifestRound === undefined) {
       return recordRowRefusal(this.#host, artifactId, manifestReadInFlightRefusal(artifactId));
     }
-    const request: InFlightManifestRead = { artifactId, requestId: this.#nextRequestId };
-    this.#nextRequestId += 1;
     const readRound = this.#host.scheduledReadClaim();
-    this.#holdManifestRead(request);
+    this.#holdManifestRead(artifactId);
     try {
       const answer = await readGrowthAnswer("The manifest re-read", () =>
         this.#bridge.growth.artifactRead({ artifactId }),
       );
-      // BOTH QUESTIONS, AND THEY ARE DIFFERENT ONES. The register answers "is this
+      // BOTH QUESTIONS, AND THEY ARE DIFFERENT ONES. This row's round answers "is this
       // reply still the one this row is waiting for" — the disposal case, and the case
       // a successor would create — and the stamp answers "has a refresh since re-read
       // the row this was about". Either alone leaves the other's late answer writable.
-      if (!this.#stillStandingForManifestRead(request)) {
+      if (!manifestRound.isCurrent) {
         return { status: "superseded" };
       }
       if (!readRound.isCurrent) {
@@ -220,7 +206,7 @@ export class ArtifactPaneActions {
       });
       return { status: "settled" };
     } finally {
-      this.#releaseManifestRead(request);
+      this.#releaseManifestRead(artifactId, manifestRound);
     }
   }
 
@@ -308,38 +294,34 @@ export class ArtifactPaneActions {
   /** Terminal. A call still on the wire settles into nothing rather than onto a pane that unmounted. */
   public dispose(): void {
     this.#payloadFetches.dispose();
-    this.#inFlightManifestReadByArtifactId.clear();
+    this.#manifestReads.supersedeAll();
   }
 
-  /** Take this row's register, and redraw so its re-read control holds. */
-  #holdManifestRead(request: InFlightManifestRead): void {
-    this.#inFlightManifestReadByArtifactId.set(request.artifactId, request);
+  /** Take this row's key, and redraw so its re-read control holds. */
+  #holdManifestRead(artifactId: string): void {
     const reading = this.#host.currentReading();
     this.#host.publish({
       ...reading,
       manifestReadInFlightArtifactIds: withManifestReadInFlight(
         reading.manifestReadInFlightArtifactIds,
-        request.artifactId,
+        artifactId,
       ),
     });
   }
 
   /**
-   * Give this row's register back, but only where it is still this request's to give.
+   * Give this row's key back, but only where it is still this round's to give.
    *
-   * A disposal clears the register out from under a continuation, and a request that no
-   * longer holds it must not clear a successor's — the same identity check
-   * `#stillStandingForManifestRead` makes before a settlement writes. The publish is
-   * skipped on that arm too, because releasing a control this request no longer holds
-   * would offer it while its successor's call is still on the wire.
+   * `release` is guarded by the round's own serial, so a continuation the latch has
+   * moved past — a disposal here, a successor once one is reachable — frees nothing.
+   * The publish is asked separately and skipped on that arm, because offering a
+   * control this round no longer holds would offer it while its successor's call is
+   * still on the wire.
    */
-  #releaseManifestRead(request: InFlightManifestRead): void {
-    const held = this.#inFlightManifestReadByArtifactId.get(request.artifactId);
-    if (held?.requestId !== request.requestId) {
-      return;
-    }
-    this.#inFlightManifestReadByArtifactId.delete(request.artifactId);
-    if (this.#host.isDisposed()) {
+  #releaseManifestRead(artifactId: string, round: GenerationClaim): void {
+    const heldByThisRound = round.isCurrent;
+    round.release();
+    if (!heldByThisRound) {
       return;
     }
     const reading = this.#host.currentReading();
@@ -347,17 +329,8 @@ export class ArtifactPaneActions {
       ...reading,
       manifestReadInFlightArtifactIds: withoutManifestReadInFlight(
         reading.manifestReadInFlightArtifactIds,
-        request.artifactId,
+        artifactId,
       ),
     });
-  }
-
-  /** Whether a settled re-read still speaks for the request this row's register holds. */
-  #stillStandingForManifestRead(request: InFlightManifestRead): boolean {
-    return (
-      !this.#host.isDisposed() &&
-      this.#inFlightManifestReadByArtifactId.get(request.artifactId)?.requestId ===
-        request.requestId
-    );
   }
 }

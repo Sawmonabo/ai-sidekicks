@@ -33,9 +33,19 @@
 // than ignored, because a press that produced nothing at all is the silent no-op
 // rule 8 forbids.
 //
-// SETTLED BY REQUEST IDENTITY, NOT MERELY BY LIVENESS. Every continuation checks the id
-// it was issued under before it writes: a reply for a request the register has moved
-// past describes a proposal a later act superseded, and writing it puts that payload back.
+// SETTLED BY ITS ROUND, NOT MERELY BY LIVENESS. Every continuation asks whether the
+// round it was issued on is still the live one before it writes: a reply for a round
+// the register has moved past describes a proposal a later act superseded, and writing
+// it puts that payload back.
+//
+// AND THE REGISTER IS THE CONSOLE'S, NOT A COUNTER OF THIS FILE'S OWN. The three
+// questions this class asks — may I dispatch, is this settlement still mine, give the
+// key back — are exactly `store/generation-latch.ts`'s, and the place copies of a guard
+// drift is the predicate. It takes ONE key, because the rule is one act at a time
+// across every control: `claim` refuses the second press rather than superseding it,
+// `isCurrent` answers supersession and disposal in one question because `dispose`
+// supersedes every key, and `release` is guarded by the round's own serial, so a
+// continuation that no longer holds the key cannot free its successor's.
 //
 // AND THE REGISTER SAYS NOTHING ABOUT THE READ. It answers "did a later act supersede
 // this one", while the branch-context read runs on its own schedule and can replace or
@@ -60,6 +70,11 @@
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+import {
+  GenerationLatch,
+  type CurrentGenerationClaim,
+  type GenerationClaim,
+} from "../../store/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { proposalContextKeysMatch, type PreparedProposal } from "./prepared-proposal.js";
 import { gitActionExecuteRequest } from "./git-action-request.js";
@@ -118,17 +133,13 @@ export interface ProposalGateActionHost {
 }
 
 /**
- * One act awaiting the bridge, and the identity that tells it from its successor.
+ * The one key an act takes.
  *
- * The id is what makes a settlement attributable. `#inFlight` alone answers "is one
- * pending"; a continuation coming back from its await also has to answer "is the
- * pending one MINE", because a response for a request the register has moved past
- * must be dropped rather than written over the newer answer.
+ * A CONSTANT AND NOT THE ACT, because the rule is one act at a time across every
+ * control: keying by act would admit a commit while a preparation was unanswered, and
+ * the payload the commit runs against is the one that preparation is about to replace.
  */
-interface InFlightProposalAction {
-  readonly action: ProposalAction;
-  readonly requestId: number;
-}
+const PROPOSAL_ACTION_KEY = "proposal-action";
 
 export interface ProposalGateActionsOptions {
   readonly bridge: ConsoleBridge;
@@ -151,10 +162,7 @@ export class ProposalGateActions {
   readonly #repoMountId: string;
   readonly #host: ProposalGateActionHost;
   /** The act awaiting the bridge. One at a time, and the gate says which. */
-  #inFlight: InFlightProposalAction | undefined;
-  /** Monotonic, so a superseded continuation can never match the standing request. */
-  #nextRequestId = 1;
-  #disposed = false;
+  readonly #acts = new GenerationLatch();
 
   public constructor(options: ProposalGateActionsOptions) {
     this.#bridge = options.bridge;
@@ -172,16 +180,19 @@ export class ProposalGateActions {
    * re-reads, because what the act changed is what the next read will say.
    */
   public async request(action: ProposalAction): Promise<void> {
-    const pending = this.#inFlight;
-    if (pending !== undefined) {
+    const round = this.#acts.claim(this, PROPOSAL_ACTION_KEY);
+    if (round === undefined) {
       // The sentence names the act the gate is actually waiting on, not the one
-      // pressed: a participant told "something is in flight" cannot tell what.
+      // pressed: a participant told "something is in flight" cannot tell what. The
+      // gate's own arm carries it — `#holdFor` publishes it in the tick the key is
+      // taken — so there is no second copy to disagree with what the gate is showing.
+      const pending = this.#host.currentReading().inFlightAction ?? action;
       this.#recordActionRefusal(
         action,
         refuse(
           PROPOSAL_GATE_REFUSAL_ORIGIN,
           "action-in-flight" satisfies ProposalGateRefusalCode,
-          `${PROPOSAL_ACTION_PRESENTATION[pending.action].label} has been sent and the daemon has not answered yet. Nothing else is sent until it settles.`,
+          `${PROPOSAL_ACTION_PRESENTATION[pending].label} has been sent and the daemon has not answered yet. Nothing else is sent until it settles.`,
         ),
       );
       return;
@@ -196,7 +207,10 @@ export class ProposalGateActions {
     const context = this.#host.servedContext();
     if (context === undefined) {
       // Structurally unreachable from the gate, which offers acts only on the
-      // `prepared` arm — and recorded rather than dropped, for the same reason.
+      // `prepared` arm — and recorded rather than dropped, for the same reason. The
+      // key is given back bare: nothing was published against it, so there is no
+      // control to hand back with it.
+      round.release();
       this.#recordActionRefusal(
         action,
         refuse(
@@ -207,59 +221,52 @@ export class ProposalGateActions {
       );
       return;
     }
-    const request: InFlightProposalAction = { action, requestId: this.#nextRequestId };
-    this.#nextRequestId += 1;
-    this.#holdFor(request);
+    this.#holdFor(action);
     try {
       // Routed by the predicate rather than by naming the act, so a fourth act says
       // which of the two wires it reaches before it can be sent — and the guard
       // NARROWS, so the request builder is handed an act the git action can take.
       if (!reachesGitAction(action)) {
-        await this.#prepareProposal(context, request);
+        await this.#prepareProposal(context, round);
         return;
       }
-      await this.#executeGitAction(action, context, request);
+      await this.#executeGitAction(action, context, round);
     } catch (rejection) {
-      // The identity check the settle paths make, for their reason: a rejection for a
-      // request the register has moved past describes an act a later press superseded.
-      if (this.#stillStandingFor(request)) {
+      // The check the settle paths make, for their reason: a rejection on a round the
+      // register has moved past describes an act a later press superseded.
+      if (round.isCurrent) {
         this.#recordActionRefusal(action, repoCallRefusal(proposalActionWire(action), rejection));
       }
     } finally {
-      this.#release(request);
+      this.#releaseHeld(round);
     }
   }
 
   /** Terminal. A call still on the wire settles into nothing rather than onto a gate that unmounted. */
   public dispose(): void {
-    this.#disposed = true;
-    this.#inFlight = undefined;
+    this.#acts.supersedeAll();
   }
 
-  /** Take the register for one act, and redraw so the gate holds its controls. */
-  #holdFor(request: InFlightProposalAction): void {
-    this.#inFlight = request;
-    this.#host.publish({ ...this.#host.currentReading(), inFlightAction: request.action });
+  /** Take the key for one act, and redraw so the gate holds its controls. */
+  #holdFor(action: ProposalAction): void {
+    this.#host.publish({ ...this.#host.currentReading(), inFlightAction: action });
   }
 
   /**
-   * Give the register back, but only where it is still this request's to give.
+   * Give the key back, but only where it is still this round's to give.
    *
-   * A disposal clears the register out from under a continuation, and a request that
-   * no longer holds it must not clear a successor's — which is the same identity check
-   * the settle paths make before they write.
+   * `release` is guarded by the round's own serial, so a disposal or a successor
+   * leaves it a no-op. The publish is asked separately and skipped on that arm,
+   * because offering the controls back on behalf of a round the gate has moved past
+   * would offer them while its successor's call is still on the wire.
    */
-  #release(request: InFlightProposalAction): void {
-    if (this.#inFlight?.requestId !== request.requestId) {
+  #releaseHeld(round: GenerationClaim): void {
+    const heldByThisRound = round.isCurrent;
+    round.release();
+    if (!heldByThisRound) {
       return;
     }
-    this.#inFlight = undefined;
     this.#host.publish({ ...this.#host.currentReading(), inFlightAction: undefined });
-  }
-
-  /** Whether a settled call still speaks for the act the register is holding. */
-  #stillStandingFor(request: InFlightProposalAction): boolean {
-    return !this.#disposed && this.#inFlight?.requestId === request.requestId;
   }
 
   /**
@@ -276,7 +283,7 @@ export class ProposalGateActions {
 
   async #prepareProposal(
     context: BranchContextReading,
-    request: InFlightProposalAction,
+    round: CurrentGenerationClaim,
   ): Promise<void> {
     const outcome = await this.#bridge.growth.gitflowPrPrepare({
       branchContextId: context.branchContextId,
@@ -284,7 +291,7 @@ export class ProposalGateActions {
       // this class through which one could arrive.
       targetBranch: context.baseBranch,
     });
-    if (!this.#stillStandingFor(request)) {
+    if (!round.isCurrent) {
       return;
     }
     if (outcome.status === "unavailable") {
@@ -309,13 +316,13 @@ export class ProposalGateActions {
   async #executeGitAction(
     action: GitActionProposalAction,
     context: BranchContextReading,
-    request: InFlightProposalAction,
+    round: CurrentGenerationClaim,
   ): Promise<void> {
     // Awaited before the act rather than alongside it: the causation travels ON the
     // request, so there is nothing to parallelise — and the answer is read once by the
     // half that reads, so this await resolves immediately for every act after the first.
     const causationParticipantId = await this.#host.callerParticipantId();
-    if (!this.#stillStandingFor(request)) {
+    if (!round.isCurrent) {
       return;
     }
     if (!this.#stillActingOn(context)) {
@@ -347,7 +354,7 @@ export class ProposalGateActions {
         causationParticipantId,
       }),
     );
-    if (!this.#stillStandingFor(request)) {
+    if (!round.isCurrent) {
       return;
     }
     if (outcome.status === "unavailable") {

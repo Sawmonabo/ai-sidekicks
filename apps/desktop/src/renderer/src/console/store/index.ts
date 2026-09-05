@@ -131,8 +131,4 @@ export {
   /** @consumedBy T-023p-1C-8 */
   useGenerationLatch,
 } from "./generation-latch.js";
-export type {
-  CurrentGenerationClaim,
-  /** @consumedBy T-023p-1C-8 */
-  GenerationClaim,
-} from "./generation-latch.js";
+export type { CurrentGenerationClaim, GenerationClaim } from "./generation-latch.js";
