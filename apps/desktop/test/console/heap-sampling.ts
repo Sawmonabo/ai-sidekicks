@@ -114,8 +114,19 @@ export class HeapCollector {
   }
 }
 
-/** How many collect-and-settle rounds a sample runs. */
-const SETTLE_ROUNDS = 4;
+/**
+ * How many collect-and-settle rounds a sample runs.
+ *
+ * Exported because a SECOND process measures the same thing over a DevTools session
+ * — the endurance tier's renderer probe — and the two loops genuinely cannot be
+ * shared: one collects in this process and one over CDP. The round count and the
+ * "collect, then yield a macrotask" discipline can be, and must be. Raise this
+ * because the in-process readings stop settling, and a probe carrying its own copy
+ * goes on collecting the old number of times while reading a floor the tier no
+ * longer reaches — with nothing failing, which is what two definitions of "settled"
+ * cost.
+ */
+export const SETTLE_ROUNDS = 4;
 
 /**
  * A collector and the settling loop that makes its readings comparable.

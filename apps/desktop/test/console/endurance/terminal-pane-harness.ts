@@ -25,6 +25,7 @@ import { expect } from "vitest";
 import type { CDPSession } from "@playwright/test";
 
 import type { ConsoleApplication } from "../electron-harness.js";
+import { SETTLE_ROUNDS } from "../heap-sampling.js";
 import {
   advanceScenario,
   readAppliedEventCount,
@@ -66,17 +67,6 @@ const SCENARIO_DELIVERY_STEP_COUNT = 20;
 const SCENARIO_DRAIN_STEP_COUNT = 5;
 
 /**
- * How many collect-and-yield rounds precede a reading.
- *
- * The same number and the same reasoning as `test/console/heap-sampling.ts`'s
- * `SETTLE_ROUNDS`, one process over: one collection reclaims what is unreachable at
- * that instant, and a disposed emulator releases its observers, its listeners, and
- * its detached canvas across a task boundary rather than inside the call that
- * disposed it.
- */
-const COLLECTION_ROUNDS = 4;
-
-/**
  * The renderer's heap, read after its garbage has actually been collected.
  *
  * WHY A FORCED COLLECTION AND NOT THE SAMPLER ALONE. `readSettledHeapBytes` takes
@@ -113,9 +103,17 @@ export class RendererHeapProbe {
     return new RendererHeapProbe(consoleApplication, cdpSession);
   }
 
-  /** Collect, let finalisation run, and read the settled heap. */
+  /**
+   * Collect, let finalisation run, and read the settled heap.
+   *
+   * The loop is this process's own — it collects over a DevTools session rather than
+   * through a resolved collector — but the ROUND COUNT is `heap-sampling.ts`'s, which
+   * is the console's declared home for the settling discipline. A local copy of the
+   * number would go on collecting four times after that one was raised, and the row
+   * would read a floor the in-process tier no longer reaches with nothing failing.
+   */
   public async readSettledBytes(): Promise<number> {
-    for (let round = 0; round < COLLECTION_ROUNDS; round += 1) {
+    for (let round = 0; round < SETTLE_ROUNDS; round += 1) {
       await this.#cdpSession.send("HeapProfiler.collectGarbage");
       await this.#consoleApplication.window.evaluate(
         async () =>
