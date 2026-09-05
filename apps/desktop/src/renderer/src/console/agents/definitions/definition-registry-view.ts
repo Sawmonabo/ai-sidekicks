@@ -33,7 +33,7 @@ import {
   readDefinitionOutcome,
   type SidekickDefinitionReading,
 } from "./definition-rows.js";
-import type { SidekickDefinitionEditorSubject } from "./DefinitionEditorSlot.js";
+import type { SidekickDefinitionEditorSubject } from "./SidekickDefinitionRecordEditorMount.js";
 
 /** Everything the page renders from, in one value. */
 export interface SidekickRegistrySnapshot {

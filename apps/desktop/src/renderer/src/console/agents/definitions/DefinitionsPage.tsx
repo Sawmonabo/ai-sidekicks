@@ -25,7 +25,7 @@
 // the row, where a person can still read what they are about to delete. The pending
 // state, the daemon's refusal, and the re-read on success all land there too.
 //
-// EDIT AND NEW OPEN THE SAME SEAT. `DefinitionEditorSlot.tsx` declares a subject
+// EDIT AND NEW OPEN THE SAME SEAT. `SidekickDefinitionRecordEditorMount.tsx` declares a subject
 // with exactly two arms — a stored record, or one being composed — and this page
 // supplies whichever was asked for. The body filling the seat is another plan's and
 // has not arrived, so both controls reach the seat's reserved treatment, which says
@@ -67,7 +67,7 @@ import {
 import {
   SIDEKICK_DEFINITION_RECORD_EDITOR_SLOT,
   SidekickDefinitionRecordEditorMount,
-} from "./DefinitionEditorSlot.js";
+} from "./SidekickDefinitionRecordEditorMount.js";
 
 import "./definitions-page.css";
 
