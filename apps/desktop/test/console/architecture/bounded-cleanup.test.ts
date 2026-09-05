@@ -24,8 +24,10 @@
 // `frame-witness.test.ts` and `launch-deadline.test.ts` already made for the
 // same reason.
 //
-// The clock these cases draw from is `launch-deadline.test.ts`; the verdict the
-// witness renders just before them is `frame-witness.test.ts`.
+// The launch clock these cases deliberately do NOT draw from is
+// `launch-deadline.test.ts` — cleanup's bound is the registered ceiling rather
+// than a slice of whatever is left; the verdict the witness renders just before
+// them is `frame-witness.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -36,12 +38,11 @@ import {
   withCleanupOutcome,
 } from "../bounded-cleanup.js";
 import { CLEANUP_BUDGET_MS } from "../launch-budgets.js";
-import { LaunchDeadline } from "../launch-deadline.js";
 import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
 
 describe("bounded cleanup — a close that never settles", () => {
   /** A close bound short enough that exhausting it costs the suite nothing. */
-  const TEST_RESERVE_MS = 120;
+  const TEST_BUDGET_MS = 120;
 
   /** An application whose close never settles, and whose process has a pid. */
   function applicationThatNeverCloses(processId: number | undefined): ClosableApplication {
@@ -72,13 +73,6 @@ describe("bounded cleanup — a close that never settles", () => {
     return { close: () => Promise.reject(rejection), processId: () => 4242 };
   }
 
-  /** A deadline with nothing left, which is what cleanup on the failure path meets. */
-  function spentDeadline(): LaunchDeadline {
-    const deadline = new LaunchDeadline(0);
-    expect(deadline.expired()).toBe(true);
-    return deadline;
-  }
-
   it("settles inside the bound and SIGKILLs the process tree", async () => {
     // THE FINDING, in one case. Before this, close() was awaited with no bound at
     // all, so this application hung the launch until vitest killed the test — the
@@ -89,35 +83,46 @@ describe("bounded cleanup — a close that never settles", () => {
     const outcome = await new BoundedCleanup(
       applicationThatNeverCloses(4242),
       terminator,
-      spentDeadline(),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
     expect(outcome.settlement).toBe("terminated");
     expect(terminator.killed).toStrictEqual([4242]);
     // Settled BECAUSE of the bound, not before it and not far past it.
-    expect(outcome.waitedMs).toBeGreaterThanOrEqual(TEST_RESERVE_MS * 0.9);
-    expect(Date.now() - startedAt).toBeLessThan(TEST_RESERVE_MS * 10);
+    expect(outcome.waitedMs).toBeGreaterThanOrEqual(TEST_BUDGET_MS * 0.9);
+    expect(Date.now() - startedAt).toBeLessThan(TEST_BUDGET_MS * 10);
   });
 
-  it("reports the bound it was actually given, not the reserve", async () => {
-    // A launch that fails EARLY leaves most of the deadline unspent, and the
-    // applied bound is `max(remaining, reserve)` — so cleanup can be given far
-    // more than `CLEANUP_BUDGET_MS`. Reporting the reserve there would claim a
-    // process failed to close in ten seconds when it had been given five times
-    // that: a diagnostic misdescribing its own measurement.
-    const generous = TEST_RESERVE_MS * 4;
+  it("holds a launched console's close to the registered ceiling and nothing else", async () => {
+    // THE CEILING FINDING. `budgets.json` declares `console-launch-cleanup` an enforced
+    // `<= 10 000 ms` bound in a registry that models every row as a ceiling,
+    // while the applied bound was `max(what the launch deadline has left, the
+    // reserve)` — so a readiness failure two seconds in handed cleanup nearly
+    // the whole 55 000 ms deadline and a budget audit read a constraint the
+    // harness did not apply. The leftover launch time is not an input any more,
+    // which is why the old behaviour cannot be constructed here at all: there is
+    // no deadline to hand this class, and every launched console is held to the
+    // row.
+    const outcome = await new BoundedCleanup(
+      { close: () => Promise.resolve(), processId: () => 4242 },
+      terminatorSpy(true),
+    ).close();
+    expect(outcome.budgetMs).toBe(CLEANUP_BUDGET_MS);
+  });
+
+  it("negative control: the reported bound is the one raced against, not the constant", async () => {
+    // Without this the case above is ambiguous between "the ceiling is applied"
+    // and "`budgetMs` is the constant restated". The cases here supply a bound
+    // short enough to exhaust, and the verdict — and the sentence a reader sees
+    // — carry THAT figure, so a message can never claim a process failed to
+    // close in ten seconds when it was given a tenth of a second.
     const outcome = await new BoundedCleanup(
       applicationThatNeverCloses(4242),
       terminatorSpy(true),
-      new LaunchDeadline(generous),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
-    expect(outcome.budgetMs).toBeGreaterThanOrEqual(generous * 0.9);
-    expect(outcome.budgetMs).toBeGreaterThan(TEST_RESERVE_MS);
-    // And the sentence a reader sees carries that same figure rather than the
-    // constant, so the two cannot disagree.
+    expect(outcome.budgetMs).toBe(TEST_BUDGET_MS);
     const worded = withCleanupOutcome(new Error("the launch failed"), outcome);
-    expect((worded as Error).message).toContain(String(outcome.budgetMs));
+    expect((worded as Error).message).toContain(`${String(TEST_BUDGET_MS)} ms it was given`);
     expect((worded as Error).message).not.toContain(`${String(CLEANUP_BUDGET_MS)} ms it was given`);
   });
 
@@ -129,31 +134,30 @@ describe("bounded cleanup — a close that never settles", () => {
     const outcome = await new BoundedCleanup(
       { close: () => Promise.resolve(), processId: () => 4242 },
       terminator,
-      spentDeadline(),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
     expect(outcome.settlement).toBe("closed");
     expect(terminator.killed).toStrictEqual([]);
   });
 
-  it("gives a healthy close its full reserve even when the launch deadline is spent", async () => {
-    // The regression this design is shaped around. `close()` is also called on
-    // the SUCCESS path, minutes later for the endurance tier, when the launch
-    // deadline has nothing left. A bound drawn from the deadline alone would be
-    // 1 ms there and would SIGKILL an application that was closing perfectly
-    // normally, so the reserve is a floor the deadline can only ever raise.
+  it("lets a close that takes time but lands inside the bound finish", async () => {
+    // The regression the whole bound is shaped around, and the reason it is not
+    // drawn from the launch deadline: `close()` is also called on the SUCCESS
+    // path, minutes later for the endurance tier, when that deadline has nothing
+    // left. A bound taken from it would be 1 ms there and would SIGKILL an
+    // application that was closing perfectly normally. This close is slow and
+    // fine, and survives.
     const terminator = terminatorSpy(true);
     const outcome = await new BoundedCleanup(
       {
         close: () =>
           new Promise<void>((resolveClose) => {
-            setTimeout(resolveClose, TEST_RESERVE_MS * 0.5);
+            setTimeout(resolveClose, TEST_BUDGET_MS * 0.5);
           }),
         processId: () => 4242,
       },
       terminator,
-      spentDeadline(),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
     expect(outcome.settlement).toBe("closed");
     expect(terminator.killed).toStrictEqual([]);
@@ -167,14 +171,12 @@ describe("bounded cleanup — a close that never settles", () => {
     const withoutPid = await new BoundedCleanup(
       applicationThatNeverCloses(undefined),
       terminatorSpy(true),
-      spentDeadline(),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
     const refusedSignal = await new BoundedCleanup(
       applicationThatNeverCloses(4242),
       terminatorSpy(false),
-      spentDeadline(),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
     expect([withoutPid.settlement, refusedSignal.settlement]).toStrictEqual([
       "unterminable",
@@ -192,8 +194,7 @@ describe("bounded cleanup — a close that never settles", () => {
     const outcome = await new BoundedCleanup(
       applicationWhoseCloseRejects(rejection),
       terminator,
-      spentDeadline(),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
     expect(outcome.settlement).toBe("terminated");
     expect(terminator.killed).toStrictEqual([4242]);
@@ -202,7 +203,7 @@ describe("bounded cleanup — a close that never settles", () => {
     expect(outcome.closeRejection).toBe(rejection);
     // Settled on the rejection, not by waiting the bound out: a close that has
     // stopped trying is not a hang.
-    expect(outcome.waitedMs).toBeLessThan(TEST_RESERVE_MS);
+    expect(outcome.waitedMs).toBeLessThan(TEST_BUDGET_MS);
   });
 
   it("settles a rejected close whose process did exit as its own kind, still carrying it", async () => {
@@ -214,8 +215,7 @@ describe("bounded cleanup — a close that never settles", () => {
     const outcome = await new BoundedCleanup(
       applicationWhoseCloseRejects(rejection),
       terminator,
-      spentDeadline(),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
     expect(outcome.settlement).toBe("closed-after-rejection");
     expect(outcome.closeRejection).toBe(rejection);
@@ -234,8 +234,7 @@ describe("bounded cleanup — a close that never settles", () => {
             await new BoundedCleanup(
               applicationWhoseCloseRejects(rejection),
               terminatorSpy(true, running),
-              spentDeadline(),
-              TEST_RESERVE_MS,
+              TEST_BUDGET_MS,
             ).close()
           ).settlement,
       ),
@@ -251,8 +250,7 @@ describe("bounded cleanup — a close that never settles", () => {
     const outcome = await new BoundedCleanup(
       { close: () => abandonedClose.promise, processId: () => 4242 },
       terminatorSpy(true),
-      spentDeadline(),
-      TEST_RESERVE_MS,
+      TEST_BUDGET_MS,
     ).close();
     expect(outcome.settlement).toBe("terminated");
     // Asserted rather than waited out. This is what holds the cleanup to racing

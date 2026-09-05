@@ -98,6 +98,13 @@ export const FRAME_WITNESS_TIMEOUT_MS: number = BUDGETS.requireCanonicalValue(
  * rather than slow — a close that never settles at all — so what matters is that
  * some finite number is enforced, not that this one is tight.
  *
+ * It is the WHOLE applied bound, and the same one on both of the paths that
+ * close: a close reached from a failed launch is held to this figure exactly as
+ * one reached minutes later on the success path is. It used to be a floor the
+ * launch deadline's leftover time could raise — which handed an early failure
+ * five times this number and left a budget audit reading a ceiling nothing
+ * applied.
+ *
  * Because `terminated` records and passes, this figure decides when the process
  * tree is SIGKILLed rather than whether the tier goes red; `unterminable` and
  * `closed-after-rejection` fail, and those are the two settlements that harm the

@@ -8,16 +8,25 @@
 // the launch and then leaving the last one unbounded is not a fix; it is the same
 // undiagnosable kill one line further down.
 //
-// WHY THE BOUND IS A FLOOR AND NOT SIMPLY WHAT THE DEADLINE HAS LEFT
+// WHY THE BOUND IS THE REGISTERED CEILING AND NOT WHAT THE DEADLINE HAS LEFT
 //
 // `close()` is reached on two paths that look alike and are not. On the failure
-// path it runs inside the launch, where the deadline is the right authority and
-// its remaining time is exactly the cleanup slice. On the SUCCESS path the caller
-// closes when its test is done — for the endurance tier, minutes later — and by
-// then the launch deadline is long spent. A bound drawn from the deadline alone
-// would be 1 ms there and would SIGKILL a perfectly healthy application on its
-// way out. So the bound is `max(what the deadline has left, the reserved slice)`:
-// the deadline can only ever GRANT more time than the reserve, never less.
+// path it runs inside the launch, with most of the deadline still unspent; on the
+// SUCCESS path the caller closes when its test is done — for the endurance tier,
+// minutes later — and by then the launch deadline is long gone. A bound drawn
+// from the deadline alone would be 1 ms there and would SIGKILL a perfectly
+// healthy application on its way out, and `max(what the deadline has left, the
+// reserved slice)` fixed that by granting the OTHER path almost the whole 55 000
+// ms deadline instead: five times the bound `budget/budgets.json` declares
+// enforced for `console-launch-cleanup`, in a registry that models every row as a
+// ceiling. A budget audit that reads a constraint the harness does not apply is
+// worse than no row at all.
+//
+// So the deadline is not consulted here. The applied bound is the registry's
+// figure and the same one on both paths, which is strictly tighter than what it
+// replaces — the launch still settles inside `LAUNCH_BUDGET_MS`, whose cleanup
+// slice the readiness ladder reserves for exactly this and which is now spent as
+// a ceiling rather than drawn down.
 //
 // WHAT HAPPENS WHEN THE BOUND IS REACHED
 //
@@ -28,7 +37,6 @@
 
 import { processExists, terminateProcessTree } from "../helpers/process-tree.js";
 import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
-import { type LaunchDeadline } from "./launch-deadline.js";
 
 /**
  * The launched application, reduced to what cleanup needs of it.
@@ -96,15 +104,13 @@ export interface CleanupOutcome {
   /** Wall milliseconds spent closing, measured driver-side. */
   readonly waitedMs: number;
   /**
-   * The bound this close was actually held to, in milliseconds.
+   * The bound this close was held to, in milliseconds.
    *
-   * Reported rather than assumed to be `CLEANUP_BUDGET_MS`, because it usually
-   * is not. The applied bound is `max(what the deadline has left, the reserve)`,
-   * and a launch that failed EARLY leaves most of the deadline unspent — so a
-   * readiness failure two seconds in gives cleanup nearly 55 000 ms. A message
-   * that named the reserve there would claim a process failed to close within
-   * ten seconds when it had been given five times that, which is a diagnostic
-   * that misdescribes the very measurement it is reporting.
+   * `CLEANUP_BUDGET_MS` for every launched console, and reported rather than
+   * re-derived by its readers so the sentence a reader sees and the race that
+   * produced it cannot disagree: the cases that exercise a hung close supply a
+   * bound short enough to exhaust, and a message naming the constant there would
+   * misdescribe the very measurement it is reporting.
    */
   readonly budgetMs: number;
   /**
@@ -132,33 +138,32 @@ export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
 };
 
 /**
- * Closes an application within the deadline's cleanup slice, or kills it.
+ * Closes an application within the cleanup budget, or kills it.
  *
  * A class for the reason its two collaborators are constructor arguments: the
  * application and the terminator are both seams, and the one behaviour worth
  * checking — a close that never settles — is unreachable through the real ones.
+ * The bound is the third argument for the same reason and no other: a case that
+ * has to EXHAUST it cannot afford to wait the registered ten seconds out.
  */
 export class BoundedCleanup {
   readonly #application: ClosableApplication;
   readonly #terminator: ProcessTerminator;
-  readonly #deadline: LaunchDeadline;
-  readonly #reservedMs: number;
+  readonly #budgetMs: number;
 
   constructor(
     application: ClosableApplication,
     terminator: ProcessTerminator,
-    deadline: LaunchDeadline,
-    reservedMs: number = CLEANUP_BUDGET_MS,
+    budgetMs: number = CLEANUP_BUDGET_MS,
   ) {
     this.#application = application;
     this.#terminator = terminator;
-    this.#deadline = deadline;
-    this.#reservedMs = reservedMs;
+    this.#budgetMs = budgetMs;
   }
 
   async close(): Promise<CleanupOutcome> {
     const startedAt = Date.now();
-    const budgetMs = Math.max(this.#deadline.remainingMs(), this.#reservedMs);
+    const budgetMs = this.#budgetMs;
     let timeoutHandle: NodeJS.Timeout | undefined;
     const budgetExpired = new Promise<"expired">((resolveExpiry) => {
       timeoutHandle = setTimeout(() => {
@@ -333,11 +338,9 @@ export class CleanupFailedError extends Error {
  * `terminated` is deliberately NOT one of them. It says the tree was SIGKILLed,
  * which `withCleanupOutcome` reports in the same breath as "later launches are
  * unaffected" — and a verdict cannot both say that and fail a tier over it. What
- * failing it would catch is a healthy shutdown that ran long: the endurance tier
- * closes minutes after its launch deadline is spent, so the applied bound is the
- * reserve alone, and an Electron flushing a session store on a loaded two-core
- * runner can lose that race with nothing leaked. It is a breadcrumb, not a red
- * check.
+ * failing it would catch is a healthy shutdown that ran long: an Electron
+ * flushing a session store on a loaded two-core runner can lose a ten-second
+ * race with nothing leaked. It is a breadcrumb, not a red check.
  */
 export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | undefined {
   return outcome.settlement === "unterminable" || outcome.settlement === "closed-after-rejection"

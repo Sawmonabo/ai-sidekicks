@@ -144,7 +144,9 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleAppl
   // this function waits on is inside the budget, or the budget is not the
   // launch's. It carries the WHOLE allowance — readiness, the witness, and
   // cleanup — and each readiness wait below reserves the two later slices off
-  // it, so a slow ladder cannot spend the intervals that diagnose it.
+  // it, so a slow ladder cannot spend the intervals that diagnose it. Cleanup
+  // takes its own slice as a ceiling rather than drawing on what is left here,
+  // which is why it is not handed this clock (`bounded-cleanup.ts`).
   const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);
   const userDataDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-console-"));
   // The scenario is applied LAST so a named option cannot be shadowed by an `env`
@@ -189,7 +191,6 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleAppl
       },
     },
     ELECTRON_PROCESS_TERMINATOR,
-    deadline,
   );
   let closed = false;
   let cleanupOutcome: CleanupOutcome | undefined;

@@ -70,8 +70,8 @@ describe("bounded cleanup — what a caller is told", () => {
     // says the close lost its race and the process tree was killed — which is
     // what `withCleanupOutcome` reports in the same breath as "later launches are
     // unaffected". Failing a tier over it would not catch a leak; it would catch
-    // a healthy shutdown that ran long, which on the endurance tier is a close
-    // bounded by the reserve alone after a full replay. The harness prints the
+    // a healthy shutdown that ran long — an Electron flushing a session store on
+    // a loaded two-core runner losing a ten-second race. The harness prints the
     // breadcrumb and the tier stays green.
     expect(cleanupFailure(outcomeOf("terminated"))).toBeUndefined();
     // Non-vacuous: the same outcome shape with the settlement that DOES reach a
