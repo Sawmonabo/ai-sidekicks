@@ -34,8 +34,8 @@ import type { ReactNode } from "react";
 
 import type { SessionEventType } from "@ai-sidekicks/contracts";
 
-import { Chip } from "../../primitives/index.js";
-import type { SettingsPageRegistry } from "../settings-page-registry.js";
+import { Chip } from "../../../primitives/index.js";
+import type { SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-data";

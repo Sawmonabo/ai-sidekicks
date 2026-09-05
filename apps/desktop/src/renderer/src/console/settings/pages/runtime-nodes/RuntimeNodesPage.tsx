@@ -32,9 +32,9 @@
 
 import type { ReactNode } from "react";
 
-import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
-import { Chip, Nothing } from "../../primitives/index.js";
-import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page-registry.js";
+import { renderAbsorbedNodeRoster } from "../../../frame/legacy-surfaces.js";
+import { Chip, Nothing } from "../../../primitives/index.js";
+import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-nodes";

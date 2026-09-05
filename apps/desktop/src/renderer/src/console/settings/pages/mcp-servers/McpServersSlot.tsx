@@ -26,8 +26,8 @@
 // render at all, and a seat that carried one would have leaked it before any body
 // arrived to decide otherwise.
 
-import type { OwnerSlotProps } from "../../seats/index.js";
-import type { OwnerSlotPage, SettingsPageBody } from "../settings-page-registry.js";
+import type { OwnerSlotProps } from "../../../seats/index.js";
+import type { OwnerSlotPage, SettingsPageBody } from "../../settings-page-registry.js";
 
 /**
  * The seat itself.

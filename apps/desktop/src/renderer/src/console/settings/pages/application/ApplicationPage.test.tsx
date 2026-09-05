@@ -4,15 +4,15 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock } from "../../core/index.js";
-import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
+import { ManualClock } from "../../../core/index.js";
+import { LiveAnnouncer, LiveAnnouncerProvider } from "../../../primitives/index.js";
 import {
   fixtureBridgeWithGrowth,
   growthRefusing,
   unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
+} from "../../../bridge/fixture-bridge-overrides.test-support.js";
 import { ApplicationPage, registerApplicationPage } from "./ApplicationPage.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
+import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 
 const SCENARIO = unscriptedScenario("application-page-test");
 

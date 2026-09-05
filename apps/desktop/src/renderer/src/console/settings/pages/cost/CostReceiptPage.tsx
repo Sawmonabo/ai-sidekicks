@@ -47,7 +47,7 @@ import {
   type CostReceipt,
   type CostReceiptOutcome,
 } from "./cost-receipt-model.js";
-import { DefinitionGrid } from "../DefinitionGrid.js";
+import { DefinitionGrid } from "../../shared/DefinitionGrid.js";
 import {
   ACCOUNT_COLUMNS,
   CAUSED_BY_COLUMNS,

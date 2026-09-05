@@ -78,7 +78,7 @@ import {
   NotificationPreferenceWriter,
   type TogglePreferenceRow,
 } from "./notification-preference-writer.js";
-import { PreferenceToggleRow } from "../PreferenceToggleRow.js";
+import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import { useShellPreferences } from "../shell-preferences/shell-preferences-holder.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 

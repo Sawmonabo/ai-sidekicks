@@ -21,10 +21,10 @@
 
 import type { ReactNode } from "react";
 
-import { WireFigure } from "../../primitives/index.js";
-import { CrashReportingPage } from "./CrashReportingPage.js";
-import { UpdatesPage } from "./updates/UpdatesPage.js";
-import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page-registry.js";
+import { WireFigure } from "../../../primitives/index.js";
+import { CrashReportingPage } from "../crash-reporting/CrashReportingPage.js";
+import { UpdatesPage } from "../updates/UpdatesPage.js";
+import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-application";

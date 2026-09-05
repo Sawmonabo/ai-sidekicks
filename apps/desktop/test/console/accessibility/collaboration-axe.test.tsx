@@ -55,7 +55,7 @@ import { Roster } from "../../../src/renderer/src/console/collaboration/members/
 import { SentInvites } from "../../../src/renderer/src/console/collaboration/invites/SentInvites.js";
 import { NotificationCenter } from "../../../src/renderer/src/console/sessions/notifications/NotificationCenter.js";
 import { AttentionPlane } from "../../../src/renderer/src/console/sessions/notifications/attention-plane.js";
-import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/RuntimeNodesPage.js";
+import { RuntimeNodesPage } from "../../../src/renderer/src/console/settings/pages/runtime-nodes/RuntimeNodesPage.js";
 import type { SettingsPageContext } from "../../../src/renderer/src/console/settings/settings-page-registry.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
 import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";

@@ -38,14 +38,14 @@ import {
 } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
-import { Chip, WireFigure } from "../../primitives/index.js";
-import { DefinitionGrid } from "./DefinitionGrid.js";
+import { Chip, WireFigure } from "../../../primitives/index.js";
+import { DefinitionGrid } from "../../shared/DefinitionGrid.js";
 import { PROVIDER_ACCOUNTS_PAGE } from "./ProviderAccountsSlot.js";
 import {
   renderOwnerSlotPage,
   type SettingsPageContext,
   type SettingsPageRegistry,
-} from "../settings-page-registry.js";
+} from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-accounts";

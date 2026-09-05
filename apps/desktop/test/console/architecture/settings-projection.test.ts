@@ -249,7 +249,7 @@ describe("settings pages are projections", () => {
     // halves: the word is really in the file, and the parser finds nothing.
     const diagnostics = moduleNamed(
       modules,
-      "console/settings/pages/DiagnosticsPage.tsx",
+      "console/settings/pages/diagnostics/DiagnosticsPage.tsx",
       "the page whose header prose names permissions",
     );
     const source = readConsoleSourceModule(diagnostics);

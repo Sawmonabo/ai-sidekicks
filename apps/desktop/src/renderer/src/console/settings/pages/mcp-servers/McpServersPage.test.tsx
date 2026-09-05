@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 import { McpServersPage, registerMcpServersPage } from "./McpServersPage.js";
 import { MCP_SERVERS_PAGE, MCP_SERVERS_PAGE_SLOT } from "./McpServersSlot.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
+import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 
 const CONTEXT = {
   bridge: undefined as never,

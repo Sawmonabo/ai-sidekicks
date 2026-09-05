@@ -5,7 +5,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { DataErasurePage, registerDataErasurePage } from "./DataErasurePage.js";
-import { SettingsPageRegistry } from "../settings-page-registry.js";
+import { SettingsPageRegistry } from "../../settings-page-registry.js";
 
 describe("data and erasure page", () => {
   it("says erasure is an operator procedure in this release", () => {

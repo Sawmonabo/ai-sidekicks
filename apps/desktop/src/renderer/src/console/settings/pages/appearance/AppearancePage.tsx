@@ -42,16 +42,16 @@ import type { ReactNode } from "react";
 import { RadioGroup } from "@base-ui/react/radio-group";
 import { Radio } from "@base-ui/react/radio";
 
-import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { consoleCommands } from "../../frame/command-surface.js";
-import { InlineRefusal, Nothing } from "../../primitives/index.js";
+import { refuse, type ConsoleRefusal } from "../../../core/index.js";
+import { consoleCommands } from "../../../frame/command-surface.js";
+import { InlineRefusal, Nothing } from "../../../primitives/index.js";
 import {
   SCHEME_ATTRIBUTE,
   SYSTEM_SCHEME_PREFERENCE,
   isSchemePreference,
   type SchemePreference,
-} from "../../tokens/index.js";
-import type { SettingsPageRegistry } from "../settings-page-registry.js";
+} from "../../../tokens/index.js";
+import type { SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-appearance";

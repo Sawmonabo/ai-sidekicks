@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { ProviderAccountsPage, registerProviderAccountsPage } from "./ProviderAccountsPage.js";
 import { PROVIDER_ACCOUNTS_PAGE, PROVIDER_ACCOUNTS_PAGE_SLOT } from "./ProviderAccountsSlot.js";
-import { SettingsPageRegistry, type SettingsPageContext } from "../settings-page-registry.js";
+import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 
 const CONTEXT = {
   bridge: undefined as never,

@@ -5,7 +5,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { DiagnosticsPage, registerDiagnosticsPage } from "./DiagnosticsPage.js";
-import { SettingsPageRegistry } from "../settings-page-registry.js";
+import { SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The five regions the design enumerates, by their accessible names. */
 const EXPECTED_REGION_LABELS = [

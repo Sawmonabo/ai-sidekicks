@@ -26,13 +26,13 @@
 
 import type { ReactNode } from "react";
 
-import { Chip } from "../../primitives/index.js";
+import { Chip } from "../../../primitives/index.js";
 import { MCP_SERVERS_PAGE } from "./McpServersSlot.js";
 import {
   renderOwnerSlotPage,
   type SettingsPageContext,
   type SettingsPageRegistry,
-} from "../settings-page-registry.js";
+} from "../../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-mcp";

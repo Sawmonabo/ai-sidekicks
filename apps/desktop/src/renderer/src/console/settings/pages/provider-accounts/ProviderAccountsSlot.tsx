@@ -26,8 +26,8 @@
 // a value this console may compose: the health reading, the credential generation,
 // the re-login horizon, and the quota rows all have exactly one producer.
 
-import type { OwnerSlotProps } from "../../seats/index.js";
-import type { OwnerSlotPage, SettingsPageBody } from "../settings-page-registry.js";
+import type { OwnerSlotProps } from "../../../seats/index.js";
+import type { OwnerSlotPage, SettingsPageBody } from "../../settings-page-registry.js";
 
 /**
  * The seat itself.

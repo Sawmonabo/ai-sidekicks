@@ -47,7 +47,7 @@ import {
   useSettlementAnnouncement,
 } from "../../../primitives/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
-import { PreferenceToggleRow } from "../PreferenceToggleRow.js";
+import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import { useShellPreferences } from "../shell-preferences/shell-preferences-holder.js";
 import { UpdaterReadingHolder, type UpdateReading } from "./updater-reading.js";
 

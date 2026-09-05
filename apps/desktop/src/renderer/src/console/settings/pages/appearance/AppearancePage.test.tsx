@@ -5,9 +5,9 @@ import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { AppearancePage, registerAppearancePage } from "./AppearancePage.js";
-import { consoleCommands } from "../../frame/command-surface.js";
-import { SCHEME_ATTRIBUTE } from "../../tokens/index.js";
-import { SettingsPageRegistry } from "../settings-page-registry.js";
+import { consoleCommands } from "../../../frame/command-surface.js";
+import { SCHEME_ATTRIBUTE } from "../../../tokens/index.js";
+import { SettingsPageRegistry } from "../../settings-page-registry.js";
 
 /** The three acts the frame registers per window, as this test's stand-ins record them. */
 const SCHEME_COMMAND_IDS = [
