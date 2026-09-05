@@ -98,19 +98,31 @@ export function withProfileRemoval(
   return withClauses(error, clausesOf(profileRemovalClause(failure)));
 }
 
+/**
+ * Why the close rejected, in a reader's words, or `undefined` if it did not.
+ *
+ * The presence of a rejection is what separates the two ways a close can fail,
+ * so it is asked once here and every wording below branches on the answer rather
+ * than appending the same parenthetical to both.
+ */
+function closeRejectionReason(closeRejection: unknown): string | undefined {
+  if (closeRejection === undefined) {
+    return undefined;
+  }
+  return closeRejection instanceof Error ? closeRejection.message : String(closeRejection);
+}
+
 /** How the close itself is worded to a caller carrying its own failure. */
 function closeClause(outcome: CleanupOutcome): string | undefined {
   if (outcome.settlement === "closed") {
     return undefined;
   }
-  const rejectionNote =
-    outcome.closeRejection instanceof Error
-      ? ` (close rejected: ${outcome.closeRejection.message})`
-      : "";
+  const rejectionReason = closeRejectionReason(outcome.closeRejection);
   if (outcome.settlement === "closed-after-rejection") {
     return (
-      `closing the launched Electron failed${rejectionNote} — though the process did exit, so nothing ` +
-      `was left running`
+      `closing the launched Electron failed` +
+      `${rejectionReason === undefined ? "" : ` (close rejected: ${rejectionReason})`} — though the ` +
+      `process did exit, so nothing was left running`
     );
   }
   const consequence =
@@ -118,10 +130,19 @@ function closeClause(outcome: CleanupOutcome): string | undefined {
       ? "so its process tree was SIGKILLed; later launches are unaffected"
       : "and could not be terminated either, so it may still be running and holding its profile — " +
         "a later launch in the same job losing `requestSingleInstanceLock()` starts here";
-  return (
-    `the launched Electron did not close within the ${String(outcome.budgetMs)} ms it was given ` +
-    `(waited ${String(outcome.waitedMs)} ms)${rejectionNote} ${consequence}`
-  );
+  // TWO WAYS TO REACH A KILL, AND ONLY ONE OF THEM WAITED. `application.close()`
+  // can reject at once while the process is still alive, and `BoundedCleanup`
+  // then terminates without waiting the budget out — so the sentence below used
+  // to report a few milliseconds of `waitedMs` beside a claim that ten seconds
+  // had expired, which is the one thing a reader needs distinguished here: a
+  // cleanup that timed out and a cleanup that failed outright have different
+  // causes and different fixes.
+  return rejectionReason === undefined
+    ? `the launched Electron did not close within the ${String(outcome.budgetMs)} ms it was given ` +
+        `(waited ${String(outcome.waitedMs)} ms) ${consequence}`
+    : `closing the launched Electron rejected (${rejectionReason}) after ` +
+        `${String(outcome.waitedMs)} ms, rather than reaching the ${String(outcome.budgetMs)} ms ` +
+        `bound, ${consequence}`;
 }
 
 /**
