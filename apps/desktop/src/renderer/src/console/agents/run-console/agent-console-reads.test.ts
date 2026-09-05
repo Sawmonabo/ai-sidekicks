@@ -12,44 +12,12 @@
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  fixtureBridgeWithGrowth,
-  unscriptedScenario,
-} from "../../bridge/fixture-bridge-overrides.test-support.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock, REFRESH_MAX_WAIT_MS } from "../../core/index.js";
-import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
+import type { SessionStore } from "../../store/index.js";
 import { createChildRunLinkage, createDriverCatalog } from "./agent-console-reads.js";
+import { eventOfKind, initialisedStore, unscriptedBridge } from "./run-console.test-support.js";
 
 const PARENT_RUN_ID = "run-7";
-
-/** A real fixture bridge that scripts no reply, so every read settles as refused. */
-function unscriptedBridge(id: string): ConsoleBridge {
-  return fixtureBridgeWithGrowth(unscriptedScenario(id), {});
-}
-
-/** An initialised store, so an appended event is admitted rather than buffered. */
-function initialisedStore(sessionId: string): SessionStore {
-  const sessionStore = new SessionStore({ sessionId });
-  sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
-  return sessionStore;
-}
-
-/** One admitted event of the given kind, numbered so the cursor moves. */
-function eventOfKind(
-  sessionStore: SessionStore,
-  kind: ConsoleSessionEvent["kind"],
-  sequence: number,
-): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: sessionStore.sessionId,
-    sequence,
-    kind,
-    occurredAt: "2026-01-01T10:06:00.000Z",
-    payload: {},
-  };
-}
 
 /** A started linkage read over a store this case owns, on frozen time. */
 function startedLinkage(
