@@ -115,11 +115,14 @@ const attachedRoots: Element[] = [];
 /**
  * Hold a root in the live document until the case ends.
  *
- * Three suites drive these seams — the predicates, the composed position observer, and
- * the content-layout wiring — and every one of them needs elements that are really
- * attached, because a transition on a detached ancestor bubbles to nothing. Three
- * private registries is three teardown loops free to drift, and a root left in the
- * document is an observer the next case's document-wide reading still finds.
+ * Every suite in this directory that attaches an element drives these seams — the
+ * predicates, the sampling, the composed position observer, the content-layout
+ * wiring, the occlusion registry — and each needs elements that are really attached,
+ * because a transition on a detached ancestor bubbles to nothing. A private registry
+ * per suite is a teardown loop per suite free to drift, and a root left in the
+ * document is an observer the next case's document-wide reading still finds. Stated
+ * without a count, because the set is every suite that attaches rather than a list
+ * that has to be kept.
  */
 export function trackAttachedRoot<ElementType extends Element>(root: ElementType): ElementType {
   attachedRoots.push(root);
