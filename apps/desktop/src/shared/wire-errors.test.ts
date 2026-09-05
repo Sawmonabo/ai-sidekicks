@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   isErrorInstance,
+  isPropertyContainer,
   isWireErrorEnvelope,
   isWireErrorEnvelopeWithCode,
   lossyStringify,
@@ -51,6 +52,29 @@ describe("readGuardedProperty — absent and unreadable answer the same", () => 
   it("reads a member off a function, which is a property container too", () => {
     const carrier = Object.assign(() => undefined, { code: "repo.not_found" });
     expect(readGuardedProperty(carrier, "code")).toBe("repo.not_found");
+  });
+});
+
+describe("isPropertyContainer — what can carry a member at all", () => {
+  it("accepts objects and functions, and rejects null and every primitive", () => {
+    expect(isPropertyContainer({})).toBe(true);
+    expect(isPropertyContainer([])).toBe(true);
+    // A function is a property container too — the clause a second copy of this
+    // predicate loses, and the one that admits a null-prototype function envelope.
+    expect(isPropertyContainer(() => undefined)).toBe(true);
+    expect(isPropertyContainer(nullPrototypeValue())).toBe(true);
+    expect(isPropertyContainer(null)).toBe(false);
+    expect(isPropertyContainer(undefined)).toBe(false);
+    expect(isPropertyContainer("repo.not_found")).toBe(false);
+    expect(isPropertyContainer(7)).toBe(false);
+    expect(isPropertyContainer(Symbol("thrown"))).toBe(false);
+  });
+
+  it("asks nothing OF the value, so a hostile one answers as any object does", () => {
+    // `typeof` runs no trap and no getter, which is what lets the guarded reader
+    // pre-check a revoked Proxy before touching it.
+    expect(isPropertyContainer(revokedProxy())).toBe(true);
+    expect(isPropertyContainer(everyTrapThrows())).toBe(true);
   });
 });
 

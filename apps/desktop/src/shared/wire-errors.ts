@@ -33,6 +33,31 @@ export interface WireErrorEnvelope {
 }
 
 /**
+ * What this module renders where a value cannot be rendered as itself.
+ *
+ * The one piece of vocabulary the readers here share, exported because it is a
+ * SEAM rather than an implementation detail: {@link lossyStringify} answers it when
+ * a value refuses to stringify, and `console/core/wire-rejection.ts` answers it
+ * where a rejection carries a code but no sentence — and a renderer that saw two
+ * spellings of "this could not be read" would be reading two different facts.
+ */
+export const UNREPRESENTABLE_VALUE_TEXT = "[unrepresentable value]";
+
+/**
+ * Whether a value can carry properties at all — an object or a function, not null.
+ *
+ * The one pre-check every guarded reader here shares, and the one every caller that
+ * asks "is this a structure or a bare value" shares with them. Written once because
+ * a second copy is a predicate that drifts: `function` belongs in the accepted set
+ * (a null-prototype function carrying `code` and `message` is a perfectly good
+ * envelope, and `typeof` reports it as neither `"object"` nor null), and a copy
+ * written without that clause silently rejects exactly those envelopes.
+ */
+export function isPropertyContainer(value: unknown): boolean {
+  return value !== null && (typeof value === "object" || typeof value === "function");
+}
+
+/**
  * Read one property off an arbitrary rejected value, and cannot throw.
  *
  * A plain `value.code` is NOT safe on a value nobody validated: a property access
@@ -42,13 +67,9 @@ export interface WireErrorEnvelope {
  * The absent reading and the throwing reading collapse to the same `undefined`,
  * because to every caller here they mean the same thing: this value does not carry
  * that member in any usable form.
- *
- * `function` joins `object` in the accepted set because a function is a property
- * container too — a null-prototype function carrying `code` and `message` is a
- * perfectly good envelope and `typeof` reports it as neither `"object"` nor null.
  */
 export function readGuardedProperty(value: unknown, key: string): unknown {
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+  if (!isPropertyContainer(value)) {
     return undefined;
   }
   try {
@@ -137,17 +158,17 @@ export function isWireErrorEnvelopeWithCode<TCode extends string>(
  * Bare `String(...)` is NOT total: it runs ToPrimitive, which itself throws for
  * a null-prototype object — or a null-prototype FUNCTION — carrying no
  * `toString` / `valueOf` / `Symbol.toPrimitive`, and a hostile throwing
- * `toString` propagates the same way. The terminal fallback is a string LITERAL,
+ * `toString` propagates the same way. The terminal fallback is a string CONSTANT,
  * deliberately not `Object.prototype.toString.call(...)`: even that can throw
  * (its `Symbol.toStringTag` lookup is a Get, and a hostile getter propagates),
- * so only a literal makes the totality claim PROVABLE rather than merely one
+ * so only a constant makes the totality claim PROVABLE rather than merely one
  * pathological layer deeper.
  */
 export function lossyStringify(value: unknown): string {
   try {
     return String(value);
   } catch {
-    return "[unrepresentable value]";
+    return UNREPRESENTABLE_VALUE_TEXT;
   }
 }
 
