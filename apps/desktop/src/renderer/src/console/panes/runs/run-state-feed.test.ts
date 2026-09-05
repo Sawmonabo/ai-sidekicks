@@ -6,6 +6,7 @@
 // for another — both are properties of the subscription rather than of the fold.
 
 import { createElement } from "react";
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
@@ -70,7 +71,7 @@ describe("an empty read completes", () => {
     const readFeed = await mountStateFeed(bridge, sessionStore);
     await act(async () => {
       deliverToFeed();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(readFeed().runs).toHaveLength(1);
     expect(readFeed().hasRead).toBe(false);
@@ -231,7 +232,7 @@ function mountRebindableFeed(
     rebindTo: async (store) => {
       await act(async () => {
         view.rerender(createElement(StateFeedProbe, { store }));
-        await Promise.resolve();
+        await drainMicrotasks();
       });
     },
     forgetRenders: () => {
@@ -251,7 +252,7 @@ describe("the feed belongs to the session it was read for", () => {
     const mounted = mountRebindableFeed(bridge, new SessionStore({ sessionId: SESSION_ID }));
     await act(async () => {
       handlers[0]?.(STATE_CHANGE_DELIVERY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
 
@@ -270,7 +271,7 @@ describe("the feed belongs to the session it was read for", () => {
     mounted.forgetRenders();
     await act(async () => {
       handlers[0]?.(STATE_CHANGE_DELIVERY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(mounted.renderedFeeds.every((feed) => feed.runs.length === 0)).toBe(true);
   });
@@ -283,7 +284,7 @@ describe("the feed belongs to the session it was read for", () => {
     await mounted.rebindTo(new SessionStore({ sessionId: OTHER_SESSION_ID }));
     await act(async () => {
       handlers.at(-1)?.(STATE_CHANGE_DELIVERY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
   });
@@ -304,7 +305,7 @@ describe("an addressing move out and back inside one mount still publishes", () 
     mounted.forgetRenders();
     await act(async () => {
       handlers.at(-1)?.(STATE_CHANGE_DELIVERY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(mounted.renderedFeeds.at(-1)?.runs).toHaveLength(1);
     expect(mounted.renderedFeeds.at(-1)?.openRefusal).toBeUndefined();
@@ -320,7 +321,7 @@ describe("an addressing move out and back inside one mount still publishes", () 
     mounted.forgetRenders();
     await act(async () => {
       handlers[0]?.(STATE_CHANGE_DELIVERY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(mounted.renderedFeeds.every((feed) => feed.runs.length === 0)).toBe(true);
   });

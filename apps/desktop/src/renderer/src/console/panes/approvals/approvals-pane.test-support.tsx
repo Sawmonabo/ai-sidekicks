@@ -15,6 +15,7 @@ import {
   type ConsoleBridge,
   type ParsedRows,
 } from "../../bridge/index.js";
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
 import { APPROVALS_SCENARIO } from "../../bridge/scenarios/approvals.js";
 import { DraftStore, MemoryPersistenceAdapter, UiStateStore } from "../../persistence/index.js";
@@ -67,21 +68,22 @@ export function boundStore(
   return store;
 }
 
-/** Let every settled promise and effect land. */
-export async function flush(): Promise<void> {
-  for (let pass = 0; pass < 4; pass += 1) {
-    await act(async () => {
-      await Promise.resolve();
-    });
-  }
-}
-
-/** Fire the reader's trailing debounce on the fixture's frozen clock, then settle. */
+/**
+ * Fire the reader's trailing debounce on the fixture's frozen clock, then settle.
+ *
+ * The settling is the bridge family's own `drainMicrotasks` and never a counted
+ * number of passes. What stood here ran four `await Promise.resolve()` rounds, which
+ * is a number tuned against the chain it happened to be written over: a reply that
+ * grew one link deeper would stop being waited for, and the case would report the
+ * absence of an answer that was merely still in flight.
+ */
 export async function settle(bridge: ConsoleBridge): Promise<void> {
   await act(async () => {
     bridge.scenarioEngine?.advance(REFRESH_DEBOUNCE_MS);
   });
-  await flush();
+  await act(async () => {
+    await drainMicrotasks();
+  });
 }
 
 export async function mountPane(

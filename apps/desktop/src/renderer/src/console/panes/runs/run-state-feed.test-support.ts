@@ -6,6 +6,7 @@
 // about what a valid frame looks like.
 
 import { createElement, useEffect } from "react";
+import { drainMicrotasks } from "../../bridge/fixture-bridge.test-support.js";
 import { act, render } from "@testing-library/react";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -98,7 +99,7 @@ export async function mountStateFeed(
   }
   render(createElement(StateFeedProbe));
   await act(async () => {
-    await Promise.resolve();
+    await drainMicrotasks();
   });
   return () => {
     if (held === undefined) {

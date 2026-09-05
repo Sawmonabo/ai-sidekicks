@@ -19,6 +19,7 @@ import { settleScheduledRead } from "./scheduled-read.test-support.js";
 import { SessionStore } from "../store/index.js";
 import { bridgeAnswering, type BridgeUnderTest } from "./fixture-bridge.test-support.js";
 import { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
+import type { QueueReadPhase } from "./queue-reading.js";
 import type { ConsoleBridge } from "./console-bridge.js";
 
 const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
@@ -90,6 +91,39 @@ describe("the queue reading re-reads on a repair", () => {
     await settleScheduledRead(under.bridge);
     await settleScheduledRead(under.bridge);
     expect(queueListCallCount(under)).toBe(1);
+  });
+
+  it("waits out a reply the bridge parks on a timer", async () => {
+    // Every other case here answers synchronously, so this is the one that says the
+    // settling helper waits for a reply that is not merely a microtask away. It is
+    // deliberately NOT offered as evidence that the shared drain beats a counted one:
+    // a counted pair of microtask passes also settles this chain, because the awaits
+    // around the mount already cross a macrotask boundary. What makes the counted
+    // form wrong is that the number is tuned against whatever chain it was written
+    // over, and that is an argument about the next chain rather than this one.
+    const parked = bridgeAnswering(async (call, forward) => {
+      if (call.method === "run.queueList") {
+        return new Promise((resolveRead) => {
+          setTimeout(() => {
+            resolveRead({ items: [] });
+          }, 0);
+        });
+      }
+      return forward();
+    });
+    const sessionStore = initialisedStore();
+    let phase: QueueReadPhase | undefined;
+    function ParkedProbe(): null {
+      phase = useQueueFeed(parked.bridge, sessionStore.sessionId).phase;
+      useQueueRepairRead(parked.bridge, sessionStore);
+      return null;
+    }
+    await act(async () => {
+      render(<ParkedProbe />);
+    });
+
+    await settleScheduledRead(parked.bridge);
+    expect(phase).toBe("read");
   });
 
   it("re-reads when the window regains focus", async () => {
