@@ -1,0 +1,25 @@
+/*
+ * The glyph: one stroke weight, sized by whoever draws it.
+ *
+ * Split out of the family sheet it grew inside: that file had reached 720 lines and
+ * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
+ * where a second treatment for one thing gets added without anybody noticing.
+ * Imported from `primitives/index.ts` and from nowhere else, so a surface still
+ * cannot render a primitive whose CSS did not arrive with it, and the bundler still
+ * sees one edge per sheet rather than one per component.
+ *
+ * Hand-authored, unlike `meridian.css` — that file is generated from
+ * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
+ * and reads every value back out as a custom property.
+ *
+ * `Spec-023 §Console Design (Meridian)` rules that govern this sheet: rule 2's line
+ * weight.
+ */
+
+.meridian-glyph {
+  display: inline-block;
+  flex: none;
+  /* Optical, not layout: a 16 px square beside 14 px text sits a touch high on the
+     baseline until it is nudged down by an eighth of the em. */
+  vertical-align: -0.125em;
+}
