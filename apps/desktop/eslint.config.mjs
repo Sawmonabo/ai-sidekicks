@@ -353,7 +353,8 @@ export default [
   // configures this rule for any file under `console/` or `shell/` must restate every
   // selector below rather than add to them.
   //
-  // A FOURTH selector lived here and is gone. It banned importing
+  // ONE MORE SELECTOR LIVED HERE AND IS GONE — count-free on purpose, since the list
+  // grows. It banned importing
   // `normalizeWireRejection` from `src/shared/wire-errors.ts`, back when a function of
   // that name lived in both that module and `console/core/wire-rejection.ts` with two
   // different return types — an import from the wrong one compiled wherever the result
@@ -401,6 +402,44 @@ export default [
             'NewExpression[callee.name="Date"] > :matches(TemplateLiteral, Literal[value=/[-:T]/])',
           message:
             "`new Date(<string>)` is `Date.parse` with a wrapper and carries the same leniency. Read the stamp with `parseInstant` from `console/core/instant.ts`; build a fixture instant from `Date.UTC(...)` instead of parsing one.",
+        },
+        {
+          // The NAMED form, which is the one an engineer actually writes. The selector
+          // above matches a literal or a template because those carry the separators a
+          // stamp carries; a stamp reached through a variable or a member carries no
+          // syntax at all, and `new Date(row.createdAt)` is how a renderer parses one
+          // without ever typing a quote. So this arm keys on the NAME instead — the
+          // corpus spells every wire instant `<something>At` or `<something>Iso`, and the
+          // convention is what makes the heuristic decidable.
+          //
+          // `new Date(<number>)` stays legitimate and is why this is name-keyed rather
+          // than "any identifier": a fixture composing an instant from a base and an
+          // offset passes a number through a variable, and banning that would ban the
+          // one construction this whole rule leaves open.
+          selector:
+            'NewExpression[callee.name="Date"] > :matches(Identifier[name=/(?:At|Iso)$/], MemberExpression[property.name=/(?:At|Iso)$/])',
+          message:
+            "`new Date(<a value named …At / …Iso>)` is `Date.parse` with a wrapper and carries the same leniency — it just does not look like it, because the string is behind a name. Read the stamp with `parseInstant` from `console/core/instant.ts`; build a fixture instant from `Date.UTC(...)` instead of parsing one.",
+        },
+        {
+          // The template-literal half of the `String(catch)` ban below. Interpolating the
+          // caught value runs the SAME ToPrimitive on the same untrusted value — an
+          // implicit `String(...)` with no `String` to grep for — so a `catch` that stopped
+          // calling `String(error)` and started writing `` `... ${error}` `` would have
+          // moved the throw rather than removed it.
+          //
+          // esquery has no backreferences, so a selector cannot bind the catch parameter's
+          // own name and compare it to the interpolated identifier. The name-keyed pair
+          // below is the honest approximation: it covers the two bindings this tree writes
+          // (`error` and `e`) and is deliberately NOT `CatchClause TemplateLiteral`, which
+          // fires on every message a catch block composes out of its own local values —
+          // measured against two live modules that do exactly that. A catch that binds a
+          // third name reaches neither arm, and the `String(...)` selector below is what
+          // still catches its explicit form.
+          selector:
+            ':matches(CatchClause[param.name="error"], CatchClause[param.name="e"]) TemplateLiteral > Identifier[name=/^(?:e|error)$/]',
+          message:
+            "Interpolating a caught value into a template runs ToPrimitive on it, exactly as `String(...)` does, and throws on a null-prototype value carrying no `toString` or any hostile accessor — inside the expression that exists to report a failure. Use `lossyStringify` from `src/shared/wire-errors.ts`, or `normalizeWireRejection` from `console/core/wire-rejection.ts` where the result is a refusal.",
         },
         {
           // Any `String(...)` inside a `catch`, not only one applied to the binding:
