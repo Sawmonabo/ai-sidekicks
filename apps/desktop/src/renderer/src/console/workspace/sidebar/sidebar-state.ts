@@ -21,13 +21,13 @@ import { type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import { type UiStateStore } from "../../persistence/index.js";
 import { type SidebarSectionId } from "../../seats/index.js";
 import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
-import { RestoreProgress, refuseWorkspace } from "../layout-persistence.js";
+import { RestoreProgress, refuseWorkspace } from "../layout/layout-persistence.js";
 import {
   CoalescingLayoutWriter,
   flushAndCloseWriter,
   isWriterRetired,
   type PersistedLayoutRecord,
-} from "../layout-writer.js";
+} from "../layout/layout-writer.js";
 import {
   INITIAL_SIDEBAR_LAYOUT_STATE,
   SIDEBAR_LAYOUT_RECORD_KEY,

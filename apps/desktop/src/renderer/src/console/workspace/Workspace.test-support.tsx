@@ -25,7 +25,7 @@ import { MemoryPersistenceAdapter } from "../persistence/memory-adapter.js";
 import { FrameStore, SessionStore } from "../store/index.js";
 import { ConsolePaneRegistry, PaneControlsContext } from "../seats/index.js";
 import { DeckLayout } from "./deck/deck-layout.js";
-import { DECK_LAYOUT_RECORD_KEY } from "./layout-persistence.js";
+import { DECK_LAYOUT_RECORD_KEY } from "./layout/layout-persistence.js";
 import { Workspace } from "./Workspace.js";
 
 export const SESSION_ID = "session-workspace";

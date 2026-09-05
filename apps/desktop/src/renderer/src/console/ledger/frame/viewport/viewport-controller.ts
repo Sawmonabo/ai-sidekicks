@@ -239,12 +239,9 @@ export class LedgerViewportController {
    * conditions carry — `viewport-prune-cycle.ts` states which and why, and answers
    * whether the refusal has lifted. This method is the disposal check and the
    * re-drive, and deliberately nothing else: a re-ask is one ordinary reconcile over
-   * the conditions the refused pass was given.
-   *
-   * "Refused" covers a pass that APPLIED and is still over its cap — the walk that
-   * stopped at the reader's row having already taken some. What is owed is read off
-   * the outcome's `owedBecause` rather than its `deferredBecause` for exactly that
-   * case; the cycle's own doc says why.
+   * the conditions the refused pass was given. "Refused" covers a pass that APPLIED
+   * and is still over its cap — a walk that stopped at the reader's row having taken
+   * some — so what is owed is read off `owedBecause` and never `deferredBecause`.
    */
   public retryDeferredPrune(): void {
     if (this.#disposed) {

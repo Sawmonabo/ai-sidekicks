@@ -40,7 +40,7 @@ import {
   type SidebarSectionDescriptor,
   type SidebarSectionId,
 } from "../../seats/index.js";
-import { type PersistedLayoutRecord } from "../layout-writer.js";
+import { type PersistedLayoutRecord } from "../layout/layout-writer.js";
 import {
   SIDEBAR_DEFAULT_WIDTH_PERCENT,
   SIDEBAR_MAXIMUM_WIDTH_PERCENT,
@@ -129,14 +129,38 @@ export type SidebarRestoreRefusalCode = (typeof SIDEBAR_RESTORE_REFUSAL_CODES)[n
 /** The subsystem name every refusal this module raises carries. */
 export const SIDEBAR_LAYOUT_REFUSAL_ORIGIN = "sidebar-layout";
 
+/**
+ * A typed sidebar restore refusal — `core`'s one refusal shape, narrowed on `code`.
+ *
+ * Narrowed for the reason the deck's own `DeckRestoreRefusal` is, and this module
+ * shipped without it: a consumer that switches on `.code` gets the vocabulary checked
+ * against the union above rather than against `string`, so a code that is no longer
+ * in the set is a compile error and not a branch that stops being taken.
+ */
+export interface SidebarRestoreRefusal extends ConsoleRefusal {
+  readonly code: SidebarRestoreRefusalCode;
+}
+
 /** A decoded record: the state to adopt, and everything the decode dropped. */
 export interface DecodedSidebarLayout {
   readonly state: SidebarLayoutState;
-  readonly refusals: readonly ConsoleRefusal[];
+  readonly refusals: readonly SidebarRestoreRefusal[];
 }
 
-function refuseRestore(code: SidebarRestoreRefusalCode, detail: string): ConsoleRefusal {
-  return refuse(SIDEBAR_LAYOUT_REFUSAL_ORIGIN, code, detail);
+/**
+ * This module's refusals, named for the restore they are about.
+ *
+ * NAMED `Sidebar`, because `deck/deck-snapshot.ts` has the same job under the same
+ * bare name: two sibling restore paths in one family reporting at two different type
+ * strengths under one identifier is a reader's problem before it is a compiler's.
+ * The shape itself — spread `refuse`, re-state `code` for the narrowing — is the
+ * console's sixth copy, and is owed a generic in `core/refusal.ts`.
+ */
+function refuseSidebarRestore(
+  code: SidebarRestoreRefusalCode,
+  detail: string,
+): SidebarRestoreRefusal {
+  return { ...refuse(SIDEBAR_LAYOUT_REFUSAL_ORIGIN, code, detail), code };
 }
 
 /** Write the sidebar's state out, under the one class the chokepoint admits. */
@@ -164,7 +188,7 @@ export function decodeSidebarLayout(record: unknown): DecodedSidebarLayout {
     return {
       state: INITIAL_SIDEBAR_LAYOUT_STATE,
       refusals: [
-        refuseRestore(
+        refuseSidebarRestore(
           "snapshot-shape-invalid",
           "The saved sidebar is not a sidebar record, so none of it was restored. The sidebar opens at its usual width.",
         ),
@@ -179,7 +203,7 @@ export function decodeSidebarLayout(record: unknown): DecodedSidebarLayout {
     return {
       state: INITIAL_SIDEBAR_LAYOUT_STATE,
       refusals: [
-        refuseRestore(
+        refuseSidebarRestore(
           "snapshot-version-unknown",
           "The saved sidebar was written by a different version of the console, so none of it was restored. It opens at its usual width and saves again as you use it.",
         ),
@@ -187,7 +211,7 @@ export function decodeSidebarLayout(record: unknown): DecodedSidebarLayout {
     };
   }
 
-  const refusals: ConsoleRefusal[] = [];
+  const refusals: SidebarRestoreRefusal[] = [];
   const chosenCandidate = header["openSectionId"];
   let chosenSectionId: SidebarSectionId | undefined;
   if (chosenCandidate !== undefined) {
@@ -195,7 +219,7 @@ export function decodeSidebarLayout(record: unknown): DecodedSidebarLayout {
       chosenSectionId = chosenCandidate;
     } else {
       refusals.push(
-        refuseRestore(
+        refuseSidebarRestore(
           "section-unknown",
           "The section the sidebar had open is not one this version of the console has, so the sidebar opens with every section collapsed.",
         ),

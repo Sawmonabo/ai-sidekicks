@@ -1,82 +1,21 @@
-// The window cap over a ten-thousand-row log.
+// The window cap: what it drops, what it refuses to drop, and what it leaves owed.
 //
-// Ten thousand rows because the properties that matter — that children never trip
-// the cap, that a closure never orphans, that a held row survives however old it is
-// — are all invisible at a hundred and all obvious at ten thousand. The list is
-// synthetic and generated, so the case states the shape it is testing rather than
-// hiding it in a fixture.
+// The logs and the all-clear conditions are `window-cap.test-support.ts`', shared with
+// `window-cap.leases.test.ts` — the seam to the lease table and the rules that decide
+// what counts as one row, which is the other half of this module and a subject of its
+// own.
 
 import { describe, expect, it } from "vitest";
 
 import { LEDGER_WINDOW_ROW_CAP } from "../frame-bounds.js";
 import { LedgerWindow, PRUNE_DEFERRAL_REASONS, type PruneConditions } from "./window-cap.js";
-import type { LedgerWindowRow } from "./window-cap.js";
-
-const TOP_LEVEL_ROW_COUNT = 10_000;
-const CHILDREN_PER_CHAPTER = 3;
-
-/** A log of chapters, each with children, oldest first. */
-function syntheticLog(topLevelCount: number): readonly LedgerWindowRow[] {
-  const rows: LedgerWindowRow[] = [];
-  for (let index = 0; index < topLevelCount; index += 1) {
-    const key = `chapter-${String(index)}`;
-    rows.push({ key, parentKey: undefined, rootCursor: `cursor-${String(index)}` });
-    for (let child = 0; child < CHILDREN_PER_CHAPTER; child += 1) {
-      rows.push({
-        key: `${key}-child-${String(child)}`,
-        parentKey: key,
-        rootCursor: `cursor-${String(index)}`,
-      });
-    }
-  }
-  return rows;
-}
-
-/**
- * A log of FOLDED chapters, as the ledger emits one: a header row keyed by the run,
- * and the terminal receipt hanging from it.
- *
- * The shape `foldChapterHeaders` produces. It is here rather than in the ledger's
- * own suite because what it exercises is the CAP's counting rule, and the rule only
- * became reachable when a row started existing for the key every run row names.
- */
-function foldedChapterLog(chapterCount: number): readonly LedgerWindowRow[] {
-  const rows: LedgerWindowRow[] = [];
-  for (let index = 0; index < chapterCount; index += 1) {
-    const runKey = `run-${String(index)}`;
-    rows.push({ key: runKey, parentKey: undefined, rootCursor: runKey });
-    rows.push({
-      key: `${runKey}-receipt`,
-      parentKey: runKey,
-      rootCursor: `cursor-${String(index)}`,
-    });
-  }
-  return rows;
-}
-
-/** A log whose every row names one run, and where no row IS that run. */
-function runOnlyLog(entryCount: number): readonly LedgerWindowRow[] {
-  return Array.from({ length: entryCount }, (_unused, index) => ({
-    key: `run-1-entry-${String(index)}`,
-    parentKey: "run-1",
-    rootCursor: `cursor-${String(index)}`,
-  }));
-}
-
-const PRUNABLE: PruneConditions = {
-  hasActiveTurn: false,
-  scrollControllerVetoes: false,
-  revealDrainInFlight: false,
-  pinnedRootCursor: undefined,
-  heldRowKeys: [],
-  readingFloorRowKey: undefined,
-};
-
-function loadedWindow(): LedgerWindow {
-  const window = new LedgerWindow();
-  window.ingest(syntheticLog(TOP_LEVEL_ROW_COUNT));
-  return window;
-}
+import {
+  CHILDREN_PER_CHAPTER,
+  loadedWindow,
+  PRUNABLE,
+  syntheticLog,
+  TOP_LEVEL_ROW_COUNT,
+} from "./window-cap.test-support.js";
 
 describe("the ledger window — the cap", () => {
   it("caps top-level rows and lets children ride along", () => {
@@ -305,122 +244,5 @@ describe("the ledger window — the reading floor", () => {
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: "a-row-pruned-long-ago" });
     expect(outcome.applied).toBe(true);
     expect(outcome.topLevelRetained).toBe(LEDGER_WINDOW_ROW_CAP);
-  });
-});
-
-describe("the ledger window — leases and cursors", () => {
-  // The SEAM only. What parking means and the bound it is held to are
-  // `row-lease-table.test.ts`'s; this case pins that the prune reaches it at all.
-  it("re-parks a pruned row's lease under a synthetic key, and hands it back", () => {
-    const window = loadedWindow();
-    window.setLease("chapter-0", { density: "expanded", innerScrollTopPx: 44 });
-    window.prune(PRUNABLE);
-    expect(window.rows().some((row) => row.key === "chapter-0")).toBe(false);
-    expect(window.lease("chapter-0")).toStrictEqual({ density: "expanded", innerScrollTopPx: 44 });
-  });
-
-  it("cuts at the pin's cursor while pinned and at the oldest retained row otherwise", () => {
-    const window = new LedgerWindow();
-    window.ingest(syntheticLog(3));
-    expect(window.cutAtRootCursor(undefined)).toBe("cursor-0");
-    expect(window.cutAtRootCursor("cursor-2")).toBe("cursor-2");
-  });
-
-  it("adopts the projection verbatim, so a second identical read changes nothing", () => {
-    const window = new LedgerWindow();
-    const rows = syntheticLog(3);
-    window.ingest(rows);
-    window.ingest(rows);
-    expect(window.topLevelRowKeys()).toHaveLength(3);
-    expect(window.size).toBe(3 * (CHILDREN_PER_CHAPTER + 1));
-  });
-
-  it("keeps a repeated key rather than collapsing an entry out of the log", () => {
-    // The window is not the layer that decides what to do about a projection
-    // defect: `RowWindow` reports the repeat and draws it at an estimated height,
-    // and it can only do that if the row reaches it at all.
-    const window = new LedgerWindow();
-    window.ingest([
-      { key: "chapter-0", parentKey: undefined, rootCursor: "cursor-0" },
-      { key: "chapter-0", parentKey: undefined, rootCursor: "cursor-1" },
-    ]);
-    expect(window.rows()).toHaveLength(2);
-  });
-
-  it("counts a row whose parent is not in the window, so a run-only log is capped", () => {
-    // The shape the ledger actually produces: every row names its run, and the run
-    // itself is not a row. Read as "has a parent, therefore a child", the window
-    // counted nobody and a session that never left one run grew without a ceiling.
-    const window = new LedgerWindow({ topLevelCap: 10 });
-    window.ingest(runOnlyLog(50));
-    expect(window.topLevelRowKeys()).toHaveLength(50);
-    const outcome = window.prune(PRUNABLE);
-    expect(outcome.applied).toBe(true);
-    expect(outcome.topLevelRetained).toBe(10);
-    expect(window.size).toBe(10);
-    // Oldest first, so what survives is the tail of the run rather than its head.
-    expect(window.rows()[0]?.key).toBe("run-1-entry-40");
-  });
-
-  it("negative control: the same rows under a parent the window holds count once", () => {
-    // Without this the case above would pass over a window that had simply stopped
-    // honouring parents at all. Give the run a row of its own and the fifty entries
-    // collapse into one countable head — the property the cap has always had.
-    const window = new LedgerWindow({ topLevelCap: 10 });
-    window.ingest([
-      { key: "run-1", parentKey: undefined, rootCursor: "cursor-run-1" },
-      ...runOnlyLog(50),
-    ]);
-    expect(window.topLevelRowKeys()).toEqual(["run-1"]);
-    expect(window.prune(PRUNABLE).deferredBecause).toBe("under-cap");
-    expect(window.size).toBe(51);
-  });
-
-  it("counts a folded chapter as one, so the cap bounds chapters and not rows", () => {
-    // The load-bearing consequence of the ledger emitting a chapter header. Before
-    // it, every run row named its run, no row WAS that run, and the cap counted each
-    // of them — so ten chapters of a hundred rows read as a thousand against the
-    // ceiling. With the header present the same log is ten.
-    const window = new LedgerWindow({ topLevelCap: 4 });
-    window.ingest(foldedChapterLog(10));
-    expect(window.topLevelRowKeys()).toHaveLength(10);
-    const outcome = window.prune(PRUNABLE);
-    expect(outcome.applied).toBe(true);
-    expect(outcome.topLevelRetained).toBe(4);
-    // Header and receipt leave together — the ancestor closure — so no receipt is
-    // left hanging under a chapter the window no longer holds.
-    expect(window.rows().map((row) => row.key)).toEqual([
-      "run-6",
-      "run-6-receipt",
-      "run-7",
-      "run-7-receipt",
-      "run-8",
-      "run-8-receipt",
-      "run-9",
-      "run-9-receipt",
-    ]);
-  });
-
-  it("negative control: the same receipts with no header count one apiece", () => {
-    // Without this the case above would pass over a cap that had stopped counting
-    // anything. Take the headers away and the ten receipts are ten orphans, each its
-    // own top-level row — which is exactly the reading the ledger used to give it.
-    const window = new LedgerWindow({ topLevelCap: 4 });
-    window.ingest(foldedChapterLog(10).filter((row) => row.parentKey !== undefined));
-    expect(window.topLevelRowKeys()).toHaveLength(10);
-    expect(window.prune(PRUNABLE).topLevelRetained).toBe(4);
-  });
-
-  it("drops an orphan alone, never the siblings that share its absent parent", () => {
-    // An orphan is its own cut unit. Dropping the whole absent-parent group would
-    // evict a run's entire middle to make room for one row.
-    const window = new LedgerWindow({ topLevelCap: 3 });
-    window.ingest(runOnlyLog(5));
-    window.prune(PRUNABLE);
-    expect(window.rows().map((row) => row.key)).toEqual([
-      "run-1-entry-2",
-      "run-1-entry-3",
-      "run-1-entry-4",
-    ]);
   });
 });
