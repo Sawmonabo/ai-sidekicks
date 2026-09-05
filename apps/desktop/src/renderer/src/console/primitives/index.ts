@@ -157,36 +157,21 @@ export {
 // two ARIA members are one claim every windowed list in the console makes the same
 // way, and a family that wrote its own row is a family whose reader is told the list
 // is as long as the window.
-export type {
-  /** @consumedBy T-023p-1C-5 */
-  WindowedListRowProps,
-  /** @consumedBy T-023p-1C-5 */
-  WindowedRowTargetProps,
-} from "./WindowedListRow.js";
+//
+// TWO SYMBOLS, AND THAT IS THE WHOLE SEAM. `T-023p-1C-5` landed the two windowed
+// lists this primitive exists for — `repos/diff-pane/DiffFileList.tsx` and
+// `repos/restore/WindowedRestorePathList.tsx` — and both compose the row and the
+// hook and nothing else: the props types are inferred from the element, the two ARIA
+// marker names are written by the row rather than by its caller, and the index
+// arithmetic is what the hook returns. The ten door lines that had carried
+// `@consumedBy T-023p-1C-5` alongside these two named a consumer that has now
+// shipped without importing any of them, so they were door lines with no production
+// reader — the class `test/console/architecture/barrel-census.test.ts` owns and the
+// dead-code gate cannot see, since the tag legitimately suppressed the finding. They
+// are deleted rather than re-tagged; the co-located tests that do exercise those
+// symbols read the module that declares them, which is what the census rule asks.
 export { WindowedListRow } from "./WindowedListRow.js";
-export type {
-  /** @consumedBy T-023p-1C-5 */
-  WindowedRovingIndex,
-  /** @consumedBy T-023p-1C-5 */
-  WindowedRovingIndexOptions,
-  /** @consumedBy T-023p-1C-5 */
-  WindowedRowMove,
-} from "./windowed-row-index.js";
-export {
-  /** @consumedBy T-023p-1C-5 */
-  WINDOWED_ROW_INDEX_ATTRIBUTE,
-  /** @consumedBy T-023p-1C-5 */
-  WINDOWED_ROW_TARGET_ATTRIBUTE,
-} from "./windowed-row-markers.js";
-export {
-  /** @consumedBy T-023p-1C-5 */
-  WINDOWED_ROW_MOVE_BY_KEY,
-  /** @consumedBy T-023p-1C-5 */
-  clampedRowIndex,
-  /** @consumedBy T-023p-1C-5 */
-  movedRowIndex,
-  useWindowedRovingIndex,
-} from "./windowed-row-index.js";
+export { useWindowedRovingIndex } from "./windowed-row-index.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4 */

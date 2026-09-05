@@ -42,7 +42,7 @@ import type { PortAnswer } from "./attachment-ingest-answer.js";
 import { repoCallRefusal } from "../repo-reads.js";
 
 /** Where the unreclaimed-spool tripwire reports from, so a firing names a module. */
-export const INGEST_ABORT_SITE = "repos/attachment-ingest-abort.ts";
+export const INGEST_ABORT_SITE = "repos/attachments/attachment-ingest-abort.ts";
 
 /** What this leg is called in the sentence a rejection is rendered into. */
 const INGEST_ABORT_LEG = "The spool reclaim";

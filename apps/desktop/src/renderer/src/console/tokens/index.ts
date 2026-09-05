@@ -53,6 +53,11 @@ export {
 export { formatOklch } from "./color.js";
 
 export type { GlyphName } from "./glyphs.js";
+// The icon scale. `GLYPH_DEFAULT_SIZE` is NOT published beside these three: its one
+// reader is `primitives/Glyph.tsx`, which reaches the declaring module for the
+// geometry it draws with, while these are spent by view families that render a glyph
+// at a named density and have no business knowing which module holds the paths.
+export { GLYPH_SIZE_CHROME, GLYPH_SIZE_DENSE, GLYPH_SIZE_ROW } from "./glyphs.js";
 
 export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";
 export { ParticipantHueAllocator } from "./participant-hue.js";

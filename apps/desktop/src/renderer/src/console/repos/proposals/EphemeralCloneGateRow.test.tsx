@@ -8,7 +8,11 @@
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import {
+  fixtureBridgeWithGrowth,
+  growthServing,
+} from "../../bridge/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
@@ -40,21 +44,16 @@ const CLONE: EphemeralCloneStatusRecord = {
  * so a case asserting the designed absence is asserting that no call was made rather
  * than that the call failed.
  */
-const SERVING_BRIDGE = {
-  growth: {
-    gitflowBranchContextRead: async () => ({
-      status: "served",
-      // Flat, exactly as `BranchContextReadResponse` returns it: the context's fields
-      // ARE the reply, and there is no envelope member to reach through.
-      value: {
-        branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
-        workspaceId: CLONE.workspaceId,
-        baseBranch: "develop",
-        headBranch: CLONE.branchName,
-      },
-    }),
-  },
-} as unknown as ConsoleBridge;
+const SERVING_BRIDGE = fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+  gitflowBranchContextRead: growthServing({
+    // Flat, exactly as `BranchContextReadResponse` returns it: the context's fields
+    // ARE the reply, and there is no envelope member to reach through.
+    branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
+    workspaceId: CLONE.workspaceId,
+    baseBranch: "develop",
+    headBranch: CLONE.branchName,
+  }),
+});
 
 function renderRow(
   workspaces: readonly {

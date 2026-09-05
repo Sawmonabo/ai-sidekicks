@@ -1,18 +1,18 @@
 /*
  * What the repos family owns at its root: the pane chrome, and the rules two of its
- * sub-directories share.
+ * sub-modules share.
  *
- * ONE DOOR FOR THREE DIRECTORIES. `repos/`, `panes/diff/`, and `panes/artifact/` are
- * one family (`repos/index.ts` says why), and this is the sheet that family's door
- * imports first — followed by the five sub-directory sheets beside it and the two pane
- * sheets next door. Every one of them is imported from that door and from nowhere
- * else, which is what the stylesheet-edges gate asserts.
+ * ONE DOOR FOR SEVEN SUB-MODULES. `repos/` is one family (`repos/index.ts` says why),
+ * and this is the sheet that family's door imports first — followed by the five
+ * subject sheets beside it and the two pane sheets under `repos/diff-pane/` and
+ * `repos/artifact-pane/`. Every one of them is imported from that door and from
+ * nowhere else, which is what the stylesheet-edges gate asserts.
  *
- * WHAT STAYED HERE, AND WHY IT IS NOT A SIXTH DIRECTORY SHEET. Two kinds of rule:
+ * WHAT STAYED HERE, AND WHY IT IS NOT AN EIGHTH SUB-MODULE SHEET. Two kinds of rule:
  *   • the chrome BOTH panes are read inside (`.meridian-repos-pane*`) and the cards
- *     `panes/artifact/` draws alone, since a sheet in `repos/` may not claim rules for
+ *     `repos/artifact-pane/` draws alone, since a sheet in `repos/` may not claim rules for
  *     a directory it does not own;
- *   • rules whose selector list spans two sub-directories — a pair grid shared by a
+ *   • rules whose selector list spans two sub-modules — a pair grid shared by a
  *     root card and an artifact row, a focus ring shared by the gate and the restore
  *     disclosure. Splitting one of those would duplicate a declaration into two files
  *     and make the pair drift; keeping it here keeps it stated once, in the sheet both

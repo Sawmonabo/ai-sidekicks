@@ -184,7 +184,7 @@ export type BranchContextReadPlan =
  * A DESIGNED ABSENCE AND NEVER A GUESS. `docs/architecture/contracts/api-payload-contracts.md`
  * gives `BranchContextRead` two arms — a `branchContextId`, or a `worktreeId` paired
  * with its `workspaceId` — and a branch-mode workspace has no worktree at all, so the
- * only arm that could serve it is the first. `bridge/growth-signatures.ts` carries only
+ * only arm that could serve it is the first. `bridge/growth-signatures/gitflow.ts` carries only
  * the second, and records why: `BranchContextId` is minted by `repo.executionRootPrepare`,
  * a wire the console does not have and no growth row carries, so there is nothing to
  * ask with. Sending the workspace id alone would be a request shape no producer

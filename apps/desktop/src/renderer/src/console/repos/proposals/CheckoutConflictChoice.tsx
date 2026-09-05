@@ -1,7 +1,7 @@
 import { useId } from "react";
+import { GLYPH_SIZE_CHROME } from "../../tokens/index.js";
 import { Glyph } from "../../primitives/index.js";
 import type { CheckoutConflict } from "./checkout-conflict.js";
-import { GATE_GLYPH_SIZE } from "./proposal-gate-chrome.js";
 
 /**
  * The blocking choice.
@@ -23,7 +23,7 @@ export function CheckoutConflictChoice(props: {
       aria-live="polite"
     >
       <p className="meridian-proposal-gate__conflict-reason" id={legendId}>
-        <Glyph name="alert" size={GATE_GLYPH_SIZE} />
+        <Glyph name="alert" size={GLYPH_SIZE_CHROME} />
         {props.conflict.reason}
       </p>
       <div className="meridian-proposal-gate__conflict-options">

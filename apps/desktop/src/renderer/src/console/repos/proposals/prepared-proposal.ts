@@ -42,7 +42,7 @@ export interface PreparedProposal {
    * FOUR MEMBERS BELOW ARE OPTIONAL BECAUSE NO REGISTERED REPLY CARRIES THEM.
    *
    * The preparation call answers with a preparation id, a state, and an untyped
-   * blob (`bridge/growth-signatures.ts`, `gitflowPrPrepare`), so a reader can supply
+   * blob (`bridge/growth-signatures/gitflow.ts`, `gitflowPrPrepare`), so a reader can supply
    * the two branches — from the branch context, which `branch-context-model.ts` makes
    * the only source of base and head — and the state, and nothing else. Absence is therefore
    * the honest reading, and each one renders as the "nobody supplied this" kind of

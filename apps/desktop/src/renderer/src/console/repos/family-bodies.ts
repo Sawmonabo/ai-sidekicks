@@ -3,12 +3,12 @@
 // A DOOR IS NOT A PLACE WHERE THINGS HAPPEN, and a door reading another door is not
 // a reader. These bodies were composed inside `repos/index.ts`, which made the
 // family's own barrel the only production reader of five door lines —
-// `panes/artifact/index.ts`'s three and `panes/diff/index.ts`'s two — and a barrel
-// importing a barrel is a barrel CHAIN rather than a consumer, which is what the
+// `repos/artifact-pane/index.ts`'s three and `repos/diff-pane/index.ts`'s two — and a
+// barrel importing a barrel is a barrel CHAIN rather than a consumer, which is what the
 // census beside those doors reports. Named here the same imports are a real reader,
 // and the door goes back to two registration functions and a list of names.
 //
-// WHAT IS HERE AND WHAT IS NEXT DOOR. The sidebar and card registrations run here,
+// WHAT IS HERE AND WHAT IS IN THE DOOR. The sidebar and card registrations run here,
 // because `registerSidebarSection` is a seats-door line and the census asks the same
 // question of it: read only from this family's barrel it has no production reader at
 // all. The two pane RENDERERS are here for the same reason and stop there — the pane
@@ -22,8 +22,8 @@ import {
   ArtifactPane,
   registerInlineArtifactCardBody,
   registerInlineAttachmentCardBody,
-} from "../panes/artifact/index.js";
-import { DiffPane, registerInlineDiffCardBody } from "../panes/diff/index.js";
+} from "./artifact-pane/index.js";
+import { DiffPane, registerInlineDiffCardBody } from "./diff-pane/index.js";
 import { refuse, type ConsoleRefusal } from "../core/index.js";
 import { RefusalCard } from "../primitives/index.js";
 import { registerSidebarSection, type ConsolePaneContext, type PaneKind } from "../seats/index.js";

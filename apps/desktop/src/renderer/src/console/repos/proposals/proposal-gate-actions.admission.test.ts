@@ -13,7 +13,9 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { PARTICIPANT_YOU } from "../../bridge/scenarios/repos-fixture-data.js";
 import { ManualClock } from "../../core/index.js";
 import type { ProposalGateReader } from "./proposal-gate-reader.js";
@@ -52,17 +54,15 @@ describe("ProposalGateActions — one act at a time", () => {
       };
     });
     return {
-      bridge: {
-        growth: {
-          gitflowBranchContextRead: async () => SERVED_CONTEXT,
-          gitflowPrPrepare: async () => {
-            calls += 1;
-            await held;
-            return SERVED_PREPARATION;
-          },
-          gitActionExecute: async () => ACCEPTED_ACTION,
+      bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+        gitflowBranchContextRead: async () => SERVED_CONTEXT,
+        gitflowPrPrepare: async () => {
+          calls += 1;
+          await held;
+          return SERVED_PREPARATION;
         },
-      } as unknown as ConsoleBridge,
+        gitActionExecute: async () => ACCEPTED_ACTION,
+      } as unknown as Partial<GrowthPort>),
       prepareCallCount: () => calls,
       answer: release,
     };
@@ -161,20 +161,18 @@ describe("ProposalGateActions — the context an act was admitted against", () =
       };
     });
     return {
-      bridge: {
-        growth: {
-          gitflowBranchContextRead: async () => branchContext,
-          gitflowPrPrepare: async () => SERVED_PREPARATION,
-          gitActionExecute: async () => {
-            gitActionCalls += 1;
-            return ACCEPTED_ACTION;
-          },
-          callerParticipantRead: async () => {
-            await held;
-            return SERVED_CALLER_PARTICIPANT;
-          },
+      bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+        gitflowBranchContextRead: async () => branchContext,
+        gitflowPrPrepare: async () => SERVED_PREPARATION,
+        gitActionExecute: async () => {
+          gitActionCalls += 1;
+          return ACCEPTED_ACTION;
         },
-      } as unknown as ConsoleBridge,
+        callerParticipantRead: async () => {
+          await held;
+          return SERVED_CALLER_PARTICIPANT;
+        },
+      } as unknown as Partial<GrowthPort>),
       serveContext: (answer: unknown) => {
         branchContext = answer;
       },
@@ -269,20 +267,18 @@ describe("ProposalGateActions — the identity an act attributes to", () => {
     let identityReads = 0;
     const gitActionRequests: unknown[] = [];
     return {
-      bridge: {
-        growth: {
-          gitflowBranchContextRead: async () => SERVED_CONTEXT,
-          gitflowPrPrepare: async () => SERVED_PREPARATION,
-          gitActionExecute: async (request: unknown) => {
-            gitActionRequests.push(request);
-            return ACCEPTED_ACTION;
-          },
-          callerParticipantRead: async () => {
-            identityReads += 1;
-            return await answerIdentity();
-          },
+      bridge: fixtureBridgeWithGrowth(REPOS_SCENARIO, {
+        gitflowBranchContextRead: async () => SERVED_CONTEXT,
+        gitflowPrPrepare: async () => SERVED_PREPARATION,
+        gitActionExecute: async (request: unknown) => {
+          gitActionRequests.push(request);
+          return ACCEPTED_ACTION;
         },
-      } as unknown as ConsoleBridge,
+        callerParticipantRead: async () => {
+          identityReads += 1;
+          return await answerIdentity();
+        },
+      } as unknown as Partial<GrowthPort>),
       answerIdentityWith: (answer: () => Promise<unknown>) => {
         answerIdentity = answer;
       },

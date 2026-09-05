@@ -46,24 +46,24 @@ import { describe, expect, it } from "vitest";
 import {
   buildDiffFixture,
   fixtureChangedLineCount,
-} from "../../../src/renderer/src/console/panes/diff/diff-fixture.js";
+} from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.js";
 import {
   ENDURANCE_DIFF_SHAPE,
   SINGLE_LARGE_HUNK_DIFF_SHAPE,
-} from "../../../src/renderer/src/console/panes/diff/diff-fixture-shapes.js";
+} from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.js";
 import {
   diffLineText,
   type DiffLine,
-} from "../../../src/renderer/src/console/panes/diff/diff-model.js";
+} from "../../../src/renderer/src/console/repos/diff-pane/diff-model.js";
 import {
   diffGapKey,
   expandGap,
   type DiffGapExpansion,
   type DiffLineRow,
-} from "../../../src/renderer/src/console/panes/diff/diff-row-model.js";
-import { DiffRowIndex } from "../../../src/renderer/src/console/panes/diff/hunk-virtualization.js";
-import { IntralineSegmentCache } from "../../../src/renderer/src/console/panes/diff/intraline-segments.js";
-import { parseUnifiedPatch } from "../../../src/renderer/src/console/panes/diff/patch-parse.js";
+} from "../../../src/renderer/src/console/repos/diff-pane/diff-row-model.js";
+import { DiffRowIndex } from "../../../src/renderer/src/console/repos/diff-pane/hunk-virtualization.js";
+import { IntralineSegmentCache } from "../../../src/renderer/src/console/repos/diff-pane/intraline-segments.js";
+import { parseUnifiedPatch } from "../../../src/renderer/src/console/repos/diff-pane/patch-parse.js";
 
 const ENDURANCE_DIFF = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
 

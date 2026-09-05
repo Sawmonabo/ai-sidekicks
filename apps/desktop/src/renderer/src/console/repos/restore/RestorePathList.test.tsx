@@ -11,7 +11,7 @@
 // the scroller's height and each row's through `offsetHeight`, and against a
 // zero-height scroller it correctly answers with an empty window. So a case that
 // asserts anything about a rendered row has to say how tall the container is, and the
-// shim below is where it says it. It is the same role `panes/diff/diff-layout-fixture.test-support.ts`
+// shim below is where it says it. It is the same role `repos/diff-pane/diff-layout-fixture.test-support.ts`
 // plays for the diff pane; that module keys on the diff's own class names and reads the
 // diff's own row height, so the two cannot be one until a lane owns both files and can
 // hoist a shared one into `test/console/`.

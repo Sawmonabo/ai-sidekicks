@@ -27,7 +27,7 @@ import {
   SERVED_CONTEXT,
   SUBJECT,
   WIRE_UNREGISTERED,
-  bridgeAnswering,
+  gateBridgeAnswering,
   bridgeWithMovingAnswers,
   publishedProposalOf,
   recordingPort,
@@ -45,7 +45,7 @@ describe("ProposalGateActions — the acts", () => {
   it("prepares against the context's own id and base branch, and folds the reply into the arm", async () => {
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({
+      gateBridgeAnswering({
         branchContext: SERVED_CONTEXT,
         prepare: {
           status: "served",
@@ -82,7 +82,7 @@ describe("ProposalGateActions — the acts", () => {
   it("renders a refused act beside the control pressed and changes no arm", async () => {
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: WIRE_UNREGISTERED }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: WIRE_UNREGISTERED }),
       clock,
     );
     reader.start();
@@ -101,7 +101,7 @@ describe("ProposalGateActions — the acts", () => {
   it("records a served act the daemon did not accept rather than treating it as done", async () => {
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({
+      gateBridgeAnswering({
         branchContext: SERVED_CONTEXT,
         gitAction: { status: "served", value: { accepted: false } },
       }),
@@ -121,7 +121,7 @@ describe("ProposalGateActions — the acts", () => {
   it("re-reads the context after an act the daemon accepted", async () => {
     const clock = new ManualClock();
     const reader = readers.open(
-      bridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: ACCEPTED_ACTION }),
+      gateBridgeAnswering({ branchContext: SERVED_CONTEXT, gitAction: ACCEPTED_ACTION }),
       clock,
     );
     reader.start();

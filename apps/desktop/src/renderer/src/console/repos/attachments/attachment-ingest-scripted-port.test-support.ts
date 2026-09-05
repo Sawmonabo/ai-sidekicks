@@ -13,9 +13,10 @@
 // recording.
 //
 // THE RECORDED SHAPES ARE DERIVED FROM THE REGISTRY, never transcribed from what the
-// client happens to send: `GrowthPort` is the mapped type over `growth-signatures.ts`, so
-// a request that dropped a registered member or invented one fails to compile here rather
-// than passing under a recorder that had been updated to match it.
+// client happens to send: `GrowthPort` is the mapped type over the registry that
+// `bridge/growth-signatures/index.ts` composes, so a request that dropped a registered
+// member or invented one fails to compile here rather than passing under a recorder that
+// had been updated to match it.
 //
 // AND IT IS TEST SUPPORT BY NAME. A recorder that answers every ingest call with a
 // scripted reply is reachable from a rendering path only as a bridge that lies, so the
@@ -25,6 +26,8 @@
 // leaves in the graph would be production ones.
 
 import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
+import { fixtureBridgeWithGrowth } from "../../bridge/fixture-bridge.test-support.js";
+import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import type { ConsoleClock } from "../../core/index.js";
 import type { ChunkAcknowledgement } from "./attachment-ingest-acknowledgement.js";
 import { AttachmentIngestClient } from "./attachment-ingest-machine.js";
@@ -284,10 +287,19 @@ export class ScriptedGrowthPort {
           : { status: "unavailable", code: this.#abortRefusalCode, detail: "scripted refusal" };
       },
     };
-    return {
-      growth: port,
-      ...(clock === undefined ? {} : { scenarioEngine: { clock } }),
-    } as unknown as ConsoleBridge;
+    // The REAL fixture bridge with this scripted port spread onto its growth
+    // namespace, rather than a `{ growth }` object cast to a bridge. Every other
+    // namespace is the fixture's own, and an ingest operation this port does not
+    // declare answers the fixture's typed refusal rather than `undefined`.
+    const bridge = fixtureBridgeWithGrowth(REPOS_SCENARIO, port as unknown as Partial<GrowthPort>);
+    if (clock === undefined) {
+      return bridge;
+    }
+    // The one member still replaced by hand. `FixtureBridgeOptions` takes no clock
+    // even though `ScenarioEngine` does, so a case that freezes ingest time cannot
+    // compose the engine; widening those options is the substrate change that
+    // removes this, and it is reported rather than made here.
+    return { ...bridge, scenarioEngine: { clock } } as ConsoleBridge;
   }
 }
 

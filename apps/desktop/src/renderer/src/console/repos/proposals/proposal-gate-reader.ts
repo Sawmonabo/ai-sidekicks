@@ -43,7 +43,7 @@
 // take, and rendering whatever came back as a reading.
 //
 // ALL THREE OPERATIONS ARE GROWTH-PORT OPERATIONS, AND ALL THREE ARE UNREGISTERED.
-// `bridge/growth-signatures.ts` carries the branch-context read, the preparation
+// `bridge/growth-signatures/gitflow.ts` carries the branch-context read, the preparation
 // call, and the git action under one `gitflow-actions` slate row that `Spec-011`
 // owns, and the live bridge refuses each of them by name. So the ordinary arm on a
 // release build is `not-checked` carrying the port's own sentence — never an empty
