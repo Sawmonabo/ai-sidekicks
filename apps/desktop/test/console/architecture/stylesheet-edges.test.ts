@@ -11,17 +11,17 @@
 //
 // WHAT COUNTS AS A FAMILY DOOR, and why the line is drawn there. A console family
 // door is `console/<family>/index.ts` — one directory below the console root. A
-// SUB-MODULE door (`panes/artifact/index.ts`, `bridge/growth-values/index.ts`) is a
+// SUB-MODULE door (`repos/artifact-pane/index.ts`, `bridge/growth-values/index.ts`) is a
 // barrel too, and it is exactly the case this test exists to catch: it publishes to
 // its own family only and is reached by deep intra-family specifiers, so a sheet
 // imported from one arrives on the paths that reach THAT barrel and on no other. The
-// artifact pane shipped that way — `panes/artifact/index.ts` imported
+// artifact pane shipped that way — `repos/artifact-pane/index.ts` imported
 // `artifact.css` — which meant a surface composing the pane through the repos family
 // door alone drew it unstyled, and it is the shape the negative controls below plant.
 //
 // The importer is checked, not the sheet's neighbours: a family may occupy more than
 // one directory, and the repos family occupies three, so `repos/index.ts`
-// legitimately imports `panes/diff/diff.css` and `panes/artifact/artifact.css`
+// legitimately imports `repos/diff-pane/diff.css` and `repos/artifact-pane/artifact.css`
 // alongside its own. What it may never do is let a second module import one.
 
 import { describe, expect, it } from "vitest";
@@ -97,10 +97,10 @@ describe("stylesheet edges — a sheet is imported from its family's door and no
   });
 
   it("negative control: a sub-module door importing a sheet is caught", () => {
-    // The exact shape `panes/artifact/index.ts` shipped in, planted as text so the
+    // The exact shape `repos/artifact-pane/index.ts` shipped in, planted as text so the
     // control keeps biting after the real module is fixed. Both halves are asserted:
     // the module is not a door, and the sheet is seen.
-    const subModuleDoor = "panes/artifact/index.ts";
+    const subModuleDoor = "repos/artifact-pane/index.ts";
     expect(isFamilyDoor(subModuleDoor)).toBe(false);
     expect(importedStylesheets('import "./artifact.css";\n')).toStrictEqual(["./artifact.css"]);
   });
@@ -112,8 +112,8 @@ describe("stylesheet edges — a sheet is imported from its family's door and no
     // directory for a sheet, which the repos family door does three times.
     expect(isFamilyDoor("repos/RepoSection.tsx")).toBe(false);
     expect(isFamilyDoor("repos/index.ts")).toBe(true);
-    expect(importedStylesheets('import "../panes/artifact/artifact.css";\n')).toStrictEqual([
-      "../panes/artifact/artifact.css",
+    expect(importedStylesheets('import "../repos/artifact-pane/artifact.css";\n')).toStrictEqual([
+      "../repos/artifact-pane/artifact.css",
     ]);
     expect(
       importedStylesheets('import { ArtifactPane } from "./ArtifactPane.js";\n'),

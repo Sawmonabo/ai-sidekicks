@@ -47,7 +47,14 @@ const FRAME = `${CONSOLE}/frame/`;
 // view-family rule below can subtract them rather than report the console's own entry
 // wiring as a violation.
 const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
-const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
+// `panes/` is FLAT: composition files only, never a `panes/<kind>/` body directory. A pane
+// body belongs to the family that builds it — `repos/artifact-pane/`, `repos/diff-pane/` —
+// so this pattern names the board's own files rather than its whole subtree, and the
+// `console-panes-is-flat` rule below fails a module that lands one level deeper. Written as
+// the file set rather than the directory because the subtraction it feeds is what makes a
+// composition site exempt from the view-family ladder: a body sitting under `panes/` would
+// otherwise inherit that exemption and reach any family it liked, unreported.
+const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
 
 /**
  * Every barrel under `console/` — a family door and a sub-module door alike.
@@ -232,6 +239,20 @@ export default {
       // the ones `$1` removes.
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: VIEW_FAMILIES.pathNot },
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
+    },
+    {
+      name: "console-panes-is-flat",
+      comment:
+        "A module landed under `console/panes/<kind>/`. That board holds composition files " +
+        "only — the registry call site and its own test. A pane BODY is owned by the family " +
+        "that builds it and lives in that family's subtree (`repos/artifact-pane/`), which is " +
+        "what makes the family door the one place its stylesheet, its registration, and its " +
+        "cross-family seams are published. A body parked here would also inherit the " +
+        "composition site's exemption from the view-family ladder and could reach any family " +
+        "unreported.",
+      severity: "error",
+      from: {},
+      to: { path: `${CONSOLE}/panes/[^/]+/` },
     },
     {
       name: "console-no-barrel-chain",

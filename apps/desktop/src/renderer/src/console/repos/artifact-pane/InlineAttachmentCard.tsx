@@ -22,8 +22,8 @@
 // reference lands, the seat's own placeholder is deleted and this arm becomes the
 // resolved or unresolved reading the daemon sends.
 
-import { AttachmentCard } from "../../repos/attachments/AttachmentCard.js";
-import type { AttachmentReading } from "../../repos/attachments/attachment-shapes.js";
+import { AttachmentCard } from "../attachments/AttachmentCard.js";
+import type { AttachmentReading } from "../attachments/attachment-shapes.js";
 import { registerInlineCardBody, type AttachmentInlineCardProps } from "../../seats/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */

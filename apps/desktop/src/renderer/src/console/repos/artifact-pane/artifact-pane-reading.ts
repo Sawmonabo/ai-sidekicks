@@ -21,12 +21,12 @@ import {
   type ConsoleRefusal,
   type WireRefusal,
 } from "../../core/index.js";
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachments/attachment-policy.js";
+import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import type {
   ArtifactDeleteReceipt,
   ArtifactManifestRow,
   ArtifactsPanelState,
-} from "../../repos/artifacts/artifact-model.js";
+} from "../artifacts/artifact-model.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
 /**

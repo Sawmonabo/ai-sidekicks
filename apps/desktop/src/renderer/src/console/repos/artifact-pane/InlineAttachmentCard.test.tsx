@@ -10,7 +10,7 @@ import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { INGEST_STALL_DISCLOSURE_MS } from "../../core/index.js";
-import type { AttachmentIngestEntry } from "../../repos/attachments/attachment-shapes.js";
+import type { AttachmentIngestEntry } from "../attachments/attachment-shapes.js";
 
 import {
   inlineCardBody,

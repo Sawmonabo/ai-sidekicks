@@ -23,8 +23,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
-import { ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "../../repos/artifacts/artifact-model.js";
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachments/attachment-policy.js";
+import { ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "../artifacts/artifact-model.js";
+import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPane } from "./ArtifactPane.js";
 import {

@@ -4,7 +4,7 @@
  * Split out of `repos.css` by directory, verbatim and in order — see `mounts.css` for
  * why, and for the import rule every sheet in this family obeys.
  *
- * The card is drawn by this directory AND by `panes/artifact/InlineAttachmentCard.tsx`,
+ * The card is drawn by this directory AND by `repos/artifact-pane/InlineAttachmentCard.tsx`,
  * which is the family's other directory and reached through the same door, so both
  * draw it styled. What the pane owns alone — `.meridian-attachment-card` — stays in
  * `repos.css` with the rest of the pane's chrome.

@@ -15,7 +15,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import {
   artifactManifestRowFromSummary,
   type ArtifactsPanelState,
-} from "../../repos/artifacts/artifact-model.js";
+} from "../artifacts/artifact-model.js";
 import {
   SHIPPED_DEFAULT_ALLOWLIST,
   type ArtifactAllowlistReading,

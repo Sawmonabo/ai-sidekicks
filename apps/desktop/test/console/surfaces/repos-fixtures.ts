@@ -30,9 +30,9 @@ import {
   type ConsoleBridge,
 } from "../../../src/renderer/src/console/bridge/index.js";
 import { refuse, type ConsoleRefusal } from "../../../src/renderer/src/console/core/index.js";
-import { buildDiffFixture } from "../../../src/renderer/src/console/panes/diff/diff-fixture.js";
-import { EXTENDED_HEADER_DIFF_SHAPE } from "../../../src/renderer/src/console/panes/diff/diff-fixture-shapes.js";
-import type { ConsoleDiffModel } from "../../../src/renderer/src/console/panes/diff/diff-model.js";
+import { buildDiffFixture } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture.js";
+import { EXTENDED_HEADER_DIFF_SHAPE } from "../../../src/renderer/src/console/repos/diff-pane/diff-fixture-shapes.js";
+import type { ConsoleDiffModel } from "../../../src/renderer/src/console/repos/diff-pane/diff-model.js";
 import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import type { BranchContextReading } from "../../../src/renderer/src/console/repos/mounts/branch-context-model.js";
 import type { ProposalAction } from "../../../src/renderer/src/console/repos/proposals/proposal-actions.js";

@@ -8,7 +8,7 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { ArtifactManifestRow } from "../../repos/artifacts/artifact-model.js";
+import type { ArtifactManifestRow } from "../artifacts/artifact-model.js";
 import {
   inlineCardBody,
   inlineCardSeatRegistry,

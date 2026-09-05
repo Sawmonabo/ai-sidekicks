@@ -5,10 +5,10 @@
 // family composes it into a `ConsolePaneDescriptor` in its own barrel, so the
 // registration and the component never have to know about each other.
 //
-// The stylesheet is NOT imported here. This directory and `panes/artifact/` are two
-// of the three directories `T-023p-1C-5` builds, and the family is reached through
+// The stylesheet is NOT imported here. This directory and `repos/artifact-pane/` are
+// two of the seven sub-modules `T-023p-1C-5` builds, and the family is reached through
 // one door: `repos/index.ts` imports both `repos/repos.css` and this directory's own
-// `diff.css`. A sheet imported from each of three doors would land three times in
+// `diff.css`. A sheet imported from each sub-module door would land several times in
 // the graph and its presence would depend on which door the bundler reached first.
 
 export { DiffPane } from "./DiffPane.js";

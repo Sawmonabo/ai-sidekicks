@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachments/attachment-policy.js";
+import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../attachments/attachment-policy.js";
 import { readArtifactAllowlist, readArtifactList } from "./artifact-pane-reads.js";
 import {
   REFUSAL,

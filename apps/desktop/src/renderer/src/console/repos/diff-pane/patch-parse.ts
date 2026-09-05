@@ -346,7 +346,7 @@ const LINE_KIND_BY_PREFIX: Readonly<Record<string, DiffLineKind>> = {
 };
 
 /** What a tripwire report from this module names as the site it fired at. */
-const PATCH_PARSE_SITE = "console/panes/diff/patch-parse.ts";
+const PATCH_PARSE_SITE = "console/repos/diff-pane/patch-parse.ts";
 
 /**
  * The prefix the unified format reserves for its one annotation.

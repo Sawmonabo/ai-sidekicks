@@ -65,8 +65,8 @@ import {
   formatByteQuantity,
   useAnnounce,
 } from "../../primitives/index.js";
-import type { ArtifactManifestRow } from "../../repos/artifacts/artifact-model.js";
-import { ArtifactsPanel } from "../../repos/artifacts/ArtifactsPanel.js";
+import type { ArtifactManifestRow } from "../artifacts/artifact-model.js";
+import { ArtifactsPanel } from "../artifacts/ArtifactsPanel.js";
 import { type ConsolePaneContext } from "../../seats/index.js";
 import {
   MANIFEST_RE_READ_ANNOUNCEMENT,

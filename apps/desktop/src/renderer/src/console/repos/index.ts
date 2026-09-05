@@ -1,33 +1,34 @@
 // The repos family's door.
 //
 // The family is `T-023p-1C-5` — repos and worktrees, the diff pane and its inline
-// cards, the artifact pane, and attachments — and it occupies THREE directories:
-// `repos/` for the sidebar section and its mount cards, `panes/diff/`, and
-// `panes/artifact/`. They are one family and not three, because the deck's pane
-// registry is keyed by pane kind while the sidebar's registry is keyed by section
-// id, and a family that owned bodies in both key spaces would otherwise need two
-// doors. This is the one door: everything the family registers is registered here.
+// cards, the artifact pane, and attachments — and it occupies ONE directory tree,
+// `repos/`, with a sub-module per subject: the sidebar section and its mount cards,
+// the two pane bodies in `repos/diff-pane/` and `repos/artifact-pane/`, and the
+// artifacts, attachments, proposals and restore modules beside them. The pane bodies
+// live HERE and not under `console/panes/`, which holds composition files only: the
+// deck's pane registry is keyed by pane kind while the sidebar's registry is keyed by
+// section id, and a family that owned bodies in both key spaces would otherwise need
+// two doors. This is the one door: everything the family registers is registered here.
 //
 // THE FAMILY'S SHEETS ARE IMPORTED HERE AND NOWHERE ELSE. One family, one door for
 // its stylesheets — the rule every console family obeys — and the family's styling is
-// spread over eight files: the root sheet, one per sub-directory of `repos/`, and one
-// for each pane next door. This module is what both pane barrels are reached through,
-// so every sheet is present whenever any of the three directories renders, and each
-// lands in the graph once.
+// spread over eight files: the root sheet and one per sub-module. This module is what
+// both pane barrels are reached through, so every sheet is present whenever any of
+// the sub-modules renders, and each lands in the graph once.
 //
-// WHAT IS HERE AND WHAT IS NEXT DOOR. This module imports the family's eight sheets,
+// WHAT IS HERE AND WHAT IS BELOW. This module imports the family's eight sheets,
 // publishes the two registration entry points the console calls, and publishes the
 // two cross-family seams at the bottom. The BODIES are all in `family-bodies.ts`,
 // whose header says why a door that read the two pane barrels and the sidebar
 // registry itself was a barrel chain rather than a consumer of any of them.
 
 import "./repos.css";
-// The five sub-directory sheets, in the order their rules held inside `repos.css`
-// before that file outgrew a reader. Imported after the root sheet and before the two
-// pane sheets, which is the order the rules were in, so nothing about the cascade
-// turns on the split. Each is imported HERE for the same reason the pane sheets are:
-// a sheet imported from the directory it styles arrives only on the paths that reach
-// that directory, and this family is reached through several.
+// The five subject sheets, in the order their rules held inside `repos.css` before
+// that file outgrew a reader. Imported after the root sheet and before the two pane
+// sheets, which is the order the rules were in, so nothing about the cascade turns on
+// the split. Each is imported HERE for the same reason the pane sheets are: a sheet
+// imported from the directory it styles arrives only on the paths that reach that
+// directory, and this family is reached through several.
 import "./mounts/mounts.css";
 import "./proposals/proposals.css";
 import "./restore/restore.css";
@@ -39,8 +40,8 @@ import "./attachments/attachments.css";
 // browser tiers inject a sheet as a `<style>` element, and a relative `@import`
 // inside one resolves against the document rather than against the sheet, so the
 // rules silently do not arrive and the pane is screenshotted unstyled.
-import "../panes/diff/diff.css";
-import "../panes/artifact/artifact.css";
+import "./diff-pane/diff.css";
+import "./artifact-pane/artifact.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
 import {

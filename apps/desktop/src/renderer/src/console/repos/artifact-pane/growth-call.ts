@@ -32,7 +32,7 @@
 // bridge fills in, so the throw this catches is that namespace being gone, which is
 // what that member means. The DETAIL is what separates the two — an answered refusal
 // says nobody asked, and this one says the call was rejected. That import of
-// `repos/repo-reads.js` was also the only reason `panes/artifact/` reached into
+// `repos/repo-reads.js` was also the only reason `repos/artifact-pane/` reached into
 // `repos/` for a read at all, and it is gone with it.
 //
 // THE THUNK RATHER THAN A PROMISE: a bridge whose namespace is gone can throw

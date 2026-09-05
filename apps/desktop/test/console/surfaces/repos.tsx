@@ -66,7 +66,7 @@ import {
   REPOS_SCENARIO,
 } from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
 import type { ConsoleBridge } from "../../../src/renderer/src/console/bridge/index.js";
-import { DiffPane } from "../../../src/renderer/src/console/panes/diff/index.js";
+import { DiffPane } from "../../../src/renderer/src/console/repos/diff-pane/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
 import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
 import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/ProposalGate.js";

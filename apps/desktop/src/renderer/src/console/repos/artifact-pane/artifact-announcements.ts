@@ -12,7 +12,7 @@
 import {
   artifactDeleteReceiptSentence,
   type ArtifactDeleteReceipt,
-} from "../../repos/artifacts/artifact-model.js";
+} from "../artifacts/artifact-model.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
 export /** What a settled act says, once, when it settles. A refusal speaks in its own words. */
