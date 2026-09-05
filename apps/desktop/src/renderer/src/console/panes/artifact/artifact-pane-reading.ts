@@ -19,6 +19,7 @@ import {
   normalizeWireRejection,
   refuse,
   type ConsoleRefusal,
+  type WireRefusal,
 } from "../../core/index.js";
 import { ATTACHMENT_ALLOWLIST_DEFAULT } from "../../repos/attachments/attachment-policy.js";
 import type {
@@ -167,8 +168,14 @@ export const ARTIFACT_REPLY_UNREADABLE_CODE = "reply-unreadable";
  * there — a rejection off the wire can carry participant content as readily as a
  * schema failure can, which is the rule `Spec-023 §Console Design (Meridian)` rule 9
  * sets and which the copy this replaces broke by interpolating the message into it.
+ *
+ * THE RETURN TYPE IS THE NORMALIZER'S OWN. `WireRefusal` is a `ConsoleRefusal`
+ * widened by the optional retry hint a rate-limit envelope registers, so every
+ * consumer that takes a refusal takes this unchanged — and narrowing it back to
+ * `ConsoleRefusal` here would hide the one member this delegation exists to stop
+ * dropping from the only reader that could offer the retry.
  */
-export function readFailureRefusal(error: unknown): ConsoleRefusal {
+export function readFailureRefusal(error: unknown): WireRefusal {
   return normalizeWireRejection(ARTIFACT_READER_REFUSAL_ORIGIN, error, {
     code: ARTIFACT_READ_THREW_CODE,
     detail: "The artifact read failed before it could answer.",
