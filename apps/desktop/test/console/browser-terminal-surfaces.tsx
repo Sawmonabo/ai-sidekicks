@@ -27,7 +27,7 @@ import type { FunctionComponent } from "react";
 import { renderSettled } from "./console-harness.js";
 
 import { registerBrowserPanes } from "../../src/renderer/src/console/browser/index.js";
-import { BrowserCaptureCard } from "../../src/renderer/src/console/browser/CaptureCard.js";
+import { BrowserCaptureCard } from "../../src/renderer/src/console/browser/cards/CaptureCard.js";
 import { TERMINAL_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/terminal.js";
 import { fixtureSessionSnapshot } from "../../src/renderer/src/console/bridge/fixture-session-snapshot.js";
 import { BROWSER_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/browser.js";

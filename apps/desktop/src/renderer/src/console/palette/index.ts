@@ -32,7 +32,7 @@ export { useBridgeCommands } from "./bridge-commands.js";
 export { KeyBindingTable } from "./keybindings.js";
 
 // The chord grammar itself, forwarded because it is this family's own and because a
-// second consumer arrived for it: `browser/keyboard-handback.ts` has to decide whether
+// second consumer arrived for it: `browser/pane/keyboard-handback.ts` has to decide whether
 // a keystroke inside an embedded page is one the console bound, which is the same
 // question `keybindings.ts` asks and has to be answered by the same parser and the
 // same matcher. A chord grammar written a second time beside that decision is how a

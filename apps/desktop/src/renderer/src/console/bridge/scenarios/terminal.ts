@@ -55,7 +55,7 @@
 // missing `pty.control_changed` would never reach it, which is also why 8.8's last
 // Never rule reads "never derives the holder from the last observed claim". The pane
 // reaches it by folding these presence beats beside the lease ones —
-// `terminal/node-presence-model.ts` — and handing the host's reported reachability to
+// `terminal/pane/node-presence-model.ts` — and handing the host's reported reachability to
 // the lease fold as its vouching input.
 //
 // WHAT REMAINS UNREACHABLE FROM A SCENARIO, STATED RATHER THAN QUIETLY MISSING. The

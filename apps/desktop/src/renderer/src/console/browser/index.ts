@@ -15,6 +15,29 @@
 // rules subtract that path from, so a terminal body importing this family's registry
 // was a green build. Here the isolation rules govern it like any other family module.
 //
+// WHAT THE FAMILY HOLDS, GROUPED BY SEAM. The family held 30 flat modules over five
+// concerns, and its own CSS had already named four of them — which is the argument
+// this grouping makes in code: a reader looking for the pane's chrome should not
+// scroll past the partition table to reach it. Each is a sub-module directory reached
+// by deep intra-family specifiers; the door below is unchanged.
+//
+//   • `pane/` — the deck's browser body and the reads only it makes: the pane
+//     (`BrowserPane.tsx`), its chrome control and address field, the act sequence the
+//     wire is driven through, the geometry binding, the reported-navigation read,
+//     the keyboard handback, the pane's addressing triple, and the descriptor the
+//     door below registers (`pane-descriptor.ts`).
+//   • `geometry/` — the rect the main-process view host is positioned by, and every
+//     reading that makes it honest: the publisher, the motion and animation samplers,
+//     the ancestry watch, the occlusion registry, and the host resolution. It renders
+//     nothing, which is why it carries no sheet.
+//   • `settings/` — chapter 13.16's page: the policy rows and their switches, the
+//     partition table with its rows, and the clear control with its arming rounds.
+//   • `cards/` — one shell for a capture, a download, and a page tool call, with the
+//     ingest meter inside it.
+//   • `bounds/` — chapter 12.10's resource-ceiling table: the bound vocabulary, the
+//     figure chokepoint each unit renders through, and the rows and meter that show
+//     it inside the pane's disclosure.
+//
 // The family sits above the seats door in the console's DAG and imports no sibling
 // view family through any other path.
 

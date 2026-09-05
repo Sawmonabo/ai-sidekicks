@@ -13,7 +13,7 @@
 // ledger, and every state 8.8 names are folded from the session log by
 // `lease-model.ts` and are not fixtures. The OUTPUT is not: the byte stream, the
 // scrollback, and the resize report are `Plan-023 §Console growth slate` row 3,
-// which the growth port refuses by name. `terminal/output-stream.ts` holds that read
+// which the growth port refuses by name. `terminal/pane/output-stream.ts` holds that read
 // and the deletion obligation that retires it.
 
 import { Nothing } from "../../primitives/index.js";

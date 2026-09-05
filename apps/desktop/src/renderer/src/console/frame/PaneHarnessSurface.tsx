@@ -169,7 +169,7 @@ export function PaneHarnessSurface(props: PaneHarnessSurfaceProps): React.JSX.El
       paneKindLabel={address.kind}
       onOpen={() => {
         // Unbounded on purpose. The bound that matters is the page's WebGL context
-        // ledger, which `terminal/renderer-pool.ts` already holds and already
+        // ledger, which `terminal/emulator/renderer-pool.ts` already holds and already
         // degrades past — a second ceiling here would be a bound with no reader,
         // and one this surface would have to keep in step with that one.
         setOpenInstanceCount((count) => count + 1);

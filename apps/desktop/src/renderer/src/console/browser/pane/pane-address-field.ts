@@ -5,13 +5,13 @@
 // still report, and what somebody has typed into the destination field — are each a
 // small rule that is testable without mounting a chrome around it.
 //
-// WHAT THE FIELD MEANS lives in `browser/address-field-model.ts`, which owns the
+// WHAT THE FIELD MEANS lives in `browser/pane/address-field-model.ts`, which owns the
 // following/editing pair and the two readings taken off it. This module owns only
 // WHOSE it is, which is a different question and the one a reused component
 // instance gets wrong.
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { FOLLOWING_ADDRESS_FIELD, type AddressFieldState } from "../address-field-model.js";
+import { FOLLOWING_ADDRESS_FIELD, type AddressFieldState } from "./address-field-model.js";
 import { useSubjectScopedState } from "../../store/index.js";
 
 /** The field's state and its writer, for the pane this render is for. */

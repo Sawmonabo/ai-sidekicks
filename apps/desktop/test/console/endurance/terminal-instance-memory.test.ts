@@ -91,7 +91,7 @@ import {
   TERMINAL_BUDGET_MEASUREMENT_COLUMNS,
   TERMINAL_DEFAULT_SCROLLBACK_LINES,
 } from "../../../src/renderer/src/console/core/constants.js";
-import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/renderer-pool.js";
+import { TerminalRendererPool } from "../../../src/renderer/src/console/terminal/emulator/renderer-pool.js";
 import {
   ConsoleBudgetRegistry,
   evaluateBudget,
@@ -115,7 +115,7 @@ const heapSampler = new HeapSampler();
  * Three: one gives a delta and no slope, two give a slope from a single interval
  * whose noise is the whole reading, and three give two intervals whose agreement is
  * itself evidence. More would spend a WebGL context per instance against a page
- * ledger capped at twelve for reasons `terminal/renderer-pool.ts` records.
+ * ledger capped at twelve for reasons `terminal/emulator/renderer-pool.ts` records.
  */
 const MEASURED_INSTANCE_COUNT = 3;
 

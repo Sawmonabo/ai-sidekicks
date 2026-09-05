@@ -3,7 +3,7 @@
 //
 // `Spec-023 §Console Design (Meridian)` 12.11 puts a scripted host under fixture and
 // end-to-end runs, the real view where a window exists, and an unavailable host
-// otherwise. The wiring table itself is `browser/view-host.ts`'s — that is the family
+// otherwise. The wiring table itself is `browser/geometry/view-host.ts`'s — that is the family
 // that owns the rectangle, the sample, and the refusal vocabulary a pane renders —
 // and this module is the half of the seam the BRIDGE can hold.
 //

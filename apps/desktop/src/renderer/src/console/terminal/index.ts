@@ -13,19 +13,32 @@
 // and a body parked under `console/panes/` is subtracted from both view-family
 // layering rules.
 //
-// WHAT THE FAMILY OWNS TODAY, after T-023p-1C-7: the emulator wrapper
-// (`xterm-adapter.ts`) with the three modules
-// it composes — the addons and the renderer selection (`xterm-addons.ts`), both link
-// paths (`xterm-links.ts`), and the host tie with its write gate
-// (`xterm-host-binding.ts`) — and the deferred edge into it (`emulator-loader.ts`),
-// the page-wide WebGL slot allocator (`renderer-pool.ts`), the link scheme guard
-// (`link-guard.ts`), the mount point (`XtermHost.tsx`), the lease fold
-// (`lease-model.ts`) over the one-event reader beneath it (`lease-transition.ts`),
-// the host-presence fold (`node-presence-model.ts`), the viewer's
-// identity read (`viewer-identity.ts`), and the lease line (`LeaseLine.tsx`) with the
-// one wire call it makes (`lease-claim.ts`). Those
-// are reached by the pane body beside them through deep imports inside the family —
-// the door below is the SEAT BOARD's, and a body importing its own family through it
+// WHAT THE FAMILY OWNS TODAY, after T-023p-1C-7, GROUPED BY SEAM. The family held 24
+// flat modules over three concerns that share no state and change for no common
+// reason, which is a bucket rather than a module; each is now a sub-module directory
+// reached by deep intra-family specifiers, and the door below is unchanged.
+//
+//   • `emulator/` — everything between this console and `@xterm/xterm`, and the one
+//     directory the lazy chunk is drawn from. The wrapper (`xterm-adapter.ts`) with
+//     the three modules it composes — the addons and the renderer selection
+//     (`xterm-addons.ts`), both link paths (`xterm-links.ts`), and the host tie with
+//     its write gate (`xterm-host-binding.ts`) — the deferred edge into it
+//     (`emulator-loader.ts`), the page-wide WebGL slot allocator (`renderer-pool.ts`),
+//     the link scheme guard (`link-guard.ts`), and the mount point (`XtermHost.tsx`).
+//   • `lease/` — who holds the write lease and how a viewer asks for it: the fold
+//     (`lease-model.ts`) over the one-event reader beneath it (`lease-transition.ts`),
+//     the viewer's identity read (`viewer-identity.ts`), the acquisition terms
+//     (`lease-acquisition.ts`), the one wire call (`lease-claim.ts`), and the line
+//     that renders all of it (`LeaseLine.tsx`) with its ledger, holder name,
+//     participant mark, and withheld-claim control.
+//   • `pane/` — the deck's terminal body and the reads only it makes: the pane
+//     (`TerminalPane.tsx`) and its bound half (`BoundTerminalPane.tsx`), the
+//     descriptor the door below registers (`pane-descriptor.ts`), the host-presence
+//     fold (`node-presence-model.ts`), and the output subscription
+//     (`output-stream.ts`).
+//
+// The pane body reaches the other two through deep imports inside the family — the
+// door below is the SEAT BOARD's, and a body importing its own family through it
 // would close a cycle: this module imports the pane, and the pane imports these.
 //
 // Its BOUNDS are not among them. The scrollback, the WebGL ceiling, and the ledger
