@@ -206,6 +206,70 @@ describe("one session's queue is read once for every surface", () => {
     expect(second.openedStreams).toStrictEqual(["run.subscribeQueue"]);
   });
 
+  it("leaves one live registered reading when one surface replaces another in a commit", async () => {
+    // React runs cleanups BEFORE setups, so this pane swap retires the reading
+    // between the arriving surface's render and its subscribe. A surface that
+    // subscribed through the reading it captured at render revived that one — live,
+    // open, and outside the registry — and the next surface then minted a second,
+    // so one session carried two snapshot reads and two tails.
+    const { bridge, openedStreams, calledMethods } = stubBridge();
+    const view = render(
+      <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    view.rerender(
+      <QueueFeedProbe key="y" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    // A third surface arriving afterwards must JOIN what the swap left behind rather
+    // than mint its own, which is the reading that says the registry holds one.
+    render(
+      <QueueFeedProbe key="z" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
+    expect(calledMethods).toStrictEqual(["run.queueList", "run.queueList"]);
+  });
+
+  it("keeps the successor registered when the reading it replaced goes idle", async () => {
+    // The eviction closure captures the map and the key but not the reading, so an
+    // unconditional `delete(sessionId)` evicted whatever was under that key by the
+    // time the last watcher left — a SUCCESSOR with watchers of its own. A retiring
+    // reading may only remove itself.
+    const { bridge, openedStreams } = stubBridge();
+    const swapped = render(
+      <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    swapped.rerender(
+      <QueueFeedProbe key="y" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
+    );
+    const joined = render(
+      <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+    // The swapped-in surface leaves; the joiner stays, so the reading is still live
+    // and still registered, and a fourth surface joins it rather than minting one.
+    swapped.unmount();
+    render(<QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
+    joined.unmount();
+  });
+
   it("reads afresh once the last surface has left, rather than serving a stale list", async () => {
     const { bridge, openedStreams } = stubBridge();
     const mounted = render(

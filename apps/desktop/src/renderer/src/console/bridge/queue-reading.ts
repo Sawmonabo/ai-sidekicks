@@ -169,6 +169,18 @@ export class SessionQueueReading {
   readonly #onIdle: () => void;
   #closeStream: (() => void) | undefined = undefined;
   #isOpen = false;
+  /**
+   * Whether this reading has been forgotten by the registry that held it.
+   *
+   * TERMINAL, and that is the whole point. `watch` used to re-open a reading the
+   * registry had already dropped, so a surface that captured it during a render and
+   * subscribed after the last watcher left revived it OUTSIDE the map — live, with a
+   * tail of its own, and invisible to the next surface, which minted a second reading
+   * for the same session. Two snapshot reads and two tails for one question is exactly
+   * what this module exists to prevent, so the second life is refused rather than
+   * granted and the registry hands out a fresh reading instead.
+   */
+  #isRetired = false;
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
   #phase: QueueReadPhase = "reading";
   #readRefusal: ConsoleRefusal | undefined = undefined;
@@ -188,8 +200,16 @@ export class SessionQueueReading {
   /** The reading as it stands. One object for every watcher, stable between changes. */
   public snapshot = (): QueueFeed => this.#feed;
 
+  /** Whether this reading has been retired. A retired one serves nobody again. */
+  public get isRetired(): boolean {
+    return this.#isRetired;
+  }
+
   /** Watch the reading. The first watcher opens it; the last to leave closes it. */
   public watch(listener: () => void): () => void {
+    if (this.#isRetired) {
+      throw new Error("A retired queue reading was watched; ask the registry for a live one");
+    }
     this.#listeners.add(listener);
     this.#open();
     return () => {
@@ -198,6 +218,7 @@ export class SessionQueueReading {
         // The last surface left. The stream closes and the reading is forgotten, so
         // a surface that mounts later reads afresh rather than being handed a list
         // that stopped being updated when nobody was watching it.
+        this.#isRetired = true;
         this.#close();
         this.#onIdle();
       }

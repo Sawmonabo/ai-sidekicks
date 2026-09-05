@@ -24,6 +24,16 @@ import { SessionQueueReading, type QueueFeed } from "./queue-reading.js";
 class SessionQueueReadings {
   readonly #bySession = new WeakMap<ConsoleBridge, Map<string, SessionQueueReading>>();
 
+  /**
+   * The live reading for this pair, minting one where the entry is free.
+   *
+   * Called from a render AND from a subscription's setup, and both matter: React runs
+   * cleanups before setups, so the pane swap that unmounts one surface and mounts
+   * another in the same commit retires the reading between the mounting surface's
+   * render and its subscribe. Resolving again at subscribe time is what makes that
+   * commit end with ONE live registered reading rather than a revived unregistered one
+   * beside a freshly minted one.
+   */
   public reading(bridge: ConsoleBridge, sessionId: string): SessionQueueReading {
     let forBridge = this.#bySession.get(bridge);
     if (forBridge === undefined) {
@@ -36,10 +46,22 @@ class SessionQueueReadings {
     }
     const forThisBridge = forBridge;
     const created = new SessionQueueReading(bridge, sessionId, () => {
-      forThisBridge.delete(sessionId);
+      // IDENTITY-CHECKED, not `delete(sessionId)`. The closure captures the map and
+      // the key but the entry under that key may already be a SUCCESSOR reading with
+      // watchers of its own, and an unconditional delete evicts it — so the next
+      // surface mints a third reading and the second one is live and unregistered.
+      // A retiring reading may only remove ITSELF.
+      if (forThisBridge.get(sessionId) === created) {
+        forThisBridge.delete(sessionId);
+      }
     });
     forBridge.set(sessionId, created);
     return created;
+  }
+
+  /** Watch this pair's reading, resolved at subscribe time rather than at render. */
+  public watch(bridge: ConsoleBridge, sessionId: string, listener: () => void): () => void {
+    return this.reading(bridge, sessionId).watch(listener);
   }
 }
 
@@ -53,10 +75,18 @@ const sessionQueueReadings = new SessionQueueReadings();
  * surface mounted holds no subscription.
  */
 export function useQueueFeed(bridge: ConsoleBridge, sessionId: string): QueueFeed {
-  const reading = sessionQueueReadings.reading(bridge, sessionId);
+  // Both callbacks go through the registry rather than closing over the reading this
+  // render resolved. A reading captured at render can be retired before React runs
+  // the subscription's setup — the pane swap where one surface unmounts and another
+  // mounts in one commit — and watching it there used to REVIVE it, live and outside
+  // the map, which is the second tail this module exists to prevent.
   const subscribe = useCallback(
-    (onFeedChanged: () => void) => reading.watch(onFeedChanged),
-    [reading],
+    (onFeedChanged: () => void) => sessionQueueReadings.watch(bridge, sessionId, onFeedChanged),
+    [bridge, sessionId],
   );
-  return useSyncExternalStore(subscribe, reading.snapshot, reading.snapshot);
+  const readFeed = useCallback(
+    () => sessionQueueReadings.reading(bridge, sessionId).snapshot(),
+    [bridge, sessionId],
+  );
+  return useSyncExternalStore(subscribe, readFeed, readFeed);
 }

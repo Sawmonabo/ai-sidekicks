@@ -26,16 +26,33 @@ import { NodeProviderQuotaReading, type ProviderQuotaReadout } from "./provider-
 class NodeProviderQuotaReadings {
   readonly #byBridge = new WeakMap<ConsoleBridge, NodeProviderQuotaReading>();
 
+  /**
+   * The live reading for this bridge, minting one where the entry is free.
+   *
+   * Resolved at subscribe time as well as at render, for the reason `queue-feed.ts`
+   * states: React runs cleanups before setups, so a pane swap retires the reading
+   * between a mounting surface's render and its subscribe.
+   */
   public reading(bridge: ConsoleBridge): NodeProviderQuotaReading {
     const held = this.#byBridge.get(bridge);
     if (held !== undefined) {
       return held;
     }
+    const byBridge = this.#byBridge;
     const created = new NodeProviderQuotaReading(bridge, () => {
-      this.#byBridge.delete(bridge);
+      // Identity-checked: a retiring reading may only remove ITSELF, never whatever
+      // successor is registered under its key by the time its last watcher leaves.
+      if (byBridge.get(bridge) === created) {
+        byBridge.delete(bridge);
+      }
     });
     this.#byBridge.set(bridge, created);
     return created;
+  }
+
+  /** Watch this bridge's reading, resolved at subscribe time rather than at render. */
+  public watch(bridge: ConsoleBridge, listener: () => void): () => void {
+    return this.reading(bridge).watch(listener);
   }
 }
 
@@ -49,10 +66,16 @@ const nodeProviderQuotaReadings = new NodeProviderQuotaReadings();
  * would be asking a registry that already tells it when something moved.
  */
 export function useProviderQuotas(bridge: ConsoleBridge): ProviderQuotaReadout {
-  const reading = nodeProviderQuotaReadings.reading(bridge);
+  // Through the registry on both callbacks rather than over a reading this render
+  // resolved: a reading retired between render and subscribe used to be revived by
+  // the watch, live and outside the map, so one bridge carried two tails.
   const subscribe = useCallback(
-    (onReadoutChanged: () => void) => reading.watch(onReadoutChanged),
-    [reading],
+    (onReadoutChanged: () => void) => nodeProviderQuotaReadings.watch(bridge, onReadoutChanged),
+    [bridge],
   );
-  return useSyncExternalStore(subscribe, reading.snapshot, reading.snapshot);
+  const readReadout = useCallback(
+    () => nodeProviderQuotaReadings.reading(bridge).snapshot(),
+    [bridge],
+  );
+  return useSyncExternalStore(subscribe, readReadout, readReadout);
 }

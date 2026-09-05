@@ -106,6 +106,15 @@ export class NodeProviderQuotaReading {
   readonly #fold = new ProviderQuotaFold();
   readonly #notificationHold = new ProviderQuotaNotificationHold();
   #closeStream: (() => void) | undefined = undefined;
+  /**
+   * Whether this reading has been forgotten by the registry that held it.
+   *
+   * Terminal for the reason `queue-reading.ts` states at the same field: a reading
+   * revived by a watcher that captured it before the last one left would be live and
+   * unregistered, and the next surface would mint a second read and a second tail for
+   * the one question this node-scoped reading exists to answer once.
+   */
+  #isRetired = false;
   #isOpen = false;
   // Identifies the read attempt a reply belongs to. A reply whose ordinal has moved
   // on was abandoned by an overflow re-read and seats nothing — without it the
@@ -127,13 +136,22 @@ export class NodeProviderQuotaReading {
   /** The reading as it stands. One object for every watcher, stable between changes. */
   public snapshot = (): ProviderQuotaReadout => this.#readout;
 
+  /** Whether this reading has been retired. A retired one serves nobody again. */
+  public get isRetired(): boolean {
+    return this.#isRetired;
+  }
+
   /** Watch the reading. The first watcher opens it; the last to leave closes it. */
   public watch(listener: () => void): () => void {
+    if (this.#isRetired) {
+      throw new Error("A retired quota reading was watched; ask the registry for a live one");
+    }
     this.#listeners.add(listener);
     this.#open();
     return () => {
       this.#listeners.delete(listener);
       if (this.#listeners.size === 0) {
+        this.#isRetired = true;
         this.#close();
         this.#onIdle();
       }

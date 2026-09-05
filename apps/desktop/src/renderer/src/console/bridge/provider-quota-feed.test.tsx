@@ -692,4 +692,32 @@ describe("useProviderQuotas — one subscription per bridge", () => {
     });
     expect(plane.closeCount).toBe(1);
   });
+
+  it("leaves one live registered reading when one watcher replaces another in a commit", async () => {
+    // Cleanups run before setups, so the arriving watcher's subscribe lands after the
+    // leaving one retired the reading. Subscribing through a reading captured at
+    // render revived it outside the registry, and the next watcher minted a second —
+    // two reads and two tails for the one node-scoped question this answers once.
+    const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]));
+    const leaving = await mountQuotas(plane.bridge);
+    await act(async () => {
+      leaving.unmount();
+    });
+    const arriving = await mountQuotas(plane.bridge);
+    const joining = await mountQuotas(plane.bridge);
+
+    expect(plane.openCount).toBe(2);
+    expect(plane.listCallCount).toBe(2);
+
+    // And the reading the swap left behind is the registered one: the joiner shares
+    // it, so its departure alone does not close the tail.
+    await act(async () => {
+      arriving.unmount();
+    });
+    expect(plane.closeCount).toBe(1);
+    await act(async () => {
+      joining.unmount();
+    });
+    expect(plane.closeCount).toBe(2);
+  });
 });
