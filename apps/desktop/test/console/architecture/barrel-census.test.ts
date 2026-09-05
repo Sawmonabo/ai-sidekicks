@@ -128,7 +128,7 @@ vi.setConfig({ testTimeout: COMPARISON_ALLOWANCE_MS, hookTimeout: CONSOLE_READIN
  * The one reading this file pays for, and the cases' only source.
  *
  * Behind a private field with a throwing accessor rather than a mutable
- * module-level binding, on `console-layering-rules.test.ts`'s reasoning: a `let`
+ * module-level binding, on `console-layering-cruise.ts`'s reasoning: a `let`
  * shared by every case is reachable from a case that runs before the hook that fills
  * it, and `undefined` there reads as an empty census — every claim in this file
  * passing over nothing. The accessor makes that state say what it is.

@@ -2,15 +2,16 @@
 //
 // Every constant here is a SUBJECT rather than a claim: a handful of console modules
 // written out at the relative paths the layering rules are anchored on, one tree per
-// shape a rule has to report or leave alone. The cruise harness and the cases that
-// read them are `console-layering-rules.test.ts` beside this file, which is the seam
-// the tier already takes for `barrel-census.ts` and `stylesheet-edge-graph.ts`: the
-// corpus in a module of its own, the suite that judges it next door.
+// shape a rule has to report or leave alone. The cruise harness is
+// `console-layering-cruise.ts` and the cases are `console-layering-rules.test.ts`,
+// both beside this file — the seam the tier already takes for `barrel-census.ts` and
+// `stylesheet-edge-graph.ts`: the corpus in a module of its own, the suite that
+// judges it next door.
 //
-// The split is what keeps either file readable. Five rules need seven trees between
-// them, each carrying the paragraph that says which rule it is the control for and
-// why it offends the set it does — and a file holding those beside the harness, the
-// budgets and the cases was doing two jobs at ~500 lines.
+// The split is what keeps any of the three readable. Five rules need seven trees
+// between them, each carrying the paragraph that says which rule it is the control
+// for and why it offends the set it does — and a file holding those beside the
+// harness, the budgets and the cases was doing three jobs at ~650 lines.
 //
 // WHY THESE ARE OBJECTS AND NOT FILES ON DISK. A tree is planted into a fresh
 // temporary directory by the harness and removed when the case that read it ends, so

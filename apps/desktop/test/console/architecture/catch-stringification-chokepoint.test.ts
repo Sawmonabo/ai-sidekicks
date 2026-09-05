@@ -206,7 +206,7 @@ describe("catch stringification — no caught value reaches ToPrimitive", () => 
     source: readConsoleSourceModule(module),
   }));
   // Parsed once for the whole file. Every case below is a comparison over this reading,
-  // for the reason `console-layering-rules.test.ts` records about its cruises: a walk of
+  // for the reason `console-layering-cruise.ts` records about its cruises: a walk of
   // ~390 modules charged to a case runs against vitest's default timeout under aggregate
   // tier load, and two cases asking for it separately pay for it twice.
   const everyCaughtBinding = bindingsByModule.flatMap((entry) =>
