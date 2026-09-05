@@ -35,7 +35,8 @@
 
 import { expect } from "vitest";
 
-import type { ConsoleApplication } from "../electron-harness.js";
+import type { ConsoleApplication, LaunchConsoleOptions } from "../electron-harness.js";
+import { ENDURANCE_BODY_ALLOWANCE_MS } from "../launch-budgets.js";
 import {
   SCENARIO_FIXTURE_GLOBAL,
   SESSION_DIAGNOSTICS_FIXTURE_GLOBAL,
@@ -45,6 +46,23 @@ import {
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 
 /** The session the flagship script plays into, and the route that opens it. */
+/**
+ * How every launch in this tier is asked for: the flagship script, and the
+ * tier's OWN body allowance.
+ *
+ * Stated once rather than at each launch, because both halves are properties of
+ * the tier rather than of a case. The allowance is the second: an endurance body
+ * drives hundreds of churn cycles with settling heap samples either side, which
+ * is a different subject from an end-to-end body and is why this tier has a
+ * registered figure of its own — and the tier's own `testTimeout` is derived from
+ * that same figure (`tierTimeoutFor`, `vitest.config.ts`). A launch that took the
+ * default would be bounded nine times more tightly than the tier that runs it.
+ */
+export const ENDURANCE_LAUNCH_OPTIONS: LaunchConsoleOptions = {
+  scenarioId: FLAGSHIP_SCENARIO.id,
+  bodyAllowanceMs: ENDURANCE_BODY_ALLOWANCE_MS,
+};
+
 export const FLAGSHIP_SESSION_ID: string = FLAGSHIP_SCENARIO.sessionId;
 
 export const FLAGSHIP_SESSION_ROUTE: string = `#/session/${encodeURIComponent(FLAGSHIP_SESSION_ID)}`;

@@ -114,3 +114,36 @@ export const FRAME_WITNESS_TIMEOUT_MS: number = BUDGETS.requireCanonicalValue(
  * justified by a local measurement could not have made for a two-core runner.
  */
 export const CLEANUP_BUDGET_MS: number = BUDGETS.requireCanonicalValue("console-launch-cleanup");
+
+/**
+ * How long a test body gets between a settled launch and its cleanup.
+ *
+ * The interval nothing budgeted until 2026-09-05, and the gap was real rather
+ * than theoretical: a launch may spend its whole 45 000 ms readiness-and-witness
+ * allowance, cleanup reserves 10 000 ms after it, and the end-to-end tier's
+ * timeout was a 60 000 ms literal — so a body with three 10 000 ms polls of its
+ * own could be killed by vitest mid-poll, before its message or the cleanup
+ * settled, leaving an Electron alive for every launch after it.
+ *
+ * Applied by `launch-body.ts` and summed into the tier's own timeout by
+ * `tierTimeoutFor` (`launch-deadline.ts`), so raising it raises the tier's
+ * patience rather than eating the cleanup that follows the body.
+ *
+ * The default for a tier that states no allowance of its own, and deliberately
+ * the SHORTER of the two: a new tier whose body needs longer fails inside a bound
+ * that names itself rather than under vitest's generic kill.
+ */
+export const BODY_ALLOWANCE_MS: number = BUDGETS.requireCanonicalValue("console-launch-body");
+
+/**
+ * The same allowance for the endurance tier's sustained workload.
+ *
+ * A second row rather than a larger single one because the two bodies are
+ * different subjects: an end-to-end body drives one interaction and asserts, and
+ * an endurance body drives hundreds of churn cycles with settling heap samples
+ * either side. Sizing one figure for the second would hand the end-to-end tier a
+ * ten-minute patience and make runner contention indistinguishable from a hang
+ * there — which is the property that tier's own timeout was chosen for.
+ */
+export const ENDURANCE_BODY_ALLOWANCE_MS: number =
+  BUDGETS.requireCanonicalValue("console-endurance-body");

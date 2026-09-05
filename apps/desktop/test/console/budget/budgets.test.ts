@@ -63,6 +63,8 @@ const EXPECTED_HARNESS_BUDGET_IDS: readonly string[] = [
   "console-launch-readiness",
   "console-launch-frame-witness",
   "console-launch-cleanup",
+  "console-launch-body",
+  "console-endurance-body",
 ];
 
 /**
@@ -174,16 +176,18 @@ describe("console budget registry", () => {
   });
 
   it("states the harness derivation once, and every harness row points at it", () => {
-    // The three launch rows each opened with the same 44-word sentence, which is
-    // one rule with three places to drift — and it was already imprecise: it
-    // named `console-e2e` as THE derivation, when the guard runs against every
-    // launching tier's resolved timeout and that tier merely happens to bind.
+    // The launch rows each opened with the same 44-word sentence, which is one
+    // rule with as many places to drift as there are rows — and it was already
+    // imprecise: it named `console-e2e` as THE derivation, when the guard runs
+    // against every launching tier's resolved timeout.
     const derivation = registry.harnessBudgetDerivation ?? "";
     expect(derivation, "the derivation is stated").not.toBe("");
     expect(derivation, "held against every launching tier, not one named tier").toContain(
       "every launching tier",
     );
-    expect(derivation, "and it says which one binds").toContain("console-e2e");
+    expect(derivation, "and it says how a tier's own timeout comes out of them").toContain(
+      "tierTimeoutFor",
+    );
 
     const harnessNotes = registry.harnessBudgets().map((budget) => budget.notes);
     for (const notes of harnessNotes) {
@@ -191,8 +195,8 @@ describe("console budget registry", () => {
         "harnessBudgetDerivation",
       );
     }
-    // Three rows that open alike are three copies of one sentence, which is the
-    // shape the pointer replaced.
+    // Rows that open alike are copies of one sentence, which is the shape the
+    // pointer replaced.
     const openings = new Set(harnessNotes.map((notes) => notes.slice(0, 60)));
     expect(openings.size, "harness rows repeat one derivation verbatim").toBe(harnessNotes.length);
   });

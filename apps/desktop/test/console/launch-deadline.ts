@@ -46,14 +46,22 @@
 // close against the slice and SIGKILLs the process tree when it loses, so the
 // profile is still removed and the original failure still reaches the reader.
 //
-// WHAT THE ARITHMETIC HAS TO SATISFY
+// THE BODY IS A SLICE TOO, AND THE TIER TIMEOUT IS THEIR SUM
 //
-// `LAUNCH_BUDGET_MS + MINIMUM_SETTLEMENT_RESIDUAL_MS` must fit inside the
-// `testTimeout` of every tier that launches a console. That is not asserted here
-// in prose: `architecture/frame-witness.test.ts` resolves the REAL projects out
-// of `vitest.config.ts` and holds the relationship against each tier's own
-// resolved timeout, so lowering a tier's patience fails a test that says why
-// rather than re-creating this defect quietly.
+// A launch is not the whole of what runs inside a tier's `testTimeout`. Between
+// the settled launch and the cleanup sits the caller's own test body, and it was
+// budgeted by nothing: the end-to-end tier carried a 60 000 ms literal, a launch
+// was entitled to 45 000 ms of it and cleanup reserved 10 000 ms more, so a body
+// with three 10 000 ms polls of its own could be killed by vitest mid-poll —
+// before the poll's message, before the cleanup, with an Electron left alive.
+//
+// So the tier timeout is DERIVED rather than written down: `tierTimeoutFor()`
+// sums the launch budget, the body allowance that tier applies, and the
+// settlement residual, and `vitest.config.ts` carries the call instead of a
+// number. `architecture/launch-deadline.test.ts` resolves the REAL projects out
+// of that config and holds each tier's own `testTimeout` and `hookTimeout`
+// against the derived figures, so a literal re-planted there fails a test that
+// says why rather than re-creating this defect quietly.
 
 import {
   CLEANUP_BUDGET_MS,
@@ -83,17 +91,35 @@ export const LAUNCH_BUDGET_MS: number =
 export const POST_READINESS_RESERVE_MS: number = FRAME_WITNESS_TIMEOUT_MS + CLEANUP_BUDGET_MS;
 
 /**
- * What a tier must still have after `LAUNCH_BUDGET_MS`, in milliseconds.
+ * What a tier must still have after the last slice, in milliseconds.
  *
- * Everything the budget covers is now inside it, cleanup included, so what this
- * guards is only what runs AFTER the last slice is spent: the synchronous
+ * Everything the budget covers is inside the slices, cleanup included, so what
+ * this guards is only what runs AFTER the last of them is spent: the synchronous
  * removal of the temporary profile directory, and the throw propagating out
  * through two frames. Both are sub-second — the removal is the slower of the two
  * and it is an `rmSync` over one Electron profile. Two seconds is roughly an
- * order of magnitude of headroom over that, and unlike the slices above it is a
- * floor a tier must leave rather than an interval anything waits out.
+ * order of magnitude of headroom over that.
+ *
+ * A constant here rather than a `budgets.json` row, unlike every other figure in
+ * this arithmetic, and for a reason the registry states about itself: every row
+ * there is a CEILING — the loader refuses a `comparison` that is not `"<="` — and
+ * this is a floor a tier must leave rather than an interval anything waits out.
+ * Registering it would have to weaken that invariant to hold one number.
  */
 export const MINIMUM_SETTLEMENT_RESIDUAL_MS = 2_000;
+
+/**
+ * The `testTimeout` a launching tier must carry, given the body allowance it applies.
+ *
+ * The one arithmetic, in one place, and `vitest.config.ts` calls it rather than
+ * writing a number: a launch, then the body, then the cleanup the launch budget
+ * already reserves, then the residual. Derived in this direction on purpose — a
+ * tier timeout chosen first and sliced afterwards is how the body came to be the
+ * one phase with no allowance at all.
+ */
+export function tierTimeoutFor(bodyAllowanceMs: number): number {
+  return LAUNCH_BUDGET_MS + bodyAllowanceMs + MINIMUM_SETTLEMENT_RESIDUAL_MS;
+}
 
 /**
  * A shared clock for one launch: mint it, then draw from it.
@@ -173,7 +199,7 @@ export class LaunchDeadline {
       timeoutHandle = setTimeout(() => {
         rejectExpired(
           new Error(
-            `${phase} did not settle within the launch deadline's remaining ${String(budgetMs)} ms`,
+            `${phase} did not settle within the deadline's remaining ${String(budgetMs)} ms`,
           ),
         );
       }, budgetMs);

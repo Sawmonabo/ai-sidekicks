@@ -15,9 +15,11 @@
 // injected clock, so the phase arithmetic is checked without waiting for any of
 // it to elapse.
 //
-// The two things the deadline BOUNDS are their own subjects and their own files:
-// `frame-witness.test.ts` for the paint verdict, `bounded-cleanup.test.ts` for
-// the close.
+// The three things the deadline sits beside are their own subjects and their own
+// files: `frame-witness.test.ts` for the paint verdict, `bounded-cleanup.test.ts`
+// for the close, and `launch-body.test.ts` for the allowance the caller's own
+// body runs inside — the phase that used to be budgeted by nothing, whose
+// allowance the tier timeouts below are now derived from.
 
 import { globSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -30,7 +32,9 @@ import {
   ConsoleBudgetRegistryError,
 } from "../../../scripts/budget/budget-registry.mjs";
 import {
+  BODY_ALLOWANCE_MS,
   CLEANUP_BUDGET_MS,
+  ENDURANCE_BODY_ALLOWANCE_MS,
   FRAME_WITNESS_TIMEOUT_MS,
   READINESS_BUDGET_MS,
 } from "../launch-budgets.js";
@@ -40,6 +44,7 @@ import {
   MINIMUM_SETTLEMENT_RESIDUAL_MS,
   POST_READINESS_RESERVE_MS,
   readinessFailure,
+  tierTimeoutFor,
 } from "../launch-deadline.js";
 import { resolveVitestProjects, type ResolvedVitestProjects } from "../vitest-projects.js";
 import { deferredRejection, expectNoUnhandledRejection } from "./deferred-rejection.js";
@@ -59,6 +64,19 @@ const PACKAGE_ROOT = resolve(HERE, "..", "..", "..");
  * real config below.
  */
 const ELECTRON_TIER_FILE_GLOB = "test/console/{e2e,endurance}/**/*.test.ts";
+
+/**
+ * The only patience figures a launching tier may carry.
+ *
+ * One per registered body allowance, each derived by the same arithmetic the
+ * config calls. A tier whose timeout is not one of these is carrying a literal,
+ * which is what the end-to-end tier's 60 000 ms was — a number under which the
+ * launch, the body, and the cleanup did not fit.
+ */
+const DERIVED_TIER_TIMEOUTS_MS: readonly number[] = [
+  tierTimeoutFor(BODY_ALLOWANCE_MS),
+  tierTimeoutFor(ENDURANCE_BODY_ALLOWANCE_MS),
+];
 
 describe("launch budget — one launch always settles inside its tier", () => {
   let resolvedProjects: ResolvedVitestProjects;
@@ -100,18 +118,45 @@ describe("launch budget — one launch always settles inside its tier", () => {
     expect(launchingTierNames).not.toContain("console-architecture");
   });
 
-  it("fits a whole launch plus cleanup inside every launching tier's real timeout", () => {
+  it("fits a launch, a body, and cleanup inside every launching tier's real timeout", () => {
     // THE GUARANTEE, held against the config the runner actually resolves rather
     // than a number copied out of it. A launch spends at most `LAUNCH_BUDGET_MS`
     // before it has thrown its own diagnostic — cleanup included, since that is a
-    // reserved slice and no longer an unbounded await — and the residual covers
-    // the synchronous profile removal and the throw. Lower a tier's patience
-    // below the sum and this fails here, at the arithmetic, instead of on a
-    // runner as an undiagnosable kill.
+    // reserved slice and no longer an unbounded await — the body then spends at
+    // most its allowance, and the residual covers the synchronous profile removal
+    // and the throw. The body is the term this sum was missing: without it the
+    // arithmetic closed while the tier it described did not, and the end-to-end
+    // tier's 60 000 ms left a body with three 10 000 ms polls 5 000 ms to run in.
+    // The DEFAULT allowance is used because it is what a tier that states none
+    // applies; a tier that states a longer one is checked exactly against it by
+    // the case below.
     const tooTight = launchingTiers.filter(
-      (tier) => LAUNCH_BUDGET_MS + MINIMUM_SETTLEMENT_RESIDUAL_MS > tier.patienceMs,
+      (tier) =>
+        LAUNCH_BUDGET_MS + BODY_ALLOWANCE_MS + MINIMUM_SETTLEMENT_RESIDUAL_MS > tier.patienceMs,
     );
     expect(tooTight).toStrictEqual([]);
+  });
+
+  it("derives every launching tier's patience rather than writing it down", () => {
+    // A tier's timeout must BE one of the derived figures, not merely exceed the
+    // sum: a literal that happens to be large enough is still a number nobody
+    // re-derives when a bound moves, and the two rows this file reads are exactly
+    // the two figures a launching tier may carry.
+    const underived = launchingTiers.filter(
+      (tier) => !DERIVED_TIER_TIMEOUTS_MS.includes(tier.patienceMs),
+    );
+    expect(underived).toStrictEqual([]);
+  });
+
+  it("negative control: the literal this config used to carry is not a derived figure", () => {
+    // Without this the case above passes over a `DERIVED_TIER_TIMEOUTS_MS` that
+    // happened to contain everything. Re-plant `testTimeout: 60_000` on the
+    // end-to-end tier and the case above goes red, because 60 000 is the sum of
+    // nothing here.
+    expect(DERIVED_TIER_TIMEOUTS_MS).not.toContain(60_000);
+    expect(tierTimeoutFor(BODY_ALLOWANCE_MS)).toBe(
+      LAUNCH_BUDGET_MS + BODY_ALLOWANCE_MS + MINIMUM_SETTLEMENT_RESIDUAL_MS,
+    );
   });
 });
 
@@ -262,6 +307,8 @@ describe("launch budgets — the figures come from the registry, not from here",
     ["console-launch-readiness", READINESS_BUDGET_MS],
     ["console-launch-frame-witness", FRAME_WITNESS_TIMEOUT_MS],
     ["console-launch-cleanup", CLEANUP_BUDGET_MS],
+    ["console-launch-body", BODY_ALLOWANCE_MS],
+    ["console-endurance-body", ENDURANCE_BODY_ALLOWANCE_MS],
   ])("takes %s from the registry row of that id", (budgetId, constant) => {
     const budget = registry.requireBudget(budgetId);
     expect(budget.limit.canonicalValue).toBe(constant);
@@ -271,9 +318,9 @@ describe("launch budgets — the figures come from the registry, not from here",
     expect(budget.scope).toBe("harness");
   });
 
-  it("reads the same three rows the registry calls the harness's own", () => {
-    // Non-vacuous in the other direction: a fourth harness row nobody reads would
-    // be a budget declared and unenforced, which is the shape this file exists to
+  it("reads the same rows the registry calls the harness's own", () => {
+    // Non-vacuous in the other direction: a harness row nobody reads would be a
+    // budget declared and unenforced, which is the shape this file exists to
     // refuse.
     expect(
       registry
@@ -281,7 +328,13 @@ describe("launch budgets — the figures come from the registry, not from here",
         .map((budget) => budget.id)
         .sort(),
     ).toStrictEqual(
-      ["console-launch-cleanup", "console-launch-frame-witness", "console-launch-readiness"].sort(),
+      [
+        "console-endurance-body",
+        "console-launch-body",
+        "console-launch-cleanup",
+        "console-launch-frame-witness",
+        "console-launch-readiness",
+      ].sort(),
     );
   });
 
