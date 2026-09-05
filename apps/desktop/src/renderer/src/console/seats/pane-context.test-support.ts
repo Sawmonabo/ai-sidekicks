@@ -18,10 +18,18 @@
 // address through as written keeps that refusal at the call site: an `inspector`
 // mounted with no entity, or a `runs` pane handed one, fails to compile here rather
 // than being invented for by a default.
+//
+// AND IT LIVES IN `seats/` because the suites that mount a pane are in three VIEW
+// families — runs, approvals, inspector — and a sibling may not import a sibling.
+// `console-view-family-isolation` says where a contract three siblings share
+// belongs, and this is the contract `seats/pane-registry.ts` declares: a builder for
+// `ConsolePaneContext` beside the type it builds.
 
 import { type ConsoleBridge } from "../bridge/index.js";
 import { DraftStore, UiStateStore } from "../persistence/index.js";
-import { type ConsolePaneAddress, type ConsolePaneContext, type PaneKind } from "../seats/index.js";
+import { type ConsolePaneAddress } from "./pane-address.js";
+import { type PaneKind } from "./pane-kinds.js";
+import { type ConsolePaneContext } from "./pane-registry.js";
 import { FrameStore, type SessionStore } from "../store/index.js";
 
 /** One pane kind's address arm, as the caller writes it. */

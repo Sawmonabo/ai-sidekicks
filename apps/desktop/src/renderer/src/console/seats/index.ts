@@ -70,7 +70,10 @@ import "./pane-chrome.css";
 export {
   /** @consumedBy T-023p-1C-2 */
   DETACHABLE_PANE_KINDS,
+  /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
+  /** @consumedBy T-023p-1C-2 */
+  isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
   type PaneKind,
@@ -169,17 +172,12 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
-// named by all six pane-body tasks; `PaneControls` and its context are named by the one
-// that builds the deck, which is the only host that provides them.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  ConsolePaneChrome,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  paneBodyForKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  type PaneContextOf,
-} from "./ConsolePaneChrome.js";
+// The pane chrome and the seam its two host controls travel on. The chrome's three
+// lines carry no marker: the runs, approvals, and inspector bodies import all three,
+// so a surviving tag would fail the run under `--treat-tag-hints-as-errors`.
+// `PaneControls` and its context are still named by the one task that builds the
+// deck, which is the only host that provides them.
+export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */

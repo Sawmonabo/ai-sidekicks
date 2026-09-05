@@ -21,14 +21,16 @@
 // would be a second place eligibility is decided, which is exactly the renderer-held
 // truth `Spec-023 §Pitfalls To Avoid` names.
 
-import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../../panes/pane-chrome.js";
+import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 import { InspectorPaneBody } from "./InspectorPaneBody.js";
 
 export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.Element {
   return (
     <ConsolePaneChrome
       kind="inspector"
-      leadingCrumbs={paneScopeCrumbs(context.entity)}
+      // The pane's own binding rather than the route, on the runs pane's reason.
+      sessionId={context.sessionStore?.sessionId}
+      entity={context.entity}
       focusHue={context.focusHue}
     >
       <InspectorPaneBody context={context} />

@@ -20,13 +20,12 @@
 // THE STYLESHEET IS IMPORTED HERE, and here only. This is the subtree's door —
 // every runs surface is reached through the body this file registers — so the
 // bundler sees one edge into the sheet rather than one per component, and a runs
-// surface can no more arrive without its CSS than a primitive can. `pane-chrome.tsx`
+// surface can no more arrive without its CSS than a primitive can. `seats/index.ts`
 // records the same reasoning for the frame every pane wears.
 
 import { createElement } from "react";
 
-import { type ConsolePaneRegistry } from "../seats/index.js";
-import { paneBodyForKind } from "../panes/pane-chrome.js";
+import { paneBodyForKind, type ConsolePaneRegistry } from "../seats/index.js";
 import { RunsPane } from "./pane/RunsPane.js";
 
 import "./pane/runs.css";

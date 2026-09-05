@@ -41,12 +41,19 @@
 // its tail, and cancel changes a row only when the daemon says it changed.
 
 import { Nothing } from "../../primitives/index.js";
-import { ConsolePaneChrome, paneScopeCrumbs, type PaneContextOf } from "../../panes/pane-chrome.js";
+import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 import { RunsPaneBody } from "./RunsPaneBody.js";
 
 export function RunsPane(context: PaneContextOf<"runs">): React.JSX.Element {
   return (
-    <ConsolePaneChrome kind="runs" leadingCrumbs={paneScopeCrumbs()} focusHue={context.focusHue}>
+    <ConsolePaneChrome
+      kind="runs"
+      // The pane's own binding rather than the route: a runs pane opened on a bare
+      // route has no store and the chrome says so, where a route id read past the
+      // binding would name a session this pane is not reading.
+      sessionId={context.sessionStore?.sessionId}
+      focusHue={context.focusHue}
+    >
       {context.sessionStore === undefined ? (
         <Nothing
           kind="not-checked"
