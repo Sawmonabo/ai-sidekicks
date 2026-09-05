@@ -9,8 +9,8 @@
 // method would have to be added here first, in front of a reviewer.
 //
 // ONE OF THE FIVE IS DRAWN. `Spec-023 §Console Design (Meridian)` rule 7 gives a
-// surface one primary action and puts the rest one click away, so the builder's
-// chrome offers saving and nothing else; the other four are reached from the
+// surface one primary action and puts the rest one click away, so the builder pane's
+// head offers saving and nothing else; the other four are reached from the
 // definitions browser and from the version chain, where the thing they act on is
 // already in front of the person.
 //
@@ -25,12 +25,12 @@
 // is `workflow.definitionCreate` — deliberately NOT on `console/bridge/growth-port.ts`,
 // which carries the read and control operations and no create. So nothing in this
 // console can submit a definition at all today, and adding one is a growth-row
-// append rather than a redesign. `unregisteredAuthoringAct` is what a chrome with no
+// append rather than a redesign. `unregisteredAuthoringAct` is what a pane with no
 // wire renders instead of a button that would do nothing.
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
-import type { WorkflowChromeState } from "../../chrome-state.js";
+import type { WorkflowStripState } from "../../strip-state.js";
 import { PANE_ADDRESS_INVALID_CODE, misaddressedPane } from "../../pane-addressing.js";
 
 /**
@@ -69,7 +69,7 @@ export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
  * Two members, and they refuse at two different moments. Every shape the canvas
  * refuses is refused at the point it is drawn, in the body's own words at the
  * cursor, and every save-time refusal is the daemon's typed code rendered verbatim
- * — neither of those is here. What is left for the chrome is the pair of cases with
+ * — neither of those is here. What is left for this pane is the pair of cases with
  * no daemon in the loop at all:
  *
  *   • `wire-unregistered` — there is a subject and no wire. The question is
@@ -153,7 +153,7 @@ export function misaddressedBuilderPane(addressedKind: ConsoleEntityRef["kind"])
  * The state of a pane opened with no definition to author.
  *
  * `empty` and not `not-checked`: nothing was left unasked here, because there is no
- * subject to ask about. `chrome-state.ts` reserves this arm for exactly that — a
+ * subject to ask about. `strip-state.ts` reserves this arm for exactly that — a
  * surface whose address names no subject at all — and the two absences point at
  * different next moves, which is why they are different arms.
  *
@@ -164,7 +164,7 @@ export function misaddressedBuilderPane(addressedKind: ConsoleEntityRef["kind"])
  * pane addressed that way anyway says about itself, rather than a list from which
  * nothing can advance.
  */
-export function unaddressedBuilderPane(): WorkflowChromeState {
+export function unaddressedBuilderPane(): WorkflowStripState {
   return {
     kind: "empty",
     title: "This pane was opened without a definition to author.",

@@ -28,10 +28,20 @@
  * the console — the chunk's rather than the family's — which is the rule
  * `test/console/architecture/stylesheet-edges.test.ts` holds every module to.
  *
- * WHAT STAYS HERE. The chrome every workflows surface stands in — the block, the
- * header, the body column, the reserved-slot box, and the one action treatment the
- * browser's primary act and the run controls both wear. A rule that belongs to exactly
- * one surface belongs in that surface's file.
+ * WHAT STAYS HERE. What every workflows body stands in — the state strip's column,
+ * the reserved-slot box, and the one action treatment the destination's controls and
+ * the run controls both wear — plus the destination's own block and header, which are
+ * the rail surface's alone. A rule that belongs to exactly one surface belongs in that
+ * surface's file.
+ *
+ * WHAT LEFT, AND WHERE IT WENT. The two pane kinds used to stand in this family's own
+ * frame: `.meridian-workflow` drew their box, `__header` their heading row, and
+ * `__body` their column. `seats/pane-chrome.css` draws every pane's frame in the
+ * console now — one spacing, one breadcrumb, one control strip, one answer to where
+ * the focus ring goes — so the frame rules here are the DESTINATION's, which is a rail
+ * surface and not a pane. `__heading-group` and `__primary-action` are gone outright:
+ * the first stacked a heading over a summary that no longer share a box, and the
+ * second boxed an action that now sits in the pane chrome's own control strip.
  *
  * `Spec-023 §Console Design (Meridian)` governs every rule in all six files:
  *   • rule 7  — density: one primary action in the header, nothing beside it; the
@@ -50,37 +60,34 @@
 @import "./runs/run-list.css";
 @import "./parks/park-badge.css";
 
+/* --------------------------------------------- the destination's own frame */
+
+/*
+ * The rail surface's box, and no pane's. A pane's box is `.meridian-pane`, drawn by
+ * the console's one pane chrome; this is the destination the rail mounts, which has
+ * no chrome above it and so draws its own. The padding is the strip's below rather
+ * than this box's, so the two hosts a strip can stand in — this section and a pane
+ * chrome's body — inset it identically.
+ */
 .meridian-workflow {
   display: flex;
   flex-direction: column;
-  gap: var(--meridian-space-4);
   block-size: 100%;
-  padding: var(--meridian-space-5);
   overflow-y: auto;
 }
 
-/* ------------------------------------------------------------------ header */
-
 /*
- * The glyph sits on the first text line rather than centred on the block: the
- * heading group is two lines and a centred glyph would float between them, which
- * reads as decoration rather than as the surface's kind mark.
+ * The glyph is centred on the heading now that the summary has moved into the strip:
+ * the header is one line, and `flex-start` was the answer to a two-line heading group
+ * this header no longer holds.
  */
 .meridian-workflow__header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--meridian-space-3);
-  padding-block-end: var(--meridian-space-3);
+  padding: var(--meridian-space-5) var(--meridian-space-5) var(--meridian-space-3);
   border-block-end: 1px solid var(--meridian-edge);
   color: var(--meridian-text-muted);
-}
-
-.meridian-workflow__heading-group {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: var(--meridian-space-1);
-  min-inline-size: 0;
 }
 
 .meridian-workflow__heading {
@@ -91,24 +98,30 @@
   color: var(--meridian-text);
 }
 
-.meridian-workflow__summary {
-  margin: 0;
-  font-size: var(--meridian-text-sm);
-  color: var(--meridian-text-muted);
-}
+/* ------------------------------------------------------------- state strip */
 
-.meridian-workflow__primary-action {
-  flex: none;
-}
-
-/* -------------------------------------------------------------------- body */
-
-.meridian-workflow__body {
+/*
+ * The column every workflows body is, wherever it stands.
+ *
+ * IT CARRIES THE INSET, and that is what lets one class serve both hosts.
+ * `seats/pane-chrome.css` gives `.meridian-pane__body` no padding of its own — "a feed
+ * pane wants none and a form pane wants some, and that is the body's family to decide
+ * in its own sheet" — so a strip inside a pane insets itself, and the destination's
+ * section above leaves the same job to it rather than padding the strip a second time.
+ */
+.meridian-workflow__strip {
   display: flex;
   flex: 1;
   flex-direction: column;
   gap: var(--meridian-space-4);
   min-block-size: 0;
+  padding: var(--meridian-space-5);
+}
+
+.meridian-workflow__summary {
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  color: var(--meridian-text-muted);
 }
 
 /*

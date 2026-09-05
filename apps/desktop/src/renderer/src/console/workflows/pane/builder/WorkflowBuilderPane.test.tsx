@@ -19,7 +19,7 @@ import { describe, expect, it } from "vitest";
 import { createFixtureBridge } from "../../../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SESSION_ID } from "../../../bridge/scenarios/workflow-fixture-ids.js";
-import type { ConsolePaneContext } from "../../../seats/index.js";
+import type { PaneContextOf } from "../../../seats/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
 
@@ -33,16 +33,21 @@ import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
 type AddressedEntity = ConsoleEntityRef | undefined;
 
 /**
- * The fields the chrome reads, and nothing else.
+ * The fields the pane and its chrome read, and nothing else.
  *
- * Cast rather than constructed, the idiom `WorkflowRunPane.test.tsx` established: a
- * real pane context carries three stores, one of which opens a database on
- * construction. The two stores travel as markers because this pane only hands them
+ * Cast rather than constructed, the idiom `WorkflowRunPane.test-support.tsx`
+ * established: a real pane context carries three stores, one of which opens a database
+ * on construction. The two stores travel as markers because this pane only hands them
  * on — the slots' own tests are where what a body receives is checked. The bridge is
  * real so that a read composed by mistake would reach a port that answers, rather
  * than passing because nothing was there to ask.
+ *
+ * THE CAST IS ALSO WHAT LETS THE MISADDRESSED CASES EXIST. `PaneContextOf` declares
+ * this arm's entity as a definition reference, and the addresses below are exactly the
+ * ones that arm makes unconstructible and the pane's guards still refuse — which is
+ * the situation a parsed layout row actually produces.
  */
-function paneContext(entity: AddressedEntity): ConsolePaneContext {
+function paneContext(entity: AddressedEntity): PaneContextOf<"workflow-builder"> {
   return {
     kind: "workflow-builder",
     entity,
@@ -50,11 +55,16 @@ function paneContext(entity: AddressedEntity): ConsolePaneContext {
     sessionStore: { sessionId: WORKFLOWS_SESSION_ID },
     uiStateStore: {},
     draftStore: {},
-  } as unknown as ConsolePaneContext;
+    // No actor attributes this pane in a suite, which is the chrome's neutral arm.
+    focusHue: undefined,
+  } as unknown as PaneContextOf<"workflow-builder">;
 }
 
-function renderPane(context: ConsolePaneContext): HTMLElement {
+function renderPane(context: PaneContextOf<"workflow-builder">): HTMLElement {
   const { container } = render(<WorkflowBuilderPane context={context} />);
+  // The pane chrome's own `<section>` — every assertion below is scoped to the whole
+  // pane, head included, because the head is where the save act and the address trail
+  // now stand.
   const section = container.querySelector("section");
   if (!(section instanceof HTMLElement)) {
     throw new Error("the pane rendered no section");

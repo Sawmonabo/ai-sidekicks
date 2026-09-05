@@ -43,7 +43,11 @@ import { createElement } from "react";
 // The seat is a registry type and nothing else; the family reaches no other part of
 // the frame.
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
-import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../seats/index.js";
+import {
+  paneBodyForKind,
+  type ConsolePaneDescriptor,
+  type ConsolePaneRegistry,
+} from "../seats/index.js";
 import { WorkflowBuilderPane } from "./pane/builder/index.js";
 import { WorkflowRunPane } from "./pane/run/index.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
@@ -69,17 +73,28 @@ const WORKFLOWS_OWNER = "workflows";
  * is one — but a boolean stated here would be asked of each descriptor independently,
  * so a kind could advertise a detach path the window model cannot serve and neither
  * this registration nor the type system would notice.
+ *
+ * THE NARROWING AND ITS REFUSAL ARE THE SEAT'S, NOT THIS FAMILY'S. The registry hands
+ * every body the whole context union and only one arm is each pane's; the mismatched
+ * arm is unreachable through the deck and is rendered rather than thrown anyway,
+ * because `core/refusal.ts`' rule is that a boundary refuses by name and leaves the
+ * surface standing. Six families answering that once each is six sentences for one
+ * case, which is what `paneBodyForKind` exists to prevent.
  */
 const WORKFLOW_PANES: readonly ConsolePaneDescriptor[] = [
   {
     kind: "workflow-run",
     owner: WORKFLOWS_OWNER,
-    render: (context) => createElement(WorkflowRunPane, { context }),
+    render: paneBodyForKind("workflow-run", (context) =>
+      createElement(WorkflowRunPane, { context }),
+    ),
   },
   {
     kind: "workflow-builder",
     owner: WORKFLOWS_OWNER,
-    render: (context) => createElement(WorkflowBuilderPane, { context }),
+    render: paneBodyForKind("workflow-builder", (context) =>
+      createElement(WorkflowBuilderPane, { context }),
+    ),
   },
 ];
 

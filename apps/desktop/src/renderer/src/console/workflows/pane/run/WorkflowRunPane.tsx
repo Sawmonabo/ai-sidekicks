@@ -1,10 +1,33 @@
-// The run pane's chrome: what a run offers, what it cannot answer yet, and where
-// the bodies another plan authors are mounted.
+// The run pane's body: what a run offers, what it cannot answer yet, and where the
+// bodies another plan authors are mounted.
 //
 // The pane's job is to make a run readable and a parked phase actionable. The
 // snapshot's rendering — phase sections, retry sub-entries, pool waits, outputs —
 // is Plan-017's body and is mounted through this directory's typed slots; what this
 // file owns is everything around them.
+//
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
+// the kind glyph, the breadcrumb, the control strip and the body box for every pane
+// kind in the console; what this file returns is the BODY that goes inside it. The
+// section, its tab stop, its accessible name and the actor's hue all arrive from
+// there, which is why none of them is set here and why the pane is named by its whole
+// address trail rather than by the words "Workflow run".
+//
+// ONE CHROME AND THREE BODIES, not three chromes. A pane wears its frame on every
+// arm — an operator has to be able to close a pane that refused its address as
+// readily as one showing a run — so the arms below decide only what stands inside the
+// frame. `RUN_SCOPE` is what the trail is told, and it is the same derivation the
+// read is held at: a run reaches the trail only where the address names one, so a
+// pane that refused a definition id does not go on to announce itself as scoped to
+// it. The run travels on the trail's RUN scope rather than as its entity, because it
+// is both — and passed twice it would render the same identifier twice.
+//
+// NEITHER HOST CONTROL IS DEFAULTED. Closing a pane and tearing one off into a
+// window are the DECK's acts, they reach the chrome through the host context the deck
+// provides, and the honest rendering of a control whose act nobody can perform is to
+// leave it out rather than draw it disabled. Neither kind in this family is
+// detachable either — `seats/pane-kinds.ts` derives that from the window model's own
+// closed set — so no handler is threaded here on any arm.
 //
 // THREE ABSENCES, AND THEY ARE THREE BECAUSE THE NEXT MOVE DIFFERS FOR EACH.
 //
@@ -19,7 +42,7 @@
 //   • A body that has not been authored is a RESERVED slot, which the slot's own
 //     shell says in its own words.
 //
-// The chrome's own state switch renders exactly one of those, so this pane composes
+// The state strip's own switch renders exactly one of those, so this pane composes
 // its body on the `ready` arm and renders the read's absence itself — the shape
 // `WorkflowBuilderPane` established when its no-entity arm had more to show than one
 // line. Collapsing the three would be the conflation rule 8 exists to prevent. The
@@ -56,7 +79,7 @@
 // union carries no suspended arm on purpose, and the park members are live-scoped —
 // present for exactly the phases parked when the response was built. That rule binds
 // the Plan-017 body this pane mounts as much as it binds the cards beside it, which
-// is why it is stated on the chrome that frames both rather than only on one of them.
+// is why it is stated on the body that composes both rather than only on one of them.
 //
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so every one
 // of these operations lives on the growth port behind the workflow slate row rather
@@ -68,9 +91,10 @@
 
 import { Nothing } from "../../../primitives/index.js";
 import { ChatStartSlot } from "../../ChatStartSlot.js";
-import { WorkflowChrome } from "../../WorkflowChrome.js";
-import { refusedWorkflowChrome } from "../../chrome-state.js";
-import type { ConsolePaneContext } from "../../../seats/index.js";
+import { WorkflowStateStrip } from "../../WorkflowStateStrip.js";
+import { refusedWorkflowStrip } from "../../strip-state.js";
+import { ConsolePaneChrome, type PaneContextOf } from "../../../seats/index.js";
+import type { ConsoleEntityRef } from "../../../store/index.js";
 import { OperatorControls } from "./OperatorControls.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 import { unregisteredRunControl } from "./run-controls.js";
@@ -80,25 +104,23 @@ import { useHumanFormSelection } from "./human-form-selection.js";
 import { HumanFormSlot } from "./slots/HumanFormSlot.js";
 import { RunDetailSlot } from "./slots/RunDetailSlot.js";
 
-/** The surface's name and its one-line purpose, written once for both arms. */
-const HEADING = "Workflow run";
+/** What this pane is for, in the one line that stands under its head. */
 const SUMMARY = "One run's state, its phases, and why anything is parked.";
 
 export interface WorkflowRunPaneProps {
-  readonly context: ConsolePaneContext;
+  readonly context: PaneContextOf<"workflow-run">;
 }
 
-/** The run pane's chrome. The run detail and the human form inside it are Plan-017's. */
+/** The run pane's body. The run detail and the human form inside it are Plan-017's. */
 export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element {
-  const { bridge, sessionStore } = props.context;
-  // Read through the address's own discriminant, because that is what carries the
-  // entity: `ConsolePaneAddress` is a kind-scoped union, so a session-scoped arm has
-  // no `entity` member at all and only the arms that take one publish it. The two
-  // guards below are the FAIL-CLOSED PROJECTION of that union rather than a
-  // substitute for it — a pane address is also PARSED, out of a persisted layout an
-  // older build wrote and out of a route, and a parsed value is data rather than a
-  // proof.
-  const entity = "entity" in props.context ? props.context.entity : undefined;
+  const { bridge, sessionStore, focusHue } = props.context;
+  // WIDENED ON PURPOSE, and the annotation is the whole of it. This arm's `entity` is
+  // declared as a run reference and required, but `paneBodyForKind` narrows a context
+  // on its `kind` ALONE — the entity underneath is unverified — and a pane address is
+  // also PARSED, out of a persisted layout an older build wrote and out of a route. A
+  // parsed value is data rather than a proof, so the two guards below stay live and
+  // this annotation is what keeps the compiler from calling them dead.
+  const entity: ConsoleEntityRef | undefined = props.context.entity;
   // The id is taken from the address only where the address names a RUN. An entity
   // of another kind supplies nothing, so the read below is `unasked` on exactly the
   // arm that refuses — rather than in flight against an id that names no run.
@@ -126,57 +148,82 @@ export function WorkflowRunPane(props: WorkflowRunPaneProps): React.JSX.Element 
     snapshot.status === "served" ? snapshot.snapshot : undefined,
   );
 
-  if (entity === undefined) {
-    return (
-      <WorkflowChrome glyph="run" heading={HEADING} summary={SUMMARY} state={{ kind: "ready" }}>
-        <Nothing
-          kind="empty"
-          placement="surface"
-          title="This pane names no run."
-          detail="Open a run from the session's workflows browser and the pane follows it."
-        />
-        <ChatStartSlot sessionId={sessionStore?.sessionId} />
-      </WorkflowChrome>
-    );
-  }
+  /**
+   * Which of the three bodies stands inside the frame.
+   *
+   * A closure rather than three returns each wrapping a frame of its own: the frame is
+   * the same on every arm, and duplicating it would put the address the trail reads in
+   * three places to be decided, which is exactly how a head and its body come apart.
+   */
+  function renderBody(): React.JSX.Element {
+    if (entity === undefined) {
+      return (
+        <WorkflowStateStrip summary={SUMMARY} state={{ kind: "ready" }}>
+          <Nothing
+            kind="empty"
+            placement="surface"
+            title="This pane names no run."
+            detail="Open a run from the session's workflows browser and the pane follows it."
+          />
+          <ChatStartSlot sessionId={sessionStore?.sessionId} />
+        </WorkflowStateStrip>
+      );
+    }
 
-  if (entity.kind !== WORKFLOW_RUN_PANE_SUBJECT_KIND) {
-    // The chrome's own `refused` arm, which renders the refusal and NOT the children
-    // — so no control, no slot and no start affordance stands beside an address this
-    // surface will not open, and the read above was never composed for it. A banner
-    // across the surface rather than a card, because what changed is what this whole
-    // surface can do, which is nothing.
+    if (entity.kind !== WORKFLOW_RUN_PANE_SUBJECT_KIND) {
+      // The strip's own `refused` arm, which renders the refusal and NOT the children
+      // — so no control, no slot and no start affordance stands beside an address this
+      // surface will not open, and the read above was never composed for it. A banner
+      // across the body rather than a card, because what changed is what this whole
+      // surface can do, which is nothing.
+      return (
+        <WorkflowStateStrip
+          summary={SUMMARY}
+          state={refusedWorkflowStrip(misaddressedRunPane(entity.kind))}
+        />
+      );
+    }
+
     return (
-      <WorkflowChrome
-        glyph="run"
-        heading={HEADING}
-        summary={SUMMARY}
-        state={refusedWorkflowChrome(misaddressedRunPane(entity.kind))}
-      />
+      <WorkflowStateStrip summary={SUMMARY} state={{ kind: "ready" }}>
+        <RunReadState snapshot={snapshot} humanForms={humanForms} />
+        <OperatorControls
+          // The same pair the read above is held at. The controls hold a typed reason
+          // and a chosen re-pin target, and both are answers about THIS run: a pane
+          // retargeted in place must not carry either into the next one.
+          growth={bridge.growth}
+          workflowRunId={entity.id}
+          cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
+          resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
+        />
+        <RunDetailSlot
+          workflowRunId={entity.id}
+          // Spread on the served arm and omitted on every other, rather than passed as
+          // an explicit `undefined`: the mount's own rule is that the key's PRESENCE is
+          // the arm the pane was on, and a key carrying nothing would be the null the
+          // type refuses. The same narrowing the human-form mount below performs.
+          {...(snapshot.status === "served" ? { snapshot: snapshot.snapshot } : {})}
+        />
+        <HumanFormSlot phase={humanForms.openForm} />
+      </WorkflowStateStrip>
     );
   }
 
   return (
-    <WorkflowChrome glyph="run" heading={HEADING} summary={SUMMARY} state={{ kind: "ready" }}>
-      <RunReadState snapshot={snapshot} humanForms={humanForms} />
-      <OperatorControls
-        // The same pair the read above is held at. The controls hold a typed reason
-        // and a chosen re-pin target, and both are answers about THIS run: a pane
-        // retargeted in place must not carry either into the next one.
-        growth={bridge.growth}
-        workflowRunId={entity.id}
-        cancel={{ kind: "refused", refusal: unregisteredRunControl("cancel") }}
-        resume={{ kind: "refused", refusal: unregisteredRunControl("resume") }}
-      />
-      <RunDetailSlot
-        workflowRunId={entity.id}
-        // Spread on the served arm and omitted on every other, rather than passed as
-        // an explicit `undefined`: the mount's own rule is that the key's PRESENCE is
-        // the arm the pane was on, and a key carrying nothing would be the null the
-        // type refuses. The same narrowing the human-form mount below performs.
-        {...(snapshot.status === "served" ? { snapshot: snapshot.snapshot } : {})}
-      />
-      <HumanFormSlot phase={humanForms.openForm} />
-    </WorkflowChrome>
+    <ConsolePaneChrome
+      kind="workflow-run"
+      sessionId={sessionStore?.sessionId}
+      // The trail is told about the run the address NAMES, which is the same
+      // derivation the read is held at: a pane handed a definition id refuses it
+      // below, and a head that had already announced the pane as scoped to that id
+      // would contradict the banner underneath it.
+      runId={addressedRunId}
+      // Straight through, including the absent arm: an unattributed pane sets no hue
+      // and the sheet's own neutral fallback applies, which is one answer rather than
+      // a default written here and a fallback written there.
+      focusHue={focusHue}
+    >
+      {renderBody()}
+    </ConsolePaneChrome>
   );
 }

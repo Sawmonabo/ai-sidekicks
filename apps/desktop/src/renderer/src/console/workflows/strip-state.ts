@@ -1,4 +1,4 @@
-// What a workflows chrome is showing, as one closed set.
+// What a workflows body is showing, as one closed set.
 //
 // Three surfaces in this family — the definitions browser, the run view, the
 // node-graph builder — each answer the same question before they answer their own:
@@ -13,9 +13,9 @@
 // gives its own grammar — a code in mono and the daemon's message verbatim — rather
 // than the prose-plus-glyph shape an absence takes. Mapping `refused` onto the
 // `error` absence would lose the code, and mapping `ready` onto anything would be a
-// category error. What this set DOES is decide which of those two grammars a chrome
-// reaches for, and the mapping to `NothingKind` for the three arms that are
-// absences lives in `WorkflowChrome.tsx`, where the rendering does.
+// category error. What this set DOES is decide which of those two grammars the state
+// strip reaches for, and the mapping to `NothingKind` for the three arms that are
+// absences lives in `WorkflowStateStrip.tsx`, where the rendering does.
 //
 // THE `not-checked` ARM IS THE HONEST DEFAULT AND NOT A PLACEHOLDER. A workflows
 // surface whose read has not been performed in this window has not learned that
@@ -26,7 +26,7 @@
 import type { ConsoleRefusal } from "../core/index.js";
 
 /**
- * Every state a workflows chrome can be in, in the order a surface moves through
+ * Every state a workflows state strip can be in, in the order a surface moves through
  * them: nobody asked, the read is in flight, the read found none, the daemon
  * refused, a body is mounted.
  *
@@ -35,7 +35,7 @@ import type { ConsoleRefusal } from "../core/index.js";
  * is two closed sets that agree until someone widens one, and the compiler sees
  * neither drift.
  */
-export const WORKFLOW_CHROME_STATES = [
+export const WORKFLOW_STRIP_STATES = [
   "not-checked",
   "not-loaded",
   "empty",
@@ -43,18 +43,18 @@ export const WORKFLOW_CHROME_STATES = [
   "ready",
 ] as const;
 
-/** One chrome state's discriminant. Derived from the enumeration, never restated. */
-export type WorkflowChromeStateKind = (typeof WORKFLOW_CHROME_STATES)[number];
+/** One strip state's discriminant. Derived from the enumeration, never restated. */
+export type WorkflowStripStateKind = (typeof WORKFLOW_STRIP_STATES)[number];
 
 /**
- * What a workflows chrome is showing.
+ * What a workflows body is showing.
  *
  * Copy travels ON the state rather than being looked up from the kind, because the
  * three surfaces are absent about different things — no definitions, no runs, no
  * phases — and a shared lookup table would either say something vague enough to fit
  * all three or grow a per-surface branch, which is the same table with extra steps.
  */
-export type WorkflowChromeState =
+export type WorkflowStripState =
   | {
       readonly kind: "not-checked";
       /** What was not asked, in one sentence. */
@@ -81,17 +81,17 @@ export type WorkflowChromeState =
  * or whose address names no subject at all — a different next move, decided by the
  * caller that knows which of the two it is in.
  */
-export function unaskedWorkflowChrome(title: string, detail: string): WorkflowChromeState {
+export function unaskedWorkflowStrip(title: string, detail: string): WorkflowStripState {
   return { kind: "not-checked", title, detail };
 }
 
 /**
- * The state of a chrome the daemon refused.
+ * The state of a body the daemon refused.
  *
  * Takes the refusal whole rather than its two rendered fields, so the value that
  * arrives from a bridge call is the value that reaches the renderer — `origin`
  * included, which rule 9 keeps off the screen and the diagnostic band keeps.
  */
-export function refusedWorkflowChrome(refusal: ConsoleRefusal): WorkflowChromeState {
+export function refusedWorkflowStrip(refusal: ConsoleRefusal): WorkflowStripState {
   return { kind: "refused", refusal };
 }

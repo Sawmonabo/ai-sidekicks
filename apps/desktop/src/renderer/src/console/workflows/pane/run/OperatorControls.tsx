@@ -42,7 +42,7 @@
 // ONE COMPONENT, TWO RENDERERS. The controls share the region, the reason state and
 // the re-pin selection, and splitting them into sibling components would mean
 // lifting all three into a parent that then renders nothing else. The two render
-// functions below take exactly what they need, which is the idiom `WorkflowChrome`
+// functions below take exactly what they need, which is the idiom `WorkflowStateStrip`
 // established for a switch that must stay total.
 //
 // AND BOTH OF THOSE ARE ANSWERS ABOUT ONE RUN. A typed cancellation reason and a

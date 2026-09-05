@@ -1,4 +1,19 @@
-// The builder pane's chrome: a header, the one act it offers, and the canvas's slots.
+// The builder pane's body: the one act it offers, and the canvas's slots.
+//
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
+// the kind glyph, the breadcrumb, the control strip and the body box for every pane
+// kind in the console; what this file returns is what stands inside it. So the pane is
+// named by its whole address trail rather than by the words "Workflow builder", and
+// the act below sits in the chrome's own `actions` slot rather than in a header of
+// this family's — saving writes the definition this pane is addressed at, which makes
+// it a PANE action and not a step inside the canvas.
+//
+// ONE CHROME AND THREE BODIES, not three chromes. A pane wears its frame on every arm
+// — a pane that refused its address must still be closable — so the arms below decide
+// only what stands inside the frame, and the definition the trail reads is decided
+// once. It reaches the trail only where the address names one this pane authors: a
+// head that announced a run id as this pane's subject would contradict the banner
+// underneath it.
 //
 // The node graph itself — the entry node and the four phase classes, the gate on a
 // phase's outgoing shoulder, the one sequence edge kind, and the connection-validity
@@ -20,8 +35,8 @@
 // absent-not-disabled rule applied to its own control.
 //
 // THE ADDRESSED ARM COMPOSES ITS OWN ABSENCE, on the shape the run pane established:
-// the chrome's `ready` arm is the one that renders children, so a pane that handed
-// the chrome a `not-checked` STATE would have its slots dropped silently — the read's
+// the strip's `ready` arm is the one that renders children, so a pane that handed
+// the strip a `not-checked` STATE would have its slots dropped silently — the read's
 // absence would render and the two reserved bodies would not. So the pane says
 // `ready`, renders the not-checked absence itself, and mounts both slots beneath it.
 // Two facts, both true at once: nobody has read this definition in this window, and
@@ -38,9 +53,9 @@
 // empty arm, because a surface that renders nothing tells nobody what is wrong.
 //
 // GEOMETRY IS NOT DEFINITION BYTES. Canvas layout is client-local: dragging a node
-// changes no byte, mints no content hash and creates no version. The chrome states it
-// here because the chrome is what frames the canvas and would otherwise be the
-// natural place for someone to persist a viewport into the definition it is editing.
+// changes no byte, mints no content hash and creates no version. It is stated here
+// because this file is what composes the canvas and would otherwise be the natural
+// place for someone to persist a viewport into the definition it is editing.
 //
 // WIRE STATUS. `packages/contracts` registers no `workflow.*` method, so the whole
 // plane lives on the growth port behind the workflow slate row. The definition read,
@@ -49,9 +64,10 @@
 // no read of its own, on any address, in this build.
 
 import { InlineRefusal, Nothing } from "../../../primitives/index.js";
-import { WorkflowChrome } from "../../WorkflowChrome.js";
-import { refusedWorkflowChrome } from "../../chrome-state.js";
-import type { ConsolePaneContext } from "../../../seats/index.js";
+import { WorkflowStateStrip } from "../../WorkflowStateStrip.js";
+import { refusedWorkflowStrip } from "../../strip-state.js";
+import { ConsolePaneChrome, type PaneContextOf } from "../../../seats/index.js";
+import type { ConsoleEntityRef } from "../../../store/index.js";
 import {
   WORKFLOW_BUILDER_PRIMARY_ACT,
   WORKFLOW_BUILDER_SUBJECT_KIND,
@@ -62,8 +78,7 @@ import {
 import { DraftsSlot } from "./slots/DraftsSlot.js";
 import { NodeGraphSlot } from "./slots/NodeGraphSlot.js";
 
-/** The surface's name and its one-line purpose, written once for both arms. */
-const HEADING = "Workflow builder";
+/** What this pane is for, in the one line that stands under its head. */
 const SUMMARY = "A definition as a graph, refused at the point a refused shape is drawn.";
 
 /**
@@ -76,74 +91,89 @@ const SUMMARY = "A definition as a graph, refused at the point a refused shape i
 const UNREACHABLE_PRIMARY_ACT = unregisteredAuthoringAct(WORKFLOW_BUILDER_PRIMARY_ACT);
 
 export interface WorkflowBuilderPaneProps {
-  readonly context: ConsolePaneContext;
+  readonly context: PaneContextOf<"workflow-builder">;
 }
 
-/** The builder pane's chrome. The canvas and the inspector inside it are Plan-017's. */
+/** The builder pane's body. The canvas and the inspector inside it are Plan-017's. */
 export function WorkflowBuilderPane(props: WorkflowBuilderPaneProps): React.JSX.Element {
-  const { uiStateStore, draftStore } = props.context;
-  // Read through the address's own discriminant, because that is what carries the
-  // entity: `ConsolePaneAddress` is a kind-scoped union, so a session-scoped arm has
-  // no `entity` member at all and only the arms that take one publish it. The two
-  // guards below are the FAIL-CLOSED PROJECTION of that union rather than a
-  // substitute for it — a pane address is also PARSED, out of a persisted layout an
-  // older build wrote and out of a route, and a parsed value is data rather than a
-  // proof.
-  const entity = "entity" in props.context ? props.context.entity : undefined;
+  const { uiStateStore, draftStore, sessionStore, focusHue } = props.context;
+  // WIDENED ON PURPOSE, and the annotation is the whole of it. This arm's `entity` is
+  // declared as a definition reference, but `paneBodyForKind` narrows a context on its
+  // `kind` ALONE — the entity underneath is unverified — and a pane address is also
+  // PARSED, out of a persisted layout an older build wrote and out of a route. A
+  // parsed value is data rather than a proof, so the two guards below stay live and
+  // this annotation is what keeps the compiler from calling them dead.
+  const entity: ConsoleEntityRef | undefined = props.context.entity;
+  // The definition the trail reads, and the one the slots are composed for: an entity
+  // of another kind names neither, so both are absent on exactly the arm that refuses.
+  const definition = entity?.kind === WORKFLOW_BUILDER_SUBJECT_KIND ? entity : undefined;
 
-  if (entity === undefined) {
-    // The chrome's `empty` arm, which renders the absence and NOT the children — so
-    // no slot is mounted for a definition that was never named. No primary action
-    // travels with it either: the `empty` arm draws whatever action it is handed
-    // beside the absence, and the one act this surface draws saves a definition
-    // there is none of.
-    return (
-      <WorkflowChrome
-        glyph="workflow"
-        heading={HEADING}
-        summary={SUMMARY}
-        state={unaddressedBuilderPane()}
-      />
-    );
-  }
+  /**
+   * Which of the three bodies stands inside the frame.
+   *
+   * A closure rather than three returns each wrapping a frame of its own: the frame
+   * is the same on every arm and duplicating it would be three places for the address
+   * the trail reads to be decided, which is exactly how a head and its body come
+   * apart.
+   */
+  function renderBody(): React.JSX.Element {
+    if (entity === undefined) {
+      // The strip's `empty` arm, which renders the absence and NOT the children — so
+      // no slot is mounted for a definition that was never named.
+      return <WorkflowStateStrip summary={SUMMARY} state={unaddressedBuilderPane()} />;
+    }
 
-  if (entity.kind !== WORKFLOW_BUILDER_SUBJECT_KIND) {
-    // The chrome's own `refused` arm, which renders the refusal and NOT the
-    // children — so the two reserved bodies stay unmounted and no read is composed
-    // for an id this surface cannot use. A banner across the surface rather than a
-    // card in the ledger, because nothing entered the session's history here: what
-    // changed is what this whole surface can do, which is nothing.
+    if (definition === undefined) {
+      // The strip's own `refused` arm, which renders the refusal and NOT the
+      // children — so the two reserved bodies stay unmounted and no read is composed
+      // for an id this surface cannot use. A banner across the body rather than a
+      // card in the ledger, because nothing entered the session's history here: what
+      // changed is what this whole surface can do, which is nothing.
+      return (
+        <WorkflowStateStrip
+          summary={SUMMARY}
+          state={refusedWorkflowStrip(misaddressedBuilderPane(entity.kind))}
+        />
+      );
+    }
+
     return (
-      <WorkflowChrome
-        glyph="workflow"
-        heading={HEADING}
-        summary={SUMMARY}
-        state={refusedWorkflowChrome(misaddressedBuilderPane(entity.kind))}
-      />
+      <WorkflowStateStrip summary={SUMMARY} state={{ kind: "ready" }}>
+        <Nothing
+          kind="not-checked"
+          placement="surface"
+          title="This definition has not been read in this window."
+          detail="The definition body and its version chain arrive from the daemon; nothing was asked of it here."
+        />
+        <NodeGraphSlot workflowDefinitionId={definition.id} uiStateStore={uiStateStore} />
+        <DraftsSlot workflowDefinitionId={definition.id} draftStore={draftStore} />
+      </WorkflowStateStrip>
     );
   }
 
   return (
-    <WorkflowChrome
-      glyph="workflow"
-      heading={HEADING}
-      summary={SUMMARY}
-      state={{ kind: "ready" }}
-      primaryAction={
-        <div className="meridian-workflow__authoring">
-          <span className="meridian-workflow__authoring-label">Save</span>
-          <InlineRefusal {...UNREACHABLE_PRIMARY_ACT} />
-        </div>
+    <ConsolePaneChrome
+      kind="workflow-builder"
+      sessionId={sessionStore?.sessionId}
+      entity={definition}
+      // Straight through, including the absent arm: an unattributed pane sets no hue
+      // and the sheet's own neutral fallback applies, which is one answer rather than
+      // a default written here and a fallback written there.
+      focusHue={focusHue}
+      // ON THE ADDRESSED ARM ALONE. The head is drawn on all three, and the act saves
+      // the definition this pane holds — so a pane opened with nothing to author, or
+      // handed a subject it will not open, offers no save. That is this family's
+      // absent-not-disabled rule applied to its own act rather than a layout choice.
+      actions={
+        definition === undefined ? undefined : (
+          <div className="meridian-workflow__authoring">
+            <span className="meridian-workflow__authoring-label">Save</span>
+            <InlineRefusal {...UNREACHABLE_PRIMARY_ACT} />
+          </div>
+        )
       }
     >
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="This definition has not been read in this window."
-        detail="The definition body and its version chain arrive from the daemon; nothing was asked of it here."
-      />
-      <NodeGraphSlot workflowDefinitionId={entity.id} uiStateStore={uiStateStore} />
-      <DraftsSlot workflowDefinitionId={entity.id} draftStore={draftStore} />
-    </WorkflowChrome>
+      {renderBody()}
+    </ConsolePaneChrome>
   );
 }

@@ -14,8 +14,8 @@
 // to pass in one and fail in the other, and this family draws four things the
 // palette tests cannot reach — a scope line naming a wire identifier beside a quiet
 // re-scope control, a scope group whose resolution mark is carried on a row's leading
-// edge, a park badge that spends amber on exactly one of its two kinds, and a header
-// whose primary action is an inline refusal rather than a button.
+// edge, a park badge that spends amber on exactly one of its two kinds, and a pane
+// head whose action slot holds an inline refusal rather than a button.
 //
 // THE PARKED RUN IS THE CASE WORTH HAVING. Its badges are the family's only tinted,
 // glyph-plus-prose composition, and one of the two carries a formatted clock time

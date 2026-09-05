@@ -23,7 +23,7 @@ import { createFixtureBridge, type ConsoleBridge } from "../../../bridge/index.j
 import { FLAGSHIP_SCENARIO } from "../../../bridge/scenarios/flagship.js";
 import { WORKFLOWS_PARKED_RUN } from "../../../bridge/scenarios/workflow-fixture-runs.js";
 import { WORKFLOWS_SCENARIO } from "../../../bridge/scenarios/workflows.js";
-import type { ConsolePaneContext } from "../../../seats/index.js";
+import type { PaneContextOf } from "../../../seats/index.js";
 import type { ConsoleEntityRef } from "../../../store/index.js";
 import { WorkflowRunPane } from "./WorkflowRunPane.js";
 
@@ -52,21 +52,31 @@ export const MISADDRESSED: ConsoleEntityRef = {
 };
 
 /**
- * The fields the chrome reads, and nothing else.
+ * The fields the pane and its chrome read, and nothing else.
  *
  * Cast rather than constructed, the idiom `frame/legacy-surfaces.test.ts`
  * established: a real pane context carries three stores, one of which opens a
- * database on construction, and building all of that to hand three fields to a
- * component that reads three fields would make the setup the subject. The bridge is
+ * database on construction, and building all of that to hand four fields to a
+ * component that reads four fields would make the setup the subject. The bridge is
  * real, because the pane now asks it something.
+ *
+ * THE CAST IS ALSO WHAT LETS THE MISADDRESSED CASES EXIST. `PaneContextOf` declares
+ * this arm's entity as a run reference, and the addresses these suites drive are
+ * exactly the ones that arm makes unconstructible and the pane's guards still refuse —
+ * which is the situation a parsed layout row actually produces.
  */
-export function paneContext(entity: AddressedEntity, bridge: ConsoleBridge): ConsolePaneContext {
+export function paneContext(
+  entity: AddressedEntity,
+  bridge: ConsoleBridge,
+): PaneContextOf<"workflow-run"> {
   return {
     kind: "workflow-run",
     entity,
     bridge,
     sessionStore: { sessionId: WORKFLOWS_PARKED_RUN.sessionId },
-  } as unknown as ConsolePaneContext;
+    // No actor attributes this pane in a suite, which is the chrome's neutral arm.
+    focusHue: undefined,
+  } as unknown as PaneContextOf<"workflow-run">;
 }
 
 /** A bridge that answers the workflow reads. */
@@ -79,8 +89,11 @@ export function silentBridge(): ConsoleBridge {
   return createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
 }
 
-export function renderPane(context: ConsolePaneContext): HTMLElement {
+export function renderPane(context: PaneContextOf<"workflow-run">): HTMLElement {
   const { container } = render(<WorkflowRunPane context={context} />);
+  // The pane chrome's own `<section>` — every assertion in these suites is scoped to
+  // the whole pane, head included, because the head is where the address trail and the
+  // host controls are.
   const section = container.querySelector("section");
   if (!(section instanceof HTMLElement)) {
     throw new Error("the pane rendered no section");
