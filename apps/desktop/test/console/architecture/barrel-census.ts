@@ -25,7 +25,13 @@ export interface BarrelSpecifier {
   readonly exportedName: string;
   /** The name the module it comes from declares, which an alias makes different. */
   readonly localName: string;
-  /** The module the specifier resolves to, or `null` when it leaves the module set. */
+  /**
+   * The module the specifier resolves to.
+   *
+   * `null` where it leaves the module set, and equally where the clause names no
+   * module at all — in both cases the name's declaring identity is this door itself,
+   * because there is nowhere further to follow it to.
+   */
   readonly fromPath: string | null;
   /** Whether the specifier names the task that will import it, in either form. */
   readonly claimed: boolean;
@@ -173,9 +179,10 @@ function specifiersOf(modules: readonly ModuleSyntax[]): readonly BarrelSpecifie
       continue;
     }
     for (const door of module.doorSpecifiers) {
-      if (door.moduleSpecifier === undefined) {
-        continue;
-      }
+      // A clause naming no module of its own — a barrel republishing a name it
+      // imported — is a door line like any other: it publishes a name, so it needs a
+      // reader or a claim. A pattern that required `from "…"` could not see the line
+      // at all, which is under-censusing wearing the shape of compliance.
       specifiers.push({
         barrelPath: module.path,
         exportedName: door.exportedName,
