@@ -5,8 +5,8 @@
 // which is a property of the key rather than of the recall, and is what these cases
 // hold.
 
-import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import { bridgeAnswering } from "../../../console/bridge/fixture-bridge.test-support.js";
 import {
   FIRST_AGENT_ID,
@@ -14,6 +14,14 @@ import {
   answerSteer,
   mountAddressable,
 } from "./composer-send-bar.test-support.js";
+import { DraftStore } from "../../../console/persistence/index.js";
+import { AddressedDirectiveHistories } from "./directive-line.js";
+import { useDirectiveRecall } from "./use-directive-recall.js";
+
+// The implementations are preserved — this counts constructions and changes nothing
+// about what they do, which is what lets the two behavioural cases below share the
+// file with the allocation one.
+vi.mock(import("./directive-line.js"), { spy: true });
 
 describe("ComposerSendBar — directive history does not cross an addressing boundary", () => {
   /** Put the caret at the start edge, which is the one place ArrowUp recalls. */
@@ -57,5 +65,36 @@ describe("ComposerSendBar — directive history does not cross an addressing bou
     });
 
     expect(bar.line().value).toBe("written for Ada");
+  });
+});
+
+describe("useDirectiveRecall — the histories map is built once per mount", () => {
+  function Probe(props: { readonly draftStore: DraftStore }): React.JSX.Element {
+    const draftStore = props.draftStore;
+    useDirectiveRecall(
+      draftStore,
+      "channel::main",
+      () => draftStore.read("channel::main")?.text ?? "",
+    );
+    return <p>held</p>;
+  }
+
+  it("does not build a new one on every render", () => {
+    // `useRef(new AddressedDirectiveHistories())` evaluates its argument on EVERY
+    // render and discards all but the first — an allocation per keystroke in the
+    // composer's own hot path, invisible to every behavioural case because the ref
+    // keeps the first instance and the rest are garbage the moment they are made.
+    const built = vi.mocked(AddressedDirectiveHistories);
+    built.mockClear();
+    const draftStore = new DraftStore({ restartNoticePending: false });
+    const probe = render(<Probe draftStore={draftStore} />);
+    const afterFirstRender = built.mock.calls.length;
+
+    probe.rerender(<Probe draftStore={draftStore} />);
+    probe.rerender(<Probe draftStore={draftStore} />);
+
+    // The negative control: unheld, this is one construction per render — three.
+    expect(built.mock.calls.length).toBe(afterFirstRender);
+    expect(afterFirstRender).toBe(1);
   });
 });

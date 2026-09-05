@@ -7,7 +7,7 @@
 // composer.
 
 import { act, fireEvent } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { consoleCommands } from "../../../console/frame/command-surface.js";
 import {
   EMPTY_STATE_SENTENCE,
@@ -24,6 +24,7 @@ import {
 } from "./provider-command-discovery.test-support.js";
 import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
 import { recordingBridge } from "./provider-command-holder.test-support.js";
+import { ProviderCommandEnumeration } from "./provider-command-holder.js";
 
 describe("ProviderCommandAutocomplete", () => {
   it("stays closed until a leading slash is typed", async () => {
@@ -327,5 +328,32 @@ describe("ProviderCommandAutocomplete", () => {
 
     expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();
     expect(mounted.line.value).toBe("/rev");
+  });
+});
+
+describe("MessageComposer — the enumeration it owns has a lifetime", () => {
+  it("closes the holder when the composer comes down", async () => {
+    // The holder owns an open read and the generation that supersedes one, so it is a
+    // RESOURCE. Held in a `useMemo` it had no disposal at all — nothing ever called
+    // `close`, so a read outstanding when the composer unmounted stayed outstanding
+    // and its reply landed in a holder nobody held. `useMemo` is not a lifetime for a
+    // second reason besides: React may discard a memoized value and re-run the
+    // factory, which would mint a second holder beside a first that is still open.
+    const closed = vi.spyOn(ProviderCommandEnumeration.prototype, "close");
+    const mounted = await mountComposer({
+      bridge: recordingBridge([]),
+      focusedPane: agentPane(composerAgentIds()[0]!),
+    });
+    // Opened, so there is something to release: a holder that never read has nothing
+    // outstanding and would close silently whether the disposal ran or not.
+    await typeIntoLine(mounted.line, "/");
+    expect(mounted.container.querySelector('[role="listbox"]')).not.toBeNull();
+    closed.mockClear();
+
+    mounted.unmount();
+
+    // The negative control: under `useMemo` this is zero, on every teardown.
+    expect(closed).toHaveBeenCalled();
+    closed.mockRestore();
   });
 });

@@ -32,15 +32,35 @@
 // Composer forbids. So the host constructs one holder and hands it to both — the
 // popover opens it, the send bar only reads it. The host still reads no wire itself;
 // it owns the holder the way it owns the region.
+//
+// THE HOLDER IS A RESOURCE AND IS HELD AS ONE. It owns an open read and a generation
+// that supersedes one, so it has a lifetime, and `useMemo` does not give a value one:
+// React may discard a memoized value and re-run the factory, which would mint a
+// second holder while the first still has a read outstanding — and the discarded one
+// would never be told, because nothing ever called `close` on it. `store/`'s resource
+// holder is the console's answer to exactly that: `open` runs on the pass that first
+// sees a session, `close` runs once however that pass ended, and an unmounting
+// composer's outstanding read is superseded rather than left to land in a holder
+// nobody holds.
 
-import { useId, useMemo, useRef } from "react";
+import { useId, useRef } from "react";
 
 import { type ComposerSeatProps } from "../console/seats/index.js";
+import { useSubjectScopedResource } from "../console/store/index.js";
 import { ComposerAccessoryRail } from "./composer/accessories/index.js";
 import { ComposerChipRail } from "./composer/chips/index.js";
 import { ProviderCommandAutocomplete } from "./composer/commands/index.js";
 import { ProviderCommandEnumeration } from "./composer/commands/provider-command-holder.js";
 import { ComposerSendBar } from "./composer/router/index.js";
+
+/** Declared rather than an arrow, so the resource holder is handed a stable pair. */
+function openEnumeration(): ProviderCommandEnumeration {
+  return new ProviderCommandEnumeration();
+}
+
+function closeEnumeration(enumeration: ProviderCommandEnumeration): void {
+  enumeration.close();
+}
 
 /**
  * The composer, addressed within one session.
@@ -54,13 +74,19 @@ import { ComposerSendBar } from "./composer/router/index.js";
 export function MessageComposer(props: ComposerSeatProps): React.JSX.Element {
   const descriptionId = useId();
   const regionRef = useRef<HTMLElement | null>(null);
-  // One per mounted composer, and its lifetime is the composer's: the enumeration is
-  // read live and never persisted, so a holder shared across mounts would be the
-  // cache that rule forbids. It deliberately survives a bridge swap under this same
-  // composer — WHICH binding a reading was taken under is the holder's own key, and
+  // One per addressed composer, and its lifetime is that address's: the enumeration is
+  // read live and never persisted, so a holder shared across sessions would be the
+  // cache that rule forbids. It deliberately survives a BRIDGE swap under this same
+  // session — WHICH binding a reading was taken under is the holder's own key, and
   // that key compares the bridge by identity, so a replaced bridge re-reads rather
-  // than being served the previous wire's catalog.
-  const commandEnumeration = useMemo(() => new ProviderCommandEnumeration(), []);
+  // than being served the previous wire's catalog. That is why the session store is
+  // the subject here and the bridge is not.
+  const { value: commandEnumeration } = useSubjectScopedResource<ProviderCommandEnumeration>(
+    props.sessionStore,
+    props.sessionStore.sessionId,
+    openEnumeration,
+    closeEnumeration,
+  );
   return (
     <section
       className="meridian-composer"

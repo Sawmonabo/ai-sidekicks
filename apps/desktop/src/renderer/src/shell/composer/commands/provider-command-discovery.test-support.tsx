@@ -213,6 +213,8 @@ export interface MountedComposer {
   readonly container: HTMLElement;
   readonly line: HTMLTextAreaElement;
   readonly rerenderAt: (pane: ConsolePaneAddress) => Promise<void>;
+  /** Take the composer down, for the cases about what its teardown releases. */
+  readonly unmount: () => void;
 }
 
 export async function mountComposer(options: {
@@ -246,6 +248,9 @@ export async function mountComposer(options: {
   return {
     container: mounted.container,
     line,
+    unmount: (): void => {
+      mounted.unmount();
+    },
     rerenderAt: async (pane) => {
       await act(async () => {
         mounted.rerender(

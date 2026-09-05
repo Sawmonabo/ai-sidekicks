@@ -17,7 +17,7 @@
 // address's history rather than the one before it. `forAddress` is idempotent for an
 // address already current, which is what makes asking here safe.
 
-import { useCallback, useRef } from "react";
+import { useCallback, useState } from "react";
 
 import type { DraftStore } from "../../../console/persistence/index.js";
 import {
@@ -51,8 +51,13 @@ export function useDirectiveRecall(
   draftKey: string,
   readDraftText: () => string,
 ): DirectiveRecall {
-  const historiesRef = useRef<AddressedDirectiveHistories>(new AddressedDirectiveHistories());
-  const history = historiesRef.current.forAddress(draftKey);
+  // `useState` with an INITIALIZER, which is the console's shape for a per-mount
+  // object (`store/generation-latch.ts`, `store/subject-scoped-state.ts`) and the only
+  // one that constructs once. `useRef(new AddressedDirectiveHistories())` evaluated
+  // the constructor on every render and threw the result away — a fresh histories map
+  // allocated per keystroke in the composer, for a value the ref already held.
+  const [histories] = useState(() => new AddressedDirectiveHistories());
+  const history = histories.forAddress(draftKey);
 
   const recallOlder = useCallback(
     (caret: DirectiveCaret) => {
