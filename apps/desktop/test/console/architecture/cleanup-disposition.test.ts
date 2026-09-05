@@ -14,7 +14,8 @@
 // outcome, and `closeAfterBody` takes the close alone, so a body that fails
 // while the close also fails is one object literal. The race that PRODUCES
 // those outcomes is `bounded-cleanup.test.ts`; these two files were one until
-// it passed 400 lines carrying both subjects.
+// it passed 400 lines carrying both subjects, and their modules split on the
+// same seam when the race grew the profile removal.
 
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -22,14 +23,17 @@ import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
+import { type CleanupOutcome, type ClosableApplication } from "../bounded-cleanup.js";
 import {
   CleanupFailedError,
-  type CleanupOutcome,
-  type ClosableApplication,
   cleanupFailure,
   closeAfterBody,
   withCleanupOutcome,
-} from "../bounded-cleanup.js";
+  withProfileRemoval,
+} from "../cleanup-disposition.js";
+
+/** The directory a case names when it is about a profile that would not go. */
+const LEFTOVER_PROFILE = "/tmp/ai-sidekicks-console-left";
 
 describe("bounded cleanup — what a caller is told", () => {
   /** An outcome carrying whichever settlement a case is about. */
@@ -101,6 +105,64 @@ describe("bounded cleanup — what a caller is told", () => {
     expect(cleanupFailure(outcomeOf("closed-after-rejection"))?.message).not.toContain(
       "requestSingleInstanceLock",
     );
+  });
+
+  it("raises on a profile that outlived its launch, even when the close was clean", () => {
+    // THE REMOVAL FINDING, on the disposition side. A per-launch profile left on
+    // disk is the one cleanup outcome besides a live process that a LATER run
+    // feels, and it used to be a `console.error` beside a resolved close — so a
+    // tier stayed green while every run added another directory. The close here
+    // went perfectly, which is exactly the pairing a settlement-only rule missed.
+    const failure = cleanupFailure({
+      settlement: "closed",
+      waitedMs: 31,
+      budgetMs: 10_000,
+      profileRemovalFailure: { directory: LEFTOVER_PROFILE, failure: new Error("EBUSY") },
+    });
+    expect(failure).toBeInstanceOf(CleanupFailedError);
+    // Named, so an operator has a path to look at rather than a fact to act on.
+    expect(failure?.message).toContain(LEFTOVER_PROFILE);
+    expect(failure?.message).toContain("EBUSY");
+    // And it does not invent a close that went wrong: this one did not.
+    expect(failure?.message).not.toContain("did not close cleanly");
+    // Non-vacuous: the same clean close whose profile DID come off disk raises
+    // nothing, so this is the leftover directory deciding rather than the helper
+    // having started raising on a clean close.
+    expect(
+      cleanupFailure({ settlement: "closed", waitedMs: 31, budgetMs: 10_000 }),
+    ).toBeUndefined();
+  });
+
+  it("says both when the close went wrong AND the profile stayed", () => {
+    // Neither fact displaces the other: the process that may still be running
+    // and the directory that is definitely still there are separately
+    // actionable, and a reader given one of them would go looking for half a
+    // mess.
+    const worded = withCleanupOutcome(new Error("the launch failed"), {
+      ...outcomeOf("unterminable"),
+      profileRemovalFailure: { directory: LEFTOVER_PROFILE, failure: new Error("EPERM") },
+    });
+    expect((worded as Error).message).toContain("may still be running");
+    expect((worded as Error).message).toContain(LEFTOVER_PROFILE);
+    expect((worded as Error).cause).toBeInstanceOf(Error);
+  });
+
+  it("keeps a launch failure on top when the profile it minted would not go", () => {
+    // The pre-launch arm: `electron.launch` threw, so there is no cleanup verdict
+    // for the removal to ride, and raising it there would hand a reader a
+    // sentence about a directory in place of the readiness failure that explains
+    // the run. Folded instead, exactly as a cleanup verdict is.
+    const launchFailure = new Error("the console did not become ready");
+    const folded = withProfileRemoval(launchFailure, {
+      directory: LEFTOVER_PROFILE,
+      failure: new Error("EPERM"),
+    });
+    expect((folded as Error).cause).toBe(launchFailure);
+    expect((folded as Error).message).toContain(LEFTOVER_PROFILE);
+    // Non-vacuous: the same launch failure whose profile DID come off disk is
+    // handed back untouched, so a reader is never told about a removal that
+    // worked.
+    expect(withProfileRemoval(launchFailure, undefined)).toBe(launchFailure);
   });
 
   it("carries a rejected close as the cause rather than discarding it", () => {
@@ -206,6 +268,33 @@ describe("bounded cleanup — the body's failure survives its own cleanup", () =
     expect((raisedByFinally as CleanupFailedError).cause).not.toBe(bodyFailure);
   });
 
+  it("keeps the body's failure on top when the profile was what would not go", async () => {
+    // The removal reaches a caller through the same disposition as every other
+    // cleanup fact, which is what makes it safe to raise on: a body that failed
+    // is still the error that explains the run, and the leftover directory is
+    // the sentence above it rather than the report.
+    const bodyFailure = new Error("expected renderer heap under the 120 MB ceiling");
+    const application = {
+      close: () =>
+        Promise.reject(
+          new CleanupFailedError({
+            settlement: "closed",
+            waitedMs: 31,
+            budgetMs: 10_000,
+            profileRemovalFailure: { directory: LEFTOVER_PROFILE, failure: new Error("EBUSY") },
+          }),
+        ),
+    };
+    const raised = await closeAfterBody(application, () => {
+      throw bodyFailure;
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect((raised as Error).cause).toBe(bodyFailure);
+    expect((raised as Error).message).toContain(LEFTOVER_PROFILE);
+  });
+
   it("returns the body's value untouched when nothing went wrong", async () => {
     const value = await closeAfterBody({ close: () => Promise.resolve() }, async () =>
       Promise.resolve(120),
@@ -239,6 +328,15 @@ describe("bounded cleanup — the harness spends both dispositions", () => {
     // for exactly the settlement whose figures a reader needs to re-derive the
     // bound from.
     expect(harness).toMatch(/if \(cleanupOutcome\.settlement !== "closed"\) \{\s*console\.error\(/);
+  });
+
+  it("hands the profile to the cleanup instead of removing it beside the verdict", () => {
+    // The swallowed log this replaces: an `rmSync` in its own `try`/`catch` here
+    // whose `catch` only printed, so a removal that failed left a passing tier
+    // green. The removal is the cleanup's now, so there is one verdict carrying
+    // both facts and one rule deciding what to do with it.
+    expect(harness).toMatch(/ELECTRON_PROCESS_TERMINATOR,\s*profile,\s*\);/);
+    expect(harness).not.toMatch(/catch \(removalError/);
   });
 
   it("swallows that throw on the launch-failure path and attaches the outcome", () => {

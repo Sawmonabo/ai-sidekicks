@@ -22,9 +22,10 @@
 // unrelated app, an orphan from a killed run — loses `requestSingleInstanceLock()`
 // and quits before opening a window, which would surface here as a timeout with no
 // error. Every launch therefore gets its own `--user-data-dir` under the system
-// temporary directory, removed on close. This is the same defect and the same fix
-// the Tier-1 smoke test records; the mechanism is restated rather than imported
-// because that test owns a spawn-and-parse-stdout probe, not a driven window.
+// temporary directory (`launch-profile.ts`), removed as part of the close. This is
+// the same defect and the same fix the Tier-1 smoke test records; the mechanism is
+// restated rather than imported because that test owns a spawn-and-parse-stdout
+// probe, not a driven window.
 //
 // HEADLESS LINUX
 //
@@ -36,9 +37,6 @@
 // inherit through `process.env`. They run in the aggregate `test` script's last
 // group and in that job's desktop step, both on the fixture build.
 
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import process from "node:process";
 
 import { _electron as electron } from "@playwright/test";
@@ -47,12 +45,15 @@ import type { ElectronApplication, Page } from "@playwright/test";
 import { UNOBTRUSIVE_WINDOWS_ENV } from "../../src/main/window-reveal.js";
 import {
   BoundedCleanup,
-  cleanupFailure,
   type CleanupOutcome,
-  closeAfterBody,
   ELECTRON_PROCESS_TERMINATOR,
-  withCleanupOutcome,
 } from "./bounded-cleanup.js";
+import {
+  cleanupFailure,
+  closeAfterBody,
+  withCleanupOutcome,
+  withProfileRemoval,
+} from "./cleanup-disposition.js";
 import { MAIN_ENTRY_PATH } from "./fixture-bundle.js";
 import { FrameWitness, type RendererFrameSource } from "./frame-witness.js";
 import {
@@ -61,6 +62,7 @@ import {
   POST_READINESS_RESERVE_MS,
   readinessFailure,
 } from "./launch-deadline.js";
+import { createLaunchProfile, removeLaunchProfile } from "./launch-profile.js";
 
 /**
  * The environment variable the built main process reads a scenario id from.
@@ -95,12 +97,13 @@ export interface ConsoleApplication {
    * Close the app and remove its private profile. Safe to call twice.
    *
    * REJECTS when cleanup may have left something behind — a termination that was
-   * refused, or a close that rejected outright. A caller that awaits this
-   * therefore fails a test whose assertions passed but which leaked an Electron,
-   * which is the point: vitest does not read logs, and the process would
-   * otherwise survive into the launches after it. A close that lost its race and
-   * was SIGKILLed is breadcrumbed and resolves: the tree is gone, so the launches
-   * after it are unaffected. The second call is a no-op and never throws.
+   * refused, a close that rejected outright, or a profile that would not come off
+   * disk. A caller that awaits this therefore fails a test whose assertions passed
+   * but which leaked an Electron or its directory, which is the point: vitest does
+   * not read logs, and either would otherwise survive into the launches after it.
+   * A close that lost its race and was SIGKILLed is breadcrumbed and resolves: the
+   * tree is gone, so the launches after it are unaffected. The second call is a
+   * no-op and never throws.
    */
   readonly close: () => Promise<void>;
 }
@@ -148,7 +151,7 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleAppl
   // takes its own slice as a ceiling rather than drawing on what is left here,
   // which is why it is not handed this clock (`bounded-cleanup.ts`).
   const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);
-  const userDataDirectory = mkdtempSync(join(tmpdir(), "ai-sidekicks-console-"));
+  const profile = createLaunchProfile();
   // The scenario is applied LAST so a named option cannot be shadowed by an `env`
   // entry that happens to spell the same variable — one place decides, and it is
   // the typed one.
@@ -157,7 +160,7 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleAppl
   let application: ElectronApplication;
   try {
     application = await electron.launch({
-      args: [`--user-data-dir=${userDataDirectory}`, MAIN_ENTRY_PATH],
+      args: [`--user-data-dir=${profile.directory}`, MAIN_ENTRY_PATH],
       env: {
         ...process.env,
         ...options.env,
@@ -172,8 +175,11 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleAppl
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
   } catch (error: unknown) {
-    rmSync(userDataDirectory, { recursive: true, force: true });
-    throw readinessFailure(deadline, error);
+    // No application was produced, so there is no cleanup verdict for the removal
+    // to travel on — and a bare `remove()` throwing here would replace the launch
+    // failure with a sentence about a directory. Surfaced and folded instead, so
+    // the readiness failure stays the error that explains the run.
+    throw withProfileRemoval(readinessFailure(deadline, error), removeLaunchProfile(profile));
   }
 
   const cleanup = new BoundedCleanup(
@@ -191,6 +197,7 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleAppl
       },
     },
     ELECTRON_PROCESS_TERMINATOR,
+    profile,
   );
   let closed = false;
   let cleanupOutcome: CleanupOutcome | undefined;
@@ -199,23 +206,13 @@ async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleAppl
       return;
     }
     closed = true;
-    // The close itself is bounded and force-terminating, so this always returns
-    // a verdict rather than possibly not returning at all.
+    // The close itself is bounded and force-terminating, and it removes the
+    // profile, so this always returns a verdict rather than possibly not
+    // returning at all — and the removal reaches the caller ON that verdict. It
+    // used to be an `rmSync` in its own `try`/`catch` here whose `catch` only
+    // printed, so a removal that failed left a passing tier green and the
+    // directory on disk for every launch after it.
     cleanupOutcome = await cleanup.close();
-    // Removed whether or not the close succeeded: a temporary directory left
-    // behind by a crashed run is the thing that makes the NEXT run's disk-space
-    // failure look like a console defect. Breadcrumbed rather than raised, and
-    // not in a `finally` around the line above, because either shape lets a
-    // removal that failed displace the cleanup verdict — the same inversion this
-    // module's own `closeAfterBody` exists to stop at a caller.
-    try {
-      rmSync(userDataDirectory, { recursive: true, force: true });
-    } catch (removalError: unknown) {
-      console.error(
-        `${LAUNCH_TRACE_TAG} the launch profile at ${userDataDirectory} could not be removed: ` +
-          String(removalError),
-      );
-    }
     // Breadcrumbed on every settlement but a clean close, and that is wider than
     // the set that throws: a SIGKILLed tree is worth a line in the log and is not
     // worth a red check, so `terminated` is recorded here and passes below.
