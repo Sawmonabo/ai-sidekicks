@@ -6,9 +6,9 @@
 
 import { describe, expect, it, vi } from "vitest";
 
+import { definition } from "../WorkflowsBrowser.test-support.js";
 import { DefinitionsBrowser } from "./DefinitionsBrowser.js";
 import {
-  definition,
   groupFor,
   renderDefinitionsBrowser,
   renderScopeList,

@@ -12,20 +12,11 @@
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { DefinitionsBrowser, type WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
+import { definition } from "../WorkflowsBrowser.test-support.js";
+import { DefinitionsBrowser } from "./DefinitionsBrowser.js";
 
 /** One row, so a case can hold one scope's group open while the other two are empty. */
-const SESSION_DEFINITION: WorkflowDefinitionRow = {
-  id: "release-checklist",
-  name: "Release checklist",
-  scope: "session",
-  scopeRef: "session-1",
-  latestVersionNumber: 3,
-  latestWorkflowVersionId: "version-3",
-  contentHash: "b3:0f1e2d",
-  resolvesAtThisContext: true,
-  createdAt: "2026-09-01T10:00:00.000Z",
-};
+const SESSION_DEFINITION = definition({ resolvesAtThisContext: true });
 
 /** How many groups rendered one kind of nothing, which is the whole of every claim here. */
 function absencesOfKind(container: HTMLElement, kind: string): number {

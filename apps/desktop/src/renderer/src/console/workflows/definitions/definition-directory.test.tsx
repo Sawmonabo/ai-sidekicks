@@ -17,6 +17,7 @@ import { createFixtureBridge, type GrowthPort } from "../../bridge/index.js";
 import { createRefusingGrowthPort, growthUnavailable } from "../../bridge/growth-port.js";
 import type { ConsoleScenario, ScenarioReply } from "../../bridge/scenario.js";
 import type { WireErrorEnvelope } from "../../../../../shared/wire-errors.js";
+import { definition } from "../WorkflowsBrowser.test-support.js";
 import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
 import {
   useWorkflowDefinitionDirectory,
@@ -41,18 +42,20 @@ const SCRIPTED_DAEMON_REFUSAL: WireErrorEnvelope = {
 /** One settled page, derived from the port's own answer rather than restated. */
 type SettledDefinitionPage = Awaited<ReturnType<GrowthPort["workflowDefinitionList"]>>;
 
-function definition(id: string): WorkflowDefinitionRow {
-  return {
+/**
+ * One row per id, which is what these cases read back: the id is the only member that
+ * says WHICH read committed. Everything else is the family's row, built once at
+ * `../WorkflowsBrowser.test-support.tsx` — including `scopeRef`, whose default is this
+ * same probe session.
+ */
+function definitionWithId(id: string): WorkflowDefinitionRow {
+  return definition({
     id,
     name: `Definition ${id}`,
-    scope: "session",
-    scopeRef: PROBE_SESSION_ID,
     latestVersionNumber: 1,
     latestWorkflowVersionId: `${id}-version-1`,
     contentHash: `b3:${id}`,
-    resolvesAtThisContext: false,
-    createdAt: "2026-01-01T10:00:00.000Z",
-  };
+  });
 }
 
 /**
@@ -91,11 +94,11 @@ function twoPagePort(secondPageIds: readonly string[] = ["third", "fourth"]): Gr
       ? {
           status: "served",
           value: {
-            definitions: [definition("first"), definition("second")],
+            definitions: [definitionWithId("first"), definitionWithId("second")],
             nextCursor: SECOND_PAGE_CURSOR,
           },
         }
-      : { status: "served", value: { definitions: secondPageIds.map(definition) } },
+      : { status: "served", value: { definitions: secondPageIds.map(definitionWithId) } },
   );
 }
 
@@ -339,7 +342,10 @@ describe("useWorkflowDefinitionDirectory — the pages beyond the first", () => 
     // Without this, a hook that reported `available` unconditionally would pass every
     // case above — and a surface would render a control that fetched one page forever.
     const observed = observeDirectory(
-      pagedGrowthPort(() => ({ status: "served", value: { definitions: [definition("only")] } })),
+      pagedGrowthPort(() => ({
+        status: "served",
+        value: { definitions: [definitionWithId("only")] },
+      })),
       PROBE_SESSION_ID,
     );
 
@@ -358,7 +364,7 @@ describe("useWorkflowDefinitionDirectory — the pages beyond the first", () => 
           ? {
               status: "served",
               value: {
-                definitions: [definition("first"), definition("second")],
+                definitions: [definitionWithId("first"), definitionWithId("second")],
                 nextCursor: SECOND_PAGE_CURSOR,
               },
             }

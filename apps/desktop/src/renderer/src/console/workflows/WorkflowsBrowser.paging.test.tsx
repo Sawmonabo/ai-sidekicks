@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   SECOND_PAGE_CURSOR,
-  SERVED_DEFINITION,
+  definition,
   portAnswering,
   renderBrowser,
   settle,
@@ -24,7 +24,7 @@ describe("the workflows browser — the handle to the next page", () => {
     const container = renderBrowser(
       portAnswering({
         status: "served",
-        value: { definitions: [SERVED_DEFINITION], nextCursor: SECOND_PAGE_CURSOR },
+        value: { definitions: [definition()], nextCursor: SECOND_PAGE_CURSOR },
       }),
     );
 
@@ -39,7 +39,7 @@ describe("the workflows browser — the handle to the next page", () => {
     // Absent, not disabled. Without this the case above would pass over a browser that
     // offered the handle unconditionally, and pressing it would re-read one page.
     const container = renderBrowser(
-      portAnswering({ status: "served", value: { definitions: [SERVED_DEFINITION] } }),
+      portAnswering({ status: "served", value: { definitions: [definition()] } }),
     );
 
     await settle();

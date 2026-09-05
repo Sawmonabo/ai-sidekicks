@@ -1,10 +1,14 @@
 // What the browser's suites need before they can read anything off a render.
 //
-// One home for the definition every case starts from and for the four queries the
-// grouping and continuation suites both run — a browser rendered two ways, the group
-// a scope's rows sit in, and the names in it. Held together because they are one
-// vocabulary: a class name the component renames is one edit here rather than a
-// search across the suites.
+// One home for the four queries the grouping and continuation suites both run — a
+// browser rendered two ways, the group a scope's rows sit in, and the names in it.
+// Held together because they are one vocabulary: a class name the component renames is
+// one edit here rather than a search across the suites.
+//
+// THE ROW ITSELF IS NOT HERE. `WorkflowDefinitionRow` is the family's fixture, not this
+// directory's — the browser suites one level up build the same row — so the factory
+// lives at `../WorkflowsBrowser.test-support.tsx` and these suites import it. What is
+// here is what only a `DefinitionsBrowser` render can answer.
 //
 // The two render helpers answer different questions and both are needed. Most cases
 // read the SCOPE LIST, because that is where the groups and their rows are. The
@@ -17,24 +21,6 @@
 // single reader and stay beside it.
 
 import { render } from "@testing-library/react";
-
-import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
-
-/** One definition, as the enumeration carries it. */
-export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): WorkflowDefinitionRow {
-  return {
-    id: "definition-1",
-    name: "Release checklist",
-    scope: "session",
-    scopeRef: "session-1",
-    latestVersionNumber: 3,
-    latestWorkflowVersionId: "version-3",
-    contentHash: "b3:0f1e2d",
-    resolvesAtThisContext: false,
-    createdAt: "2026-09-01T10:00:00.000Z",
-    ...overrides,
-  };
-}
 
 /** The whole browser, continuation region included. */
 export function renderDefinitionsBrowser(element: React.JSX.Element): HTMLElement {

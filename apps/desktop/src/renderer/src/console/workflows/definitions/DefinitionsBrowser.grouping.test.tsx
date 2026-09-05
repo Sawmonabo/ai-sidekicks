@@ -8,13 +8,9 @@
 
 import { describe, expect, it } from "vitest";
 
+import { definition } from "../WorkflowsBrowser.test-support.js";
 import { DefinitionsBrowser, WORKFLOW_DEFINITION_SCOPES } from "./DefinitionsBrowser.js";
-import {
-  definition,
-  groupFor,
-  renderScopeList,
-  rowNames,
-} from "./DefinitionsBrowser.test-support.js";
+import { groupFor, renderScopeList, rowNames } from "./DefinitionsBrowser.test-support.js";
 
 describe("the scope groups", () => {
   it("names all three in the daemon's resolution order", () => {
