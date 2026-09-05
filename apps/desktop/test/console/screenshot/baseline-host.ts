@@ -24,6 +24,19 @@
 // does not distinguish. The latch bounds the file: a file whose suites each ask says
 // it once rather than once per suite.
 //
+// AND A PARAMETERISED PAIR IN `baseline-platform.ts` WAS THE FIFTH SHAPE, considered and
+// not taken. `skipOffBaselineHost(context, host)` and `announceOffBaselineHost(host)`
+// keep that module import-free, which is true and is not the deciding property. Two
+// things fail there. A free function has nowhere to keep a latch, so the announcement
+// says its paragraph once per SUITE and a file with three of them prints three; and
+// threading the host through every call leaves each test file reading
+// `server.config.env` for itself, which is one more copy per file of the reading this
+// module exists to have exactly one of, and one more chance for the skip and the
+// sentence to be handed different hosts. The class below keeps the one virtue that
+// shape had — a host supplied rather than sampled, so both branches can be driven on a
+// machine that is only ever in one of them — and pays for it in a constructor rather
+// than at every call site.
+//
 // Not a test file — no `include` glob reaches it.
 
 import { server } from "vitest/browser";
