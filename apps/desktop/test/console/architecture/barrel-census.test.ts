@@ -80,14 +80,18 @@ const CONSOLE_PREFIX = "src/renderer/src/console";
 const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT];
 
 /**
- * The two doors that publish nothing they did not declare themselves.
+ * The doors that publish nothing they did not declare themselves.
  *
- * Both are composition sites: `scenarios/index.ts` composes the scenario list and
- * `panes/index.ts` registers the pane board, each declaring its one export in place
- * rather than forwarding a name from elsewhere. Named here so the per-door claim
- * below is a quantifier rather than a predicate that could grow to admit anything.
+ * Every one is a composition site: `scenarios/index.ts` composes the scenario list,
+ * `panes/index.ts` registers the pane board, and the two growth-ledger doors compose
+ * their plane modules into one type and one exhaustive record — each declaring its
+ * exports in place rather than forwarding a name from elsewhere. Named here so the
+ * per-door claim below is a quantifier rather than a predicate that could grow to
+ * admit anything.
  */
 const DOORS_THAT_FORWARD_NOTHING: readonly string[] = [
+  `${CONSOLE_PREFIX}/bridge/growth-operations/index.ts`,
+  `${CONSOLE_PREFIX}/bridge/growth-signatures/index.ts`,
   `${CONSOLE_PREFIX}/bridge/scenarios/index.ts`,
   `${CONSOLE_PREFIX}/panes/index.ts`,
 ];
