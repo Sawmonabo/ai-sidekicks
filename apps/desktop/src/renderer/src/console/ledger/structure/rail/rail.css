@@ -1,0 +1,140 @@
+/* `ledger/structure/rail/`'s styles — the provenance rail: its hit strip, its canvas,
+ * its thumb, the live marker, the load-earlier control, and the hover preview.
+ *
+ * ONE SHEET PER DIRECTORY, so a rule sits beside the code that renders it. Every sheet
+ * this family owns is imported from `ledger/index.ts` and nowhere else; a rule reachable
+ * from two directories goes in the parent's sheet instead, which is where the shared
+ * load-earlier focus ring is.
+ *
+ * The widths are set inline from `rail-model.ts`'s constants, so the numbers live in the
+ * module that spends them and this sheet never restates them.
+ */
+
+/* --- The provenance rail -------------------------------------------------- */
+
+/*
+ * The strip is the hit target and the canvas is the ink. `structure/rail-model.ts`
+ * fixes the strip at ≥32 px with a dead gutter, and the gutter is what the difference
+ * between the two widths IS: a pointer aimed a little wide still lands on the rail
+ * rather than on the pane behind it, and a pointer aimed at the pane is not stolen by
+ * the rail.
+ *
+ * The width is set inline from `RAIL_HIT_STRIP_WIDTH_PX`, so the number lives in
+ * the constants module and this sheet never restates it.
+ */
+
+.meridian-rail {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.meridian-rail__strip {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  cursor: pointer;
+  /* The ink is centred in the strip; the remainder either side is the dead
+     gutter, which is pointer-active but paints nothing. */
+  display: flex;
+  justify-content: center;
+}
+
+.meridian-rail__strip:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+  border-radius: var(--meridian-radius-sm);
+}
+
+.meridian-rail__canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/*
+ * The unloaded extent, drawn as a dotted segment at the head of the rail — the rail's
+ * clip honesty. A gradient rather than a border so the dotting reads at any height
+ * without the segment's own box being a second element to keep in step.
+ */
+
+.meridian-rail__unloaded {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: var(--meridian-space-6);
+  background-image: linear-gradient(
+    to bottom,
+    var(--meridian-edge-strong) 0 2px,
+    transparent 2px 6px
+  );
+  background-size: 100% 6px;
+  pointer-events: none;
+}
+
+/* The viewport thumb: where the reading position is, not what it contains. */
+
+.meridian-rail__thumb {
+  position: absolute;
+  inset-inline: 2px;
+  background: color-mix(in oklch, var(--meridian-text-muted) 18%, transparent);
+  border-radius: var(--meridian-radius-sm);
+  pointer-events: none;
+}
+
+/* The live marker at the tail, drawn only while the ledger is following. */
+
+.meridian-rail__live {
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--meridian-accent);
+  pointer-events: none;
+}
+
+.meridian-rail__load-earlier {
+  flex: 0 0 auto;
+  padding: var(--meridian-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--meridian-accent-text);
+  font-size: var(--meridian-text-xs);
+  cursor: pointer;
+}
+
+/*
+ * The hover preview. One card at a time and pointer-inert, so moving toward it
+ * never re-targets the rail underneath — the card is a reading, not a control.
+ */
+
+.meridian-rail__preview {
+  position: absolute;
+  inset-inline-end: calc(100% + var(--meridian-space-2));
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  max-width: 22rem;
+  padding: var(--meridian-space-1) var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-xs);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.meridian-rail__preview-summary {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

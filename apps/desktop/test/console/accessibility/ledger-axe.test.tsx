@@ -49,7 +49,7 @@ import { installMeridianTokens } from "../../../src/renderer/src/console/frame/i
 // Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
 // consumer outside the family, and a door line whose one reader is a test is a door
 // widened for testing.
-import { registerFixtureShellRows } from "../../../src/renderer/src/console/ledger/cards/FixtureShellRows.js";
+import { registerFixtureShellRows } from "../../../src/renderer/src/console/ledger/cards/shell/FixtureShellRows.js";
 import {
   TimelinePane,
   type TimelinePaneContext,

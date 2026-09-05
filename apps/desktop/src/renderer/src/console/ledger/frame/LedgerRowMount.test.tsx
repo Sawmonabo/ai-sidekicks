@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "../../primitives/index.js";
 import { LedgerRowMount } from "./LedgerRowMount.js";
-import type { LedgerViewportRow } from "./viewport-snapshot.js";
+import type { LedgerViewportRow } from "./viewport/viewport-snapshot.js";
 
 const ROW: LedgerViewportRow = {
   key: "row-4000",

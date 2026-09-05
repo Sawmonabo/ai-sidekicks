@@ -24,7 +24,7 @@ import { LedgerRowGroup } from "../frame/index.js";
 import { TOOL_SUMMARY_MAX_CHARACTERS } from "./card-bounds.js";
 import { cardFamilyDescriptor, toolResultState, type ToolResultState } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
-import { MachineBody } from "./MachineBody.js";
+import { MachineBody } from "./bodies/index.js";
 import { projectedPayload, readWireCount, readWireString } from "./wire-payload.js";
 
 export interface ToolCardProps extends LedgerCardProps {

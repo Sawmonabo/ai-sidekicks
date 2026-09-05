@@ -11,6 +11,13 @@
 // is where the rest of the family is, reached by the same intra-family specifiers its
 // siblings use.
 //
+// FOUR SUB-MODULES AND THE PANE ITSELF. `window/` derives which rows this pane holds,
+// `find/` decides which of them a person is asking for, `replay/` decides which of them
+// a position lets through, and `feed/` composes the three into the surface a reader
+// scrolls. Each publishes a door its siblings read, because each is read from two or
+// more directories outside itself; `feed/` publishes none, since the one name that
+// leaves it is read by exactly one module — `TimelinePane.tsx`, one directory up.
+//
 // WHAT LEAVES THROUGH THIS DOOR IS WHAT `ledger/index.ts` MOUNTS. The pane's own
 // pieces — the feed and its rows, the window and jump models, the notices — are read
 // by their siblings inside this directory, deeply, which is what an intra-family

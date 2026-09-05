@@ -37,9 +37,9 @@ import { LedgerRowGroup } from "../frame/index.js";
 import { classifyCardFamily } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
 import { InlineCards } from "./InlineCards.js";
-import { MachineBody } from "./MachineBody.js";
+import { MachineBody } from "./bodies/index.js";
 import { MessageReceipt } from "./MessageReceipt.js";
-import { ParticipantBody } from "./ParticipantBody.js";
+import { ParticipantBody } from "./bodies/index.js";
 import { projectedPayload, readWireCount, readWireString } from "./wire-payload.js";
 
 /**

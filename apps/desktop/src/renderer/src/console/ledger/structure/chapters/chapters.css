@@ -1,0 +1,55 @@
+/* `ledger/structure/chapters/`'s styles — the chapter header: its disclosure, the actor
+ * it names, its terminal figure, and the counts it carries.
+ *
+ * ONE SHEET PER DIRECTORY, imported from `ledger/index.ts` and nowhere else.
+ */
+
+/* --- Structure: the chapter header --------------------------------------- */
+
+/*
+ * One finished run, on one line, with the disclosure that opens it.
+ *
+ * The 2 px inline-start edge is the same attribution edge a ledger row wears, set
+ * from the participant wheel by the component so a chapter and the rows inside it
+ * are coloured by one allocation. The fallback is the neutral border, which is what
+ * an unattributed chapter takes — never a participant hue nobody was allocated.
+ */
+
+.meridian-chapter-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-1) var(--meridian-space-3);
+  border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+.meridian-chapter-header__disclosure {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--meridian-space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.meridian-chapter-header__actor {
+  color: var(--meridian-text);
+}
+
+.meridian-chapter-header__terminal,
+.meridian-chapter-header__figure {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text);
+}
+
+.meridian-chapter-header__counts {
+  font-size: var(--meridian-text-xs);
+}

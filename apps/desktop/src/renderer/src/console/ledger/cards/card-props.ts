@@ -26,7 +26,7 @@ export interface LedgerCardProps extends TimelineRowSlotProps {
   /**
    * Text the reveal engine is publishing for this row right now, while it streams.
    *
-   * A PROP rather than a subscription: `ledger/frame/reveal-engine.ts` publishes per
+   * A PROP rather than a subscription: `ledger/frame/reveal/reveal-engine.ts` publishes per
    * lane and the viewport is what reads it, so a card that subscribed would be a second
    * subscriber to one fact and would re-render on frames its own text did not change in.
    */

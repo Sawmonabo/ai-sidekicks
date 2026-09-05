@@ -45,7 +45,7 @@ import {
   type OwnerSlotContract,
   type PaneKind,
 } from "../../seats/index.js";
-import { TimelineRowHost } from "./TimelineRowHost.js";
+import { TimelineRowHost } from "./feed/TimelineRowHost.js";
 
 /**
  * Who owns the rows, what this pane owes them, and where the shell dies.

@@ -21,7 +21,7 @@
 import { describe, expect, it } from "vitest";
 import ts from "typescript";
 
-import { FIND_STEP_DIRECTIONS } from "./structure/find-model.js";
+import { FIND_STEP_DIRECTIONS } from "./structure/narrowing/find-model.js";
 
 /**
  * Every module this family holds, as source text.

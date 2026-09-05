@@ -32,7 +32,7 @@
 import type { Nodes, PhrasingContent, RootContent } from "mdast";
 import { Fragment } from "react";
 
-import { arePathLinksRenderable, isDeferredFenceLanguage } from "../markdown-rules.js";
+import { arePathLinksRenderable, isDeferredFenceLanguage } from "./markdown-rules.js";
 import { CodeBlock } from "./CodeBlock.js";
 import { FootnoteReference } from "./FootnoteReference.js";
 import { MathBlock } from "./MathBlock.js";
