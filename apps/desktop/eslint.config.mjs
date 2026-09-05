@@ -370,19 +370,30 @@ export default [
   // `apps/desktop/AGENTS.md`, and a gate that arrives after the code it governs arrives
   // too late. A `files` pattern matching no file is not an ESLint error.
   //
-  // Four files are exempt, and each is exempt for its own reason rather than by
-  // convenience: `core/wire-rejection.ts` is the reading the `String(catch)` rule
-  // points at (`core/instant.ts` is NOT exempt — it composes its instant from validated
-  // fields and never calls `Date.parse`); `core/clock.ts` is the console's one `Date.now`
-  // seam; and the two tests are the negative controls, which have to CALL the banned API
-  // to demonstrate that `Date.parse` answers a number for a value RFC 3339 refuses. A ban nobody can
-  // show the cost of is a ban nobody keeps.
+  // EVERY EXEMPTION EARNS ITSELF, and the earning is mechanical rather than argued:
+  // `test/console/architecture/eslint-exemption-census.test.ts` resolves this block's
+  // exempt set out of the real engine and lints each exempt file's own text at a
+  // NON-exempt path, requiring the selectors to bite. An entry whose file no longer
+  // writes the thing it was excused for fails that gate, so an exemption cannot outlive
+  // its cause.
+  //
+  // The two that remain are the negative controls, which have to CALL the banned API to
+  // demonstrate that `Date.parse` answers a number for a value RFC 3339 refuses. A ban
+  // nobody can show the cost of is a ban nobody keeps.
+  //
+  // TWO MORE WERE LISTED HERE AND NEITHER WAS EARNED. `core/clock.ts` was excused as the
+  // console's one `Date.now` seam — but `Date.now` matches no selector above, so the
+  // entry excused a file from rules it never broke. `core/wire-rejection.ts` was excused
+  // as the reading the `String(catch)` rule points at — and it names `String(...)` in its
+  // prose only, never in a `catch`. Both lint clean without an entry, which is how the
+  // census establishes it rather than by this comment saying so. What they cost while
+  // they sat here is the real thing: an exempt file is exempt from EVERY selector, so a
+  // `Date.parse` or a template-interpolated catch binding could have landed in either one
+  // and the gate would have stayed green.
   {
     files: ["src/renderer/src/console/**/*.{ts,tsx}", "src/renderer/src/shell/**/*.{ts,tsx}"],
     ignores: [
       "src/renderer/src/console/core/instant.test.ts",
-      "src/renderer/src/console/core/clock.ts",
-      "src/renderer/src/console/core/wire-rejection.ts",
       "src/renderer/src/console/primitives/wire-figures.time.test.ts",
     ],
     rules: {
