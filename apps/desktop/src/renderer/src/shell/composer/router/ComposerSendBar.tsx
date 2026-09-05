@@ -95,6 +95,15 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         void controller.send();
         return;
       }
+      if (isSending) {
+        // Everything past this point WRITES the line. A read-only textarea still
+        // receives key events, so an unguarded recall would swap the text under a
+        // person who cannot type into it — and it would advance the walk's cursor
+        // besides, so the draft they left is not the draft they come back to once
+        // the send settles. Nothing is swallowed here: the arrows stay the caret's,
+        // which is movement a read-only line still permits.
+        return;
+      }
       // The arrows recall only at the edge offsets, and only when there is something
       // to recall — otherwise they stay the caret's, which is what they are for
       // everywhere else in the input.
