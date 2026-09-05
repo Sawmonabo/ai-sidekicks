@@ -15,6 +15,27 @@
 // row arrives on — which is why the mounted window is one of that effect's
 // dependencies rather than only the index.
 //
+// THE ROW HAS ONE TAB STOP AND THE ROVING INDEX CONTROLS IT. This is the composite
+// widget rule as the WAI-ARIA Authoring Practices Guide states it, in "Developing a
+// Keyboard Interface / Managing Focus Within Components Using a Roving tabindex": the
+// element that is in the tab sequence carries `tabindex="0"` and EVERY other focusable
+// element contained in the composite carries `tabindex="-1"`. A row that put the
+// roving index on its wrapper while a button inside it kept its native stop obeyed
+// neither half — every mounted descendant stayed reachable by Tab, so the window's
+// moving row count was back in the page's tab order; the active row had two stops; and
+// this effect resolved its focus target with a `button, a[href], …, [tabindex]`
+// selector that the WRAPPER matched first, so focus landed on the wrapper by accident
+// rather than on anything declared.
+//
+// So the target is DECLARED and never discovered. `WindowedListRow` marks exactly one
+// element per row with `WINDOWED_ROW_TARGET_ATTRIBUTE` — the wrapper where the row
+// holds its own stop, the one control the row delegates to where its content IS a
+// control — and writes the roving `tabIndex` on that same element and on no other.
+// One element per row carries the marker and the stop together, which is what makes
+// "exactly one tab stop per row" a property of the component rather than of a caller's
+// discipline. This effect focuses the marked element, and a row that marked none is a
+// row the keyboard cannot land on.
+//
 // AND THE ACTIVE INDEX IS CLAMPED TO THE SET THAT EXISTS NOW. This is the defect the
 // clamp is here for: a person arrows to row 39, a filter narrows the list to five,
 // and a remembered index of 39 matches no mounted row — so `isTabbable` is false on
@@ -59,14 +80,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 export const WINDOWED_ROW_INDEX_ATTRIBUTE = "data-index";
 
 /**
- * What can be focused inside a row when the row element itself is not the tab stop.
+ * The attribute the element holding a row's tab stop carries.
  *
- * A list whose rows are controls (a file list of buttons) keeps activation on the
- * control, so the tab stop is inside the row rather than on it. The selector is the
- * ordinary interactive set; `[tabindex]` is last because a row that names its own
- * stop has said which element it wants.
+ * Declared here beside the index attribute for the same reason: this module is the
+ * READER and `WindowedListRow` is the writer, so a rename cannot leave the lookup
+ * querying an attribute nothing writes.
+ *
+ * It replaced an interactive-element selector, and the replacement is the fix rather
+ * than a tidier spelling of it. A selector asks which element in the row COULD take
+ * focus and answers with whichever matched first — the wrapper, once the wrapper
+ * carried a `tabindex` — while a marker asks which element the row SAID holds its
+ * stop. A list whose rows are controls (a file list of buttons) keeps activation on
+ * the control and marks it; a list whose rows are options marks the row.
  */
-const FOCUSABLE_WITHIN_ROW = "button, a[href], input, select, textarea, [tabindex]";
+export const WINDOWED_ROW_TARGET_ATTRIBUTE = "data-row-target";
+
+/** How the marked element is found, inside a row or as the row. */
+const WINDOWED_ROW_TARGET_SELECTOR = `[${WINDOWED_ROW_TARGET_ATTRIBUTE}]`;
 
 /** Where one key press moves the active row. */
 export type WindowedRowMove = "next" | "previous" | "first" | "last";
@@ -221,11 +251,14 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
     // Consumed here, before the focus call, so every path out of this effect has
     // spent the claim exactly once.
     pendingFocus.current = undefined;
-    const target = row.matches(FOCUSABLE_WITHIN_ROW)
+    // The element the ROW declared, never one a selector happened to match: the row
+    // marks its own wrapper where it holds the stop and marks the one control it
+    // delegates to where it does not, so this reads a statement rather than a guess.
+    const target = row.matches(WINDOWED_ROW_TARGET_SELECTOR)
       ? row
-      : row.querySelector<HTMLElement>(FOCUSABLE_WITHIN_ROW);
+      : row.querySelector<HTMLElement>(WINDOWED_ROW_TARGET_SELECTOR);
     if (target === null) {
-      // A row with nothing focusable in it is a row the keyboard cannot land on.
+      // A row that declared no focus target is a row the keyboard cannot land on.
       return;
     }
     target.focus();

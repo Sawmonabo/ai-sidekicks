@@ -11,6 +11,15 @@
 // which failed in both directions: a comment reading "deliberately not WindowedListRow"
 // switched the claim off for a whole module, and a module whose rows are a sibling
 // component was reported as an offence for naming a primitive its rows do go through.
+//
+// IT ALSO ANSWERS THE TAB-ORDER QUESTION, for the same reason. A windowed list has one
+// tab stop and the roving index controls it (the APG's roving-tabindex rule), and the
+// primitive can only write the stop on the element it renders itself — the wrapper, or
+// the one control a delegating row hands the roving props to. An interactive element a
+// caller wrote into a row as ordinary markup keeps its NATIVE stop, which puts the
+// window's moving row count back in the page's tab order, and no runtime assertion
+// inside the primitive can see it. That question is about JSX inside a JSX element,
+// which is a declaration boundary, so it is the parser's.
 
 import ts from "typescript";
 
@@ -175,4 +184,109 @@ export function windowsWithoutTheRowPrimitive(
   return handRolledWindowedRows(source, fileName).some(
     (row) => !rowComponentDelegates(row.rowComponents, modules),
   );
+}
+
+/**
+ * The host elements a browser puts in the sequential tab order without being asked.
+ *
+ * `a` is here with its `href`: an anchor without one is not focusable, and reporting
+ * it would be a false alarm on the ordinary spelling of a non-navigating link.
+ */
+const NATIVELY_TABBABLE_TAGS: readonly string[] = ["button", "input", "select", "textarea"];
+
+/** Whether the tag `element` opens is one a browser makes a tab stop by itself. */
+function isNativelyTabbable(
+  element: ts.JsxOpeningElement | ts.JsxSelfClosingElement,
+  parsed: ts.SourceFile,
+): boolean {
+  const tag = element.tagName.getText(parsed);
+  if (NATIVELY_TABBABLE_TAGS.includes(tag)) {
+    return true;
+  }
+  return tag === "a" && hasAttributeNamed(element, "href");
+}
+
+function hasAttributeNamed(
+  element: ts.JsxOpeningElement | ts.JsxSelfClosingElement,
+  name: string,
+): boolean {
+  return element.attributes.properties.some(
+    (property) =>
+      ts.isJsxAttribute(property) && ts.isIdentifier(property.name) && property.name.text === name,
+  );
+}
+
+/**
+ * The name a delegating row binds the roving props it hands out to.
+ *
+ * `<WindowedListRow …>{(targetProps) => <button {...targetProps} />}</WindowedListRow>`:
+ * the row's children are a function, and its parameter is the only spread this scan
+ * admits. Reading the NAME rather than admitting any spread is what keeps the claim
+ * exact — `{...props}` from the enclosing component says nothing about the tab order.
+ */
+function targetPropsParameterName(row: ts.JsxElement): string | undefined {
+  for (const child of row.children) {
+    if (!ts.isJsxExpression(child) || child.expression === undefined) {
+      continue;
+    }
+    const rendered = child.expression;
+    if (!ts.isArrowFunction(rendered) && !ts.isFunctionExpression(rendered)) {
+      continue;
+    }
+    const parameter = rendered.parameters[0];
+    if (parameter !== undefined && ts.isIdentifier(parameter.name)) {
+      return parameter.name.text;
+    }
+  }
+  return undefined;
+}
+
+/** Whether `element` says where it sits in the tab order rather than taking the default. */
+function declaresItsTabOrder(
+  element: ts.JsxOpeningElement | ts.JsxSelfClosingElement,
+  targetPropsName: string | undefined,
+  parsed: ts.SourceFile,
+): boolean {
+  if (hasAttributeNamed(element, "tabIndex")) {
+    return true;
+  }
+  if (targetPropsName === undefined) {
+    return false;
+  }
+  return element.attributes.properties.some(
+    (property) =>
+      ts.isJsxSpreadAttribute(property) && property.expression.getText(parsed) === targetPropsName,
+  );
+}
+
+/**
+ * Every interactive element written into a windowed row that keeps its native tab stop.
+ *
+ * Reported as the tag's own text, so a failure names what a reviewer has to look at.
+ */
+export function undeclaredRowTabStops(source: string, fileName: string): readonly string[] {
+  const parsed = parseSourceText(fileName, source);
+  const found: string[] = [];
+  forEachDescendant(parsed, (node) => {
+    if (
+      !ts.isJsxElement(node) ||
+      node.openingElement.tagName.getText(parsed) !== WINDOWED_ROW_PRIMITIVE
+    ) {
+      return;
+    }
+    const targetPropsName = targetPropsParameterName(node);
+    forEachDescendant(node, (descendant) => {
+      if (!ts.isJsxOpeningElement(descendant) && !ts.isJsxSelfClosingElement(descendant)) {
+        return;
+      }
+      if (!isNativelyTabbable(descendant, parsed)) {
+        return;
+      }
+      if (declaresItsTabOrder(descendant, targetPropsName, parsed)) {
+        return;
+      }
+      found.push(descendant.getText(parsed).replace(/\s+/gu, " "));
+    });
+  });
+  return found;
 }

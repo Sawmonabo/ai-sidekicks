@@ -164,6 +164,8 @@ export {
 export type {
   /** @consumedBy T-023p-1C-5 */
   WindowedListRowProps,
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRowTargetProps,
 } from "./WindowedListRow.js";
 export {
   /** @consumedBy T-023p-1C-5 */
@@ -180,6 +182,8 @@ export type {
 export {
   /** @consumedBy T-023p-1C-5 */
   WINDOWED_ROW_INDEX_ATTRIBUTE,
+  /** @consumedBy T-023p-1C-5 */
+  WINDOWED_ROW_TARGET_ATTRIBUTE,
   /** @consumedBy T-023p-1C-5 */
   WINDOWED_ROW_MOVE_BY_KEY,
   /** @consumedBy T-023p-1C-5 */
