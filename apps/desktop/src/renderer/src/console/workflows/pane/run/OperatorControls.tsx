@@ -67,15 +67,13 @@ import {
   formatByteQuantity,
 } from "../../../primitives/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
+import { WORKFLOW_CHROME_GLYPH_SIZE } from "../../chrome-state.js";
 import {
   cancelReasonBudget,
   reasonPastBoundRefusal,
   type WorkflowCancelControl,
   type WorkflowResumeControl,
 } from "./run-controls.js";
-
-/** Edge length of a control's glyph, matching the chrome header's scale. */
-const CONTROL_GLYPH_SIZE = 14;
 
 /** The picker value that means "resume without re-pinning". Never a version id. */
 const NO_REPIN = "";
@@ -227,7 +225,7 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
     >
       <div className="meridian-run-controls__head">
         <button type="submit" className="meridian-run-controls__action">
-          <Glyph name="stop" size={CONTROL_GLYPH_SIZE} />
+          <Glyph name="stop" size={WORKFLOW_CHROME_GLYPH_SIZE} />
           Cancel this run
         </button>
         <span className="meridian-run-controls__note">
@@ -297,7 +295,7 @@ function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): 
     >
       <div className="meridian-run-controls__head">
         <button type="submit" className="meridian-run-controls__action">
-          <Glyph name="play" size={CONTROL_GLYPH_SIZE} />
+          <Glyph name="play" size={WORKFLOW_CHROME_GLYPH_SIZE} />
           Resume this run
         </button>
         <span className="meridian-run-controls__note">
