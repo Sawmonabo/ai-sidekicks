@@ -19,8 +19,17 @@
 // The tear-off is the same body at a different size, so a second component would be
 // two renderings of one design drifting apart the first time either was edited.
 //
+// AND THE TWO MOUNTS WEAR DIFFERENT FRAMES, WHICH IS THE WHOLE REASON THE BODY IS ITS
+// OWN MODULE. The deck's pane wears `seats/ConsolePaneChrome` like every other pane
+// kind, so its head, its trail, its focus ring, and its two host controls are the
+// console's one answer rather than this family's; the window wears its own heading,
+// because an auxiliary window owns its frame, shares no store, and cannot be detached
+// from itself. While one component drew both, this kind was the only detachable one
+// whose deck mount never reached the chrome — so the control that opens it in a
+// window had nowhere to render.
+//
 // This family REPLACES the shipped node roster's claim on the `agent-console` slot.
-// The roster is not discarded: it is absorbed into the pane's machines column,
+// The roster is not discarded: it is absorbed into the body's machines column,
 // which is where it always belonged — it answers "which machines can this session's
 // agents run on", and that is a column of an agent console rather than a window.
 
@@ -28,45 +37,67 @@ import { createElement } from "react";
 
 import type { ConsoleSurfaceRegistry } from "../../frame/surface-registry.js";
 import { routeSessionId } from "../../routing/index.js";
-import type { ConsolePaneRegistry } from "../../seats/index.js";
-import { AgentConsolePane } from "./AgentConsolePane.js";
+import { ConsolePaneChrome, paneBodyForKind, type ConsolePaneRegistry } from "../../seats/index.js";
+import { AgentConsoleBody } from "./AgentConsoleBody.js";
+import { AgentConsoleWindow } from "./AgentConsoleWindow.js";
+
+/** The owner string both of this body's claims carry, so a hot reload replaces. */
+const AGENT_CONSOLE_OWNER = "collaboration-agent-console";
 
 /**
- * Claim the `agent-console` pane kind.
+ * Claim the `agent-console` pane kind, and wrap its body in the console's chrome.
  *
- * Whether the kind may be torn off is `isDetachablePaneKind`'s single answer,
- * derived from the window model — this registration makes no claim about it. It is
- * one of the two kinds the spec's surface set admits into an auxiliary window, and
- * the surface registration below is what that window mounts.
+ * THE CHROME IS COMPOSED HERE RATHER THAN INSIDE THE BODY, because the body is also
+ * the window's and the window draws its own frame. Everything the chrome is handed is
+ * read off the pane's address: the session the pane's store is open on, the agent
+ * reference the address carries, and the hue the deck attributed the pane to. It is
+ * handed no `actions` — this kind has no head control of its own today, and an empty
+ * strip is what that honestly renders as — and neither host control, because closing a
+ * pane and tearing one off are the DECK's acts: they reach the chrome through the
+ * context the deck provides around every pane it lays out, and a control whose act
+ * nobody can perform is left out rather than drawn disabled.
+ *
+ * Whether the kind may be torn off at all is `isDetachablePaneKind`'s single answer,
+ * derived from the window model — this registration makes no claim about it, and
+ * passing a handler would not have made the control appear either.
+ *
+ * The narrowing and the mismatch refusal are the seat's: `paneBodyForKind` hands this
+ * render an address already narrowed to the arm it claims, so the entity below is an
+ * agent reference or nothing rather than a member some other arm might carry, and a
+ * context that arrived at the wrong door renders a named refusal instead of throwing
+ * inside the deck.
  */
 export function registerAgentConsolePane(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "agent-console",
-    owner: "collaboration-agent-console",
-    render: (context) =>
-      createElement(AgentConsolePane, {
+    owner: AGENT_CONSOLE_OWNER,
+    render: paneBodyForKind("agent-console", (context) =>
+      // `children` is passed as a PROP rather than as this call's third argument: the
+      // chrome declares it required, and `createElement`'s variadic overload does not
+      // satisfy a required `children` — it type-checks the props object on its own.
+      createElement(ConsolePaneChrome, {
+        kind: "agent-console",
         sessionId: context.sessionStore?.sessionId,
-        // The context is the whole address union, so it is narrowed on the kind this
-        // descriptor claims before its entity is read: `entity` is not a member of
-        // every arm, and the arms that have one carry a reference to something an
-        // agent console is not a view of. The registry dispatches by kind, so no
-        // other arm reaches this body — and a context that somehow arrived at the
-        // wrong door settles as the pane's own "no agent named" reading, which the
-        // body already draws, rather than as a throw inside a render.
-        agentId: context.kind === "agent-console" ? context.entity?.id : undefined,
-        bridge: context.bridge,
-        sessionStore: context.sessionStore,
+        entity: context.entity,
+        focusHue: context.focusHue,
+        children: createElement(AgentConsoleBody, {
+          sessionId: context.sessionStore?.sessionId,
+          agentId: context.entity?.id,
+          bridge: context.bridge,
+          sessionStore: context.sessionStore,
+        }),
       }),
+    ),
   });
 }
 
-/** Claim the `agent-console` surface slot — the same body, in its own window. */
+/** Claim the `agent-console` surface slot — the same body, under a window's heading. */
 export function registerAgentConsoleSurface(registry: ConsoleSurfaceRegistry): void {
   registry.register({
     slot: "agent-console",
-    owner: "collaboration-agent-console",
+    owner: AGENT_CONSOLE_OWNER,
     render: (context) =>
-      createElement(AgentConsolePane, {
+      createElement(AgentConsoleWindow, {
         sessionId: routeSessionId(context.route),
         agentId:
           context.route.kind === "auxiliary" && "agentId" in context.route

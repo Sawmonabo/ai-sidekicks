@@ -1,10 +1,21 @@
-// The agent console: what one agent is running under, in a pane or in a window.
+// The agent console's body: what one agent is running under, in four columns.
 //
-// `Spec-023 §Console Design (Meridian)` §The surface set ships exactly two auxiliary
-// windows, and this is one of them — so this body is mounted twice, by the deck as a
-// pane and by the frame as the `agent-console` surface. It takes plain props rather
-// than either context so neither mount has to translate the other's shape, and so the
-// component can be driven in a test without building a deck or a route.
+// THE FRAME IS NOT THIS MODULE'S, AND THAT IS WHY THIS FILE IS A BODY RATHER THAN A
+// PANE. `Spec-023 §Console Design (Meridian)` §The surface set ships exactly two
+// auxiliary windows and this is one of them, so these columns are mounted twice — by
+// the deck inside `seats/ConsolePaneChrome`, which draws the section, the kind glyph,
+// the breadcrumb trail, the control strip and the body box; and by the frame inside
+// `AgentConsoleWindow.tsx`, which draws the window's own heading. This module draws
+// neither. It had a section and a head of its own while it was both mounts at once,
+// and the cost was the one the chrome exists to end: the deck's detach control was
+// unreachable for the second of the two kinds that has a window route, because
+// nothing in the deck ever wrapped this body in the chrome that renders it.
+//
+// SO THERE IS NO HEADING HERE. The pane is named by the chrome's whole trail and the
+// window by its own heading, and a third name inside the body would be a second
+// answer to what this surface is called — which is exactly the drift six families
+// each drawing a head produced. The columns keep their own headings, because they
+// name parts of this body rather than the body itself.
 //
 // EVERY WIRE-BACKED PROP IS OPTIONAL, AND THAT IS NOT LAZINESS. An auxiliary address
 // resolves to a session and may name no agent; a bare route resolves to no session at
@@ -32,14 +43,14 @@
 import { useAgentConsoleModels } from "../run-console/agent-console-model.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
-import { Nothing, WireFigure } from "../../primitives/index.js";
+import { Nothing } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
 import { PeerInvocationMount } from "./PeerInvocationMount.js";
 import { RunLinkageMount } from "./RunLinkageMount.js";
 import { SidekickDefinitionEditorMount } from "./SidekickDefinitionEditorMount.js";
 
-export interface AgentConsolePaneProps {
+export interface AgentConsoleBodyProps {
   /** The session this console is scoped to, wire-verbatim. */
   readonly sessionId: string | undefined;
   /**
@@ -48,7 +59,10 @@ export interface AgentConsolePaneProps {
    * `undefined` is reachable and is not a fault: the frame's context picker resolves
    * a bare auxiliary address by choosing a SESSION, and the agent-console grammar
    * carries its agent with its session or not at all, so a picked session arrives
-   * here with no agent named. The pane says which half it is missing.
+   * here with no agent named. Both mounts say which half they are missing where they
+   * say what this surface is — the deck through a trail with no agent crumb in it,
+   * the window through the sentence under its heading — and the binding column below
+   * answers it by showing the whole roster rather than one card.
    */
   readonly agentId: string | undefined;
   /**
@@ -64,24 +78,11 @@ export interface AgentConsolePaneProps {
   readonly sessionStore?: SessionStore | undefined;
 }
 
-export function AgentConsolePane(props: AgentConsolePaneProps): React.JSX.Element {
+export function AgentConsoleBody(props: AgentConsoleBodyProps): React.JSX.Element {
   const models = useAgentConsoleModels(props.bridge, props.sessionStore);
 
   return (
-    <section className="meridian-agent-console" aria-label="Agent console">
-      <header className="meridian-agent-console__head">
-        <h2 className="meridian-agent-console__title">Agent console</h2>
-        {props.agentId === undefined ? (
-          <p className="meridian-agent-console__subject">
-            This console is open on a session and not yet on one of its agents.
-          </p>
-        ) : (
-          <p className="meridian-agent-console__subject">
-            <WireFigure value={props.agentId} />
-          </p>
-        )}
-      </header>
-
+    <div className="meridian-agent-console">
       <div className="meridian-agent-console__columns">
         <div className="meridian-agent-console__column" aria-label="Binding">
           <h3 className="meridian-agent-console__column-title">Binding</h3>
@@ -121,6 +122,6 @@ export function AgentConsolePane(props: AgentConsolePaneProps): React.JSX.Elemen
           />
         </div>
       </div>
-    </section>
+    </div>
   );
 }
