@@ -14,11 +14,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import {
-  LEDGER_JUMP_ABSENCES,
-  type LedgerJumpAbsence,
-  type LedgerJumpOutcome,
-} from "../../ledger/structure/index.js";
+import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "../../ledger/structure/index.js";
+// Deeply, and only here: the tuple's one consumer outside its own directory is this
+// suite's totality case, so a door line for it would be a door widened for testing.
+import { LEDGER_JUMP_ABSENCES } from "../../ledger/structure/filters.js";
 import { foldChapterHeaders } from "./ledger-chapter-fold.js";
 import {
   SESSION_ID,

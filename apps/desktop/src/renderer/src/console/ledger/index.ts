@@ -55,18 +55,21 @@ import "./ledger.css";
 
 // This door carries the family's REGISTRATIONS and no pieces.
 //
-// `registerLedger` claims the surfaces and contributes the family's palette rows
-// and chords, and `registerFixtureShellRows` fills the row seat on its own — which a caller mounting the pane without the surfaces
-// around it needs, and which the accessibility tier is. Both are acts rather than
-// parts, which is what makes them the door's business.
+// `registerLedger` claims the surfaces, contributes the family's palette rows and
+// chords, and fills the row seat. It is an act rather than a part, which is what
+// makes it the door's business.
+//
+// THE ROW SEAT'S OWN CLAIM IS NOT A DOOR LINE. `registerFixtureShellRows` is called
+// from inside `registerLedger` and reached from outside by one accessibility suite,
+// which mounts the rows without the surfaces around them — and a door line whose only
+// consumer is a test is a door widened for testing, which `barrel-census.test.ts`
+// reports by name. That suite reaches the shell's own module directly.
 //
 // The three sub-barrels this used to re-export upward were reached by no importer
 // at all: the pane, the feed, and the cards reach `cards/`, `frame/`, and
 // `structure/` by their own paths, which is what an intra-family import is for. So
 // re-exporting them here published seventy-six symbols nobody asked for, and the
 // dead-code gate reported exactly that.
-
-export { registerFixtureShellRows } from "./cards/FixtureShellRows.js";
 
 /**
  * The owner string every ledger claim carries.

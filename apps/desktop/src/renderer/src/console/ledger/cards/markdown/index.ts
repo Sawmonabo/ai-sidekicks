@@ -8,25 +8,18 @@
 //
 // THIS IS NOT A CONSOLE FAMILY DOOR. `ledger/cards/index.ts` is the ledger cards' one
 // barrel; this is an intra-family module boundary one level below it, so nothing outside
-// `cards/` imports through here. The star form is `ledger/frame/index.ts`' — every
-// consumer is a sibling piece of this same task, so a named barrel would be a list of
-// findings and a `@consumedBy` tag would name the task that already owns the file.
-//
-// The comment on each line is the table a named barrel would have been: what the module
-// carries, in dependency order, low to high.
+// `cards/` imports through here. Named rather than starred, so the census can enumerate
+// what the pipeline publishes: the highlighter, the code theme, the worker protocol and
+// the caches are the pipeline's own internals and stop at this line.
 
-export * from "./byte-bounded-cache.js"; // the byte bound both caches spend
-export * from "./meridian-code-theme.js"; // the token families, and the theme that emits them
-export * from "./code-tokenizer.js"; // one shiki core per realm, and the grammar table
-export * from "./highlight-protocol.js"; // the two messages the worker boundary carries
-export * from "./highlight-scheduler.js"; // where a block is tokenised, and where it is kept
-export * from "./markdown-parse.js"; // micromark + mdast, once per settled block
-export * from "./block-segmenter.js"; // committed prefix, volatile tail
-export * from "./footnote-registry.js"; // definitions, keyed by source
-export * from "./footnote-collection.js"; // finding them without rendering them
-export * from "./footnote-popover-context.js"; // where a marker finds its host
-export * from "./CodeBlock.js"; // the own span renderer
-export * from "./MathBlock.js"; // the one dangerouslySetInnerHTML site
-export * from "./FootnoteReference.js"; // the marker, and the control it becomes
-export * from "./MarkdownNodes.js"; // the mapper
-export * from "./FootnotePopoverHost.js"; // one popup per body, and the uncited names
+export { FootnotePopoverHost } from "./FootnotePopoverHost.js";
+export { MarkdownNodes, type MarkdownRenderContext } from "./MarkdownNodes.js";
+export { MarkdownBlockSegmenter } from "./block-segmenter.js";
+export { measureUtf8ByteLength } from "./byte-bounded-cache.js";
+export { collectFootnoteDefinitions, collectFootnoteReferences } from "./footnote-collection.js";
+export { FootnoteRegistry } from "./footnote-registry.js";
+export {
+  footnoteDefinitionPreamble,
+  parseSettledBlock,
+  parseVolatileTail,
+} from "./markdown-parse.js";

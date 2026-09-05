@@ -128,7 +128,6 @@ export {
   TIMELINE_ROW_DENSITIES,
   registerTimelineRowRenderer,
   timelineRowRenderer,
-  unregisterTimelineRowRenderer,
   type TimelineRowDensity,
   type TimelineRowRenderer,
   type TimelineRowSlotProps,

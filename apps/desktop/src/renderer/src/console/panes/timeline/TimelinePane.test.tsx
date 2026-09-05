@@ -21,7 +21,9 @@ import { SidekicksBridgeProvider, createFixtureBridge } from "../../bridge/index
 import { LEDGER_QUIET_SCENARIO } from "../../bridge/scenarios/ledger-quiet.js";
 import { FrameStore, SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
-import { registerTimelineRowRenderer, unregisterTimelineRowRenderer } from "../../seats/index.js";
+import { registerTimelineRowRenderer } from "../../seats/index.js";
+// Deeply: the teardown is reached by tests alone, so it is not a door line.
+import { unregisterTimelineRowRenderer } from "../../seats/timeline-row-slot.js";
 // The shared stub rather than a second one: `happy-dom` reports zero for both box
 // readings, and a viewport with no box holds no rows — a case that stubbed only the
 // height would be measuring its own setup.

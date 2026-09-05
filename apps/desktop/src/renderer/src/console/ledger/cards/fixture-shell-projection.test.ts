@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { isContractTimelineRow } from "../../bridge/timeline-row-contract.test-support.js";
 import { type ConsoleSessionEvent } from "../../store/index.js";
-import { deriveSupersededBands } from "../structure/index.js";
+// Deeply, and not through `structure/index.ts`: this is the only consumer outside
+// that directory and it is a test, so a door line for it would be a door widened for
+// testing — which is the finding `barrel-census.test.ts` reports.
+import { deriveSupersededBands } from "../structure/superseded-bands.js";
 import { projectFixtureShellRows } from "./fixture-shell-projection.js";
 
 const SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5a44a5";

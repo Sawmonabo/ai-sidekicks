@@ -82,14 +82,20 @@ const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT
 /**
  * The two doors that publish nothing they did not declare themselves.
  *
- * Both are composition sites: `scenarios/index.ts` composes the scenario list and
- * `panes/index.ts` registers the pane board, each declaring its one export in place
- * rather than forwarding a name from elsewhere. Named here so the per-door claim
- * below is a quantifier rather than a predicate that could grow to admit anything.
+ * The doors that publish nothing they did not declare themselves.
+ *
+ * All are composition sites: `scenarios/index.ts` composes the scenario list,
+ * `panes/index.ts` registers the pane board, `panes/<family>/index.ts` claims that
+ * family's pane kinds, and a family's own `<family>/index.ts` claims its surfaces,
+ * palette rows and chords — every one of them declaring its exports in place rather
+ * than forwarding a name from elsewhere. Named here so the per-door claim below is a
+ * quantifier rather than a predicate that could grow to admit anything.
  */
 const DOORS_THAT_FORWARD_NOTHING: readonly string[] = [
   `${CONSOLE_PREFIX}/bridge/scenarios/index.ts`,
+  `${CONSOLE_PREFIX}/ledger/index.ts`,
   `${CONSOLE_PREFIX}/panes/index.ts`,
+  `${CONSOLE_PREFIX}/panes/timeline/index.ts`,
 ];
 
 function toKey(absolutePath: string): string {

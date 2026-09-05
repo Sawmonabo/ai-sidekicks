@@ -13,41 +13,55 @@
 // directory is a value a test can drive with no DOM at all, which is why the
 // derivations and the painting live in different files.
 //
-// WHY EVERY LINE BELOW IS A STAR RE-EXPORT, which is `ledger/frame/index.ts`'s form
-// and its reason: the dead-code gate reports an unused re-export at the SPECIFIER,
-// so a named barrel written ahead of its consumers is a list of findings, and the
-// only exemption for that is a `@consumedBy` tag — which is for a symbol a DIFFERENT
-// task will import. Every consumer of this door is a sibling piece of this same task
-// (the pane that mounts the rail, the frame that folds the chapters, the deck that
-// reveals the replay dock), so a tag here would name the task that already owns the
-// file.
+// WHY EVERY LINE BELOW IS NAMED. A door is what a name uses to LEAVE this directory,
+// and until this file was named it forwarded seventeen modules with `export *`, so the
+// census could not enumerate what it published and a reader could not tell the
+// family's interface from what happened to be exported beside it. The list below is
+// exactly what `panes/timeline/` and `ledger/cards/` import — the painter, the seam
+// classifier's internals, the rail's own geometry and the command table's fixtures
+// stop here, reached deeply by their siblings inside this directory.
 //
-// AND HERE IS WHAT THE FORM COSTS, because it was paid once already. A star
-// re-export gives the dead-code gate no specifier to hang a finding on, so a module
-// behind one is invisible to it however dead it is: `filters.js` shipped complete
-// and tested with no production caller at all, and the gate stayed green through
-// every run because this line, not the module, is what it saw. The claim above —
-// that every consumer is a sibling piece already in this task — is the only thing
-// standing between the form and that outcome, so a line added here without its
-// consumer landing in the same change is a dead module CI cannot report, and review
-// is the only reader left. Add the consumer, or add the line later.
-//
-// The comment on each line is the table a named barrel would have been: what the
-// module carries, in DAG order, low to high.
+// A NAME REACHED ONLY BY A TEST IS NOT ON THIS LIST. Three were: the superseded-band
+// derivation, the jump-absence tuple and the replay-state tuple, each imported by one
+// suite in another directory to assert totality over a closed set. A door line for a
+// test is a door widened for testing, so those three suites reach their module
+// directly and the door publishes what production reaches.
 
-export * from "./constants.js"; // the caps and geometry every module here spends
-export * from "./chapters.js"; // one run's rows, folded, and which chapters are open
-export * from "./ChapterHeader.js"; // one finished run, folded to a line somebody can open
-export * from "./seams.js"; // epochs as geography, one row at a time
-export * from "./SeamRow.js"; // one seam, on one line, every part wire-sourced
-export * from "./superseded-bands.js"; // which rows a rewind put behind it, kept and dimmed
-export * from "./rail-model.js"; // the minimap's marks, with no DOM in them
-export * from "./ProvenanceRail.js"; // the canvas, the hit strip, and the keyboard walk
-export * from "./replay-model.js"; // playback over the frozen clock
-export * from "./ReplayControls.js"; // the docked scrub-and-play control
-export * from "./filters.js"; // participant and family narrowing, and the jumps
-export * from "./LedgerFilterBar.js"; // the facet bar that reaches that narrowing
-export * from "./find-model.js"; // the matcher, and the boundary it states
-export * from "./FindInLedger.js"; // the find field itself
-export * from "./mounted-ledger.js"; // which mounted ledger a command acts on
-export * from "./structure-commands.js"; // what all of it contributes to the palette
+export { ChapterHeader } from "./ChapterHeader.js";
+export { FindInLedger } from "./FindInLedger.js";
+export { LedgerFilterBar } from "./LedgerFilterBar.js";
+export { ProvenanceRail } from "./ProvenanceRail.js";
+export { ReplayControls } from "./ReplayControls.js";
+export { SeamRow } from "./SeamRow.js";
+export { ChapterCollapseState, LedgerChapterIndex, type LedgerChapter } from "./chapters.js";
+export { CHAPTER_VISIBLE_ROW_CAP } from "./constants.js";
+export {
+  UNFILTERED_LEDGER,
+  applyLedgerFilter,
+  deriveLedgerFacets,
+  isLedgerFiltered,
+  jumpToEventId,
+  scopeLedgerRowsToChannel,
+  type LedgerFacets,
+  type LedgerFilter,
+  type LedgerJumpAbsence,
+  type LedgerJumpOutcome,
+  type LedgerJumpStages,
+} from "./filters.js";
+export {
+  emptyFindResult,
+  findInLedger,
+  stepFindMatch,
+  type LedgerFindResult,
+} from "./find-model.js";
+export { useMountedLedger, type LedgerStructureActs } from "./mounted-ledger.js";
+export { ProvenanceRailModel, railViewportBand, type RailViewportBand } from "./rail-model.js";
+export {
+  ReplayEngine,
+  type ReplayPosition,
+  type ReplaySpeed,
+  type ReplayState,
+} from "./replay-model.js";
+export { LedgerSeamIndex, type LedgerSeam } from "./seams.js";
+export { LEDGER_COMMAND_OWNER, registerLedgerCommands } from "./structure-commands.js";
+export { SupersededIndex } from "./superseded-bands.js";

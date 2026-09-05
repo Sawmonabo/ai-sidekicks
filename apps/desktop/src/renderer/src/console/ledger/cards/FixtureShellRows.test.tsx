@@ -8,9 +8,10 @@ import { LedgerRowLeaseProvider, type LedgerRowLease } from "../frame/index.js";
 import {
   registerTimelineRowRenderer,
   timelineRowRenderer,
-  unregisterTimelineRowRenderer,
   type TimelineRowSlotProps,
 } from "../../seats/index.js";
+// Deeply: the teardown is reached by tests alone, so it is not a door line.
+import { unregisterTimelineRowRenderer } from "../../seats/timeline-row-slot.js";
 import {
   FIXTURE_SHELL_OWNER,
   FixtureShellRow,

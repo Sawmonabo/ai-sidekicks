@@ -106,7 +106,7 @@ export { growthSlateRow, type GrowthSlateRow } from "./growth-slate.js";
 // declaration in the workspace family would be the parallel closed set the module
 // rule forbids, and the draft's own type derives from the contracts package, so the
 // compiler holds the two to each other at the call site.
-export { SIDEKICK_POSTURE_MODES, type SidekickPostureMode } from "./sidekick-definition.js";
+export { SIDEKICK_POSTURE_MODES } from "./sidekick-definition.js";
 
 // The boot-time scenario decision. Exported through this door because the
 // renderer root reads it — it is the one console fact that arrives on the

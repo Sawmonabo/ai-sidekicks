@@ -46,14 +46,17 @@ import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/s
 import { LEDGER_QUIET_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger-quiet.js";
 import { LEDGER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/ledger.js";
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
-import { registerFixtureShellRows } from "../../../src/renderer/src/console/ledger/index.js";
+// Deeply, and not through `ledger/index.ts`: this tier is the shell claim's only
+// consumer outside the family, and a door line whose one reader is a test is a door
+// widened for testing.
+import { registerFixtureShellRows } from "../../../src/renderer/src/console/ledger/cards/FixtureShellRows.js";
 import {
   TimelinePane,
   type TimelinePaneContext,
 } from "../../../src/renderer/src/console/panes/timeline/TimelinePane.js";
 import { FrameStore, SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
-import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console/seats/index.js";
+import { unregisterTimelineRowRenderer } from "../../../src/renderer/src/console/seats/timeline-row-slot.js";
 
 /**
  * The cursor a scenario's log is applied on top of.
