@@ -132,6 +132,9 @@ const PANE_BOARD_SUBDIRECTORY_TREE: PlantedTree = {
  */
 const PROOF_TREE: PlantedTree = { ...CLEAN_TREE, "core/clock.ts": `export const NOW = 0;\n` };
 
+/** What the config loader answers, named so the memo below can hold its promise. */
+type LayeringConfiguration = Awaited<ReturnType<typeof extractDepcruiseConfig>>;
+
 /** Every tree this file plants. The memo control bounds the cruise count on it. */
 const EVERY_PLANTED_TREE: readonly PlantedTree[] = [
   CLEAN_TREE,
@@ -202,6 +205,29 @@ class PlantedTreeCache {
   readonly #violationsByTree = new Map<PlantedTree, Promise<readonly string[]>>();
   #plantedRoots: string[] = [];
   #removedRoots: string[] = [];
+  // The rule set, loaded ONCE for the file rather than once per cruise. Extracting it
+  // resolves and imports `.dependency-cruiser.mjs` through the same loader the CLI
+  // uses, which is a real module load and has nothing to do with the tree being
+  // cruised — so a file that cruises four trees paid for four identical loads, and
+  // each landed inside the per-case budget of whichever case reached a tree first.
+  // Held as the PROMISE rather than the value so two cases racing for it still load
+  // once, exactly as the cruise results above are.
+  #configuration: Promise<LayeringConfiguration> | undefined = undefined;
+  #configurationLoadCount = 0;
+
+  /** The rule set every cruise runs, loaded on first use and remembered. */
+  #configurationOnce(): Promise<LayeringConfiguration> {
+    if (this.#configuration === undefined) {
+      this.#configurationLoadCount += 1;
+      this.#configuration = extractDepcruiseConfig(CONFIG_PATH);
+    }
+    return this.#configuration;
+  }
+
+  /** How many times the rule set has been loaded, for the control that it is once. */
+  public get configurationLoadCount(): number {
+    return this.#configurationLoadCount;
+  }
 
   /**
    * Which rules fired on `tree`, on which edge — cruised once and remembered.
@@ -269,7 +295,7 @@ class PlantedTreeCache {
    */
   async #cruiseOnce(tree: PlantedTree): Promise<readonly string[]> {
     const plantRoot = await this.#plant(tree);
-    const configuration = await extractDepcruiseConfig(CONFIG_PATH);
+    const configuration = await this.#configurationOnce();
     const { forbidden } = configuration;
     if (forbidden === undefined) {
       // The loader types the set as optional, and a run over an empty rule set would
@@ -404,6 +430,22 @@ describe("console layering rules", () => {
       const first = cruiseCache.violationsFor(CLEAN_TREE);
       expect(cruiseCache.violationsFor(CLEAN_TREE)).toBe(first);
       expect(cruiseCache.cruisedTreeCount).toBeLessThanOrEqual(EVERY_PLANTED_TREE.length);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "control: the rule set is loaded once, however many trees are cruised",
+    async () => {
+      // The other half of the memo, and invisible without this: extracting the config
+      // resolves and imports the real `.dependency-cruiser.mjs` through the CLI's own
+      // loader, which has nothing to do with the tree being cruised — so a load per
+      // cruise put that cost inside the budget of whichever case reached a tree first.
+      // Asserted after a cruise has been awaited, so a count of zero cannot pass it.
+      // Perturbed by unmemoizing: the count reads 4.
+      await cruiseCache.violationsFor(CLEAN_TREE);
+      expect(cruiseCache.cruisedTreeCount).toBeGreaterThan(0);
+      expect(cruiseCache.configurationLoadCount).toBe(1);
     },
     ONE_TREE_MS,
   );
