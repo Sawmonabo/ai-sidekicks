@@ -26,9 +26,9 @@ const PANE_TEST_OWNER = "ledger-test";
  * building all of that to hand four fields to a function that copies four fields
  * would make the setup the subject.
  */
-function surfaceContext(): ConsoleSurfaceContext {
+function surfaceContext(sessionId = "session-7"): ConsoleSurfaceContext {
   return {
-    route: { kind: "workspace", sessionId: "session-7" },
+    route: { kind: "workspace", sessionId },
     bridge: { source: "fixture" },
     frameStore: {},
     sessionStore: undefined,
@@ -55,11 +55,15 @@ function registeredLedger(): ConsoleSurfaceRegistry {
   return registry;
 }
 
-function renderedElement(node: ReactNode): { type: unknown; props: Record<string, unknown> } {
+function renderedElement(node: ReactNode): {
+  type: unknown;
+  key: string | null;
+  props: Record<string, unknown>;
+} {
   if (!isValidElement<Record<string, unknown>>(node)) {
     throw new Error(`expected a React element, got ${String(node)}`);
   }
-  return { type: node.type, props: node.props };
+  return { type: node.type, key: node.key, props: node.props };
 }
 
 /** The pane context the surface built, read off the element it produced. */
@@ -157,5 +161,70 @@ describe("the ledger — what it mounts", () => {
     const nothing = renderedElement(absence.props["children"] as ReactNode);
     expect(nothing.props["kind"]).toBe("empty");
     expect(nothing.props["placement"]).toBe("surface");
+  });
+});
+
+describe("the ledger — what decides the mounted subtree's lifetime", () => {
+  // Both slots hold per-session state nothing else resets, and the shell deliberately
+  // OPENS session stores without closing them on navigation — so moving between two
+  // already-open sessions RE-RENDERS these positions rather than unmounting them. A key
+  // on the route's session is what makes each subtree's lifetime match the thing it
+  // holds state about; without it the second session inherits the first's panes,
+  // windows, chapter disclosure, reading anchor, and row leases, and nothing says so.
+  //
+  // Read off the element rather than through a render, on this file's own reasoning:
+  // a key is carried by the element, and asserting it here is asserting the wiring.
+
+  it("keys the workspace subtree on the route's session", () => {
+    const registry = registeredLedger();
+    const shell = renderedElement(registry.descriptorFor("workspace")?.render(surfaceContext()));
+    expect(renderedElement(shell.props["children"] as ReactNode).key).toBe("session-7");
+  });
+
+  it("keys the pane subtree on the route's session, the same way and for the same reason", () => {
+    consolePaneRegistry.register({
+      kind: "timeline",
+      owner: PANE_TEST_OWNER,
+      render: (context) => context as unknown as ReactNode,
+    });
+    const registry = registeredLedger();
+    const descriptor = registry.descriptorFor("timeline");
+    expect(renderedElement(descriptor?.render(surfaceContext())).key).toBe("session-7");
+    expect(renderedElement(descriptor?.render(surfaceContext("session-8"))).key).toBe("session-8");
+  });
+
+  it("negative control: a re-render of the SAME session keys identically, so it is not a remount", () => {
+    // Without this, both cases above would pass over a key that changed on every
+    // render — which remounts the ledger on every keystroke and loses the very state
+    // the key exists to scope.
+    consolePaneRegistry.register({
+      kind: "timeline",
+      owner: PANE_TEST_OWNER,
+      render: (context) => context as unknown as ReactNode,
+    });
+    const registry = registeredLedger();
+    const descriptor = registry.descriptorFor("timeline");
+    const first = renderedElement(descriptor?.render(surfaceContext())).key;
+    expect(renderedElement(descriptor?.render(surfaceContext())).key).toBe(first);
+    const workspace = registry.descriptorFor("workspace");
+    const firstWorkspaceKey = renderedElement(
+      renderedElement(workspace?.render(surfaceContext())).props["children"] as ReactNode,
+    ).key;
+    expect(
+      renderedElement(
+        renderedElement(workspace?.render(surfaceContext())).props["children"] as ReactNode,
+      ).key,
+    ).toBe(firstWorkspaceKey);
+  });
+
+  it("falls back to a named key rather than an absent one when the route names no session", () => {
+    const registry = registeredLedger();
+    const shell = renderedElement(
+      registry.descriptorFor("workspace")?.render({
+        ...surfaceContext(),
+        route: { kind: "settings" },
+      } as unknown as ConsoleSurfaceContext),
+    );
+    expect(renderedElement(shell.props["children"] as ReactNode).key).toBe("no-session");
   });
 });

@@ -245,7 +245,14 @@ function mountLedgerPane(context: ConsoleSurfaceContext): ReactNode {
   }
   return createElement(
     "div",
-    { className: "meridian-ledger-surface" },
+    // Keyed on the route's session, exactly as the workspace slot beside it is and
+    // for the same reason: this position holds strictly more per-session state —
+    // chapter disclosure, row retention, the replay walk, the reveal engine's lanes,
+    // the viewport's reading anchor and row leases, the find query, the pending jump
+    // — and moving between two already-open sessions re-renders it rather than
+    // unmounting it. The key is what makes the subtree's lifetime match the thing it
+    // holds state about.
+    { className: "meridian-ledger-surface", key: routeSessionId(context.route) ?? "no-session" },
     descriptor.render(ledgerPaneContext(context)),
   );
 }
