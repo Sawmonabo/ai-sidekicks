@@ -6,15 +6,9 @@
 // `live-announcer.ts`. So this provider renders both of them, empty, above whatever
 // it wraps, and no other component in the console ever creates an `aria-live` node.
 //
-// WHY BOTH THE ROLE AND THE `aria-live` ATTRIBUTE. `role="status"` and
-// `role="alert"` already imply `aria-live="polite"` / `"assertive"` and
-// `aria-atomic="true"`, so the attributes are redundant on paper. They are written
-// anyway because the redundancy is free and the failure it covers is silent: the
-// pairing is honoured unevenly across screen-reader and browser combinations, and a
-// region that is not announced looks exactly like a region nothing was sent to.
-// `aria-atomic="true"` is the part that is NOT safely left implicit — without it a
-// reader may speak only the changed text node, which for a message replacing a
-// message is a fragment of a sentence.
+// WHAT THE REGIONS THEMSELVES ARE is `LiveRegion.tsx` beside this one: the roles,
+// the attributes, and the subscription that keeps a region speaking without being
+// replaced. This module decides who owns an announcer and for how long.
 //
 // WHY THE REGIONS ARE OUTSIDE THE FRAME'S `inert` WRAPPER. `AppFrame` marks its
 // background `inert` for the lifetime of a modal overlay, which takes everything
@@ -23,18 +17,11 @@
 // one they just caused from inside the dialog. Rendering above the frame keeps them
 // reachable, and costs no layout: `meridian-visually-hidden` is out of flow.
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useState,
-  useSyncExternalStore,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 import { type ConsoleClock } from "../core/index.js";
 import { LiveAnnouncer, type Announce } from "./live-announcer.js";
+import { LiveRegion } from "./LiveRegion.js";
 
 const LiveAnnouncerContext = createContext<LiveAnnouncer | undefined>(undefined);
 
@@ -132,49 +119,4 @@ export function useAnnounce(): Announce {
     throw new Error(OUTSIDE_PROVIDER);
   }
   return announcer.announce;
-}
-
-interface LiveRegionProps {
-  readonly announcer: LiveAnnouncer;
-}
-
-/**
- * The two regions. Rendered once per window and never conditionally.
- *
- * `useSyncExternalStore` rather than a `useState` an effect writes into: an
- * announcement raised between this component's render and its subscription would be
- * missed by the effect shape, and a missed announcement is silent by construction.
- * The announcer holds one snapshot object between changes, so the comparison is a
- * pointer check and an unchanged region costs no render.
- */
-function LiveRegion(props: LiveRegionProps): React.JSX.Element {
-  const { announcer } = props;
-  const subscribe = useCallback(
-    (onStoreChange: () => void) => announcer.subscribe(onStoreChange),
-    [announcer],
-  );
-  const read = useCallback(() => announcer.state, [announcer]);
-  const announced = useSyncExternalStore(subscribe, read, read);
-  return (
-    <>
-      <div
-        className="meridian-visually-hidden"
-        data-live-region="polite"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
-      >
-        {announced.polite}
-      </div>
-      <div
-        className="meridian-visually-hidden"
-        data-live-region="assertive"
-        role="alert"
-        aria-live="assertive"
-        aria-atomic="true"
-      >
-        {announced.assertive}
-      </div>
-    </>
-  );
 }
