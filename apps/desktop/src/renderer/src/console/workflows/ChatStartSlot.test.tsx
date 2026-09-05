@@ -14,7 +14,7 @@
 // This file sits beside the wrapper rather than inside either mounting directory,
 // because the wrapper does: two surfaces mount it — the definitions browser and the
 // run pane's empty arm — and the sibling cases for the four single-consumer slots
-// stay in `panes/workflow-run/slots/slots.test.tsx`, where those slots live.
+// stay in `pane/run/slots/slots.test.tsx`, where those slots live.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

@@ -21,7 +21,7 @@ import {
 } from "../../../src/renderer/src/console/tokens/tokens.js";
 import { readConsoleFile } from "./stylesheet-edge-graph.js";
 
-const PHASE_GRAPH_STYLESHEET = "panes/workflow-run/phase-graph/phase-graph.css";
+const PHASE_GRAPH_STYLESHEET = "workflows/pane/run/phase-graph/phase-graph.css";
 
 /**
  * The accent custom-property names, derived from the palette rather than restated.

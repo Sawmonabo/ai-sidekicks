@@ -120,7 +120,7 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     // directory's, in that order, and the canvas behind it imports neither. Without
     // the second half the door could be added and the component's edge left in place,
     // which is two ways into one sheet and the cascade order back to a coincidence.
-    const chunkDirectory = join("panes", "workflow-run", "phase-graph");
+    const chunkDirectory = join("workflows", "pane", "run", "phase-graph");
     expect(
       stylesheetSpecifiers(readConsoleFile(join(chunkDirectory, "index.ts")), STYLESHEET_IMPORT),
     ).toStrictEqual(["@xyflow/react/dist/base.css", "./phase-graph.css"]);

@@ -8,9 +8,9 @@
  * and none of them is a second import edge.
  *
  * ONE SHEET IN THIS FAMILY IS DELIBERATELY NOT BELOW, and naming it here is what keeps
- * the list a claim rather than a coincidence: `panes/workflow-run/phase-graph/phase-graph.css`
+ * the list a claim rather than a coincidence: `pane/run/phase-graph/phase-graph.css`
  * rides the lazy graph chunk. It is imported beside the graph library's own `base.css`
- * from that chunk's own door, `panes/workflow-run/phase-graph/index.ts`, which is
+ * from that chunk's own door, `pane/run/phase-graph/index.ts`, which is
  * reached through `import()` and nothing else, and it has to load AFTER that sheet to
  * win at equal specificity. Pulled in here it would land in the document the operator
  * waits for and would load BEFORE the sheet it overrides, so the library's fallback
@@ -39,8 +39,8 @@
 @import "./definitions/definitions-browser.css";
 @import "./runs/run-list.css";
 @import "./parks/park-badge.css";
-@import "../panes/workflow-run/run-controls.css";
-@import "../panes/workflow-builder/builder-authoring.css";
+@import "./pane/run/run-controls.css";
+@import "./pane/builder/builder-authoring.css";
 
 .meridian-workflow {
   display: flex;
