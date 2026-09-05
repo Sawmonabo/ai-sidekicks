@@ -31,10 +31,10 @@ import {
 } from "./driver-capability-read.test-support.js";
 import { SessionStore } from "../store/index.js";
 import {
-  declaredFlagsForDriver,
   useDriverCapabilityRepairRead,
   type DriverCapabilityReadout,
 } from "./driver-capability-read.js";
+import { declaredFlagsForDriver } from "./driver-capability-readings.js";
 
 describe("useDriverCapabilities — one read, every consumer", () => {
   it("asks once for two consumers sharing one bridge", async () => {

@@ -10,14 +10,14 @@ import { describe, expect, it } from "vitest";
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
 import { neverRead } from "./driver-capability-read.test-support.js";
+import type { DriverCapabilityReadout } from "./driver-capability-read.js";
 import {
   DRIVER_CAPABILITY_READINGS,
   boundDriverNameForRun,
   declaredFlagsForDriver,
   readingForRun,
   withRunDriverBindings,
-  type DriverCapabilityReadout,
-} from "./driver-capability-read.js";
+} from "./driver-capability-readings.js";
 
 describe("withRunDriverBindings", () => {
   it("joins the session's bindings onto the node's declarations", () => {

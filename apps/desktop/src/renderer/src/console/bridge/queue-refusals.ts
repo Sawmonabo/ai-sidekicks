@@ -12,6 +12,7 @@ import {
   refusedMemberPaths,
   type ConsoleRefusal,
 } from "../core/index.js";
+import type { UnreadableDeliveryIssues } from "./unreadable-deliveries.js";
 
 /** The subsystem name every refusal the queue reading raises carries. */
 export const QUEUE_REFUSAL_ORIGIN = "session-queue";
@@ -45,10 +46,12 @@ export function streamRefusalFor(rejection: unknown): ConsoleRefusal {
  * value on screen to explain why an unvalidated value was refused. The path set is
  * fixed by the registered schema, which is what makes the sentence bounded without
  * a cap to spend.
+ *
+ * The parameter is the ledger's own issue shape: it declared `message` too and read
+ * it nowhere, and a composer demanding a member it never reads is not admissible
+ * where the ledger holds one.
  */
-export function unreadableDeliveryRefusal(
-  issues: readonly { readonly path: readonly PropertyKey[]; readonly message: string }[],
-): ConsoleRefusal {
+export function unreadableDeliveryRefusal(issues: UnreadableDeliveryIssues): ConsoleRefusal {
   const members = refusedMemberPaths(issues);
   return refuse(
     QUEUE_REFUSAL_ORIGIN,
