@@ -15,17 +15,17 @@
 //
 //   • A budget gated by a claim rather than by a measurement. A `harness` row's
 //     figure has no spec behind it, so the document states the derivation once
-//     for that whole set and each row points at it rather than carrying a copy;
-//     and such a row's `measuredBy` has to name a TEST, because a module that
-//     merely reads the figure measures nothing and leaves `existsSync` as the
-//     only thing standing behind the row.
+//     for that whole set and each row points at it rather than carrying a copy.
+//     Whether the file a row NAMES actually drives the row's subject is a
+//     different question, over a file rather than over the registry, and it is
+//     `measured-by.test.ts`'s.
 //
 // The loader's validation is additionally exercised against known-bad inputs
 // below, so "the registry parsed" is evidence rather than an assumption: a
 // checker that has never been shown to reject anything has not been shown to
 // check anything.
 
-import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -34,7 +34,6 @@ import {
   ConsoleBudgetRegistry,
   ConsoleBudgetRegistryError,
   DEFAULT_BUDGETS_FILE_PATH,
-  DESKTOP_PACKAGE_ROOT,
   evaluateBudget,
   formatUnavailableBudgetReport,
 } from "../../../scripts/budget/budget-registry.mjs";
@@ -64,6 +63,8 @@ const EXPECTED_HARNESS_BUDGET_IDS: readonly string[] = [
   "console-launch-readiness",
   "console-launch-frame-witness",
   "console-launch-cleanup",
+  "console-launch-body",
+  "console-endurance-body",
 ];
 
 /**
@@ -95,14 +96,12 @@ const CANONICAL_UNIT_FACTORS: Readonly<Record<string, { factor: number; canonica
   percentOfOneCore: { factor: 1, canonical: "percentOfOneCore" },
 };
 
-const REPOSITORY_ROOT: string = path.resolve(DESKTOP_PACKAGE_ROOT, "..", "..");
-
 const registry = ConsoleBudgetRegistry.load();
 
 describe("console budget registry", () => {
   it("loads the one budgets file the harnesses read", () => {
     expect(registry.budgetsFilePath).toBe(DEFAULT_BUDGETS_FILE_PATH);
-    expect(registry.schemaVersion).toBe(2);
+    expect(registry.schemaVersion).toBe(3);
     expect(registry.source).toContain("023-desktop-shell-and-renderer.md");
   });
 
@@ -160,7 +159,7 @@ describe("console budget registry", () => {
     }
   });
 
-  it("names a measuring harness for exactly the enforced budgets, and each one exists", () => {
+  it("names a measuring harness and a subject for exactly the enforced budgets", () => {
     expect(
       registry
         .enforcedBudgets()
@@ -169,23 +168,26 @@ describe("console budget registry", () => {
     ).toStrictEqual([...EXPECTED_ENFORCED_BUDGET_IDS].sort());
     for (const budget of registry.enforcedBudgets()) {
       expect(budget.measuredBy, `${budget.id}: measuredBy`).not.toBeNull();
+      // The symbol is what makes the path checkable at all: `measured-by.test.ts`
+      // reads the named file and refuses a row whose harness never holds it.
+      expect(budget.subjectSymbol, `${budget.id}: subjectSymbol`).not.toBeNull();
       expect(budget.notMeasurableReason, `${budget.id}: notMeasurableReason`).toBeNull();
-      const harnessPath = path.join(REPOSITORY_ROOT, budget.measuredBy ?? "");
-      expect(existsSync(harnessPath), `${budget.id}: harness at ${harnessPath}`).toBe(true);
     }
   });
 
   it("states the harness derivation once, and every harness row points at it", () => {
-    // The three launch rows each opened with the same 44-word sentence, which is
-    // one rule with three places to drift — and it was already imprecise: it
-    // named `console-e2e` as THE derivation, when the guard runs against every
-    // launching tier's resolved timeout and that tier merely happens to bind.
+    // The launch rows each opened with the same 44-word sentence, which is one
+    // rule with as many places to drift as there are rows — and it was already
+    // imprecise: it named `console-e2e` as THE derivation, when the guard runs
+    // against every launching tier's resolved timeout.
     const derivation = registry.harnessBudgetDerivation ?? "";
     expect(derivation, "the derivation is stated").not.toBe("");
     expect(derivation, "held against every launching tier, not one named tier").toContain(
       "every launching tier",
     );
-    expect(derivation, "and it says which one binds").toContain("console-e2e");
+    expect(derivation, "and it says how a tier's own timeout comes out of them").toContain(
+      "tierTimeoutFor",
+    );
 
     const harnessNotes = registry.harnessBudgets().map((budget) => budget.notes);
     for (const notes of harnessNotes) {
@@ -193,25 +195,10 @@ describe("console budget registry", () => {
         "harnessBudgetDerivation",
       );
     }
-    // Three rows that open alike are three copies of one sentence, which is the
-    // shape the pointer replaced.
+    // Rows that open alike are copies of one sentence, which is the shape the
+    // pointer replaced.
     const openings = new Set(harnessNotes.map((notes) => notes.slice(0, 60)));
     expect(openings.size, "harness rows repeat one derivation verbatim").toBe(harnessNotes.length);
-  });
-
-  it("points a harness row's `measuredBy` at a test rather than at a module that reads it", () => {
-    // `existsSync` alone passed over three rows naming `launch-deadline.ts`,
-    // `frame-witness.ts`, and `bounded-cleanup.ts` — the modules that CONSUME
-    // each figure. None of them measures anything; the file that holds a row to
-    // its constant is `architecture/launch-deadline.test.ts`, and for a
-    // `harness` row that file is the whole enforcement.
-    const enforcedHarnessBudgets = registry
-      .harnessBudgets()
-      .filter((budget) => budget.status === "enforced");
-    expect(enforcedHarnessBudgets.length, "harness rows to check").toBeGreaterThan(0);
-    for (const budget of enforcedHarnessBudgets) {
-      expect(budget.measuredBy ?? "", `${budget.id}: measuredBy`).toMatch(/\.test\.ts$/u);
-    }
   });
 
   it("makes every un-measurable budget name its producing task and its reason", () => {
@@ -223,6 +210,7 @@ describe("console budget registry", () => {
     );
     for (const budget of unavailable) {
       expect(budget.measuredBy, `${budget.id}: measuredBy`).toBeNull();
+      expect(budget.subjectSymbol, `${budget.id}: subjectSymbol`).toBeNull();
       expect(budget.notMeasurableReason ?? "", `${budget.id}: reason`).not.toBe("");
       expect(
         (budget.notMeasurableReason ?? "").length,
@@ -289,9 +277,10 @@ describe("registry validation (negative controls)", () => {
     status: "enforced",
     producedBy: "T-023p-1C-1",
     measuredBy: "apps/desktop/scripts/budget/measure-bundle.mjs",
+    subjectSymbol: "RendererBundleMeasurer",
     notes: "Example notes.",
   };
-  const validDocument = { schemaVersion: 2, source: "spec", budgets: [validEntry] };
+  const validDocument = { schemaVersion: 3, source: "spec", budgets: [validEntry] };
 
   it("accepts a well-formed registry (the positive control the rest are measured against)", () => {
     expect(loadFixture("valid", validDocument)().budgets).toHaveLength(1);
@@ -310,7 +299,13 @@ describe("registry validation (negative controls)", () => {
   });
 
   it("rejects an `n/a` entry with no producing task", () => {
-    const entry = { ...validEntry, status: "n/a", measuredBy: null, notMeasurableReason: "why" };
+    const entry = {
+      ...validEntry,
+      status: "n/a",
+      measuredBy: null,
+      subjectSymbol: null,
+      notMeasurableReason: "why",
+    };
     const { producedBy: _omitted, ...withoutProducedBy } = entry;
     expect(
       loadFixture("no-produced-by", { ...validDocument, budgets: [withoutProducedBy] }),
@@ -318,7 +313,7 @@ describe("registry validation (negative controls)", () => {
   });
 
   it("rejects an `n/a` entry with no reason", () => {
-    const entry = { ...validEntry, status: "n/a", measuredBy: null };
+    const entry = { ...validEntry, status: "n/a", measuredBy: null, subjectSymbol: null };
     expect(loadFixture("no-reason", { ...validDocument, budgets: [entry] })).toThrow(
       /notMeasurableReason/,
     );
@@ -328,6 +323,22 @@ describe("registry validation (negative controls)", () => {
     const { measuredBy: _omitted, ...withoutHarness } = validEntry;
     expect(loadFixture("no-harness", { ...validDocument, budgets: [withoutHarness] })).toThrow(
       /measuredBy/,
+    );
+  });
+
+  it("rejects an `enforced` entry that names no subject symbol", () => {
+    // Without it `measuredBy` is checkable only by `existsSync`, which is what
+    // let two rows name a harness that drives neither of their subjects.
+    const { subjectSymbol: _omitted, ...withoutSubject } = validEntry;
+    expect(loadFixture("no-subject", { ...validDocument, budgets: [withoutSubject] })).toThrow(
+      /subjectSymbol/,
+    );
+  });
+
+  it("rejects an `n/a` entry that names a subject symbol anyway", () => {
+    const entry = { ...validEntry, status: "n/a", measuredBy: null, notMeasurableReason: "why" };
+    expect(loadFixture("subject-on-na", { ...validDocument, budgets: [entry] })).toThrow(
+      /subjectSymbol/,
     );
   });
 

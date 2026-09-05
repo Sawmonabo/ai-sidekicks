@@ -182,8 +182,44 @@ describe("bounded cleanup — what a caller is told", () => {
     });
     expect(folded).toBeInstanceOf(Error);
     expect((folded as Error).cause).toBe(launchFailure);
-    expect((folded as Error).message).toContain("close rejected: browser has been closed");
+    expect((folded as Error).message).toContain("rejected (browser has been closed)");
     expect((folded as Error).message).toContain("may still be running");
+  });
+
+  it("describes a close that REJECTED as one, rather than as a deadline expiry", () => {
+    // THE FINDING. `application.close()` can reject at once while the process is
+    // still alive, and the cleanup then terminates without waiting the budget
+    // out — so this sentence reported three milliseconds of `waitedMs` beside a
+    // claim that ten seconds had expired. Which of the two happened is the whole
+    // diagnosis: an expiry is a wedged Electron, a rejection is a close that
+    // failed outright, and they have different causes and different fixes.
+    const bodyFailure = new Error("the scheme did not survive a reload");
+    const folded = withCleanupOutcome(bodyFailure, {
+      settlement: "terminated",
+      waitedMs: 3,
+      budgetMs: 10_000,
+      processId: 4242,
+      closeRejection: new Error("Target closed"),
+    });
+    const message = (folded as Error).message;
+    expect(message).toContain("rejected (Target closed) after 3 ms");
+    expect(message).toContain("rather than reaching the 10000 ms bound");
+    expect(message).toContain("SIGKILLed");
+    // The negative control on the old sentence: three milliseconds beside "did
+    // not close within the 10000 ms it was given" is the claim this replaces.
+    expect(message).not.toContain("did not close within");
+  });
+
+  it("leaves the expiry wording alone when nothing rejected", () => {
+    // Non-vacuous in the other direction: the branch must not swallow the case
+    // it was carved out of. A close still outstanding when the bound expired IS
+    // a close that did not happen within the budget, and says so.
+    const bodyFailure = new Error("the scheme did not survive a reload");
+    const folded = withCleanupOutcome(bodyFailure, outcomeOf("terminated"));
+    const message = (folded as Error).message;
+    expect(message).toContain("did not close within the 10000 ms it was given (waited 10000 ms)");
+    expect(message).toContain("SIGKILLed");
+    expect(message).not.toContain("rejected (");
   });
 
   it("leaves a launch failure exactly as it was when the close was clean", () => {

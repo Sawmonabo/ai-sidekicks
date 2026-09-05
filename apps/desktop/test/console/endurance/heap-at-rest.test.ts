@@ -50,6 +50,7 @@ import { withLaunchedConsole } from "../electron-harness.js";
 import { fixtureBundleExists } from "../fixture-bundle.js";
 import {
   deliverWholeScenario,
+  ENDURANCE_LAUNCH_OPTIONS,
   expectFlagshipSessionCarriesContent,
   openFlagshipSessionRoute,
   readSettledHeapBytes,
@@ -98,7 +99,7 @@ describe("the renderer heap-at-rest budget row", () => {
 
 describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one session open", () => {
   it("holds the renderer heap under the budget's ceiling", async () => {
-    await withLaunchedConsole({ scenarioId: FLAGSHIP_SCENARIO.id }, async (consoleApplication) => {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       await openFlagshipSessionRoute(consoleApplication);
       const deliveredBeatCount = await deliverWholeScenario(consoleApplication);
       expect(

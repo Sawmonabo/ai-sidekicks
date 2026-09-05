@@ -80,16 +80,17 @@ import {
   TRIPWIRE_FIXTURE_GLOBAL,
 } from "../fixture-handles.js";
 import {
-  FLAGSHIP_SESSION_ID,
-  SETTINGS_SURFACE_SELECTOR,
-  WORKSPACE_SURFACE_SELECTOR,
   churnOnce,
+  ENDURANCE_LAUNCH_OPTIONS,
+  FLAGSHIP_SESSION_ID,
   openFlagshipSessionRoute,
   openSettingsRoute,
   readAppliedEventCount,
   readBoundSessionIds,
   readPlayingScenarioId,
   readSettledHeapBytes,
+  SETTINGS_SURFACE_SELECTOR,
+  WORKSPACE_SURFACE_SELECTOR,
 } from "./console-workload.js";
 import { FLAGSHIP_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/flagship.js";
 
@@ -147,7 +148,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
   // the same two constants `churnOnce` waits on, so a wait re-pointed at any
   // element both routes render fails on the two absence checks below.
   it("waits on a surface that only its own destination renders", async () => {
-    await withLaunchedConsole({ scenarioId: FLAGSHIP_SCENARIO.id }, async (consoleApplication) => {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
       // `openSettingsRoute` has already waited for its own locator, so the
@@ -171,7 +172,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
   });
 
   it("does not grow its steady-state heap across sustained use", async () => {
-    await withLaunchedConsole({ scenarioId: FLAGSHIP_SCENARIO.id }, async (consoleApplication) => {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       // The workload is named before it is measured. A launch that fell back to
       // the first-run scenario would churn a one-beat script and pass every
       // reading below, so this is the negative control for the whole run rather
@@ -279,7 +280,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console held open", () => {
     // because the breaches most worth catching are the ones a delivering scenario
     // causes: a beat applied outside the store's chokepoint, a tick that outlived
     // its pane.
-    await withLaunchedConsole({ scenarioId: FLAGSHIP_SCENARIO.id }, async (consoleApplication) => {
+    await withLaunchedConsole(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       for (let cycle = 0; cycle < CHURN_CYCLE_COUNT; cycle += 1) {
         await churnOnce(consoleApplication, SCENARIO_ADVANCE_MS_PER_CYCLE);
       }

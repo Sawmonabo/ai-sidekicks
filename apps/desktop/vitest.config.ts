@@ -42,6 +42,8 @@ import { defineConfig } from "vitest/config";
 
 import { sharedCoverageOptions } from "../../vitest.shared";
 import { BROWSER_MODE_OPTIMIZE_DEPS_INCLUDE } from "./test/console/browser-mode-deps";
+import { BODY_ALLOWANCE_MS, ENDURANCE_BODY_ALLOWANCE_MS } from "./test/console/launch-budgets";
+import { tierTimeoutFor } from "./test/console/launch-deadline";
 
 /**
  * Conditions that resolve workspace *value* imports to TS source rather than a
@@ -501,11 +503,17 @@ export default defineConfig({
           name: "console-e2e",
           environment: "node",
           include: ["test/console/e2e/**/*.test.ts"],
-          // A cold Electron start plus a driven interaction is seconds, not
-          // milliseconds, and the default 5 s timeout would make runner
-          // contention indistinguishable from a hang.
-          testTimeout: 60_000,
-          hookTimeout: 60_000,
+          // DERIVED from the registered bounds, never written down: the launch
+          // budget, this tier's body allowance, and the settlement residual. It
+          // was a 60 000 ms literal, and the arithmetic under it did not close —
+          // a launch may spend 45 000 ms of it and cleanup reserves 10 000 ms
+          // more, so a body with three 10 000 ms polls of its own was killed
+          // mid-poll with the Electron left alive. A larger figure is safe now
+          // for the reason it was not then: every phase inside it reports its own
+          // overrun first, so vitest's generic kill is the backstop rather than
+          // the thing a reader is left with.
+          testTimeout: tierTimeoutFor(BODY_ALLOWANCE_MS),
+          hookTimeout: tierTimeoutFor(BODY_ALLOWANCE_MS),
           // One Electron at a time. These launch real processes that each hold a
           // GPU context and a profile directory; running files in parallel turns
           // a four-core runner into the thing being measured.
@@ -534,8 +542,12 @@ export default defineConfig({
           name: "console-endurance",
           environment: "node",
           include: ["test/console/endurance/**/*.test.ts"],
-          testTimeout: 600_000,
-          hookTimeout: 600_000,
+          // Derived from this tier's OWN body allowance, which its launches pass
+          // to the harness: hundreds of driven churn cycles with settling heap
+          // samples either side is a different subject from an end-to-end body,
+          // not a slower version of one.
+          testTimeout: tierTimeoutFor(ENDURANCE_BODY_ALLOWANCE_MS),
+          hookTimeout: tierTimeoutFor(ENDURANCE_BODY_ALLOWANCE_MS),
           fileParallelism: false,
         },
       },

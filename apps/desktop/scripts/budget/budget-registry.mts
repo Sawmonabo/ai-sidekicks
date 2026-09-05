@@ -33,11 +33,14 @@ export const DEFAULT_BUDGETS_FILE_PATH: string = path.join(
 /**
  * The only registry revision this reader accepts.
  *
- * 2 added the required `scope` field. Version 1 documents parse into a registry
- * that would answer "which rows are the spec's?" wrongly rather than loudly, so
- * they are refused instead of defaulted.
+ * 2 added the required `scope` field. 3 added the required `subjectSymbol`, which
+ * is what turns `measuredBy` from a path that merely EXISTS into a claim a test
+ * can check: the harness has to hold the symbol the row is about. Older documents
+ * parse into a registry that would answer "which rows are the spec's?" or "does
+ * this harness touch its subject?" wrongly rather than loudly, so they are
+ * refused instead of defaulted.
  */
-const SUPPORTED_SCHEMA_VERSION = 2;
+const SUPPORTED_SCHEMA_VERSION = 3;
 
 /** Every budget is a ceiling. A floor would need a different verdict shape. */
 type ConsoleBudgetComparison = "<=";
@@ -84,6 +87,17 @@ export interface ConsoleBudget {
   readonly producedBy: string;
   /** Repo-relative harness path; `null` exactly when `status` is `"n/a"`. */
   readonly measuredBy: string | null;
+  /**
+   * The exported symbol `measuredBy` must hold; `null` exactly when `status` is `"n/a"`.
+   *
+   * `existsSync` over `measuredBy` passed for two rows that named a file which
+   * never touches their subject — the frame-witness and cleanup bounds both
+   * pointed at `architecture/launch-deadline.test.ts`, which compares registry
+   * figures with imported constants and drives neither `FrameWitness` nor
+   * `BoundedCleanup`. A path is not evidence; the symbol the harness has to hold
+   * is, and `budget/measured-by.test.ts` reads the file and checks it.
+   */
+  readonly subjectSymbol: string | null;
   /** Why it is not measurable yet; non-null exactly when `status` is `"n/a"`. */
   readonly notMeasurableReason: string | null;
   readonly notes: string;
@@ -162,12 +176,22 @@ function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
   }
 
   const measuredBy = optionalString(entry, "measuredBy");
+  const subjectSymbol = optionalString(entry, "subjectSymbol");
   const notMeasurableReason = optionalString(entry, "notMeasurableReason");
   if (status === "enforced" && measuredBy === null) {
     refuse(`${where}: an \`enforced\` budget must name its harness in \`measuredBy\`.`);
   }
+  if (status === "enforced" && subjectSymbol === null) {
+    refuse(
+      `${where}: an \`enforced\` budget must name the symbol its harness holds in ` +
+        "`subjectSymbol` — a path that exists is not evidence that it measures anything.",
+    );
+  }
   if (status === "n/a" && measuredBy !== null) {
     refuse(`${where}: an \`n/a\` budget must set \`measuredBy\` to null.`);
+  }
+  if (status === "n/a" && subjectSymbol !== null) {
+    refuse(`${where}: an \`n/a\` budget must set \`subjectSymbol\` to null.`);
   }
   if (status === "n/a" && notMeasurableReason === null) {
     refuse(`${where}: an \`n/a\` budget must say why in \`notMeasurableReason\`.`);
@@ -190,6 +214,7 @@ function parseBudget(rawEntry: unknown, entryIndex: number): ConsoleBudget {
     status: status as ConsoleBudgetStatus,
     producedBy: requireString(entry, "producedBy", where),
     measuredBy,
+    subjectSymbol,
     notMeasurableReason,
     notes: requireString(entry, "notes", where),
     additionalCriteria: Object.freeze(

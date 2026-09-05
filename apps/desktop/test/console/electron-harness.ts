@@ -48,14 +48,10 @@ import {
   type CleanupOutcome,
   ELECTRON_PROCESS_TERMINATOR,
 } from "./bounded-cleanup.js";
-import {
-  cleanupFailure,
-  closeAfterBody,
-  withCleanupOutcome,
-  withProfileRemoval,
-} from "./cleanup-disposition.js";
+import { cleanupFailure, withCleanupOutcome, withProfileRemoval } from "./cleanup-disposition.js";
 import { MAIN_ENTRY_PATH } from "./fixture-bundle.js";
 import { FrameWitness, type RendererFrameSource } from "./frame-witness.js";
+import { BodyAllowance, withBoundedBody } from "./launch-body.js";
 import {
   LAUNCH_BUDGET_MS,
   LaunchDeadline,
@@ -90,7 +86,8 @@ const FIXTURE_SCENARIO_ENV_VAR = "SIDEKICKS_FIXTURE_SCENARIO";
  */
 const LAUNCH_TRACE_TAG = "[sidekicks-console-launch]";
 
-export interface ConsoleApplication {
+/** What a settled launch produces, before the body's own allowance is minted. */
+interface LaunchedConsole {
   readonly application: ElectronApplication;
   readonly window: Page;
   /**
@@ -106,6 +103,20 @@ export interface ConsoleApplication {
    * no-op and never throws.
    */
   readonly close: () => Promise<void>;
+}
+
+export interface ConsoleApplication extends LaunchedConsole {
+  /**
+   * What is LEFT of the body's own allowance — hand it to a poll's `timeout`.
+   *
+   * A body that waits has to bound its wait, and a body that invents a figure for
+   * that is a second copy of a bound which will drift from the registered one. So
+   * the wrapper mints the allowance once the launch has settled and passes it
+   * down: `consoleApplication.bodyAllowance.remainingMs()` is always what is left
+   * at the moment it is asked, and overrunning it fails with the harness's own
+   * sentence rather than vitest's generic kill (`launch-body.ts`).
+   */
+  readonly bodyAllowance: BodyAllowance;
 }
 
 export interface LaunchConsoleOptions {
@@ -129,6 +140,17 @@ export interface LaunchConsoleOptions {
    * is playing the RIGHT one worth making.
    */
   readonly scenarioId?: string;
+  /**
+   * How long this tier's body gets between the settled launch and its cleanup.
+   *
+   * Defaults to `BODY_ALLOWANCE_MS`, the shorter of the two registered figures,
+   * so a tier that says nothing fails inside a bound that names itself rather
+   * than under vitest's generic kill. A tier whose body is a different subject —
+   * the endurance workload, hundreds of driven cycles rather than one interaction
+   * — states `ENDURANCE_BODY_ALLOWANCE_MS`, and its `testTimeout` is derived from
+   * that same row (`tierTimeoutFor`, `vitest.config.ts`).
+   */
+  readonly bodyAllowanceMs?: number;
 }
 
 /**
@@ -142,7 +164,7 @@ export interface LaunchConsoleOptions {
  * call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run — see
  * `launch-deadline.ts` for why a timeout per phase could not be.
  */
-async function launchConsole(options: LaunchConsoleOptions): Promise<ConsoleApplication> {
+async function launchConsole(options: LaunchConsoleOptions): Promise<LaunchedConsole> {
   // Minted before the first phase, including the profile directory: everything
   // this function waits on is inside the budget, or the budget is not the
   // launch's. It carries the WHOLE allowance — readiness, the witness, and
@@ -332,8 +354,14 @@ export async function withLaunchedConsole<TResult>(
   options: LaunchConsoleOptions,
   body: (consoleApplication: ConsoleApplication) => Promise<TResult>,
 ): Promise<TResult> {
-  const consoleApplication = await launchConsole(options);
-  return await closeAfterBody(consoleApplication, async () => await body(consoleApplication));
+  const launched = await launchConsole(options);
+  // Minted HERE and not inside the launch: the allowance bounds what runs after
+  // the launch settled, so a slow-but-valid launch spends none of it. That is the
+  // whole arithmetic the tier timeout is derived from — launch, then body, then
+  // the cleanup the launch budget already reserves.
+  const bodyAllowance = new BodyAllowance(options.bodyAllowanceMs);
+  const consoleApplication: ConsoleApplication = { ...launched, bodyAllowance };
+  return await withBoundedBody(launched, bodyAllowance, async () => await body(consoleApplication));
 }
 
 /**
