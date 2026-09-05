@@ -43,6 +43,7 @@ import {
   openFeed,
   stubBridge,
 } from "./queue-feed.test-support.js";
+import { drainMicrotasks } from "./fixture-bridge.test-support.js";
 
 describe("one session's queue is read once for every surface", () => {
   it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
@@ -81,7 +82,7 @@ describe("one session's queue is read once for every surface", () => {
       </>,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(first.openedStreams).toStrictEqual(["run.subscribeQueue"]);
     expect(second.openedStreams).toStrictEqual(["run.subscribeQueue"]);
@@ -124,7 +125,7 @@ describe("one session's queue is read once for every surface", () => {
       <QueueFeedProbe key="x" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     swapped.rerender(
       <QueueFeedProbe key="y" bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
@@ -133,14 +134,14 @@ describe("one session's queue is read once for every surface", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     // The swapped-in surface leaves; the joiner stays, so the reading is still live
     // and still registered, and a fourth surface joins it rather than minting one.
     swapped.unmount();
     render(<QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />);
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
     joined.unmount();
@@ -152,12 +153,12 @@ describe("one session's queue is read once for every surface", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     mounted.unmount();
     render(<QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={() => undefined} />);
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(openedStreams).toStrictEqual(["run.subscribeQueue", "run.subscribeQueue"]);
   });
@@ -228,7 +229,7 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(held?.phase).toBe("refused");
     expect(held?.readRefusal?.code).toBe("stream-unavailable");
@@ -245,7 +246,7 @@ describe("an unopenable queue stream is a refusal, not a crash", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(held?.phase).toBe("refused");
     expect(held?.readRefusal?.origin).toBe("session-queue");
@@ -302,7 +303,7 @@ describe("a queue reading whose open refused can be opened again", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(held?.phase).toBe("refused");
     expect(methodsOf(calls)).toStrictEqual([]);

@@ -22,6 +22,7 @@ import {
   typeInto,
 } from "./run-intervention-composer.test-support.js";
 import { RUN_ID, SECOND_RUN_ID } from "../runs-pane.test-support.js";
+import { drainMicrotasks } from "../../../bridge/fixture-bridge.test-support.js";
 
 describe("the form is keyed by what it is composing against", () => {
   /** A dispatch that never settles, so the form stays pending across the switch. */
@@ -302,7 +303,7 @@ describe("a dispatch is recorded only where the surface admitted one", () => {
         state: "applied",
         runVersion: 9,
       });
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(dismissals).toBe(0);
     expect(bodyValue(container)).toBe("the second body");

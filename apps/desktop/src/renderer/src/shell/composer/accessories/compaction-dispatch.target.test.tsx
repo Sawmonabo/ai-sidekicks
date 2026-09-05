@@ -18,6 +18,7 @@ import {
   type CompactionDispatch,
   type CompactionTarget,
 } from "./compaction-dispatch.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
 
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 const RUN_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";
@@ -117,7 +118,7 @@ describe("useCompactionDispatch — the latch belongs to the run, not to the com
     await act(async () => {
       driven.calls.resolveOldest(APPLIED_REPLY);
       driven.calls.resolveOldest(APPLIED_REPLY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
   });
 
@@ -154,7 +155,7 @@ describe("useCompactionDispatch — each subject generation owns its own latch",
     // same run and the count went back to two.
     await act(async () => {
       driven.calls.resolveOldest(APPLIED_REPLY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     driven.press();
 
@@ -168,7 +169,7 @@ describe("useCompactionDispatch — each subject generation owns its own latch",
     driven.press();
     await act(async () => {
       driven.calls.resolveOldest(APPLIED_REPLY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     driven.press();
@@ -197,7 +198,7 @@ describe("useCompactionDispatch — a settlement renders under the run it is abo
 
     await act(async () => {
       driven.calls.resolveOldest(APPLIED_REPLY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(driven.latest().state.phase).toBe("idle");
@@ -212,7 +213,7 @@ describe("useCompactionDispatch — a settlement renders under the run it is abo
     driven.reAddressTo(RUN_B);
     await act(async () => {
       driven.calls.resolveOldest(APPLIED_REPLY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     driven.reAddressTo(RUN_A);
@@ -236,7 +237,7 @@ describe("useCompactionDispatch — a settlement renders under the run it is abo
 
     await act(async () => {
       driven.calls.resolveOldest(APPLIED_REPLY);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(driven.latest().state.phase).toBe("settled");

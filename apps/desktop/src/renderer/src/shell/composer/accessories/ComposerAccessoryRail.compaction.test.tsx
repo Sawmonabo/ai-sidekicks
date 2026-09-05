@@ -13,8 +13,8 @@ import { describe, expect, it } from "vitest";
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
-import { REFRESH_MAX_WAIT_MS } from "../../../console/core/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
+import { settleScheduledRead } from "../../../console/bridge/scheduled-read.test-support.js";
 import {
   AGENT,
   ON_THE_AGENT,
@@ -26,6 +26,7 @@ import {
   mountRailSettled,
   railBridgeAnswering,
 } from "./rail.test-support.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
 
 const CAPABILITY_READ_METHOD = "driver.listCapabilities";
 const COMPACTION_METHOD = "driver.compactContext";
@@ -58,21 +59,6 @@ function bridgeDeclaring(reports: readonly unknown[]): ConsoleBridge {
   );
 }
 
-/**
- * Let the scheduler's window elapse and the capability read that follows settle.
- *
- * The clock is the fixture's own, moved through its engine: the console resolves the
- * clock a scheduler runs on off the bridge, so a case advancing any other one would
- * be moving time the surface is not reading.
- */
-async function settleCapabilityRead(bridge: ConsoleBridge): Promise<void> {
-  await act(async () => {
-    bridge.scenarioEngine?.advance(REFRESH_MAX_WAIT_MS);
-    await Promise.resolve();
-    await Promise.resolve();
-  });
-}
-
 /** The rail's compaction button, or a failure that says the rail offered none. */
 function compactionAction(container: HTMLElement): HTMLButtonElement {
   const action = container.querySelector(".meridian-compaction__action");
@@ -93,7 +79,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       entities: [AGENT, RUNNING_RUN],
       focusedPane: ON_THE_AGENT,
     });
-    await settleCapabilityRead(bridge);
+    await settleScheduledRead(bridge);
 
     const compact = container.querySelector(".meridian-compaction__action");
     expect(compact).not.toBeNull();
@@ -121,7 +107,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       entities: [AGENT, RUNNING_RUN],
       focusedPane: ON_THE_AGENT,
     });
-    await settleCapabilityRead(bridge);
+    await settleScheduledRead(bridge);
     await act(async () => {
       fireEvent.click(compactionAction(container));
     });
@@ -157,7 +143,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       entities: [AGENT, RUNNING_RUN],
       focusedPane: ON_THE_AGENT,
     });
-    await settleCapabilityRead(bridge);
+    await settleScheduledRead(bridge);
     const compact = compactionAction(container);
     await act(async () => {
       fireEvent.click(compact);
@@ -172,7 +158,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
 
     await act(async () => {
       releaseCompaction?.();
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(compact.disabled).toBe(false);
   });
@@ -189,7 +175,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       entities: [AGENT, RUNNING_RUN],
       focusedPane: ON_THE_AGENT,
     });
-    await settleCapabilityRead(bridge);
+    await settleScheduledRead(bridge);
 
     expect(container.querySelector(".meridian-compaction")).toBeNull();
     expect(container.querySelector(METERS_NOT_CHECKED)).toBeNull();
@@ -207,7 +193,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       entities: [AGENT, RUNNING_RUN],
       focusedPane: ON_THE_AGENT,
     });
-    await settleCapabilityRead(bridge);
+    await settleScheduledRead(bridge);
 
     expect(container.querySelector(".meridian-compaction__action")).not.toBeNull();
   });
@@ -215,7 +201,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
   it("offers nothing at all when no run is addressed", async () => {
     const bridge = bridgeDeclaring([reportFor("claude", ["context_compaction"])]);
     const container = await mountRailSettled([], { bridge });
-    await settleCapabilityRead(bridge);
+    await settleScheduledRead(bridge);
 
     // A channel-addressed composer has no run to compact, so the seat is empty
     // rather than carrying a "nobody asked" block on every session composer.
@@ -239,7 +225,7 @@ describe("ComposerAccessoryRail — the compaction control reaches the addressed
       mountRail([], { bridge, entities: [AGENT, RUNNING_RUN], focusedPane: ON_THE_AGENT });
       mountRail([], { bridge, entities: [AGENT, RUNNING_RUN], focusedPane: ON_THE_AGENT });
     });
-    await settleCapabilityRead(bridge);
+    await settleScheduledRead(bridge);
 
     expect(methodCalls.filter((method) => method === CAPABILITY_READ_METHOD)).toHaveLength(1);
   });

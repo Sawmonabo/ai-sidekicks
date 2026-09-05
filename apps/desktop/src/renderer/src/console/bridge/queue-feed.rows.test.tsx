@@ -22,6 +22,7 @@ import {
   methodsOf,
   stubBridge,
 } from "./queue-feed.test-support.js";
+import { drainMicrotasks } from "./fixture-bridge.test-support.js";
 
 describe("a queued item is cancelled once", () => {
   it("issues one mutation for two synchronous presses on one row", async () => {
@@ -31,7 +32,7 @@ describe("a queued item is cancelled once", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     const cancelItem = held?.cancelItem;
     if (cancelItem === undefined) {
@@ -56,7 +57,7 @@ describe("a queued item is cancelled once", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     act(() => {
       held?.cancelItem(QUEUE_ITEM_A);
@@ -72,11 +73,11 @@ describe("a queued item is cancelled once", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     await act(async () => {
       held?.cancelItem(QUEUE_ITEM_ID);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(held?.pendingCancelIds.has(QUEUE_ITEM_ID)).toBe(false);
     act(() => {
@@ -92,7 +93,7 @@ describe("a queued item is cancelled once", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     act(() => {
       held?.cancelItem(QUEUE_ITEM_A);
@@ -113,7 +114,7 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     act(() => {
       deliver(REGISTERED_ROW_DELIVERY);
@@ -134,7 +135,7 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     act(() => {
       deliver(UNREADABLE_DELIVERY);
@@ -174,7 +175,7 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
       <QueueFeedProbe bridge={bridge} sessionId={SESSION_ID} onFeed={(feed) => (held = feed)} />,
     );
     await act(async () => {
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     act(() => {
       deliver(REGISTERED_ROW_DELIVERY);

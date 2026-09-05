@@ -25,6 +25,7 @@ import {
 import type { RecordedDaemonCall } from "../../../console/bridge/fixture-bridge.test-support.js";
 import { recordingBridge } from "./provider-command-holder.test-support.js";
 import { ProviderCommandEnumeration } from "./provider-command-holder.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
 
 describe("ProviderCommandAutocomplete", () => {
   it("stays closed until a leading slash is typed", async () => {
@@ -226,7 +227,7 @@ describe("ProviderCommandAutocomplete", () => {
     }
     await act(async () => {
       fireEvent.click(runButton);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(ranCount).toBe(1);
@@ -266,13 +267,13 @@ describe("ProviderCommandAutocomplete", () => {
 
     await act(async () => {
       fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(document.activeElement).toBe(list);
 
     await act(async () => {
       fireEvent.keyDown(list, { key: "ArrowDown" });
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(list.getAttribute("aria-activedescendant")).not.toBe(firstActive);
@@ -302,12 +303,12 @@ describe("ProviderCommandAutocomplete", () => {
     }
     await act(async () => {
       fireEvent.keyDown(mounted.line, { key: "ArrowDown" });
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     await act(async () => {
       fireEvent.keyDown(list, { key: "Escape" });
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();
@@ -323,7 +324,7 @@ describe("ProviderCommandAutocomplete", () => {
 
     await act(async () => {
       fireEvent.keyDown(mounted.line, { key: "Escape" });
-      await Promise.resolve();
+      await drainMicrotasks();
     });
 
     expect(mounted.container.querySelector('[role="listbox"]')).toBeNull();

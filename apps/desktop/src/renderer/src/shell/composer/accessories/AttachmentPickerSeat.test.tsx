@@ -17,6 +17,7 @@ import {
   type ConsoleBridge,
   type GrowthPort,
 } from "../../../console/bridge/index.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
 
 const SESSION_ONE = COMPOSER_SCENARIO.sessionId;
 const SESSION_TWO = "019b7a33-3300-75e5-8520-ada11a5a55b6";
@@ -82,12 +83,6 @@ function pressAttach(): void {
   fireEvent.click(screen.getByRole("button", { name: "Attach files" }));
 }
 
-async function flush(): Promise<void> {
-  await act(async () => {
-    await Promise.resolve();
-  });
-}
-
 const SESSION_ONE_ALLOWS: AllowListValue = {
   contentTypes: ["text/markdown"],
   maximumByteLength: 1024,
@@ -105,7 +100,7 @@ describe("the picker asks before it offers", () => {
     expect(screen.getByText("Reading what this session accepts.")).not.toBeNull();
     await act(async () => {
       reads.outstanding[0]?.answer(SESSION_ONE_ALLOWS);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(screen.getByText(/text\/markdown/)).not.toBeNull();
   });
@@ -116,7 +111,9 @@ describe("the picker asks before it offers", () => {
     );
     mountSeat(bridge, SESSION_ONE);
     pressAttach();
-    await flush();
+    await act(async () => {
+      await drainMicrotasks();
+    });
     expect(screen.getByText(growthUnavailable("artifactAllowlistRead").code)).not.toBeNull();
   });
 });
@@ -131,7 +128,7 @@ describe("the reading belongs to the session it was read for", () => {
     pressAttach();
     await act(async () => {
       reads.outstanding[0]?.answer(SESSION_ONE_ALLOWS);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(screen.getByText(/text\/markdown/)).not.toBeNull();
 
@@ -147,7 +144,7 @@ describe("the reading belongs to the session it was read for", () => {
     seat.rebindTo(SESSION_TWO);
     await act(async () => {
       reads.outstanding[0]?.answer(SESSION_ONE_ALLOWS);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(reads.outstanding[0]?.sessionId).toBe(SESSION_ONE);
     expect(screen.queryByText(/text\/markdown/)).toBeNull();
@@ -162,7 +159,7 @@ describe("the reading belongs to the session it was read for", () => {
     pressAttach();
     await act(async () => {
       reads.outstanding.at(-1)?.answer(SESSION_TWO_ALLOWS);
-      await Promise.resolve();
+      await drainMicrotasks();
     });
     expect(reads.outstanding.at(-1)?.sessionId).toBe(SESSION_TWO);
     expect(screen.getByText(/image\/png/)).not.toBeNull();
