@@ -207,3 +207,76 @@ describe("useWindowedRovingIndex — one tab stop that survives a shrinking set"
     expect(onReveal).not.toHaveBeenCalled();
   });
 });
+
+describe("useWindowedRovingIndex — a pending move is spent once, never left standing", () => {
+  /** Press `End`, on a window that has not mounted the last row. */
+  async function pressEnd(list: HTMLElement): Promise<void> {
+    await act(async () => {
+      list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    });
+  }
+
+  function listOf(container: HTMLElement): HTMLElement {
+    const list = container.querySelector("ul");
+    if (list === null) {
+      throw new Error("the list did not render");
+    }
+    return list;
+  }
+
+  it("does not steal focus on a later window change once the move has expired", async () => {
+    // The defect in terms: the reader presses End, the window never mounts row 39,
+    // they tab away and start typing — and an unrelated store update re-runs the
+    // effect with the row mounted, pulling focus out of what they were typing in.
+    const { container, rerender } = render(
+      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
+    );
+    const list = listOf(container);
+    await pressEnd(list);
+
+    // One window change that does not bring row 39 in. That is the move's one
+    // retry, and it is spent here.
+    rerender(
+      <RovingList rowCount={40} windowStart={4} windowLength={4} onReveal={() => undefined} />,
+    );
+    // A later window change that DOES mount it must move nothing.
+    rerender(
+      <RovingList rowCount={40} windowStart={36} windowLength={4} onReveal={() => undefined} />,
+    );
+    expect(document.activeElement?.textContent).not.toBe("row 39");
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it("negative control: the one retry a reveal needs still lands the focus", async () => {
+    // Without this the expiry above would also be satisfied by dropping the move on
+    // the first miss, which is every asynchronous virtualizer: the row is mounted a
+    // render later and the key press would move nothing at all.
+    const { container, rerender } = render(
+      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
+    );
+    const list = listOf(container);
+    await pressEnd(list);
+    rerender(
+      <RovingList rowCount={40} windowStart={36} windowLength={4} onReveal={() => undefined} />,
+    );
+    expect(document.activeElement?.textContent).toBe("row 39");
+  });
+
+  it("focuses no other row when the set narrows under a pending move", async () => {
+    // The second arm of the same defect: the effect keyed on the CLAMPED index, so
+    // a list that shrank between the key press and the mount answered a press about
+    // row 39 by focusing row 4.
+    const { container, rerender } = render(
+      <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
+    );
+    const list = listOf(container);
+    await pressEnd(list);
+    rerender(
+      <RovingList rowCount={5} windowStart={0} windowLength={5} onReveal={() => undefined} />,
+    );
+    // Row 4 is mounted and is the active index; it is still not what was asked for.
+    expect(list.querySelector('li[data-index="4"]')).not.toBeNull();
+    expect(document.activeElement?.textContent).not.toBe("row 4");
+    expect(document.activeElement).toBe(document.body);
+  });
+});
