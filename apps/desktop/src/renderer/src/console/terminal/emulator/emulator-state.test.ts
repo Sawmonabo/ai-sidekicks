@@ -88,7 +88,15 @@ describe("the emulator reading, when the chunk refuses", () => {
   it("negative control: a fetch that resolves reports the module and refuses nothing", async () => {
     // Without it every case above would pass against a hook that answered `failed`
     // unconditionally, which is a pane that never shows a terminal.
-    const { result } = renderHook(() => useTerminalEmulator(new TerminalEmulatorLoader()));
+    //
+    // The real loader, and the chunk is fetched BEFORE the assertion window rather
+    // than inside it. `load()` memoises, so the hook's own call gets the settled
+    // promise and the wait below is a microtask and a commit — where waiting on the
+    // fetch itself let a loaded machine decide the verdict, which is a control that
+    // reports the runner's contention as a defect in the hook.
+    const loader = new TerminalEmulatorLoader();
+    await loader.load();
+    const { result } = renderHook(() => useTerminalEmulator(loader));
     await waitFor(() => {
       expect(result.current.status).toBe("loaded");
     });
