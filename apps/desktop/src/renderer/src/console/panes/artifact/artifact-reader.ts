@@ -81,7 +81,8 @@ import {
   SessionRefreshTriggers,
   type SessionStore,
 } from "../../store/index.js";
-import { ArtifactPaneActions, type ArtifactActionHost } from "./artifact-actions.js";
+import { ArtifactPaneActions } from "./artifact-actions.js";
+import { type ArtifactActionHost } from "./artifact-action-host.js";
 import { readGrowthAnswer } from "./growth-call.js";
 import {
   NOTHING_READ_YET,
