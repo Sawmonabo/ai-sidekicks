@@ -76,11 +76,7 @@ interface PaneSeat {
 const PANE_SEATS: readonly PaneSeat[] = [
   {
     reservedLine: "// T-023p-1C-2 timeline",
-    // The ledger's seat carries a composition argument: the shared pane chrome is
-    // `workspace/`'s and a view family may not import a sibling, so the board — one of
-    // the two files that may name more than one family — names the component here. A
-    // seat is still ONE line, which is what keeps six branches from colliding.
-    registrationCall: "registerLedgerPanes(registry, { paneHeader: PaneHeader });",
+    registrationCall: "registerLedgerPanes(registry);",
   },
   {
     reservedLine: "// T-023p-1C-3 runs approvals inspector",
@@ -151,7 +147,7 @@ describe("pane seat board — reserved lines only", () => {
     // a shared local, which is exactly the shape that turns six one-line diffs back
     // into six edits to one region.
     const withSharedLocal = seatBoardSource.replace(
-      "  registerLedgerPanes(registry, { paneHeader: PaneHeader });\n",
+      "  registerLedgerPanes(registry);\n",
       "  const shared = registry;\n",
     );
     expect(withSharedLocal).not.toBe(seatBoardSource);

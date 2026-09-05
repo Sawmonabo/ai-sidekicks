@@ -31,7 +31,9 @@
 // A FAMILY MAY BE HANDED A COMPOSITION ARGUMENT HERE, on `console/families.ts`' terms
 // and for its reason: this is one of the two files allowed to name more than one view
 // family, so a body one family needs from another is named here rather than imported
-// there.
+// there. Nothing needs one today — the pane FRAME every family wears is
+// `seats/ConsolePaneChrome`, reached downward through the seat door rather than handed
+// across from a sibling — and a family that does gets its argument here.
 //
 // WHAT A FAMILY DOES NOT DO
 //
@@ -55,7 +57,6 @@
 
 import { registerLedgerPanes } from "../ledger/index.js";
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { PaneHeader } from "../workspace/index.js";
 
 /**
  * Register every shipped pane body against a registry.
@@ -66,7 +67,7 @@ import { PaneHeader } from "../workspace/index.js";
  * second code path.
  */
 export function registerConsolePanes(registry: ConsolePaneRegistry): void {
-  registerLedgerPanes(registry, { paneHeader: PaneHeader });
+  registerLedgerPanes(registry);
   // T-023p-1C-3 runs approvals inspector
   // T-023p-1C-4 agent-console
   // T-023p-1C-5 diff artifact

@@ -42,7 +42,6 @@
 
 import { createElement, type ComponentType, type ReactNode } from "react";
 
-import { refuse } from "../core/index.js";
 import { consoleCommandSurface } from "../frame/command-surface.js";
 import { SurfaceAbsence } from "../frame/SurfaceAbsence.js";
 import {
@@ -50,15 +49,16 @@ import {
   type ConsoleSurfaceDescriptor,
   type ConsoleSurfaceRegistry,
 } from "../frame/surface-registry.js";
-import { InlineRefusal, Nothing } from "../primitives/index.js";
+import { Nothing } from "../primitives/index.js";
 import { routeSessionId } from "../routing/index.js";
 import {
   consolePaneRegistry,
+  paneBodyForKind,
   type ConsolePaneContext,
   type ConsolePaneRegistry,
 } from "../seats/index.js";
 import { registerFixtureShellRows } from "./cards/shell/FixtureShellRows.js";
-import { TimelinePane, type LedgerPaneHeaderProps } from "./pane/index.js";
+import { TimelinePane } from "./pane/index.js";
 import { registerLedgerCommands } from "./structure/structure-commands.js";
 
 // The family's sheets, in the order the cascade reads them. `ledger.css` first because
@@ -200,23 +200,6 @@ export function registerLedger(
 }
 
 /**
- * What the pane board supplies this family, because this file may not import it.
- *
- * The shared pane chrome lives in `workspace/`, a SIBLING view family, and one view
- * family may not import another. `panes/index.ts` is one of the two files the layering
- * gate lets name more than one family, so it names the component and this door takes
- * it — the same shape `LedgerComposition` above takes for the workspace body, one seat
- * board over.
- *
- * The COMPONENT rather than a built element, for `LedgerComposition`'s reason: the
- * pane context exists only when a pane renders, which is long after the board composed
- * its bodies.
- */
-export interface LedgerPaneComposition {
-  readonly paneHeader: ComponentType<LedgerPaneHeaderProps>;
-}
-
-/**
  * Claim the deck's `timeline` kind.
  *
  * WHY THE CLAIM IS HERE AND NOT BESIDE THE BODY. It was in the pane's own directory
@@ -235,42 +218,21 @@ export interface LedgerPaneComposition {
  * would be six families answering a question the window model settles.
  *
  * The body is mounted with no close and no open-in-window handler: both are the
- * deck's acts, and a control whose act nobody can perform is left out rather than
- * drawn disabled.
+ * deck's acts, they reach the chrome through the host context the deck provides, and
+ * a control whose act nobody can perform is left out rather than drawn disabled.
  */
-export function registerLedgerPanes(
-  registry: ConsolePaneRegistry,
-  composition: LedgerPaneComposition,
-): void {
+export function registerLedgerPanes(registry: ConsolePaneRegistry): void {
   registry.register({
     kind: "timeline",
     owner: LEDGER_SURFACE_OWNER,
-    render: (context) => mountTimelinePane(context, composition.paneHeader),
+    // The narrowing and the refusal are the seat's, not this family's. The registry
+    // hands every body the whole context union and only one arm is this pane's; the
+    // mismatched arm is unreachable through the deck and is rendered rather than
+    // thrown anyway, because `core/refusal.ts`' rule is that a boundary refuses by
+    // name and leaves the surface standing. Six families answering that once each is
+    // six sentences for one case, which is what `paneBodyForKind` exists to prevent.
+    render: paneBodyForKind("timeline", (context) => createElement(TimelinePane, { context })),
   });
-}
-
-/**
- * Mount the pane, or say the address it was handed is not one this body serves.
- *
- * The registry resolves a body BY kind, so the mismatched arm is unreachable through
- * the deck — and it is rendered rather than thrown anyway, because the guard is what
- * narrows the union for the body below it, and `core/refusal.ts`' rule is that a
- * boundary refuses by name and leaves the rest of the surface standing. A throw here
- * would take down whatever deck the pane was mounted in.
- */
-function mountTimelinePane(
-  context: ConsolePaneContext,
-  paneHeader: ComponentType<LedgerPaneHeaderProps>,
-): ReactNode {
-  if (context.kind !== "timeline") {
-    const refusal = refuse(
-      LEDGER_SURFACE_OWNER,
-      "pane-address-kind-mismatch",
-      `the timeline body was mounted at a "${context.kind}" address, which is a view of something else`,
-    );
-    return createElement(InlineRefusal, refusal);
-  }
-  return createElement(TimelinePane, { context, paneHeader });
 }
 
 /**
@@ -314,9 +276,9 @@ function mountWorkspace(
  * The pane body is resolved from the pane registry rather than built here, which is
  * `Spec-023 §The surface set`'s "one entity opens one pane, structurally (a single
  * mount door and a tripwire that fails on a second)" applied at the only place a pane
- * is mounted today. It is also what keeps the chrome single-sourced: the descriptor
- * `registerLedgerPanes` filed above already closes over the header the pane board named,
- * so this slot mounts the composed body rather than composing a second one of its own.
+ * is mounted today. It is also what keeps the body single-sourced: the descriptor
+ * `registerLedgerPanes` filed above is the one composition of this pane, so this slot
+ * mounts it rather than building a second one of its own.
  *
  * Resolution happens during render, on `RouteSurface`'s reasoning: the pane seat
  * board is composed at module scope before any window renders, so a descriptor is

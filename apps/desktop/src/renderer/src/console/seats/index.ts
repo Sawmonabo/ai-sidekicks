@@ -170,24 +170,15 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
-// named by all six pane-body tasks; `PaneControls` and its context are named by the one
-// that builds the deck, which is the only host that provides them.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  ConsolePaneChrome,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  paneBodyForKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  type PaneContextOf,
-} from "./ConsolePaneChrome.js";
+// The pane chrome and the seam its two host controls travel on. No marker on either
+// line: the ledger's pane wears the chrome and narrows its own body through
+// `paneBodyForKind`, and the deck — the one host that provides the two controls —
+// mounts every pane inside `PaneControlsContext`, so a surviving tag would fail the
+// run under `--treat-tag-hints-as-errors`. The five pane-body tasks still to land are
+// consumers of an export that already has one.
+export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
-export {
-  /** @consumedBy T-023p-1C-2 */
-  PaneControlsContext,
-  /** @consumedBy T-023p-1C-2 */
-  type PaneControls,
-} from "./pane-controls.js";
+export { PaneControlsContext, type PaneControls } from "./pane-controls.js";
 
 export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
 
