@@ -8,15 +8,9 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { refuse } from "../core/index.js";
 import { ReadingNotice } from "./ReadingNotice.js";
 import { readingNoticeFor, type PartialReadNotice } from "./partial-read.js";
-
-const PARSE_REFUSAL = refuse(
-  "session-queue",
-  "delivery-unreadable",
-  "A queue delivery did not match the registered row shape.",
-);
+import { PARSE_REFUSAL } from "./partial-read.test-support.js";
 
 function renderNotice(notice: PartialReadNotice): HTMLElement {
   return render(<ReadingNotice notice={notice} />).container;

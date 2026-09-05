@@ -46,21 +46,14 @@
 import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
-import {
-  barrelSpecifiers,
-  doorsThatForwardNothing,
-  censusFindings,
-  findingLines,
-  isConsoleBarrel,
-  starReexportingBarrels,
-} from "./barrel-census.js";
+import { findingLines, isConsoleBarrel, readCensus, type CensusReading } from "./barrel-census.js";
 import type { CensusModule } from "./barrel-syntax.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -97,18 +90,83 @@ function consoleCensusModules(): readonly CensusModule[] {
   }));
 }
 
+/**
+ * What one reading of this console costs, measured on 2026-09-05 over 486 modules.
+ *
+ * Walking the two roots and reading every file: 279 ms. Parsing that set once:
+ * 2 756 ms. Asking the census's four questions the way this file used to, each
+ * through its own entry point and so each through its own parse: 8 680 ms — which is
+ * why a case that was the first to ask exceeded vitest's 5 000 ms default, alone at
+ * 4.29 s and at 12.9 s under the gate's five-project turbo concurrency, and timed out
+ * three times across two lanes with no code change between runs.
+ *
+ * Three runs of this file either way, same machine, same tree: four parses took
+ * 3.32 s / 6.40 s / 13.39 s wall, all of it invisible in the case timings because a
+ * `describe` body is charged to COLLECTION (`import 3.07 / 6.11 / 12.90 s`, cases
+ * 0-30 ms). One parse takes 3.87 s / 4.99 s / 2.87 s, of which the hook is
+ * 2.02 / 2.56 / 1.38 s and every case is still 0-4 ms. The spread on both sides is
+ * machine load, which is the point: the reading is what load multiplies, so the fix
+ * is to do it once rather than to budget four of it.
+ *
+ * TWO BUDGETS, AND THEY ARE DELIBERATELY DIFFERENT SIZES. The hook pays for the whole
+ * reading, so its allowance is sized to the parse under the load that produced the
+ * failure — ~3.0 s alone, ~13 s at the concurrency measured above — and set at
+ * roughly twice the worst of those, because what a budget guards is a parse that
+ * never settles rather than a slow one. The cases pay for a comparison over a reading
+ * that is already finished, measured at 0-3 ms each, so the test budget is
+ * deliberately NOT sized to the parse: a case that somehow became the first to touch
+ * the reading should fail here quickly and say so, not inherit the hook's patience.
+ * It is stated rather than defaulted so neither number is a fact a reader has to know
+ * vitest's defaults to check.
+ */
+const CONSOLE_READING_ALLOWANCE_MS = 30_000;
+const COMPARISON_ALLOWANCE_MS = 10_000;
+
+vi.setConfig({ testTimeout: COMPARISON_ALLOWANCE_MS, hookTimeout: CONSOLE_READING_ALLOWANCE_MS });
+
+/**
+ * The one reading this file pays for, and the cases' only source.
+ *
+ * Behind a private field with a throwing accessor rather than a mutable
+ * module-level binding, on `console-layering-cruise.ts`'s reasoning: a `let`
+ * shared by every case is reachable from a case that runs before the hook that fills
+ * it, and `undefined` there reads as an empty census — every claim in this file
+ * passing over nothing. The accessor makes that state say what it is.
+ */
+class ConsoleCensus {
+  #reading: CensusReading | undefined;
+
+  public read(modules: readonly CensusModule[]): void {
+    this.#reading = readCensus(modules);
+  }
+
+  public get reading(): CensusReading {
+    if (this.#reading === undefined) {
+      throw new Error("the console census was read by a case before the hook that fills it ran");
+    }
+    return this.#reading;
+  }
+}
+
 describe("barrel census — every console re-export has a reader or a claimant", () => {
   const modules = consoleCensusModules();
-  // EVERY ENTRY POINT BELOW PARSES THE WHOLE CONSOLE, so asking for one inside a case
-  // charges that walk of ~340 modules to vitest's 5 000 ms default — and the widest
-  // case asked twice. It passed alone and timed out under aggregate tier load, which
-  // is the failure `console-layering-rules.test.ts` records for its cruises and
-  // answers the same way: pay for the reading once, where the module set is already
-  // being read, and leave each case with a comparison.
-  const specifiers = barrelSpecifiers(modules);
-  const doorsForwardingNothing = doorsThatForwardNothing(modules);
-  const unenumerableForwarders = starReexportingBarrels(modules);
-  const failures = findingLines(censusFindings(modules));
+  const census = new ConsoleCensus();
+
+  // In a hook rather than in this block, so the parse is paid when the file RUNS and
+  // not when it is collected. A collected-but-filtered file — `-t` naming a case in
+  // another suite, a `.only` elsewhere — otherwise pays the whole reading to run
+  // nothing, and a throw during collection is reported as a file that failed to load
+  // rather than as the budget it exceeded.
+  beforeAll(() => {
+    census.read(modules);
+  });
+
+  it("negative control: a case reaching the reading before the hook says so", () => {
+    // The accessor's whole reason. An unfilled `let` would answer `undefined`, and
+    // every claim in this file reads a list off it — so the file would pass over an
+    // empty census and report a clean console it never looked at.
+    expect(() => new ConsoleCensus().reading).toThrowError(/before the hook/);
+  });
 
   it("finds the console and the tiers that read it", () => {
     // Without a floor a wrong root would scan nothing, and every claim below would
@@ -121,7 +179,7 @@ describe("barrel census — every console re-export has a reader or a claimant",
   });
 
   it("reads a specifier count no hand-maintained list could hold", () => {
-    expect(specifiers.length).toBeGreaterThan(200);
+    expect(census.reading.specifiers.length).toBeGreaterThan(200);
   });
 
   it("censuses every door that forwards, so a clause leaving is not a shortfall", () => {
@@ -137,12 +195,12 @@ describe("barrel census — every console re-export has a reader or a claimant",
     // family landing appended its own path to that list in its own branch — four
     // branches editing three lines, which is a conflict by construction and never a
     // claim about the tree.
-    const censused = new Set(specifiers.map((entry) => entry.barrelPath));
+    const censused = new Set(census.reading.specifiers.map((entry) => entry.barrelPath));
     const silent = modules
       .map((module) => module.path)
       .filter((path) => isConsoleBarrel(path) && !censused.has(path));
 
-    expect([...silent].sort()).toStrictEqual(doorsForwardingNothing);
+    expect([...silent].sort()).toStrictEqual(census.reading.doorsForwardingNothing);
   });
 
   it("finds doors on both sides of the forwarding reading, so neither list is empty", () => {
@@ -150,15 +208,16 @@ describe("barrel census — every console re-export has a reader or a claimant",
     // has doors of each kind by construction — a family door that composes, a leaf
     // door that republishes — so an empty side is a reading that stopped working.
     const doors = modules.map((module) => module.path).filter((path) => isConsoleBarrel(path));
+    const { doorsForwardingNothing } = census.reading;
     expect(doorsForwardingNothing.length).toBeGreaterThan(0);
     expect(doors.length).toBeGreaterThan(doorsForwardingNothing.length);
   });
 
   it("no barrel forwards a name this census cannot enumerate", () => {
-    expect(unenumerableForwarders).toStrictEqual([]);
+    expect(census.reading.unenumerableForwarders).toStrictEqual([]);
   });
 
   it("every barrel specifier is production-consumed or claimed by its task", () => {
-    expect(failures).toStrictEqual([]);
+    expect(findingLines(census.reading.findings)).toStrictEqual([]);
   });
 });

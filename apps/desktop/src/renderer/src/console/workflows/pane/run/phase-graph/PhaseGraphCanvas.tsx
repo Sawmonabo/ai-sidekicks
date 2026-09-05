@@ -48,6 +48,7 @@
 import { ReactFlow, type FitViewOptions, type NodeTypes } from "@xyflow/react";
 
 import { tokenReference } from "../../../../tokens/index.js";
+import { PHASE_GRAPH_MAX_ZOOM, PHASE_GRAPH_MIN_ZOOM } from "../../../constants.js";
 import { PHASE_NODE_TYPE, usePhaseGraphElements } from "./phase-graph-elements.js";
 import { PhaseNode } from "./PhaseNode.js";
 import type { DrawnPhaseSequence } from "./phase-sequence-layout.js";
@@ -69,19 +70,6 @@ const PHASE_GRAPH_FIT_VIEW_PADDING = 0.12;
 
 /** Stable for the same reason the node table is: the library reads it on every fit. */
 const PHASE_GRAPH_FIT_VIEW_OPTIONS: FitViewOptions = { padding: PHASE_GRAPH_FIT_VIEW_PADDING };
-
-/**
- * How far out a long run may be zoomed. 0.35 shows roughly three times as many ranks
- * as 1×, which is the point past which the label stops being readable at all — below
- * it the picture is a diagram of nothing.
- */
-const PHASE_GRAPH_MIN_ZOOM = 0.35;
-
-/**
- * How far in. 1.5 is a reading zoom for a long label, not a design tool's zoom: there
- * is nothing on this surface to inspect at pixel scale.
- */
-const PHASE_GRAPH_MAX_ZOOM = 1.5;
 
 /**
  * The arrowhead's colour.

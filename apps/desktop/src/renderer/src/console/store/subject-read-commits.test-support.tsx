@@ -16,23 +16,32 @@
 import { useEffect } from "react";
 import { render } from "@testing-library/react";
 
-/** What a read is addressed at: the source it is put through, and its subject. */
-export interface SubjectReadAddress<TSource extends object> {
+/**
+ * What a read is addressed at: the source it is put through, and its subject.
+ *
+ * `TKey` DEFAULTS TO `undefined`, which is the keyless read — one addressed by its
+ * source and by nothing else, `bridge/session-directory.ts` being the console's. A
+ * keyed read supplies the key type and the probe follows it, so what a read is
+ * addressed BY is a fact the type carries rather than a sentence beside the call.
+ * The member stays required on both: an address is a pair, and a probe that let half
+ * of it be omitted would let a keyed case forget the key it is a claim about.
+ */
+export interface SubjectReadAddress<TSource extends object, TKey = undefined> {
   readonly source: TSource;
-  readonly subject: string | undefined;
+  readonly subject: TKey | undefined;
 }
 
 /** Every value a committed render carried, plus the handle a re-address needs. */
-export interface ObservedSubjectRead<TSource extends object, TReading> {
+export interface ObservedSubjectRead<TSource extends object, TReading, TKey = undefined> {
   /** Oldest first. One entry per COMMIT, never one per render call. */
   readonly committed: readonly TReading[];
   /** Re-render the same probe at another source, another subject, or both. */
-  readonly readdress: (next: SubjectReadAddress<TSource>) => void;
+  readonly readdress: (next: SubjectReadAddress<TSource, TKey>) => void;
 }
 
-function SubjectReadProbe<TSource extends object, TReading>(props: {
-  readonly useRead: (source: TSource, subject: string | undefined) => TReading;
-  readonly address: SubjectReadAddress<TSource>;
+function SubjectReadProbe<TSource extends object, TReading, TKey>(props: {
+  readonly useRead: (source: TSource, subject: TKey | undefined) => TReading;
+  readonly address: SubjectReadAddress<TSource, TKey>;
   readonly onCommit: (reading: TReading) => void;
 }): React.JSX.Element {
   const reading = props.useRead(props.address.source, props.address.subject);
@@ -46,17 +55,19 @@ function SubjectReadProbe<TSource extends object, TReading>(props: {
  * Drive one read hook through a rendered probe, recording what each commit carried.
  *
  * The REAL hook, always: a probe that called a stand-in would be measuring a closure
- * rather than the render-time re-addressing, which is the whole mechanism.
+ * rather than the render-time re-addressing, which is the whole mechanism — and a
+ * keyless hook goes in unwrapped, since an adapter closure that swallows the second
+ * argument is a stand-in for exactly the signature under test.
  */
-export function observeSubjectRead<TSource extends object, TReading>(
-  useRead: (source: TSource, subject: string | undefined) => TReading,
-  address: SubjectReadAddress<TSource>,
-): ObservedSubjectRead<TSource, TReading> {
+export function observeSubjectRead<TSource extends object, TReading, TKey = undefined>(
+  useRead: (source: TSource, subject: TKey | undefined) => TReading,
+  address: SubjectReadAddress<TSource, TKey>,
+): ObservedSubjectRead<TSource, TReading, TKey> {
   const committed: TReading[] = [];
   const collect = (reading: TReading): void => {
     committed.push(reading);
   };
-  const probeAt = (at: SubjectReadAddress<TSource>): React.JSX.Element => (
+  const probeAt = (at: SubjectReadAddress<TSource, TKey>): React.JSX.Element => (
     <SubjectReadProbe useRead={useRead} address={at} onCommit={collect} />
   );
   const view = render(probeAt(address));

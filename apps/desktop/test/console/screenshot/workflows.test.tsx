@@ -1,9 +1,10 @@
 // The screenshot tier: the workflows family's three surfaces, per scheme.
 //
 // `frame.test.tsx`'s header owns the mechanism this file rides — the three
-// snapshot-update modes, why the references are pinned to `darwin`, and which
-// machine may mint one. `baseline-platform.ts` holds the values that reasoning
-// produces, so nothing about it is restated here.
+// snapshot-update modes, which runner's renderings the committed references are, and
+// who may compare against one. `baseline-platform.ts` holds the pin and the predicate
+// and `baseline-guard.ts` this run's reading of them, so nothing about either is
+// restated here.
 //
 // WHAT IS PINNED, AND WHY THESE THREE. The family ships one destination surface and
 // two pane chromes, and each one captured here is a different composition rather than
@@ -29,8 +30,8 @@
 //
 // Three surfaces and two schemes is six references, and every one of them is minted
 // on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
-// A local run on any other host skips; a local run on a developer Mac is advisory in
-// the small, measured way `frame.test.tsx` records.
+// A host that did not declare that runner skips unless it opts in by name; an opted-in
+// developer Mac is advisory in the measured way `frame.test.tsx` records.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -41,7 +42,7 @@ import {
   mountWorkflowsDestination,
   type MountedFamilySurface,
 } from "../surfaces/workflows.js";
-import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
+import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-guard.js";
 import { awaitPhaseGraphSettled } from "../phase-graph-settled.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
@@ -75,12 +76,12 @@ afterEach(async () => {
 });
 
 describe("screenshot — the workflows surfaces", () => {
-  warnOnceIfOffPinnedPlatform();
+  warnOnceOffBaselineHost();
 
   for (const surface of PINNED_SURFACES) {
     for (const scheme of CONSOLE_SCHEMES) {
       it(`renders ${surface.referenceName} in the ${scheme} scheme`, async (context) => {
-        skipOffPinnedPlatform(context);
+        skipOffBaselineHost(context);
         // Through the system preference rather than a stamped attribute: the token
         // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
         // what a default install actually resolves.

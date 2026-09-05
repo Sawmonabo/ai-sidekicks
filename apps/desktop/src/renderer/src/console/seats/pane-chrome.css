@@ -1,0 +1,173 @@
+/* The pane frame. One sheet for every pane kind, imported by `ConsolePaneChrome.tsx`
+   — the single edge into it — rather than by the family door six concurrent branches
+   each add a line to.
+
+   `--meridian-pane-hue` is set per pane by the chrome, from the actor the pane's entity
+   is attributed to, and is absent where there is no actor. It is read only by the two
+   focus rules below, each with its own neutral fallback: the hue answers "who", and a
+   pane that is not about anybody answers nothing rather than borrowing a colour. */
+
+.meridian-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--meridian-surface);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-lg);
+}
+
+/*
+ * TWO FOCUS TREATMENTS, AND THEY ANSWER DIFFERENT QUESTIONS.
+ *
+ * `:focus-visible` fires when the SECTION itself holds focus, which happens when the
+ * deck routes focus to a pane — the `tabIndex={-1}` reach — and stops the moment focus
+ * moves into a control inside it. That is the ring: a landing mark.
+ *
+ * `:focus-within` fires while the keyboard is anywhere inside, which is the state a
+ * person acts on: "the pane I am typing in". Without it a pane is marked for one
+ * keystroke and then reads as unfocused for the whole time it is being used. It is
+ * drawn as a border and an inset shadow rather than an outline, because an outline on a
+ * rounded container paints outside the radius and clips against the neighbour's edge.
+ *
+ * Their fallbacks differ for the same reason their treatments do: a ring falls back to
+ * the ring token, a boundary to the neutral control boundary.
+ */
+.meridian-pane:focus-visible {
+  outline: 2px solid var(--meridian-pane-hue, var(--meridian-focus-ring));
+  outline-offset: -2px;
+}
+
+.meridian-pane:focus-within {
+  border-color: var(--meridian-pane-hue, var(--meridian-edge-strong));
+  box-shadow: inset 0 0 0 1px var(--meridian-pane-hue, var(--meridian-edge-strong));
+}
+
+/* Quiet chrome: the head is a boundary, not a title bar. It reads at the small size
+   and the muted weight so the body it wraps is what the eye lands on. */
+.meridian-pane__head {
+  display: flex;
+  gap: var(--meridian-space-3);
+  align-items: center;
+  min-height: 34px;
+  padding: 0 var(--meridian-space-2) 0 var(--meridian-space-3);
+  border-bottom: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-pane__kind {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  color: var(--meridian-text-muted);
+}
+
+/* The breadcrumb takes the row's slack; the crumbs inside it decide what is lost. */
+.meridian-pane__breadcrumb {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.meridian-pane__crumbs {
+  display: flex;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+}
+
+/*
+ * A long address loses its outermost crumbs rather than the pane's own name: every
+ * address crumb may shrink and ellipse, and the current crumb below may not. Stated as
+ * shrink factors rather than as a reversed writing direction — `direction: rtl` on a
+ * flex row truncates from the start by laying its items out from the right, which
+ * renders the trail backwards.
+ */
+.meridian-pane__crumb,
+.meridian-pane__crumb-absent {
+  display: inline-flex;
+  flex: 0 1 auto;
+  gap: var(--meridian-space-1);
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.meridian-pane__crumb-absent {
+  color: var(--meridian-text-faint);
+  font-style: italic;
+}
+
+/* The pane's own name: the crumb the trail is on, and the element the section is named
+   by. It never shrinks — an ellipsed pane name is a pane nothing can be told from. */
+.meridian-pane__heading {
+  flex: 0 0 auto;
+  color: var(--meridian-text);
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+}
+
+.meridian-pane__controls {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: var(--meridian-space-1);
+  align-items: center;
+}
+
+/*
+ * Quiet until reached. The control carries no border and no fill at rest — rule 7's
+ * "secondary controls live one click away" applied to a head that is one line — and it
+ * is a 26 px hit target with a 14 px glyph, which is the smallest square that still
+ * clears a pointer's aim at this density.
+ */
+.meridian-pane__control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+  transition:
+    background-color var(--meridian-motion-quick) var(--meridian-ease-settle),
+    color var(--meridian-motion-quick) var(--meridian-ease-settle);
+}
+
+.meridian-pane__control:hover {
+  background: var(--meridian-surface-raised);
+  color: var(--meridian-text);
+}
+
+.meridian-pane__control:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: -2px;
+}
+
+/*
+ * The body carries no padding of its own: a feed pane wants none and a form pane wants
+ * some, and that is the body's family to decide in its own sheet. It scrolls so a body
+ * that provides no scroll container of its own is reachable rather than clipped by the
+ * frame's `overflow: hidden`; a body that provides one holds all its content there and
+ * this box never overflows.
+ */
+.meridian-pane__body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
+}

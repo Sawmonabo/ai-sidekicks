@@ -13,6 +13,14 @@
 // name, and it decides which of them fail. The two jobs fail in two ways — a reading
 // defect drops a clause out of the universe, a rule defect judges the universe
 // wrongly — and neither module can hide the other's.
+//
+// FOUR QUESTIONS, ONE PARSE. Each question below used to ask `barrel-syntax.ts` for
+// its own reading of the same module set, so a caller asking all four paid four
+// parses of the console: measured 2 756 ms for one and 8 680 ms for the four over 486
+// modules. `readCensus` answers all four off a single reading, and every entry point
+// beside it is the same private answer over its own. The single-parse property is
+// therefore STRUCTURAL — there is one `readModuleSyntax` call in the function that
+// has to be fast — rather than a cache someone has to remember to invalidate.
 
 import { posix } from "node:path";
 
@@ -75,6 +83,37 @@ export function isConsoleBarrel(path: string): boolean {
   return path.includes("/console/") && path.endsWith("/index.ts");
 }
 
+/** Everything the gate next door asks, answered off ONE reading of the module set. */
+export interface CensusReading {
+  /** Every door line the set publishes, in walk order. */
+  readonly specifiers: readonly BarrelSpecifier[];
+  /** Every console door that publishes nothing it did not declare itself. */
+  readonly doorsForwardingNothing: readonly string[];
+  /** Every barrel forwarding a set its own text does not name. */
+  readonly unenumerableForwarders: readonly string[];
+  /** Every specifier the rule fails, in walk order. */
+  readonly findings: readonly CensusFinding[];
+}
+
+/**
+ * The whole census of `modules`, off one parse.
+ *
+ * For the caller asking more than one of the questions below — which the gate does,
+ * and which is where the cost is. The four exports beside it stay because the rule's
+ * controls ask one question at a time of corpora written by hand to fail, and a
+ * control that had to name three answers it does not judge would read as though it
+ * judged them.
+ */
+export function readCensus(modules: readonly CensusModule[]): CensusReading {
+  const syntax = readModuleSyntax(modules);
+  return {
+    specifiers: specifiersOf(syntax),
+    doorsForwardingNothing: doorsForwardingNothingIn(syntax),
+    unenumerableForwarders: starReexportingIn(syntax),
+    findings: findingsIn(syntax),
+  };
+}
+
 /** Every barrel specifier in the module set, in walk order. */
 export function barrelSpecifiers(modules: readonly CensusModule[]): readonly BarrelSpecifier[] {
   return specifiersOf(readModuleSyntax(modules));
@@ -98,7 +137,11 @@ export function barrelSpecifiers(modules: readonly CensusModule[]): readonly Bar
  * line, and a dropped clause still leaves the statement this reads.
  */
 export function doorsThatForwardNothing(modules: readonly CensusModule[]): readonly string[] {
-  return readModuleSyntax(modules)
+  return doorsForwardingNothingIn(readModuleSyntax(modules));
+}
+
+function doorsForwardingNothingIn(modules: readonly ModuleSyntax[]): readonly string[] {
+  return modules
     .filter((module) => isConsoleBarrel(module.path) && !forwardsAnything(module))
     .map((module) => module.path)
     .sort();
@@ -119,14 +162,21 @@ function forwardsAnything(module: ModuleSyntax): boolean {
  * clean census means less than it says wherever one appears.
  */
 export function starReexportingBarrels(modules: readonly CensusModule[]): readonly string[] {
-  return readModuleSyntax(modules)
+  return starReexportingIn(readModuleSyntax(modules));
+}
+
+function starReexportingIn(modules: readonly ModuleSyntax[]): readonly string[] {
+  return modules
     .filter((module) => isConsoleBarrel(module.path) && module.forwardsUnnamedSet)
     .map((module) => module.path);
 }
 
 /** Every specifier the gate's rule fails, in walk order. */
 export function censusFindings(modules: readonly CensusModule[]): readonly CensusFinding[] {
-  const syntax = readModuleSyntax(modules);
+  return findingsIn(readModuleSyntax(modules));
+}
+
+function findingsIn(syntax: readonly ModuleSyntax[]): readonly CensusFinding[] {
   const specifiers = specifiersOf(syntax);
   const specifiersByModule = new Map<string, BarrelSpecifier[]>();
   for (const entry of specifiers) {

@@ -55,7 +55,7 @@ function portServing(definitionId: string): GrowthPort {
 
 function observeDirectory(
   growth: GrowthPort,
-): ObservedSubjectRead<GrowthPort, WorkflowDefinitionDirectory> {
+): ObservedSubjectRead<GrowthPort, WorkflowDefinitionDirectory, string> {
   return observeSubjectRead(useWorkflowDefinitionDirectory, {
     source: growth,
     subject: PROBE_SESSION_ID,

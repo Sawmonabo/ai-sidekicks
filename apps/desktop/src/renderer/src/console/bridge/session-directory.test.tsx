@@ -40,14 +40,14 @@ const SCRIPTED_DAEMON_REFUSAL = {
 /**
  * The read, driven through the commit-recording probe.
  *
- * The hook takes only a port, so the probe's subject is passed and ignored: what this
- * read is addressed by IS the port, and the probe's second axis exists for the reads
- * that also carry a session id.
+ * The hook goes in unwrapped and the address carries no key: this read is addressed by
+ * the PORT and by nothing else, which is what the probe's default key type states. The
+ * probe's second axis is for the reads that also carry a session id.
  */
 function observeDirectory(
   growth: GrowthPort,
 ): ObservedSubjectRead<GrowthPort, SessionDirectoryState> {
-  return observeSubjectRead((source: GrowthPort) => useSessionDirectory(source), {
+  return observeSubjectRead(useSessionDirectory, {
     source: growth,
     subject: undefined,
   });

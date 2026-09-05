@@ -16,13 +16,38 @@
 // tried was the name-keyed approximation, and a rule that catches half a class reads
 // exactly like one that catches the class.
 //
-// So the instrument is source text over the shared console walk, which is what the
-// timer and byte-scaling chokepoints already use for claims a selector cannot express.
-// It is coarse in one direction and says so: the binding names are matched by NAME, so
-// a catch binding called something this list does not carry is not read. That list is
-// asserted against the tree below, so a new spelling arrives as a red gate rather than
-// as a silent hole.
+// WHY IT IS NO LONGER A NAME CENSUS EITHER. The first answer here was source text over
+// a hand-listed set of five binding names, which is the same approximation one layer
+// down: it read the whole module rather than the clause, and it read only the bindings
+// somebody had thought of. Measured against the tree — 388 console modules, tests
+// included — there are 21 caught bindings under 11 distinct names, and the five-name
+// census named two of them: it reached 10 bindings and read none of the other 11, whose
+// names run to `constructionFailure`, `tripwireFailure`, and `sinkFailure`. Its own
+// non-vacuity check asked for more than three CATCHING MODULES, a bar those five names
+// cleared by themselves, so the hole was invisible from inside the gate.
+//
+// So the instrument is the PARSER, which is what a question about a binding's scope
+// needs: `ts.CatchClause` yields the binding this clause declares whatever it is called,
+// and the search for a stringification runs over that clause's own block rather than
+// over the file. Both halves matter. Without the first, a binding named `problem` is not
+// read at all; without the second, a module that catches a value and stringifies an
+// unrelated variable of the same name elsewhere is a false positive the next reader
+// deletes the gate over.
+//
+// TWO SHAPES BIND A CAUGHT VALUE, and the promise tail is the one no selector reached:
+// `.catch((error) => …)` holds exactly the same unestablished value, and the console's
+// own store and bridge families write their rejection tails that way. Both are found
+// here, and both are searched over the body the binding is in scope across — a closure
+// the clause creates included, since the value escapes into it unchanged.
+//
+// WHAT IT STILL DOES NOT READ, stated rather than left to be discovered: a destructured
+// binding (`catch ({ message })`) declares no identifier to compare against, so a clause
+// written that way contributes nothing. It is also already past the hazard — reading
+// `message` off an unestablished value is the throw this gate is about, one step earlier
+// — and a gate that reported it would be reporting a different rule than the one it
+// states. `syntax-ban-cases.test.ts` is where a destructuring ban would go.
 
+import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -30,91 +55,163 @@ import {
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
+import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
-/**
- * The names a caught value is bound to in this tree, plus the two short spellings.
- *
- * Measured rather than assumed: `catch (error)` is what the console writes, `catch (e)`
- * is what a hurried edit writes, and `thrown` / `reason` are the two the promise tail
- * attracts. A binding outside this list is not read, which is the one direction this
- * gate is coarse in.
- */
-const CAUGHT_BINDING_NAMES: readonly string[] = ["error", "e", "thrown", "reason", "rejection"];
-
-/** How a value reaches ToPrimitive, as a source-text fragment keyed on one binding. */
-interface StringificationForm {
+/** One caught value: what it is called, and the code it is in scope across. */
+interface CaughtBinding {
   readonly name: string;
-  /** Built per binding, because every one of these spellings names the binding. */
-  readonly patternFor: (binding: string) => RegExp;
+  /** The clause's block, or the promise tail's callback body. */
+  readonly scope: ts.Node;
+  /** How the value was caught, for a failure message that says which shape. */
+  readonly shape: "catch clause" | "promise tail";
+}
+
+/** The property name a promise tail is spelled with. */
+const PROMISE_TAIL_METHOD = "catch";
+
+/** The global whose call runs ToPrimitive. Compared exactly, so `lossyStringify` is not it. */
+const STRINGIFY_GLOBAL = "String";
+
+/** The method every other spelling reaches through. */
+const TO_STRING_METHOD = "toString";
+
+/** The first parameter of `callee`, when it is a function taking a plain identifier. */
+function callbackBinding(callee: ts.Node): { name: string; body: ts.Node } | undefined {
+  if (!ts.isArrowFunction(callee) && !ts.isFunctionExpression(callee)) {
+    return undefined;
+  }
+  const [parameter] = callee.parameters;
+  if (parameter === undefined || !ts.isIdentifier(parameter.name)) {
+    return undefined;
+  }
+  return { name: parameter.name.text, body: callee.body };
+}
+
+/** The caught value `node` binds, if it binds one. */
+function caughtBindingAt(node: ts.Node): CaughtBinding | undefined {
+  if (ts.isCatchClause(node)) {
+    const declared = node.variableDeclaration?.name;
+    if (declared === undefined || !ts.isIdentifier(declared)) {
+      // A destructured or absent binding. See this module's header.
+      return undefined;
+    }
+    return { name: declared.text, scope: node.block, shape: "catch clause" };
+  }
+  if (
+    !ts.isCallExpression(node) ||
+    !ts.isPropertyAccessExpression(node.expression) ||
+    node.expression.name.text !== PROMISE_TAIL_METHOD
+  ) {
+    return undefined;
+  }
+  const [callee] = node.arguments;
+  const bound = callee === undefined ? undefined : callbackBinding(callee);
+  return bound === undefined
+    ? undefined
+    : { name: bound.name, scope: bound.body, shape: "promise tail" };
+}
+
+/** Every caught value `parsed` binds, in source order. */
+export function caughtBindings(parsed: ts.SourceFile): readonly CaughtBinding[] {
+  const found: CaughtBinding[] = [];
+  forEachDescendant(parsed, (node) => {
+    const caught = caughtBindingAt(node);
+    if (caught !== undefined) {
+      found.push(caught);
+    }
+  });
+  return found;
+}
+
+/** Whether `node` is the caught binding itself, rather than something read off it. */
+function isCaughtValue(node: ts.Node, binding: string): boolean {
+  return ts.isIdentifier(node) && node.text === binding;
+}
+
+/** Whether `node` is a string the caught value could be concatenated onto. */
+function isStringOperand(node: ts.Node): boolean {
+  return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node);
 }
 
 /**
- * The four spellings, each of which runs the SAME ToPrimitive on the same value.
+ * How a value reaches ToPrimitive. Four spellings, one hazard.
  *
  * `String(x)` and `` `${x}` `` are the two explicit ones; `"" + x` is the implicit
- * concatenation; `x.toString()` calls the method the other three reach through. Nothing
- * here is exotic — each is what an engineer writes when the first is banned.
+ * concatenation, and it is matched against ANY string operand rather than the empty one
+ * alone, because `"read failed: " + error` runs the identical conversion; `x.toString()`
+ * calls the method the other three reach through. Nothing here is exotic — each is what
+ * an engineer writes when the first is banned.
  */
-const STRINGIFICATION_FORMS: readonly StringificationForm[] = [
-  {
-    name: "String(<caught>)",
-    patternFor: (binding) => new RegExp(`\\bString\\s*\\(\\s*${binding}\\b`, "u"),
-  },
-  {
-    name: "`${<caught>}`",
-    patternFor: (binding) => new RegExp(`\\$\\{\\s*${binding}\\s*\\}`, "u"),
-  },
-  {
-    name: '"" + <caught>',
-    patternFor: (binding) => new RegExp(`(?:""|'')\\s*\\+\\s*${binding}\\b`, "u"),
-  },
-  {
-    name: "<caught>.toString()",
-    patternFor: (binding) => new RegExp(`\\b${binding}\\s*\\.\\s*toString\\s*\\(`, "u"),
-  },
-];
-
-/**
- * Where a caught value is in scope: a `catch` clause, or a promise tail's callback.
- *
- * The second is the half no selector in the config reached. A `.catch((error) => …)`
- * callback holds exactly the same unestablished value, and the console's own store and
- * bridge families write their rejection tails that way.
- */
-const CAUGHT_BINDING_SCOPES: readonly ((binding: string) => RegExp)[] = [
-  (binding) => new RegExp(`\\bcatch\\s*\\(\\s*${binding}\\b`, "u"),
-  (binding) => new RegExp(`\\.\\s*catch\\s*\\(\\s*\\(?\\s*${binding}\\b`, "u"),
-];
-
-/** Which bindings `source` catches, in either scope. */
-function caughtBindings(source: string): readonly string[] {
-  return CAUGHT_BINDING_NAMES.filter((binding) =>
-    CAUGHT_BINDING_SCOPES.some((scope) => scope(binding).test(source)),
-  );
+function stringificationAt(node: ts.Node, binding: string): string | undefined {
+  if (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === STRINGIFY_GLOBAL &&
+    node.arguments.length === 1 &&
+    node.arguments[0] !== undefined &&
+    isCaughtValue(node.arguments[0], binding)
+  ) {
+    return `String(${binding})`;
+  }
+  if (ts.isTemplateSpan(node) && isCaughtValue(node.expression, binding)) {
+    return `\`\${${binding}}\``;
+  }
+  if (
+    ts.isBinaryExpression(node) &&
+    node.operatorToken.kind === ts.SyntaxKind.PlusToken &&
+    ((isStringOperand(node.left) && isCaughtValue(node.right, binding)) ||
+      (isCaughtValue(node.left, binding) && isStringOperand(node.right)))
+  ) {
+    return `"…" + ${binding}`;
+  }
+  if (
+    ts.isCallExpression(node) &&
+    ts.isPropertyAccessExpression(node.expression) &&
+    node.expression.name.text === TO_STRING_METHOD &&
+    isCaughtValue(node.expression.expression, binding)
+  ) {
+    return `${binding}.toString()`;
+  }
+  return undefined;
 }
 
 /**
  * Every ToPrimitive spelling `source` applies to a value it caught, or `[]`.
  *
- * Module-scoped rather than block-scoped, and that width is deliberate: a module that
- * catches a value and stringifies something under the same name is the finding whether
- * or not the two sit in one block, and narrowing to the block would need the parser this
- * claim deliberately does not use — the question is which text a file contains.
+ * Scoped to the clause rather than to the module, which is the whole reason this reads
+ * an AST: a module that catches `error` in one function and formats an unrelated
+ * `error` in another is not the finding, and a gate that said it was would be deleted
+ * the first week somebody hit it.
  */
-export function caughtValueStringifications(source: string): readonly string[] {
+export function caughtValueStringifications(fileName: string, source: string): readonly string[] {
+  const parsed = parseSourceText(fileName, source);
   const found: string[] = [];
-  for (const binding of caughtBindings(source)) {
-    for (const form of STRINGIFICATION_FORMS) {
-      if (form.patternFor(binding).test(source)) {
-        found.push(`${form.name} on \`${binding}\``);
+  for (const binding of caughtBindings(parsed)) {
+    const consider = (node: ts.Node): void => {
+      const spelling = stringificationAt(node, binding.name);
+      if (spelling !== undefined) {
+        found.push(`${spelling} in a ${binding.shape}`);
       }
-    }
+    };
+    consider(binding.scope);
+    forEachDescendant(binding.scope, consider);
   }
   return found;
 }
 
 describe("catch stringification — no caught value reaches ToPrimitive", () => {
   const modules: readonly ConsoleSourceModule[] = consoleSourceModules({ tests: true });
+  const bindingsByModule = modules.map((module) => ({
+    module: module.displayPath,
+    source: readConsoleSourceModule(module),
+  }));
+  // Parsed once for the whole file. Every case below is a comparison over this reading,
+  // for the reason `console-layering-cruise.ts` records about its cruises: a walk of
+  // ~390 modules charged to a case runs against vitest's default timeout under aggregate
+  // tier load, and two cases asking for it separately pay for it twice.
+  const everyCaughtBinding = bindingsByModule.flatMap((entry) =>
+    caughtBindings(parseSourceText(entry.module, entry.source)),
+  );
 
   it("finds a console tree to scan at all", () => {
     // Without this a wrong root would scan nothing and the claim below would pass over
@@ -123,54 +220,85 @@ describe("catch stringification — no caught value reaches ToPrimitive", () => 
   });
 
   it("no console module stringifies a value it caught", () => {
-    const offenders = modules
-      .map((module) => ({
-        module: module.displayPath,
-        forms: caughtValueStringifications(readConsoleSourceModule(module)),
+    const offenders = bindingsByModule
+      .map((entry) => ({
+        module: entry.module,
+        forms: caughtValueStringifications(entry.module, entry.source),
       }))
       .filter((entry) => entry.forms.length > 0)
       .map((entry) => `${entry.module}: ${entry.forms.join(", ")}`);
     expect(offenders).toStrictEqual([]);
   });
 
-  it("the tree really does catch values, so the clean result is not an empty scan", () => {
-    // The scope needles have to match real console source or the claim above quantifies
-    // over nothing. Stated as a floor rather than a list: which modules catch is a
-    // property of the tree and moves, that any do is the property this gate rests on.
-    const catching = modules.filter(
-      (module) => caughtBindings(readConsoleSourceModule(module)).length > 0,
-    );
-    expect(catching.length).toBeGreaterThan(3);
+  it("reads far more caught bindings than the name census it replaced", () => {
+    // The scope search has to find real bindings or the claim above quantifies over
+    // nothing, and the floor is set where it says something: the five hand-listed names
+    // this gate used to carry reached 10 bindings, and its own non-vacuity check asked
+    // for more than three catching MODULES — a bar those five cleared alone, which is
+    // why the hole was invisible from inside. A floor rather than the measured 21,
+    // because which modules catch is a property of the tree and moves; above 10,
+    // because below it this gate would be no better than the census it replaced.
+    expect(everyCaughtBinding.length).toBeGreaterThan(12);
+    // And the shape no `CatchClause` selector could ever have reached.
+    expect(everyCaughtBinding.some((binding) => binding.shape === "promise tail")).toBe(true);
   });
 
-  it("planted violation: every spelling the two deleted selectors missed is caught", () => {
-    // Four of these five passed the selectors this gate replaces, measured through the
-    // real config. Without them the clean result above would be a claim about the two
-    // spellings the config could already see.
+  it("negative control: it reads bindings the five-name census could not", () => {
+    // The direct proof that the instrument changed rather than the wording. Without it
+    // the floor above could be met entirely by bindings the old list already named, and
+    // this gate would have been rewritten to say the same thing more slowly.
+    const supersededCensus = ["error", "e", "thrown", "reason", "rejection"];
+    const beyondCensus = everyCaughtBinding.filter(
+      (binding) => !supersededCensus.includes(binding.name),
+    );
+    expect(beyondCensus.length).toBeGreaterThan(0);
+    expect(new Set(beyondCensus.map((binding) => binding.name)).size).toBeGreaterThan(3);
+  });
+
+  it("planted violation: every spelling reaches the same ToPrimitive", () => {
+    // Four of these six passed the two selectors this gate first replaced, measured
+    // through the real config; the last two passed the name census that replaced them.
     for (const planted of [
       "try { read() } catch (error) { return String(error); }",
       "try { read() } catch (thrown) { return `${thrown}`; }",
       'try { read() } catch (error) { return "" + error; }',
+      'try { read() } catch (error) { return "read failed: " + error; }',
       "try { read() } catch (error) { return error.toString(); }",
       "void read().catch((error) => report(String(error)));",
+      // The name census read five names and this is none of them.
+      "try { read() } catch (whateverWentWrong) { return String(whateverWentWrong); }",
+      // The value escapes into a closure the clause creates, unchanged.
+      "try { read() } catch (error) { queue(() => report(`${error}`)); }",
     ]) {
-      expect(caughtValueStringifications(planted), `${planted} slipped past`).not.toStrictEqual([]);
+      expect(
+        caughtValueStringifications("planted.ts", planted),
+        `${planted} slipped past`,
+      ).not.toStrictEqual([]);
     }
   });
 
   it("negative control: stringifying something else, or catching without stringifying", () => {
-    // The other direction. A gate that fired on either of these would be turned off
-    // within a week, which is how a chokepoint stops existing.
-    expect(
-      caughtValueStringifications("try { read() } catch (error) { return refuse(error); }"),
-    ).toStrictEqual([]);
-    expect(caughtValueStringifications("const label = String(count);")).toStrictEqual([]);
-    expect(
-      caughtValueStringifications("try { read() } catch (error) { return lossyStringify(error); }"),
-    ).toStrictEqual([]);
-    // A binding whose NAME merely starts with a caught one is not that binding.
-    expect(
-      caughtValueStringifications("try { read() } catch (error) { return String(errorCode); }"),
-    ).toStrictEqual([]);
+    // The other direction. A gate that fired on any of these would be turned off within
+    // a week, which is how a chokepoint stops existing.
+    for (const clean of [
+      "try { read() } catch (error) { return refuse(error); }",
+      "const label = String(count);",
+      // The total stringifier is the answer this gate exists to route callers to, and
+      // it is a different callee — compared by name rather than by a word boundary.
+      "try { read() } catch (error) { return lossyStringify(error); }",
+      "try { read() } catch (error) { return `${lossyStringify(error)}`; }",
+      // A binding whose NAME merely starts with a caught one is not that binding.
+      "try { read() } catch (error) { return String(errorCode); }",
+      // The class the module-wide census could not separate: one function catches and
+      // another formats an unrelated value of the same name.
+      "function read() { try { open() } catch (error) { refuse(error) } }\nfunction label(error: string) { return String(error); }",
+      // A member read off the value is a different hazard and a different rule.
+      "try { read() } catch (error) { return String(error.message); }",
+    ]) {
+      expect(
+        caughtValueStringifications("planted.ts", clean),
+        `${clean} was reported`,
+      ).toStrictEqual([]);
+    }
   });
 });

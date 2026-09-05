@@ -25,6 +25,7 @@ import {
   createDesktopLinter,
   ESLINT_CASE_BUDGET_MS,
   NON_EXEMPT_CONSOLE_PROBE_PATH,
+  NON_EXEMPT_TIER_PROBE_PATH,
   ruleMessagesAt,
 } from "../eslint-harness.js";
 
@@ -116,6 +117,14 @@ const REFUSED_DATE_READINGS: readonly SyntaxBanCase[] = [
     source: "export const at = globalThis.Date.parse(iso);",
     reading: "the function read through the global object",
   },
+  {
+    source: "export const at = new Date(CONTROL_STARTED_AT);",
+    reading: "a SCREAMING_SNAKE stamp, which the numeric widening below must not admit",
+  },
+  {
+    source: "export const at = new Date(FIXED_INSTANT);",
+    reading: "a SCREAMING_SNAKE stamp carrying no numeric suffix at all",
+  },
 ];
 
 /** What the same rules must leave open: every numeric construction the tree writes. */
@@ -128,6 +137,19 @@ const ADMITTED_DATE_READINGS: readonly SyntaxBanCase[] = [
   {
     source: "export const now = Date.now();",
     reading: "the one time reading `core/clock.ts` uses",
+  },
+  // The package's OTHER naming convention, admitted when the block reached the tiers.
+  // A module constant is SCREAMING_SNAKE here, and the suffix census had been taken
+  // over `src/`, where every `new Date(...)` argument happened to be a camelCase
+  // local — so a tier naming its instant the way this package names every constant
+  // was refused for the convention rather than for the reading.
+  {
+    source: "export const at = new Date(FIXED_INSTANT_MILLISECONDS);",
+    reading: "a module constant naming the milliseconds it holds",
+  },
+  {
+    source: "export const at = new Date(CONTROL_STARTED_AT_MS);",
+    reading: "the short spelling of the same",
   },
 ];
 
@@ -165,6 +187,43 @@ describe("console syntax bans — every planted row lands on the side it belongs
       // a path the ban block does not match. Without this the second table would pass
       // with the block deleted.
       expect(await refusals("export const at = Date.parse(iso);\n")).not.toStrictEqual([]);
+    },
+    ESLINT_CASE_BUDGET_MS,
+  );
+
+  it(
+    "refuses the same reading in a test tier, which is where two of them got in",
+    async () => {
+      // The rows above all lint as a console module, and for most of this block's life
+      // that was the only path it covered — so a `Date.parse` under `test/console/` was
+      // refused by no rule at all, which is how the two a family adversarial review
+      // removed landed. This asks the real engine at a tier path.
+      expect(
+        await ruleMessagesAt(
+          linter,
+          "export const at = Date.parse(iso);\n",
+          NON_EXEMPT_TIER_PROBE_PATH,
+          AUDITED_RULE,
+        ),
+      ).not.toStrictEqual([]);
+    },
+    ESLINT_CASE_BUDGET_MS,
+  );
+
+  it(
+    "negative control: the tier probe admits what the console probe admits",
+    async () => {
+      // Coverage that refused everything would satisfy the case above and make the
+      // tiers unwritable. Both halves, at the tier path, is the pair that says the
+      // block is the same block there rather than a blunter one.
+      expect(
+        await ruleMessagesAt(
+          linter,
+          "export const at = new Date(FIXED_INSTANT_MILLISECONDS);\n",
+          NON_EXEMPT_TIER_PROBE_PATH,
+          AUDITED_RULE,
+        ),
+      ).toStrictEqual([]);
     },
     ESLINT_CASE_BUDGET_MS,
   );

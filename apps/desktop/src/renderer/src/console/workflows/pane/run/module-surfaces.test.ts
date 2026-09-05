@@ -49,9 +49,10 @@ describe("the run pane's published module surfaces", () => {
   });
 
   it("publishes the run controls' actions and refusals, and not the code tuple", () => {
+    // `WORKFLOW_CANCEL_REASON_BYTE_CAP` is deliberately absent: the bound moved to the
+    // family's caps home, so this module SPENDS it and no longer publishes it.
     expect(Object.keys(runControls).toSorted()).toStrictEqual(
       [
-        "WORKFLOW_CANCEL_REASON_BYTE_CAP",
         "WORKFLOW_RUN_CONTROL_ACTIONS",
         "WORKFLOW_RUN_CONTROL_ORIGIN",
         "cancelReasonBudget",

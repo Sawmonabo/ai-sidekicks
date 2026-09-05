@@ -67,7 +67,7 @@ import {
   formatByteQuantity,
 } from "../../../primitives/index.js";
 import { useSubjectScopedState } from "../../../store/index.js";
-import { WORKFLOW_CHROME_GLYPH_SIZE } from "../../chrome-state.js";
+import { GLYPH_SIZE_CHROME } from "../../../tokens/index.js";
 import {
   cancelReasonBudget,
   reasonPastBoundRefusal,
@@ -225,7 +225,7 @@ function renderCancel(control: WorkflowCancelControl, fields: CancelFieldState):
     >
       <div className="meridian-run-controls__head">
         <button type="submit" className="meridian-run-controls__action">
-          <Glyph name="stop" size={WORKFLOW_CHROME_GLYPH_SIZE} />
+          <Glyph name="stop" size={GLYPH_SIZE_CHROME} />
           Cancel this run
         </button>
         <span className="meridian-run-controls__note">
@@ -295,7 +295,7 @@ function renderResume(control: WorkflowResumeControl, fields: RepinFieldState): 
     >
       <div className="meridian-run-controls__head">
         <button type="submit" className="meridian-run-controls__action">
-          <Glyph name="play" size={WORKFLOW_CHROME_GLYPH_SIZE} />
+          <Glyph name="play" size={GLYPH_SIZE_CHROME} />
           Resume this run
         </button>
         <span className="meridian-run-controls__note">

@@ -63,7 +63,7 @@
     "node_modules",
     "src/renderer/**",
     "test/console/console-harness.tsx",
-    "test/console/surfaces/workflows.tsx",
+    "test/console/surfaces/**",
     "test/console/phase-graph-settled.ts",
     // The architecture tier moved to `tsconfig.console-architecture-test.json` when
     // its wire-truth test started IMPORTING console source rather than reading it:

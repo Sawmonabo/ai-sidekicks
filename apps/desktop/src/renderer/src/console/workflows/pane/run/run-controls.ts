@@ -40,6 +40,7 @@ import { refuse, type ConsoleRefusal } from "../../../core/index.js";
 // second one here agreed on ASCII and would have drifted on the first rule either
 // grew.
 import { measureUtf8ByteLength } from "../../../persistence/index.js";
+import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "../../constants.js";
 
 /**
  * The two run controls, and exactly two.
@@ -74,19 +75,6 @@ export const WORKFLOW_RUN_CONTROL_ORIGIN = "workflow-run-control";
  * `run-list-rows.ts` gives for its own type-over-value choice.
  */
 export type WorkflowRunControlRefusalCode = "wire-unregistered" | "reason-past-bound";
-
-/**
- * Bytes a cancellation reason may occupy, bounded exactly as the engine's own park
- * cause is: eight kibibytes, measured on the UTF-8 encoding rather than on the
- * string's length, because a bound counted in code units refuses a shorter sentence
- * in one script than in another.
- *
- * The unit is spelled out rather than abbreviated on purpose — the console's
- * byte-scaling chokepoint is asserted by scanning every source module for a binary
- * unit LABEL, and a comment carrying one would read as a second byte formatter.
- * Multiplying up to a bound is not scaling down to a display figure.
- */
-export const WORKFLOW_CANCEL_REASON_BYTE_CAP: number = 8 * 1024;
 
 /** What the operator has spent of the reason budget, and whether they are past it. */
 export interface CancelReasonBudget {
