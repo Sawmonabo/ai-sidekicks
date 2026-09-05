@@ -46,8 +46,8 @@ import { renderAbsorbedNodeRoster } from "../../frame/legacy-surfaces.js";
 import { Nothing } from "../../primitives/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { AgentBindingColumn } from "./AgentBindingColumn.js";
-import { PeerInvocationMount } from "./PeerInvocationMount.js";
-import { RunLinkageMount } from "./RunLinkageMount.js";
+import { PeerInvocationMount } from "./peer-invocation/PeerInvocationMount.js";
+import { RunLinkageMount } from "./run-linkage/RunLinkageMount.js";
 import { SidekickDefinitionEditorMount } from "./SidekickDefinitionEditorMount.js";
 
 export interface AgentConsoleBodyProps {

@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { PeerInvocation } from "../PeerInvocation.js";
-import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
-import { useSubjectScopedState, type SessionStore } from "../../store/index.js";
-import { AgentMutationControl, useAgentMutationControl } from "./mutation-control.js";
-import { useSessionProjectionReRead, type PeerInvocationProjection } from "./session-projection.js";
+import { PeerInvocation } from "../../PeerInvocation.js";
+import { type AgentConsoleModels } from "../../run-console/agent-console-model.js";
+import type { ConsoleBridge } from "../../../bridge/index.js";
+import { useSubjectScopedState, type SessionStore } from "../../../store/index.js";
+import { AgentMutationControl, useAgentMutationControl } from "../mutation-control.js";
+import {
+  useSessionProjectionReRead,
+  type PeerInvocationProjection,
+} from "../session-projection.js";
 
 /** The control itself: the projected grant, the one mutation, and the re-read. */
 export function PeerInvocationControl(props: {

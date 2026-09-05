@@ -1,7 +1,7 @@
-import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
-import { type SessionStore } from "../../store/index.js";
-import { NOTHING_PROJECTED } from "./session-projection.js";
+import { type AgentConsoleModels } from "../../run-console/agent-console-model.js";
+import type { ConsoleBridge } from "../../../bridge/index.js";
+import { type SessionStore } from "../../../store/index.js";
+import { NOTHING_PROJECTED } from "../session-projection.js";
 import { SubscribedPeerInvocation } from "./SubscribedPeerInvocation.js";
 import { PeerInvocationControl } from "./PeerInvocationControl.js";
 
