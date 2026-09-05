@@ -8,7 +8,7 @@
 // this surface reads would be a second answer to which transition came first.
 
 import { Glyph, WireFigure } from "../../primitives/index.js";
-import { type RunStatusRow } from "./run-state-feed.js";
+import { type RunStatusRow } from "./run-state-projection.js";
 import { runStatusSubtypeTraits } from "./run-status.js";
 
 /** The status-history mark, at the size the ledger's own inline glyphs use. */

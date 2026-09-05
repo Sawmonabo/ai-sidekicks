@@ -33,7 +33,7 @@
 // missing from it.
 
 import type { ConsoleEntity } from "../../store/index.js";
-import type { RunProjection } from "./run-state-feed.js";
+import type { RunProjection } from "./run-state-projection.js";
 
 /**
  * One run as the session's own record knows it, with no live reading behind it.

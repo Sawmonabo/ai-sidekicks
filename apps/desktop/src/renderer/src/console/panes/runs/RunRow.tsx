@@ -40,7 +40,7 @@ import { InputAskSlot, INPUT_ASK_SLOT_CONTRACT } from "./InputAskSlot.js";
 import { InterventionHistory } from "./InterventionHistory.js";
 import { RunControls } from "./RunControls.js";
 import type { RunControlSurface } from "./run-control-surface.js";
-import { runElapsedMilliseconds, type RunProjection } from "./run-state-feed.js";
+import { runElapsedMilliseconds, type RunProjection } from "./run-state-projection.js";
 import {
   RUN_CLEAN_CLOSE_SENTENCE,
   RUN_STATE_TONES,

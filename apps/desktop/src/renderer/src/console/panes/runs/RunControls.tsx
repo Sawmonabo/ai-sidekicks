@@ -37,7 +37,7 @@ import type { ConsoleRefusal } from "../../core/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
 import { isControlOffered } from "./run-control-gating.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
-import { type RunProjection } from "./run-state-feed.js";
+import { type RunProjection } from "./run-state-projection.js";
 import { isLiveRunState } from "./run-status.js";
 import { CONTROL_GLYPH_SIZE, ControlButton } from "./ControlButton.js";
 

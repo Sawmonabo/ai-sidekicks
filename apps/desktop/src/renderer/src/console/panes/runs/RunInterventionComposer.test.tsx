@@ -22,7 +22,7 @@ import type { RunState } from "@ai-sidekicks/contracts";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { RunInterventionComposer, type ComposedControl } from "./RunInterventionComposer.js";
 import { useRunControlSurface } from "./run-control-surface.js";
-import { RunStateProjection } from "./run-state-feed.js";
+import { RunStateProjection } from "./run-state-projection.js";
 
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";
 

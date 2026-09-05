@@ -22,12 +22,8 @@ import { describe, expect, it } from "vitest";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
-import {
-  RUN_STATE_REFUSAL_ORIGIN,
-  RunStateProjection,
-  useRunFeed,
-  type RunStateFeed,
-} from "./run-state-feed.js";
+import { RUN_STATE_REFUSAL_ORIGIN, useRunFeed, type RunStateFeed } from "./run-state-feed.js";
+import { RunStateProjection } from "./run-state-projection.js";
 
 /** Canonical UUIDs: both registered schemas brand their ids and refuse anything else. */
 const RUN_ID = "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061";

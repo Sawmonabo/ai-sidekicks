@@ -26,7 +26,7 @@ import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { registerRunsPane } from "./index.js";
 import { RunsPane } from "./RunsPane.js";
 import { RunControls } from "./RunControls.js";
-import { RunStateProjection } from "./run-state-feed.js";
+import { RunStateProjection } from "./run-state-projection.js";
 import { useRunControlSurface } from "./run-control-surface.js";
 import type { DriverCapabilityReadout } from "../../bridge/index.js";
 

@@ -61,12 +61,10 @@
 import type {
   InterruptRunParams,
   InterventionRequestPayload,
-  InterventionState,
   QueueItemCreateRequest,
 } from "@ai-sidekicks/contracts";
 
 import {
-  callDaemon,
   readChannelId,
   readInterruptRunParams,
   readInterventionRequest,
@@ -92,11 +90,11 @@ import type {
 } from "./send-resolutions.js";
 import {
   composerRefusal,
-  interventionNotApplied,
   unparseableIdentifier,
   type ComposerRefusalCode,
 } from "./send-refusals.js";
 import { RunVersionLedger } from "./run-version-ledger.js";
+import { dispatchInterrupt, dispatchIntervention, dispatchQueuedTurn } from "./send-dispatch.js";
 
 export interface ComposerSendRouterOptions {
   readonly bridge: ConsoleBridge;
@@ -182,9 +180,9 @@ export class ComposerSendRouter {
       case "client-command":
         return { status: "intercepted", commandName: resolution.commandName };
       case "new-turn":
-        return await this.#dispatchQueuedTurn(resolution.request);
+        return await dispatchQueuedTurn(this.#bridge, resolution.request);
       case "steer":
-        return await this.#dispatchIntervention(resolution.request);
+        return await dispatchIntervention(this.#bridge, resolution.request, this.#runVersions);
     }
   }
 
@@ -217,7 +215,7 @@ export class ComposerSendRouter {
     if (params === undefined) {
       return { status: "refused", refusal: unparseableIdentifier("the run") };
     }
-    return await this.#dispatchInterrupt(params);
+    return await dispatchInterrupt(this.#bridge, params);
   }
 
   /**
@@ -353,99 +351,6 @@ export class ComposerSendRouter {
       return { outcome: "refused", refusal: unparseableIdentifier("this steer") };
     }
     return { outcome: "steer", request };
-  }
-
-  /**
-   * Dispatch the stop, whose SERVED reply IS the settlement.
-   *
-   * The one send path with nothing to read OFF the reply, and that is its CONTRACT
-   * rather than a shortcut: `driver.interruptRun` answers with `DriverAckResult`,
-   * which the registered schema declares as the empty object, so there is no member
-   * a settlement could branch on. The reply is still parsed — the door parses every
-   * one — and a shape carrying members is a protocol mismatch this path refuses
-   * rather than reads as a stop that happened.
-   */
-  async #dispatchInterrupt(params: InterruptRunParams): Promise<ComposerSendOutcome> {
-    const reply = await callDaemon(this.#bridge, "driver.interruptRun", params);
-    return reply.status === "refused"
-      ? { status: "refused", refusal: reply.refusal }
-      : { status: "sent", path: "provider-bound" };
-  }
-
-  /**
-   * Dispatch one new turn, and READ what came back.
-   *
-   * The steer path's rule on the other send. `run.queueCreate` answers with the
-   * registered `QueueItemCreateResponse` — the item's id, its state, and when it was
-   * created — so a reply that is not that shape is a reply this console can read no
-   * queued message out of, which is what a protocol-version mismatch produces.
-   * Returning it as sent cleared the participant's draft on the strength of a
-   * payload nothing had understood.
-   *
-   * The parsed value is deliberately not KEPT. Nothing in the composer addresses a
-   * queue item — the shelf reads the queue from its own subscription — so what the
-   * parse buys is the confirmation itself and not a member to carry forward.
-   */
-  async #dispatchQueuedTurn(request: QueueItemCreateRequest): Promise<ComposerSendOutcome> {
-    const reply = await callDaemon(this.#bridge, "run.queueCreate", request);
-    return reply.status === "refused"
-      ? { status: "refused", refusal: reply.refusal }
-      : { status: "sent", path: "channel-message" };
-  }
-
-  /**
-   * Dispatch one steer, and READ what came back.
-   *
-   * Its own path rather than an argument to the one above, because the two settle
-   * differently: `run.queueCreate` and `driver.interruptRun` are answered or refused,
-   * and `run.intervene` is answered with a LIFECYCLE STATE that may say the run
-   * declined the message. Folding that into the shared path would have made the
-   * decision a flag, and the arm nobody sets is the arm a person meets.
-   *
-   * The reply is parsed against its registered shape before anything is read off it,
-   * and the version is kept from EVERY parsed response — a refusal answers with the
-   * run's current version too, which is what lets the next attempt guard itself
-   * without a re-read the console has no projection to perform.
-   */
-  async #dispatchIntervention(request: InterventionRequestPayload): Promise<ComposerSendOutcome> {
-    const reply = await callDaemon(this.#bridge, "run.intervene", request);
-    if (reply.status === "refused") {
-      return { status: "refused", refusal: reply.refusal };
-    }
-    this.#runVersions.record(request.targetRunId, reply.value.runVersion);
-    if (!isInterventionAdmitted(reply.value.state)) {
-      return {
-        status: "refused",
-        refusal: interventionNotApplied(reply.value.state, reply.value.rejectionReason),
-      };
-    }
-    return { status: "sent", path: "provider-bound" };
-  }
-}
-
-/**
- * Whether an intervention state means the composed text reached the run.
- *
- * A total switch over the registered union rather than a list, so a seventh state
- * has to be classified rather than falling into whichever arm was written last.
- * `Queue And Intervention Model §Intervention State Transition Table` is what
- * decides each one: `requested` and `accepted` are admissions the daemon will act
- * on, `applied` is the provider confirming the effect, and `degraded` is the
- * orchestration layer having fallen back — the message travelled on all four. Only
- * `rejected` (refused before dispatch) and `expired` (the version guard, or the run
- * moving between accept and apply) leave the participant's words unsent, and those
- * are the two that keep the draft.
- */
-function isInterventionAdmitted(state: InterventionState): boolean {
-  switch (state) {
-    case "requested":
-    case "accepted":
-    case "applied":
-    case "degraded":
-      return true;
-    case "rejected":
-    case "expired":
-      return false;
   }
 }
 

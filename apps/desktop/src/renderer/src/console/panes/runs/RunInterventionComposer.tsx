@@ -87,7 +87,7 @@ import {
   type RunControlOutcome,
 } from "./run-control-dispatch.js";
 import type { RunControlSurface } from "./run-control-surface.js";
-import type { RunProjection } from "./run-state-feed.js";
+import type { RunProjection } from "./run-state-projection.js";
 
 /** Which of the two body-carrying controls is being composed. */
 export type ComposedControl = "steer" | "rollback";
