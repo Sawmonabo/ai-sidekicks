@@ -14,6 +14,15 @@
 // prose naming governance work, and the repository keeps that off a participant's
 // screen — so it is asserted on rendered TEXT, which is what a future edit that
 // rendered one would trip over.
+//
+// WHAT THIS FILE NO LONGER CLAIMS. Whether a contract answers all three facts, and
+// whether any member's runtime string carries a governance identifier, are claims
+// about every declaration in the tree. Asserted here they were asserted over a hand
+// list of the four contracts this file happens to render, which left the two declared
+// elsewhere unswept — and one of those carries a plan id beneath a doc comment saying
+// it does not. `test/console/architecture/owner-slot-contracts.test.ts` resolves every
+// `OwnerSlotContract` declaration through the parser and owns both. The rendering
+// claim stays here, because it is the only place a render can be looked at.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -139,14 +148,6 @@ describe("the rail's owner seats reserve rather than author", () => {
     expect(container.querySelector(".meridian-context-meter")).toBeNull();
     expect(container.querySelector(".meridian-rate-chips")).toBeNull();
     expect(container.querySelector(".meridian-compaction")).toBeNull();
-  });
-
-  it("answers all three facts on every seat's contract", () => {
-    for (const contract of RENDERED_SEAT_CONTRACTS) {
-      expect(contract.owningTask.length).toBeGreaterThan(0);
-      expect(contract.mountObligation.length).toBeGreaterThan(0);
-      expect(contract.deleteShellIn.length).toBeGreaterThan(0);
-    }
   });
 
   it("puts no contract member on screen, in either arm", () => {
