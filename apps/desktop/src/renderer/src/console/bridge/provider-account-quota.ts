@@ -81,13 +81,6 @@ export interface ProviderQuotaReadout {
    * and by naming member paths rather than carrying the payload that failed.
    */
   readonly unreadableRefusal: ConsoleRefusal | undefined;
-  /**
-   * Whether these readings may be behind what the daemon has sent.
-   *
-   * Derived from the count rather than set beside it, so the two can never disagree
-   * about whether this reading is partial.
-   */
-  readonly isPartial: boolean;
 }
 
 /**
@@ -360,7 +353,6 @@ export class NodeProviderQuotaReading {
       readRefusal: this.#readRefusal,
       unreadableDeliveryCount: this.#unreadableDeliveryCount,
       unreadableRefusal: this.#unreadableRefusal,
-      isPartial: this.#unreadableDeliveryCount > 0,
     };
   }
 

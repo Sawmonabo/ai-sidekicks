@@ -62,9 +62,12 @@
 // newly queued row stale with nothing anywhere saying so, which reads exactly like
 // a queue that has not moved. The reading now carries what the run-state feed
 // already carried for its own stream: a count of the deliveries that parsed as no
-// registered row, the newest one's own parse refusal, and a `isPartial` flag every
-// surface renders as a warning beside the rows rather than in place of them. The
-// feed is live and behind at once, and both halves are said.
+// registered row and the newest one's own parse refusal, which every surface renders
+// as a warning beside the rows rather than in place of them. The feed is live and
+// behind at once, and both halves are said. There is no derived `isPartial` flag
+// beside the count: a boolean whose whole body is `count > 0` is a second reading of
+// one fact, and the surfaces compose the notice from the count and the refusal
+// together through the partial-read primitive.
 //
 // AND A WELL-FORMED SNAPSHOT SUPERSEDES WHAT PRECEDED IT. `run.queueList` answers
 // with the whole list at one moment, so a seat clears the count: every delivery
@@ -122,13 +125,6 @@ export interface QueueFeed {
    * and by naming member paths rather than carrying the payload that failed.
    */
   readonly unreadableRefusal: ConsoleRefusal | undefined;
-  /**
-   * Whether the rows may be behind what the daemon has sent.
-   *
-   * Derived from the count rather than set beside it, so the two can never
-   * disagree about whether this reading is partial.
-   */
-  readonly isPartial: boolean;
 }
 
 /**
@@ -370,7 +366,6 @@ export class SessionQueueReading {
       cancelItem: this.#cancelItem,
       unreadableDeliveryCount: this.#unreadableDeliveryCount,
       unreadableRefusal: this.#unreadableRefusal,
-      isPartial: this.#unreadableDeliveryCount > 0,
     };
   }
 

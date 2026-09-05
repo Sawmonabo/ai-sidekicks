@@ -502,7 +502,6 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
     // current reading of the whole queue.
     expect(held?.items.map((item) => item.id)).toStrictEqual([QUEUE_ITEM_ID]);
     expect(held?.unreadableDeliveryCount).toBe(1);
-    expect(held?.isPartial).toBe(true);
   });
 
   it("carries the delivery's own parse refusal, naming the members that failed", async () => {
@@ -535,13 +534,12 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
     act(() => {
       deliver(UNREADABLE_DELIVERY);
     });
-    expect(held?.isPartial).toBe(true);
+    expect(held?.unreadableDeliveryCount).toBe(1);
     await act(async () => {
       await Promise.resolve();
     });
     expect(held?.unreadableDeliveryCount).toBe(0);
     expect(held?.unreadableRefusal).toBeUndefined();
-    expect(held?.isPartial).toBe(false);
   });
 
   it("negative control: a reading whose every delivery parsed claims nothing is missing", async () => {
@@ -560,7 +558,6 @@ describe("a malformed delivery is a partial read, not a silent drop", () => {
     });
     expect(held?.unreadableDeliveryCount).toBe(0);
     expect(held?.unreadableRefusal).toBeUndefined();
-    expect(held?.isPartial).toBe(false);
   });
 });
 

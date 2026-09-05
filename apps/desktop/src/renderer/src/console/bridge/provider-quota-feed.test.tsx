@@ -188,13 +188,11 @@ class AccountPlaneBridge {
 interface QuotaPartialArm {
   readonly unreadableDeliveryCount: number;
   readonly unreadableRefusalCode: string | undefined;
-  readonly isPartial: boolean;
 }
 
 const NOTHING_UNREADABLE: QuotaPartialArm = {
   unreadableDeliveryCount: 0,
   unreadableRefusalCode: undefined,
-  isPartial: false,
 };
 
 /** The readings the hook publishes, captured out of a render. */
@@ -217,7 +215,6 @@ async function mountQuotas(bridge: ConsoleBridge): Promise<MountedQuotas> {
     partial = {
       unreadableDeliveryCount: readout.unreadableDeliveryCount,
       unreadableRefusalCode: readout.unreadableRefusal?.code,
-      isPartial: readout.isPartial,
     };
     return <output>{String(readout.readings.length)}</output>;
   }
@@ -463,7 +460,6 @@ describe("useProviderQuotas — a delivery this build cannot read is a partial r
     });
 
     expect(mounted.partialNow().unreadableDeliveryCount).toBe(1);
-    expect(mounted.partialNow().isPartial).toBe(true);
     expect(mounted.partialNow().unreadableRefusalCode).toBe("delivery-unreadable");
     expect(mounted.readingsNow()).toHaveLength(1);
   });
@@ -485,7 +481,7 @@ describe("useProviderQuotas — a delivery this build cannot read is a partial r
 
   it("negative control: a readable delivery leaves the reading whole", async () => {
     // Without this the cases above would hold over a reading that counted every
-    // delivery, readable or not, and `isPartial` would mean nothing.
+    // delivery, readable or not, and the count would mean nothing.
     const plane = new AccountPlaneBridge(listReply([account()], [usageWindow()]));
     const mounted = await mountQuotas(plane.bridge);
 
@@ -494,7 +490,6 @@ describe("useProviderQuotas — a delivery this build cannot read is a partial r
     });
 
     expect(mounted.partialNow().unreadableDeliveryCount).toBe(0);
-    expect(mounted.partialNow().isPartial).toBe(false);
     expect(mounted.partialNow().unreadableRefusalCode).toBeUndefined();
     expect(mounted.readingsNow()).toStrictEqual([]);
   });

@@ -100,7 +100,6 @@ describe("a partial reading is said beside the rows, never in place of them", ()
         "delivery-unreadable",
         "A queue delivery did not match the registered row shape, so it changed no row here: state.",
       ),
-      isPartial: true,
     };
   }
 
@@ -141,7 +140,7 @@ describe("a partial reading is said beside the rows, never in place of them", ()
     // Without this the cases above would pass over a surface that warned on every
     // reading, and the empty state would be unreachable.
     const { container } = render(
-      <QueueContents feed={{ ...partialFeed([]), unreadableDeliveryCount: 0, isPartial: false }} />,
+      <QueueContents feed={{ ...partialFeed([]), unreadableDeliveryCount: 0 }} />,
     );
     expect(container.querySelector(".meridian-partial-read")).toBeNull();
     expect(container.textContent).toContain("Nothing is waiting.");
