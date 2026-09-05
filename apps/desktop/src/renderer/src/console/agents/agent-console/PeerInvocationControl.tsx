@@ -45,14 +45,24 @@ export function PeerInvocationControl(props: {
   // the first successful mutation won forever, so a grant turned off elsewhere kept
   // reading as on, which is the one direction that matters.
   //
+  // A REFUSAL IS NOT ONE OF THOSE CLAIMS, and it used to be retired with them. It is
+  // a fact about the participant's own press rather than about the projection, and
+  // an unrelated partition event — anybody's `session.*`, the re-read control beside
+  // this one — is no evidence about whether the write was refused. So the reason
+  // stays until the next press replaces it, and the "was this pressed here" flag
+  // stays with it: clearing that flag would hide the refusal just as surely.
+  //
   // Keyed on the row rather than on the value: a grant that goes off and back on
   // reads identical at both ends. Keyed on the models too, because a session change
-  // retires a round for the same reason a projection move does. An effect rather
-  // than a comparison in the render body, because retiring is a STATE change and a
-  // render that performed it would be deriving the settlement it is also holding.
+  // retires a round for the same reason a projection move does — and a refusal kept
+  // through one is invisible anyway, because the flag beside it is keyed on the
+  // session and re-seeds to false there. An effect rather than a comparison in the
+  // render body, because retiring is a STATE change and a render that performed it
+  // would be deriving the settlement it is also holding.
   useEffect(() => {
-    attempt.supersede();
-    publishAskedHere(false);
+    if (attempt.supersedeUnlessRefused()) {
+      publishAskedHere(false);
+    }
   }, [attempt, models, projection.source, publishAskedHere]);
 
   const setEnabled = useCallback(

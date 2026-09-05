@@ -52,6 +52,7 @@ const OWNED_AGENT_ID = "agent-scout";
 class PeerInvocationDaemon {
   readonly #heldReplies: ((reading: unknown) => void)[] = [];
   #holdsNextReply = false;
+  #refusesNextReply: string | undefined = undefined;
   #callCount = 0;
 
   /** Mutations this daemon was actually asked to perform. The latch's instrument. */
@@ -64,6 +65,11 @@ class PeerInvocationDaemon {
     this.#holdsNextReply = true;
   }
 
+  /** Refuse the next mutation, in the daemon's own words. */
+  public refuseNextReply(detail: string): void {
+    this.#refusesNextReply = detail;
+  }
+
   public readonly answer = async (method: string, params?: unknown): Promise<unknown> => {
     if (method !== "sidekick.peerInvocationSet") {
       // Every other read this pane performs refuses, exactly as the shipped fixture
@@ -71,6 +77,11 @@ class PeerInvocationDaemon {
       throw new Error(`this daemon scripts no reply for ${method}`);
     }
     this.#callCount += 1;
+    const refusal = this.#refusesNextReply;
+    if (refusal !== undefined) {
+      this.#refusesNextReply = undefined;
+      throw new Error(refusal);
+    }
     const requested = (params as { readonly enabled: boolean }).enabled;
     if (!this.#holdsNextReply) {
       return { enabled: requested };
@@ -343,5 +354,69 @@ describe("agent console — one peer-invocation change at a time", () => {
 
     expect(scriptedDaemon.callCount).toBe(1);
     expect(grantSwitch(container).disabled).toBe(false);
+  });
+});
+
+describe("agent console — a refused grant is the participant's own fact", () => {
+  it("keeps the refusal when the session partition moves under it", async () => {
+    // The projection moving is the daemon speaking more recently about the GRANT. It
+    // says nothing about whether this participant's press was refused, and the
+    // refusal used to be retired with the settlement anyway — so any unrelated
+    // partition event (another participant's `session.*`, a reconnect read, the
+    // re-read control beside this one) took the reason off the screen with no act of
+    // theirs, possibly before it was read.
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
+    const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
+    const { container } = render(pane(bridge, sessionStore));
+    await settleReads(bridge);
+
+    scriptedDaemon.refuseNextReply("peer invocation is not yours to set");
+    await pressGrantOn(container);
+    await settleReads(bridge);
+    expect(container.textContent ?? "").toContain("peer invocation is not yours to set");
+
+    await projectGrant(sessionStore, false);
+
+    expect(container.textContent ?? "").toContain("peer invocation is not yours to set");
+  });
+
+  it("replaces it on the next press rather than letting it stand for ever", async () => {
+    // The other half. A refusal is kept because nothing but the participant has
+    // spoken about it — so the moment they speak again, it goes.
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
+    const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
+    const { container } = render(pane(bridge, sessionStore));
+    await settleReads(bridge);
+
+    scriptedDaemon.refuseNextReply("peer invocation is not yours to set");
+    await pressGrantOn(container);
+    await settleReads(bridge);
+
+    await pressGrantOn(container);
+    await settleReads(bridge);
+
+    expect(container.textContent ?? "").not.toContain("peer invocation is not yours to set");
+    expect(switchState(container)).toBe(true);
+  });
+
+  it("negative control: a settlement IS retired when the partition moves", async () => {
+    // Without this, the first case would hold for a control that kept every arm
+    // through a projection move — which is the defect the move exists to fix: a
+    // grant another participant turned off would go on reading as on.
+    const scriptedDaemon = new PeerInvocationDaemon();
+    const bridge = bridgeCalling(scriptedDaemon);
+    const sessionStore = storeProjecting(FIRST_SESSION_ID, false);
+    const { container } = render(pane(bridge, sessionStore));
+    await settleReads(bridge);
+
+    await pressGrantOn(container);
+    await settleReads(bridge);
+    expect(switchState(container)).toBe(true);
+
+    await projectGrant(sessionStore, false);
+
+    expect(switchState(container)).toBe(false);
   });
 });

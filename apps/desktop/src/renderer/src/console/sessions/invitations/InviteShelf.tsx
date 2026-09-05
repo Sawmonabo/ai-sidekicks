@@ -82,7 +82,7 @@ export interface InviteShelfProps {
 const SHELF_ORIGIN = "invite-shelf";
 
 export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
-  const { read } = props;
+  const { clock, read } = props;
   // The READER is the subject, because it is the session set: a set that gained or
   // lost a session is a different function asking a different question, and the key
   // is `undefined` because there is nothing finer to name inside one.
@@ -104,29 +104,37 @@ export function InviteShelf(props: InviteShelfProps): React.JSX.Element {
     // both read as current.
     void read().then(
       (outcomes) => {
-        publishReading(readShelf(outcomes));
+        publishReading(readShelf(outcomes, clock.now()));
       },
       // The reader's contract is one outcome per session, so a rejection has no
       // member in that vocabulary. Left unhandled it published nothing and the shelf
       // rendered "Reading your invitations" for the life of the window over a fan-out
       // that had already failed.
       (rejection: unknown) => {
-        publishReading(shelfReadingFromRejection(consoleRefusalFrom(rejection, SHELF_ORIGIN)));
+        publishReading(
+          shelfReadingFromRejection(consoleRefusalFrom(rejection, SHELF_ORIGIN), clock.now()),
+        );
       },
     );
-  }, [read, publishReading]);
+  }, [read, publishReading, clock]);
 
   // One wake-up per outstanding expiry, on the console's one deadline mechanism.
   // Without it the shelf renders against the instant of its last read for as long as
   // the window stays open, which is exactly how a person leaves a session — and the
   // rows below turn on whether that instant has passed.
   const wokeAtMilliseconds = useDeadlineWake(
-    props.clock,
+    clock,
     useMemo(() => expiryDeadlinesOf(reading?.pending ?? []), [reading]),
   );
+  // The read's own stamp wins while it is the later of the two, which is the rule
+  // `useDeadlineWake` states about itself and the one the members section beside this
+  // already keeps. Without it a window that armed nothing for an hour measured every
+  // expiry against the instant it mounted at, so an invitation that had already
+  // lapsed rendered as waiting — with a control on it — until the chain's next pass.
+  const atMilliseconds = Math.max(wokeAtMilliseconds, reading?.readAtMilliseconds ?? 0);
   const waiting = useMemo(
-    () => stillWaitingAt(reading?.pending ?? [], wokeAtMilliseconds),
-    [reading, wokeAtMilliseconds],
+    () => stillWaitingAt(reading?.pending ?? [], atMilliseconds),
+    [reading, atMilliseconds],
   );
 
   useEffect(() => {
