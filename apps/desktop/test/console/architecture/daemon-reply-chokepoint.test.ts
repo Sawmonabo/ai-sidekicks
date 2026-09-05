@@ -20,6 +20,13 @@
 //     `console/bridge/**`. A surface that cannot import a validator cannot write a
 //     second, different reading of a seam the registry already binds.
 //
+// AND ONE CENSUS, BECAUSE THE CALL SIDE IS VACUOUS UNTIL A SURFACE CALLS. Both
+// claims are true of an empty set on this branch: the door has no consumers yet, so
+// "no module outside the bridge family reaches it" reports compliance without
+// distinguishing that from "every caller goes through it", which is what this file's
+// title claims. The consumer count is therefore PINNED rather than left implicit —
+// see `CALL_DOOR_CONSUMER_COUNT`.
+//
 // The lint half is driven through the REAL ESLint engine over the REAL config,
 // never re-implemented — a test carrying its own copy of the pattern list would
 // stay green with the config deleted, which is the failure it exists to prevent.
@@ -82,27 +89,48 @@ const CHOKEPOINT_MODULE = join("console", "bridge", "daemon-reply.ts");
 const BRIDGE_FAMILY_PREFIX = join("console", "bridge") + "/";
 
 /**
- * How a module shows it reached the daemon call door, in the two shapes that reach.
+ * How a module shows it reached the daemon call door, in the five shapes that reach.
  *
- * Both are deliberately anchored on syntax rather than on the bare name, because
+ * All five are deliberately anchored on syntax rather than on the bare name, because
  * `daemon.call` is a thing the console's own prose says constantly — the bridge
  * shape test names it as a member, the registry header names it as the generic
  * door — and a needle that flagged a comment would be turned off within a week.
  *
- *   • CALLED_OR_ALIASED matches `…daemon.call` only where a call, a type argument,
+ *   • CALLED OR ALIASED matches `…daemon.call` only where a call, a type argument,
  *     or an `as` cast follows. That is the reach: invoking it, or widening its
  *     branded signature so it can be invoked.
- *   • NAMESPACE_TAKEN matches the daemon namespace bound or spread rather than
+ *   • NAMESPACE TAKEN matches the daemon namespace bound or spread rather than
  *     stepped through, which is how a determined evasion would be spelled. The
- *     negative lookahead is what keeps `…sidekicks.daemon.subscribe` out of it.
+ *     negative lookahead is what keeps `…sidekicks.daemon.subscribe` out of it, and
+ *     the bracket beside it hands a computed key to the form that names it.
+ *   • The two COMPUTED KEY forms close the hole a dotted needle cannot see:
+ *     `bridge.sidekicks["daemon"].call(…)` and `daemon["call"](…)` reach the same
+ *     door, and neither is exotic — a member read through a variable key is how a
+ *     helper written over "whichever namespace this is" spells itself. They are the
+ *     smallest violations that passed the two dotted needles, measured.
+ *   • TAKEN AS A VALUE catches the door handed on rather than invoked —
+ *     `daemon.call.bind(bridge)` — which the first form's lookahead misses because
+ *     what follows `call` is a dot rather than a parenthesis.
+ *
+ * The computed forms admit no whitespace before the bracket, and that is exact
+ * rather than lax: every source file in this package is Prettier-formatted on the
+ * way in, and Prettier writes no space there — while prose in a comment ("the daemon
+ * [the local runtime] answers") writes one, so the spacing is what separates the two.
  *
  * Depth is honestly non-exhaustive: a value passed through two helpers defeats any
- * text scan. The structural half is the lint ban next to it — a module that cannot
- * hold a validator cannot make use of an unparsed reply it smuggled out.
+ * text scan, and so does a namespace reached through a variable that never names
+ * `sidekicks`. The lint ban beside it is a second, different claim — a module that
+ * cannot hold a validator cannot PARSE an unparsed reply it smuggled out — and it is
+ * deliberately not offered as closing this one, since casting an `unknown` to the
+ * response type needs no validator at all and is the first of the three mistakes the
+ * registry header enumerates.
  */
 const DAEMON_CALL_REACH_FORMS: readonly (readonly [string, RegExp])[] = [
   ["called or aliased", /\bdaemon\s*\.\s*call\b(?=\s*[(<]|\s+as\b)/],
-  ["namespace taken", /\.\s*sidekicks\s*\.\s*daemon\b(?!\s*\.)/],
+  ["namespace taken", /\.\s*sidekicks\s*\.\s*daemon\b(?!\s*[.[])/],
+  ["namespace taken by computed key", /\.\s*sidekicks\[/],
+  ["called by computed key", /\bdaemon\[/],
+  ["taken as a value", /\bdaemon\s*\.\s*call\s*\.\s*(?:bind|apply|call)\b/],
 ];
 
 /** Which reach forms `source` contains, by name, or `[]`. */
@@ -134,6 +162,35 @@ function readGovernedSource(module: string): string {
 function isBridgeFamilyModule(module: string): boolean {
   return module.startsWith(BRIDGE_FAMILY_PREFIX);
 }
+
+/**
+ * How a module shows it CONSUMES the call door: it imports the door's own name.
+ *
+ * Anchored on the import for the reason every needle in this file is anchored on
+ * syntax — the console's prose names `callDaemon` constantly, and the growth
+ * signature table names it in a sentence about which seam owes which wire. The
+ * `[^;]*` spans newlines, so a multi-line specifier list is one import.
+ */
+const CALL_DOOR_IMPORT = /\bimport\b[^;]*\bcallDaemon\b/u;
+
+/**
+ * How many modules outside the bridge family import the call door on this branch.
+ *
+ * ZERO, and PINNED rather than left as a floor, because zero is the whole reading:
+ * the two reach claims above are satisfied by an empty set here — no surface reaches
+ * the daemon call door because no surface calls the daemon at all — and a scan that
+ * reports the tree compliant for that reason is not making the claim this file's
+ * title makes.
+ *
+ * A pinned count is what makes that visible without shipping a red gate on
+ * `develop`. It fails the moment the number moves in either direction, so the family
+ * lane that binds the first surface to a registered method — the composer's send
+ * router and the runs pane's run controls are the two nearest, both T-023p-1C-3 —
+ * moves this constant in its own PR, and a reader learns from that diff that the
+ * claim has stopped being vacuous. It cannot silently stay at zero once the console
+ * has consumers, and it cannot be raised by accident either.
+ */
+const CALL_DOOR_CONSUMER_COUNT = 0;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();
@@ -175,6 +232,33 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
     expect(offenders).toStrictEqual([]);
   });
 
+  it("counts what consumes the call door, against a pinned number", () => {
+    const consumers = modules
+      .filter((module) => !isBridgeFamilyModule(module))
+      .filter((module) => CALL_DOOR_IMPORT.test(readGovernedSource(module)));
+
+    expect(
+      consumers.length,
+      `modules importing the call door: ${consumers.join(", ") || "none"}`,
+    ).toBe(CALL_DOOR_CONSUMER_COUNT);
+  });
+
+  it("negative control: the consumer needle sees an ordinary import of the door", () => {
+    // Without this, the pinned zero above would be reporting a broken needle rather
+    // than an unrebound console, and the count would stay at zero — green, and
+    // saying nothing — on the day the first surface starts calling the daemon.
+    expect(CALL_DOOR_IMPORT.test(`import { callDaemon } from "../bridge/index.js";`)).toBe(true);
+    expect(
+      CALL_DOOR_IMPORT.test(
+        ["import {", "  callDaemon,", "  type DaemonReply,", '} from "../bridge/index.js";'].join(
+          "\n",
+        ),
+      ),
+    ).toBe(true);
+    // And not on the door merely named in prose, which is all the tree carries today.
+    expect(CALL_DOOR_IMPORT.test("// a surface reaches the wire through `callDaemon`")).toBe(false);
+  });
+
   it("negative control: the chokepoint itself trips the scan", () => {
     // Without this, a typo in either pattern would make both clean results above
     // meaningless — the whole console would read as compliant because nothing
@@ -195,6 +279,31 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
       .toStrictEqual([]);
     expect(daemonCallReaches("this.#bridge.sidekicks.daemon.subscribe(name, onFrame);")) //
       .toStrictEqual([]);
+  });
+
+  it("sees the same door reached by a computed key or handed on as a value", () => {
+    // Planted, and each one is the SMALLEST violation that passed the two dotted
+    // needles: one bracket, and the whole scan reads the tree as compliant. A
+    // module that smuggles a reply out this way holds an `unknown` it can cast,
+    // which needs no validator, so the lint ban beside this scan does not cover it.
+    expect(
+      daemonCallReaches(`const reply = await bridge.sidekicks["daemon"].call(name, params);`),
+    ).toStrictEqual(["namespace taken by computed key"]);
+    expect(daemonCallReaches(`const door = bridge.sidekicks["daemon"];`)) //
+      .toStrictEqual(["namespace taken by computed key"]);
+    expect(daemonCallReaches(`const send = bridge.sidekicks.daemon["call"];`)) //
+      .toStrictEqual(["called by computed key"]);
+    expect(daemonCallReaches("const bound = bridge.sidekicks.daemon.call.bind(bridge);")) //
+      .toStrictEqual(["taken as a value"]);
+  });
+
+  it("negative control: a computed key in prose or on another noun is not a reach", () => {
+    // The other direction of the same claim. A needle that fired on either of these
+    // would be turned off within a week, which is how the scan stops existing.
+    expect(daemonCallReaches("// the daemon [the local runtime] answers `unknown`")) //
+      .toStrictEqual([]);
+    expect(daemonCallReaches("const first = daemonEvents[0];")).toStrictEqual([]);
+    expect(daemonCallReaches("const kinds = this.#sidekicksByName;")).toStrictEqual([]);
   });
 });
 

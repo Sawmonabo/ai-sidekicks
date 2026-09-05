@@ -14,8 +14,13 @@ import {
   type ConsoleRefusal,
 } from "../core/index.js";
 import type { ConsoleBridge } from "./console-bridge.js";
-import { callDaemon, DAEMON_REPLY_REFUSAL_ORIGIN, type DaemonReply } from "./daemon-reply.js";
-import { createFixtureBridge } from "./fixture-bridge.js";
+import {
+  callDaemon,
+  DAEMON_REPLY_REFUSAL_ORIGIN,
+  describeFailingPaths,
+  type DaemonReply,
+} from "./daemon-reply.js";
+import { bridgeAnswering, createFixture } from "./fixture-bridge.test-support.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";
 
 /**
@@ -44,61 +49,32 @@ const SEEN_AT = "2026-01-01T14:20:00.500Z";
  */
 const OFF_CONTRACT = "the participant said something private";
 
-/** What the daemon was asked, so a case can assert it was never asked at all. */
-interface RecordedCall {
-  readonly method: string;
-  readonly params: unknown;
-}
-
-interface BridgeUnderTest {
-  readonly bridge: ConsoleBridge;
-  readonly calls: readonly RecordedCall[];
-}
-
-/**
- * The shipped fixture bridge with its `daemon.call` replaced by one this suite
- * decides the answer for.
- *
- * A spread over a real bridge, which is the console's established shape for driving
- * one namespace member (`palette/bridge-commands.test.tsx`). That the rest is real
- * matters: `callDaemon` reaches the wire through `bridge.sidekicks.daemon.call` and
- * nothing else, so a case passing against a hand-built object would not prove it
- * reached a bridge at all.
- */
-function bridgeAnswering(answer: (call: RecordedCall) => Promise<unknown>): BridgeUnderTest {
-  const calls: RecordedCall[] = [];
-  const fixture = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
-  return { bridge: withDaemonCall(fixture, answer, calls), calls };
-}
-
-/** One bridge whose call arm is this suite's, and whose every other arm is real. */
-function withDaemonCall(
-  fixture: ConsoleBridge,
-  answer: (call: RecordedCall) => Promise<unknown>,
-  calls: RecordedCall[],
-): ConsoleBridge {
-  return {
-    ...fixture,
-    sidekicks: {
-      ...fixture.sidekicks,
-      daemon: {
-        ...fixture.sidekicks.daemon,
-        call: (async (method: string, params: unknown): Promise<unknown> => {
-          const recorded: RecordedCall = { method, params };
-          calls.push(recorded);
-          return answer(recorded);
-        }) as ConsoleBridge["sidekicks"]["daemon"]["call"],
-      },
-    },
-  };
-}
-
 /** The refusal a reply carries, or a failure naming what it carried instead. */
 function refusalOf(reply: DaemonReply<unknown>): ConsoleRefusal {
   if (reply.status !== "refused") {
     throw new Error(`expected a refusal and the call was served with ${JSON.stringify(reply)}`);
   }
   return reply.refusal;
+}
+
+/**
+ * The retry bound a refusal carries, read structurally.
+ *
+ * `DaemonReply.refusal` is typed `ConsoleRefusal` on purpose — a surface renders a
+ * refusal, and only one offering a retry has to know the member exists — while
+ * `normalizeWireRejection` answers the `WireRefusal` that widens it by exactly this
+ * optional member. Read here rather than imported so this suite does not become the
+ * one consumer that retires the `@consumedBy` marker `core/index.ts` carries for a
+ * type no surface reads yet.
+ */
+function retryBoundOf(
+  refusal: ConsoleRefusal,
+): { readonly afterSeconds?: number; readonly atEpochMilliseconds?: number } | undefined {
+  return (
+    refusal as {
+      readonly retry?: { readonly afterSeconds?: number; readonly atEpochMilliseconds?: number };
+    }
+  ).retry;
 }
 
 /** One served presence reply, in the shape the registered schema admits. */
@@ -237,6 +213,49 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     expect(refusal.detail).toBe("no such session on this node");
   });
 
+  it("keeps the daemon's own dotted code off a JSON-RPC rejection", async () => {
+    // The arm that decides whether this door is a consumer of the console's one
+    // normalizer or an eleventh copy of it. `JsonRpcRemoteError` carries the
+    // JSON-RPC NUMERIC as `code` and the project's dotted code at `data.type`,
+    // which `packages/contracts` states callers must discriminate on — so a door
+    // guarding on `{ code: string }` sees a number, misses, and renders every
+    // registered daemon refusal as one generic console code.
+    const remote = Object.assign(new Error("no such session on this node"), {
+      code: -32603,
+      data: { type: "session.not_found" },
+    });
+    const { bridge } = bridgeAnswering(async () => {
+      throw remote;
+    });
+
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+
+    expect(refusal.code).toBe("session.not_found");
+    expect(refusal.detail).toBe("no such session on this node");
+    // Negative control on the body this door used to carry: it landed exactly here,
+    // on the console's own generic code, with the daemon's on the floor.
+    expect(refusal.code).not.toBe("call-rejected");
+  });
+
+  it("carries a rate-limit envelope's retry bound through to the caller", async () => {
+    // A bound the refusing side named is the difference between "try again in
+    // thirty seconds" and a surface that offers a retry it cannot time. It rides
+    // `data.fields`, which a door that never reads `data` at all cannot see.
+    const throttled: unknown = {
+      code: -32000,
+      message: "too many reads",
+      data: { type: "ratelimit.exceeded", fields: { retryAfter: 30 } },
+    };
+    const { bridge } = bridgeAnswering(async () => {
+      throw throttled;
+    });
+
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+
+    expect(refusal.code).toBe("ratelimit.exceeded");
+    expect(retryBoundOf(refusal)).toStrictEqual({ afterSeconds: 30 });
+  });
+
   it("keeps a carried console refusal, origin and all", async () => {
     // The fixture bridge's own errors arrive this way. Re-labelling one would lose
     // the subsystem it names, which is the whole point of `origin`.
@@ -248,6 +267,48 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
 
     expect(refusal).toStrictEqual(carried);
+  });
+
+  it("keeps one that lost its prototype crossing a boundary", async () => {
+    // What makes the unwrap STRUCTURAL rather than an `instanceof` check: a value
+    // that crossed a realm or a structured clone is a plain object carrying the
+    // same member, and a prototype test drops its author's code silently — the
+    // failure mode nothing reports, because the refusal still renders, under a
+    // code this console invented.
+    const carried = refuse("fixture-bridge", "reply-unscripted", "the scenario scripts no reply");
+    const cloned: unknown = {
+      name: "ConsoleRefusalError",
+      message: `${carried.origin}: ${carried.code}: ${carried.detail}`,
+      refusal: carried,
+    };
+    const { bridge } = bridgeAnswering(async () => {
+      throw cloned;
+    });
+
+    const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
+
+    expect(refusal).toStrictEqual(carried);
+  });
+
+  it("answers a refusal for a rejection whose own `refusal` getter throws", async () => {
+    // The totality claim in this module's header, held against the one value that
+    // can break it: reading a member runs a getter, and a getter that throws does
+    // it INSIDE the `catch` — past every guard, in the one function whose contract
+    // is that it returns a refusal rather than throwing. An `async` function turns
+    // that into a rejected promise from the door every caller took so it would not
+    // need a `try` of its own.
+    class HostileRejection extends Error {
+      public get refusal(): never {
+        throw new Error("this getter is the defect");
+      }
+    }
+    const { bridge } = bridgeAnswering(async () => {
+      throw new HostileRejection("the socket went away");
+    });
+
+    const reply = await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID });
+
+    expect(refusalOf(reply).code).toBe("call-rejected");
   });
 
   it("names a rejection that carries nothing machine-readable", async () => {
@@ -264,7 +325,9 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
   it("survives a rejection that cannot be rendered at all", async () => {
     // A null-prototype object throws inside `String(...)`. A refusal is a rendering
     // surface, so it must not be the thing that crashes on the value it exists to
-    // describe.
+    // describe. The sentence names the method and never the value: this door hands
+    // the normalizer a fallback, so the terminal stringifier is not reached and
+    // nothing off the wire is quoted into a sentence a person reads.
     const hostile: unknown = Object.create(null);
     const { bridge } = bridgeAnswering(async () => {
       throw hostile;
@@ -273,14 +336,18 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
 
     expect(refusal.code).toBe("call-rejected");
-    expect(refusal.detail).toContain("[unrepresentable value]");
+    expect(refusal.detail).toBe("presence.read was rejected.");
   });
 
   it("returns a refusal for a bridge that throws in the caller's own frame", async () => {
     // The bridge that actually ships is the Tier-1 preload stub, and it throws
     // synchronously. A non-`async` wrapper would put that throw outside the promise
     // and past every `.catch` in the console.
-    const fixture = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    //
+    // Overridden here rather than through `withDaemonCall`, and that is the case
+    // itself: the shared arm is `async`, so a throw inside it is already a
+    // rejection, which is the one thing this case must not assert.
+    const fixture = createFixture().bridge;
     const bridge: ConsoleBridge = {
       ...fixture,
       sidekicks: {
@@ -297,5 +364,60 @@ describe("callDaemon — a rejection becomes a refusal and never an exception", 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", { sessionId: SESSION_ID }));
 
     expect(refusal.code).toBe("call-rejected");
+  });
+});
+
+describe("describeFailingPaths — a shape it cannot read yields no clause", () => {
+  // Driven directly rather than through the door, because the door's own callers
+  // always hand it a real validator error: the parameter is typed `unknown`
+  // precisely to disclaim that knowledge, and a claim that only holds for the one
+  // shape the one caller passes is not the claim the signature makes.
+
+  it("answers an empty clause for the two values a property read throws on", () => {
+    expect(describeFailingPaths(null)).toBe("");
+    expect(describeFailingPaths(undefined)).toBe("");
+  });
+
+  it("answers an empty clause when reading `issues` throws", () => {
+    const hostile: unknown = {
+      get issues(): never {
+        throw new Error("this getter is the defect");
+      },
+    };
+
+    expect(describeFailingPaths(hostile)).toBe("");
+  });
+
+  it("skips an issue whose own `path` cannot be read, and keeps the rest", () => {
+    const mixed: unknown = {
+      issues: [
+        {
+          get path(): never {
+            throw new Error("this getter is the defect");
+          },
+        },
+        { path: ["participants", 0, "lastSeen"] },
+      ],
+    };
+
+    expect(describeFailingPaths(mixed)).toBe(" (at participants.0.lastSeen)");
+  });
+
+  it("names a segment it cannot render rather than throwing on it", () => {
+    // A path segment is whatever the validator put there. `String(...)` runs
+    // ToPrimitive, which throws on a null-prototype value carrying no `toString`,
+    // so the segment goes through the family's total stringifier and the clause
+    // says the segment is unrenderable instead of taking the sentence down.
+    const unrenderable: unknown = { issues: [{ path: [Object.create(null)] }] };
+
+    expect(describeFailingPaths(unrenderable)).toBe(" (at [unrepresentable value])");
+  });
+
+  it("negative control: an ordinary validator error still names its members", () => {
+    // Without this, a guard that answered `""` for everything would pass all four
+    // cases above and silently delete the clause from every refusal sentence.
+    const error: unknown = { issues: [{ path: ["participants", 0, "state"] }] };
+
+    expect(describeFailingPaths(error)).toBe(" (at participants.0.state)");
   });
 });
