@@ -57,15 +57,6 @@ export const PINNED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-00000000005
 export const REPLICATING_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000052";
 export const EXPIRED_ATTACHMENT_ID: string = "9f2c4a10-0000-4000-8000-000000000053";
 
-/**
- * The two agents, and the execution root each one holds.
- *
- * One table rather than a literal per beat, on the flagship scenario's rule: an
- * `agent.attached` payload and the worktree beats that follow it are views of one
- * record, and two hand-written copies of one agent drift in exactly the direction
- * nothing catches. The drivers are deliberately mixed — a repos fixture whose whole
- * cast runs one provider cannot show what a two-provider session's roots look like.
- */
 /** One agent in the cast, with the execution root the worktree beats give it. */
 export interface ReposScenarioAgent {
   readonly agentId: string;
@@ -77,6 +68,15 @@ export interface ReposScenarioAgent {
   readonly attachedAtMs: number;
 }
 
+/**
+ * The two agents, and the execution root each one holds.
+ *
+ * One table rather than a literal per beat, on the flagship scenario's rule: an
+ * `agent.attached` payload and the worktree beats that follow it are views of one
+ * record, and two hand-written copies of one agent drift in exactly the direction
+ * nothing catches. The drivers are deliberately mixed — a repos fixture whose whole
+ * cast runs one provider cannot show what a two-provider session's roots look like.
+ */
 export const REPOS_AGENTS: readonly ReposScenarioAgent[] = [
   {
     agentId: AGENT_IMPLEMENTER,
@@ -96,6 +96,14 @@ export const REPOS_AGENTS: readonly ReposScenarioAgent[] = [
   },
 ];
 
+/** One attachment, and where its payload stands on this node. */
+export interface ReposScenarioAttachment {
+  readonly artifactId: string;
+  readonly replicationStatus: string;
+  /** When the publish beat fires, in scenario time. Its wire stamp is derived from it. */
+  readonly atMs: number;
+}
+
 /**
  * The three attachments, and where each one's payload stands on this node.
  *
@@ -107,14 +115,6 @@ export const REPOS_AGENTS: readonly ReposScenarioAgent[] = [
  * online. `replicationStatus` is the additive member a relay-pinned
  * `artifact.published` carries per `Spec-006 §Artifact and Diff Publication (artifact_publication)`.
  */
-/** One attachment, and where its payload stands on this node. */
-export interface ReposScenarioAttachment {
-  readonly artifactId: string;
-  readonly replicationStatus: string;
-  /** When the publish beat fires, in scenario time. Its wire stamp is derived from it. */
-  readonly atMs: number;
-}
-
 export const REPOS_ATTACHMENTS: readonly ReposScenarioAttachment[] = [
   {
     artifactId: PINNED_ATTACHMENT_ID,

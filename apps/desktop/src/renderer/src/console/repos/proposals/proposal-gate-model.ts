@@ -44,7 +44,6 @@ type ServedBranchContext = Extract<
   { readonly status: "served" }
 >["value"];
 
-/** The subsystem every refusal the gate reader mints names as its author. */
 /**
  * The reading a gate carries before anything has been asked.
  *
@@ -61,6 +60,7 @@ export const NOTHING_ASKED_GATE_READING: ProposalGateReading = {
   settlement: undefined,
 };
 
+/** The subsystem every refusal the gate reader mints names as its author. */
 export const PROPOSAL_GATE_REFUSAL_ORIGIN = "proposal-gate";
 
 /**

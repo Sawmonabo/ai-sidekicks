@@ -198,7 +198,6 @@ function branchContextFor(request: unknown): unknown {
   return BRANCH_CONTEXTS_BY_WORKTREE_ID[worktreeId];
 }
 
-/** Every scripted answer this scenario has, in the order a reader meets them. */
 /**
  * The scripted `repo.worktreeStatusRead` answer, typed by the wire it answers on.
  *
@@ -268,6 +267,7 @@ export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
     ],
   });
 
+/** Every scripted answer this scenario has, in the order a reader meets them. */
 export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
   {
     // `Spec-009`'s only health-carrying read, answered per mount.
