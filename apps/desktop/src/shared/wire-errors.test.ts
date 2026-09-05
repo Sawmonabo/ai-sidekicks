@@ -20,33 +20,19 @@ import {
   readWireErrorEnvelope,
   wireRejectionToError,
 } from "./wire-errors.js";
+import {
+  everyTrapThrows,
+  nullPrototypeValue,
+  readableOnce,
+  revokedProxy,
+} from "./wire-errors.test-support.js";
 
-/** A Proxy with no target left. Every prototype and property question throws. */
-function revokedProxy(): unknown {
-  const revocable = Proxy.revocable({}, {});
-  revocable.revoke();
-  return revocable.proxy;
-}
-
-/** An envelope-shaped value whose members answer once and then throw. */
-function readableOnce(): unknown {
-  const reads = new Map<string, number>();
-  const readOnce = (key: string, value: string): string => {
-    const seen = (reads.get(key) ?? 0) + 1;
-    reads.set(key, seen);
-    if (seen > 1) {
-      throw new Error(`${key} is readable once`);
-    }
-    return value;
-  };
-  return {
-    get code(): string {
-      return readOnce("code", "repo.not_found");
-    },
-    get message(): string {
-      return readOnce("message", "That repository is not mounted.");
-    },
-  };
+/** The envelope this suite reads, scripted so a second reading of either member throws. */
+function readableOnceEnvelope(): unknown {
+  return readableOnce({
+    code: ["repo.not_found"],
+    message: ["That repository is not mounted."],
+  });
 }
 
 describe("readGuardedProperty — absent and unreadable answer the same", () => {
@@ -84,14 +70,7 @@ describe("isErrorInstance — the one prototype question, asked safely", () => {
   });
 
   it("answers false where a getPrototypeOf trap throws", () => {
-    const hostile = new Proxy(
-      {},
-      {
-        getPrototypeOf(): never {
-          throw new Error("hostile getPrototypeOf");
-        },
-      },
-    );
+    const hostile = everyTrapThrows();
     expect(() => hostile instanceof Error).toThrow();
     expect(isErrorInstance(hostile)).toBe(false);
   });
@@ -141,8 +120,8 @@ describe("isWireErrorEnvelopeWithCode — the discriminant costs no second read"
     // The negative control is the shape itself: the predicate used to read `.code`
     // again after the guard had already read it, so this value threw inside the
     // discriminant. Two calls here, four member reads in the old shape, one each now.
-    expect(isWireErrorEnvelopeWithCode(readableOnce(), "repo.not_found")).toBe(true);
-    const candidate = readableOnce() as { readonly code: string };
+    expect(isWireErrorEnvelopeWithCode(readableOnceEnvelope(), "repo.not_found")).toBe(true);
+    const candidate = readableOnceEnvelope() as { readonly code: string };
     expect(candidate.code).toBe("repo.not_found");
     expect(() => candidate.code).toThrow();
   });
@@ -161,7 +140,7 @@ describe("wireRejectionToError — renders the value it is handed, and never thr
   });
 
   it("survives a value whose members are readable once", () => {
-    const rendered = wireRejectionToError(readableOnce());
+    const rendered = wireRejectionToError(readableOnceEnvelope());
     expect(rendered.name).toBe("repo.not_found");
     expect(rendered.message).toBe("That repository is not mounted.");
   });
@@ -178,7 +157,7 @@ describe("wireRejectionToError — renders the value it is handed, and never thr
   );
 
   it("survives a null-prototype object on both arms, where String(...) throws", () => {
-    const value = Object.create(null) as unknown;
+    const value = nullPrototypeValue();
     expect(() => String(value)).toThrow();
     expect(wireRejectionToError(value, { total: true }).message).toBe("[unrepresentable value]");
     // The backstop, not the mechanism: `total: false` still ATTEMPTS the bare wrap —
