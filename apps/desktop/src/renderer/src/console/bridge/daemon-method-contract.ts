@@ -176,13 +176,6 @@ export interface ConsoleDaemonMethodContract {
    * run-start account selector
    * `Spec-023 §Provider Accounts And Cost View (→ Plan-029 Provider Accounts And Credential Homes)`
    * puts on the composer, pre-set to the provider's default account.
-   *
-   * It is also the one row whose method string diverges from the corpus's own
-   * `METHOD_NAME_FORMAT`, which the daemon's `register()` guard evaluates and throws
-   * on — so until that is settled the row can only produce a refusal at run time.
-   * `daemon-reply-registry.test.ts` records the divergence and makes it expire; it
-   * carries the whole reading, and which of the two moves — the namespace root or
-   * the regex — is a corpus question rather than this module's to answer.
    */
   readonly "providerAccount.list": {
     readonly request: ProviderAccountListRequest;
