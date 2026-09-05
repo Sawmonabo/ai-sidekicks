@@ -15,6 +15,9 @@
 //   • A CALL STILL IN FLIGHT AGAINST THE OLD SUBJECT SETTLES INTO THE NEW ONE.
 //     Nothing behind the bridge is cancellable, so the honest disposition is that a
 //     late answer is DROPPED — never installed, and never described as cancelled.
+//     Where that answer is a RESOURCE, dropping it is not enough: never installed
+//     means no effect ever closed over it, so the caller's disposal is the only path
+//     to it and this class is the only place that knows the value was refused.
 //
 // BOTH ARE CLOSED HERE, AND NEITHER BY A TIMER OR A COUNTER. The held value carries
 // the subject it was produced under; the comparison happens DURING the render, so no
@@ -105,6 +108,28 @@ interface HeldSubjectValue<TValue> {
 const NO_ADDRESSING = 0;
 
 /**
+ * How a holder is built, for the caller whose value owns something.
+ *
+ * A VALUE IS DROPPED AND A RESOURCE IS DISPOSED — the split {@link
+ * SubjectScopedHolder.address} already draws for a value a re-addressing replaces,
+ * drawn here at the other write moment. A caller that opened a connection for a
+ * visit which ended while the open was in flight has published something nothing
+ * will ever hold: it is not installed, so no effect closes over it, so no cleanup
+ * closes it. Handing a disposal in is what makes that refusal a close rather than a
+ * leak, and a holder built without one drops what it refuses exactly as before.
+ */
+export interface SubjectScopedHolderOptions<TValue> {
+  /**
+   * Dispose a direct value this holder refused to install.
+   *
+   * WHETHER THE VALUE MAY BE RELEASED STAYS THE CALLER'S QUESTION, as it is for a
+   * discarded one: this class knows a publish was refused and nothing about which
+   * render, if any, is holding what. `useSubjectScopedResource` answers it.
+   */
+  readonly disposeRejectedPublish: (rejected: TValue) => void;
+}
+
+/**
  * One value, held per `(subject, key)` and readable only about that pair.
  *
  * REACT-FREE ON PURPOSE. Every rule this class carries — when a value is discarded,
@@ -119,12 +144,25 @@ const NO_ADDRESSING = 0;
  */
 export class SubjectScopedHolder<TValue> {
   readonly #changes = new Emitter<void>("subject-scoped value");
+  /** What becomes of a direct value this holder refuses, where a drop is not enough. */
+  readonly #disposeRejectedPublish: ((rejected: TValue) => void) | undefined;
   /**
    * The serial every held value is stamped with. Monotonic and never reissued, so a
    * pair the holder visits twice is two addressings and a settlement can name which.
    */
   #addressings = 0;
   #held: HeldSubjectValue<TValue> | undefined;
+
+  /**
+   * A plain holder drops what it refuses; one built with a disposal closes it.
+   *
+   * The disposal is taken ONCE, here, rather than at each write moment: a publisher
+   * is captured per render and a capture may outlive the render that took it, so a
+   * disposal supplied beside one would be as stale as the visit it names.
+   */
+  public constructor(options?: SubjectScopedHolderOptions<TValue>) {
+    this.#disposeRejectedPublish = options?.disposeRejectedPublish;
+  }
 
   /**
    * Address this holder at a subject, seeding it where that subject is new.
@@ -258,12 +296,16 @@ export class SubjectScopedHolder<TValue> {
    * For the caller with no fresh publisher to close over — a handler stored in a ref,
    * a class built once, an effect with an empty dependency list. A capture taken
    * before anything was addressed publishes nothing: there is no subject it was
-   * about, and {@link publishesNowhere} says so rather than throwing into a
-   * settlement path whose whole job is to be total.
+   * about, so the publisher it hands back refuses every write rather than throwing
+   * into a settlement path whose whole job is to be total.
+   *
+   * Through the ONE refusal path even then, rather than a no-op of its own: a second
+   * publisher that quietly ignored what it was handed would be a second answer to
+   * what a refusal does, and on a holder built with a disposal the two answers
+   * differ by a connection nobody closes.
    */
   public settle(): SubjectScopedPublish<TValue> {
-    const held = this.#held;
-    return held === undefined ? publishesNowhere : this.#publisherForAddressing(held.epoch);
+    return this.#publisherForAddressing(this.addressing);
   }
 
   /**
@@ -279,8 +321,9 @@ export class SubjectScopedHolder<TValue> {
       const held = this.#held;
       if (held === undefined || held.epoch !== epoch) {
         // The subject moved while this call was out — or moved away and back, which
-        // is the same fact. Dropping the answer is the whole point: it is about a
+        // is the same fact. Refusing the answer is the whole point: it is about a
         // visit nothing on screen is addressed at.
+        this.#rejectPublish(next);
         return;
       }
       const resolved =
@@ -295,18 +338,53 @@ export class SubjectScopedHolder<TValue> {
     };
   }
 
+  /**
+   * What becomes of a publish this holder refused.
+   *
+   * NOTHING AT ALL FOR A VALUE, which is correct and is the plain holder's whole
+   * answer: it was never installed and nothing holds it. A holder built with a
+   * disposal has a caller whose value owns a connection, a subscription, or a
+   * registry, and for that caller a silent drop is a leak with no path left to it.
+   *
+   * REPORTED AS WELL AS DISPOSED, on the precedent `frame/session-event-binder.ts`
+   * and `bridge/scenario-engine.ts` set for this same class — work that arrived for
+   * a target that is gone, dropped rather than delivered. One report per refusal,
+   * and it says which of the two happened, because a disposal that throws leaves the
+   * resource held by nothing and that is a different fact from a clean close.
+   *
+   * THE REPORT COMES AFTER THE DISPOSAL, and the order is load-bearing: a report
+   * THROWS in a development build, so reporting first would take the close with it
+   * on exactly the build an author is watching. The disposal is backstopped for the
+   * reason `address`'s is — a throw here escapes into whatever settled the publish,
+   * which is a caller's `.then`.
+   *
+   * THE FUNCTION FORM IS REFUSED WITHOUT RUNNING, so there is nothing to dispose:
+   * the update that would have produced a value never ran.
+   */
+  #rejectPublish(next: TValue | ((previous: TValue) => TValue)): void {
+    const dispose = this.#disposeRejectedPublish;
+    if (dispose === undefined || typeof next === "function") {
+      return;
+    }
+    let disposalFailure: unknown;
+    let disposed = false;
+    try {
+      dispose(next);
+      disposed = true;
+    } catch (failure: unknown) {
+      disposalFailure = failure;
+    }
+    reportTripwire(
+      "apply-chokepoint-bypass",
+      SITE,
+      disposed
+        ? "a resource settled into a subject-scoped visit that had already ended; the holder handed it to the caller's disposal rather than installing it into a visit nothing on screen is addressed at"
+        : `a resource settled into a subject-scoped visit that had already ended and its disposal threw, so it is installed nowhere and held by nothing: ${wireRejectionToError(disposalFailure, { total: true }).message}`,
+    );
+  }
+
   #isHeldFor(subject: object, key: SubjectKey): boolean {
     const held = this.#held;
     return held !== undefined && held.subject === subject && held.key === key;
   }
 }
-
-/**
- * What a capture taken before any subject publishes: nothing, anywhere.
- *
- * A declared function rather than a closure minted per call — it is reached only on a
- * mount's very first pass, and a fresh no-op each time would be an allocation on a
- * path whose whole content is doing nothing. It takes no parameter, which is what
- * makes it a publisher for every value type without a cast.
- */
-function publishesNowhere(): void {}
