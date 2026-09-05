@@ -24,10 +24,13 @@ import { type OwnerSlotContract, type OwnerSlotProps } from "../../../seats/inde
  * Who owns the body, what this pane owes it, and where the shell dies.
  *
  * Developer-facing and never rendered — every member is prose that names
- * governance work, and the console's runtime strings carry no governance ids.
+ * governance work, and the console's runtime strings carry no governance ids. The
+ * owning task is spelled the way its five sibling contracts spell theirs, by the
+ * plan's subject rather than by its number: this member is the one that had an id
+ * in it, in the file whose own comment states the rule.
  */
 export const INPUT_ASK_SLOT_CONTRACT: OwnerSlotContract = {
-  owningTask: "Plan-013 — the timeline family's input-ask card (the `driver_ask.*` surface)",
+  owningTask: "the timeline plan's input-ask card (the `driver_ask.*` surface)",
   mountObligation:
     "The run row supplies the run id and the daemon-reported run state, and mounts the body only while that state is `waiting_for_input`. The answer travels the already-registered `driver.respondToRequest`; this pane neither composes nor forwards it.",
   deleteShellIn:
