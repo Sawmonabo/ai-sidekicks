@@ -80,8 +80,6 @@ const CONSOLE_PREFIX = "src/renderer/src/console";
 const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT];
 
 /**
- * The two doors that publish nothing they did not declare themselves.
- *
  * The doors that publish nothing they did not declare themselves.
  *
  * All are composition sites: `scenarios/index.ts` composes the scenario list,
