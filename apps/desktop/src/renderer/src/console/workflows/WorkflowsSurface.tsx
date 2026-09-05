@@ -17,7 +17,7 @@
 //
 // WHERE THE GROUPS THEMSELVES LIVE. This file is the destination's chrome — heading,
 // one primary action, and which of the absence grammars the state calls for. The
-// scope groups and their rows are `DefinitionsBrowser.tsx`, because those are the
+// scope groups and their rows are `definitions/DefinitionsBrowser.tsx`, because those are the
 // browser and this is the frame around it, and a surface that also owned the rows
 // would be the place a second grouping quietly appeared beside the first.
 //
@@ -39,7 +39,7 @@ import {
   DefinitionsBrowser,
   type WorkflowDefinitionRow,
   type WorkflowDefinitionScope,
-} from "./DefinitionsBrowser.js";
+} from "./definitions/DefinitionsBrowser.js";
 
 export interface WorkflowsSurfaceProps {
   readonly state: WorkflowChromeState;

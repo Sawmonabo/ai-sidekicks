@@ -61,7 +61,7 @@
 // that surface later, and neither fact reaches here.
 //
 // WHAT IT DELIBERATELY DOES NOT OPEN. It supplies no new-definition action, and that
-// is this family's own absence rule rather than an omission: `DefinitionsBrowser.tsx`
+// is this family's own absence rule rather than an omission: `definitions/DefinitionsBrowser.tsx`
 // writes it out — an entry point appears when its caller supplies the action and not
 // before — and the wire says this caller cannot. Ten workflow operations sit on the
 // growth port and not one of them writes a definition, so a "New definition" control
@@ -86,7 +86,7 @@ import {
   scopeSessionIdFor,
   type WorkflowsScopeState,
 } from "./destination-scope.js";
-import { WorkflowRuns } from "./WorkflowRuns.js";
+import { WorkflowRuns } from "./runs/WorkflowRuns.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import { WorkflowsScopePicker } from "./WorkflowsScopePicker.js";
 

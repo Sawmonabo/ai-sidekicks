@@ -105,7 +105,7 @@ describe("door reading — what a clause names, however it was written", () => {
       "./m.js",
     );
     expect(readingOf("import { ALPHA } from './m.js';\n").reaches).toStrictEqual([
-      { moduleSpecifier: "./m.js", names: ["ALPHA"] },
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: false },
     ]);
   });
 
@@ -130,10 +130,10 @@ describe("door reading — what a clause names, however it was written", () => {
 
   it("reads an imported alias by the name the source module calls it", () => {
     expect(readingOf('import { ALPHA as alpha } from "./m.js";\n').reaches).toStrictEqual([
-      { moduleSpecifier: "./m.js", names: ["ALPHA"] },
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: false },
     ]);
     expect(readingOf('import * as tokens from "./m.js";\n').reaches).toStrictEqual([
-      { moduleSpecifier: "./m.js", names: "namespace" },
+      { moduleSpecifier: "./m.js", names: "namespace", forwarded: false },
     ]);
   });
 
@@ -144,6 +144,50 @@ describe("door reading — what a clause names, however it was written", () => {
     expect(readingOf('export type { Alpha } from "./m.js";\n').doorSpecifiers[0]?.localName).toBe(
       "Alpha",
     );
+  });
+
+  it("tells a door line's reach apart from an import's", () => {
+    // The distinction the census rests a whole disposition on: a door line MOVES the
+    // names and an import USES them. Read off the statement kind, because nothing
+    // about the module they appear in separates the two — a family door writes both,
+    // and a rule that could only ask whether the importer was a barrel called every
+    // symbol a door imports and builds with a forward, so its claim could never retire.
+    expect(readingOf('export { ALPHA } from "./m.js";\n').reaches).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: true },
+    ]);
+    expect(readingOf('import { ALPHA } from "./m.js";\n').reaches).toStrictEqual([
+      { moduleSpecifier: "./m.js", names: ["ALPHA"], forwarded: false },
+    ]);
+  });
+
+  it("reads an `import()` nested inside a method body", () => {
+    // The shape a lazy chunk's loader is: the call is an expression inside a class
+    // method, so a walk over top-level statements sees no reach at all and the door
+    // it names — the one module the bundle budget requires be reached this way and
+    // no other — reads as a door nothing imports.
+    expect(
+      readingOf(
+        "export class Loader {\n  async load() {\n    const { CANVAS } = await import('./m.js');\n    return CANVAS;\n  }\n}\n",
+      ).reaches,
+    ).toStrictEqual([{ moduleSpecifier: "./m.js", names: "namespace", forwarded: false }]);
+  });
+
+  it("reads an `import()` written in a type position", () => {
+    // How a loader narrows the shape it hands back. Erased by the compiler and still
+    // a reach: a reading that took only the runtime half would under-count a door
+    // named by a type alone.
+    expect(
+      readingOf('export type Module = Pick<typeof import("./m.js"), "CANVAS">;\n').reaches,
+    ).toStrictEqual([{ moduleSpecifier: "./m.js", names: "namespace", forwarded: false }]);
+  });
+
+  it("reads no reach from an `import()` whose module is computed", () => {
+    // The fail-closed direction: a specifier the text does not spell out cannot be
+    // resolved to a module in the set, and inventing one would attribute a reader to
+    // whichever module the reader guessed.
+    expect(
+      readingOf("export const load = (name: string) => import(name);\n").reaches,
+    ).toStrictEqual([]);
   });
 
   it("reports a re-export whose set the text does not enumerate", () => {

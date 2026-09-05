@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowPhaseState } from "../bridge/index.js";
+import type { WorkflowPhaseState } from "../../bridge/index.js";
 import { parkSchedule, phasePark, workflowInstant } from "./run-list-rows.js";
 import { phase } from "./run-list-projection.test-support.js";
 

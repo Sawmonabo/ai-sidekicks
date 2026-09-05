@@ -44,8 +44,8 @@ import { createElement } from "react";
 // The seat is a registry type and nothing else; the family reaches no other part of
 // the frame.
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
-import { WorkflowBuilderPane } from "../panes/workflow-builder/index.js";
-import { WorkflowRunPane } from "../panes/workflow-run/index.js";
+import { WorkflowBuilderPane } from "../panes/workflow-builder/WorkflowBuilderPane.js";
+import { WorkflowRunPane } from "../panes/workflow-run/WorkflowRunPane.js";
 import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../seats/index.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 

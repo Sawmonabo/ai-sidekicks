@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowDefinitionSummary } from "../bridge/index.js";
+import type { WorkflowDefinitionSummary } from "../../bridge/index.js";
 import type { WorkflowDefinitionRow, WorkflowDefinitionScope } from "./DefinitionsBrowser.js";
 
 /**

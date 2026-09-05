@@ -80,16 +80,19 @@ const CONSOLE_PREFIX = "src/renderer/src/console";
 const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT];
 
 /**
- * The two doors that publish nothing they did not declare themselves.
+ * The three doors that publish nothing they did not declare themselves.
  *
- * Both are composition sites: `scenarios/index.ts` composes the scenario list and
- * `panes/index.ts` registers the pane board, each declaring its one export in place
- * rather than forwarding a name from elsewhere. Named here so the per-door claim
- * below is a quantifier rather than a predicate that could grow to admit anything.
+ * All three are composition sites: `scenarios/index.ts` composes the scenario list,
+ * `panes/index.ts` registers the pane board, and `workflows/index.ts` builds its two
+ * registration functions over bodies it deep-imports — each declaring its exports in
+ * place rather than forwarding a name from elsewhere. Named here so the per-door
+ * claim below is a quantifier rather than a predicate that could grow to admit
+ * anything.
  */
 const DOORS_THAT_FORWARD_NOTHING: readonly string[] = [
   `${CONSOLE_PREFIX}/bridge/scenarios/index.ts`,
   `${CONSOLE_PREFIX}/panes/index.ts`,
+  `${CONSOLE_PREFIX}/workflows/index.ts`,
 ];
 
 function toKey(absolutePath: string): string {
@@ -224,6 +227,51 @@ describe("barrel census — the rule, against corpora written to fail it", () =>
     expect(
       censusFindings([declaringModule, barrel("none"), testImporter, productionImporter]),
     ).toStrictEqual([]);
+  });
+
+  it("counts a barrel that imports and builds as a reader, and a re-export as none", () => {
+    // The two things a family door does with a name, and only one of them is a read.
+    // `console/workflows/index.ts` imports `ConsolePaneDescriptor` to declare its pane
+    // table — the claim's own retiring event — while a door writing `export … from`
+    // moves the name and consumes nothing. A rule that asked only whether the importer
+    // was a barrel called both of them forwarding, so a symbol whose one production
+    // consumer is a door stayed claimed forever, and knip — which counts the reference
+    // either way — failed the run on the tag that could never be retired.
+    const doorThatBuilds = syntheticModule(
+      `${CONSOLE_PREFIX}/frame/index.ts`,
+      'import { RING_WIDTH_PX } from "../tokens/index.js";\n\nexport const ring = { width: RING_WIDTH_PX };\n',
+    );
+    const doorThatForwards = syntheticModule(
+      `${CONSOLE_PREFIX}/frame/index.ts`,
+      'export { RING_WIDTH_PX } from "../tokens/index.js";\n',
+    );
+
+    expect(findingLines(censusFindings([declaringModule, barrel("tag"), doorThatBuilds]))).toEqual(
+      expect.arrayContaining([
+        `${CONSOLE_PREFIX}/tokens/index.ts :: RING_WIDTH_PX — claimed, and already imported in production; delete the claim`,
+      ]),
+    );
+    expect(censusFindings([declaringModule, barrel("tag"), doorThatForwards])).toStrictEqual([
+      {
+        reason: "unclaimed",
+        barrelPath: `${CONSOLE_PREFIX}/frame/index.ts`,
+        exportedName: "RING_WIDTH_PX",
+        testOnlyImporters: [],
+      },
+    ]);
+  });
+
+  it("passes a specifier whose only production reader reaches it through `import()`", () => {
+    // A lazily-loaded chunk's door is reached by `import()` AND BY NOTHING ELSE — that
+    // is what makes it the bundler's split point — so a census blind to that form
+    // reports the one door the bundle budget requires as the one door nothing
+    // consumes, and the disposition it invites is deleting the split.
+    const lazyLoader = syntheticModule(
+      `${CONSOLE_PREFIX}/tokens/palette-loader.ts`,
+      "export const load = async () => (await import('./index.js')).RING_WIDTH_PX;\n",
+    );
+
+    expect(censusFindings([declaringModule, barrel("none"), lazyLoader])).toStrictEqual([]);
   });
 
   it("passes a specifier a production module imports through a different door", () => {

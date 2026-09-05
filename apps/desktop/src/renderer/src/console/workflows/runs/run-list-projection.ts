@@ -66,7 +66,7 @@
 // projects a run LIST, and a second import edge into the family for the same fact is
 // the thing that drifts.
 
-import { compareInstants, type InstantReading } from "../core/index.js";
+import { compareInstants, type InstantReading } from "../../core/index.js";
 import {
   parkSchedule,
   phasePark,

@@ -10,10 +10,10 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatClockTime, formatDateTime } from "../primitives/index.js";
+import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import { ParkBadge } from "./ParkBadge.js";
-import { parkSchedule } from "./run-list-rows.js";
-import type { WorkflowParkedPhase, WorkflowPhasePark } from "./run-list-projection.js";
+import { parkSchedule } from "../runs/run-list-rows.js";
+import type { WorkflowParkedPhase, WorkflowPhasePark } from "../runs/run-list-projection.js";
 
 const WAITING_ON_A_PERSON: WorkflowPhasePark = {
   parkReason: "waiting-human",

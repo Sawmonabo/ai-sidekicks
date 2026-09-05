@@ -24,8 +24,8 @@
 import type {
   WorkflowPhaseState,
   WorkflowRunSnapshot as WorkflowWireRunSnapshot,
-} from "../bridge/index.js";
-import { parseInstant, type InstantReading } from "../core/index.js";
+} from "../../bridge/index.js";
+import { parseInstant, type InstantReading } from "../../core/index.js";
 
 /**
  * What this console does with one member of a wire shape.

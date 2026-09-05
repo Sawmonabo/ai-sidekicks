@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { refuse } from "../core/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
-import { WORKFLOW_DEFINITION_SCOPES } from "./DefinitionsBrowser.js";
+import { WORKFLOW_DEFINITION_SCOPES } from "./definitions/DefinitionsBrowser.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { refusedWorkflowChrome, unaskedWorkflowChrome } from "./chrome-state.js";
 

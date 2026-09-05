@@ -9,7 +9,11 @@ import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { WORKFLOWS_PARKED_RUN } from "../../bridge/scenarios/workflow-fixture-runs.js";
-import { parkAwaitsPerson, parkSchedule, phasePark } from "../../workflows/run-list-projection.js";
+import {
+  parkAwaitsPerson,
+  parkSchedule,
+  phasePark,
+} from "../../workflows/runs/run-list-projection.js";
 import {
   PARKED,
   answeringBridge,

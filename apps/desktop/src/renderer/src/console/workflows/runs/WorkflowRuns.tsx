@@ -23,12 +23,11 @@
 
 import { useMemo } from "react";
 
-import type { GrowthPort } from "../bridge/index.js";
-import { Nothing, RefusalBanner } from "../primitives/index.js";
-import { useReadSettlementAnnouncement } from "./read-announcement.js";
-import { RunList } from "./RunList.js";
+import type { GrowthPort } from "../../bridge/index.js";
+import { useReadSettlementAnnouncement } from "../read-announcement.js";
 import { RunListProjection, type WorkflowRunListRow } from "./run-list-projection.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
+import { WorkflowRunsReadState } from "./WorkflowRunsReadState.js";
 
 const RUNS_HEADING_ID = "meridian-workflows-runs-heading";
 
@@ -61,50 +60,13 @@ export function WorkflowRuns(props: WorkflowRunsProps): React.JSX.Element {
       <h2 id={RUNS_HEADING_ID} className="meridian-workflows-runs__heading">
         Runs
       </h2>
-      <RunReadState directory={directory} projection={projection} onOpenRun={props.onOpenRun} />
+      <WorkflowRunsReadState
+        directory={directory}
+        projection={projection}
+        onOpenRun={props.onOpenRun}
+      />
     </section>
   );
-}
-
-/**
- * What this section shows for one read state.
- *
- * Every arm is a different fact and none of them is the others: nobody could ask,
- * the read is in flight, it refused by name, or an answer came back — and an answer
- * of no runs is a real answer that `RunList` draws as the EMPTY kind of nothing.
- * Collapsing any two is the conflation the five kinds of nothing exist to prevent,
- * and the refusal arm renders no list at all rather than an empty one, which would
- * assert that this session holds no runs on the strength of a read that failed.
- */
-function RunReadState(props: {
-  readonly directory: WorkflowRunDirectoryState;
-  readonly projection: RunListProjection | undefined;
-  readonly onOpenRun: ((row: WorkflowRunListRow) => void) | undefined;
-}): React.JSX.Element {
-  const { directory, projection } = props;
-  switch (directory.status) {
-    case "unasked":
-      return (
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title="No session is in scope."
-          detail="Runs belong to a session; nothing was asked until one is chosen."
-        />
-      );
-    case "reading":
-      return <Nothing kind="not-loaded" placement="surface" title="Reading this session's runs." />;
-    case "unavailable":
-      return <RefusalBanner {...directory.refusal} />;
-    case "served":
-      // Narrowed by the same state the projection was built from, so the fallback is
-      // unreachable rather than a second empty state competing with the list's own.
-      return projection === undefined ? (
-        <Nothing kind="not-loaded" placement="surface" title="Reading this session's runs." />
-      ) : (
-        <RunList projection={projection} onOpenRun={props.onOpenRun} />
-      );
-  }
 }
 
 /**

@@ -66,7 +66,7 @@ export type PhaseTopologyAbsence = "not-supplied" | "not-drawable";
  * one phase, two attention readings, and nothing failing.
  *
  * The caller supplies the answer rather than deriving it here, and derives it
- * through `workflows/run-list-rows.ts`'s `parkAwaitsPerson` — the same reading the
+ * through `workflows/runs/run-list-rows.ts`'s `parkAwaitsPerson` — the same reading the
  * badge takes its tone from, so the two cannot come apart again.
  */
 export const PHASE_PARK_ATTENTIONS = ["awaiting-person", "scheduled"] as const;

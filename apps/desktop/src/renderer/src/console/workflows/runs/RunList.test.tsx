@@ -6,7 +6,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatClockTime, formatDateTime } from "../primitives/index.js";
+import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import { RunList } from "./RunList.js";
 import {
   RunListProjection,

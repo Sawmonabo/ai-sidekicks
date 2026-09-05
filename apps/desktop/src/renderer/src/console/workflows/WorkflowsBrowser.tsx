@@ -20,7 +20,7 @@
 // have two ways to be told the same thing.
 //
 // WHAT EACH SCOPE GROUP MAY CLAIM IS NOT DECIDED HERE. It is projected by
-// `definition-directory.ts` from the continuation that read already carries, and
+// `definitions/definition-directory.ts` from the continuation that read already carries, and
 // threaded through untouched. Deriving it here as well — a pending tuple from the
 // directory's status and an exhaustion answer from the control's presence — is how the
 // groups came to assert `No shared definitions` over an enumeration with pages left.
@@ -47,14 +47,14 @@
 
 import type { GrowthPort } from "../bridge/index.js";
 import type { ReadingState } from "../primitives/index.js";
-import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definitions/DefinitionsBrowser.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { useReadSettlementAnnouncement } from "./read-announcement.js";
 import { refusedWorkflowChrome, type WorkflowChromeState } from "./chrome-state.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectoryState,
-} from "./definition-directory.js";
+} from "./definitions/definition-directory.js";
 
 /**
  * Which chrome the surface wears, given one read state.

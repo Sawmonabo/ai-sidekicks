@@ -12,10 +12,13 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { type GrowthPort, type WorkflowRunListEntry } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
-import { WORKFLOWS_SCENARIO_RUNS } from "../bridge/scenarios/workflow-fixture-runs.js";
-import { latestCommitted, observeSubjectRead } from "../store/subject-read-commits.test-support.js";
+import { type GrowthPort, type WorkflowRunListEntry } from "../../bridge/index.js";
+import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
+import { WORKFLOWS_SCENARIO_RUNS } from "../../bridge/scenarios/workflow-fixture-runs.js";
+import {
+  latestCommitted,
+  observeSubjectRead,
+} from "../../store/subject-read-commits.test-support.js";
 import { useWorkflowRunDirectory, type WorkflowRunDirectoryState } from "./run-directory.js";
 
 const FIRST_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";

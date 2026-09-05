@@ -36,13 +36,15 @@
 // and absent by default: the run list renders the same card for a phase in another
 // pane's run and has nowhere to send anybody.
 
-import { Chip, WireFigure, formatDateTime, type ChipTone } from "../primitives/index.js";
-import { parkAwaitsPerson } from "./run-list-projection.js";
+import { Chip, WireFigure, type ChipTone } from "../../primitives/index.js";
+import { ParkFormRoute, type WorkflowParkFormRoute } from "./ParkFormRoute.js";
+import { ParkSchedule } from "./ParkSchedule.js";
+import { parkAwaitsPerson } from "../runs/run-list-projection.js";
 import type {
   WorkflowParkedPhase,
   WorkflowParkReason,
   WorkflowParkSchedule,
-} from "./run-list-projection.js";
+} from "../runs/run-list-projection.js";
 
 /**
  * What each reason is called on screen.
@@ -55,24 +57,6 @@ import type {
 const PARK_REASON_LABELS: Readonly<Record<WorkflowParkReason, string>> = {
   "waiting-human": "Waiting on a person",
   "provider-usage-limited": "Waiting on provider capacity",
-};
-
-/**
- * What ends the wait, when nothing is scheduled to.
- *
- * Total over the closed reason set, so a third reason is a compile error here rather
- * than a phase that parks and is told the wrong way out. One sentence per reason
- * because the ways out are genuinely different: a human phase advances when the
- * participant submits the form the run pane mounts for exactly this phase, so telling
- * that operator to reach for a run control points them away from the act the engine
- * is waiting on. A usage-limit park with no reported reset boundary really does wait
- * for an operator.
- */
-const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = {
-  "waiting-human":
-    "Nothing is scheduled to lift this. It ends when a participant fills in and submits this phase's form.",
-  "provider-usage-limited":
-    "No reset boundary was reported, so nothing lifts this on its own. It waits until a run control does.",
 };
 
 /**
@@ -91,78 +75,6 @@ const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = 
  */
 function parkTone(schedule: WorkflowParkSchedule): ChipTone {
   return parkAwaitsPerson(schedule) ? "attention" : "neutral";
-}
-
-/**
- * What the badge says about the end of the wait, for one classified schedule.
- *
- * THE ARMED INSTANT CARRIES ITS DATE. A badge stands wherever a parked phase does —
- * in a run row, in the run pane's stack of cards — and none of those places carries a
- * day divider, which is the only thing that makes the ledger's date-free reading
- * unambiguous. This surface used to render that reading, so a resume armed for
- * tomorrow morning and one armed for next week's were the same four digits on screen,
- * and the wire instant behind them was reachable only by hovering. `formatDateTime`
- * is the figure chokepoint's reading for exactly this position.
- */
-function ParkSchedule(props: {
-  readonly schedule: WorkflowParkSchedule;
-  readonly parkReason: WorkflowParkReason;
-}): React.JSX.Element {
-  const { schedule } = props;
-  if (schedule.kind === "armed") {
-    return (
-      <p className="meridian-park__schedule">
-        Scheduled to resume at{" "}
-        <WireFigure value={formatDateTime(schedule.autoResumeAt)} title={schedule.autoResumeAt} />
-      </p>
-    );
-  }
-  return (
-    <p className="meridian-park__schedule">
-      {UNSCHEDULED_PARK_REMEDIES[props.parkReason]}
-      {schedule.kind === "unreadable" ? (
-        // The malformed value is shown rather than swallowed. It is the only evidence
-        // a daemon armed something, and a badge that dropped it would report this park
-        // as identical to one that armed nothing at all.
-        <span className="meridian-park__unreadable">
-          {" "}
-          The engine sent a resume instant this console could not read:{" "}
-          <WireFigure value={schedule.autoResumeAt} />
-        </span>
-      ) : null}
-    </p>
-  );
-}
-
-/**
- * How this card reaches the form that ends its wait, where the caller can offer one.
- *
- * Three arms because the operator's next move differs: press this to answer the phase,
- * nothing to press because this phase's form is already the one open, and nothing to
- * press because the run did not report the handle it would be answered through. A
- * boolean plus a detail string would collapse the last two, and they are the difference
- * between "you are already here" and "this cannot be answered from this build".
- */
-export type WorkflowParkFormRoute =
-  | { readonly kind: "openable"; readonly openForm: () => void }
-  | { readonly kind: "open" }
-  | { readonly kind: "unaddressable"; readonly detail: string };
-
-/** The route's own line: a control, or the sentence saying why there is none. */
-function ParkFormRoute(props: { readonly route: WorkflowParkFormRoute }): React.JSX.Element {
-  const { route } = props;
-  if (route.kind === "openable") {
-    return (
-      <button type="button" className="meridian-park__form-action" onClick={route.openForm}>
-        Open this phase&apos;s form
-      </button>
-    );
-  }
-  return (
-    <p className="meridian-park__form-state">
-      {route.kind === "open" ? "This phase\u2019s form is open below." : route.detail}
-    </p>
-  );
 }
 
 export interface ParkBadgeProps {

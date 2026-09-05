@@ -33,8 +33,8 @@ import {
   WireFigure,
   formatCount,
   formatDateTime,
-} from "../primitives/index.js";
-import { ParkBadge } from "./ParkBadge.js";
+} from "../../primitives/index.js";
+import { ParkBadge } from "../parks/ParkBadge.js";
 import type {
   RunListProjection,
   WorkflowRunListRow,

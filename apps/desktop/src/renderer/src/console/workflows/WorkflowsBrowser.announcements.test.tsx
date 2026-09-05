@@ -14,7 +14,7 @@ import { createRefusingGrowthPort, growthUnavailable } from "../bridge/growth-po
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { LiveAnnouncer } from "../primitives/live-announcer.js";
-import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definitions/DefinitionsBrowser.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import {
   PROBE_SESSION_ID,

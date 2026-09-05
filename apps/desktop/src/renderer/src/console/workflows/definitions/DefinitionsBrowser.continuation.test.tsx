@@ -14,7 +14,7 @@ import {
   renderScopeList,
   rowNames,
 } from "./DefinitionsBrowser.test-support.js";
-import { refuse } from "../core/index.js";
+import { refuse } from "../../core/index.js";
 
 /** The one control the continuation region draws, or nothing. */
 function continuationControl(container: HTMLElement): HTMLButtonElement | null {

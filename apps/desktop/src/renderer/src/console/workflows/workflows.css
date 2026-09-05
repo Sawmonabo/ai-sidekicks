@@ -36,9 +36,9 @@
 
 /* The per-surface sheets, in the order a person meets the surfaces. */
 @import "./workflows-destination.css";
-@import "./definitions-browser.css";
-@import "./run-list.css";
-@import "./park-badge.css";
+@import "./definitions/definitions-browser.css";
+@import "./runs/run-list.css";
+@import "./parks/park-badge.css";
 @import "../panes/workflow-run/run-controls.css";
 @import "../panes/workflow-builder/builder-authoring.css";
 
