@@ -15,12 +15,17 @@
 // named the sheet, by what specifier, and which barrel the walk that found it started
 // from — so both duplicates are countable and both are reported with their causes.
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join, posix, sep } from "node:path";
 
 import ts from "typescript";
 
-import { CONSOLE_DIRECTORY } from "../console-source-modules.js";
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  consoleStylesheets,
+  type ConsoleSourceModule,
+} from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /**
@@ -291,15 +296,24 @@ export function syntheticStylesheetTree(sources: ReadonlyMap<string, string>): S
   };
 }
 
-function consoleFiles(extensions: readonly string[]): readonly string[] {
-  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
-    .filter(
-      (entry) =>
-        extensions.some((extension) => entry.endsWith(extension)) &&
-        !entry.endsWith(".test.ts") &&
-        !entry.endsWith(".test.tsx"),
-    )
-    .sort();
+/**
+ * The console-relative paths of one scan, in the order the tree is walked in.
+ *
+ * THE PATHS COME FROM THE TIER'S ONE WALK. This module used to `readdirSync` the
+ * console itself, which is exactly what `architecture/source-walk-chokepoint.test.ts`
+ * forbids and for exactly the reason it gives: a gate whose set is its own walk has
+ * its own opinion about what counts as source, and that opinion drifts from every
+ * other gate's silently. `console-source-modules.ts` owns both admissions — modules
+ * through {@link consoleSourceModules}, stylesheets through {@link consoleStylesheets}
+ * — and a root that moves moves in one place.
+ *
+ * SORTED HERE, on the raw relative path. The shared walk orders by a display path that
+ * prefixes the root, which is the right order for a failure message and a different
+ * order for this set; the barrel order `collectStylesheetEdges` walks in is part of
+ * what an edge reports, so it is pinned to the path a tree is keyed by.
+ */
+function consoleRelativePaths(modules: readonly ConsoleSourceModule[]): readonly string[] {
+  return modules.map((module) => module.relativePath).sort();
 }
 
 /** Read a console-relative path. Exported because a claim reads one file by name. */
@@ -309,7 +323,7 @@ export function readConsoleFile(consoleRelativePath: string): string {
 
 /** The console itself, as a tree the walk can read. */
 export const CONSOLE_STYLESHEET_TREE: StylesheetTree = {
-  modulePaths: consoleFiles([".ts", ".tsx"]),
-  stylesheetPaths: consoleFiles([".css"]),
+  modulePaths: consoleRelativePaths(consoleSourceModules({ roots: [CONSOLE_DIRECTORY] })),
+  stylesheetPaths: consoleRelativePaths(consoleStylesheets({ roots: [CONSOLE_DIRECTORY] })),
   read: readConsoleFile,
 };
