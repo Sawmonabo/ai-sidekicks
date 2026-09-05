@@ -264,10 +264,16 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
         />
       </div>
 
+      {/* No `readings` at all, and that is the honest prop rather than an omission.
+          Nothing in this window meters a browser bound — the namespace that would
+          count live views is not registered — so every row takes the not-checked arm.
+          A literal `VIEWS_MAX: 0` here would render through the same live-figure span
+          a genuinely metered ceiling renders through, and tell a reviewer this window
+          holds zero browser views while the pane he is reading it in is one. */}
       <details className="meridian-browser-disclosure meridian-browser-pane__ceiling">
         <summary>Resource ceiling</summary>
         <div className="meridian-browser-pane__ceiling-body">
-          <BudgetMeter readings={{ VIEWS_MAX: 0 }} />
+          <BudgetMeter />
         </div>
       </details>
     </section>

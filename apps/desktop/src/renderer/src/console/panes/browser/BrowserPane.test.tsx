@@ -14,10 +14,11 @@
 // the field does ACROSS readings is its own suite next door, and so is what happens
 // when a bridge call does not answer.
 
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { BROWSER_SCENARIO } from "../../bridge/scenarios/browser.js";
+import { BudgetMeter } from "../../browser/BudgetMeter.js";
 import { createFixtureBridge } from "../../bridge/index.js";
 import { HOST_CHORD_PLATFORM } from "../../primitives/index.js";
 import {
@@ -94,7 +95,37 @@ describe("browser pane chrome", () => {
     expect(disclosure?.open).toBe(false);
     expect(disclosure?.textContent).toContain("Resource ceiling");
   });
+
+  it("reports no figure for a ceiling nothing in this window meters", async () => {
+    // The pane used to hand the meter a literal `VIEWS_MAX: 0`, which renders
+    // through the same live-figure span a genuinely metered ceiling renders through
+    // — so the ledger said this window holds zero browser views while the pane the
+    // reader is looking at is one, and while no `browser.*` namespace exists to
+    // count them. Every row takes the not-checked arm until something meters.
+    const { region } = await renderBrowserPane();
+    expect(boundReadingCell(region, "VIEWS_MAX")?.textContent).toContain("Not measured");
+    expect(region.querySelector(".meridian-browser-bounds__reading")).toBeNull();
+  });
+
+  it("negative control: a metered ceiling does render its live figure", () => {
+    // Without this the case above passes over a meter that renders no figure for
+    // anything, which would make the not-checked assertion vacuous.
+    const { container } = render(<BudgetMeter readings={{ VIEWS_MAX: 0 }} />);
+    const reading = boundReadingCell(container, "VIEWS_MAX")?.querySelector(
+      ".meridian-browser-bounds__reading",
+    );
+    expect(reading).not.toBeNull();
+    expect(reading?.textContent).toContain("0");
+  });
 });
+
+/** The `Now` cell of one bound's row, found by the row header the table names it in. */
+function boundReadingCell(root: ParentNode, name: string): HTMLTableCellElement | null {
+  const row = [...root.querySelectorAll("tr")].find(
+    (candidate) => candidate.querySelector("th")?.textContent === name,
+  );
+  return row?.querySelectorAll("td")[1] ?? null;
+}
 
 describe("browser pane address field", () => {
   it("refuses a filesystem destination without dispatching a navigation", async () => {
