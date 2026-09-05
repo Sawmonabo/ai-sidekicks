@@ -36,6 +36,7 @@ import { join, relative, sep } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { CONSOLE_DIRECTORY, consoleSourceModules } from "../console-source-modules.js";
 import {
   collectStylesheetEdges,
   isOwningBarrel,
@@ -51,13 +52,35 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
   const stylesheets = CONSOLE_STYLESHEET_TREE.stylesheetPaths;
 
   it("finds a console tree to scan at all", () => {
-    // Without this, a wrong CONSOLE_SOURCE_DIRECTORY would scan nothing and every
+    // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
     // assertion below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
     expect(stylesheets.length).toBeGreaterThan(5);
     // And the scan is recursive rather than a listing of the console root: every
     // stylesheet edge below sits at least two directories down.
     expect(modules.some((modulePath) => modulePath.split(sep).length > 2)).toBe(true);
+  });
+
+  it("scans the same console the rest of the tier walks", () => {
+    // One home for "where the console is". This file's walk and the shared source
+    // walk resolve that root separately, and while they agreed nothing reported it
+    // if they stopped: a resolver pointed one directory off scans a tree that exists,
+    // reports files, and satisfies the floor above while asserting nothing about the
+    // console anyone ships. So the two file sets are compared rather than trusted.
+    //
+    // A SUBSET AND NOT AN EQUALITY, because the two walks disagree on purpose about
+    // what counts: this one keeps `.d.ts` and the shared one never does, and the
+    // shared one keeps co-located tests when asked and this one never does. What must
+    // hold is that every module this walk found is a module that walk can see.
+    const walked = new Set(
+      consoleSourceModules({ roots: [CONSOLE_DIRECTORY], tests: true }).map(
+        (module) => module.relativePath,
+      ),
+    );
+    const unseen = modules.filter(
+      (modulePath) => !modulePath.endsWith(".d.ts") && !walked.has(modulePath),
+    );
+    expect(unseen).toStrictEqual([]);
   });
 
   it("only an owning barrel imports a stylesheet", () => {

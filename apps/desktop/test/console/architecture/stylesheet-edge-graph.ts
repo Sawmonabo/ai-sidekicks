@@ -20,7 +20,7 @@ import { dirname, join, posix, sep } from "node:path";
 
 import ts from "typescript";
 
-import { CONSOLE_SOURCE_DIRECTORY } from "../paths.js";
+import { CONSOLE_DIRECTORY } from "../console-source-modules.js";
 import { forEachDescendant, parseSourceText } from "../typescript-source.js";
 
 /**
@@ -292,7 +292,7 @@ export function syntheticStylesheetTree(sources: ReadonlyMap<string, string>): S
 }
 
 function consoleFiles(extensions: readonly string[]): readonly string[] {
-  return readdirSync(CONSOLE_SOURCE_DIRECTORY, { recursive: true, encoding: "utf8" })
+  return readdirSync(CONSOLE_DIRECTORY, { recursive: true, encoding: "utf8" })
     .filter(
       (entry) =>
         extensions.some((extension) => entry.endsWith(extension)) &&
@@ -304,7 +304,7 @@ function consoleFiles(extensions: readonly string[]): readonly string[] {
 
 /** Read a console-relative path. Exported because a claim reads one file by name. */
 export function readConsoleFile(consoleRelativePath: string): string {
-  return readFileSync(join(CONSOLE_SOURCE_DIRECTORY, consoleRelativePath), "utf8");
+  return readFileSync(join(CONSOLE_DIRECTORY, consoleRelativePath), "utf8");
 }
 
 /** The console itself, as a tree the walk can read. */
