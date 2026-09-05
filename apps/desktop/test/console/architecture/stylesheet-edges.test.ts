@@ -41,6 +41,23 @@ import {
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /**
+ * The one member of Vite's `import.meta` this tier reads, declared where it is read.
+ *
+ * The architecture tier is a Node program and its `tsconfig` deliberately does not
+ * pull in `vite/client` wholesale — the renderer's own `console-env.d.ts` says why
+ * for its half — so the member is named structurally at the one call site rather than
+ * by widening a config for every gate in the directory. Vitest transforms this file
+ * with Vite, so the call itself is resolved at build time exactly as it is in the
+ * renderer.
+ */
+interface ViteGlobImportMeta {
+  readonly glob: (
+    pattern: string,
+    options?: { readonly query?: string },
+  ) => Readonly<Record<string, unknown>>;
+}
+
+/**
  * Every console source module, through the tier's ONE walk.
  *
  * `source-walk-chokepoint.test.ts` fails a gate that reaches renderer source through
@@ -61,7 +78,10 @@ const CONSOLE_MODULES = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
  * both halves of every assertion below come from one resolver.
  */
 const STYLESHEET_PATHS: readonly string[] = Object.keys(
-  import.meta.glob("../../../src/renderer/src/console/**/*.css", { query: "?url" }),
+  (import.meta as ImportMeta & ViteGlobImportMeta).glob(
+    "../../../src/renderer/src/console/**/*.css",
+    { query: "?url" },
+  ),
 )
   .map((specifier) => consoleRelative(resolve(HERE, specifier)))
   .sort();

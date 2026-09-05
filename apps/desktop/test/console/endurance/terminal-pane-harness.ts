@@ -46,10 +46,19 @@ const CLOSE_CONTROL_NAME = "Close the newest pane";
 /** The emulator's mount box, on which it reports the renderer it settled on. */
 const TERMINAL_HOST_SELECTOR = ".meridian-terminal-host";
 
-/** How long a pane may take to mount its emulator and settle on a renderer. */
+/**
+ * How long a pane may take to mount its emulator and settle on a renderer.
+ *
+ * A CEILING for one step and never the bound itself: every wait below is passed
+ * through `bodyAllowance.boundedMs`, so what a step actually gets is the smaller of
+ * this figure and what is left of the tier's registered body allowance. A step
+ * bounded by a local constant alone outlives the allowance it was supposed to spend
+ * and fails under vitest's generic kill instead of the harness's own sentence, which
+ * is what `body-allowance-consumption.test.ts` fails a wait for.
+ */
 const PANE_READINESS_TIMEOUT_MS = 60_000;
 
-/** How long the harness surface itself may take to appear after the navigation. */
+/** How long the harness surface itself may take to appear. Bounded the same way. */
 const ROUTE_TRANSITION_TIMEOUT_MS = 30_000;
 
 /** How many advances the terminal script is walked in, and how many drain it. */
@@ -174,7 +183,7 @@ export async function openPaneAndAwaitWebglReadiness(
       );
     },
     [TERMINAL_HOST_SELECTOR, expectedInstanceCount] as [string, number],
-    { timeout: PANE_READINESS_TIMEOUT_MS },
+    { timeout: consoleApplication.bodyAllowance.boundedMs(PANE_READINESS_TIMEOUT_MS) },
   );
 
   const readings = await readMountedTerminals(consoleApplication);
@@ -205,7 +214,7 @@ export async function closeEveryPane(
   await consoleApplication.window.waitForFunction(
     (hostSelector: string) => document.querySelectorAll(hostSelector).length === 0,
     TERMINAL_HOST_SELECTOR,
-    { timeout: PANE_READINESS_TIMEOUT_MS },
+    { timeout: consoleApplication.bodyAllowance.boundedMs(PANE_READINESS_TIMEOUT_MS) },
   );
 }
 
@@ -223,9 +232,10 @@ export async function openHarnessOnDeliveredSession(
   await consoleApplication.window.evaluate((targetHash: string) => {
     globalThis.location.hash = targetHash;
   }, HARNESS_ROUTE);
-  await consoleApplication.window
-    .locator(HARNESS_SURFACE_SELECTOR)
-    .waitFor({ state: "visible", timeout: ROUTE_TRANSITION_TIMEOUT_MS });
+  await consoleApplication.window.locator(HARNESS_SURFACE_SELECTOR).waitFor({
+    state: "visible",
+    timeout: consoleApplication.bodyAllowance.boundedMs(ROUTE_TRANSITION_TIMEOUT_MS),
+  });
 
   const scriptSpanMs = TERMINAL_SCENARIO.beats.at(-1)?.atMs ?? 0;
   const stepMs = Math.max(1, Math.ceil(scriptSpanMs / SCENARIO_DELIVERY_STEP_COUNT));
