@@ -58,8 +58,14 @@ import {
   UNREPRESENTABLE_VALUE_TEXT,
 } from "../../../../shared/wire-errors.js";
 
-import { parseInstant } from "./instant.js";
-import { refuse, type ConsoleRefusal } from "./refusal.js";
+import {
+  readRefusalExtensions,
+  wireRetryExtension,
+  withRefusalExtensions,
+  type ConsoleRefusalExtensions,
+  type ExtendedConsoleRefusal,
+} from "./refusal-extensions.js";
+import { refuse } from "./refusal.js";
 
 /**
  * A caller-written refusal for a rejection that carries no code of its own.
@@ -81,79 +87,17 @@ export interface RejectionFallback {
 }
 
 /**
- * When the refusing side said the caller may try again.
- *
- * Both members are registered: `error-contracts.md §Rate Limiting` puts
- * `retryAfter` (seconds) and `resetAt` (an RFC 3339 instant) on the rate-limit
- * envelope, and the JSON-RPC mapping carries them through `data.fields`. Nothing is
- * invented here — an envelope that names neither produces no hint at all rather than
- * a zero, because "retry immediately" and "the refusing side said nothing about
- * retrying" are different facts and a surface must not render the second as the
- * first.
- *
- * `resetAt` is READ rather than carried: a hint that names an instant this console
- * cannot parse is not a hint, so it is dropped by {@link parseInstant} the same way
- * every other unreadable stamp is, and what survives is a number a countdown can use.
- */
-export interface WireRetryHint {
-  /** Seconds until a retry is allowed, where the wire named a relative bound. */
-  readonly afterSeconds?: number;
-  /** Epoch milliseconds at which the limit resets, where the wire named an instant. */
-  readonly atEpochMilliseconds?: number;
-}
-
-/**
  * A rejection, as the one shape the console renders.
  *
- * A `ConsoleRefusal` widened by one optional member, so every renderer that already
- * takes a refusal takes this unchanged and only a surface that offers a retry has to
- * know the member exists. `isConsoleRefusal` is structural, so this satisfies it.
- */
-export interface WireRefusal extends ConsoleRefusal {
-  readonly retry?: WireRetryHint;
-}
-
-/**
- * Assemble a hint from two candidate numbers, or answer none.
+ * A `ConsoleRefusal` widened by the REGISTERED extension members and by nothing else
+ * (`core/refusal-extensions.ts`), so every renderer that already takes a refusal takes
+ * this unchanged and only a surface that reads one of those members has to know it
+ * exists. `isConsoleRefusal` is structural, so this satisfies it.
  *
- * The one assembler both readers below share. They differ in WHERE the two numbers
- * are read from — the wire's spelling versus the console's own — and agree on what
- * counts as a bound, which is the half that would drift if it were written twice.
+ * Named here rather than declared here, because what it is IS the extended refusal:
+ * a second interface saying so would be the mirrored union the package forbids.
  */
-function retryHintOf(
-  afterSeconds: unknown,
-  atEpochMilliseconds: unknown,
-): WireRetryHint | undefined {
-  const hint: { afterSeconds?: number; atEpochMilliseconds?: number } = {};
-  if (typeof afterSeconds === "number" && Number.isFinite(afterSeconds) && afterSeconds >= 0) {
-    hint.afterSeconds = afterSeconds;
-  }
-  if (typeof atEpochMilliseconds === "number" && Number.isFinite(atEpochMilliseconds)) {
-    hint.atEpochMilliseconds = atEpochMilliseconds;
-  }
-  return hint.afterSeconds === undefined && hint.atEpochMilliseconds === undefined
-    ? undefined
-    : hint;
-}
-
-/** The two positions a retry bound is registered at on the WIRE, read guardedly. */
-function retryHintFrom(source: unknown): WireRetryHint | undefined {
-  const resetAt = readGuardedProperty(source, "resetAt");
-  const reset = typeof resetAt === "string" ? parseInstant(resetAt) : undefined;
-  return retryHintOf(
-    readGuardedProperty(source, "retryAfter"),
-    reset?.kind === "instant" ? reset.epochMilliseconds : undefined,
-  );
-}
-
-/** A hint a refusal already carries, in this console's own spelling, read guardedly. */
-function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
-  const carried = readGuardedProperty(candidate, "retry");
-  return retryHintOf(
-    readGuardedProperty(carried, "afterSeconds"),
-    readGuardedProperty(carried, "atEpochMilliseconds"),
-  );
-}
+export type WireRefusal = ExtendedConsoleRefusal;
 
 /**
  * The sentence a CODE-BEARING arm renders, which is never the rejection itself.
@@ -203,7 +147,7 @@ interface RefusalMembers {
   readonly code: unknown;
   readonly detail: unknown;
   readonly origin: unknown;
-  readonly retry: WireRetryHint | undefined;
+  readonly extensions: ConsoleRefusalExtensions;
 }
 
 /** One read per member. The only place a candidate's refusal members are touched. */
@@ -212,7 +156,7 @@ function readRefusalMembers(candidate: unknown): RefusalMembers {
     code: readGuardedProperty(candidate, "code"),
     detail: readGuardedProperty(candidate, "detail"),
     origin: readGuardedProperty(candidate, "origin"),
-    retry: carriedRetryHint(candidate),
+    extensions: readRefusalExtensions(candidate),
   };
 }
 
@@ -233,19 +177,7 @@ function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
   if (typeof code !== "string" || typeof detail !== "string" || typeof origin !== "string") {
     return undefined;
   }
-  return withRetryHint(refuse(origin, code, detail), members.retry);
-}
-
-/**
- * Attach a hint only where one was actually read.
- *
- * Written once rather than at each arm so no arm can ship a `retry: undefined`
- * member: the refusal shape is compared structurally in tests and rendered by
- * components that ask whether the member is present, and a present-but-undefined
- * member answers that question wrongly.
- */
-function withRetryHint(refusal: ConsoleRefusal, hint: WireRetryHint | undefined): WireRefusal {
-  return hint === undefined ? refusal : { ...refusal, retry: hint };
+  return withRefusalExtensions(refuse(origin, code, detail), members.extensions);
 }
 
 /**
@@ -295,17 +227,17 @@ function classifyRejection(
   const dottedCode = readGuardedProperty(data, "type");
   const message = readGuardedProperty(rejection, "message");
   if (typeof dottedCode === "string" && dottedCode.length > 0) {
-    return withRetryHint(
+    return withRefusalExtensions(
       refuse(origin, dottedCode, envelopeDetail(message, fallback)),
-      retryHintFrom(readGuardedProperty(data, "fields")),
+      wireRetryExtension(readGuardedProperty(data, "fields")),
     );
   }
   // The flat envelope — `{ code, message }` — from the same two readings the arms
   // above already took, never a second pass over the candidate.
   if (typeof members.code === "string") {
-    return withRetryHint(
+    return withRefusalExtensions(
       refuse(origin, members.code, envelopeDetail(message, fallback)),
-      retryHintFrom(rejection),
+      wireRetryExtension(rejection),
     );
   }
   if (fallback !== undefined) {

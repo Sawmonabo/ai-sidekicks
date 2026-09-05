@@ -15,9 +15,9 @@
 // claims a completeness it cannot prove. `served` is the only state that claims it,
 // and it is the only state that renders no notice. Everything else renders one — which
 // is why `readingNoticeFor` is TOTAL over the kind tuple and why its `"none"` shape
-// is reachable from exactly one arm. A seventh state added to the union without a
-// sentence fails to compile here rather than shipping as a silent claim of
-// completeness.
+// is reachable from exactly one arm. A state added to the union without a sentence
+// fails to compile here rather than shipping as a silent claim of completeness —
+// count-free, because the set grows.
 //
 // A SURFACE HANDS OVER EVERY READING IT HOLDS, NOT ONE OF THEM. A queue whose
 // snapshot refused AND whose tail carried an unreadable delivery is incomplete twice
@@ -55,6 +55,7 @@ export const READING_STATE_KINDS = [
   "stale",
   "partial",
   "cut",
+  "unchecked",
 ] as const;
 
 export type ReadingStateKind = (typeof READING_STATE_KINDS)[number];
@@ -120,11 +121,35 @@ export type ReadingState =
    * and is not invented here — `servedCount` is what did arrive, which is the only
    * figure the reply supplies.
    */
-  | { readonly kind: "cut"; readonly servedCount: number };
+  | { readonly kind: "cut"; readonly servedCount: number }
+  /**
+   * A read that asked several sources and did not hear back from all of them.
+   *
+   * The COVERAGE gap, and it is a different fact from every arm above. `partial` is
+   * about deliveries that arrived and could not be read; `cut` is about a producer
+   * that truncated its own answer; this is about parts of the question that were put
+   * and never answered — which is what a fan-out across sessions, mounts, or nodes
+   * produces when some of them refuse. The distinction is the one a person acts on:
+   * an empty result over incomplete coverage is not an all-clear, and before this arm
+   * existed the nearest vocabulary was `refused` `beside-an-answer`, whose sentence
+   * carries no figure and so cannot say HOW MUCH went unasked.
+   *
+   * It is not rule 8's `not-checked` absence either: that one is the whole read, and
+   * this is a counted part of a read that did answer.
+   *
+   * `uncheckedCount` is at least one — zero is complete coverage, which is `served`,
+   * and `uncheckedCoverageReading` is what holds that.
+   */
+  | {
+      readonly kind: "unchecked";
+      readonly uncheckedCount: number;
+      /** The newest refusal among the parts that went unanswered, where one was kept. */
+      readonly newestRefusal: ConsoleRefusal | undefined;
+    };
 
 /**
- * What a notice renders. Four shapes over six states, so the component branches on
- * a closed instruction rather than on the state a second time.
+ * What a notice renders. Fewer shapes than there are states, so the component
+ * branches on a closed instruction rather than on the state a second time.
  *
  * `"reading"` is its own shape because a read in flight is rule 8's `not-loaded`
  * absence and renders through that primitive; the prose shapes are prose beside the
@@ -179,6 +204,26 @@ export function unreadableDeliveryReading(
 }
 
 /**
+ * The reading an incomplete fan-out is, from the count of parts that never answered.
+ *
+ * The third producer shape, and it takes the count a caller already has rather than
+ * the sources themselves: what a person acts on is how many went unanswered, and a
+ * list of identities is the family's own to render beside the notice. Zero is
+ * `served` because a fan-out every part of which answered has full coverage — the
+ * same rule `unreadableDeliveryReading` applies to its own count, for the same
+ * reason: a notice reading "0 parts could not be checked" is a notice for nothing.
+ */
+export function uncheckedCoverageReading(
+  uncheckedCount: number,
+  newestRefusal: ConsoleRefusal | undefined,
+): ReadingState {
+  if (!Number.isInteger(uncheckedCount) || uncheckedCount < 1) {
+    return { kind: "served" };
+  }
+  return { kind: "unchecked", uncheckedCount, newestRefusal };
+}
+
+/**
  * The reading a behind-the-producer flag is, where no count is on the wire.
  *
  * The second producer shape, and it is a different rule rather than a second spelling
@@ -203,8 +248,8 @@ export function behindProducerReading(
  * and a caller that capitalized it in one place and not another is exactly the drift
  * this module exists to remove.
  *
- * Total over `ReadingState` by construction, so a seventh member fails to compile
- * here before it can reach a surface that renders it as complete.
+ * Total over `ReadingState` by construction, so a member added to that union fails
+ * to compile here before it can reach a surface that renders it as complete.
  */
 export function readingNoticeFor(state: ReadingState, subject: string): PartialReadNotice {
   switch (state.kind) {
@@ -240,6 +285,13 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
         figure: formatCount(state.servedCount),
         copy: `read before ${subject} was cut, so what is not shown here may still exist.`,
         refusal: undefined,
+      };
+    case "unchecked":
+      return {
+        shape: "counted-sentence",
+        figure: formatCount(state.uncheckedCount),
+        copy: `${state.uncheckedCount === 1 ? "part" : "parts"} of ${subject} could not be checked, so what is shown here covers less than was asked for.`,
+        refusal: state.newestRefusal,
       };
   }
 }

@@ -119,7 +119,9 @@ interface WindowSessionPlumbing {
  *     registry by then and a disposed registry refuses every open, so the second
  *     mount publishes a fresh plumbing rather than keeping a corpse. It cannot be a
  *     render-phase comparison, because the disposal happens in an effect's cleanup
- *     and is invisible to the render that preceded it.
+ *     and is invisible to the render that preceded it — so it is the resource hook's
+ *     own `isClosed` arm, read where its lifetime effect runs, and not an effect
+ *     written here.
  *
  * The binder is not returned. Nothing above this hook reads it — its whole surface
  * is the subscription it owns — and handing it out would invite a second caller to
@@ -137,13 +139,13 @@ export function useSessionStoreRegistry(
   // the plumbing takes a SNAPSHOT of that table at construction, exactly so a later
   // registration cannot make one open store fold two events of one kind two ways. A
   // value the resource does not read live is not part of what the resource is about.
-  const { value: plumbing, publish: publishPlumbing } =
-    useSubjectScopedResource<WindowSessionPlumbing>(
-      bridge,
-      undefined,
-      () => createWindowSessionPlumbing(bridge, projectorRegistry),
-      disposeWindowSessionPlumbing,
-    );
+  const { value: plumbing } = useSubjectScopedResource<WindowSessionPlumbing>(
+    bridge,
+    undefined,
+    () => createWindowSessionPlumbing(bridge, projectorRegistry),
+    disposeWindowSessionPlumbing,
+    (candidate) => candidate.registry.isDisposed,
+  );
   // THE SUBSCRIPTION, KEYED ON THE PLUMBING AND NOTHING ELSE. Anything else in this
   // list is a reason to re-run for something that has nothing to do with the
   // resource: the plumbing is rebuilt by the HOLDER when its bridge moves, so a
@@ -155,16 +157,6 @@ export function useSessionStoreRegistry(
     }
     plumbing.binder.attach();
   }, [plumbing]);
-  // THE REMOUNT ARM, SEPARATELY, because it is the one thing here that does read the
-  // bridge and the projector board. It publishes and never disposes, so the widest
-  // dependency list in this hook cannot retire anything: the effect above already
-  // disposed this plumbing, which is the only condition under which this one acts.
-  useEffect(() => {
-    if (!plumbing.registry.isDisposed) {
-      return;
-    }
-    publishPlumbing(createWindowSessionPlumbing(bridge, projectorRegistry));
-  }, [plumbing, publishPlumbing, bridge, projectorRegistry]);
   return plumbing.registry;
 }
 
