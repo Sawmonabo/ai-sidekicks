@@ -30,12 +30,22 @@
 // standing flag, so an unrelated store update thirty seconds later — a render this
 // list did not cause and the reader had long since tabbed away from — found the row
 // mounted and pulled focus out of whatever they were typing in. So the claim names
-// the row it was armed for and the mounted window it was armed against, and it is
-// consumed exactly once: it focuses that row, or it is dropped. It is dropped when
-// the set narrowed under it and the index now points at a DIFFERENT row (focusing
-// there would answer a key press about row 39 by moving to row 4), and it is dropped
-// after one window change that did not bring the row in — one retry, which is what
-// an asynchronous `revealIndex` needs, and not a standing claim on the page's focus.
+// the row it was armed for and carries a budget of the effect runs it may wait
+// through, and it is consumed exactly once: it focuses that row, or it is dropped. It
+// is dropped when the set narrowed under it and the index now points at a DIFFERENT
+// row (focusing there would answer a key press about row 39 by moving to row 4), and
+// it is dropped once the budget is spent — one retry, which is what an asynchronous
+// `revealIndex` needs, and not a standing claim on the page's focus.
+//
+// AND THE BUDGET COUNTS RUNS RATHER THAN COMPARING THE WINDOW. The claim used to hold
+// the `windowRevision` it was armed against and expire when that value changed, which
+// reads as the more precise rule and is defeated by the value a virtualizer actually
+// hands back: a fresh array every render. The first run after the arm then already
+// compares unequal, so the one retry is spent before the reveal it exists for can
+// answer and the move focuses nothing at all. The caller cannot be asked to stabilise
+// that value either — this family may not name the virtualizer's types, so the option
+// cannot say which of them to memoize on — which leaves a count of this hook's own
+// effect runs as the one bound it can hold without trusting its caller's identities.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -134,6 +144,10 @@ export interface WindowedRovingIndexOptions {
    * The rendered row array a virtualizer hands back is the usual one. It is typed
    * `unknown` on purpose: this family sits below the one that adopts a virtualizer,
    * and a primitive that named that library's row type would be an upward edge.
+   *
+   * It is read as an effect DEPENDENCY and compared against nothing, so a caller
+   * whose value is a fresh array every render costs extra effect runs and is
+   * otherwise correct. That is deliberate — see the budget above.
    */
   readonly windowRevision: unknown;
 }
@@ -145,18 +159,27 @@ export interface WindowedRovingIndex {
 }
 
 /**
+ * How many effect runs a move may wait through before its claim on focus expires.
+ *
+ * One. The arm is followed immediately by the run the move's own `setMovedToIndex`
+ * causes, on which an asynchronous `revealIndex` has not answered yet; the run after
+ * that is the reveal's, and a move still unmounted there is a move whose row the
+ * window is not going to produce.
+ */
+const PENDING_FOCUS_RETRIES = 1;
+
+/**
  * A move waiting for its row to mount, and the two facts that bound it.
  *
  * `rowIndex` is the row the key press asked for, so a set that narrows underneath
  * is answered by dropping the move rather than by focusing whichever row the clamp
- * now points at. `armedAtWindowRevision` is the mounted window the move was armed
- * against, so "the window has not answered yet" and "the window answered and this
- * row was not in it" are distinguishable — the first is worth one more render, the
- * second is over.
+ * now points at. `retriesRemaining` is how many more runs may miss before the claim
+ * is over, which is what separates "the window has not answered yet" from "the
+ * window answered and this row was not in it".
  */
 interface PendingRowFocus {
   readonly rowIndex: number;
-  readonly armedAtWindowRevision: unknown;
+  readonly retriesRemaining: number;
 }
 
 /**
@@ -185,13 +208,14 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       `[${WINDOWED_ROW_INDEX_ATTRIBUTE}="${String(activeIndex)}"]`,
     );
     if (row === null || row === undefined) {
-      if (!Object.is(pending.armedAtWindowRevision, windowRevision)) {
-        // The window changed and this row was not in it. A `revealIndex` that
-        // scrolls asynchronously gets exactly that one change to answer; past it
-        // the claim on the page's focus is dropped rather than left standing for
-        // whatever renders next.
-        pendingFocus.current = undefined;
-      }
+      // The row is not mounted on this run. A `revealIndex` that scrolls
+      // asynchronously gets its budget of further runs to answer; past that the
+      // claim on the page's focus is dropped rather than left standing for whatever
+      // renders next.
+      pendingFocus.current =
+        pending.retriesRemaining > 0
+          ? { rowIndex: pending.rowIndex, retriesRemaining: pending.retriesRemaining - 1 }
+          : undefined;
       return;
     }
     // Consumed here, before the focus call, so every path out of this effect has
@@ -215,11 +239,11 @@ export function useWindowedRovingIndex(options: WindowedRovingIndexOptions): Win
       }
       keyEvent.preventDefault();
       const moved = movedRowIndex(move, activeIndex, rowCount);
-      pendingFocus.current = { rowIndex: moved, armedAtWindowRevision: windowRevision };
+      pendingFocus.current = { rowIndex: moved, retriesRemaining: PENDING_FOCUS_RETRIES };
       setMovedToIndex(moved);
       revealIndex(moved);
     },
-    [activeIndex, revealIndex, rowCount, windowRevision],
+    [activeIndex, revealIndex, rowCount],
   );
 
   return { activeIndex, onKeyDown };

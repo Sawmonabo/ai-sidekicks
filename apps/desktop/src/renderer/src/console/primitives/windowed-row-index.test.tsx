@@ -9,6 +9,12 @@
 //
 // A `.tsx` file because the hook half needs a tree to move focus inside. The pure
 // half is driven directly, without one.
+//
+// THE FIXTURE HANDS THE HOOK THE SHAPE A VIRTUALIZER HANDS BACK: the mounted row
+// array itself, rebuilt every render. A stable derivation of it — the joined string
+// this file drove before — makes the expiry cases pass against an implementation
+// that compares the option's identity, which is a property of the fixture and not of
+// the hook. The array is the harder value and the real one.
 
 import { act, render } from "@testing-library/react";
 import { useRef, useState } from "react";
@@ -85,7 +91,7 @@ function RovingList(props: {
     anchorIndex: 0,
     containerRef,
     revealIndex: props.onReveal,
-    windowRevision: mountedIndexes.join(","),
+    windowRevision: mountedIndexes,
   });
   return (
     <ul ref={containerRef} onKeyDown={onKeyDown} data-active-index={activeIndex}>
@@ -234,8 +240,8 @@ describe("useWindowedRovingIndex — a pending move is spent once, never left st
     const list = listOf(container);
     await pressEnd(list);
 
-    // One window change that does not bring row 39 in. That is the move's one
-    // retry, and it is spent here.
+    // One more render that does not bring row 39 in. That is the move's one retry,
+    // and it is spent here.
     rerender(
       <RovingList rowCount={40} windowStart={4} windowLength={4} onReveal={() => undefined} />,
     );
@@ -250,7 +256,9 @@ describe("useWindowedRovingIndex — a pending move is spent once, never left st
   it("negative control: the one retry a reveal needs still lands the focus", async () => {
     // Without this the expiry above would also be satisfied by dropping the move on
     // the first miss, which is every asynchronous virtualizer: the row is mounted a
-    // render later and the key press would move nothing at all.
+    // render later and the key press would move nothing at all. That is exactly what
+    // an expiry keyed on the option's identity does here, because `mountedIndexes` is
+    // a new array on the very render the move's own state update causes.
     const { container, rerender } = render(
       <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
     );
