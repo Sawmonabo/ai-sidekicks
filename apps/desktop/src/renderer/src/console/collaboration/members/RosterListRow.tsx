@@ -60,13 +60,13 @@ export function RosterListRow(props: RosterListRowProps): React.JSX.Element {
   );
 }
 
-export /** The hue a row's identity mark carries, as a `var()` reference. */
-interface IdentityMarkStyle extends React.CSSProperties {
+/** The hue a row's identity mark carries, as a `var()` reference. */
+export interface IdentityMarkStyle extends React.CSSProperties {
   readonly "--meridian-roster-hue": string;
 }
 
-export /** Which chip tone a presence state earns. Amber only where a person is needed. */
-const PRESENCE_TONE: Readonly<Record<string, "neutral" | "attention">> = {
+/** Which chip tone a presence state earns. Amber only where a person is needed. */
+export const PRESENCE_TONE: Readonly<Record<string, "neutral" | "attention">> = {
   online: "neutral",
   idle: "neutral",
   // A reconnecting client is the one presence state a person may have to act on —

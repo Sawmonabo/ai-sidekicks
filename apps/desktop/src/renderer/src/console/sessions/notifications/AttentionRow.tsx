@@ -63,7 +63,7 @@ export function AttentionRow(props: {
   );
 }
 
-export /**
+/**
  * How one trigger reads. Total over the closed six by construction, so a seventh
  * fails to compile here before it can reach a surface that renders it namelessly.
  *
@@ -74,7 +74,7 @@ export /**
  * other trigger carries whichever of those its severity says and no colour of its
  * own.
  */
-const TRIGGER_LABELS: Readonly<Record<AttentionTrigger, string>> = {
+export const TRIGGER_LABELS: Readonly<Record<AttentionTrigger, string>> = {
   pending_approval: "Waiting on an approval",
   pending_input: "Waiting on your input",
   run_completed: "A run finished",

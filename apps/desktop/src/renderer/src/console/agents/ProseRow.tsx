@@ -17,8 +17,8 @@ export function ProseRow(props: {
   );
 }
 
-export /** Leading prose, clamped at the named bound. Never re-wrapped and never summarized. */
-function clampProse(text: string): string {
+/** Leading prose, clamped at the named bound. Never re-wrapped and never summarized. */
+export function clampProse(text: string): string {
   return text.length <= RESOLVED_PROSE_INLINE_CAP
     ? text
     : `${text.slice(0, RESOLVED_PROSE_INLINE_CAP)}…`;

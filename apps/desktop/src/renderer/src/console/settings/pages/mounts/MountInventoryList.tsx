@@ -109,18 +109,18 @@ export function MountInventoryList(props: {
   );
 }
 
-export /**
+/**
  * The row's key: the mount id on both arms.
  *
  * The refused arm has no reply to take an id from, which is exactly why the read
  * carries the requested id on it — so a mount that refuses on one read and answers
  * on the next keeps its row rather than remounting as a different one.
  */
-function mountKeyOf(reading: MountReading): string {
+export function mountKeyOf(reading: MountReading): string {
   return reading.kind === "read" ? reading.mount.id : reading.repoMountId;
 }
 
-export /**
+/**
  * The one sentence this list announces, or `undefined` while the read is in flight.
  *
  * The counts are what a person cannot get any other way: on screen the rows ARE the
@@ -132,7 +132,9 @@ export /**
  * own: the card on screen renders those words, and the announcement is the spoken half
  * of the same fact rather than a second, friendlier account of it.
  */
-function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): string | undefined {
+export function mountSettlementSentence(
+  state: PushDrivenReadState<MountInventory>,
+): string | undefined {
   if (state.kind === "not-loaded") {
     return undefined;
   }

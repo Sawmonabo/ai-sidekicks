@@ -36,13 +36,13 @@ export function ResolvedRunLinkage(props: {
   return <HeldRunLinkage parentRunId={parentRunId} read={read} />;
 }
 
-export /** One acquired child-link read, with the parent run it answers for. */
-interface AcquiredLinkage {
+/** One acquired child-link read, with the parent run it answers for. */
+export interface AcquiredLinkage {
   readonly parentRunId: string;
   readonly read: ChildRunLinkageRead;
 }
 
-export /**
+/**
  * The read to render for `parentRunId`, or `undefined` for the not-checked absence.
  *
  * A pure function rather than an expression inside the body, so the rule can be
@@ -50,7 +50,7 @@ export /**
  * it exists to catch is transient in the DOM and is not observable after `act` has
  * flushed the effect that ends it.
  */
-function linkageReadFor(
+export function linkageReadFor(
   acquired: AcquiredLinkage | undefined,
   parentRunId: string,
 ): ChildRunLinkageRead | undefined {

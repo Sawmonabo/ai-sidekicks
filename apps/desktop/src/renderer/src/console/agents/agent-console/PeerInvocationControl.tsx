@@ -95,5 +95,5 @@ export function PeerInvocationControl(props: {
   );
 }
 
-export /** Names a peer-invocation failure the thrown value carried no refusal for. */
-const PEER_INVOCATION_ORIGIN = "peer-invocation";
+/** Names a peer-invocation failure the thrown value carried no refusal for. */
+export const PEER_INVOCATION_ORIGIN = "peer-invocation";

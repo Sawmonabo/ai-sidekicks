@@ -80,14 +80,6 @@ function contextReading(options: {
   } as unknown as SettingsPageContext;
 }
 
-/**
- * Mount, advance past the coalescing window, and let the two chained reads settle.
- *
- * The read itself is the real one and only the wire is a stand-in. Settling is one
- * turn of the macrotask queue rather than a counted run of microtask flushes,
- * because the number of ticks a fan-out takes is a function of how many mounts the
- * fixture named.
- */
 /** The page's own element, so a case never reads the announcer's regions by accident. */
 function mountsPageOf(root: HTMLElement): HTMLElement {
   const page = root.querySelector<HTMLElement>(".meridian-settings-page");
@@ -97,6 +89,14 @@ function mountsPageOf(root: HTMLElement): HTMLElement {
   return page;
 }
 
+/**
+ * Mount, advance past the coalescing window, and let the two chained reads settle.
+ *
+ * The read itself is the real one and only the wire is a stand-in. Settling is one
+ * turn of the macrotask queue rather than a counted run of microtask flushes,
+ * because the number of ticks a fan-out takes is a function of how many mounts the
+ * fixture named.
+ */
 async function renderSettledPage(
   clock: ManualClock,
   context: SettingsPageContext,

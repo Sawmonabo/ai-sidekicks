@@ -48,8 +48,8 @@ export function SessionRowsView(props: SessionRowsProps): React.JSX.Element {
   );
 }
 
-export /** What the list is handed: the node's answer, this window's set, and its projection. */
-interface SessionRowsProps {
+/** What the list is handed: the node's answer, this window's set, and its projection. */
+export interface SessionRowsProps {
   readonly directory: SessionDirectoryState;
   readonly windowSessionIds: readonly string[];
   /** What every open session's store can describe, from `open-session-rows.ts`. */
@@ -60,20 +60,20 @@ interface SessionRowsProps {
   readonly onOpen: (sessionId: string) => void;
 }
 
-export /**
+/**
  * How one reading answers "what does this session need attention for".
  *
  * A factory rather than a lambda written inside the memo, for {@link sessionIdOf}'s
  * reason: the reading is the argument, and the session is the returned function's.
  */
-function severityReaderFor(
+export function severityReaderFor(
   attention: AttentionReading,
 ): (sessionId: string) => AttentionSeverity | undefined {
   return (sessionId) =>
     attention.phase === "read" ? attention.plane.severityFor(sessionId) : undefined;
 }
 
-export /**
+/**
  * What the count says, and whose count it is.
  *
  * The sentence names the AUTHORITY, not just the number: a list the node answered
@@ -81,7 +81,7 @@ export /**
  * hold is this window's. Reporting the second in the first's words would be the
  * surface's one remaining chance to overclaim.
  */
-function countSentence(rowCount: number, directory: SessionDirectoryState): string {
+export function countSentence(rowCount: number, directory: SessionDirectoryState): string {
   if (directory.status === "served") {
     return rowCount === 1
       ? "One session is on this node."
