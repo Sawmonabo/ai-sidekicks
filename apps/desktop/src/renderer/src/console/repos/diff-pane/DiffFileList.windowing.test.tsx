@@ -172,6 +172,14 @@ describe("diff file list — reaching an entry the window has not mounted", () =
     // A window mounts the rows a scroll position needs, so tabbing reaches those and
     // no others. The list is one tab stop with the arrows inside it, which is what
     // keeps every entry reachable however few of them are mounted.
+    //
+    // THIS TIER CANNOT SEE WHETHER THE RING ACTUALLY MOVED. happy-dom focuses any
+    // element it is asked to, an `<li>` with no `tabindex` included, so this case
+    // passed over a list whose row marked itself as the focus target and whose ring
+    // therefore never moved in a browser. `test/console/browser/
+    // repos-windowed-focus.test.tsx` is where that claim is made, in Chromium, with
+    // the engine's refusal as its own control. What is asserted here is the INDEX
+    // arithmetic, which is this tier's to own.
     const container = renderFileList(TEXTUAL_ONLY_DIFF);
     firstEntry(container).focus();
 

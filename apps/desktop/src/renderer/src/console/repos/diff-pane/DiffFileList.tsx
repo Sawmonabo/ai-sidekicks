@@ -112,25 +112,31 @@ export function DiffFileList(props: DiffFileListProps): React.JSX.Element {
               // set is as long as the window happens to be. The primitive writes that
               // pair and the index the roving move is resolved against.
               //
-              // THE TAB STOP IS THE BUTTON INSIDE, NOT THE ROW, so `isTabbable` is
-              // withheld here on purpose: a row is a list item and the control is
-              // what activates a file, and a stop on the `<li>` would answer Enter
-              // with nothing. The roving index focuses the focusable inside the row
-              // it moved to, which is that button.
+              // THE TAB STOP IS THE BUTTON INSIDE, NOT THE ROW — a row is a list item
+              // and the control is what activates a file, so a stop on the `<li>`
+              // would answer Enter with nothing. The row is TOLD which row is active
+              // and DELEGATES the stop through the renderer form, so the element the
+              // roving effect focuses and the element that holds `tabindex` are one
+              // element. Passing the flag to the button instead left the row marking
+              // itself as the focus target while the stop sat on the button, and
+              // `focus()` on an `<li>` with no `tabindex` is a no-op in Chromium.
               <WindowedListRow
                 as="li"
                 key={entry.kind === "all-files" ? "all-files" : `file:${entry.path}`}
                 className="meridian-diff-files__row"
                 rowIndex={virtualRow.index}
                 totalRowCount={entries.length}
+                isTabbable={virtualRow.index === activeIndex}
                 style={{ transform: `translateY(${String(virtualRow.start)}px)` }}
               >
-                <DiffFileEntryButton
-                  entry={entry}
-                  isSelected={virtualRow.index === currentIndex}
-                  isTabbable={virtualRow.index === activeIndex}
-                  onSelectFilePath={props.onSelectFilePath}
-                />
+                {(targetProps) => (
+                  <DiffFileEntryButton
+                    entry={entry}
+                    isSelected={virtualRow.index === currentIndex}
+                    onSelectFilePath={props.onSelectFilePath}
+                    {...targetProps}
+                  />
+                )}
               </WindowedListRow>
             );
           })}

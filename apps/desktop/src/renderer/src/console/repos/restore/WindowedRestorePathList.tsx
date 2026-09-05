@@ -105,18 +105,29 @@ export function WindowedRestorePathList(props: RestorePathListProps): React.JSX.
               // and the index attribute the virtualizer measures against, so the
               // changed-file list and this one cannot come to disagree about
               // whether a position is counted from zero or one.
+              // THE ROW DELEGATES ITS STOP TO THE CELL'S CONTROL, and only where there
+              // is one: `isTabbable` is the row's claim to hold the enumeration's one
+              // stop, and a list of plain text has no control to put it on — the
+              // scroller keeps its own, which is the exclusivity stated above. The
+              // renderer form is what makes the marked element and the focusable
+              // element one element; marking the `<li>` while the stop sat on the
+              // button left the roving effect focusing something Chromium will not
+              // focus.
               <WindowedListRow
                 as="li"
                 key={virtualRow.key}
                 rowIndex={virtualRow.index}
                 totalRowCount={props.paths.length}
                 rowRef={virtualizer.measureElement}
+                {...(rowsCarryAControl ? { isTabbable: virtualRow.index === activeIndex } : {})}
               >
-                <RestorePathCell
-                  path={path}
-                  onOpenPath={props.onOpenPath}
-                  isTabbable={virtualRow.index === activeIndex}
-                />
+                {(targetProps) => (
+                  <RestorePathCell
+                    path={path}
+                    onOpenPath={props.onOpenPath}
+                    {...(rowsCarryAControl ? { targetProps } : {})}
+                  />
+                )}
               </WindowedListRow>
             );
           })}
