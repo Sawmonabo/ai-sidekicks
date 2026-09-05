@@ -16,7 +16,7 @@
 // `agent.configUpdate` and `agent.detach` act on an agent that already exists, are
 // each durable — a config update can mint or supersede a pending switch — and share
 // one, because "one mutation at a time on this agent's binding" is a single rule and
-// two latches would be two answers to it. Both are held by `mutation-attempt.ts`
+// two latches would be two answers to it. Both are held by `mutation-control.ts`
 // rather than by pairs of state variables here: the latch it keeps is written
 // synchronously, which a `useState` flag is not, and a second press inside one task
 // would otherwise reach the wire twice.
@@ -35,7 +35,7 @@
 // therefore SUPERSEDED when its own subject moves, which abandons the round in flight
 // without pretending the call was cancelled (nothing behind the bridge is cancellable)
 // and hands the control back to a person for the subject they are actually looking at.
-// The two halves are the pair `mutation-attempt.ts` documents: the latch admits one
+// The two halves are the pair `mutation-control.ts` documents: the latch admits one
 // round, and the generation decides which round may install.
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
@@ -53,7 +53,12 @@ import {
 } from "../../agents/index.js";
 import { usePushDrivenRead } from "../../seats/index.js";
 import { Nothing, RefusalCard } from "../../primitives/index.js";
-import { IDLE_MUTATION_ATTEMPT, MutationAttempt, useMutationAttempt } from "./mutation-attempt.js";
+import { useSubjectScopedState } from "../../store/index.js";
+import {
+  AgentMutationControl,
+  IDLE_MUTATION_ATTEMPT,
+  useAgentMutationControl,
+} from "./mutation-control.js";
 
 /** Names a mutation's failure where the thrown value carried no refusal of its own. */
 const AGENT_MUTATION_ORIGIN = "agent-mutation";
@@ -65,13 +70,12 @@ export interface AgentBindingColumnProps {
 }
 
 /** What one binding submission was about, so its settlement can be shown under it. */
-interface BindingSubject {
-  readonly sessionId: string;
-  readonly agentId: string;
-}
-
 export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.Element {
   const { models, agentId } = props;
+  // Read once, beside the models it comes from, so the two values the handlers below
+  // depend on are both named in their dependency lists rather than one being reached
+  // through the other.
+  const { sessionId } = models;
   const rosterState = usePushDrivenRead(models.roster);
   const catalogState = usePushDrivenRead(models.driverCatalog);
   const definitionsState = usePushDrivenRead(models.definitions);
@@ -88,17 +92,27 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // form's reason: a body would mint a fresh one on every discarded render pass,
   // and a latch that is replaced mid-flight admits the press it exists to refuse.
   const [attachAttempt] = useState(
-    () => new MutationAttempt<AgentAttachReading>({ origin: AGENT_MUTATION_ORIGIN }),
+    () => new AgentMutationControl<AgentAttachReading>({ origin: AGENT_MUTATION_ORIGIN }),
   );
   const [bindingAttempt] = useState(
-    () => new MutationAttempt<AgentSwitchSettlement | undefined>({ origin: AGENT_MUTATION_ORIGIN }),
+    () =>
+      new AgentMutationControl<AgentSwitchSettlement | undefined>({
+        origin: AGENT_MUTATION_ORIGIN,
+      }),
   );
-  const attachState = useMutationAttempt(attachAttempt);
-  const bindingState = useMutationAttempt(bindingAttempt);
-  const [attachSubjectSessionId, setAttachSubjectSessionId] = useState<string | undefined>(
-    undefined,
-  );
-  const [bindingSubject, setBindingSubject] = useState<BindingSubject | undefined>(undefined);
+  const attachState = useAgentMutationControl(attachAttempt);
+  const bindingState = useAgentMutationControl(bindingAttempt);
+  // WHICH SUBJECT EACH OUTSTANDING ACT WAS FOR, held by the console's one holder and
+  // keyed on the session. The session half of both comparisons is the KEY, so it is
+  // never compared here at all: the render that first sees a new session already
+  // reads that session's own seed, which is "nothing was submitted here". What is
+  // left on the value is the part the session does not settle — whether an attach was
+  // submitted, and which agent a binding move was about.
+  const { value: wasAttachSubmittedHere, publish: publishAttachSubmitted } =
+    useSubjectScopedState<boolean>(models, sessionId, () => false);
+  const { value: bindingAgentId, publish: publishBindingAgentId } = useSubjectScopedState<
+    string | undefined
+  >(models, sessionId, () => undefined);
 
   useEffect(() => attachForm.onChange(noteFormEdited), [attachForm, noteFormEdited]);
 
@@ -108,7 +122,6 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // session, and abandoning it would discard a confirmation that is about to be true.
   useEffect(() => {
     attachAttempt.supersede();
-    setAttachSubjectSessionId(undefined);
   }, [attachAttempt, models]);
 
   // A binding move is about the session AND the agent, so either moving retires it.
@@ -118,8 +131,8 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   // refresh would be a mutation dropped for no act of the participant's.
   useEffect(() => {
     bindingAttempt.supersede();
-    setBindingSubject(undefined);
-  }, [bindingAttempt, models, agentId]);
+    publishBindingAgentId(undefined);
+  }, [bindingAttempt, models, agentId, publishBindingAgentId]);
 
   // A press while one attach is outstanding reaches the latch and stops there —
   // `submit` admits nothing in flight, so a double click costs one request and the
@@ -132,15 +145,14 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     // the `undefined` it is and the submission fails closed rather than composing a
     // request out of values nothing vouches for.
     const catalog = catalogState.kind === "loaded" ? catalogState.value : undefined;
-    const readiness = attachForm.readiness(models.sessionId, catalog);
+    const readiness = attachForm.readiness(sessionId, catalog);
     if (readiness.status !== "ready") {
       return;
     }
-    const sessionId = models.sessionId;
     if (attachAttempt.submit(async () => await models.attach(readiness.request))) {
-      setAttachSubjectSessionId(sessionId);
+      publishAttachSubmitted(true);
     }
-  }, [attachAttempt, attachForm, catalogState, models]);
+  }, [attachAttempt, attachForm, catalogState, models, sessionId, publishAttachSubmitted]);
 
   // The settlement published is the SETTLED reply's, never whichever landed last:
   // one request per intended action means there is no second reply to race.
@@ -155,10 +167,10 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         return reply.switch;
       });
       if (admitted) {
-        setBindingSubject({ sessionId: models.sessionId, agentId: targetAgentId });
+        publishBindingAgentId(targetAgentId);
       }
     },
-    [bindingAttempt, models],
+    [bindingAttempt, models, publishBindingAgentId],
   );
 
   // Detach shares the switch's latch and settles with nothing to show: a detach
@@ -171,7 +183,7 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         return undefined;
       });
       if (admitted) {
-        setBindingSubject({ sessionId: models.sessionId, agentId: targetAgentId });
+        publishBindingAgentId(targetAgentId);
       }
     },
     [bindingAttempt, models],
@@ -183,14 +195,16 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
     [agents, agentId],
   );
   const soleAgent = shownAgents.length === 1 ? shownAgents[0] : undefined;
-  // Both comparisons carry the session, because two sessions are two subjects even
-  // where the agent id is the same string.
+  // Only the agent is compared, because the session is what both values are HELD
+  // under: a value published for another session is not read here at all. The
+  // `undefined` arm is explicit rather than implied — a binding nothing has moved and
+  // a column showing no sole agent are both `undefined`, and comparing them would
+  // show one agent's settlement on a column that is not about it.
   const shownBinding =
-    bindingSubject?.sessionId === models.sessionId && bindingSubject.agentId === soleAgent?.agentId
+    bindingAgentId !== undefined && bindingAgentId === soleAgent?.agentId
       ? bindingState
       : IDLE_MUTATION_ATTEMPT;
-  const shownAttach =
-    attachSubjectSessionId === models.sessionId ? attachState : IDLE_MUTATION_ATTEMPT;
+  const shownAttach = wasAttachSubmittedHere ? attachState : IDLE_MUTATION_ATTEMPT;
   const isBindingMutating = shownBinding.status === "in-flight";
 
   return (

@@ -26,6 +26,7 @@ import { useEffect, useMemo, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
 import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import { GenerationLatch } from "../store/index.js";
 import { useSettlementAnnouncement } from "../primitives/index.js";
 import {
   describeDefinitionSettlement,
@@ -59,18 +60,21 @@ const NOTHING_READ: SidekickRegistrySnapshot = {
 /** The subsystem name the refusals this view raises on its own carry. */
 export const SIDEKICK_REGISTRY_REFUSAL_ORIGIN = "sidekick-registry-view";
 
+/** The one key a registry read is taken under; a refresh supersedes whoever holds it. */
+const REGISTRY_READ_KEY = "registry-read";
+
 /**
  * The carrier.
  *
- * THE READ HAS A GENERATION AND THE DELETE HAS A LOCK, and the two stay apart. They
- * are independent calls, and one counter shared between them would let a delete
+ * THE READ HAS A LATCH KEY AND THE DELETE HAS A LOCK, and the two stay apart. They
+ * are independent calls, and one round shared between them would let a delete
  * pressed while the first read was still in flight discard that read's own reply.
  *
  * A READ SUPERSEDES AND A DELETE DOES NOT. A re-read asked while one is in flight is
- * the newer question, so the older reply writes nothing — which is what the counter
- * is for. A delete is the one act on this page with no undo, so a second confirm
- * while one is running is refused rather than run: under a counter, the second
- * delete's settlement would win and the first's re-read would be skipped, so a
+ * the newer question, so the older reply writes nothing — which is what the latch
+ * key is for. A delete is the one act on this page with no undo, so a second confirm
+ * while one is running is refused rather than run: under a superseding round, the
+ * second delete's settlement would win and the first's re-read would be skipped, so a
  * record the daemon really did remove would sit on screen for the life of the page
  * with the OTHER row's refusal as the only thing explaining it. `deletingId` is
  * therefore both the lock and the record of which delete is running — one field, so
@@ -82,7 +86,14 @@ export class SidekickRegistryView {
   #snapshot: SidekickRegistrySnapshot = NOTHING_READ;
   #hasStarted = false;
   #isDisposed = false;
-  #readGeneration = 0;
+  /**
+   * Which read this view is on, through the console's one latch.
+   *
+   * A refresh SUPERSEDES the read before it, because both answer one question and
+   * only the later one was asked. The key is given back on settlement, so the
+   * register holds nothing between reads.
+   */
+  readonly #reads = new GenerationLatch();
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
@@ -108,6 +119,7 @@ export class SidekickRegistryView {
   /** Terminal. A reply landing after this writes nothing. */
   public dispose(): void {
     this.#isDisposed = true;
+    this.#reads.supersedeAll();
   }
 
   /** Ask the question. Arming a second row drops the first, so only one is open. */
@@ -193,12 +205,15 @@ export class SidekickRegistryView {
    * first read, and never re-entered.
    */
   async #read(): Promise<void> {
-    const generation = (this.#readGeneration += 1);
+    const read = this.#reads.supersedeAndClaim(this, REGISTRY_READ_KEY);
     const outcome = await this.#bridge.growth.sidekickDefinitionList({});
-    if (this.#isDisposed || generation !== this.#readGeneration) {
+    if (this.#isDisposed) {
       return;
     }
-    this.#publish({ reading: readDefinitionOutcome(outcome) });
+    read.settle(() => {
+      this.#publish({ reading: readDefinitionOutcome(outcome) });
+    });
+    read.release();
   }
 
   #refusalsWith(

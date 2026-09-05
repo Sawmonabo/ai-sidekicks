@@ -44,13 +44,9 @@
 // spend a write on a state no surface shows any more. What reaches the store is
 // every issued snapshot in the order it was issued, ending on the newest.
 
-import {
-  AttemptGeneration,
-  Emitter,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import type { UiStateStore } from "../persistence/index.js";
+import { GenerationLatch } from "../store/index.js";
 
 /** The chokepoint's closed value-class union, taken from the chokepoint. */
 type PersistedValueClassName = Parameters<UiStateStore["writeGlobal"]>[1];
@@ -79,6 +75,15 @@ export interface DurableViewStateOptions<TValue extends PersistedValue> {
   readonly narrow: (raw: unknown) => TValue | undefined;
 }
 
+/**
+ * The one key every act of one state is on.
+ *
+ * One key rather than a key per act, because the rule this latch states is a single
+ * ordering: a local act supersedes every read and every write that started before
+ * it, whichever of them it was.
+ */
+const LOCAL_ACT_KEY = "local-act";
+
 export class DurableViewState<TValue extends PersistedValue> {
   readonly #store: UiStateStore;
   readonly #key: string;
@@ -90,12 +95,13 @@ export class DurableViewState<TValue extends PersistedValue> {
   #disposed = false;
   #lastRefusal: ConsoleRefusal | undefined;
   /**
-   * The rounds local acts have opened, so a hydration that started before one of
-   * them can tell that it is answering an older question. Here the read is what is
-   * superseded and the act is what supersedes it, which is why `commit` invalidates
-   * and `hydrate` only captures.
+   * The round local acts are on, so a hydration or a write that started before one
+   * of them can tell that it is answering an older question. Here the read is what
+   * is superseded and the act is what supersedes it, which is why `commit` claims
+   * afresh and both settlement paths only JOIN — neither of them settles through the
+   * handle, so the round stands until the next act or the disposal ends it.
    */
-  readonly #localActs = new AttemptGeneration();
+  readonly #localActs = new GenerationLatch();
   /**
    * The write at the store, mapped never to reject, or `undefined` while the store
    * is idle. Exactly one write is ever at the store.
@@ -184,10 +190,10 @@ export class DurableViewState<TValue extends PersistedValue> {
     if (this.#hydrated) {
       return;
     }
-    const actsAtRead = this.#localActs.current();
+    const actsAtRead = this.#localActs.currentClaim(this, LOCAL_ACT_KEY);
     const record = await this.#store.readGlobal(this.#key);
     this.#hydrated = true;
-    if (!this.#localActs.isCurrent(actsAtRead)) {
+    if (!actsAtRead.isCurrent) {
       return;
     }
     const narrowed = record === undefined ? undefined : this.#narrow(record.value);
@@ -294,9 +300,9 @@ export class DurableViewState<TValue extends PersistedValue> {
    * superseded record for the same reason and through the same generation.
    */
   async #writeThrough(next: TValue): Promise<PersistenceWriteOutcome> {
-    const actsAtWrite = this.#localActs.current();
+    const actsAtWrite = this.#localActs.currentClaim(this, LOCAL_ACT_KEY);
     const outcome = await this.#store.writeGlobal(this.#key, this.#valueClass, next);
-    if (!this.#localActs.isCurrent(actsAtWrite)) {
+    if (!actsAtWrite.isCurrent) {
       return outcome;
     }
     const settledRefusal = outcome.outcome === "refused" ? outcome.refusal : undefined;

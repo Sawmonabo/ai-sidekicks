@@ -55,14 +55,8 @@
 
 import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import {
-  AttemptGeneration,
-  Emitter,
-  refuse,
-  type Attempt,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../../core/index.js";
+import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { GenerationLatch, type CurrentGenerationClaim } from "../../store/index.js";
 import {
   flipMember,
   isToggleableValue,
@@ -112,6 +106,18 @@ interface QueuedFlip {
 }
 
 /**
+ * The key every record's write loop measures itself against.
+ *
+ * One key for every record, deliberately: what invalidates a write here is the
+ * teardown and never another record's write, so a key per record would be a
+ * distinction the writer does not make and a register that grew with the page.
+ */
+const WRITE_ROUND_KEY = "write-round";
+
+/** The key the whole-set re-read is taken under, which every loop shares and races on. */
+const SET_READ_KEY = "set-read";
+
+/**
  * One participant's stored preference writes, serialised per record.
  *
  * A class with private fields rather than a hook body, per `apps/desktop/AGENTS.md`:
@@ -136,16 +142,18 @@ export class NotificationPreferenceWriter {
   readonly #queuedFlipsByRecordKey = new Map<string, readonly QueuedFlip[]>();
   readonly #refusalByMemberKey = new Map<string, ConsoleRefusal>();
   /**
-   * The rounds of writes this writer has run. All of one round's records share it,
-   * because what supersedes them is the teardown rather than each other.
+   * The two rounds this writer runs, on two keys of one latch.
+   *
+   * {@link WRITE_ROUND_KEY} is JOINED rather than taken: all of one round's records
+   * share it, because what supersedes a write is the teardown rather than another
+   * record's write. Every loop reads that handle and none settles through it, so the
+   * round it mints stands until {@link releasePendingWrites} supersedes it.
+   *
+   * {@link SET_READ_KEY} is TAKEN, because whole-set re-reads DO supersede each
+   * other: every record's loop reads the same set, and only the latest-taken read
+   * describes the state the page should be showing.
    */
-  readonly #rounds = new AttemptGeneration();
-  /**
-   * The rounds of whole-set re-reads. Separate from the writes above because these
-   * DO supersede each other: every record's loop reads the same set, and only the
-   * latest-taken read describes the state the page should be showing.
-   */
-  readonly #setReads = new AttemptGeneration();
+  readonly #acts = new GenerationLatch();
 
   public constructor(options: {
     readonly port: AttentionPreferencePort;
@@ -191,7 +199,7 @@ export class NotificationPreferenceWriter {
     this.#busyRecordKeys.add(row.key);
     this.#publish();
     void this.#writeUntilQueueIsEmpty(
-      this.#rounds.current(),
+      this.#acts.currentClaim(this, WRITE_ROUND_KEY),
       row.key,
       flipMember(row.value, member.name),
       member.memberKey,
@@ -206,7 +214,7 @@ export class NotificationPreferenceWriter {
    * teardown would leave a mounted page whose switches do nothing.
    */
   public releasePendingWrites(): void {
-    this.#rounds.supersedeAll();
+    this.#acts.supersedeAll();
     this.#busyRecordKeys.clear();
     this.#queuedFlipsByRecordKey.clear();
     this.#publish();
@@ -223,7 +231,7 @@ export class NotificationPreferenceWriter {
    * window's life — every switch in it dead, with nothing on screen saying why.
    */
   async #writeUntilQueueIsEmpty(
-    round: Attempt,
+    round: CurrentGenerationClaim,
     recordKey: string,
     firstValue: Readonly<Record<string, boolean>>,
     firstMemberKey: string,
@@ -241,7 +249,7 @@ export class NotificationPreferenceWriter {
           key: recordKey,
           value,
         });
-        if (!this.#rounds.isCurrent(round)) {
+        if (!round.isCurrent) {
           return;
         }
         if (written.status === "unavailable") {
@@ -251,18 +259,20 @@ export class NotificationPreferenceWriter {
         // Re-read rather than patched, so this page never holds a second copy of a
         // record the daemon owns — and so a queued toggle is composed against what
         // the daemon actually stored rather than against what this writer sent.
-        const setRead = this.#setReads.begin();
+        const setRead = this.#acts.supersedeAndClaim(this, SET_READ_KEY);
         const reread = await this.#port.attentionPreferenceRead({ participantId });
-        if (!this.#rounds.isCurrent(round)) {
+        if (!round.isCurrent) {
           return;
         }
-        if (this.#setReads.isCurrent(setRead)) {
-          // Published only while this is still the newest set read. A read another
-          // record's loop took after this one describes a later state, and handing
-          // the page this older snapshot afterwards would revert that record's
-          // accepted toggle on screen with nothing to say why.
+        // Published only while this is still the newest set read. A read another
+        // record's loop took after this one describes a later state, and handing the
+        // page this older snapshot afterwards would revert that record's accepted
+        // toggle on screen with nothing to say why. The key is given back on the way
+        // out so the next loop's take is the only thing holding it.
+        setRead.settle(() => {
           this.#onRecordsRead(reread);
-        }
+        });
+        setRead.release();
         const queued = this.#takeNextQueuedFlip(recordKey);
         if (queued === undefined) {
           this.#busyRecordKeys.delete(recordKey);
@@ -278,7 +288,7 @@ export class NotificationPreferenceWriter {
         memberKey = queued.memberKey;
       }
     } catch (rejection: unknown) {
-      if (this.#rounds.isCurrent(round)) {
+      if (round.isCurrent) {
         this.#abandonRecord(recordKey, memberKey, rejectionRefusal(rejection));
       }
     }

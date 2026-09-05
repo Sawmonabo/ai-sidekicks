@@ -17,10 +17,11 @@
 // its own words: module scope IS window scope here, because an auxiliary window is
 // its own renderer process and no channel joins two windows' module graphs.
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
+import { useSubjectScopedState } from "../../store/index.js";
 import {
   NOTHING_CHOSEN,
   ShellPreferenceStore,
@@ -140,18 +141,21 @@ export const consoleShellPreferences: ShellPreferenceStoreHolder = new ShellPref
  * `agents/agent-console-model.ts` states for the same hazard.
  */
 export function useShellPreferences(bridge: ConsoleBridge): ShellPreferenceBinding {
-  const [acquiredStore, setAcquiredStore] = useState<ShellPreferenceStore | undefined>(() =>
-    // Seeded from the pure lookup so the SECOND page to bind in a window opens on
-    // the store the first one acquired rather than on one frame of the opening arm.
-    consoleShellPreferences.storeIfCurrent(bridge),
-  );
+  // Held against the TRANSPORT, through the console's one holder. The seed reads the
+  // pure lookup so the SECOND page to bind in a window opens on the store the first
+  // one acquired rather than on one frame of the opening arm — and because the seed
+  // is re-read in the render that first sees a new bridge, a page carried across a
+  // scenario switch never reads the retired bridge's store even for a frame.
+  const { value: acquiredStore, publish: publishAcquiredStore } = useSubjectScopedState<
+    ShellPreferenceStore | undefined
+  >(bridge, undefined, () => consoleShellPreferences.storeIfCurrent(bridge));
 
   useEffect(() => {
     const store = consoleShellPreferences.acquire(bridge);
     // Idempotent, so strict mode's second invocation asks nothing twice.
     store.start();
-    setAcquiredStore(store);
-  }, [bridge]);
+    publishAcquiredStore(store);
+  }, [bridge, publishAcquiredStore]);
 
   const liveStore = consoleShellPreferences.storeIfCurrent(bridge);
   const store = acquiredStore === liveStore ? acquiredStore : undefined;

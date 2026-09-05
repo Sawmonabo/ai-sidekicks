@@ -35,7 +35,8 @@
 import type { SidekicksBridge, UpdateState } from "@ai-sidekicks/contracts";
 
 import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
-import { AttemptGeneration, Emitter, type Attempt, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type Unsubscribe } from "../../core/index.js";
+import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 
 /**
  * What the block knows about the updater. Total; every arm renders something.
@@ -80,13 +81,22 @@ const NOTHING_READ: UpdaterReadingSnapshot = {
  * it owns a subscription, an opening generation, and the rule that decides which
  * answer installs. The React binding lives in `UpdatesPage.tsx` and holds nothing.
  */
+/**
+ * The one key this holder claims, because it has exactly one act to be on a round of.
+ *
+ * Named rather than spelled at the two sites that use it: the latch is keyed by
+ * string, and a key that disagreed between the take and the teardown would leave a
+ * round nothing could supersede.
+ */
+const OPENING_KEY = "open";
+
 export class UpdaterReadingHolder {
   readonly #updater: SidekicksBridge["update"];
   readonly #changes = new Emitter<void>("updater reading change");
   #snapshot: UpdaterReadingSnapshot = NOTHING_READ;
   #release: (() => void) | undefined = undefined;
   /** The openings this holder has made. One round per `open`, released by `close`. */
-  readonly #openings = new AttemptGeneration();
+  readonly #openings = new GenerationLatch();
   /** Reset per opening, because each opening subscribes afresh. */
   #hasObservedPush = false;
 
@@ -113,7 +123,7 @@ export class UpdaterReadingHolder {
    */
   public open(): void {
     this.close();
-    const opening = this.#openings.begin();
+    const opening = this.#openings.supersedeAndClaim(this, OPENING_KEY);
     this.#hasObservedPush = false;
     try {
       this.#release = this.#updater.subscribe((state) => {
@@ -141,12 +151,11 @@ export class UpdaterReadingHolder {
   }
 
   /** A transition the updater pushed: always the newest fact this window has. */
-  #observePush(opening: Attempt, state: UpdateState): void {
-    if (!this.#openings.isCurrent(opening)) {
-      return;
-    }
-    this.#hasObservedPush = true;
-    this.#install({ kind: "state", state }, "push");
+  #observePush(opening: GenerationClaim, state: UpdateState): void {
+    opening.settle(() => {
+      this.#hasObservedPush = true;
+      this.#install({ kind: "state", state }, "push");
+    });
   }
 
   /**
@@ -156,11 +165,13 @@ export class UpdaterReadingHolder {
    * stopped it — because they are the same fact about sequence: both describe the
    * moment the block opened, and a push is newer than either.
    */
-  #observeOpening(opening: Attempt, reading: UpdateReading): void {
-    if (!this.#openings.isCurrent(opening) || this.#hasObservedPush) {
-      return;
-    }
-    this.#install(reading, "opening");
+  #observeOpening(opening: GenerationClaim, reading: UpdateReading): void {
+    opening.settle(() => {
+      if (this.#hasObservedPush) {
+        return;
+      }
+      this.#install(reading, "opening");
+    });
   }
 
   #install(reading: UpdateReading, source: UpdateReadingSource): void {

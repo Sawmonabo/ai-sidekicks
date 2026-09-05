@@ -100,10 +100,7 @@ export function SessionsSurface(props: SessionsSurfaceProps): React.JSX.Element 
   // the read fires once when the directory settles and not again on every render
   // the surface performs afterwards.
   const attentionSessionIds = useMemo(
-    () =>
-      mergeSessionRows({ directory, windowSessionIds, projectedRows: [] }).map(
-        (row) => row.sessionId,
-      ),
+    () => mergeSessionRows({ directory, windowSessionIds, projectedRows: [] }).map(sessionIdOf),
     [directory, windowSessionIds],
   );
   const attention = useAttentionProjection(
@@ -228,6 +225,31 @@ interface SessionRowsProps {
 }
 
 /**
+ * One row's session id.
+ *
+ * Module-level rather than a lambda inside the memo below, and the reason is a rule
+ * rather than a preference: a mount-lifetime cell naming a session is the shape the
+ * console holds through its one holder, so a cell whose body writes the word for a
+ * reason of its own is the shape a reader — and the tripwire — has to stop and check.
+ */
+function sessionIdOf(row: SessionListRow): string {
+  return row.sessionId;
+}
+
+/**
+ * How one reading answers "what does this session need attention for".
+ *
+ * A factory rather than a lambda written inside the memo, for {@link sessionIdOf}'s
+ * reason: the reading is the argument, and the session is the returned function's.
+ */
+function severityReaderFor(
+  attention: AttentionReading,
+): (sessionId: string) => AttentionSeverity | undefined {
+  return (sessionId) =>
+    attention.phase === "read" ? attention.plane.severityFor(sessionId) : undefined;
+}
+
+/**
  * The list itself, once all three sources have been named.
  *
  * The directory still answers on an address that names no session — it is a node read
@@ -236,14 +258,14 @@ interface SessionRowsProps {
  */
 function SessionRowsView(props: SessionRowsProps): React.JSX.Element {
   const { attention, directory, projectedRows, windowSessionIds } = props;
-  const rows = useMemo<readonly SessionListRow[]>(() => {
-    const severityFor = (sessionId: string): AttentionSeverity | undefined =>
-      attention.phase === "read" ? attention.plane.severityFor(sessionId) : undefined;
-    return withAttentionSeverity(
-      mergeSessionRows({ directory, windowSessionIds, projectedRows }),
-      severityFor,
-    );
-  }, [attention, directory, windowSessionIds, projectedRows]);
+  const rows = useMemo<readonly SessionListRow[]>(
+    () =>
+      withAttentionSeverity(
+        mergeSessionRows({ directory, windowSessionIds, projectedRows }),
+        severityReaderFor(attention),
+      ),
+    [attention, directory, windowSessionIds, projectedRows],
+  );
 
   if (rows.length === 0) {
     return <SessionsAbsence directory={directory} action={props.startControl} />;

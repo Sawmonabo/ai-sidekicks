@@ -17,7 +17,7 @@
 // sufficient:
 //
 //   • **The latch**, so a second press is never taken while one is outstanding. It
-//     is synchronous — `mutation-attempt.ts` writes it the instant `submit` is
+//     is synchronous — `mutation-control.ts` writes it the instant `submit` is
 //     entered — because a `useState` flag is only written on the next render and two
 //     presses delivered in one task would both read the stale value.
 //   • **The generation**, so a reply whose round has been abandoned is discarded.
@@ -42,8 +42,8 @@ import { useCallback, useEffect, useState } from "react";
 
 import { PeerInvocation, type AgentConsoleModels } from "../../agents/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import type { SessionStore } from "../../store/index.js";
-import { MutationAttempt, useMutationAttempt } from "./mutation-attempt.js";
+import { useSubjectScopedState, type SessionStore } from "../../store/index.js";
+import { AgentMutationControl, useAgentMutationControl } from "./mutation-control.js";
 import {
   NOTHING_PROJECTED,
   usePeerInvocationProjection,
@@ -99,10 +99,23 @@ function PeerInvocationControl(props: {
   // on every pass React discarded, and a latch that is replaced mid-flight admits
   // the press it exists to refuse.
   const [attempt] = useState(
-    () => new MutationAttempt<boolean>({ origin: PEER_INVOCATION_ORIGIN }),
+    () => new AgentMutationControl<boolean>({ origin: PEER_INVOCATION_ORIGIN }),
   );
-  const attemptState = useMutationAttempt(attempt);
-  const [askedOfSessionId, setAskedOfSessionId] = useState<string | undefined>(undefined);
+  const attemptState = useAgentMutationControl(attempt);
+  // WHETHER THIS CONTROL WAS PRESSED FOR THE SESSION ON SCREEN, keyed on the session
+  // so that a pane which has moved reads that session's own seed — nothing was
+  // pressed there — rather than a comparison anybody could get the wrong way round.
+  //
+  // THE SUBJECT IS THE CONTROL AND NOT THE TRANSPORT, because the transport is
+  // `undefined` on the arm this component still renders on and a holder has to be
+  // addressed by something. The control is what the round belongs to, it lives
+  // exactly as long as this mount, and the effect below already retires the round
+  // — and clears this value with it — on every move the key does not cover.
+  const { value: wasAskedHere, publish: publishAskedHere } = useSubjectScopedState<boolean>(
+    attempt,
+    models?.sessionId,
+    () => false,
+  );
   const reRead = useSessionProjectionReRead(bridge, sessionStore);
 
   // A settled reply is retired the moment the projection it was read against MOVES,
@@ -120,35 +133,33 @@ function PeerInvocationControl(props: {
   // render that performed it would be deriving the settlement it is also holding.
   useEffect(() => {
     attempt.supersede();
-    setAskedOfSessionId(undefined);
-  }, [attempt, models, projection.source]);
+    publishAskedHere(false);
+  }, [attempt, models, projection.source, publishAskedHere]);
 
   const setEnabled = useCallback(
     (enabled: boolean): void => {
       if (models === undefined) {
         return;
       }
-      const sessionId = models.sessionId;
       // The REPLY's value, read back from the post-append projection — never the
       // value that was asked for. `submit` answers whether the call happened, so
-      // the session is recorded for the request that was made rather than for the
-      // press the latch refused.
+      // the press is recorded for the request that was made rather than for the one
+      // the latch refused.
       const admitted = attempt.submit(
         async () => (await models.setPeerInvocation(enabled)).enabled,
       );
       if (admitted) {
-        setAskedOfSessionId(sessionId);
+        publishAskedHere(true);
       }
     },
-    [attempt, models],
+    [attempt, models, publishAskedHere],
   );
 
   // Answered only while the round is THIS session's. A pane that has moved falls
   // back to the new session's projection, which is the only thing anything has read
   // about it — and to the unknown arm where that projection is absent, which is the
   // honest answer rather than the previous session's grant.
-  const here =
-    models !== undefined && askedOfSessionId === models.sessionId ? attemptState : undefined;
+  const here = wasAskedHere ? attemptState : undefined;
 
   return (
     <PeerInvocation

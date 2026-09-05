@@ -22,16 +22,17 @@
 // And it holds no copy of any read — an attached agent reaches the surface through
 // the roster read's own push signal, exactly as it did before.
 //
-// THE LATCH IS NOT THE WHOLE ANSWER, WHICH IS WHY THERE IS A GENERATION UNDER IT.
-// A holder whose subject can move out from under it — the session a grant is about,
-// the projection a reply was read against — has to be able to say that the round in
-// flight is no longer the one it wants an answer to. That is `supersede()`, and it
-// is what makes releasing the latch SAFE: without it, a holder that returned to
-// idle so a person could act again would let the abandoned reply install over
-// whatever came after. `core/attempt-generation.ts` is the console's one mechanism
-// for that and is used here rather than re-counted, because the place a second copy
-// would drift is the predicate, and a drifted predicate is a stale value on screen
-// that every test still passes.
+// THE LATCH AND THE ROUND ARE ONE OBJECT, and it is the console's own:
+// `store/generation-latch.ts`. Refusing a second press and discarding a superseded
+// reply are the same question asked at two moments — may this act proceed, and may
+// this settlement install — so one claim answers both. A holder whose subject can
+// move out from under it (the session a grant is about, the projection a reply was
+// read against) says so with `supersede()`, and that is what makes GIVING THE KEY
+// BACK safe: without it, a holder that returned to idle so a person could act again
+// would let the abandoned reply install over whatever came after. Nothing here
+// re-counts a generation of its own, because the place a second copy would drift is
+// the predicate, and a drifted predicate is a stale value on screen that every test
+// still passes.
 //
 // The refusal translation is `seats/push-driven-read.ts`'s
 // `consoleRefusalFrom`, which is the family's one converter: a daemon refusal
@@ -43,13 +44,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { consoleRefusalFrom } from "../../seats/index.js";
-import {
-  AttemptGeneration,
-  Emitter,
-  type Attempt,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 
 /**
  * What one mutation control has to show. Total; every arm renders something.
@@ -78,10 +74,18 @@ export interface MutationAttemptOptions {
   readonly origin: string;
 }
 
-export class MutationAttempt<TSettlement> {
+/**
+ * The one key a control's act is taken under.
+ *
+ * One key per control rather than one shared across them: each object holds its own
+ * latch, so the key names the act and the OBJECT is what separates two controls.
+ */
+const MUTATION_KEY = "mutation";
+
+export class AgentMutationControl<TSettlement> {
   readonly #origin: string;
   readonly #changes = new Emitter<void>("mutation attempt");
-  readonly #rounds = new AttemptGeneration();
+  readonly #rounds = new GenerationLatch();
   #state: MutationAttemptState<TSettlement> = IDLE_MUTATION_ATTEMPT;
 
   public constructor(options: MutationAttemptOptions) {
@@ -112,10 +116,10 @@ export class MutationAttempt<TSettlement> {
    * for the latch itself.
    */
   public submit(perform: () => Promise<TSettlement>): boolean {
-    if (this.#state.status === "in-flight") {
+    const round = this.#rounds.claim(this, MUTATION_KEY);
+    if (round === undefined) {
       return false;
     }
-    const round = this.#rounds.current();
     this.#settle({ status: "in-flight" });
     perform().then(
       (settlement) => {
@@ -149,12 +153,19 @@ export class MutationAttempt<TSettlement> {
     }
   }
 
-  /** Install a settlement, or discard it because its round was superseded. */
-  #install(round: Attempt, next: MutationAttemptState<TSettlement>): void {
-    if (!this.#rounds.isCurrent(round)) {
-      return;
-    }
-    this.#settle(next);
+  /**
+   * Install a settlement, or discard it because its round was superseded.
+   *
+   * The key is given back either way. Where the round is still live that is what
+   * admits the next press; where it is not, the release finds a key this claim no
+   * longer owns and touches nothing, which is why the two acts need no guard between
+   * them.
+   */
+  #install(round: GenerationClaim, next: MutationAttemptState<TSettlement>): void {
+    round.settle(() => {
+      this.#settle(next);
+    });
+    round.release();
   }
 
   #settle(next: MutationAttemptState<TSettlement>): void {
@@ -164,14 +175,14 @@ export class MutationAttempt<TSettlement> {
 }
 
 /**
- * Read one {@link MutationAttempt} from React.
+ * Read one {@link AgentMutationControl} from React.
  *
  * `useSyncExternalStore` rather than mirroring the state into a component: the
- * latch already is an external store, and a second copy is the drift this whole
+ * control already is an external store, and a second copy is the drift this whole
  * module exists to remove.
  */
-export function useMutationAttempt<TSettlement>(
-  attempt: MutationAttempt<TSettlement>,
+export function useAgentMutationControl<TSettlement>(
+  attempt: AgentMutationControl<TSettlement>,
 ): MutationAttemptState<TSettlement> {
   const subscribe = useCallback(
     (onStoreChange: () => void) => attempt.onChange(onStoreChange),

@@ -55,14 +55,8 @@
 import { useCallback, useSyncExternalStore } from "react";
 
 import { wireRejectionToError } from "../../../../shared/wire-errors.js";
-import {
-  AttemptGeneration,
-  Emitter,
-  refuse,
-  type Attempt,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../core/index.js";
+import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
+import { GenerationLatch, type CurrentGenerationClaim } from "../store/index.js";
 import type { ConsoleBridge } from "../bridge/index.js";
 import { callDaemonMethod } from "../seats/index.js";
 
@@ -103,6 +97,15 @@ const NOTHING_IN_FLIGHT: WireMutationSnapshot = {
 };
 
 /**
+ * The key the whole coordinator's round is on.
+ *
+ * One key for the whole subject rather than one per row, because that IS the rule:
+ * what supersedes an attempt is the subject moving, and the subject moves once for
+ * every row at a time.
+ */
+const MUTATION_ROUND_KEY = "mutation-round";
+
+/**
  * A mutation surface's state: what is in flight, and what refused.
  *
  * The snapshot is rebuilt on transition and held, rather than composed on each
@@ -116,12 +119,16 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   /**
    * Which round of mutations the holder's SUBJECT is on.
    *
-   * Advanced only by {@link supersede}, never by an attempt: two presses against
-   * one subject are ordered by the latch below, and a generation that also moved
-   * on every press would make the first call's own refusal stale — which is the
-   * defect `mutation-coordinator.test.ts` pins.
+   * ONE KEY, JOINED AND NEVER TAKEN. Advanced only by {@link supersede}, never by
+   * an attempt: two presses against one subject are ordered by the pending key on
+   * the snapshot, and a round that also moved on every press would make the first
+   * call's own refusal stale — which is the defect `mutation-coordinator.test.ts`
+   * pins. Claiming the key per attempt would put "is something in flight" in a
+   * second place beside the pending key this snapshot has to carry anyway for the
+   * row that renders the spinner, and two registers of one fact is what the
+   * single-flight rule cannot afford.
    */
-  readonly #rounds = new AttemptGeneration();
+  readonly #rounds = new GenerationLatch();
   #snapshot: WireMutationSnapshot = NOTHING_IN_FLIGHT;
 
   public constructor(options: {
@@ -172,7 +179,7 @@ export class WireMutationCoordinator<TRequest, TResponse> {
       });
       return undefined;
     }
-    const round = this.#rounds.current();
+    const round = this.#rounds.currentClaim(this, MUTATION_ROUND_KEY);
     this.#publish({
       pendingKey: key,
       // The prior refusal for THIS subject is dropped on the attempt rather than
@@ -246,8 +253,8 @@ export class WireMutationCoordinator<TRequest, TResponse> {
   }
 
   /** Whether the round this reply belongs to is still the one the holder wants. */
-  #isStillWanted(round: Attempt): boolean {
-    return this.#rounds.isCurrent(round);
+  #isStillWanted(round: CurrentGenerationClaim): boolean {
+    return round.isCurrent;
   }
 
   /**

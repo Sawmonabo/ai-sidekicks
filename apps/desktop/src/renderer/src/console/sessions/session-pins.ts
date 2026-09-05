@@ -136,6 +136,25 @@ function mintSessionPinStore(store: UiStateStore): SessionPinStore {
 }
 
 /**
+ * The pin act, bound to whatever store the acquirer is holding when it is pressed.
+ *
+ * Module-level and taking the acquirer rather than written inline in the hook, so the
+ * act's own two arguments — the row it is about and the tier it moves to — are its
+ * parameters and nothing else. Written inside the hook it read as a value keyed on a
+ * session, which is the one shape a surface must not hold by hand.
+ */
+function setTierThrough(
+  acquire: () => SessionPinStore,
+): (sessionId: string, tier: SessionPinTier) => void {
+  return (sessionId, tier) => {
+    // Not awaited, and the rejection cannot escape: `setTier` declares its failure
+    // as a recorded refusal rather than as a rejection, so there is nothing here for
+    // a caller to catch.
+    void acquire().setTier(sessionId, tier);
+  };
+}
+
+/**
  * Bind the pin map into a component.
  *
  * KEYED ON THE STORE'S IDENTITY, through the one holder both durable bindings on
@@ -162,14 +181,6 @@ export function useSessionPins(store: UiStateStore): SessionPinBinding {
   // getter is re-read; folding the refusal into the subscribed value instead would
   // change the map's identity on a write that did not change the map, and every
   // memoised row would re-render.
-  const setTier = useCallback(
-    (sessionId: string, tier: SessionPinTier) => {
-      // Not awaited, and the rejection cannot escape: `setTier` declares its
-      // failure as a recorded refusal rather than as a rejection, so there is
-      // nothing here for a caller to catch.
-      void acquire().setTier(sessionId, tier);
-    },
-    [acquire],
-  );
+  const setTier = useCallback(setTierThrough(acquire), [acquire]);
   return { tiers, lastRefusal: binding?.lastRefusal, setTier };
 }

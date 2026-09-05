@@ -10,9 +10,9 @@ import { describe, expect, it } from "vitest";
 
 import { ConsoleRefusalError, refuse } from "../../core/index.js";
 import type { AgentAttachReading } from "../../agents/index.js";
-import { IDLE_MUTATION_ATTEMPT, MutationAttempt } from "./mutation-attempt.js";
+import { AgentMutationControl, IDLE_MUTATION_ATTEMPT } from "./mutation-control.js";
 
-const ORIGIN = "mutation-attempt-test";
+const ORIGIN = "mutation-control-test";
 
 /** A call held open until the test releases it, and a count of how often it ran. */
 class HeldAttachCall {
@@ -52,7 +52,7 @@ function attached(agentId: string): AgentAttachReading {
 describe("mutation attempt — one in flight", () => {
   it("performs one call for two presses inside the same window", () => {
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     attempt.submit(call.perform);
@@ -66,7 +66,7 @@ describe("mutation attempt — one in flight", () => {
     // one attach for the life of the mount — which is a different defect wearing
     // the same green test.
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     await call.settle(attached("agent-scout"));
@@ -78,7 +78,7 @@ describe("mutation attempt — one in flight", () => {
 
   it("shows the settled reply's confirmation rather than the request's own values", async () => {
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     await call.settle({ agentId: "agent-daemon-minted", resolvedFromDefinitionId: "definition-1" });
@@ -94,7 +94,7 @@ describe("mutation attempt — one in flight", () => {
     // say — must note it for the call that happened and not for the press the latch
     // refused, or a refused press moves the record the settlement is shown under.
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     expect(attempt.submit(call.perform)).toBe(true);
     expect(attempt.submit(call.perform)).toBe(false);
@@ -104,7 +104,7 @@ describe("mutation attempt — one in flight", () => {
     // Without this, the case above would pass over a latch that reported `false`
     // for every press but the first of the mount's life.
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     await call.settle(attached("agent-scout"));
@@ -115,7 +115,7 @@ describe("mutation attempt — one in flight", () => {
 describe("mutation attempt — a refusal", () => {
   it("renders the daemon's own refusal verbatim and re-arms", async () => {
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
     const daemonRefusal = refuse("daemon", "sidekick.definition_not_found", "No such definition.");
 
     attempt.submit(call.perform);
@@ -130,7 +130,7 @@ describe("mutation attempt — a refusal", () => {
 
   it("names this attempt where the thrown value carried no refusal of its own", async () => {
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     await call.refuseWith(new Error("the transport closed"));
@@ -145,7 +145,7 @@ describe("mutation attempt — a refusal", () => {
     // A surface that kept it would draw last attempt's confirmation beside this
     // attempt's pending state, which reads as an attach that has already happened.
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     await call.settle(attached("agent-scout"));
@@ -158,7 +158,7 @@ describe("mutation attempt — a refusal", () => {
 describe("mutation attempt — the notification", () => {
   it("tells its subscriber on every transition and stops on unsubscribe", async () => {
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
     let notificationCount = 0;
     const unsubscribe = attempt.onChange(() => {
       notificationCount += 1;
@@ -180,7 +180,7 @@ describe("mutation attempt — a superseded round", () => {
     // been replaced. The call cannot be stopped, so what has to be true is that
     // its answer never lands.
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     attempt.supersede();
@@ -193,7 +193,7 @@ describe("mutation attempt — a superseded round", () => {
 
   it("discards a superseded round's refusal for the same reason", async () => {
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     attempt.supersede();
@@ -208,7 +208,7 @@ describe("mutation attempt — a superseded round", () => {
     // happened to answer rather than the order they were asked.
     const first = new HeldAttachCall();
     const second = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(first.perform);
     attempt.supersede();
@@ -224,7 +224,7 @@ describe("mutation attempt — a superseded round", () => {
     // strict mode. Terminal here would leave the second invocation with a dead
     // latch, so the counter is bumped and nothing else is.
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.supersede();
     attempt.supersede();
@@ -238,7 +238,7 @@ describe("mutation attempt — a superseded round", () => {
     // Without this, every case above would hold for an install that discarded
     // every reply — a control that shows a person's accepted change never.
     const call = new HeldAttachCall();
-    const attempt = new MutationAttempt<AgentAttachReading>({ origin: ORIGIN });
+    const attempt = new AgentMutationControl<AgentAttachReading>({ origin: ORIGIN });
 
     attempt.submit(call.perform);
     await call.settle(attached("agent-scout"));

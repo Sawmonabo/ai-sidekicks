@@ -34,15 +34,14 @@
 // note rather than implying a durable write nothing performed.
 
 import {
-  AttemptGeneration,
   ConsoleRefusalError,
   Emitter,
   isConsoleRefusal,
   refuse,
-  type Attempt,
   type ConsoleRefusal,
   type Unsubscribe,
 } from "../../core/index.js";
+import { GenerationLatch, type GenerationClaim } from "../../store/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 
@@ -67,6 +66,16 @@ export const SHELL_PREFERENCE_KEYS = [
 
 /** One shell preference. Derived from the enumeration, never restated beside it. */
 export type ShellPreferenceKey = (typeof SHELL_PREFERENCE_KEYS)[number];
+
+/**
+ * The latch key the opening read is on, in a space the preference keys share.
+ *
+ * Not a preference key, and checkably so rather than by inspection: every member of
+ * {@link SHELL_PREFERENCE_KEYS} is a dotted `group.control` name and this one carries
+ * no dot, so it collides with none of them however that enumeration grows. The store
+ * asserts it.
+ */
+export const OPENING_READ_KEY = "opening-read";
 
 /**
  * What each preference is before anybody has chosen.
@@ -139,26 +148,31 @@ export class ShellPreferenceStore {
   #started = false;
   #disposed = false;
   /**
-   * The rounds this store's writes have opened, and which round each key is on.
+   * Which acts this store has in flight, keyed by what each one is an act ON.
    *
-   * ONE COUNTER, TWO QUESTIONS ASKED OF IT. The counter is `core/attempt-generation.ts`'s
-   * and the OPENING READ is superseded by any write, because the record that read
-   * answers with is the record from before the choice — `choose` takes `begin()` and
-   * the read takes `current()`, which is what puts the read on the superseded side.
+   * SUPERSESSION BETWEEN WRITES IS PER KEY, because the carrier's write is per key:
+   * `shellConfigWrite` takes one key and leaves the others alone, so choosing B while
+   * A is in flight replaces nothing of A's. Sharing one round made B's choice discard
+   * A's settlement, leaving the carrier holding a value this window went on rendering
+   * the old one for — for the rest of the window, since this store reads once and
+   * never refreshes. Keying the latch on the preference key states that directly,
+   * which is the shape it was built for.
    *
-   * But supersession between WRITES is per KEY, because the carrier's write is per
-   * key: `shellConfigWrite` takes one key and leaves the others alone, so choosing B
-   * while A is in flight replaces nothing of A's. Sharing one round made B's choice
-   * discard A's settlement, leaving the carrier holding a value this window went on
-   * rendering the old one for — for the rest of the window, since this store reads
-   * once and never refreshes. The map's entry is deleted when its write settles, so
-   * it is the PENDING set as well and a continuation whose entry has been replaced
-   * or removed is by construction not the latest.
+   * The OPENING READ sits on a key of its own and is superseded by any write, because
+   * the record that read answers with is the record from before the choice. `choose`
+   * supersedes {@link OPENING_READ_KEY} as its first act, so the read's handle goes
+   * stale whichever key was chosen.
    *
    * Being DISPOSED is the separate flag above: that fact is terminal and this is not.
    */
-  readonly #writes = new AttemptGeneration();
-  readonly #writesByKey = new Map<ShellPreferenceKey, Attempt>();
+  readonly #acts = new GenerationLatch();
+  /**
+   * The keys a person is waiting on, which is a RENDERED fact and not a second
+   * register of the one above: the latch says whether a settlement may install, this
+   * says which rows show a spinner while it has not. The latch bounds its own keys
+   * and cannot name them, so a surface that renders per row needs the set.
+   */
+  readonly #pendingWriteKeys = new Set<ShellPreferenceKey>();
 
   public constructor(bridge: ConsoleBridge) {
     this.#bridge = bridge;
@@ -206,8 +220,9 @@ export class ShellPreferenceStore {
    * supersedes it rather than queueing behind it.
    */
   public async choose(key: ShellPreferenceKey, enabled: boolean): Promise<void> {
-    const write = this.#writes.begin();
-    this.#writesByKey.set(key, write);
+    this.#acts.supersede(this, OPENING_READ_KEY);
+    const write = this.#acts.supersedeAndClaim(this, key);
+    this.#pendingWriteKeys.add(key);
     this.#publish({
       ...this.#snapshot,
       pendingKeys: this.#pendingKeys(),
@@ -256,17 +271,18 @@ export class ShellPreferenceStore {
   }
 
   /** Whether this settled write is still its key's latest, and retire it if it is. */
-  #settle(key: ShellPreferenceKey, write: Attempt): boolean {
-    if (this.#disposed || this.#writesByKey.get(key) !== write) {
+  #settle(key: ShellPreferenceKey, write: GenerationClaim): boolean {
+    if (this.#disposed || !write.isCurrent) {
       return false;
     }
-    this.#writesByKey.delete(key);
+    write.release();
+    this.#pendingWriteKeys.delete(key);
     return true;
   }
 
   /** The keys still in flight, copied so a published snapshot never changes under a reader. */
   #pendingKeys(): ReadonlySet<ShellPreferenceKey> {
-    return new Set(this.#writesByKey.keys());
+    return new Set(this.#pendingWriteKeys);
   }
 
   /** Drop one key's refusal — the dismiss a person presses on the notice. */
@@ -298,30 +314,38 @@ export class ShellPreferenceStore {
    * key reads as before anybody asks.
    */
   async #read(): Promise<void> {
-    const writesAtRead = this.#writes.current();
+    // A joiner's handle rather than a taken key: this read holds nothing a later act
+    // has to wait for, and settling through it ends the round it minted, so the
+    // register is empty again the moment the read is done with it.
+    const opening = this.#acts.currentClaim(this, OPENING_READ_KEY);
     let outcome: ShellConfigReadOutcome;
     try {
       outcome = await this.#bridge.growth.shellConfigRead({});
     } catch (rejection: unknown) {
-      if (!this.#disposed && this.#writes.isCurrent(writesAtRead)) {
+      if (this.#disposed) {
+        return;
+      }
+      opening.settle(() => {
         this.#publish({
           ...this.#snapshot,
           reading: { kind: "unavailable", refusal: asRefusal(rejection) },
           revision: this.#snapshot.revision + 1,
         });
-      }
+      });
       return;
     }
-    if (this.#disposed || !this.#writes.isCurrent(writesAtRead)) {
+    if (this.#disposed) {
       return;
     }
-    this.#publish({
-      ...this.#snapshot,
-      reading:
-        outcome.status === "served"
-          ? { kind: "read", values: outcome.value }
-          : { kind: "unavailable", refusal: outcome },
-      revision: this.#snapshot.revision + 1,
+    opening.settle(() => {
+      this.#publish({
+        ...this.#snapshot,
+        reading:
+          outcome.status === "served"
+            ? { kind: "read", values: outcome.value }
+            : { kind: "unavailable", refusal: outcome },
+        revision: this.#snapshot.revision + 1,
+      });
     });
   }
 

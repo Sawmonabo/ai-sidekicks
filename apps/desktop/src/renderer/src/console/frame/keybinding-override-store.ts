@@ -37,14 +37,10 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-import {
-  AttemptGeneration,
-  Emitter,
-  type ConsoleRefusal,
-  type Unsubscribe,
-} from "../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../core/index.js";
 import type { KeyBinding } from "../palette/index.js";
 import type { UiStateStore } from "../persistence/index.js";
+import { GenerationLatch } from "../store/index.js";
 import { HOST_CHORD_PLATFORM, type ChordPlatform } from "../primitives/index.js";
 import { FRAME_KEY_BINDINGS } from "./command-surface.js";
 import {
@@ -103,6 +99,15 @@ export interface KeybindingOverrideStoreOptions {
 }
 
 /**
+ * The latch key the hydration round is taken under.
+ *
+ * One key, because one act is on a round here: a rebinding supersedes every key this
+ * store holds rather than a key of its own, so naming a second one would claim a
+ * distinction the store does not make.
+ */
+const HYDRATION_KEY = "hydrate";
+
+/**
  * The override map, what it composes to, and where it is kept.
  *
  * A class because that is state with invariants over it: the cached snapshot is
@@ -131,7 +136,7 @@ export class KeybindingOverrideStore {
    * supersedes the first, because two of them are two answers to one question and
    * only the later one was asked.
    */
-  readonly #overrideRounds = new AttemptGeneration();
+  readonly #overrideRounds = new GenerationLatch();
 
   public constructor(options: KeybindingOverrideStoreOptions) {
     this.#defaults = options.defaults;
@@ -180,10 +185,10 @@ export class KeybindingOverrideStore {
    * the field, and would go quiet the day anything else attaches a store.
    */
   public async hydrateFrom(uiStateStore: UiStateStore): Promise<void> {
-    const round = this.#overrideRounds.begin();
+    const round = this.#overrideRounds.supersedeAndClaim(this, HYDRATION_KEY);
     this.#uiStateStore = uiStateStore;
     const record = await uiStateStore.readGlobal(KEYBINDING_OVERRIDES_KEY);
-    if (!this.#overrideRounds.isCurrent(round) || this.#uiStateStore !== uiStateStore) {
+    if (!round.isCurrent || this.#uiStateStore !== uiStateStore) {
       return;
     }
     const stored = readOverrideMap(record?.value);
