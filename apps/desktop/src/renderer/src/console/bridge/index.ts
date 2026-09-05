@@ -216,13 +216,15 @@ export { ScenarioSelection } from "./scenario-selection.js";
 // wire's own shapes are read here and nowhere above.
 export { readConsoleSessionEvent } from "./session-event-payload.js";
 
-// `membershipRoleOf` is the injected lookup `useCallerMembershipRole` takes: the
-// store's roster holds the role and deliberately names no wire member, so the read
-// that narrows one lives here and travels through the door to the surfaces that
-// gate a control on the caller's role (the approvals goal editor first). Its
-// sibling `stampedExecutionPostureOf` is NOT published: the stamped posture waits on
-// the projector that carries the member into a run body, and a door line whose only
-// importer is a test is the class `test/console/architecture/barrel-census.test.ts`
-// fails — its suite reads the declaring module, which is the disposition that census
-// names for exactly this state.
-export { membershipRoleOf } from "./entity-body-reads.js";
+// The two body reads that narrow a wire shape, both through the door because both
+// have production readers above this family. `membershipRoleOf` is the injected
+// lookup `useCallerMembershipRole` takes: the store's roster holds the role and
+// deliberately names no wire member, so the read that narrows one lives here and
+// travels to the surfaces that gate a control on the caller's role (the approvals
+// goal editor first). `stampedExecutionPostureOf` is the composer's posture chip's:
+// it parses the candidate against the registered `RunStateChangeEvent` shape, which
+// is the whole point — a surface checking two members loosely and asserting the
+// type admitted a body with no `networkAccess`, and the chip then rendered an empty
+// label beside two full ones. This door line waited on a production consumer and
+// now has one.
+export { membershipRoleOf, stampedExecutionPostureOf } from "./entity-body-reads.js";

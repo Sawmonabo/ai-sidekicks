@@ -191,6 +191,43 @@ describe("resolveTargetChipModel — the binding clause is assembled, never defa
 });
 
 describe("resolvePostureChipModel — the stamped posture only", () => {
+  it("refuses a posture the registered shape would not admit", () => {
+    // The negative control for the loose guard this replaced: both of the members
+    // it checked are present and well-typed here, and the member the chip RENDERS —
+    // `networkAccess`, a required discriminant — is absent. The old guard passed
+    // this body through and the chip drew an empty label beside two full ones.
+    const partial = { mode: "trusted", writableRoots: [] };
+    const run: ConsoleEntity = { ...RUN, body: { ...RUN.body, executionPosture: partial } };
+    const target = resolveComposerTarget(
+      input({
+        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        agents: { [AGENT.id]: AGENT },
+        runs: { [run.id]: run },
+      }),
+    );
+
+    expect(resolvePostureChipModel(target, { [run.id]: run }).stamped).toBeUndefined();
+  });
+
+  it("refuses a mode outside the registered union", () => {
+    const outsideUnion = {
+      mode: "sandboxed",
+      credentialPolicyRef: "sha256:abc",
+      networkAccess: "none",
+      writableRoots: ["/repo"],
+    };
+    const run: ConsoleEntity = { ...RUN, body: { ...RUN.body, executionPosture: outsideUnion } };
+    const target = resolveComposerTarget(
+      input({
+        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        agents: { [AGENT.id]: AGENT },
+        runs: { [run.id]: run },
+      }),
+    );
+
+    expect(resolvePostureChipModel(target, { [run.id]: run }).stamped).toBeUndefined();
+  });
+
   it("reads a stamped posture off the target run", () => {
     const stamped = {
       mode: "workspace-sandboxed",

@@ -32,6 +32,7 @@
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
+import { stampedExecutionPostureOf } from "../../../console/bridge/index.js";
 import type { ConsoleEntity, ConsoleEntityRef } from "../../../console/store/index.js";
 import type { ConsolePaneAddress } from "../../../console/seats/index.js";
 import { resolveAddressedRun } from "./addressed-run.js";
@@ -205,6 +206,15 @@ export function resolveTargetChipModel(
  * The posture is read off the target run's entity body and nowhere else. A session
  * default, a policy lookup, or a per-agent guess would each be the renderer deriving
  * a posture, which `Spec-012 §Required Behavior` puts at the daemon at run start.
+ *
+ * AND THE READ IS THE WIRE'S EDGE'S, NOT THIS MODULE'S. It used to check
+ * `typeof mode === "string"` and `Array.isArray(writableRoots)` and then assert the
+ * whole `ExecutionPosture` — which admits a body carrying no `networkAccess` at all,
+ * the one member the chip actually renders, and a `mode` outside the closed union.
+ * `stampedExecutionPostureOf` parses the candidate against the registered
+ * `RunStateChangeEvent` shape, so a body the wire would not admit reaches the chip
+ * as `undefined` and the chip renders `not-checked` rather than an empty label
+ * beside two full ones.
  */
 export function resolvePostureChipModel(
   target: ComposerTarget,
@@ -213,7 +223,7 @@ export function resolvePostureChipModel(
   if (target.path !== "provider-bound") {
     return { stamped: undefined };
   }
-  return { stamped: readStampedPosture(runs[target.targetRunId]?.body) };
+  return { stamped: stampedExecutionPostureOf(runs[target.targetRunId]) };
 }
 
 /**
@@ -244,28 +254,6 @@ function composeBindingClause(
     (value): value is string => value !== undefined,
   );
   return axes.length === 0 ? undefined : axes.join(BINDING_CLAUSE_SEPARATOR);
-}
-
-/**
- * The stamped posture, or `undefined`.
- *
- * Narrowed on the two members every posture arm carries, and no further: this is a
- * read of a value the daemon composed and the schema already validated at the wire,
- * so re-deriving the arm discrimination here would be a second parser for a shape
- * `packages/contracts` owns.
- */
-function readStampedPosture(
-  body: Readonly<Record<string, unknown>> | undefined,
-): ExecutionPosture | undefined {
-  const candidate = body?.["executionPosture"];
-  if (typeof candidate !== "object" || candidate === null) {
-    return undefined;
-  }
-  const posture = candidate as { readonly mode?: unknown; readonly writableRoots?: unknown };
-  if (typeof posture.mode !== "string" || !Array.isArray(posture.writableRoots)) {
-    return undefined;
-  }
-  return candidate as ExecutionPosture;
 }
 
 /** One wire-supplied string from an entity body, or `undefined`. */
