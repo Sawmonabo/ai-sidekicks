@@ -7,9 +7,19 @@
  * their own modules for that reason: each is owned and edited by the surface it names,
  * and none of them is a second import edge.
  *
- * ONE SHEET IN THIS FAMILY IS DELIBERATELY NOT BELOW, and naming it here is what keeps
- * the list a claim rather than a coincidence: `pane/run/phase-graph/phase-graph.css`
- * rides the lazy graph chunk. It is imported beside the graph library's own `base.css`
+ * WHAT IS BELOW IS WHAT THIS DIRECTORY OWNS. The two pane sheets used to be — an
+ * `@import` reaching `../panes/workflow-run/` and another reaching
+ * `../panes/workflow-builder/` — which made a sheet in one directory the reason a
+ * surface in another was styled at all: open the run pane and never the destination
+ * and the pane's controls were painted by a family sheet nothing on screen had asked
+ * for, and delete this file and the pane lost its styling for a reason nothing in the
+ * pane recorded. Both bodies live in this family now and each carries its own barrel,
+ * so each pane sheet enters on the barrel of the surface that owns it.
+ *
+ * THREE SHEETS IN THIS FAMILY ARE DELIBERATELY NOT BELOW, and naming them here is what
+ * keeps the list a claim rather than a coincidence. Two are the pane sheets above.
+ * The third is `pane/run/phase-graph/phase-graph.css`, which
+ * rides the lazy graph chunk: it is imported beside the graph library's own `base.css`
  * from that chunk's own door, `pane/run/phase-graph/index.ts`, which is
  * reached through `import()` and nothing else, and it has to load AFTER that sheet to
  * win at equal specificity. Pulled in here it would land in the document the operator
@@ -39,8 +49,6 @@
 @import "./definitions/definitions-browser.css";
 @import "./runs/run-list.css";
 @import "./parks/park-badge.css";
-@import "./pane/run/run-controls.css";
-@import "./pane/builder/builder-authoring.css";
 
 .meridian-workflow {
   display: flex;
