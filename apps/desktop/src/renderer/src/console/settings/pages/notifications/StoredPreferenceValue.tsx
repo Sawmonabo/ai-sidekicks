@@ -4,8 +4,8 @@ import { type PreferenceRow } from "./attention-preference-model.js";
 import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import type { ConsoleRefusal } from "../../../core/index.js";
 import {
-  type AttentionPreferenceReadOutcome,
-  type CallerParticipantOutcome,
+  type AttentionPreferenceReading,
+  type CallerParticipantReading,
   type PreferenceToggleMember,
 } from "./attention-preference-model.js";
 import { type TogglePreferenceRow } from "./notification-preference-writer.js";
@@ -45,8 +45,8 @@ export function StoredPreferenceValue(props: {
 
 /** What one preference edit is doing right now: busy per record, refused per switch. */
 export interface StoredPreferenceBinding {
-  readonly participantOutcome: CallerParticipantOutcome | undefined;
-  readonly readOutcome: AttentionPreferenceReadOutcome | undefined;
+  readonly participantReading: CallerParticipantReading | undefined;
+  readonly preferenceReading: AttentionPreferenceReading | undefined;
   /** True while any switch in this record has a write out or queued behind one. */
   readonly isRecordBusy: (recordKey: string) => boolean;
   readonly refusalFor: (memberKey: string) => ConsoleRefusal | undefined;

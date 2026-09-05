@@ -14,6 +14,7 @@ import {
   unscriptedScenario,
 } from "../../../bridge/fixture-bridge.test-support.js";
 import { LiveAnnouncerProvider } from "../../../primitives/index.js";
+import { CommittedFrameRecorder } from "../../committed-frame.test-support.js";
 import { NotificationsPage } from "./NotificationsPage.js";
 import type {
   AttentionPreference,
@@ -79,6 +80,51 @@ export async function renderSettledPage(bridge: ConsoleBridge): Promise<HTMLElem
   const container = renderPageAt(bridge, SESSION_ID);
   await settle();
   return container;
+}
+
+/** What one mounted page exposes to a case that moves it between sessions. */
+export interface MountedNotificationsPage {
+  readonly container: HTMLElement;
+  /** Every frame committed since the last {@link MountedNotificationsPage.forgetFrames}. */
+  readonly frames: readonly string[];
+  readonly forgetFrames: () => void;
+  readonly showSession: (retainedSessionId: string | undefined) => void;
+}
+
+/**
+ * Mount the page beside a recorder, so a case can read the frames it committed.
+ *
+ * The subject move this supports is one commit long — see
+ * `settings/committed-frame.test-support.tsx` — so the case cannot look at the DOM
+ * afterwards and see it.
+ */
+export function renderMovablePage(
+  bridge: ConsoleBridge,
+  retainedSessionId: string | undefined,
+): MountedNotificationsPage {
+  const frames: string[] = [];
+  const tree = (sessionId: string | undefined): React.JSX.Element => (
+    <LiveAnnouncerProvider>
+      <CommittedFrameRecorder
+        onFrame={(committedText) => {
+          frames.push(committedText);
+        }}
+      >
+        <NotificationsPage context={contextWith(bridge, sessionId)} />
+      </CommittedFrameRecorder>
+    </LiveAnnouncerProvider>
+  );
+  const { container, rerender } = render(tree(retainedSessionId));
+  return {
+    container,
+    frames,
+    forgetFrames: () => {
+      frames.length = 0;
+    },
+    showSession: (nextSessionId) => {
+      rerender(tree(nextSessionId));
+    },
+  };
 }
 
 export function renderPageAt(

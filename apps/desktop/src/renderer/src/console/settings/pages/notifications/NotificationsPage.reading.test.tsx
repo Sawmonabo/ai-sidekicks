@@ -199,3 +199,52 @@ describe("the notifications page — its rail entry", () => {
     expect(container.textContent ?? "").not.toMatch(/\b(?:Spec|Plan|ADR|BL|CP|I)-\d/u);
   });
 });
+
+describe("the notifications page — a read that produced no outcome at all", () => {
+  it("renders the identity rejection as a refusal rather than as a read in flight", async () => {
+    // The port's contract is that it RESOLVES with an outcome, so a rejection has no
+    // arm in its vocabulary. Left unhandled the page kept rendering "Finding out who
+    // you are" for the life of the window over a call that had already failed.
+    const container = await renderSettledPage(
+      bridgeWith({
+        callerParticipantRead: async () => {
+          await Promise.resolve();
+          throw new Error("the identity read never reached the daemon");
+        },
+      }),
+    );
+
+    expect(container.textContent ?? "").toContain("the identity read never reached the daemon");
+    expect(container.textContent ?? "").not.toContain("Finding out who you are");
+  });
+
+  it("renders the preference rejection the same way, one step further down the chain", async () => {
+    const container = await renderSettledPage(
+      bridgeWith({
+        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+        attentionPreferenceRead: async () => {
+          await Promise.resolve();
+          throw new Error("the preference read never reached the store");
+        },
+      }),
+    );
+
+    expect(container.textContent ?? "").toContain("the preference read never reached the store");
+    expect(container.textContent ?? "").not.toContain("Reading your preferences");
+  });
+
+  it("negative control: a served chain renders switches and no refusal", async () => {
+    // Without this, both cases above would hold for a page that rendered a refusal
+    // whatever the two reads answered.
+    const container = await renderSettledPage(
+      bridgeWith({
+        callerParticipantRead: async () => await Promise.resolve(SERVED_PARTICIPANT),
+        attentionPreferenceRead: async () =>
+          await Promise.resolve(servedPreferences([{ key: "attention", value: { runs: true } }])),
+      }),
+    );
+
+    expect(container.querySelector(".meridian-refusal")).toBeNull();
+    expect(storedSwitches(container).length).toBeGreaterThan(0);
+  });
+});

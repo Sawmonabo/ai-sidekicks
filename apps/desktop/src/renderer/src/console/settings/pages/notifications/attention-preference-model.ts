@@ -26,6 +26,7 @@
 // renders as itself and says plainly that this is what the daemon holds.
 
 import type { ConsoleBridge } from "../../../bridge/index.js";
+import type { GrowthReading } from "../../shared/growth-reading.js";
 import { formatCount } from "../../../primitives/index.js";
 
 /**
@@ -43,6 +44,12 @@ export type CallerParticipantOutcome = Awaited<
 export type AttentionPreferenceReadOutcome = Awaited<
   ReturnType<ConsoleBridge["growth"]["attentionPreferenceRead"]>
 >;
+
+/** What the page holds for the participant read. Its second arm is a rejection. */
+export type CallerParticipantReading = GrowthReading<CallerParticipantOutcome>;
+
+/** What the page holds for the preference read. Its second arm is a rejection. */
+export type AttentionPreferenceReading = GrowthReading<AttentionPreferenceReadOutcome>;
 
 /** One stored preference: an opaque key, and the record held under it. */
 export type AttentionPreference = Extract<
