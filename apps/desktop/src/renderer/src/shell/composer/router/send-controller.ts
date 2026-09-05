@@ -95,22 +95,12 @@
 import { useCallback, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import type { ConsoleRefusal } from "../../../console/core/index.js";
-import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { useGenerationLatch, useSubjectScopedState } from "../../../console/store/index.js";
-import type { DraftStore } from "../../../console/persistence/index.js";
-import type { ComposerTarget } from "../chips/chip-models.js";
-import type { CommandExecutor } from "./command-executor.js";
 import { composerDraftKey } from "./draft-key.js";
 import { composerRefusal } from "./send-refusals.js";
-import {
-  AddressedDirectiveHistories,
-  caretAtEnd,
-  caretAtStart,
-  composeDirectivePlaceholder,
-  directivePathLabel,
-  type DirectiveCaret,
-  type DirectivePathLabel,
-} from "./directive-line.js";
+import { composeDirectivePlaceholder, directivePathLabel } from "./directive-line.js";
+import { useDirectiveRecall } from "./use-directive-recall.js";
+import { useRestartDisclosure } from "./use-restart-disclosure.js";
 import {
   NO_COMPOSER_REFUSALS,
   addressedOperationKey,
@@ -122,11 +112,13 @@ import {
 } from "./send-settlement.js";
 import { ComposerSendRouter } from "./send-router.js";
 import { RunVersionLedger } from "./run-version-ledger.js";
-import type { ClientCommandPredicate, ProviderCommandPredicate } from "./send-resolutions.js";
+import type {
+  SendController,
+  SendControllerDependencies,
+  SendControllerStatus,
+} from "./send-controller-contract.js";
 
 /** Whether the line is accepting text or is locked behind an in-flight dispatch. */
-export type SendControllerStatus = "idle" | "sending";
-
 /**
  * What a recognised command with nowhere to run says.
  *
@@ -141,84 +133,6 @@ const NO_EXECUTOR_DETAIL =
 interface AddressedResendOffer {
   readonly draftKey: string;
   readonly body: string;
-}
-
-/** What the composer is built from. One object, so a new dependency is one edit. */
-export interface SendControllerDependencies {
-  readonly bridge: ConsoleBridge;
-  readonly target: ComposerTarget;
-  /** The window-lifetime draft store the composer seat is handed. */
-  readonly draftStore: DraftStore;
-  /**
-   * Whether a name is a registered client command.
-   *
-   * Travels with the executor because the two are one decision split in half: the
-   * router will not intercept a name nothing claims, so a recogniser without an
-   * executor intercepts into a refusal and an executor without a recogniser is
-   * never called. The composer's command zone supplies both or neither.
-   */
-  readonly recognizeClientCommand?: ClientCommandPredicate | undefined;
-  /**
-   * Whether a name is one the bound provider published, for discovery only.
-   *
-   * Supplied by the same zone and read off the same holder the discovery popover
-   * renders from, so a name the list showed and a name the send path recognises are
-   * one reading. Absent, a typed provider command refuses exactly as it did before
-   * the two zones shared one.
-   */
-  readonly recognizeProviderCommand?: ProviderCommandPredicate | undefined;
-  /**
-   * Runs a recognised client command, when this composer has one to run with.
-   *
-   * Optional because the command family is a separate zone that mounts its own
-   * recogniser and executor together. Absent, an intercepted line REFUSES: the
-   * router only intercepts a name a recogniser claimed, so reaching this arm with
-   * no executor means the two halves were wired apart, and clearing the line would
-   * report success for an act nothing performed.
-   */
-  readonly commandExecutor?: CommandExecutor | undefined;
-}
-
-/** Everything the send bar renders and every act it offers. */
-export interface SendController {
-  readonly text: string;
-  readonly placeholder: string;
-  /** "new turn" or "steer", or `undefined` when this text resolves to no send. */
-  readonly pathLabel: DirectivePathLabel | undefined;
-  readonly status: SendControllerStatus;
-  /**
-   * Whether an interrupt is in flight, so the surface can mark Stop busy.
-   *
-   * Its own reading rather than a second value of {@link status}: a stop and a send
-   * can be in flight at once, and one status could not say so.
-   */
-  readonly isStopping: boolean;
-  /** The last refusal, composer-side or daemon-side, until the person types again. */
-  readonly refusal: ConsoleRefusal | undefined;
-  /**
-   * The most recent message sent to THIS address, so a tripped run can be resent
-   * without retyping. `undefined` once the composer is re-addressed, because a body
-   * written for one target is not an offer to send it to another.
-   */
-  readonly resendableText: string | undefined;
-  /**
-   * The store's restart disclosure, while it is armed and there is text to lose.
-   *
-   * The sentence is the store's own — fixed text carrying no participant content —
-   * so the composer renders what the store says rather than a second wording of it.
-   */
-  readonly restartNotice: string | undefined;
-  changeText(next: string): void;
-  send(): Promise<void>;
-  /** Send one exact body again. The tripwire card's offer; never a silent retry. */
-  resend(body: string): Promise<void>;
-  stop(): Promise<void>;
-  /** Walk one message older. `false` when the caret is not at the start edge. */
-  recallOlder(caret: DirectiveCaret): boolean;
-  /** Walk one message newer. `false` when the caret is not at the end edge. */
-  recallNewer(caret: DirectiveCaret): boolean;
-  /** Called when the line takes focus, which is what arms the disclosure. */
-  acknowledgeRestartNotice(): void;
 }
 
 /** Build the controller for one addressed composer. */
@@ -245,20 +159,12 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       }),
     [bridge, runVersions, recognizeClientCommand, recognizeProviderCommand],
   );
-  // A ref rather than state: the walk's own cursor is not rendered, and putting it
-  // in state would re-render the whole bar on a keystroke that changed nothing a
-  // person can see.
-  const historiesRef = useRef<AddressedDirectiveHistories>(new AddressedDirectiveHistories());
   // Claimed before the await and released in `finally`, so every settlement — sent,
   // intercepted, refused, or a rejection the router turned into a refusal — releases
   // the round on exactly one path rather than on the arms an author remembered.
   const operationLatch = useGenerationLatch();
   const [refusalSlots, setRefusalSlots] = useState(NO_COMPOSER_REFUSALS);
   const [resendOffer, setResendOffer] = useState<AddressedResendOffer | undefined>(undefined);
-  // Armed by the first focus of this composer, and only where the store still owed
-  // the disclosure. The store stays the source of whether one is owed at all; this
-  // hook decides nothing except when the sentence has something to be about.
-  const [isRestartNoticeArmed, setRestartNoticeArmed] = useState(false);
 
   const draftKey = composerDraftKey(target);
   // What the bar renders while an act is travelling, held under the address that act
@@ -321,10 +227,14 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     [draftStore, draftKey],
   );
   const text = useSyncExternalStore(subscribeToDraft, readDraftText, readDraftText);
-  // Asked on every pass rather than in an effect, so a keystroke arriving before an
-  // effect could run still walks this address's own history. Idempotent for an
-  // address already current, which is what makes asking here safe.
-  const history = historiesRef.current.forAddress(draftKey);
+  // The walk back through what was sent from this address, and the record a settled
+  // send writes into. Its own module because it is a different job with a different
+  // lifetime — nothing there reaches the wire and nothing there can refuse.
+  const { history, recallOlder, recallNewer } = useDirectiveRecall(
+    draftStore,
+    draftKey,
+    readDraftText,
+  );
 
   const changeText = useCallback(
     (next: string) => {
@@ -460,45 +370,9 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     settle,
   ]);
 
-  const recallOlder = useCallback(
-    (caret: DirectiveCaret) => {
-      if (!caretAtStart(caret)) {
-        return false;
-      }
-      const recalled = history.recallOlder(readDraftText());
-      if (recalled === undefined) {
-        return false;
-      }
-      draftStore.write(draftKey, recalled);
-      return true;
-    },
-    [draftStore, draftKey, readDraftText, history],
-  );
-
-  const recallNewer = useCallback(
-    (caret: DirectiveCaret) => {
-      if (!caretAtEnd(caret)) {
-        return false;
-      }
-      const recalled = history.recallNewer();
-      if (recalled === undefined) {
-        return false;
-      }
-      draftStore.write(draftKey, recalled);
-      return true;
-    },
-    [draftStore, draftKey, history],
-  );
-
-  const acknowledgeRestartNotice = useCallback(() => {
-    if (!draftStore.restartNoticePending) {
-      // Already told, in this composer or in another one this window holds. A second
-      // arming would be the window saying it twice.
-      return;
-    }
-    draftStore.acknowledgeRestartNotice();
-    setRestartNoticeArmed(true);
-  }, [draftStore]);
+  // The window's one restart disclosure, measured against this line's own text. Its
+  // own module because it is the controller's only concern that is not about an act.
+  const restartDisclosure = useRestartDisclosure(draftStore, text);
 
   const resolution = useMemo(() => router.resolve(text, target), [router, text, target]);
 
@@ -510,14 +384,13 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     isStopping,
     refusal: renderableRefusal(refusalSlots, draftKey),
     resendableText: resendOffer?.draftKey === draftKey ? resendOffer.body : undefined,
-    restartNotice:
-      isRestartNoticeArmed && text.length > 0 ? draftStore.restartNoticeText : undefined,
+    restartNotice: restartDisclosure.notice,
     changeText,
     send,
     resend,
     stop,
     recallOlder,
     recallNewer,
-    acknowledgeRestartNotice,
+    acknowledgeRestartNotice: restartDisclosure.acknowledge,
   };
 }

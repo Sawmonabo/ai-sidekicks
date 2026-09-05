@@ -26,9 +26,10 @@
 // rule stated above is the behaviour this console is bound to and a shell that only
 // looked like the control would prove none of it.
 
-import { InlineRefusal, Nothing, WireFigure } from "../../../console/primitives/index.js";
+import { Nothing, WireFigure } from "../../../console/primitives/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
-import { useCompactionDispatch, type CompactionDispatchState } from "./compaction-dispatch.js";
+import { useCompactionDispatch } from "./compaction-dispatch.js";
+import { CompactionSettlement } from "./CompactionSettlement.js";
 
 /**
  * What the console knows about the driver's compaction capability.
@@ -106,30 +107,5 @@ export function CompactionControl(props: CompactionControlProps): React.JSX.Elem
         </span>
       )}
     </div>
-  );
-}
-
-/**
- * What the call answered, rendered wherever it was not `applied`.
- *
- * `applied` renders nothing here on purpose: the positive receipt is the ledger's
- * compaction row, and a second "done" beside the button would be the console
- * claiming a completion from an acknowledgment.
- */
-function CompactionSettlement(props: {
-  readonly state: CompactionDispatchState;
-}): React.JSX.Element | null {
-  const { state } = props;
-  if (state.phase === "rejected") {
-    return <InlineRefusal code={state.refusal.code} detail={state.refusal.detail} />;
-  }
-  if (state.phase !== "settled" || state.result.status === "applied") {
-    return null;
-  }
-  return (
-    <span className="meridian-compaction__settlement" role="status">
-      <WireFigure value={state.result.status} />
-      <WireFigure value={state.result.reason} />
-    </span>
   );
 }

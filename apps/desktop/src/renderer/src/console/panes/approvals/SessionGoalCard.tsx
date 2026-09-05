@@ -42,18 +42,13 @@
 // under the prior goal while the relayed event is still travelling.
 
 import { useCallback, useEffect, useId } from "react";
-
-import {
-  ACCENT_FILL_CLASS,
-  DerivedFigure,
-  InlineRefusal,
-  Nothing,
-} from "../../primitives/index.js";
+import { ACCENT_FILL_CLASS, InlineRefusal, Nothing } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { useSessionScopedState } from "../../seats/index.js";
 import { SESSION_GOAL_MAX_LENGTH, isSendableGoalText } from "../../bridge/index.js";
 import { type SessionGoalProjection } from "./session-goal.js";
+import { GoalReading } from "./GoalReading.js";
 
 /**
  * The editor, which is either closed or open over one draft.
@@ -237,22 +232,4 @@ export function SessionGoalCard(props: SessionGoalCardProps): React.JSX.Element 
       {props.refusal === undefined ? null : <InlineRefusal {...props.refusal} />}
     </section>
   );
-}
-
-/** The read-only line: one goal, clamped to one measure, or an explicit absence. */
-function GoalReading(props: { readonly goal: SessionGoalProjection }): React.JSX.Element {
-  if (props.goal.status === "set") {
-    return <p className="meridian-goal__text">{props.goal.text}</p>;
-  }
-  if (props.goal.status === "unreadable") {
-    return (
-      <Nothing
-        kind="error"
-        placement="inline"
-        title="The latest goal event could not be read."
-        detail="A goal event landed carrying a shape this build does not recognise, so the goal shown would be a guess."
-      />
-    );
-  }
-  return <DerivedFigure text="No goal set" />;
 }

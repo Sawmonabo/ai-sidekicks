@@ -33,7 +33,6 @@
 // a reply that was fully readable and carried nothing may say nothing is in force.
 
 import { useState } from "react";
-
 import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { type RememberedRule } from "../../bridge/index.js";
@@ -43,6 +42,7 @@ import {
   asRememberedScopeKind,
   rememberedScopeKindPhrase,
 } from "../../bridge/index.js";
+import { RevokeControl } from "./RevokeControl.js";
 
 export interface RememberedGrantsProps {
   readonly rules: readonly RememberedRule[];
@@ -156,45 +156,6 @@ export function RememberedGrants(props: RememberedGrantsProps): React.JSX.Elemen
           );
         })}
       </ul>
-    </div>
-  );
-}
-
-/**
- * Idle, confirming, pending — three states on one control.
- *
- * `onConfirm` is the only handler that calls the mutation, which is what makes
- * "cancelling returns to idle with zero mutations" a fact about the code rather
- * than a claim about it.
- */
-function RevokeControl(props: {
-  readonly isConfirming: boolean;
-  readonly isRevoking: boolean;
-  readonly onAsk: () => void;
-  readonly onCancel: () => void;
-  readonly onConfirm: () => void;
-}): React.JSX.Element {
-  if (props.isRevoking) {
-    return <Nothing kind="computing" placement="inline" title="Revoking this permission." />;
-  }
-  if (!props.isConfirming) {
-    return (
-      <button className="meridian-grants__revoke" type="button" onClick={props.onAsk}>
-        Revoke
-      </button>
-    );
-  }
-  return (
-    <div className="meridian-grants__confirm" role="group" aria-label="Confirm the revocation">
-      <span className="meridian-grants__confirm-copy">
-        Revoke this permission? The next matching request will be asked again.
-      </span>
-      <button className="meridian-grants__revoke" type="button" onClick={props.onConfirm}>
-        Revoke it
-      </button>
-      <button className="meridian-grants__cancel" type="button" onClick={props.onCancel}>
-        Keep it
-      </button>
     </div>
   );
 }

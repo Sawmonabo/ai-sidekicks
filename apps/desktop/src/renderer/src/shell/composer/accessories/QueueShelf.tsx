@@ -45,11 +45,7 @@
 
 import {
   DerivedFigure,
-  Glyph,
-  InlineRefusal,
   PartialRead,
-  WireFigure,
-  formatClockTime,
   formatCount,
   unreadableDeliveryReading,
   type ReadingState,
@@ -58,6 +54,7 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 import type { QueueReadPhase } from "../../../console/bridge/index.js";
 import type { ConsoleRefusal } from "../../../console/core/index.js";
 import { QUEUE_SHELF_ROW_CAP } from "./accessory-bounds.js";
+import { QueueShelfRow } from "./QueueShelfRow.js";
 
 export interface QueueShelfProps {
   readonly items: readonly QueueItemSummary[];
@@ -93,8 +90,6 @@ export interface QueueShelfProps {
   /** The newest unreadable delivery's own parse refusal, rendered beside the count. */
   readonly unreadableRefusal?: ConsoleRefusal | undefined;
 }
-
-const CANCEL_GLYPH_SIZE = 12;
 
 export function QueueShelf(props: QueueShelfProps): React.JSX.Element | null {
   const unreadableDeliveryCount = props.unreadableDeliveryCount ?? 0;
@@ -173,45 +168,4 @@ function snapshotReading(
 /** The tail's deliveries, as the count-bearing reading the model already owns. */
 function deliveryReading(props: QueueShelfProps): ReadingState {
   return unreadableDeliveryReading(props.unreadableDeliveryCount ?? 0, props.unreadableRefusal);
-}
-
-interface QueueShelfRowProps {
-  readonly item: QueueItemSummary;
-  readonly isCancelPending: boolean;
-  readonly refusal: ConsoleRefusal | undefined;
-  readonly onCancel: (queueItemId: string) => void;
-}
-
-function QueueShelfRow(props: QueueShelfRowProps): React.JSX.Element {
-  const { item } = props;
-  return (
-    <li className="meridian-queue-shelf__row">
-      <WireFigure value={item.state} />
-      <span className="meridian-queue-shelf__channel">
-        {item.channelId === undefined ? (
-          <DerivedFigure text="session" />
-        ) : (
-          <WireFigure value={item.channelId} />
-        )}
-      </span>
-      <WireFigure value={formatClockTime(item.createdAt)} title={item.createdAt} />
-      <button
-        type="button"
-        className="meridian-queue-shelf__cancel"
-        disabled={props.isCancelPending}
-        aria-busy={props.isCancelPending}
-        onClick={() => {
-          props.onCancel(item.id);
-        }}
-      >
-        <Glyph name="close" size={CANCEL_GLYPH_SIZE} />
-        <span className="meridian-visually-hidden">
-          Cancel the message queued at {formatClockTime(item.createdAt)}
-        </span>
-      </button>
-      {props.refusal === undefined ? null : (
-        <InlineRefusal code={props.refusal.code} detail={props.refusal.detail} />
-      )}
-    </li>
-  );
 }

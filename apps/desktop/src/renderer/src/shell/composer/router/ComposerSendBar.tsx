@@ -30,7 +30,6 @@
 // as the first focus of a composer.
 
 import { useCallback, useId } from "react";
-
 import { InlineRefusal, RefusalCard } from "../../../console/primitives/index.js";
 import { type ComposerSeatProps } from "../../../console/seats/index.js";
 import { COMPOSER_DIRECTIVE_LINE_MAX_ROWS } from "../composer-bounds.js";
@@ -39,6 +38,7 @@ import { readTextNeutralization } from "../neutralization-tripwire.js";
 import { useComposerCommandZone } from "../commands/client-command-executor.js";
 import type { ProviderCommandEnumeration } from "../commands/provider-command-holder.js";
 import { useSendController } from "./send-controller.js";
+import { ResendOffer } from "./ResendOffer.js";
 
 export type ComposerSendBarProps = ComposerSeatProps & {
   /**
@@ -190,34 +190,5 @@ export function ComposerSendBar(props: ComposerSendBarProps): React.JSX.Element 
         />
       )}
     </div>
-  );
-}
-
-/**
- * The tripwire card's one offer.
- *
- * A component rather than a conditional inside the card, so the body it resends is
- * captured once and cannot go stale between the render that showed the button and
- * the click that pressed it. No body to resend means no offer — never a button that
- * sends an empty message.
- */
-function ResendOffer(props: {
-  readonly body: string | undefined;
-  readonly onResend: (body: string) => Promise<void>;
-}): React.JSX.Element | null {
-  const { body, onResend } = props;
-  if (body === undefined) {
-    return null;
-  }
-  return (
-    <button
-      type="button"
-      className="meridian-composer__resend"
-      onClick={() => {
-        void onResend(body);
-      }}
-    >
-      Send again
-    </button>
   );
 }

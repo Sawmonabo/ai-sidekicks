@@ -33,7 +33,6 @@
 
 import { useCallback, useId, useRef, useState } from "react";
 import { Collapsible } from "@base-ui/react/collapsible";
-
 import {
   ACCENT_FILL_CLASS,
   Chip,
@@ -44,18 +43,13 @@ import {
 } from "../../primitives/index.js";
 import { type ConsoleRefusal } from "../../core/index.js";
 import { ApprovalResource } from "./ApprovalResource.js";
-import {
-  hasCompleteResolvedQuad,
-  isResolvedState,
-  type ApprovalRecord,
-} from "../../bridge/index.js";
+import { isResolvedState, type ApprovalRecord } from "../../bridge/index.js";
 import {
   CATEGORY_PHRASE,
   STATE_PHRASE,
   STATE_TONE,
   asApprovalCategory,
   asApprovalState,
-  rememberedScopeKindPhrase,
 } from "../../bridge/index.js";
 import {
   IDLE_REMEMBERED_GRANT_INTENT,
@@ -63,6 +57,7 @@ import {
   rememberedScopeFor,
 } from "./RememberDecision.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
+import { ResolvedQuad } from "./ResolvedQuad.js";
 
 export interface ApprovalCardProps {
   readonly record: ApprovalRecord;
@@ -96,6 +91,7 @@ const PRIMARY_ACTION: (typeof ACTION_ORDER)[number] = "approve";
  * {@link findApprovalCardAction} reads them, so neither can be renamed alone.
  */
 const APPROVAL_CARD_ID_ATTRIBUTE = "data-approval-id";
+
 const APPROVAL_CARD_ACTION_CLASS = "meridian-approval-card__action";
 
 /**
@@ -282,60 +278,6 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
 
       {props.refusal === undefined ? null : <InlineRefusal {...props.refusal} />}
     </article>
-  );
-}
-
-/** The resolved quad, and the one honest thing to say when it is incomplete. */
-function ResolvedQuad(props: { readonly record: ApprovalRecord }): React.JSX.Element {
-  const { record } = props;
-  if (!hasCompleteResolvedQuad(record)) {
-    return (
-      <p className="meridian-approval-card__incomplete">
-        This record is resolved and the reply did not carry every part of its resolution, so what is
-        shown is less than what happened.
-      </p>
-    );
-  }
-  return (
-    <dl className="meridian-approval-card__facts meridian-approval-card__facts--resolved">
-      <div className="meridian-approval-card__fact">
-        <dt>Resolved at</dt>
-        <dd>
-          <WireFigure value={record.resolvedAt ?? ""} />
-        </dd>
-      </div>
-      <div className="meridian-approval-card__fact">
-        <dt>Decision</dt>
-        <dd>
-          <WireFigure value={record.decision ?? ""} />
-        </dd>
-      </div>
-      <div className="meridian-approval-card__fact">
-        <dt>Approver</dt>
-        <dd>
-          <WireFigure value={record.approverId ?? ""} />
-        </dd>
-      </div>
-      <div className="meridian-approval-card__fact">
-        <dt>Effective scope</dt>
-        <dd>
-          <WireFigure value={record.effectiveScope ?? ""} />
-        </dd>
-      </div>
-      {record.rememberedScope === undefined ? null : (
-        <div className="meridian-approval-card__fact">
-          <dt>Remembered scope</dt>
-          <dd>
-            <DerivedFigure text={rememberedScopeKindPhrase(record.rememberedScope.kind)} />
-            {record.rememberedScope.pattern === undefined ? (
-              <DerivedFigure text="the whole category inside that boundary" />
-            ) : (
-              <WireFigure value={record.rememberedScope.pattern} />
-            )}
-          </dd>
-        </div>
-      )}
-    </dl>
   );
 }
 

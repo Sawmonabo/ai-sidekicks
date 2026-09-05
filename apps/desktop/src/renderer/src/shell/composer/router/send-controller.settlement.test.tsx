@@ -17,7 +17,8 @@ import type {
   ComposerRunTarget,
   ComposerTarget,
 } from "../chips/chip-models.js";
-import { useSendController, type SendController } from "./send-controller.js";
+import type { SendController } from "./send-controller-contract.js";
+import { useSendController } from "./send-controller.js";
 
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 const CHANNEL_A = "1b2c3d4e-5f60-4172-8384-ab5c6d7e8f90";

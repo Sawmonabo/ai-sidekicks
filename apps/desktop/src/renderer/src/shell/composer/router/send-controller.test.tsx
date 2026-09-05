@@ -14,7 +14,8 @@ import { DraftStore } from "../../../console/persistence/index.js";
 import type { ComposerChannelTarget } from "../chips/chip-models.js";
 import type { CommandExecutor } from "./command-executor.js";
 import { composerDraftKey } from "./draft-key.js";
-import { useSendController, type SendController } from "./send-controller.js";
+import type { SendController } from "./send-controller-contract.js";
+import { useSendController } from "./send-controller.js";
 
 const SESSION_ID = "0a1b2c3d-4e5f-4061-8273-9a4b5c6d7e8f";
 

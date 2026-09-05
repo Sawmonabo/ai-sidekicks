@@ -10,7 +10,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ProviderQuotaReading } from "../../../console/bridge/index.js";
-import { RATE_CHIP_TONES, RateChips, rateChipToneFor } from "./RateChips.js";
+import { RateChips } from "./RateChips.js";
+import { RATE_CHIP_TONES, rateChipToneFor } from "./rate-chip-tone.js";
 
 // Built rather than parsed: a base a test PARSES is a test that reads a stamp, which
 // is the reading the console's own parser owns.

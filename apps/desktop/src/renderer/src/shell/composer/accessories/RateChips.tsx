@@ -32,49 +32,16 @@
 // does, and it is DELETED by the PR that mounts the owning body rather than being
 // left behind as a second answer to the same question.
 
-import {
-  DerivedFigure,
-  Glyph,
-  WireFigure,
-  formatCount,
-  formatRelativeTime,
-} from "../../../console/primitives/index.js";
-import { remainingPercentOf, type ProviderQuotaReading } from "../../../console/bridge/index.js";
-import {
-  RATE_CHIP_RENDER_CAP,
-  RATE_CHIP_URGENT_BELOW_REMAINING_PERCENT,
-  RATE_CHIP_VISIBLE_BELOW_REMAINING_PERCENT,
-} from "./accessory-bounds.js";
-
-/**
- * The two tones that render. Closed, and derived into a union below, so a third
- * cannot be introduced in one place while the band function still answers two.
- */
-export const RATE_CHIP_TONES = ["caution", "urgent"] as const;
-
-/** One rendered rate-chip tone. */
-export type RateChipTone = (typeof RATE_CHIP_TONES)[number];
+import { DerivedFigure, formatCount } from "../../../console/primitives/index.js";
+import { type ProviderQuotaReading } from "../../../console/bridge/index.js";
+import { RATE_CHIP_RENDER_CAP } from "./accessory-bounds.js";
+import { rateChipToneFor, type RateChipTone } from "./rate-chip-tone.js";
+import { RateChip } from "./RateChip.js";
 
 export interface RateChipsProps {
   readonly readings: readonly ProviderQuotaReading[];
   /** The clock reading a countdown is measured against. Supplied, never read here. */
   readonly nowMilliseconds: number;
-}
-
-/**
- * The tone a reading earns, or `undefined` when it earns no chip at all.
- *
- * One function for the visibility rule AND the tone, because they are one rule read
- * at two thresholds: a reading that earns no tone is exactly a reading that is not
- * shown. Two functions would let the thresholds drift into a band that is visible
- * and colourless.
- */
-export function rateChipToneFor(reading: ProviderQuotaReading): RateChipTone | undefined {
-  const remaining = remainingPercentOf(reading);
-  if (remaining >= RATE_CHIP_VISIBLE_BELOW_REMAINING_PERCENT) {
-    return undefined;
-  }
-  return remaining < RATE_CHIP_URGENT_BELOW_REMAINING_PERCENT ? "urgent" : "caution";
 }
 
 export function RateChips(props: RateChipsProps): React.JSX.Element | null {
@@ -108,41 +75,5 @@ export function RateChips(props: RateChipsProps): React.JSX.Element | null {
         </li>
       ) : null}
     </ul>
-  );
-}
-
-interface RateChipProps {
-  readonly reading: ProviderQuotaReading;
-  readonly tone: RateChipTone;
-  readonly nowMilliseconds: number;
-}
-
-const STALE_GLYPH_SIZE = 12;
-
-function RateChip(props: RateChipProps): React.JSX.Element {
-  const { reading } = props;
-  return (
-    <li className="meridian-rate-chip" data-tone={props.tone}>
-      <WireFigure value={reading.accountLabel} />
-      <span className="meridian-rate-chip__limit">
-        <WireFigure value={reading.limitLabel} />
-      </span>
-      <span className="meridian-rate-chip__used">
-        <WireFigure value={formatCount(reading.usedPercent)} title={String(reading.usedPercent)} />
-        <span className="meridian-rate-chip__unit">% used</span>
-      </span>
-      {reading.resetsAt === undefined ? null : (
-        <DerivedFigure
-          text={`resets ${formatRelativeTime(reading.resetsAt, props.nowMilliseconds)}`}
-        />
-      )}
-      {reading.isStale ? (
-        <Glyph
-          name="alert"
-          size={STALE_GLYPH_SIZE}
-          title="Read under an older credential generation than this account has since reported."
-        />
-      ) : null}
-    </li>
   );
 }

@@ -28,29 +28,15 @@
 // rather than into this surface.
 
 import { useCallback } from "react";
-import { InlineRefusal, Nothing, formatByteQuantity } from "../../../console/primitives/index.js";
-import type { ConsoleRefusal } from "../../../console/core/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { useSessionScopedState } from "../../../console/seats/index.js";
-import { ATTACHMENT_CARRIER_COUNT_CAP } from "./accessory-bounds.js";
+import { UNASKED, type PickerState } from "./attachment-picker-state.js";
+import { AttachmentPickerAnswer } from "./AttachmentPickerAnswer.js";
 
 export interface AttachmentPickerSeatProps {
   readonly bridge: ConsoleBridge;
   readonly sessionId: string;
 }
-
-type PickerState =
-  | { readonly phase: "unasked" }
-  | { readonly phase: "asking" }
-  | { readonly phase: "refused"; readonly refusal: ConsoleRefusal }
-  | {
-      readonly phase: "offered";
-      readonly contentTypes: readonly string[];
-      readonly maximumByteLength: number;
-    };
-
-/** The state before anything was asked, and what a rebind returns the seat to. */
-const UNASKED: PickerState = { phase: "unasked" };
 
 export function AttachmentPickerSeat(props: AttachmentPickerSeatProps): React.JSX.Element {
   const { bridge, sessionId } = props;
@@ -90,34 +76,5 @@ export function AttachmentPickerSeat(props: AttachmentPickerSeatProps): React.JS
       </button>
       <AttachmentPickerAnswer state={state} />
     </div>
-  );
-}
-
-/**
- * What the allow-list read answered.
- *
- * The served arm is reachable only from a fixture that serves the growth port, and
- * it is written out rather than left for later so the surface has one shape whether
- * or not the wire is registered — the day the wire lands, this file's diff is the
- * port entry's, not this component's.
- */
-function AttachmentPickerAnswer(props: { readonly state: PickerState }): React.JSX.Element | null {
-  const { state } = props;
-  if (state.phase === "unasked") {
-    return null;
-  }
-  if (state.phase === "asking") {
-    return <Nothing kind="computing" title="Reading what this session accepts." />;
-  }
-  if (state.phase === "refused") {
-    return <InlineRefusal code={state.refusal.code} detail={state.refusal.detail} />;
-  }
-  return (
-    <p className="meridian-attachment-seat__hint">
-      Up to {String(ATTACHMENT_CARRIER_COUNT_CAP)} files on one send, each at most{" "}
-      {formatByteQuantity(state.maximumByteLength).text}. The session accepts{" "}
-      {state.contentTypes.join(", ")}. This is a hint from the daemon, not a gate the console
-      enforces.
-    </p>
   );
 }

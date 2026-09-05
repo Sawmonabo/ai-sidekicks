@@ -30,28 +30,16 @@
 // buttons for one call, which is the redundancy rule 7 exists to prevent.
 
 import { useCallback, useMemo, useState } from "react";
-
 import { StepIn } from "../../../shell/composer/accessories/index.js";
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../bridge/index.js";
-import { Glyph, InlineRefusal, type GlyphName } from "../../primitives/index.js";
+import { Glyph, InlineRefusal } from "../../primitives/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { type RunControl } from "./run-control-dispatch.js";
 import { isControlOffered } from "./run-control-gating.js";
 import { inFlightKeyFor, type RunControlSurface } from "./run-control-surface.js";
 import { type RunProjection } from "./run-state-feed.js";
 import { isLiveRunState } from "./run-status.js";
-
-const CONTROL_GLYPH_SIZE = 12;
-
-/** What each control is called on screen, and the mark it wears. Total over the six. */
-const CONTROL_PRESENTATION: Readonly<Record<RunControl, { label: string; glyph: GlyphName }>> = {
-  pause: { label: "Pause", glyph: "pause" },
-  resume: { label: "Resume", glyph: "play" },
-  steer: { label: "Steer", glyph: "pencil" },
-  interrupt: { label: "Stop", glyph: "stop" },
-  cancel: { label: "Cancel", glyph: "close" },
-  rollback: { label: "Rewind", glyph: "external" },
-};
+import { CONTROL_GLYPH_SIZE, ControlButton } from "./ControlButton.js";
 
 /**
  * The controls that live one click away, in the design's own order.
@@ -190,26 +178,6 @@ export function RunControls(props: RunControlsProps): React.JSX.Element {
       ) : null}
       {refusal === undefined ? null : <InlineRefusal code={refusal.code} detail={refusal.detail} />}
     </div>
-  );
-}
-
-/** One control. Named, focusable, and busy while its dispatch is in flight. */
-function ControlButton(props: {
-  readonly control: RunControl;
-  readonly isBusy: boolean;
-  readonly onPress: () => void;
-}): React.JSX.Element {
-  const presentation = CONTROL_PRESENTATION[props.control];
-  return (
-    <button
-      type="button"
-      className={`meridian-run-controls__action meridian-run-controls__action--${props.control}`}
-      aria-busy={props.isBusy}
-      onClick={props.onPress}
-    >
-      <Glyph name={presentation.glyph} size={CONTROL_GLYPH_SIZE} />
-      {presentation.label}
-    </button>
   );
 }
 

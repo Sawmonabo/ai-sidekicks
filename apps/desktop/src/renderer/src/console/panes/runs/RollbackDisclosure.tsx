@@ -16,9 +16,9 @@
 // of not knowing which of the two they were looking at — the exact conflation
 // `Spec-010 §Turn-Boundary Snapshots` mandates against.
 
-import { Chip, DerivedFigure, WireFigure } from "../../primitives/index.js";
-import { formatCount } from "../../primitives/index.js";
+import { Chip, WireFigure } from "../../primitives/index.js";
 import { resendSettlementSentence, type RollbackDispositionReading } from "./rollback-result.js";
+import { FileEnumeration } from "./FileEnumeration.js";
 
 export interface RollbackDisclosureProps {
   readonly reading: RollbackDispositionReading;
@@ -79,39 +79,5 @@ export function RollbackDisclosure(props: RollbackDisclosureProps): React.JSX.El
         </div>
       )}
     </div>
-  );
-}
-
-/**
- * One never-silent enumeration, collapsed behind its own count.
- *
- * The paths are wire strings and render verbatim — a truncated path is a wrong
- * path, and `Spec-023 §Rules every console surface obeys` puts "roots and paths"
- * among the byte-for-byte strings that "render exactly as received".
- */
-function FileEnumeration(props: {
-  readonly label: string;
-  readonly paths: readonly string[];
-}): React.JSX.Element {
-  return (
-    <details className="meridian-rollback__enumeration">
-      <summary className="meridian-rollback__enumeration-summary">
-        {props.label}
-        <DerivedFigure text={formatCount(props.paths.length)} />
-      </summary>
-      {props.paths.length === 0 ? (
-        <p className="meridian-rollback__enumeration-empty">
-          None. The daemon reported an empty list, which is different from not having looked.
-        </p>
-      ) : (
-        <ul className="meridian-rollback__enumeration-list">
-          {props.paths.map((path) => (
-            <li key={path}>
-              <WireFigure value={path} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </details>
   );
 }

@@ -16,6 +16,7 @@ import { countAsksMissingDeadline, type ProviderAsk } from "./provider-ask.js";
 import { type ApprovalRecord } from "../../bridge/index.js";
 import { type ReadPhase } from "./approvals-reader.js";
 import { type ApprovalResolveRequest } from "./approvals-wire.js";
+import { AsksMissingDeadline } from "./AsksMissingDeadline.js";
 
 interface ApprovalListProps {
   readonly phase: ReadPhase<ApprovalRecord>;
@@ -120,25 +121,5 @@ export function ApprovalList(props: ApprovalListProps): React.JSX.Element {
         );
       })}
     </div>
-  );
-}
-
-/**
- * The one line this list says about asks whose deadline never arrived.
- *
- * Said once above the list rather than badged on each card, because the list already
- * has a place where it reports what it could not fully use — and a per-card badge
- * would repeat the same sentence while still leaving the summary above claiming
- * everything below it was whole.
- */
-function AsksMissingDeadline(props: { readonly count: number }): React.JSX.Element | null {
-  if (props.count === 0) {
-    return null;
-  }
-  return (
-    <p className="meridian-approvals__unreadable">
-      {formatCount(props.count)} of these were raised by a provider without the deadline the wire
-      carries beside the ask, so no expiry is shown for them.
-    </p>
   );
 }

@@ -28,12 +28,10 @@
 // a list of runs free at idle.
 
 import { useCallback, useId, useState } from "react";
-
 import type { ConsoleBridge, DriverCapabilityReadout } from "../../bridge/index.js";
 import {
   Chip,
   DerivedFigure,
-  Glyph,
   LedgerRow,
   WireFigure,
   formatDuration,
@@ -42,14 +40,14 @@ import { InputAskSlot, INPUT_ASK_SLOT_CONTRACT } from "./InputAskSlot.js";
 import { InterventionHistory } from "./InterventionHistory.js";
 import { RunControls } from "./RunControls.js";
 import type { RunControlSurface } from "./run-control-surface.js";
-import { runElapsedMilliseconds, type RunProjection, type RunStatusRow } from "./run-state-feed.js";
+import { runElapsedMilliseconds, type RunProjection } from "./run-state-feed.js";
 import {
   RUN_CLEAN_CLOSE_SENTENCE,
   RUN_STATE_TONES,
   RUN_TRIGGER_PHRASES,
   isBlockedRunState,
-  runStatusSubtypeTraits,
 } from "./run-status.js";
+import { StatusHistory } from "./StatusHistory.js";
 
 /**
  * The hue step a run row's attribution edge takes.
@@ -61,9 +59,6 @@ import {
  * every run to whoever holds the first step.
  */
 const UNATTRIBUTED_HUE_STEP = -1;
-
-/** The status-history mark, at the size the ledger's own inline glyphs use. */
-const HISTORY_MARK_SIZE = 12;
 
 export interface RunRowProps {
   readonly run: RunProjection;
@@ -180,47 +175,5 @@ export function RunRow(props: RunRowProps): React.JSX.Element {
         </section>
       </div>
     </LedgerRow>
-  );
-}
-
-/**
- * The run's transitions, newest last.
- *
- * The subtype is the console's derived phrase and the two states beside it are the
- * wire's own strings — `run-status.ts` records why the phrase cannot be a wire kind.
- */
-function StatusHistory(props: { readonly rows: readonly RunStatusRow[] }): React.JSX.Element {
-  if (props.rows.length === 0) {
-    return <p className="meridian-run-row__no-history">No transition has been delivered yet.</p>;
-  }
-  return (
-    <ol className="meridian-run-row__history">
-      {props.rows.map((row, position) => {
-        const traits = runStatusSubtypeTraits(row.subtype);
-        return (
-          <li
-            className="meridian-run-row__history-row"
-            key={`${String(position)}:${String(row.runVersion)}`}
-          >
-            <span className="meridian-run-row__history-mark">
-              <Glyph name={traits.glyph} size={HISTORY_MARK_SIZE} />
-              {traits.label}
-            </span>
-            {row.previousState === undefined || row.currentState === undefined ? null : (
-              <span className="meridian-run-row__history-states">
-                <WireFigure value={row.previousState} /> → <WireFigure value={row.currentState} />
-              </span>
-            )}
-            {row.targetPosition === undefined ? null : (
-              <span className="meridian-run-row__history-position">
-                position <WireFigure value={String(row.targetPosition)} />
-              </span>
-            )}
-            <WireFigure value={`v${String(row.runVersion)}`} />
-            {row.occurredAtIso === undefined ? null : <WireFigure value={row.occurredAtIso} />}
-          </li>
-        );
-      })}
-    </ol>
   );
 }

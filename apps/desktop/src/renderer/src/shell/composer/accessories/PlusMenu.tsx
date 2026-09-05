@@ -17,10 +17,11 @@
 // the glyph's `title`, which is what makes it announce as anything at all.
 
 import { useCallback, useRef, useState } from "react";
-import { Glyph, Nothing } from "../../../console/primitives/index.js";
-import type { OwnerSlotContract, OwnerSlotProps } from "../../../console/seats/index.js";
+import { Glyph } from "../../../console/primitives/index.js";
+import type { OwnerSlotContract } from "../../../console/seats/index.js";
 import type { ConsoleBridge } from "../../../console/bridge/index.js";
 import { AttachmentPickerSeat } from "./AttachmentPickerSeat.js";
+import { WorkflowStartSlot } from "./WorkflowStartSlot.js";
 
 /**
  * The workflow-start seat's three facts. Developer-facing; never rendered.
@@ -84,23 +85,6 @@ export function PlusMenu(props: PlusMenuProps): React.JSX.Element {
           />
         </div>
       ) : null}
-    </div>
-  );
-}
-
-/** One plan-owned seat, rendered the composer's own way. */
-function WorkflowStartSlot(props: OwnerSlotProps<React.ReactNode>): React.JSX.Element {
-  if (props.body !== undefined) {
-    return <div className="meridian-plus-menu__workflow">{props.body}</div>;
-  }
-  return (
-    <div className="meridian-plus-menu__workflow">
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="Starting a workflow has not been built here yet."
-        detail="The picker lists the definitions this session can start, so it arrives with the enumeration it lists from."
-      />
     </div>
   );
 }
