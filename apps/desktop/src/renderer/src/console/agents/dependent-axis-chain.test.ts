@@ -81,4 +81,12 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
       [...PROVIDER_AXES].sort(),
     );
   });
+
+  it("keeps the chain parent-first, which the filter inherits rather than states", () => {
+    // The order is what a form lists what is still needed in, so a person reads the
+    // cause before the consequence. Deriving the set from `PROVIDER_AXES` makes that
+    // order a property of THAT set, and nothing over there records why it holds — so
+    // this pins it here, where the rule is. Reorder the wire's set and this is red.
+    expect([...DEPENDENT_AXES]).toEqual(["driverName", "modelId", "effort"]);
+  });
 });
