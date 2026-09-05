@@ -37,7 +37,7 @@ import {
   editingAddressField,
   FOLLOWING_ADDRESS_FIELD,
 } from "./address-field-model.js";
-import { describeChordEvent, isCloseTabChord } from "./keyboard-handback.js";
+import { describeChordEvent, isCloseTabChord } from "./chord-claim.js";
 import {
   isFilesystemDestination,
   useReportedNavigation,
