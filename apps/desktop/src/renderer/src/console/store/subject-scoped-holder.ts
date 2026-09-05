@@ -52,7 +52,12 @@
 // decides when React is told, and `subject-scoped-resource.ts` adds the half about a
 // value that has to be disposed rather than dropped.
 
-import { Emitter, type Unsubscribe } from "../core/index.js";
+import { wireRejectionToError } from "../../../../shared/wire-errors.js";
+
+import { Emitter, reportTripwire, type Unsubscribe } from "../core/index.js";
+
+/** What a tripwire report from this module names as the site it fired at. */
+const SITE = "console/store/subject-scoped-holder.ts";
 
 /**
  * The key within a subject, or `undefined` where the surface is about nothing yet.
@@ -141,6 +146,14 @@ export class SubjectScopedHolder<TValue> {
    * not this class's: a render React discards leaves a value nothing committed, and
    * only React knows which. {@link useSubjectScopedResource} is the one caller that
    * answers it.
+   *
+   * AND A DISPOSAL THAT THROWS DOES NOT TAKE THE REPLACEMENT WITH IT. The ordering
+   * above has a cost the class has to pay rather than pass on: this runs during a
+   * render, with the new value already installed and no commit yet reaching it, so a
+   * `close` that throws — `disposeAll` over a registry can — would leave the resource
+   * the disposal was clearing room for held by an object nothing will ever clean up.
+   * So the call is backstopped, on the precedent `core/wire-rejection.ts` sets for
+   * the same shape: the failure is REPORTED and swallowed, never silently dropped.
    */
   public address(
     subject: object,
@@ -154,8 +167,27 @@ export class SubjectScopedHolder<TValue> {
     const discarded = this.#held;
     this.#addressings += 1;
     this.#held = { subject, key, epoch: this.#addressings, value: initial() };
-    if (discarded !== undefined) {
-      onDiscarded?.(discarded.value);
+    if (discarded === undefined || onDiscarded === undefined) {
+      return;
+    }
+    try {
+      onDiscarded(discarded.value);
+    } catch (disposalFailure: unknown) {
+      // Under the kind an escaping throw would have been reported as anyway. Left to
+      // propagate, this reaches the surface's error boundary, which records exactly
+      // this — a throw raised while rendering, mutating no store — and unmounts the
+      // subtree on top of it. Caught here the reading is the same and the subtree
+      // survives; a disposal that failed is a defect either way, and this is the one
+      // path in the module where a throw had no backstop at all.
+      //
+      // `wireRejectionToError` rather than a second stringifier: a thrown value is
+      // `unknown`, and `String(...)` on a null-prototype one throws inside the report
+      // that exists to describe it.
+      reportTripwire(
+        "surface-render-failure",
+        SITE,
+        `a subject-scoped value's disposal threw while the holder was being re-addressed; the replacement stands and the discarded value was not released: ${wireRejectionToError(disposalFailure, { total: true }).message}`,
+      );
     }
   }
 

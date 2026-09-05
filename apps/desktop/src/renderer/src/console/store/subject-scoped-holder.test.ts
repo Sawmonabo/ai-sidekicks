@@ -10,8 +10,9 @@
 // settlement was dropped" is also satisfied by a publisher that never writes
 // anything at all.
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { consoleTripwires } from "../core/tripwires.js";
 import { SUBJECT_ONE, SUBJECT_TWO } from "./subject-fixtures.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
 
@@ -148,5 +149,89 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
     // Negative control: the same subscription does wake for a real change.
     holder.publisherFor(SUBJECT_ONE, "alpha")("changed");
     expect(wakes).toBe(1);
+  });
+});
+
+describe("SubjectScopedHolder — a disposal that throws does not take the replacement", () => {
+  let restoreThrowOnReport = false;
+
+  beforeEach(() => {
+    // The registry throws in a development build, which would turn the backstop into
+    // the very escaping throw it exists to prevent. The recording arm is the one
+    // under test, exactly as it is for the surface error boundary next door.
+    restoreThrowOnReport = import.meta.env.DEV;
+    consoleTripwires.setThrowOnReport(false);
+    consoleTripwires.reset();
+  });
+
+  afterEach(() => {
+    consoleTripwires.setThrowOnReport(restoreThrowOnReport);
+    consoleTripwires.reset();
+  });
+
+  it("leaves the replacement addressed and publishable, and records the reason", () => {
+    // Escaping, this throw leaves the render with the NEW value installed and no
+    // commit ever reaching it — so the resource the disposal was clearing room for is
+    // held by nothing. That is the one path in this module a throw could take.
+    const holder = new SubjectScopedHolder<string>();
+    holder.address(SUBJECT_ONE, "alpha", () => "the value that owns a registry");
+
+    expect(() => {
+      holder.address(
+        SUBJECT_TWO,
+        "alpha",
+        () => "the replacement",
+        () => {
+          throw new Error("the registry this value owned refused to dispose");
+        },
+      );
+    }).not.toThrow();
+
+    expect(holder.value).toBe("the replacement");
+    holder.publisherFor(SUBJECT_TWO, "alpha")("what the new subject read");
+    expect(holder.value).toBe("what the new subject read");
+    expect(consoleTripwires.firingCount("surface-render-failure")).toBe(1);
+    expect(consoleTripwires.reports().at(-1)?.detail).toContain("refused to dispose");
+  });
+
+  it("reports a thrown value that has no message, rather than throwing describing it", () => {
+    // A null-prototype value carrying no `toString` makes bare `String(...)` throw,
+    // which would put the failure back on the path the backstop just took it off.
+    const holder = new SubjectScopedHolder<string>();
+    holder.address(SUBJECT_ONE, "alpha", () => "first");
+
+    expect(() => {
+      holder.address(
+        SUBJECT_TWO,
+        "alpha",
+        () => "second",
+        () => {
+          throw Object.create(null) as unknown;
+        },
+      );
+    }).not.toThrow();
+
+    expect(holder.value).toBe("second");
+    expect(consoleTripwires.firingCount("surface-render-failure")).toBe(1);
+  });
+
+  it("negative control: a disposal that returns records nothing", () => {
+    // Without this, "recorded" above would be satisfied by a holder that reported on
+    // every re-address — which would put a defect on the operator's diagnostics for
+    // every ordinary route change.
+    const holder = new SubjectScopedHolder<string>();
+    let disposals = 0;
+    holder.address(SUBJECT_ONE, "alpha", () => "first");
+    holder.address(
+      SUBJECT_TWO,
+      "alpha",
+      () => "second",
+      () => {
+        disposals += 1;
+      },
+    );
+
+    expect(disposals).toBe(1);
+    expect(consoleTripwires.firingCount("surface-render-failure")).toBe(0);
   });
 });
