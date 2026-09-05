@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { TERMINAL_HOST_NODE_ID } from "../../bridge/scenarios/terminal-cast.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
 import { projectNodePresence, resolveSoleHoldingNode } from "./node-presence-model.js";
 
 /** The session's host, read off the scenario rather than written down here. */
@@ -27,17 +28,7 @@ function presenceEvent(
   kind: string,
   payload: Readonly<Record<string, unknown>> | undefined,
 ): ConsoleSessionEvent {
-  return {
-    // Readable rather than UUID-shaped, as the substrate's own fold suites spell it
-    // (`store/failure-modes.test-support.ts`): the presence fold reads this member
-    // for nothing, and every id it does render comes off the scenario's cast.
-    id: `event-${String(sequence)}`,
-    sessionId: "session-terminal",
-    sequence,
-    kind,
-    occurredAt: `2026-01-01T16:40:0${String(sequence % 10)}.000Z`,
-    ...(payload === undefined ? {} : { payload }),
-  };
+  return eventOfKind("session-terminal", kind, sequence, payload);
 }
 
 function lifecycleEvent(sequence: number, kind: string, nodeId: string, newState: unknown) {

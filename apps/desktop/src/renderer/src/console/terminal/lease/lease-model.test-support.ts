@@ -17,6 +17,7 @@
 
 import { TERMINAL_SCENARIO_CAST } from "../../bridge/scenarios/terminal.js";
 import type { ConsoleSessionEvent } from "../../store/index.js";
+import { eventOfKind } from "../../store/session-event.test-support.js";
 import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
 
 /**
@@ -43,17 +44,14 @@ export function leaseEventWithPayload(
   actorId: string | undefined = OTHER_PARTICIPANT,
 ): ConsoleSessionEvent {
   return {
-    // Distinct per position, and readable rather than UUID-shaped: the fold reads this
-    // member for nothing, so `store/failure-modes.test-support.ts`'s spelling is the
-    // one to match. The participant ids above are the opposite case — those reach a
-    // surface, which is why they are read off the scenario's wire-declared cast.
-    id: `event-${String(sequence)}`,
-    sessionId: "session-terminal",
-    sequence,
-    kind: TERMINAL_LEASE_EVENT_KIND,
-    occurredAt: `2026-01-01T16:40:0${String(sequence % 10)}.000Z`,
+    // The console's one admitted-event builder, plus the member it does not take: the
+    // actor a lease move is attributed to. Spread over it rather than spelled again, on
+    // `store/failure-modes.test-support.ts`'s precedent — the copy that stood here
+    // derived `occurredAt` as `16:40:0<sequence % 10>`, so the eleventh transition in a
+    // ledger that holds thirty-two carried the instant the first one did, which the
+    // ledger RENDERS.
+    ...eventOfKind("session-terminal", TERMINAL_LEASE_EVENT_KIND, sequence, payload),
     ...(actorId === undefined ? {} : { actorId }),
-    ...(payload === undefined ? {} : { payload }),
   };
 }
 
