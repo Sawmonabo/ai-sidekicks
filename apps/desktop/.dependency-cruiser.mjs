@@ -66,7 +66,18 @@ const FRAME = `${CONSOLE}/frame/`;
 // by extension already. Co-located tests are absent for the stronger reason that
 // `options.exclude` removes them from the graph before any rule runs.
 const COMPOSITION_ROOT_FILES = `${CONSOLE}/(families|collaboration-family|sidekicks-settings-page)\\.ts$`;
-const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
+// `panes/` is FLAT, and the pattern says so: the board, the chrome the deck draws
+// around a pane, and their tests — one segment, no subdirectory. It used to read
+// `${CONSOLE}/panes/`, which subtracted a whole subtree from the view-family set, so a
+// pane BODY parked at `panes/<kind>/` was neither a view family nor a valid source for
+// the isolation rule and could import every family in the console. Narrowed, a module
+// under `panes/<kind>/` is an ordinary view family again — and the rule below refuses
+// the subdirectory outright, so the escape hatch is closed at the shape rather than
+// per edge.
+const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
+
+/** Anything one level deeper than the flat board — the shape the rule below forbids. */
+const PANES_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 
 /**
  * Every barrel under `console/` — a family door and a sub-module door alike.
@@ -279,6 +290,21 @@ export default {
       // the ones `$1` removes.
       from: { path: `${CONSOLE}/([^/]+)/`, pathNot: VIEW_FAMILIES.pathNot },
       to: { path: `${CONSOLE}/`, pathNot: [...VIEW_FAMILIES.pathNot, `${CONSOLE}/$1/`] },
+    },
+    {
+      name: "console-panes-board-is-flat",
+      comment:
+        "A module landed in a `console/panes/<kind>/` subdirectory. `panes/` is the deck's seat " +
+        "board and the chrome around a pane, and nothing else: a pane BODY renders one family's " +
+        "vocabulary, so it lives in that family (`agents/agent-console/` for the agent console) " +
+        "and reaches this directory as a registrar through that family's door. A body parked " +
+        "here makes `panes/` a seventh view family with a seat board inside it, and turns every " +
+        "reach from the body into its own family into a cross-family import. Stated on the " +
+        "SOURCE side so the error names the module that should not exist; the other direction " +
+        "needs no rule, because a body that imports nothing renders nothing.",
+      severity: "error",
+      from: { path: PANES_SUBDIRECTORY },
+      to: {},
     },
     {
       name: "console-root-is-composition-only",

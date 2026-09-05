@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { RunLinkage, type AgentConsoleModels } from "../../agents/index.js";
+import { RunLinkage } from "../run-console/RunLinkage.js";
+import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
 import { HeldRunLinkage } from "./HeldRunLinkage.js";
-import { type ChildRunLinkageRead } from "../../agents/index.js";
+import { type ChildRunLinkageRead } from "../run-console/agent-console-reads.js";
 
 /**
  * The mounted arm, where both halves exist and the read may be taken.

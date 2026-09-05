@@ -10,7 +10,7 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { AgentConsoleModels } from "../../agents/index.js";
+import { AgentConsoleModels } from "../run-console/agent-console-model.js";
 import { growthRefusing } from "../../bridge/fixture-bridge.test-support.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { consoleTripwires } from "../../core/tripwires.js";

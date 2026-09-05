@@ -14,12 +14,20 @@
 //
 // WHAT A FAMILY DOES
 //
-// A family exports `register<Family>Panes(registry: ConsolePaneRegistry): void`
-// from its own `index.ts`, claims its pane kinds inside that function, and adds the
-// import plus one call DIRECTLY BENEATH its own reserved line. The reserved line
-// stays: it names the kinds that seat claims, so a reviewer reads the whole deck
-// off this file whether or not the seat is filled, and the six seats keep their
-// order without depending on which of them happen to be filled today.
+// A family exports its pane registrar from its own `index.ts`, claims its pane kinds
+// inside that function, and adds the import plus one call DIRECTLY BENEATH its own
+// reserved line. The reserved line stays: it names the kinds that seat claims, so a
+// reviewer reads the whole deck off this file whether or not the seat is filled, and
+// the six seats keep their order without depending on which of them happen to be
+// filled today.
+//
+// THE BODY IS THE FAMILY'S, AND THIS DIRECTORY IS FLAT. A pane body renders one
+// family's vocabulary, so it lives in that family — `agents/agent-console/` for the
+// agent console — and what arrives here is the registrar, through that family's door.
+// `console/panes/` holds composition files and nothing else: this board, the chrome
+// the deck draws around a pane, and their tests. A `panes/<kind>/` subdirectory would
+// make this directory a seventh view family with a seat board inside it, and every
+// reach from the body into its own family would become a cross-family import.
 //
 // WHAT A FAMILY DOES NOT DO
 //
@@ -42,7 +50,7 @@
 // its own, the thing it is deciding belongs in the family that owns the decision.
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
-import { registerAgentConsolePane } from "./agent-console/index.js";
+import { registerAgentConsolePane } from "../agents/index.js";
 
 /**
  * Register every shipped pane body against a registry.

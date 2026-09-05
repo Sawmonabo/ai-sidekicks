@@ -4,9 +4,9 @@
 //
 // This family is four subtrees — the channels, roster, invites, and members
 // sections; the all-sessions destination; the settings frame with its pages; and the
-// agent console — because they are four different shapes and a single directory
-// holding all four would be a directory named after a task rather than after a
-// thing. Composing them means naming four view families in one file, and a view
+// agents family, whose agent console claims a surface slot of its own — because they
+// are four different shapes and a single directory holding all four would be a
+// directory named after a task rather than after a thing. Composing them means naming four view families in one file, and a view
 // family may name no other: `console-view-family-isolation` in
 // `.dependency-cruiser.mjs` fails that edge, because six concurrent family branches
 // growing edges into each other is a tangle no ordering untangles.
@@ -28,7 +28,7 @@
 
 import { registerCollaborationSections } from "./collaboration/index.js";
 import type { ConsoleSurfaceRegistry } from "./frame/surface-registry.js";
-import { registerAgentConsoleSurface } from "./panes/agent-console/index.js";
+import { registerAgentConsoleSurface } from "./agents/index.js";
 import { registerSessionsSurface } from "./sessions/index.js";
 import { registerSettingsSurface } from "./settings/index.js";
 

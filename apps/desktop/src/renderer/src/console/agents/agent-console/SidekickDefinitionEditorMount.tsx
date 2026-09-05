@@ -1,4 +1,4 @@
-import { SIDEKICK_DEFINITION_EDITOR_SLOT } from "../../agents/index.js";
+import { SIDEKICK_DEFINITION_EDITOR_SLOT } from "../sidekick-definition-editor-slot.js";
 import { Nothing } from "../../primitives/index.js";
 
 /**

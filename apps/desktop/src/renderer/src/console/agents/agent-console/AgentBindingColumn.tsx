@@ -40,15 +40,13 @@
 
 import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
 
-import {
-  AgentCard,
-  AgentRosterEmpty,
-  AttachSidekick,
-  AttachSidekickForm,
-  ProviderSwitch,
-  type AgentConsoleModels,
-  type ProviderAxis,
-} from "../../agents/index.js";
+import { AgentCard } from "../AgentCard.js";
+import { AgentRosterEmpty } from "../AgentRosterEmpty.js";
+import { type ProviderAxis } from "../agent-wire.js";
+import { AttachSidekick } from "../attach/AttachSidekick.js";
+import { AttachSidekickForm } from "../attach/attach-model.js";
+import { ProviderSwitch } from "../provider-switch/ProviderSwitch.js";
+import { type AgentConsoleModels } from "../run-console/agent-console-model.js";
 import type { AgentAttachReading, AgentSwitchSettlement } from "../../bridge/index.js";
 import { usePushDrivenRead } from "../../seats/index.js";
 import { Nothing, RefusalCard } from "../../primitives/index.js";
