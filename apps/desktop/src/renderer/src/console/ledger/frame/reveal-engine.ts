@@ -49,6 +49,7 @@ import {
   REVEAL_GATE_TAIL_CHARACTERS,
   REVEAL_LITERAL_BACKTRACK_CAP,
 } from "./frame-bounds.js";
+import { lossyStringify } from "../../../../../shared/wire-errors.js";
 import { safeRevealCeiling } from "./reveal-gate.js";
 import type {
   RevealDelta,
@@ -350,7 +351,13 @@ export class RevealEngine {
       return revealed;
     } catch (transitionFailure: unknown) {
       lane.isQuarantined = true;
-      failures.push(`${laneId}: ${String(transitionFailure)}`);
+      // The TOTAL stringifier, because this expression runs after the `catch` has
+      // been entered and a `String(...)` that threw here would leave the handler by
+      // exception: the throw escapes the frame loop past `#armFrame()`, so one
+      // lane's null-prototype failure value stops every lane permanently, with no
+      // diagnostic and no terminal. A quarantine that takes the engine with it is
+      // not a quarantine.
+      failures.push(`${laneId}: ${lossyStringify(transitionFailure)}`);
       return 0;
     }
   }
