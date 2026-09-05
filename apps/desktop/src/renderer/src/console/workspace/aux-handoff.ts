@@ -55,6 +55,7 @@
 // makes a note about the last one a note about nothing.
 
 import { Emitter, type Unsubscribe } from "../core/index.js";
+import { GenerationLatch } from "../store/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
 import {
   AUXILIARY_ROUTE_LABELS,
@@ -94,6 +95,14 @@ type PaneErrorSignal = Extract<
   { readonly status: "served" }
 >["value"];
 
+/**
+ * The one key the pane-error watch is claimed under.
+ *
+ * There is exactly one signal per hand-off, so one key: the latch's subject is the
+ * hand-off itself and the register never holds more than this.
+ */
+const PANE_ERROR_WATCH_KEY = "pane-error-watch";
+
 export class AuxiliaryHandoff {
   readonly #growth: ConsoleGrowthPort;
   readonly #detachedByPaneId = new Map<string, DetachedPane>();
@@ -110,20 +119,17 @@ export class AuxiliaryHandoff {
   #paneErrorStream: PaneErrorSignal | undefined;
   #paneErrorRefusal: AuxiliaryHandoffRefusal | undefined;
   /**
-   * Which watch a start belongs to, bumped by every stop — and, beside it, the
-   * generation a start is in flight for.
+   * Whether a start for the pane-error watch is in flight, and which round it is.
    *
-   * A COUNTER RATHER THAN THE `superseded` BOOLEAN the two persistence restores use
-   * (`layout-persistence.ts`, `sidebar/sidebar-state.ts`): those guard one effect that
-   * owns its own flag, and this guards a class outliving any single call, so a boolean
-   * captured per call is unreachable from the stop that has to invalidate it. The
-   * pending mark is generation-SCOPED for the same reason it is not a bare
-   * `isStarting` flag — after a stop, a detach arriving while the old request is still
-   * pending has to start a new subscription rather than be turned away into no watch
-   * at all.
+   * THE SUBSTRATE'S REGISTER RATHER THAN A COUNTER PAIR. This used to be a watch
+   * generation beside the generation a start was pending for, compared as
+   * `#pendingStartGeneration === #paneErrorWatchGeneration`; the latch says that
+   * once — a taken key IS a start in flight, and a superseded key IS a start whose
+   * settlement installs nothing. A boolean captured per call could not be reached
+   * from the stop that has to invalidate it, which is why the pair existed at all,
+   * and the latch keeps that property without the arithmetic.
    */
-  #paneErrorWatchGeneration = 0;
-  #pendingStartGeneration: number | undefined;
+  readonly #paneErrorWatch = new GenerationLatch();
 
   public constructor(options: { readonly growth: ConsoleGrowthPort }) {
     this.#growth = options.growth;
@@ -322,23 +328,29 @@ export class AuxiliaryHandoff {
     if (this.#paneErrorStream !== undefined) {
       return;
     }
-    if (this.#pendingStartGeneration === this.#paneErrorWatchGeneration) {
+    const claim = this.#paneErrorWatch.claim(this, PANE_ERROR_WATCH_KEY);
+    if (claim === undefined) {
       return;
     }
-    const generation = this.#paneErrorWatchGeneration;
-    this.#pendingStartGeneration = generation;
 
     const answer = await this.#growth.windowSubscribePaneErrors({});
-    if (generation !== this.#paneErrorWatchGeneration) {
-      // Stopped while this was in flight. `#pendingStartGeneration` is deliberately
-      // left alone: a stop cleared it, and a later detach may already have claimed it
-      // for the watch that replaced this one.
+    let installed = false;
+    claim.settle(() => {
+      installed = true;
+    });
+    // Released whether or not the settlement ran: a claim superseded by a stop no
+    // longer owns the key, so this cannot take back a watch a later detach started,
+    // and a claim that did settle has to free the key or no later detach could
+    // start one at all.
+    claim.release();
+    if (!installed) {
+      // Stopped while this was in flight, so the stream this reply carries is one
+      // nothing will ever drain.
       if (answer.status === "served") {
         answer.value.close();
       }
       return;
     }
-    this.#pendingStartGeneration = undefined;
 
     if (answer.status === "unavailable") {
       this.#paneErrorRefusal = refuseHandoff("wire-unregistered", answer.detail);
@@ -353,14 +365,15 @@ export class AuxiliaryHandoff {
   /**
    * Close the signal. Called when the last pane comes back, and on teardown.
    *
-   * The generation is bumped FIRST, so a request still in flight is invalidated by
+   * The round is superseded FIRST, so a request still in flight is invalidated by
    * the same act that closes an installed stream — a stop that reached only what was
    * installed left the pending one to arrive afterwards and re-open the watch it had
-   * just closed.
+   * just closed. Superseding also frees the key, so a detach arriving right behind
+   * this stop starts a new subscription rather than being turned away into no watch
+   * at all.
    */
   public stopWatchingPaneErrors(): void {
-    this.#paneErrorWatchGeneration += 1;
-    this.#pendingStartGeneration = undefined;
+    this.#paneErrorWatch.supersede(this, PANE_ERROR_WATCH_KEY);
     this.#paneErrorStream?.close();
     this.#paneErrorStream = undefined;
     this.#paneErrorRefusal = undefined;
