@@ -34,6 +34,12 @@
 // than as a dead button.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
+// The console's one byte measurement, through the family door that publishes it.
+// This surface bounds a cancellation reason exactly as the durable path bounds a
+// record, and `apps/desktop/AGENTS.md` §Chokepoints gives that one function: a
+// second one here agreed on ASCII and would have drifted on the first rule either
+// grew.
+import { measureUtf8ByteLength } from "../../persistence/index.js";
 
 /**
  * The two run controls, and exactly two.
@@ -82,18 +88,6 @@ export type WorkflowRunControlRefusalCode = "wire-unregistered" | "reason-past-b
  */
 export const WORKFLOW_CANCEL_REASON_BYTE_CAP: number = 8 * 1024;
 
-/**
- * How many bytes a string occupies once encoded.
- *
- * The console's first byte MEASUREMENT — `primitives/wire-figures.ts` formats byte
- * figures and measures none, and `persistence/` caps a serialised value by its
- * JSON length. A second one is a hoist, not a copy: it moves down to the lowest
- * family that needs it the moment a second module does.
- */
-export function utf8ByteLength(value: string): number {
-  return new TextEncoder().encode(value).length;
-}
-
 /** What the operator has spent of the reason budget, and whether they are past it. */
 export interface CancelReasonBudget {
   readonly byteLength: number;
@@ -104,7 +98,7 @@ export interface CancelReasonBudget {
 
 /** Measure a reason against the bound. Pure; the caller decides what to do about it. */
 export function cancelReasonBudget(reason: string): CancelReasonBudget {
-  const byteLength = utf8ByteLength(reason);
+  const byteLength = measureUtf8ByteLength(reason);
   return {
     byteLength,
     remainingBytes: Math.max(0, WORKFLOW_CANCEL_REASON_BYTE_CAP - byteLength),

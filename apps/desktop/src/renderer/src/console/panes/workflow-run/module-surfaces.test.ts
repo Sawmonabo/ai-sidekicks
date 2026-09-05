@@ -57,7 +57,6 @@ describe("the run pane's published module surfaces", () => {
         "cancelReasonBudget",
         "reasonPastBoundRefusal",
         "unregisteredRunControl",
-        "utf8ByteLength",
       ].toSorted(),
     );
   });
