@@ -112,7 +112,7 @@ class ResolvedConsoleBridge {
    * The two window-lifetime resources one layer down answer the same pair, but in
    * two places rather than one: `frame/session-lifecycle.ts` and
    * `frame/ui-state-lifecycle.ts` compare the bridge DURING the render that first
-   * sees a new one — `store/subject-scoped-state.ts` is what holds that comparison —
+   * sees a new one — `store/subject-scoped-holder.ts` is what holds that comparison —
    * and keep only the disposed arm in an effect, because a resource that tore itself
    * down did so in a cleanup the preceding render could not see. This one cannot
    * split the same way: it is deciding what the bridge IS, so there is no resolved

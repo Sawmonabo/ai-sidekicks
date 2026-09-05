@@ -6,6 +6,10 @@
 // with the new state, which is exactly the shape the module describes — a pass that
 // really ran, really opened a resource, and never committed.
 //
+// The publisher's own claim across a dropped pass — a resource published into a visit
+// that is over is opened and closed by nothing — is a third subject and lives in
+// `subject-scoped-dropped-pass.test.tsx`, beside the value hook's half of it.
+//
 // Every claim is paired with a NEGATIVE CONTROL driving the shape this replaced — the
 // plain holder with an effect that owns disposal — over the identical script. Without
 // it, "the discarded pass's resource was closed" would be a sentence about a test: a
@@ -17,56 +21,20 @@ import { useEffect, useState, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
 import { useSubjectScopedResource } from "./subject-scoped-resource.js";
+import type { NamedFixtureSubject } from "./subject-fixtures.test-support.js";
+import {
+  DISCARDED_SUBJECT,
+  ResourceLedger,
+  SETTLED_SUBJECT,
+  type OpenResource,
+} from "./subject-scoped-resource.test-support.js";
 import { useSubjectScopedState } from "./subject-scoped-state.js";
-
-/** A subject, named so the ledger below can say which one a resource belonged to. */
-interface NamedSubject {
-  readonly name: string;
-}
-
-const DISCARDED_SUBJECT: NamedSubject = { name: "discarded" };
-const SETTLED_SUBJECT: NamedSubject = { name: "settled" };
-
-/** What one of these owns is nothing at all; being opened and closed is the whole of it. */
-interface OpenResource {
-  readonly name: string;
-}
-
-/** Every open and every close, in order, so a double close is as visible as a leak. */
-class ResourceLedger {
-  readonly #opened: string[] = [];
-  readonly #closed: string[] = [];
-
-  public open(name: string): OpenResource {
-    this.#opened.push(name);
-    return { name };
-  }
-
-  /**
-   * Bound, because the hook takes it as a dependency.
-   *
-   * A method passed as `ledger.close` would be unbound; an arrow at the call site
-   * would be a new identity every render, which is the shape the hook's own doc says
-   * a caller should not write.
-   */
-  public readonly close = (resource: OpenResource): void => {
-    this.#closed.push(resource.name);
-  };
-
-  public get opened(): readonly string[] {
-    return [...this.#opened];
-  }
-
-  public get closed(): readonly string[] {
-    return [...this.#closed];
-  }
-}
 
 interface DiscardProbeProps {
   /** The subject the pass React throws away is addressed at. */
-  readonly firstPassSubject: NamedSubject;
+  readonly firstPassSubject: NamedFixtureSubject;
   /** The subject the pass that actually commits is addressed at. */
-  readonly settledSubject: NamedSubject;
+  readonly settledSubject: NamedFixtureSubject;
   readonly ledger: ResourceLedger;
 }
 
@@ -118,7 +86,7 @@ function EffectOnlyDisposalProbe(props: DiscardProbeProps): ReactElement {
 }
 
 interface SwapProbeProps {
-  readonly subject: NamedSubject;
+  readonly subject: NamedFixtureSubject;
   readonly ledger: ResourceLedger;
   readonly onReady?: (publish: (next: OpenResource) => void) => void;
 }

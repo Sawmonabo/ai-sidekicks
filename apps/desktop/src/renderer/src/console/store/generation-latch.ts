@@ -1,6 +1,6 @@
 // Whether an act may be dispatched at all, and what its reply is allowed to do.
 //
-// THE MUTABLE HALF OF `subject-scoped-state.ts`'s RULE. That holder answers what a
+// THE MUTABLE HALF OF `subject-scoped-holder.ts`'s RULE. That holder answers what a
 // surface RENDERS for the subject it is bound to. This one answers a question a
 // handler has to settle inside its own tick, before any render: a rendered flag read
 // there is the one from the render that produced the handler, so two presses in one
@@ -48,9 +48,19 @@
 // abandoned and the new act is ALWAYS admitted — `supersedeAndClaim`. And a reader
 // asks which round is running, so a settlement it did not itself start can still be
 // measured against the round that did — `currentClaim`, which joins the live round and
-// mints one where none is. All three hand back the same {@link GenerationClaim}, so
-// the settlement path is written once whichever question admitted it, and refusing is
-// a property of `claim` rather than of the register.
+// mints one where none is. The settlement path is written once whichever question
+// admitted it, and refusing is a property of `claim` rather than of the register.
+//
+// GIVING THE KEY BACK IS THE TAKER'S ACT ALONE, and that is why the reader's handle is
+// a NARROWER TYPE rather than the same one. Single flight is the one property this
+// object exists to supply, and a handle that reports on a round it did not start could
+// otherwise revoke it: `release()` in the `finally`-shaped position the interface
+// invites would delete the key out from under a write still in flight, and the next
+// press would dispatch a duplicate. So {@link CurrentGenerationClaim} carries the two
+// questions a joiner has — is this round still live, and may this settlement install —
+// and carries no third. Where `currentClaim` MINTS the round (the key was free), the
+// joiner is both taker and settler, so that round ends on its own settlement rather
+// than being held for the life of the subject by a reader that never gives keys back.
 //
 // WHAT THIS IS NOT. It is not a queue: a second press is REFUSED by `claim`, audibly,
 // by the caller that asked, and SUPERSEDED by `supersedeAndClaim` — never held and
@@ -61,24 +71,42 @@
 import { useEffect, useState } from "react";
 
 /**
- * One taken claim: the right to settle a key, until something supersedes it.
+ * A handle on the round a key is on: whether it is still live, and one settlement.
  *
- * Handed out rather than represented by a returned boolean, so the settlement path
- * cannot re-derive which key it holds and get it wrong. Both methods are total and
- * idempotent, which is what lets a caller put {@link release} in a `finally`-shaped
- * position and {@link settle} on every arm without asking whether it still applies.
+ * What {@link GenerationLatch.currentClaim} answers with, and the half of a claim
+ * that is safe to hand a caller that did not start the round. Handed out rather than
+ * represented by a returned boolean, so the settlement path cannot re-derive which
+ * key it holds and get it wrong. Both members are total, which is what lets a caller
+ * ask on every arm without first asking whether it still applies.
+ *
+ * IT CANNOT GIVE THE KEY BACK. That is the difference from {@link GenerationClaim}
+ * and it is the whole of it: the claim that took the key keeps it, so a reader
+ * folding a reply into an outstanding write cannot revoke the single flight that
+ * write is relying on.
  */
-export interface GenerationClaim {
-  /** Whether this claim still owns its key. False once superseded or released. */
+export interface CurrentGenerationClaim {
+  /** Whether this round is still the one the key is on. False once superseded. */
   readonly isCurrent: boolean;
   /**
-   * Run `apply` if this claim still owns its key, and answer whether it ran.
+   * Run `apply` if this round is still live, and answer whether it ran.
    *
-   * Does not release: settling and giving the key back are two acts, and a caller
-   * that shows a settlement while another act is still forbidden — a control that
-   * stays disabled until its own cleanup runs — needs them apart.
+   * Settling does not release the key of a round somebody else took: settling and
+   * giving the key back are two acts, and a caller that shows a settlement while
+   * another act is still forbidden — a control that stays disabled until its own
+   * cleanup runs — needs them apart. The one round a settlement DOES end is the one
+   * `currentClaim` minted on a free key, where the settler is also the taker.
    */
   settle(apply: () => void): boolean;
+}
+
+/**
+ * One taken claim: the right to settle a key AND to give it back.
+ *
+ * What the two entry points that take a key for a caller answer with. `release` is
+ * total and idempotent, which is what lets a caller put it in a `finally`-shaped
+ * position without asking whether this claim still owns anything.
+ */
+export interface GenerationClaim extends CurrentGenerationClaim {
   /** Give the key back if this claim still owns it. Every other key is untouched. */
   release(): void;
 }
@@ -134,17 +162,22 @@ export class GenerationLatch {
    * whether the round it is rendering against is still the live one. It supersedes
    * nothing: the claim that took the key keeps it, and this handle reports and settles
    * against the SAME round, so both go stale together the moment anything supersedes
-   * it.
+   * it. And it cannot give that key back, which is a property of the TYPE it answers
+   * with rather than a rule a caller has to remember.
    *
    * Minting where the key is free rather than answering `undefined`, because the
    * caller's question is "which round am I in", and a caller that had to answer
    * "none, so I will start one" would be writing `claim`'s refusal handling for a
-   * question that never refuses.
+   * question that never refuses. A minted round ends on its own settlement: nobody
+   * else took that key, so nobody else can give it back, and a reader that treated
+   * the handle as read-only would otherwise hold it for the life of the subject and
+   * refuse every later act on it. A caller that needs one round across SEVERAL
+   * settlements is asking to hold a key, which is `claim` or `supersedeAndClaim`.
    */
-  public currentClaim(subject: object, key: string): GenerationClaim {
+  public currentClaim(subject: object, key: string): CurrentGenerationClaim {
     const serial = this.#serialsBySubject.get(subject)?.get(key);
     return serial === undefined
-      ? this.#takeKey(subject, key)
+      ? this.#mintedRoundFor(subject, key)
       : this.#claimOfSerial(subject, key, serial);
   }
 
@@ -188,27 +221,49 @@ export class GenerationLatch {
   }
 
   /**
-   * Stamp this key with the next serial and hand back the claim that holds it.
+   * Stamp this key with the next serial, and answer which one it took.
    *
    * The one place a key is taken. Writing over an existing serial retires whatever
    * held it — the serial is the whole generation mechanism — so the difference
    * between the three public entry points is which of them is willing to reach here,
    * and never how the register is written.
    */
-  #takeKey(subject: object, key: string): GenerationClaim {
+  #nextSerialFor(subject: object, key: string): number {
     this.#issuedClaims += 1;
     const serial = this.#issuedClaims;
     this.#serialsFor(subject).set(key, serial);
-    return this.#claimOfSerial(subject, key, serial);
+    return serial;
+  }
+
+  /**
+   * Take a key for the caller that will also give it back.
+   *
+   * The full claim: the round's two questions plus the release that ends it, which is
+   * an act the taker performs when it chooses rather than one a settlement implies.
+   */
+  #takeKey(subject: object, key: string): GenerationClaim {
+    const serial = this.#nextSerialFor(subject, key);
+    const round = this.#claimOfSerial(subject, key, serial);
+    return {
+      get isCurrent(): boolean {
+        return round.isCurrent;
+      },
+      settle: (apply: () => void): boolean => round.settle(apply),
+      release: (): void => {
+        this.#releaseSerial(subject, key, serial);
+      },
+    };
   }
 
   /**
    * The handle on one round, for the caller that started it and the one that joined.
    *
    * Written once so a joined handle cannot answer a question differently from the
-   * claim that took the key.
+   * claim that took the key — and it carries NO release, so the narrowing the joiner
+   * gets is structural rather than a type over an object that has one anyway. A
+   * caller that reached past the type would find nothing there to call.
    */
-  #claimOfSerial(subject: object, key: string, serial: number): GenerationClaim {
+  #claimOfSerial(subject: object, key: string, serial: number): CurrentGenerationClaim {
     // Read through the register on every question rather than closing over the table
     // this key was written into: `supersedeAll` REPLACES that table, and a claim
     // holding the old one would go on reporting itself current against a register
@@ -225,16 +280,48 @@ export class GenerationLatch {
         apply();
         return true;
       },
-      release: (): void => {
-        if (!isCurrent()) {
-          return;
+    };
+  }
+
+  /**
+   * Give one key back, if the round asking is still the one holding it.
+   *
+   * The guard is what keeps an abandoned act from freeing the key its successor
+   * holds, and it is written here once because two paths perform a release: the taker
+   * that was handed one, and the round `currentClaim` mints on a free key, whose own
+   * settlement ends it.
+   */
+  #releaseSerial(subject: object, key: string, serial: number): void {
+    const held = this.#serialsBySubject.get(subject);
+    if (held === undefined || held.get(key) !== serial) {
+      return;
+    }
+    held.delete(key);
+    this.#dropIfEmpty(subject, held);
+  }
+
+  /**
+   * Take a free key for a joiner, and hand back a round its settlement ends.
+   *
+   * The release goes through the same guarded path every other one does — a no-op
+   * once anything has superseded the round — which is what keeps a minted round from
+   * freeing the key its successor holds. `finally` rather than a call after the
+   * settlement, because a caller's `apply` that throws must not leave the key held
+   * for the life of the subject; the throw still reaches the caller.
+   */
+  #mintedRoundFor(subject: object, key: string): CurrentGenerationClaim {
+    const serial = this.#nextSerialFor(subject, key);
+    const round = this.#claimOfSerial(subject, key, serial);
+    return {
+      get isCurrent(): boolean {
+        return round.isCurrent;
+      },
+      settle: (apply: () => void): boolean => {
+        try {
+          return round.settle(apply);
+        } finally {
+          this.#releaseSerial(subject, key, serial);
         }
-        const held = this.#serialsBySubject.get(subject);
-        if (held === undefined) {
-          return;
-        }
-        held.delete(key);
-        this.#dropIfEmpty(subject, held);
       },
     };
   }
