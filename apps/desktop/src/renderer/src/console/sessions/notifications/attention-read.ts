@@ -1,6 +1,7 @@
 // When the attention projection is read, and what makes it be read again.
 //
-// `attention-plane.ts` owns the vocabulary, the boundary narrowing, and the fold.
+// `attention-projection-read.ts` owns the seam and the boundary narrowing;
+// `attention-plane.ts` owns the fold and the reading vocabulary.
 // This module owns the one thing those cannot: a lifetime. It performs the read,
 // holds its result, and re-reads it when the session projections underneath it move
 // — which is what makes the notification center and the all-sessions list report
@@ -38,13 +39,12 @@ import { useSettlementAnnouncement } from "../../primitives/index.js";
 import { PushDrivenRead, usePushDrivenRead, type PushDrivenReadState } from "../../seats/index.js";
 import type { SessionStoreRegistry } from "../../store/index.js";
 import { describeAttentionSettlement } from "./attention-sentences.js";
+import { AttentionPlane, type AttentionReading } from "./attention-plane.js";
 import {
-  AttentionPlane,
   narrowAttentionProjection,
   type AttentionProjectionRead,
   type AttentionProjectionReader,
-  type AttentionReading,
-} from "./attention-plane.js";
+} from "./attention-projection-read.js";
 
 /** The subsystem name a failed attention read names itself with. */
 const ATTENTION_READ_ORIGIN = "attention-plane";

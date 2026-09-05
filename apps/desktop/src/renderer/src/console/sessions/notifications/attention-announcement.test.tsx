@@ -17,11 +17,8 @@ import { describe, expect, it, vi } from "vitest";
 import { growthUnavailable } from "../../bridge/index.js";
 import { ManualClock } from "../../core/index.js";
 import { LiveAnnouncer, LiveAnnouncerProvider } from "../../primitives/index.js";
-import {
-  AttentionPlane,
-  narrowAttentionProjection,
-  type AttentionReading,
-} from "./attention-plane.js";
+import { AttentionPlane, type AttentionReading } from "./attention-plane.js";
+import { narrowAttentionProjection } from "./attention-projection-read.js";
 import { useAttentionSettlementAnnouncement } from "./attention-read.js";
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";

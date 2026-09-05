@@ -81,7 +81,8 @@ export { useNewestRunIdForAgent } from "./agent-run-linkage.js";
 
 export type { ProviderAxis } from "./agent-wire.js";
 
-export { AgentCard, AgentRosterEmpty } from "./AgentCard.js";
+export { AgentCard } from "./AgentCard.js";
+export { AgentRosterEmpty } from "./AgentRosterEmpty.js";
 export { AttachSidekick } from "./AttachSidekick.js";
 export { AttachSidekickForm } from "./attach-model.js";
 export { PeerInvocation } from "./PeerInvocation.js";

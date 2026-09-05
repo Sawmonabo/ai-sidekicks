@@ -11,11 +11,8 @@ import { describe, expect, it } from "vitest";
 import { growthUnavailable, type AttentionItem } from "../../bridge/index.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
-import {
-  AttentionPlane,
-  type AttentionReading,
-  type RefusedAttentionSession,
-} from "./attention-plane.js";
+import { AttentionPlane, type AttentionReading } from "./attention-plane.js";
+import { type RefusedAttentionSession } from "./attention-projection-read.js";
 
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {

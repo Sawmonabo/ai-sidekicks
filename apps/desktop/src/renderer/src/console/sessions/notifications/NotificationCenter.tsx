@@ -53,8 +53,8 @@ import {
   type AnsweredAttentionReading,
   type AttentionReading,
   type AttentionSessionGroup,
-  type RefusedAttentionSession,
 } from "./attention-plane.js";
+import { type RefusedAttentionSession } from "./attention-projection-read.js";
 import { NOTHING_NEEDS_YOU, uncheckedSessionsSentence } from "./attention-sentences.js";
 
 /**

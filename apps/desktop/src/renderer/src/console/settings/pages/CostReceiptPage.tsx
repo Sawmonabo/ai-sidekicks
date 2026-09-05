@@ -40,26 +40,21 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import "./cost-receipt.css";
 
+import { Chip, InlineRefusal, Nothing, useAnnounce } from "../../primitives/index.js";
 import {
-  Chip,
-  DerivedFigure,
-  InlineRefusal,
-  Nothing,
-  WireFigure,
-  useAnnounce,
-} from "../../primitives/index.js";
-import {
-  BILLING_MODE_CLAUSES,
   announcementFor,
-  formatCentsAsCurrency,
   verifyReceiptPartitions,
   type CostReceipt,
-  type CostReceiptAccountRow,
-  type CostReceiptCausedByRow,
   type CostReceiptOutcome,
-  type CostReceiptRunRow,
 } from "./cost-receipt-model.js";
 import { DefinitionGrid } from "./DefinitionGrid.js";
+import {
+  ACCOUNT_COLUMNS,
+  CAUSED_BY_COLUMNS,
+  MoneyFigure,
+  PartitionSection,
+  RUN_COLUMNS,
+} from "./CostReceiptPartitions.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../settings-page-registry.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
@@ -92,54 +87,6 @@ const RECEIPT_RULES: readonly string[] = [
   "No table breaks the figure down by model. Model pricing is not one of the three splits, and a fourth accountant is what it would take.",
   "The status beside the figure is provenance, never policy — it says how the figure was arrived at and decides nothing.",
   "Each split is checked against the figure before its rows are drawn, and the sum that check takes is never shown.",
-];
-
-/** One column of a split's table: its heading, and how a row fills it. */
-interface PartitionColumn<TRow> {
-  readonly label: string;
-  /** True for the money column, which shares one right edge down the table. */
-  readonly isAmount?: boolean;
-  readonly render: (row: TRow) => ReactNode;
-}
-
-const RUN_COLUMNS: readonly PartitionColumn<CostReceiptRunRow>[] = [
-  { label: "Run", render: (row) => <WireFigure value={row.runId} /> },
-  { label: "Cost", isAmount: true, render: (row) => <MoneyFigure cents={row.costCents} /> },
-  { label: "Pricing", render: (row) => <WireFigure value={row.costStatus} /> },
-  { label: "Scope", render: (row) => <WireFigure value={row.aggregationScope} /> },
-];
-
-const CAUSED_BY_COLUMNS: readonly PartitionColumn<CostReceiptCausedByRow>[] = [
-  {
-    label: "Party",
-    render: (row) =>
-      // The system arm carries no identifier at all, so it is named in the console's
-      // own words and can never be mistaken for something the daemon sent.
-      row.party.kind === "system" ? (
-        <DerivedFigure text="the machine itself" />
-      ) : (
-        <WireFigure value={row.party.participantId} />
-      ),
-  },
-  { label: "Cost", isAmount: true, render: (row) => <MoneyFigure cents={row.costCents} /> },
-  { label: "Pricing", render: (row) => <WireFigure value={row.costStatus} /> },
-];
-
-const ACCOUNT_COLUMNS: readonly PartitionColumn<CostReceiptAccountRow>[] = [
-  { label: "Account", render: (row) => <WireFigure value={row.displayLabel} /> },
-  {
-    label: "Charged as",
-    render: (row) => (
-      <>
-        <WireFigure value={row.billingMode} />
-        <span className="meridian-cost-receipt__cell-note">
-          {BILLING_MODE_CLAUSES[row.billingMode]}
-        </span>
-      </>
-    ),
-  },
-  { label: "Cost", isAmount: true, render: (row) => <MoneyFigure cents={row.costCents} /> },
-  { label: "Pricing", render: (row) => <WireFigure value={row.costStatus} /> },
 ];
 
 export function CostReceiptPage(props: { readonly context: SettingsPageContext }): ReactNode {
@@ -294,97 +241,6 @@ function ServedReceipt(props: { readonly receipt: CostReceipt }): ReactNode {
       />
     </>
   );
-}
-
-/**
- * One split: its rows, or the reason they are not there.
- *
- * Generic over the row, so the three splits share one table rather than three copies
- * of one scaffolding: the columns carry what differs, and the type parameter keeps
- * each column's accessor bound to the row it reads.
- *
- * The failed-verification arm is checked FIRST and renders as the refusal kind of
- * absence — a split that does not account for the figure is neither empty nor
- * unasked, and its rows are withheld rather than drawn as though they added up.
- */
-function PartitionSection<TRow>(props: {
-  readonly label: string;
-  readonly caption: string;
-  readonly columns: readonly PartitionColumn<TRow>[];
-  readonly rows: readonly TRow[];
-  readonly keyOf: (row: TRow) => string;
-  readonly accountsForFigure: boolean;
-  readonly emptyTitle: string;
-  readonly emptyDetail: string;
-}): ReactNode {
-  let body: ReactNode;
-  if (!props.accountsForFigure) {
-    body = (
-      <Nothing
-        kind="error"
-        placement="surface"
-        title="This split does not account for the figure."
-        detail="Its rows do not come to the amount this session is charged, so one has been counted twice or left out. They are withheld rather than shown as a breakdown of a number they do not break down."
-      />
-    );
-  } else if (props.rows.length === 0) {
-    body = (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title={props.emptyTitle}
-        detail={props.emptyDetail}
-      />
-    );
-  } else {
-    body = (
-      <div className="meridian-cost-receipt__scroll">
-        <table className="meridian-cost-receipt__table">
-          <caption>{props.caption}</caption>
-          <thead>
-            <tr>
-              {props.columns.map((column) => (
-                <th key={column.label} scope="col">
-                  {column.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {props.rows.map((row) => (
-              <tr key={props.keyOf(row)}>
-                {props.columns.map((column) => (
-                  <td
-                    key={column.label}
-                    className={
-                      column.isAmount === true ? "meridian-cost-receipt__amount" : undefined
-                    }
-                  >
-                    {column.render(row)}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  }
-  return (
-    <section className="meridian-settings-page__block" aria-label={props.label}>
-      <h3 className="meridian-settings-page__block-title">{props.label}</h3>
-      {body}
-    </section>
-  );
-}
-
-/**
- * A cents figure as money, with the daemon's own integer on the title — where the
- * eight rules put the number a formatted figure would otherwise hide. Four call
- * sites, so it is written once.
- */
-function MoneyFigure(props: { readonly cents: number }): ReactNode {
-  return <WireFigure value={formatCentsAsCurrency(props.cents)} title={String(props.cents)} />;
 }
 
 /** Claim the cost section. See `RuntimeNodesPage.tsx` on the seam's shape. */

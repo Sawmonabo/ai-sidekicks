@@ -19,13 +19,13 @@ import {
   fixtureBridgeWithGrowth,
   unscriptedScenario,
 } from "../../bridge/fixture-bridge-overrides.test-support.js";
+import { AttentionPlane } from "./attention-plane.js";
 import {
-  AttentionPlane,
   READS_NO_ATTENTION_PROJECTION,
   attentionProjectionReaderFor,
   narrowAttentionItem,
   narrowAttentionProjection,
-} from "./attention-plane.js";
+} from "./attention-projection-read.js";
 
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {

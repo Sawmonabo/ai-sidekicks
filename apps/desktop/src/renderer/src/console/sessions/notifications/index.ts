@@ -26,7 +26,8 @@ export { NotificationCenter } from "./NotificationCenter.js";
 // and the fold are reached deeply from inside — an intra-subtree import is deep by
 // the layout rule, and a barrel re-exporting a symbol nobody outside it imports is
 // a door onto a room with no other entrance.
-export { attentionProjectionReaderFor, type AttentionReading } from "./attention-plane.js";
+export { type AttentionReading } from "./attention-plane.js";
+export { attentionProjectionReaderFor } from "./attention-projection-read.js";
 // The read's own lifetime lives next door: the plane is a vocabulary and a fold, and
 // the hook that performs the read and keeps it current is what a destination mounts.
 export { useAttentionProjection, useAttentionSettlementAnnouncement } from "./attention-read.js";

@@ -24,7 +24,7 @@ import {
 } from "../../bridge/fixture-bridge-overrides.test-support.js";
 import type { ConsoleBridge, GrowthPort } from "../../bridge/index.js";
 import { consoleShellPreferences, useShellPreferences } from "./shell-preferences-holder.js";
-import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./shell-preferences-store.js";
+import { SHELL_PREFERENCE_DEFAULTS, effectivePreference } from "./shell-preference-snapshot.js";
 
 /** The carrier nobody has registered, which is every carrier this console has. */
 const REFUSING_CARRIER: Partial<GrowthPort> = {

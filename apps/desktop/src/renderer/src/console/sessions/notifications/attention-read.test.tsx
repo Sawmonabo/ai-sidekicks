@@ -18,7 +18,10 @@ import { createFixtureBridge, growthUnavailable, type ConsoleBridge } from "../.
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStoreRegistry } from "../../store/index.js";
 import { NotificationCenter } from "./NotificationCenter.js";
-import type { AttentionProjectionRead, AttentionProjectionReader } from "./attention-plane.js";
+import type {
+  AttentionProjectionRead,
+  AttentionProjectionReader,
+} from "./attention-projection-read.js";
 import { useAttentionProjection } from "./attention-read.js";
 
 const FIRST_SESSION_ID = "session-attention-one";

@@ -9,11 +9,11 @@
 import { describe, expect, it } from "vitest";
 
 import { growthUnavailable } from "../../bridge/index.js";
+import { AttentionPlane } from "./attention-plane.js";
 import {
-  AttentionPlane,
   narrowAttentionProjection,
   type RefusedAttentionSession,
-} from "./attention-plane.js";
+} from "./attention-projection-read.js";
 import { describeAttentionSettlement } from "./attention-sentences.js";
 
 const CREATED_AT = "2026-01-01T10:00:00.000Z";

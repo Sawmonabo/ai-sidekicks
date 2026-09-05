@@ -53,20 +53,22 @@
 // meanwhile. What goes stale is the whole-set PUBLICATION, and that is what the
 // generation guards.
 
-import { wireRejectionToError } from "../../../../../shared/wire-errors.js";
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { Emitter, refuse, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../core/index.js";
 import { GenerationLatch, type CurrentGenerationClaim } from "../../store/index.js";
 import {
   flipMember,
-  isToggleableValue,
   type AttentionPreferenceReadOutcome,
-  type PreferenceRow,
   type PreferenceToggleMember,
 } from "./attention-preference-model.js";
+import {
+  rejectionRefusal,
+  toggleableValueFor,
+  unwritableRecordRefusal,
+  type TogglePreferenceRow,
+} from "./notification-preference-reading.js";
 
-/** The subsystem name every refusal this module raises carries. */
-const NOTIFICATION_PREFERENCE_REFUSAL_ORIGIN = "notification-preferences";
+export type { TogglePreferenceRow } from "./notification-preference-reading.js";
 
 /**
  * The two operations this writer reaches.
@@ -79,9 +81,6 @@ export type AttentionPreferencePort = Pick<
   ConsoleBridge["growth"],
   "attentionPreferenceRead" | "attentionPreferenceUpdate"
 >;
-
-/** One preference drawn as switches. Narrowed off the projection's own union. */
-export type TogglePreferenceRow = Extract<PreferenceRow, { readonly kind: "toggles" }>;
 
 /** What the page renders one record's switches from. */
 export interface PreferenceWriteSnapshot {
@@ -341,61 +340,4 @@ export class NotificationPreferenceWriter {
     };
     this.#changes.emit();
   }
-}
-
-/**
- * The stored record under `recordKey`, if the set still holds it as switches.
- *
- * `undefined` covers three different facts — the read refused, the record is gone,
- * the value stopped being a set of booleans — and they share one consequence: there
- * is no value a queued flip can be composed against.
- */
-function toggleableValueFor(
-  outcome: AttentionPreferenceReadOutcome,
-  recordKey: string,
-): Readonly<Record<string, boolean>> | undefined {
-  if (outcome.status !== "served") {
-    return undefined;
-  }
-  const stored = outcome.value.preferences.find((preference) => preference.key === recordKey);
-  if (stored === undefined || !isToggleableValue(stored.value)) {
-    return undefined;
-  }
-  return stored.value;
-}
-
-/**
- * A rejection this seam is not supposed to raise, widened into the one refusal shape.
- *
- * Through the repository's single wire-rejection normalizer rather than a local
- * `instanceof Error` ladder: it puts a wire code on the name instead of rendering
- * `[object Object]`, and its total arm cannot throw while composing the sentence that
- * says something failed.
- */
-function rejectionRefusal(rejection: unknown): ConsoleRefusal {
-  const normalized = wireRejectionToError(rejection, { total: true });
-  return refuse(
-    NOTIFICATION_PREFERENCE_REFUSAL_ORIGIN,
-    normalized.name,
-    `This change was not saved. ${normalized.message}`,
-  );
-}
-
-/**
- * Why a queued toggle could not be composed.
- *
- * A refused re-read carries its own words verbatim — it IS the reason, and
- * paraphrasing the daemon is what rule 9 forbids. A served set that no longer holds
- * the record as switches is this console's own observation, so it says only what it
- * saw and never why the record changed.
- */
-function unwritableRecordRefusal(outcome: AttentionPreferenceReadOutcome): ConsoleRefusal {
-  if (outcome.status === "unavailable") {
-    return outcome;
-  }
-  return refuse(
-    NOTIFICATION_PREFERENCE_REFUSAL_ORIGIN,
-    "record-no-longer-switches",
-    "This change was not saved. The stored record is no longer a set of switches, so there was nothing to write it against.",
-  );
 }

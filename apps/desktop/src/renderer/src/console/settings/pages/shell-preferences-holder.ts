@@ -22,13 +22,13 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 import type { ConsoleBridge } from "../../bridge/index.js";
 import type { ConsoleRefusal } from "../../core/index.js";
 import { useSubjectScopedState } from "../../store/index.js";
+import { ShellPreferenceStore } from "./shell-preferences-store.js";
 import {
   NOTHING_CHOSEN,
-  ShellPreferenceStore,
   effectivePreference,
   type ShellPreferenceKey,
   type ShellPreferenceSnapshot,
-} from "./shell-preferences-store.js";
+} from "./shell-preference-snapshot.js";
 
 /** What a page reads and what it presses. One object, so a row takes one prop set. */
 export interface ShellPreferenceBinding {
