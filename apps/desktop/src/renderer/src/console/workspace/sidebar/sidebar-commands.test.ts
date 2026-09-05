@@ -7,11 +7,13 @@
 
 import { describe, expect, it, vi, type Mock } from "vitest";
 
-import type { ConsoleCommand, KeyBinding } from "../../palette/index.js";
 import type {
+  ConsoleCommand,
   ConsoleCommandSurface,
   ConsoleFamilyCommandContribution,
-} from "../../frame/command-surface.js";
+  KeyBinding,
+} from "../../palette/index.js";
+
 import {
   MountedSidebarSeat,
   SIDEBAR_COMMAND_OWNER,

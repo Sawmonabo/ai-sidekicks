@@ -19,13 +19,14 @@
 // sent — so every tool renders through this one card, and the name renders wire-verbatim
 // in mono beside it.
 
+import { readWireString } from "../../core/index.js";
 import { Chip, Glyph, LedgerRow, formatDuration, type ChipTone } from "../../primitives/index.js";
 import { LedgerRowGroup } from "../frame/index.js";
 import { TOOL_SUMMARY_MAX_CHARACTERS } from "./card-bounds.js";
 import { cardFamilyDescriptor, toolResultState, type ToolResultState } from "./card-family.js";
 import type { LedgerCardProps } from "./card-props.js";
 import { MachineBody } from "./bodies/index.js";
-import { projectedPayload, readWireCount, readWireString } from "./wire-payload.js";
+import { projectedPayload, readWireCount } from "./wire-payload.js";
 
 export interface ToolCardProps extends LedgerCardProps {
   /**
@@ -58,7 +59,7 @@ export function ToolCard(props: ToolCardProps): React.JSX.Element {
   const state = toolResultState(props.row.type, props.content);
   const chip = RESULT_STATE_CHIPS[state];
   const payload = projectedPayload(props.row);
-  const toolName = readWireString(payload, "toolName");
+  const toolName = readWireString(payload["toolName"]);
   const durationMs = readWireCount(payload, "durationMs");
   const isOpen = props.density === "expanded";
 

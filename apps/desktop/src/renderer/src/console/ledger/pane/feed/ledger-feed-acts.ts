@@ -38,7 +38,8 @@
 import { useMemo } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../../core/index.js";
-import { raiseConsoleActRefusal } from "../../../frame/command-surface.js";
+import { raiseConsoleActRefusal } from "../../../palette/index.js";
+
 import {
   useMountedLedger,
   type FindStepDirection,

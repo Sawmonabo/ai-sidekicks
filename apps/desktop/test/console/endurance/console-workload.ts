@@ -85,7 +85,7 @@ export const SETTINGS_ROUTE: string = "#/settings";
  * or an overlay cannot satisfy the wait for a surface that never mounted.
  */
 export const SETTINGS_SURFACE_SELECTOR: string =
-  ".meridian-frame__surface .meridian-frame__absence .meridian-nothing--empty";
+  ".meridian-frame__surface .meridian-surface-absence .meridian-nothing--empty";
 
 /**
  * What the session workspace renders and the settings route does not.

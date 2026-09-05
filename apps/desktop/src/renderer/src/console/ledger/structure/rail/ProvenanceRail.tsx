@@ -50,6 +50,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { type ConsoleClock } from "../../../core/index.js";
 import { Glyph } from "../../../primitives/index.js";
+import { GLYPH_SIZE_ROW } from "../../../tokens/index.js";
 import { RAIL_HIT_STRIP_WIDTH_PX } from "../structure-bounds.js";
 import { clampRailViewportBand } from "./rail-bands.js";
 import { type ProvenanceRailModel, type RailTick } from "./rail-model.js";
@@ -282,15 +283,13 @@ export function ProvenanceRail(props: ProvenanceRailProps): React.JSX.Element {
           role="status"
           style={previewStyle(preview.offsetFraction)}
         >
-          <Glyph name={preview.tick.glyph} size={RAIL_PREVIEW_GLYPH_SIZE} />
+          <Glyph name={preview.tick.glyph} size={GLYPH_SIZE_ROW} />
           <span className="meridian-rail__preview-summary">{preview.tick.summary}</span>
         </div>
       )}
     </div>
   );
 }
-
-const RAIL_PREVIEW_GLYPH_SIZE = 12;
 
 /**
  * The walk origin when nothing is selected.

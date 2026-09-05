@@ -27,8 +27,12 @@
 // store, a bridge, or the DOM — which is what makes the whole contribution
 // testable by invoking `run` and watching the act fire.
 
-import { raiseConsoleActRefusal, type ConsoleCommandSurface } from "../../frame/command-surface.js";
-import type { ConsoleCommand, KeyBinding } from "../../palette/index.js";
+import {
+  raiseConsoleActRefusal,
+  type ConsoleCommand,
+  type ConsoleCommandSurface,
+  type KeyBinding,
+} from "../../palette/index.js";
 import {
   mountedLedger,
   type LedgerActName,

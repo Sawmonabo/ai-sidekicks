@@ -1,27 +1,15 @@
 // Reading a member off an open payload — and refusing to coerce one that is not there.
+//
+// The string rule itself is `core/wire-strings.ts`' and is tested beside it; what is
+// left here is the count's range check and the arm the projection answers an empty
+// record for. The one case that still reads a string does so through the core
+// predicate, because what it is claiming is about the PROJECTION and not the read.
 
 import { describe, expect, it } from "vitest";
 
+import { readWireString } from "../../core/index.js";
 import { sampleRunRow } from "./row-samples.test-support.js";
-import { projectedPayload, readWireCount, readWireString } from "./wire-payload.js";
-
-describe("reading a string member", () => {
-  it("returns the member when it is a non-empty string", () => {
-    expect(readWireString({ toolName: "Bash" }, "toolName")).toBe("Bash");
-  });
-
-  it("returns nothing for an absent, empty, or wrongly-typed member", () => {
-    expect(readWireString({}, "toolName")).toBeUndefined();
-    expect(readWireString({ toolName: "" }, "toolName")).toBeUndefined();
-    expect(readWireString({ toolName: 7 }, "toolName")).toBeUndefined();
-    expect(readWireString({ toolName: { name: "Bash" } }, "toolName")).toBeUndefined();
-  });
-
-  it("negative control: it never coerces", () => {
-    // `String({})` is "[object Object]", which would reach the screen as a tool name.
-    expect(readWireString({ toolName: {} }, "toolName")).not.toBe("[object Object]");
-  });
-});
+import { projectedPayload, readWireCount } from "./wire-payload.js";
 
 describe("reading a count member", () => {
   it("accepts a finite non-negative number, including zero", () => {
@@ -40,7 +28,7 @@ describe("reading a count member", () => {
 describe("the projected payload", () => {
   it("is the row's own payload on an open arm", () => {
     const row = sampleRunRow({ payload: { toolName: "Bash" } });
-    expect(readWireString(projectedPayload(row), "toolName")).toBe("Bash");
+    expect(readWireString(projectedPayload(row)["toolName"])).toBe("Bash");
   });
 
   it("negative control: reading it twice yields the same object, not a copy", () => {

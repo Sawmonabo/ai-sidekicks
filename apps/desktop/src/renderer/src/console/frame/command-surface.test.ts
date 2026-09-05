@@ -16,12 +16,14 @@ import { describe, expect, it } from "vitest";
 import { DuplicateRegistrationError } from "../core/keyed-registry.js";
 import { RAIL_DESTINATIONS } from "../routing/index.js";
 import {
-  FRAME_KEY_BINDINGS,
-  FRAME_WHEN_CLAUSE_KEYS,
-  RAIL_NAVIGATION_DETAILS,
   consoleCommands,
   registerConsoleCommand,
   registerConsoleCommands,
+} from "../palette/index.js";
+import {
+  FRAME_KEY_BINDINGS,
+  FRAME_WHEN_CLAUSE_KEYS,
+  RAIL_NAVIGATION_DETAILS,
   type FrameKeyBinding,
   type FrameWhenClauseContext,
 } from "./command-surface.js";

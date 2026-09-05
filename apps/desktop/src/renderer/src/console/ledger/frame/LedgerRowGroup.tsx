@@ -6,15 +6,15 @@
 // per-group boundary answer to different failures and neither can stand in for the
 // other.
 //
-// WHY THE DEEP IMPORT OF `frame/ErrorBoundary.js`. `frame/index.ts` exports
-// `ConsoleRoot`, which imports `console/families.ts`, which imports this family's
-// door — so an edge from here to that barrel closes a cycle. `ErrorBoundary.tsx`
-// imports nothing above `core/`, so the deep import reaches the boundary and nothing
-// else.
+// THE BOUNDARY COMES THROUGH THE PRIMITIVES DOOR. It used to be `frame/`'s, reached
+// by a deep specifier because `frame/index.ts` exports `ConsoleRoot`, which imports
+// `console/families.ts`, which imports this family's door — so an edge from here to
+// that barrel closes a cycle. `console-cross-family-deep-import` reports the deep
+// specifier that shape produces and prescribes the hoist instead, and the boundary
+// imports nothing above `core/`, so `primitives/` is the family that owns its inputs.
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { SurfaceErrorBoundary } from "../../frame/ErrorBoundary.js";
-import { RefusalCard } from "../../primitives/index.js";
+import { RefusalCard, SurfaceErrorBoundary } from "../../primitives/index.js";
 
 export interface LedgerRowGroupProps {
   /** What failed, in the person's words: "a run chapter", "the streaming message". */

@@ -29,8 +29,12 @@
 import { useEffect } from "react";
 
 import { refuse, type ConsoleRefusal } from "../../core/index.js";
-import { raiseConsoleActRefusal, type ConsoleCommandSurface } from "../../frame/command-surface.js";
-import { type ConsoleCommand } from "../../palette/index.js";
+
+import {
+  raiseConsoleActRefusal,
+  type ConsoleCommand,
+  type ConsoleCommandSurface,
+} from "../../palette/index.js";
 
 /**
  * The acts a mounted sidebar offers. One function per command, named for the act

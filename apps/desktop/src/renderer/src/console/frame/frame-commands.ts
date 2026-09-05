@@ -19,6 +19,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConsoleRefusal } from "../core/index.js";
 import {
   KeyBindingTable,
+  consoleCommands,
+  publishConsoleActRefusalSink,
+  registerConsoleCommands,
   useBridgeCommands,
   type ConsoleCommand,
   type WhenClauseContext,
@@ -33,10 +36,7 @@ import type { FrameStore } from "../store/index.js";
 import type { SchemePreference } from "../tokens/index.js";
 import {
   RAIL_NAVIGATION_DETAILS,
-  consoleCommands,
   consoleKeyBindings,
-  publishConsoleActRefusalSink,
-  registerConsoleCommands,
   type FrameCommand,
   type FrameWhenClauseContext,
 } from "./command-surface.js";

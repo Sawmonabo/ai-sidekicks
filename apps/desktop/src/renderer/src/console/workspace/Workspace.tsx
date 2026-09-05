@@ -46,11 +46,12 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
+import { consoleCommandSurface } from "../palette/index.js";
 import { useAnnounce } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
-import { consoleCommandSurface } from "../frame/command-surface.js";
+
 import {
   DECK_RESTORED_PANE_CAP,
   SIDEBAR_COLLAPSED_WIDTH_PX,
