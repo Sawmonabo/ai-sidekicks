@@ -15,7 +15,7 @@ import { WindowedListRow } from "./WindowedListRow.js";
 import {
   WINDOWED_ROW_INDEX_ATTRIBUTE,
   WINDOWED_ROW_TARGET_ATTRIBUTE,
-} from "./windowed-row-index.js";
+} from "./windowed-row-markers.js";
 
 /** The elements a browser puts in the sequential tab order without being asked. */
 const NATIVELY_TABBABLE = "button, a[href], input, select, textarea";

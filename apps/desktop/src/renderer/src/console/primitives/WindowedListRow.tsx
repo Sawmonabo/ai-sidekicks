@@ -71,7 +71,7 @@
 import {
   WINDOWED_ROW_INDEX_ATTRIBUTE,
   WINDOWED_ROW_TARGET_ATTRIBUTE,
-} from "./windowed-row-index.js";
+} from "./windowed-row-markers.js";
 
 /** What ARIA's "the size of this set is not known" is spelled as. */
 const UNKNOWN_SET_SIZE = -1;
