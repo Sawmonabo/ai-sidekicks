@@ -29,17 +29,28 @@
 //
 // AND A SETTLEMENT BELONGS TO THE DRAFT THAT ASKED FOR IT. Discard is reachable
 // while a send is in flight, and "+ New" is reachable the moment it is — so a send
-// can settle over a composition that is not the one it was sent for. Every draft
-// this control opens is minted with an identity, the send captures it before the
-// first await, and the result, the announcement, and the sending flag are all
-// withheld unless that identity is still the draft on screen. Two sends in flight
-// is the case the flag itself has to be per-draft for: one boolean over two drafts
-// re-enables Send under a composition that is still waiting.
+// can settle over a composition that is not the one it was sent for. The result, the
+// announcement and the sending flag are therefore held per DRAFT, through
+// `store/subject-scoped-state.ts`: a publisher captured when Send was pressed names
+// the draft that pressed it, and installs nothing once the composition on screen is
+// another one. Two sends in flight is the case that has to be per-draft: one boolean
+// over two drafts re-enables Send under a composition that is still waiting.
+//
+// AND THE DRAFT ITSELF BELONGS TO THE BRIDGE IT WOULD SEND THROUGH. A draft holds
+// the bridge it was composed against and sends `session.create` through that one, so
+// a bridge REPLACEMENT — a reconnect, a second window's own instance, the fixture's
+// scenario switch — leaves a draft addressed to a transport that is gone. The draft
+// is held through `store/subject-scoped-resource.ts` on the bridge, so a replacement
+// discards it and the control offers "+ New" again on the live one. That loses a
+// composition, and it is the honest half of the trade: the alternative is a Send that
+// looks ordinary and either never lands or lands somewhere the console will not read
+// again, and a `sessionId` reported back for a session nobody can open.
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { SIDEKICK_POSTURE_MODES, type ConsoleBridge } from "../bridge/index.js";
 import { InlineRefusal, useAnnounce } from "../primitives/index.js";
+import { useSubjectScopedResource, useSubjectScopedState } from "../store/index.js";
 import {
   NewSessionDraft,
   type DraftPostureMode,
@@ -118,19 +129,6 @@ export function NewSessionControl(props: NewSessionControlProps): React.JSX.Elem
   );
 }
 
-/**
- * One open draft, and which draft it is.
- *
- * The identity is a number this hook mints rather than the object itself, because
- * the question a settlement has to answer is "is the draft I was sent for still the
- * draft on screen?" — and a comparison against an object is a comparison that keeps
- * the discarded draft alive for as long as its send is in flight.
- */
-interface OpenNewSessionDraft {
-  readonly draftId: number;
-  readonly draft: NewSessionDraft;
-}
-
 /** Everything the control renders and every act it offers, in one hook. */
 interface NewSessionComposition {
   /** `undefined` while no draft is open — the state the "+ New" button is in. */
@@ -150,68 +148,91 @@ interface NewSessionComposition {
   readonly send: () => void;
 }
 
+/** What one draft's send is doing, and what it settled on. Held per draft. */
+interface DraftSendReport {
+  readonly isSending: boolean;
+  readonly result: NewSessionSendResult | undefined;
+}
+
+/** A draft nobody has sent. One value, so every seed is the same object. */
+const NO_SEND_YET: DraftSendReport = { isSending: false, result: undefined };
+
+/**
+ * No draft until "+ New" is pressed — the seed for a bridge nobody has composed on.
+ *
+ * The holder seeds during the render that first sees a subject, and a seed that
+ * CONSTRUCTED a draft would make arriving at the sessions destination compose a
+ * session. The act is the person's; this is what the control shows until they make it.
+ */
+function noDraftUntilOpened(): NewSessionDraft | undefined {
+  return undefined;
+}
+
+/**
+ * How a draft this control lets go of ends.
+ *
+ * Total over the seed, because a bridge that was never composed on holds no draft.
+ * The discard is the draft's own — "a draft that is closed empty reverts to nothing
+ * and leaves no row" is a claim about what `discard()` does, so dropping the object
+ * without it would make closing mean something else.
+ */
+function discardDraft(draft: NewSessionDraft | undefined): void {
+  draft?.discard();
+}
+
 /**
  * Hold the draft, and keep the rendered state in step with it.
  *
- * The draft is the source of truth and this hook mirrors its snapshots rather than
- * keeping selections of its own: two copies of what a person has chosen is how a
- * discard clears one of them. Nothing is constructed until "+ New" is pressed, so
- * mounting the sessions destination composes no draft — the act is the person's.
+ * The draft is the source of truth and this hook subscribes to it rather than keeping
+ * selections of its own: two copies of what a person has chosen is how a discard
+ * clears one of them.
  */
 function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition {
-  const [openDraft, setOpenDraft] = useState<OpenNewSessionDraft | undefined>(undefined);
-  const [draftState, setDraftState] = useState<NewSessionDraftState | undefined>(undefined);
-  const [sendResult, setSendResult] = useState<NewSessionSendResult | undefined>(undefined);
-  /**
-   * Which draft has a send running, rather than whether one has.
-   *
-   * A boolean is one flag over an unbounded number of drafts: a first draft's send
-   * settling would clear it while a second draft's send was still running, and Send
-   * would come back enabled under a composition that is still waiting.
-   */
-  const [sendingDraftId, setSendingDraftId] = useState<number | undefined>(undefined);
-  /**
-   * The draft on screen, readable from a settlement that resolved later.
-   *
-   * A ref and not the state, because the continuation below closes over the render
-   * it was created in: by the time a promise settles, `openDraft` in that closure is
-   * whatever was open when Send was pressed, which is exactly the value that cannot
-   * answer "is this still the draft?".
-   */
-  const currentDraftIdReference = useRef<number | undefined>(undefined);
-  const nextDraftIdReference = useRef(0);
+  const heldDraft = useSubjectScopedResource<NewSessionDraft | undefined>(
+    bridge,
+    undefined,
+    noDraftUntilOpened,
+    discardDraft,
+  );
+  const openDraft = heldDraft.value;
+  const publishDraft = heldDraft.publish;
+  // Addressed by the DRAFT, so a settlement is measured against the composition it
+  // was sent for and not against a counter this component keeps. Where none is open
+  // the bridge stands in as the subject: nothing is sending, and the seed says so.
+  const sendReport = useSubjectScopedState<DraftSendReport>(
+    openDraft ?? bridge,
+    undefined,
+    () => NO_SEND_YET,
+  );
+  const publishReport = sendReport.publish;
+  const { isSending, result } = sendReport.value;
   const announce = useAnnounce();
 
+  // Read off the draft rather than mirrored into state on every act: the draft emits
+  // on each commit, and a second copy is one more thing a discard has to clear.
+  const draftState = useSyncExternalStore(
+    useCallback(
+      (onChange: () => void) =>
+        openDraft === undefined ? () => undefined : openDraft.subscribe(onChange),
+      [openDraft],
+    ),
+    useCallback(() => openDraft?.snapshot(), [openDraft]),
+  );
+
   const open = useCallback(() => {
-    const opened = new NewSessionDraft({ bridge });
-    const draftId = nextDraftIdReference.current + 1;
-    nextDraftIdReference.current = draftId;
-    currentDraftIdReference.current = draftId;
-    // Subscribed rather than re-read after each act: the draft emits on every
-    // commit, so one subscription keeps the render in step with every path that
-    // mutates it, including ones this control does not call itself.
-    opened.subscribe(setDraftState);
-    setOpenDraft({ draftId, draft: opened });
-    setDraftState(opened.snapshot());
-    setSendResult(undefined);
-    setSendingDraftId(undefined);
-  }, [bridge]);
+    publishDraft(new NewSessionDraft({ bridge }));
+  }, [bridge, publishDraft]);
 
   const close = useCallback(() => {
-    // `discard()` first and then the local drop, in that order: the draft's own
-    // discard is what leaves no row behind, and dropping the object without it would
-    // make "closed empty" mean something different from what the draft says it means.
-    openDraft?.draft.discard();
-    currentDraftIdReference.current = undefined;
-    setOpenDraft(undefined);
-    setDraftState(undefined);
-    setSendResult(undefined);
-    setSendingDraftId(undefined);
-  }, [openDraft]);
+    // Published rather than discarded here: the holder disposes what it replaced,
+    // through the same `discard()` a bridge replacement would run, so closing by hand
+    // and closing by reconnect end a draft the same way.
+    publishDraft(undefined);
+  }, [publishDraft]);
 
   const setPosture = useCallback(
     (posture: DraftPostureMode) => {
-      openDraft?.draft.setPosture(posture);
+      openDraft?.setPosture(posture);
     },
     [openDraft],
   );
@@ -220,42 +241,32 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     if (openDraft === undefined) {
       return;
     }
-    // The draft this send is FOR, captured before the first await. Everything the
-    // settlement writes — the result, the announcement, the sending flag — is about
-    // this draft, so every one of them is withheld once it is not the draft on
-    // screen: a discarded draft's refusal rendered under its replacement would be
-    // the console reporting a send the person never made.
-    const { draftId } = openDraft;
-    setSendingDraftId(draftId);
-    // `finally` rather than a second clear inside `then`: the flag has to clear on
-    // the rejected path too, or a send that threw would leave Send disabled with
-    // nothing on screen explaining why.
-    void openDraft.draft
+    // The publisher captured on THIS render is the one bound to the draft that is
+    // sending. If the composition on screen has moved on by the time the create
+    // settles, everything below installs nowhere — the result, the announcement it
+    // would have caused, and the flag that would have re-enabled Send under a draft
+    // still waiting on its own reply.
+    publishReport({ isSending: true, result: undefined });
+    void openDraft
       .send()
-      .then((result) => {
-        if (currentDraftIdReference.current !== draftId) {
-          return;
-        }
-        setSendResult(result);
-        // Once, on the settlement, and never on a re-render: the outcome is the thing a
-        // person waited for, and the refusal below carries the detail.
-        announce(SEND_ANNOUNCEMENTS[result.outcome]);
+      .then((sendResult) => {
+        publishReport({ isSending: false, result: sendResult });
       })
-      .finally(() => {
-        if (currentDraftIdReference.current !== draftId) {
-          return;
-        }
-        setSendingDraftId(undefined);
+      .catch(() => {
+        // A send that rejected outright reported nothing to render, so the draft goes
+        // back to pressable rather than staying frozen behind its own guard.
+        publishReport(NO_SEND_YET);
       });
-  }, [announce, openDraft]);
+  }, [openDraft, publishReport]);
 
-  return {
-    draftState,
-    sendResult,
-    isSending: sendingDraftId !== undefined && sendingDraftId === openDraft?.draftId,
-    open,
-    close,
-    setPosture,
-    send,
-  };
+  // Said once, when a settlement LANDS, rather than from inside the continuation: a
+  // result that installed nowhere is one nobody was waiting for, and announcing from
+  // the value that reached the screen is what keeps those two facts the same one.
+  useEffect(() => {
+    if (result !== undefined) {
+      announce(SEND_ANNOUNCEMENTS[result.outcome]);
+    }
+  }, [announce, result]);
+
+  return { draftState, sendResult: result, isSending, open, close, setPosture, send };
 }

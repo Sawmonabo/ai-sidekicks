@@ -391,3 +391,66 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     expect(politeText(container)).toBe("");
   });
 });
+
+/** The fixture bridge, plus a count of the creates that actually reached it. */
+function bridgeCountingCreates(): {
+  readonly bridge: ConsoleBridge;
+  readonly createCount: () => number;
+} {
+  let creates = 0;
+  const { bridge } = withDaemonCall(bridgeFor({ scriptsCreate: true }), async () => {
+    creates += 1;
+    return CREATE_REPLY;
+  });
+  return { bridge, createCount: () => creates };
+}
+
+describe("the composed new-session draft — the transport it would send through", () => {
+  afterEach(cleanup);
+
+  it("drops the draft when the bridge is replaced, and sends nothing through the retired one", async () => {
+    // A draft holds the bridge it was composed against and sends `session.create`
+    // through that one, so a reconnect leaves it addressed to a transport that is
+    // gone: the send would either never land or land on a connection this console
+    // will not read again, and the id it reported back would name a session nobody
+    // can open. The draft goes with the transport, and "+ New" comes back.
+    const retired = bridgeCountingCreates();
+    const live = bridgeCountingCreates();
+    const { rerender } = render(
+      <LiveAnnouncerProvider>
+        <NewSessionControl bridge={retired.bridge} />
+      </LiveAnnouncerProvider>,
+    );
+    await openDraftWithPosture();
+
+    rerender(
+      <LiveAnnouncerProvider>
+        <NewSessionControl bridge={live.bridge} />
+      </LiveAnnouncerProvider>,
+    );
+
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    expect(screen.getByRole("button", { name: "+ New" })).toBeDefined();
+
+    await openDraftWithPosture();
+    await press("Send");
+
+    expect(live.createCount()).toBe(1);
+    expect(retired.createCount()).toBe(0);
+  });
+
+  it("negative control: with no replacement, the same composition reaches its own bridge", async () => {
+    // Without this, the case above would pass over a control whose Send reached no
+    // bridge at all, and "never the retired one" would be true of every bridge.
+    const composed = bridgeCountingCreates();
+    render(
+      <LiveAnnouncerProvider>
+        <NewSessionControl bridge={composed.bridge} />
+      </LiveAnnouncerProvider>,
+    );
+    await openDraftWithPosture();
+    await press("Send");
+
+    expect(composed.createCount()).toBe(1);
+  });
+});
