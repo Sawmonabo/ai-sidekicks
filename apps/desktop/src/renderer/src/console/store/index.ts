@@ -105,6 +105,10 @@ export {
   SubjectScopedHolder,
   useSubjectScopedState,
 } from "./subject-scoped-state.js";
+// The disposal half, from the module that DECLARES it. A value a drop releases takes
+// the holder above; a value that owns a subscription or a connection takes this,
+// because the render that seeded it may be one React throws away.
+export { useSubjectScopedResource } from "./subject-scoped-resource.js";
 export type {
   /** @consumedBy T-023p-1C-8 */
   SubjectKey,

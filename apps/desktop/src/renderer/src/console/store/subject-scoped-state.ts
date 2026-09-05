@@ -52,6 +52,13 @@
 // comparison then happens in the one place, on a string, and the derivation is the
 // caller's business because only the caller knows which fields are the subject.
 //
+// A HOLDER DROPS A VALUE; A RESOURCE HAS TO BE DISPOSED, and that half is
+// deliberately not here. A caller whose value owns a subscription, a registry, or a
+// database connection takes `subject-scoped-resource.ts` instead: seeding runs during
+// the render, so a pass React DISCARDS still ran it, and the value that pass produced
+// is held by nothing a commit will ever clean up. This hook's `initial` is for a value
+// a drop releases.
+//
 // WHAT THIS IS NOT. It is not single-flight: whether an act may be dispatched at all
 // is `generation-latch.ts`, which a handler has to decide inside its own tick. It is
 // not a cache — nothing here survives the subject it was held for. And it is not a
@@ -301,7 +308,27 @@ export function useSubjectScopedState<TValue>(
   // one's. React's own state-adjustment pattern spends a discarded render pass to
   // reach the same place; addressing an external holder reaches it in the first.
   holder.address(subject, key, initial);
+  return useHeldSubjectValue(holder, subject, key);
+}
 
+/**
+ * Subscribe React to an already-addressed holder, and hand back its two write moments.
+ *
+ * The React half of the hook above, split out because `subject-scoped-resource.ts`
+ * needs exactly this and differs only in what it does about the value's LIFETIME —
+ * two copies of a subscription with their own equality rules is the second path this
+ * family's one door exists to keep shut.
+ *
+ * Addressing is deliberately the CALLER's, immediately before this runs: the whole
+ * guarantee is that the pass which first sees a new subject already reads that
+ * subject's own value, and a hook that addressed on its caller's behalf would put
+ * that ordering somewhere a caller could get wrong.
+ */
+export function useHeldSubjectValue<TValue>(
+  holder: SubjectScopedHolder<TValue>,
+  subject: object,
+  key: SubjectKey,
+): SubjectScopedState<TValue> {
   const subscribe = useCallback((onChange: () => void) => holder.subscribe(onChange), [holder]);
   const read = useCallback(() => holder.value, [holder]);
   const value = useSyncExternalStore(subscribe, read, read);

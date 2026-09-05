@@ -64,15 +64,19 @@ const CHOKEPOINT_MODULES: readonly string[] = [
 ];
 
 /**
- * Modules admitted to re-export the vocabulary in another family's terms.
+ * Modules admitted to reach the vocabulary in terms of their own.
  *
- * A door adds no rule: it forwards. Admission is therefore conditional on IMPORTING a
- * chokepoint, asserted below, so a second implementation cannot be admitted by adding
- * its path here.
+ * A door holds nothing: it reaches the rule next door and either says it in another
+ * family's words or wraps it in one about the RENDER that produced a value, which is
+ * a question the subject-keyed holder has no view of. Admission is conditional on
+ * IMPORTING a chokepoint, asserted below, so a second implementation cannot be
+ * admitted by adding its path here.
  */
 const CHOKEPOINT_DOORS: readonly string[] = [
+  join("console", "seats", "index.ts"),
   join("console", "seats", "session-subject.ts"),
   join("console", "store", "index.ts"),
+  join("console", "store", "subject-scoped-resource.ts"),
 ];
 
 /**
@@ -102,6 +106,23 @@ const SUBJECT_RESOLUTION_ROOT = join("console", "bridge", "BridgeProvider.tsx");
 
 /** The construction whose single site defines the bridge root, in source text. */
 const SUBJECT_RESOLUTION_CONSTRUCTOR = "new ResolvedConsoleBridge(";
+
+/**
+ * Every name `source` DECLARES at its top level, exported or not.
+ *
+ * Separate from the re-export specifiers below because the two answer different
+ * questions: what a module implements, and what it merely publishes. The door rule
+ * rests on the first — a module that only forwards declares nothing.
+ */
+export function declaredSymbolNames(source: string): readonly string[] {
+  return [
+    ...source.matchAll(
+      /^export\s+(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm,
+    ),
+  ]
+    .map((match) => match[1] ?? "")
+    .filter((name) => name.length > 0);
+}
 
 /** Every exported name in `source`, from a declaration or a re-export specifier. */
 export function exportedSymbolNames(source: string): readonly string[] {
@@ -221,20 +242,30 @@ describe("subject-scoped state — one holder and one latch in the whole console
     expect(offenders).toStrictEqual([]);
   });
 
-  it("every admitted door names a chokepoint symbol, so admission cannot launder a copy", () => {
-    // Derived from the chokepoints rather than restated: a symbol renamed there
+  it("every admitted door names a symbol it did not declare, so admission cannot launder a copy", () => {
+    // Derived from the sources rather than restated: a symbol renamed in a chokepoint
     // changes what a door has to name here, with no second list to update.
+    //
+    // A family barrel publishes the door beside it rather than the chokepoint two
+    // families down, so the set a door may draw from is the chokepoints' declarations
+    // plus the OTHER admitted doors'. Its own are excluded, and that exclusion is the
+    // guard: a copy added to the list above would have to name something somebody else
+    // wrote, and a copy names only itself.
     const chokepointSymbols = CHOKEPOINT_MODULES.flatMap((chokepoint) =>
-      exportedSymbolNames(readModule(chokepoint)),
+      declaredSymbolNames(readModule(chokepoint)),
     );
     expect(chokepointSymbols.length).toBeGreaterThan(0);
     for (const door of CHOKEPOINT_DOORS) {
+      const reachable = [
+        ...chokepointSymbols,
+        ...CHOKEPOINT_DOORS.filter((other) => other !== door).flatMap((other) =>
+          declaredSymbolNames(readModule(other)),
+        ),
+      ];
       const doorSource = readModule(door);
-      const named = chokepointSymbols.filter((symbol) =>
-        new RegExp(`\\b${symbol}\\b`).test(doorSource),
-      );
-      expect(`${door} names ${String(named.length)} chokepoint symbols`).not.toBe(
-        `${door} names 0 chokepoint symbols`,
+      const named = reachable.filter((symbol) => new RegExp(`\\b${symbol}\\b`).test(doorSource));
+      expect(`${door} names ${String(named.length)} symbols it did not declare`).not.toBe(
+        `${door} names 0 symbols it did not declare`,
       );
     }
   });
@@ -312,13 +343,18 @@ describe("subject-scoped state — no state cell captures a subject by hand", ()
     // initialiser keyed on nothing, so a replaced bridge left both bound to a retired
     // transport. They were the gate's last two admissions; asserting the shape they
     // moved to is what stops the fix being reverted into a fresh admission.
+    //
+    // The RESOURCE form specifically, and not the plain holder: both own something a
+    // drop does not release — a registry with its binder, an open database connection
+    // — and seeding runs during a render React may throw away, so the pass that
+    // opened one is not necessarily a pass anything will ever clean up after.
     for (const module of [
       join("console", "frame", "session-lifecycle.ts"),
       join("console", "frame", "ui-state-lifecycle.ts"),
     ]) {
       const source = readModule(module);
       expect(source, `${module} no longer holds its resource through the holder`).toContain(
-        "useSubjectScopedState",
+        "useSubjectScopedResource",
       );
       expect(
         capturedSubjectIdentifiers(source),
