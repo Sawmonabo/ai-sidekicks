@@ -3,7 +3,7 @@
 // `frame.test.tsx`'s header owns the mechanism this file rides — the three
 // snapshot-update modes, which runner's renderings the committed references are, and
 // who may compare against one. `baseline-platform.ts` holds the pin and the predicate
-// and `baseline-guard.ts` this run's reading of them, so nothing about either is
+// and `baseline-host.ts` this run's reading of them, so nothing about either is
 // restated here.
 //
 // WHAT IS PINNED, AND WHY THESE THREE. The family ships one destination surface and
@@ -42,7 +42,7 @@ import {
   mountWorkflowsDestination,
   type MountedFamilySurface,
 } from "../surfaces/workflows.js";
-import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-guard.js";
+import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
 import { awaitPhaseGraphSettled } from "../phase-graph-settled.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";

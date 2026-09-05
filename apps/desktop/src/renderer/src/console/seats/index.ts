@@ -72,18 +72,17 @@ export {
   DETACHABLE_PANE_KINDS,
   /** @consumedBy T-023p-1C-2 */
   PANE_KINDS,
-  /** @consumedBy T-023p-1C-2 */
+  // Consumed by T-023p-1C-2
   isDetachablePaneKind,
   /** @consumedBy T-023p-1C-2 */
   isPaneKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  // Consumed by T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7
   type PaneKind,
 } from "./pane-kinds.js";
 
 export {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   paneEntityScopeFor,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneAddress,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type PaneEntityScopeDeclaration,
@@ -101,13 +100,10 @@ export {
   registerConsolePane,
   /** @consumedBy T-023p-1C-2, T-023p-1C-8 */
   registeredPaneKinds,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneContext,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   type ConsolePaneDescriptor,
   /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneLink,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   type ConsolePaneOpener,
 } from "./pane-registry.js";
 
@@ -189,17 +185,12 @@ export {
   type InlineCardSeatProps,
 } from "./inline-card-seats.js";
 
-// The pane chrome and the seam its two host controls travel on. `ConsolePaneChrome` is
-// named by all six pane-body tasks; `PaneControls` and its context are named by the one
+// The pane chrome and the seam its two host controls travel on. All three chrome
+// symbols are imported now — the workflows family binds both of its pane bodies
+// through them — so the door lines carry no tag: knip fails an exemption that
+// outlived its consumer. `PaneControls` and its context are named by the one task
 // that builds the deck, which is the only host that provides them.
-export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  ConsolePaneChrome,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  paneBodyForKind,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
-  type PaneContextOf,
-} from "./ConsolePaneChrome.js";
+export { ConsolePaneChrome, paneBodyForKind, type PaneContextOf } from "./ConsolePaneChrome.js";
 
 export {
   /** @consumedBy T-023p-1C-2 */
@@ -208,12 +199,7 @@ export {
   type PaneControls,
 } from "./pane-controls.js";
 
-export type {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotContract,
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-6 */
-  OwnerSlotProps,
-} from "./owner-slot.js";
+export type { OwnerSlotContract, OwnerSlotProps } from "./owner-slot.js";
 
 // The session vocabulary, straight from the module that DECLARES it rather than
 // through `store/index.js`, which would be a barrel chain. Without these four lines
