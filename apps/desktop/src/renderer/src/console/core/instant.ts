@@ -51,6 +51,8 @@
 // one, so it reads as malformed here. Nothing this console talks to emits one, and
 // it fails CLOSED — an em dash and a row sorted last, never a wrong instant.
 
+import { lossyStringify } from "../../../../shared/wire-errors.js";
+
 /**
  * RFC 3339 §5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case,
  * as that section's note permits), `partial-time` with an optional fraction of any
@@ -61,10 +63,16 @@
  * `Date.parse` reads, and each names either no instant or the host's own zone.
  *
  * The grammar checks the digit groups; the calendar and clock checks in
- * {@link parseInstant} check that the digits name a day and a time that exist.
+ * {@link parseInstant} check that the digits name a day and a time that exist, and
+ * the {@link InstantOffsetPolicy} check there decides which of the spellings this
+ * grammar admits the CALLER's plane declares.
+ *
+ * ONE GRAMMAR, not two. A `"utc-only"` reader is this pattern plus a narrowing, and
+ * never a second regular expression: two copies of one encoding drift, and the
+ * drift is invisible because each copy has its own tests.
  */
 const RFC_3339_DATE_TIME =
-  /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/;
+  /^(\d{4})-(\d{2})-(\d{2})([Tt])(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/;
 
 const MILLISECONDS_PER_MINUTE = 60_000;
 
@@ -125,23 +133,61 @@ export interface MalformedInstant {
 export type InstantReading = Instant | MalformedInstant;
 
 /**
+ * Which of RFC 3339's spellings the CALLER's plane declares.
+ *
+ * A parameter rather than a wider grammar, because the two planes this console reads
+ * genuinely declare different encodings and neither one is the module's to choose:
+ *
+ *   • `"any-offset"` — the whole of RFC 3339 §5.6 the grammar admits: `Z` or `z`, a
+ *     signed `HH:MM` offset, and either case of the `T` separator. What the wire
+ *     figures and the rate-limit reader take, because a producer there may legally
+ *     send any of them and every one names one instant unambiguously.
+ *   • `"utc-only"` — `Z` and `T`, exactly. A numeric offset parses unambiguously, so
+ *     admitting it would cost nothing today — but a plane that declares ONE encoding
+ *     and a reader that quietly accepts a second is the place a producer's encoding
+ *     change enters unremarked, and the lowercase separators go with it for the same
+ *     reason. Refusing is not strictness for its own sake: it is the reading that
+ *     reports the change instead of absorbing it.
+ *
+ * The default is `"any-offset"` because that is what the grammar above already was,
+ * so a caller that has not thought about its plane keeps the behaviour it had rather
+ * than silently gaining a refusal.
+ */
+export type InstantOffsetPolicy = "any-offset" | "utc-only";
+
+/**
  * Read one wire instant.
  *
- * TWO CONJUNCTS, IN THIS ORDER, and neither alone is the reading. The grammar
- * answers WHETHER the text is spelled in the encoding the wire declares; the
- * calendar and clock checks then answer whether the digits name a day and a time
- * that exist. Only a value past both is composed into a number, so there is no
- * `Date.parse` here to normalize a day that does not exist into the next one.
+ * THREE CONJUNCTS, IN THIS ORDER, and none alone is the reading. The grammar answers
+ * whether the text is spelled in RFC 3339 §5.6 at all; the calendar and clock checks
+ * then answer whether the digits name a day and a time that exist; and
+ * `offsetPolicy` answers whether the spelling is one the CALLER's plane declares.
+ * Only a value past all three is composed into a number, so there is no `Date.parse`
+ * here to normalize a day that does not exist into the next one.
  *
  * A fraction wider than milliseconds is TRUNCATED, never rounded: `.9999Z` reads
  * as `.999`, so a reading is never later than the instant the wire named.
  *
- * Total. Every input answers a reading; nothing throws. A non-string reaching here
- * past the type (a wire value the console did not itself validate) matches no
- * grammar and is refused like any other malformed value, so no runtime `typeof`
- * guard is needed to make that claim true.
+ * TOTAL, and the runtime guard is what makes that true rather than the type. A
+ * non-string reaching here past the type is the reachable case — this reader is fed
+ * wire values the console did not itself validate — and it does NOT simply "match no
+ * grammar": `RegExp.prototype.exec` runs `ToString` on its argument first, which
+ * THROWS for a null-prototype object, for a symbol, and for any hostile or merely
+ * broken `toString`. So the guard runs before the grammar, and it is the only reason
+ * the totality claim holds.
+ *
+ * Such a value is refused like any other malformed one, and the malformed arm quotes
+ * what it was given — `text` is declared `string` and is what a refusal renders, so
+ * the spelling comes through {@link lossyStringify}, which is total for the same
+ * reason this function has to be.
  */
-export function parseInstant(text: string): InstantReading {
+export function parseInstant(
+  text: string,
+  offsetPolicy: InstantOffsetPolicy = "any-offset",
+): InstantReading {
+  if (typeof text !== "string") {
+    return { kind: "malformed", text: lossyStringify(text) };
+  }
   const match = RFC_3339_DATE_TIME.exec(text);
   if (match === null) {
     return { kind: "malformed", text };
@@ -149,20 +195,24 @@ export function parseInstant(text: string): InstantReading {
   const year = Number(match[1]);
   const month = Number(match[2]);
   const day = Number(match[3]);
-  const hour = Number(match[4]);
-  const minute = Number(match[5]);
-  const second = Number(match[6]);
-  const fraction = match[7] ?? "";
-  const utcMarker = match[8];
-  const offsetSign = match[9];
-  const offsetHour = Number(match[10] ?? "0");
-  const offsetMinute = Number(match[11] ?? "0");
+  const separator = match[4];
+  const hour = Number(match[5]);
+  const minute = Number(match[6]);
+  const second = Number(match[7]);
+  const fraction = match[8] ?? "";
+  const utcMarker = match[9];
+  const offsetSign = match[10];
+  const offsetHour = Number(match[11] ?? "0");
+  const offsetMinute = Number(match[12] ?? "0");
 
   const calendarHolds = month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
   // Second 60 — the leap second — is the one narrowing the module header records.
   const clockHolds = hour <= 23 && minute <= 59 && second <= 59;
   const offsetHolds = utcMarker !== undefined || (offsetHour <= 23 && offsetMinute <= 59);
-  if (!calendarHolds || !clockHolds || !offsetHolds) {
+  // One comparison covers both narrowings a Z-only plane makes: an offset spelling
+  // leaves `utcMarker` undefined, and a lowercase `z` is not `Z`.
+  const policyHolds = offsetPolicy === "any-offset" || (utcMarker === "Z" && separator === "T");
+  if (!calendarHolds || !clockHolds || !offsetHolds || !policyHolds) {
     return { kind: "malformed", text };
   }
 

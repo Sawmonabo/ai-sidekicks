@@ -45,22 +45,30 @@
 // resolution: a second bridge root cannot be admitted by adding a line, because there
 // is no line to add.
 
-import { readdirSync, readFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
-const RENDERER_SOURCE = resolve(HERE, "..", "..", "..", "src", "renderer", "src");
+import {
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+  type ConsoleSourceModule,
+} from "../console-source-modules.js";
 
-/** The renderer trees this console owns. `shell/` hosts the composer seat. */
-const SCANNED_ROOTS: readonly string[] = ["console", "shell"];
+/**
+ * The walk, done once, and shared with every other source-text gate.
+ *
+ * The roots this gate reads — `console/` and `shell/` — are the shared walk's own
+ * default, so they are named there rather than here. This file used to carry its own
+ * `readdirSync` with its own exclusion list, which admitted `.test-support.*` where
+ * the shared walk excludes it: one gate scanned `fixture-bridge.test-support.ts` and
+ * the timer gate beside it did not, and nothing reported the difference.
+ */
+const CONSOLE_MODULES: readonly ConsoleSourceModule[] = consoleSourceModules();
 
 /** The two modules that hold the rule, written as paths so a move is reviewable. */
 const CHOKEPOINT_MODULES: readonly string[] = [
-  join("console", "store", "subject-scoped-state.ts"),
-  join("console", "store", "generation-latch.ts"),
+  "console/store/subject-scoped-state.ts",
+  "console/store/generation-latch.ts",
 ];
 
 /**
@@ -71,8 +79,8 @@ const CHOKEPOINT_MODULES: readonly string[] = [
  * its path here.
  */
 const CHOKEPOINT_DOORS: readonly string[] = [
-  join("console", "seats", "session-subject.ts"),
-  join("console", "store", "index.ts"),
+  "console/seats/session-subject.ts",
+  "console/store/index.ts",
 ];
 
 /**
@@ -98,7 +106,7 @@ const SUBJECT_IDENTIFIERS: readonly string[] = ["bridge", "sessionId"];
  * module, asserted below, so this constant admits a position in the tree and not a
  * module that put its name here.
  */
-const SUBJECT_RESOLUTION_ROOT = join("console", "bridge", "BridgeProvider.tsx");
+const SUBJECT_RESOLUTION_ROOT = "console/bridge/BridgeProvider.tsx";
 
 /** The construction whose single site defines the bridge root, in source text. */
 const SUBJECT_RESOLUTION_CONSTRUCTOR = "new ResolvedConsoleBridge(";
@@ -169,29 +177,11 @@ export function capturedSubjectIdentifiers(source: string): readonly string[] {
 }
 
 function scannedModules(): readonly string[] {
-  return SCANNED_ROOTS.flatMap((root) => {
-    let entries: readonly string[];
-    try {
-      entries = readdirSync(join(RENDERER_SOURCE, root), { recursive: true, encoding: "utf8" });
-    } catch {
-      // A tree a later phase adds. Its absence is reported by the size guard below,
-      // never by a silent empty scan.
-      return [];
-    }
-    return entries
-      .filter(
-        (entry) =>
-          (entry.endsWith(".ts") || entry.endsWith(".tsx")) &&
-          !entry.endsWith(".test.ts") &&
-          !entry.endsWith(".test.tsx") &&
-          !entry.endsWith(".d.ts"),
-      )
-      .map((entry) => join(root, entry));
-  }).sort();
+  return CONSOLE_MODULES.map((module) => module.displayPath);
 }
 
 function readModule(module: string): string {
-  return readFileSync(join(RENDERER_SOURCE, module), "utf8");
+  return readConsoleSourceModule(moduleNamed(CONSOLE_MODULES, module));
 }
 
 describe("subject-scoped state — one holder and one latch in the whole console", () => {
@@ -313,8 +303,8 @@ describe("subject-scoped state — no state cell captures a subject by hand", ()
     // transport. They were the gate's last two admissions; asserting the shape they
     // moved to is what stops the fix being reverted into a fresh admission.
     for (const module of [
-      join("console", "frame", "session-lifecycle.ts"),
-      join("console", "frame", "ui-state-lifecycle.ts"),
+      "console/frame/session-lifecycle.ts",
+      "console/frame/ui-state-lifecycle.ts",
     ]) {
       const source = readModule(module);
       expect(source, `${module} no longer holds its resource through the holder`).toContain(

@@ -27,6 +27,7 @@ import { describe, expect, it } from "vitest";
 import {
   CONSOLE_DIRECTORY,
   consoleSourceModules,
+  moduleNamed,
   readConsoleSourceModule,
 } from "../console-source-modules.js";
 
@@ -74,7 +75,7 @@ describe("wire-figure-formatting — byte scaling happens in exactly one module"
   // one scan comes to read declaration files and another does not, with nothing
   // reporting the difference. Scoped to the console root, because this chokepoint's
   // claim is about the console and not about every renderer subtree.
-  const modules = consoleSourceModules([CONSOLE_DIRECTORY]);
+  const modules = consoleSourceModules({ roots: [CONSOLE_DIRECTORY] });
 
   it("finds a console tree to scan at all", () => {
     // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
@@ -98,10 +99,7 @@ describe("wire-figure-formatting — byte scaling happens in exactly one module"
   it("negative control: the chokepoint itself trips every signature", () => {
     // The checker reads real files and the needles match real code. Without this,
     // a typo in a needle would make the clean result above meaningless.
-    const chokepoint = modules.find((module) => module.displayPath === CHOKEPOINT_MODULE);
-    if (chokepoint === undefined) {
-      throw new Error(`the scan did not reach ${CHOKEPOINT_MODULE}`);
-    }
+    const chokepoint = moduleNamed(modules, CHOKEPOINT_MODULE, "the byte-scaling chokepoint");
     const signatures = byteScalingSignatures(readConsoleSourceModule(chokepoint));
     for (const label of BINARY_UNIT_LABELS) {
       expect(signatures).toContain(label);

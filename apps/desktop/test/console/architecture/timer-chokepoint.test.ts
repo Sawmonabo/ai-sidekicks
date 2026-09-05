@@ -36,6 +36,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   consoleSourceModules,
+  moduleNamed,
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
@@ -54,12 +55,30 @@ const CLOCK_SEAM_MODULE = "console/core/clock.ts";
  * Each needle carries its open paren, so the word in a comment explaining why a
  * module does NOT arm one is not an offence — `persistence/indexeddb-adapter.ts`
  * says exactly that about itself.
+ *
+ * THE LAST TWO ARE NOT EVASIONS, which is exactly why they are here. The first four
+ * are what an engineer writes when they know they are arming a timer;
+ * `AbortSignal.timeout(ms)` is the idiomatic spelling for a bounded fetch and
+ * `scheduler.postTask(fn, { delay })` — available on the Chromium this shell ships —
+ * is what a console doing prioritized work reaches for first. Both arm a real
+ * platform timer, both are invisible to `ManualClock.pendingCount`, and neither would
+ * have read as a timer to the reviewer who added it. The idle-CPU budget's premise
+ * would have stopped being the whole of it with nothing anywhere saying so.
+ *
+ * TWO SIBLINGS ARE DELIBERATELY ABSENT, recorded so their absence is a decision
+ * rather than an oversight. `queueMicrotask(` arms no timer: it defers within the
+ * turn, there is no wall-clock work to count, and forbidding it would forbid an
+ * ordinary deferral. `setImmediate(` is a Node API that reaches no renderer — the
+ * package's import boundary bans the built-ins that carry it — so a needle for it
+ * would guard a position nothing can occupy.
  */
 const TIMER_ARMING_FORMS: readonly string[] = [
   "setTimeout(",
   "setInterval(",
   "requestAnimationFrame(",
   "requestIdleCallback(",
+  "AbortSignal.timeout(",
+  "scheduler.postTask(",
 ];
 
 /**
@@ -70,18 +89,6 @@ const TIMER_ARMING_FORMS: readonly string[] = [
  */
 function timerArmingSignatures(source: string): readonly string[] {
   return TIMER_ARMING_FORMS.filter((form) => source.includes(form));
-}
-
-/** One named module, or a failure that says which name was not found. */
-function moduleNamed(
-  modules: readonly ConsoleSourceModule[],
-  displayPath: string,
-): ConsoleSourceModule {
-  const found = modules.find((module) => module.displayPath === displayPath);
-  if (found === undefined) {
-    throw new Error(`the scan did not reach ${displayPath}`);
-  }
-  return found;
 }
 
 describe("timer chokepoint — one seam arms every console timer", () => {
@@ -133,6 +140,23 @@ describe("timer chokepoint — one seam arms every console timer", () => {
     expect(timerArmingSignatures("window.requestAnimationFrame(paint);")).toStrictEqual([
       "requestAnimationFrame(",
     ]);
+  });
+
+  it("negative control: the two non-obvious arming forms are caught", () => {
+    // Neither reads as a timer at the call site, which is why each is planted here
+    // against the predicate rather than trusted to a reviewer's eye.
+    expect(
+      timerArmingSignatures(
+        "const reply = await fetch(url, { signal: AbortSignal.timeout(5000) });",
+      ),
+    ).toStrictEqual(["AbortSignal.timeout("]);
+    expect(
+      timerArmingSignatures("scheduler.postTask(paint, { delay: 1000, priority: 'background' });"),
+    ).toStrictEqual(["scheduler.postTask("]);
+    // And the two siblings the forms list deliberately omits stay omitted, so the
+    // decision recorded there is asserted rather than only written down.
+    expect(timerArmingSignatures("queueMicrotask(flush);")).toStrictEqual([]);
+    expect(timerArmingSignatures("setImmediate(flush);")).toStrictEqual([]);
   });
 
   it("negative control: the wall-clock wake-up needs no exemption", () => {

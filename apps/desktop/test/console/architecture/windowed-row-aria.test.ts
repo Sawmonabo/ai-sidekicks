@@ -8,8 +8,8 @@
 // the family's own second windowed list carried neither, which is what a per-call-site
 // obligation costs.
 //
-// TWO CLAIMS, AND ONLY ONE OF THEM HAS A SUBJECT TODAY. They are separate because
-// they fail separately.
+// THREE CLAIMS. They are separate because they fail separately, and the third is the
+// only one that could ever have caught the defect named above.
 //
 //   1. **One writer.** The pair is written in exactly one console module,
 //      `primitives/WindowedListRow.tsx`. A family that hand-rolls it fails here, and
@@ -22,6 +22,20 @@
 //      so out loud rather than passing silently, and it arms the moment a family
 //      lands a windowed grid or listbox. The predicate is proved to bite by the
 //      planted controls below, which is what keeps the zero honest.
+//   3. **A windowed list goes through the row primitive.** Claims 1 and 2 both look
+//      for something WRITTEN — a second writer of the pair, an explicit role tag —
+//      and the historical defect wrote NEITHER. That second list is invisible to
+//      both: it carries no `aria-setsize` so claim 1 has no offender, and it renders
+//      bare `<li>` rows inside a `<ul>` with no role attribute so claim 2 has no
+//      subject. It passed. So the third claim is the one stated in the positive: a
+//      module that windows and does not name `WindowedListRow` is an offence,
+//      whatever it does or does not write. A windowed list that skips the row
+//      primitive tells its reader the list is as long as the window.
+//
+//      That is also why claim 3 needs no separate role regex: routing through the
+//      primitive is what supplies the pair, and the primitive's own writing of it is
+//      claim 1's subject. The negative control is planted from a real hand-rolled
+//      list's markup, so the claim is proved to bite before such a list lands.
 //
 // THE REGEX IS COARSE AND SAYS SO. `WINDOWED_ROW_ROLE_TAG` is
 // `/<[A-Za-z][^>]*\brole="(?:row|option)"[^>]*>/g` — an opening tag, up to its first
@@ -35,6 +49,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   consoleSourceModules,
+  moduleNamed,
   readConsoleSourceModule,
   type ConsoleSourceModule,
 } from "../console-source-modules.js";
@@ -67,8 +82,23 @@ const WINDOWING_SIGNALS: readonly string[] = [
 /** An opening tag that declares a row or option role. See the header on its width. */
 const WINDOWED_ROW_ROLE_TAG = /<[A-Za-z][^>]*\brole="(?:row|option)"[^>]*>/g;
 
+/**
+ * The primitive every windowed row goes through, as source text.
+ *
+ * It is also one of `WINDOWING_SIGNALS`, and that overlap is what makes claim 3
+ * expressible in one predicate: a module that windows and does NOT name this is a
+ * module that reached the virtualizer or the roving index directly and then built its
+ * own rows.
+ */
+const WINDOWED_ROW_PRIMITIVE = "WindowedListRow";
+
 function windowsAList(source: string): boolean {
   return WINDOWING_SIGNALS.some((signal) => source.includes(signal));
+}
+
+/** Whether `source` windows a list and renders its rows itself. See claim 3. */
+function windowsWithoutTheRowPrimitive(source: string): boolean {
+  return windowsAList(source) && !source.includes(WINDOWED_ROW_PRIMITIVE);
 }
 
 function writesPositionMembers(source: string): boolean {
@@ -166,15 +196,56 @@ describe("windowed rows — an explicit row role carries the pair", () => {
   });
 });
 
-/** One named module, or a failure that says which name was not found. */
-function moduleNamed(
-  modules: readonly ConsoleSourceModule[],
-  displayPath: string,
-  what: string,
-): ConsoleSourceModule {
-  const found = modules.find((module) => module.displayPath === displayPath);
-  if (found === undefined) {
-    throw new Error(`the scan did not reach ${what} at ${displayPath}`);
-  }
-  return found;
-}
+describe("windowed rows — a windowed list goes through the row primitive", () => {
+  const modules: readonly ConsoleSourceModule[] = consoleSourceModules();
+
+  it("no module windows a list and renders its rows itself", () => {
+    const offenders = modules
+      .filter((module) => windowsWithoutTheRowPrimitive(readConsoleSourceModule(module)))
+      .map((module) => module.displayPath);
+    expect(offenders).toStrictEqual([]);
+  });
+
+  it("finds the windowing modules, so the clean result is not an empty scan", () => {
+    const windowing = modules
+      .filter((module) => windowsAList(readConsoleSourceModule(module)))
+      .map((module) => module.displayPath);
+    expect(windowing).toContain(WINDOWED_ROW_MODULE);
+    expect(windowing.length).toBeGreaterThan(1);
+  });
+
+  it("negative control: a hand-rolled virtualized list is an offence", () => {
+    // The markup of a real one, taken from a windowed list that renders bare `<li>`
+    // rows inside a `<ul>` — no role attribute, no position pair, straight off
+    // `getVirtualItems()`. Claims 1 and 2 both pass on it, which is the whole reason
+    // this claim exists; the assertions below say so rather than leaving it implied.
+    const handRolled = [
+      'import { useVirtualizer } from "@tanstack/react-virtual";',
+      "const virtualRows = entryWindow.getVirtualItems();",
+      '<ul className="meridian-diff-files__list" onKeyDown={onKeyDown}>',
+      "{virtualRows.map((virtualRow) => (",
+      '  <li key={entry.path} className="meridian-diff-files__row" data-index={virtualRow.index}>',
+      "    <DiffFileEntryButton entry={entry} />",
+      "  </li>",
+      "))}",
+      "</ul>",
+    ].join("\n");
+    expect(windowsWithoutTheRowPrimitive(handRolled)).toBe(true);
+    expect(writesPositionMembers(handRolled)).toBe(false);
+    expect(roleTagsMissingPosition(handRolled)).toStrictEqual([]);
+  });
+
+  it("negative control: a list that renders through the primitive is not", () => {
+    const throughThePrimitive = [
+      'import { useVirtualizer } from "@tanstack/react-virtual";',
+      'import { WindowedListRow } from "../primitives/index.js";',
+      "{entryWindow.getVirtualItems().map((virtualRow) => (",
+      "  <WindowedListRow rowIndex={virtualRow.index} totalRowCount={rows.length} />",
+      "))}",
+    ].join("\n");
+    expect(windowsWithoutTheRowPrimitive(throughThePrimitive)).toBe(false);
+    // And a module that windows nothing is outside the claim entirely, rather than
+    // an offence for not naming a primitive it has no use for.
+    expect(windowsWithoutTheRowPrimitive("export const total = rows.length;")).toBe(false);
+  });
+});

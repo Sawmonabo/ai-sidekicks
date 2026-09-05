@@ -32,13 +32,14 @@
 // canonical code and a top-level string `code` is the already-flattened form.
 
 import {
-  isWireErrorEnvelope,
+  isErrorInstance,
   lossyStringify,
   readGuardedProperty,
+  readWireErrorEnvelope,
 } from "../../../../shared/wire-errors.js";
 
 import { parseInstant } from "./instant.js";
-import { isConsoleRefusal, refuse, type ConsoleRefusal } from "./refusal.js";
+import { refuse, type ConsoleRefusal } from "./refusal.js";
 
 /**
  * A caller-written refusal for a rejection that carries no code of its own.
@@ -87,23 +88,68 @@ export interface WireRefusal extends ConsoleRefusal {
   readonly retry?: WireRetryHint;
 }
 
-/** The two positions a retry bound is registered at, read guardedly. */
-function retryHintFrom(source: unknown): WireRetryHint | undefined {
-  const afterSeconds = readGuardedProperty(source, "retryAfter");
-  const resetAt = readGuardedProperty(source, "resetAt");
+/**
+ * Assemble a hint from two candidate numbers, or answer none.
+ *
+ * The one assembler both readers below share. They differ in WHERE the two numbers
+ * are read from — the wire's spelling versus the console's own — and agree on what
+ * counts as a bound, which is the half that would drift if it were written twice.
+ */
+function retryHintOf(
+  afterSeconds: unknown,
+  atEpochMilliseconds: unknown,
+): WireRetryHint | undefined {
   const hint: { afterSeconds?: number; atEpochMilliseconds?: number } = {};
   if (typeof afterSeconds === "number" && Number.isFinite(afterSeconds) && afterSeconds >= 0) {
     hint.afterSeconds = afterSeconds;
   }
-  if (typeof resetAt === "string") {
-    const reset = parseInstant(resetAt);
-    if (reset.kind === "instant") {
-      hint.atEpochMilliseconds = reset.epochMilliseconds;
-    }
+  if (typeof atEpochMilliseconds === "number" && Number.isFinite(atEpochMilliseconds)) {
+    hint.atEpochMilliseconds = atEpochMilliseconds;
   }
   return hint.afterSeconds === undefined && hint.atEpochMilliseconds === undefined
     ? undefined
     : hint;
+}
+
+/** The two positions a retry bound is registered at on the WIRE, read guardedly. */
+function retryHintFrom(source: unknown): WireRetryHint | undefined {
+  const resetAt = readGuardedProperty(source, "resetAt");
+  const reset = typeof resetAt === "string" ? parseInstant(resetAt) : undefined;
+  return retryHintOf(
+    readGuardedProperty(source, "retryAfter"),
+    reset?.kind === "instant" ? reset.epochMilliseconds : undefined,
+  );
+}
+
+/** A hint a refusal already carries, in this console's own spelling, read guardedly. */
+function carriedRetryHint(candidate: unknown): WireRetryHint | undefined {
+  const carried = readGuardedProperty(candidate, "retry");
+  return retryHintOf(
+    readGuardedProperty(carried, "afterSeconds"),
+    readGuardedProperty(carried, "atEpochMilliseconds"),
+  );
+}
+
+/**
+ * Rebuild a refusal a candidate carries, from the members the guard actually read.
+ *
+ * REBUILT, never handed back by reference, and that is the whole of it. Recognizing a
+ * refusal structurally means the guard read three properties once and they were
+ * strings; it does NOT mean the next reader gets the same answer. A getter that
+ * throws on its second read, a Proxy trap that throws after the first call — either
+ * one turns a returned candidate into a rejection deferred into the renderer, where
+ * `refusal.code` throws while painting the sentence that says something failed. A
+ * normalizer whose job is to produce a renderable shape must produce one, so what
+ * comes back is a plain object carrying bounded strings and nothing of the candidate.
+ */
+function rebuiltRefusal(candidate: unknown): WireRefusal | undefined {
+  const code = readGuardedProperty(candidate, "code");
+  const detail = readGuardedProperty(candidate, "detail");
+  const origin = readGuardedProperty(candidate, "origin");
+  if (typeof code !== "string" || typeof detail !== "string" || typeof origin !== "string") {
+    return undefined;
+  }
+  return withRetryHint(refuse(origin, code, detail), carriedRetryHint(candidate));
 }
 
 /**
@@ -124,15 +170,16 @@ function withRetryHint(refusal: ConsoleRefusal, hint: WireRetryHint | undefined)
  * Ordered most specific first, because each earlier arm carries a code the later
  * ones would throw away:
  *
- *   1. A value that already IS a `ConsoleRefusal` names its own author and passes
- *      through untouched — including any retry hint it already carries.
+ *   1. A value that already IS a `ConsoleRefusal` keeps its own author, its own code
+ *      and any retry hint it carries — rebuilt onto a fresh object rather than passed
+ *      through by reference, for the reason {@link rebuiltRefusal} states.
  *   2. A value CARRYING a refusal (`ConsoleRefusalError`, the fixture bridge's error,
- *      and any other error built around one) is unwrapped. The check is STRUCTURAL
- *      rather than `instanceof ConsoleRefusalError`, and that is strictly stronger:
- *      `instanceof` walks a prototype chain, which a value that crossed a realm or a
- *      structured clone no longer has, and the failure mode there is silent — the
- *      refusal falls to the terminal arm and its author's code is replaced by one
- *      this function invented.
+ *      and any other error built around one) is unwrapped, and rebuilt the same way.
+ *      The check is STRUCTURAL rather than `instanceof ConsoleRefusalError`, and that
+ *      is strictly stronger: `instanceof` walks a prototype chain, which a value that
+ *      crossed a realm or a structured clone no longer has, and the failure mode
+ *      there is silent — the refusal falls to the terminal arm and its author's code
+ *      is replaced by one this function invented.
  *   3. The JSON-RPC `data` envelope: the dotted project code at `data.type`, with the
  *      retry bound from `data.fields`. See this module's header for why it is first
  *      among the wire arms.
@@ -146,11 +193,12 @@ function classifyRejection(
   rejection: unknown,
   fallback: RejectionFallback | undefined,
 ): WireRefusal | undefined {
-  if (isConsoleRefusal(rejection)) {
-    return rejection;
+  const own = rebuiltRefusal(rejection);
+  if (own !== undefined) {
+    return own;
   }
-  const carried = readGuardedProperty(rejection, "refusal");
-  if (isConsoleRefusal(carried)) {
+  const carried = rebuiltRefusal(readGuardedProperty(rejection, "refusal"));
+  if (carried !== undefined) {
     return carried;
   }
   const data = readGuardedProperty(rejection, "data");
@@ -162,11 +210,9 @@ function classifyRejection(
       retryHintFrom(readGuardedProperty(data, "fields")),
     );
   }
-  if (isWireErrorEnvelope(rejection)) {
-    return withRetryHint(
-      refuse(origin, rejection.code, rejection.message),
-      retryHintFrom(rejection),
-    );
+  const envelope = readWireErrorEnvelope(rejection);
+  if (envelope !== undefined) {
+    return withRetryHint(refuse(origin, envelope.code, envelope.message), retryHintFrom(rejection));
   }
   if (fallback !== undefined) {
     return refuse(origin, fallback.code, fallback.detail);
@@ -180,15 +226,22 @@ function classifyRejection(
  * TOTAL. It answers a refusal for every input and throws for none.
  *
  * Every step of `classifyRejection` is itself total today — the reads go through
- * `readGuardedProperty`, and `isConsoleRefusal` and `isWireErrorEnvelope` were both
- * widened to read through it too, which the hostile-value cases below the fold in
- * this module's test prove by passing with the `try` removed. The `try` is kept as a
- * BACKSTOP rather than as the mechanism, and the distinction is the reason: without
- * it, totality here would be a property of three other modules staying total, and the
- * edit that broke one of them would show up as a throw on the failure path — in a
- * `catch` that has already been left, in the one function a surface calls to say that
- * something failed. It costs nothing on a path that only runs when a call already
- * failed, and it is the one arm nobody has to re-prove.
+ * `readGuardedProperty`, `readWireErrorEnvelope` reads through it too, and the ONE
+ * prototype question this module asks goes through `isErrorInstance`, because
+ * `instanceof` throws on a revoked Proxy and the terminal arm below sits outside the
+ * backstop. The hostile-value cases in this module's test prove that by passing with
+ * the `try` removed. The `try` is kept as a BACKSTOP rather than as the mechanism,
+ * and the distinction is the reason: without it, totality here would be a property of
+ * three other modules staying total, and the edit that broke one of them would show
+ * up as a throw on the failure path — in a `catch` that has already been left, in the
+ * one function a surface calls to say that something failed. It costs nothing on a
+ * path that only runs when a call already failed, and it is the one arm nobody has to
+ * re-prove.
+ *
+ * NOTHING OF THE REJECTION SURVIVES ONTO THE ANSWER. Every arm rebuilds, so what a
+ * renderer receives is a plain object of strings this function already read — never
+ * the candidate itself, whose next property access is the throw this whole module
+ * exists to prevent, arriving one layer later and outside every `catch`.
  *
  * `origin` is the calling subsystem, and it is what the synthesized terminal code is
  * built from, so even a rejection that said nothing machine-readable still names the
@@ -220,7 +273,7 @@ export function normalizeWireRejection(
     // An `Error` gives up its message; anything else goes through the total
     // stringifier rather than `String(...)`, which runs ToPrimitive and so throws on
     // a null-prototype value carrying no `toString`.
-    rejection instanceof Error && typeof terminalMessage === "string"
+    isErrorInstance(rejection) && typeof terminalMessage === "string"
       ? terminalMessage
       : lossyStringify(rejection),
   );

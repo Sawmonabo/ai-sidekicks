@@ -138,6 +138,97 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
   });
 });
 
+describe("parseInstant — the offset policy the caller's plane declares", () => {
+  // The pairing is the point of every case here: the same text, read two ways, with
+  // the `"any-offset"` reading as the negative control for the `"utc-only"` refusal.
+  // A refusal nobody can show the cost of is a refusal nobody keeps.
+  it.each([
+    ["a positive numeric offset", "2026-09-01T10:00:00+02:00"],
+    ["a negative numeric offset", "2026-09-01T07:00:00-05:00"],
+    ["a lowercase Z", "2026-09-01T12:00:00z"],
+    ["a lowercase T", "2026-09-01t12:00:00Z"],
+    ["both separators lowercase", "2026-09-01t12:00:00z"],
+  ])("refuses %s under utc-only and reads it under any-offset", (_label, text) => {
+    expect(parseInstant(text, "utc-only").kind).toBe("malformed");
+    expect(parseInstant(text, "any-offset").kind).toBe("instant");
+  });
+
+  it("reads a Z-terminated instant identically under either policy", () => {
+    const strict = parseInstant("2026-09-01T12:00:00.250Z", "utc-only");
+    expect(strict).toStrictEqual(parseInstant("2026-09-01T12:00:00.250Z", "any-offset"));
+    expect(strict.epochMilliseconds).toBe(Date.UTC(2026, 8, 1, 12, 0, 0, 250));
+  });
+
+  it("defaults to any-offset, so a caller that named no plane keeps its reading", () => {
+    expect(parseInstant("2026-09-01T10:00:00+02:00").kind).toBe("instant");
+    expect(parseInstant("2026-09-01T12:00:00z").kind).toBe("instant");
+  });
+
+  it("carries the wire's own spelling on a policy refusal, so it can be quoted", () => {
+    expect(parseInstant("2026-09-01T10:00:00+02:00", "utc-only").text).toBe(
+      "2026-09-01T10:00:00+02:00",
+    );
+  });
+
+  it("keeps every other refusal a refusal under utc-only too", () => {
+    // The policy narrows; it never widens. A day that does not exist is still
+    // malformed with `Z` and a `T` in place.
+    expect(parseInstant("2026-02-30T10:00:00Z", "utc-only").kind).toBe("malformed");
+    expect(parseInstant("2026-01-01", "utc-only").kind).toBe("malformed");
+  });
+});
+
+describe("parseInstant — total against a value that is not a string at all", () => {
+  // The reachable case, not a hypothetical: this reader is handed wire values the
+  // console did not validate — a `resetAt` read off a rejection, a stamp off a reply —
+  // so the parameter's type is a claim about the CALLERS and not about the values.
+  //
+  // Each case below carries its own negative control in the same assertion: the raw
+  // `exec` the parser opens with THROWS on the value, which is what the module did
+  // before the guard and is why the guard is not decoration.
+  const RFC_3339_SHAPED = /^(\d{4})-/;
+
+  it.each([
+    ["a null-prototype object", (): unknown => Object.create(null) as unknown],
+    ["a symbol", (): unknown => Symbol("thrown")],
+    [
+      "an object whose toString throws",
+      (): unknown => ({
+        toString(): never {
+          throw new Error("this stringifier is hostile");
+        },
+      }),
+    ],
+  ])("refuses %s, which RegExp.exec throws on", (_label, build) => {
+    const value = build();
+    expect(() => RFC_3339_SHAPED.exec(value as unknown as string)).toThrow();
+    const reading = parseInstant(value as unknown as string);
+    expect(reading.kind).toBe("malformed");
+    expect(reading.epochMilliseconds).toBeUndefined();
+  });
+
+  it.each([
+    ["a number", 20_260_101, "20260101"],
+    ["null", null, "null"],
+    ["undefined", undefined, "undefined"],
+    ["a plain object", { when: "now" }, "[object Object]"],
+  ])("refuses %s and quotes it as a string", (_label, value, quoted) => {
+    const reading = parseInstant(value as unknown as string);
+    expect(reading.kind).toBe("malformed");
+    // `text` is declared `string` and is what a refusal renders. Before the guard the
+    // number case put the number itself here, so a refusal quoted a non-string
+    // through a member every consumer reads as one.
+    expect(reading.text).toBe(quoted);
+    expect(typeof reading.text).toBe("string");
+  });
+
+  it("quotes an unrepresentable value with the total stringifier's own sentence", () => {
+    expect(parseInstant(Object.create(null) as unknown as string).text).toBe(
+      "[unrepresentable value]",
+    );
+  });
+});
+
 describe("compareInstants — unreadable last, in both directions", () => {
   const earlier = parseInstant("2026-09-01T09:00:00Z");
   const later = parseInstant("2026-09-01T12:00:00Z");
