@@ -69,8 +69,8 @@
 // `Spec-023 §Console Design (Meridian)` §Budgets excludes when it names the terminal
 // a lazy chunk.
 import "./pane/pane.css";
-import "./lease/lease-line.css";
-import "./emulator/host.css";
+import "./lease/lease.css";
+import "./emulator/emulator.css";
 import "./focus-ring.css";
 
 import type { ConsolePaneRegistry } from "../seats/index.js";
