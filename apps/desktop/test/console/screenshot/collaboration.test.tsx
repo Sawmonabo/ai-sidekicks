@@ -52,6 +52,7 @@ import "../../../src/renderer/src/console/settings/index.js";
 // layout nobody ships. Same reason as the two doors above it.
 import "../../../src/renderer/src/console/sessions/notifications/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
+import { frozenStartMilliseconds } from "../../../src/renderer/src/console/core/frozen-instant.test-support.js";
 import {
   ConsoleRoot,
   installMeridianTokens,
@@ -80,7 +81,7 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
 import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
 
 /** The instant the roster's "last seen" figures are relative to. Fixed, so the capture is. */
-const CAPTURE_INSTANT_MILLISECONDS = Date.parse("2026-01-01T10:00:00.000Z");
+const CAPTURE_INSTANT_MILLISECONDS = frozenStartMilliseconds();
 
 /**
  * The tick this scenario's two machine-health axes disagree at.

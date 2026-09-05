@@ -9,7 +9,8 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ManualClock, parseInstant } from "../../core/index.js";
+import { ManualClock } from "../../core/index.js";
+import { frozenStartMilliseconds } from "../../core/frozen-instant.test-support.js";
 import { MemoryPersistenceAdapter } from "../../persistence/memory-adapter.js";
 import { UiStateStore } from "../../persistence/index.js";
 import { InviteShelf, type InviteShelfReader, type ReceivedInvite } from "./InviteShelf.js";
@@ -60,20 +61,8 @@ function openUiStateStore(): UiStateStore {
   return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
 }
 
-/** The instant every case below starts at. A day before the fixture invite expires. */
-const SHELF_NOW_ISO = "2026-01-01T10:00:00.000Z";
-
-/** The gap between `SHELF_NOW_ISO` and the fixture invitation's own expiry. */
+/** The gap between the frozen start and the fixture invitation's own expiry. */
 const DAY_MILLISECONDS = 24 * 60 * 60 * 1000;
-
-/** `SHELF_NOW_ISO` as a number, read through the console's own instant reader. */
-function shelfNowMilliseconds(): number {
-  const now = parseInstant(SHELF_NOW_ISO);
-  if (now.kind !== "instant") {
-    throw new Error(`the frozen start instant is unreadable: ${SHELF_NOW_ISO}`);
-  }
-  return now.epochMilliseconds;
-}
 
 /**
  * The clock the shelf arms its expiry wake-up on.
@@ -84,7 +73,7 @@ function shelfNowMilliseconds(): number {
  * would share its pending timers.
  */
 function frozenClock(): ManualClock {
-  return new ManualClock(shelfNowMilliseconds());
+  return new ManualClock(frozenStartMilliseconds());
 }
 
 /** Render the shelf and let its one-shot read and its hydrate settle. */

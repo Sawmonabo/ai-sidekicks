@@ -5,7 +5,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { refuse } from "../../core/index.js";
-import { frozenStartMilliseconds } from "../frozen-start.test-support.js";
+import { frozenStartMilliseconds } from "../../core/frozen-instant.test-support.js";
 import { ParticipantHueAllocator } from "../../tokens/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
 import { rosterRowsFrom, type RosterRow } from "./presence-model.js";

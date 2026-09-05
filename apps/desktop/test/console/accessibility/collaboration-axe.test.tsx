@@ -40,6 +40,7 @@ import "../../../src/renderer/src/console/settings/index.js";
 // over a list of inline refusals — pairs the token table alone cannot measure.
 import "../../../src/renderer/src/console/sessions/notifications/index.js";
 import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
+import { frozenStartMilliseconds } from "../../../src/renderer/src/console/core/frozen-instant.test-support.js";
 import {
   ConsoleRoot,
   installMeridianTokens,
@@ -68,7 +69,7 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
 import { ParticipantHueAllocator } from "../../../src/renderer/src/console/tokens/index.js";
 
 /** The instant the roster's relative stamps are measured against. */
-const AUDIT_INSTANT_MILLISECONDS = Date.parse("2026-01-01T10:00:00.000Z");
+const AUDIT_INSTANT_MILLISECONDS = frozenStartMilliseconds();
 
 /** The tick this scenario's two machine-health axes disagree at, so both render. */
 const ROSTER_AXES_DISAGREE_MS = 640;
