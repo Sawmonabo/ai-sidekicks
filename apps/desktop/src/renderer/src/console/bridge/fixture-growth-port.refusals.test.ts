@@ -26,7 +26,7 @@ import {
   fixturePort,
 } from "./fixture-growth-port.test-support.js";
 import type { GrowthOperationId } from "./growth-entry.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { createLiveBridge } from "./live-bridge.js";
 import type { ConsoleScenario } from "./scenario.js";
 import { FLAGSHIP_SCENARIO } from "./scenarios/flagship.js";

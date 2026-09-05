@@ -17,7 +17,7 @@
 // the growth slate's expected wire methods — so nothing here is a second list.
 
 import { CONSOLE_DAEMON_METHODS } from "../../daemon-reply-registry.js";
-import { GROWTH_OPERATIONS } from "../../growth-operations.js";
+import { GROWTH_OPERATIONS } from "../../growth-operations/index.js";
 import type { GrowthOperationId } from "../../growth-entry.js";
 import type { ScenarioWireTruthDefect } from "./defect.js";
 import type { ConsoleScenario } from "../../scenario.js";

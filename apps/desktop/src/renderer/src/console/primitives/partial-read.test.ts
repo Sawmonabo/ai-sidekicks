@@ -16,6 +16,7 @@ import {
   behindProducerReading,
   partialReadNotices,
   readingNoticeFor,
+  uncheckedCoverageReading,
   unreadableDeliveryReading,
   type ReadingState,
   type ReadingStateKind,
@@ -43,6 +44,7 @@ const STATE_BY_KIND: Readonly<Record<ReadingStateKind, ReadingState>> = {
   stale: { kind: "stale", refusal: PARSE_REFUSAL },
   partial: { kind: "partial", unreadableCount: 3, newestRefusal: PARSE_REFUSAL },
   cut: { kind: "cut", servedCount: 12 },
+  unchecked: { kind: "unchecked", uncheckedCount: 4, newestRefusal: PARSE_REFUSAL },
 };
 
 /** The sentence a notice puts on screen, whichever shape it took. */
@@ -64,7 +66,7 @@ describe("partial-read — completeness is claimed by exactly one state", () => 
   it("finds every kind to drive", () => {
     // Without this a truncated tuple would make every assertion below pass over a
     // set smaller than the union it stands for.
-    expect(READING_STATE_KINDS.length).toBe(6);
+    expect(READING_STATE_KINDS.length).toBe(7);
     expect(Object.keys(STATE_BY_KIND).sort()).toStrictEqual([...READING_STATE_KINDS].sort());
   });
 
@@ -236,7 +238,7 @@ describe("partial-read — a figure and its sentence are one thing", () => {
   });
 });
 
-describe("partial-read — the two producer shapes", () => {
+describe("partial-read — the producer shapes", () => {
   it("reads a count of zero as nothing to report, never as a partial reading", () => {
     // The nonsense notice in terms: `{ kind: "partial", unreadableCount: 0 }`
     // rendered "0 deliveries could not be read", a notice for an absence of anything
@@ -267,7 +269,7 @@ describe("partial-read — the two producer shapes", () => {
     expect(behindProducerReading(false, PARSE_REFUSAL)).toStrictEqual({ kind: "served" });
   });
 
-  it("negative control: the two producer shapes are not one shape", () => {
+  it("negative control: the producer shapes are not one shape", () => {
     // A `stale` reading and a `partial` one say different things, and a rebind that
     // collapsed the boolean into a count of one would put a figure on screen the
     // producer never sent.
@@ -275,5 +277,59 @@ describe("partial-read — the two producer shapes", () => {
     const counted = sentenceOf(unreadableDeliveryReading(1, undefined));
     expect(stale).not.toBe(counted);
     expect(stale).not.toContain("1 ");
+  });
+
+  it("reads full coverage as served, and a gap as the counted reading it is", () => {
+    // The fan-out shape: a read that put its question to several sources and heard
+    // back from all of them has nothing to disclaim, and one that did not has a
+    // figure to say. Zero is the same rule the delivery counter applies to its own.
+    expect(uncheckedCoverageReading(0, undefined)).toStrictEqual({ kind: "served" });
+    expect(uncheckedCoverageReading(-1, PARSE_REFUSAL)).toStrictEqual({ kind: "served" });
+    expect(uncheckedCoverageReading(2.5, PARSE_REFUSAL)).toStrictEqual({ kind: "served" });
+    expect(uncheckedCoverageReading(2, PARSE_REFUSAL)).toStrictEqual({
+      kind: "unchecked",
+      uncheckedCount: 2,
+      newestRefusal: PARSE_REFUSAL,
+    });
+  });
+});
+
+describe("partial-read — a coverage gap is counted, and is its own fact", () => {
+  it("carries the figure through the chokepoint and agrees on singular and plural", () => {
+    const one = readingNoticeFor(uncheckedCoverageReading(1, undefined), SUBJECT);
+    const many = readingNoticeFor(uncheckedCoverageReading(1234, undefined), SUBJECT);
+    expect(one.shape === "counted-sentence" && one.copy.startsWith("part ")).toBe(true);
+    expect(many.shape === "counted-sentence" && many.copy.startsWith("parts ")).toBe(true);
+    // `String(n)` yields "1234"; the chokepoint groups.
+    expect(many.shape === "counted-sentence" && many.figure).toBe("1,234");
+  });
+
+  it("says what no other arm says: the shown answer covers less than was asked", () => {
+    // The gap this arm was minted for. The nearest vocabulary was a `refused` reading
+    // beside an answer, whose sentence carries no figure at all — so a surface with
+    // four unanswered sources could say that something was missing and never how much.
+    const coverage = sentenceOf(STATE_BY_KIND.unchecked);
+    const besideAnAnswer = sentenceOf(STATE_BY_KIND.refused);
+    expect(coverage).toContain("4 ");
+    expect(coverage).toContain("covers less than was asked for");
+    expect(besideAnAnswer).not.toMatch(/\d/u);
+  });
+
+  it("keeps the refusal that named the cause, and carries none where there is none", () => {
+    const withRefusal = readingNoticeFor(STATE_BY_KIND.unchecked, SUBJECT);
+    expect(withRefusal.shape === "counted-sentence" && withRefusal.refusal).toBe(PARSE_REFUSAL);
+    const without = readingNoticeFor(uncheckedCoverageReading(1, undefined), SUBJECT);
+    expect(without.shape === "counted-sentence" && without.refusal).toBeUndefined();
+  });
+
+  it("negative control: it is not the delivery counter under another name", () => {
+    // Without this the arm would be satisfied by one that reused `partial`'s
+    // sentence, which says the reading is BEHIND its producer — a different claim
+    // about a different failure, and false of a source that simply never answered.
+    const coverage = sentenceOf(uncheckedCoverageReading(3, undefined));
+    const unreadable = sentenceOf(unreadableDeliveryReading(3, undefined));
+    expect(coverage).not.toBe(unreadable);
+    expect(unreadable).toContain("behind what the daemon has sent");
+    expect(coverage).not.toContain("behind what the daemon has sent");
   });
 });

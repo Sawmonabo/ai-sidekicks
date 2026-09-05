@@ -23,7 +23,7 @@ import type {
   GrowthPrerequisiteEntry,
 } from "./growth-entry.js";
 import { FIXTURE_SERVED_GROWTH_OPERATION_IDS } from "./fixture-growth-port.js";
-import { GROWTH_OPERATIONS } from "./growth-operations.js";
+import { GROWTH_OPERATIONS } from "./growth-operations/index.js";
 import { GROWTH_PREREQUISITES } from "./growth-prerequisites.js";
 import { GROWTH_SLATE_ROWS, type GrowthSlateRow, type GrowthSlateRowId } from "./growth-slate.js";
 import type { ConsoleScenario } from "./scenario.js";
