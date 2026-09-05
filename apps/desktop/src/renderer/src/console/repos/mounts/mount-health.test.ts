@@ -6,7 +6,6 @@
 // that case: it fails the moment one axis borrows the other's vocabulary, which is
 // the shape a collapse actually takes.
 
-import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -15,21 +14,7 @@ import {
   mountLifecycleReading,
   mountVcsReading,
 } from "./mount-health.js";
-
-function mount(overrides: Partial<RepoMountReadResponse> = {}): RepoMountReadResponse {
-  return {
-    id: "mount-1",
-    sessionId: "session-1",
-    nodeId: "node-1",
-    localPath: "/Users/dev/code/thing/packages/inner",
-    canonicalRoot: "/Users/dev/code/thing",
-    vcsType: "git",
-    state: "attached",
-    health: { status: "healthy", checkedAt: "2026-01-01T09:05:01.000Z" },
-    attachedAt: "2026-01-01T09:05:00.200Z",
-    ...overrides,
-  } as RepoMountReadResponse;
-}
+import { mount } from "./repo-mounts.test-support.js";
 
 describe("mount-health — the health axis", () => {
   it("gives each wire status its own tone, word, and sentence", () => {

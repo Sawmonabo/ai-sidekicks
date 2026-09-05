@@ -26,18 +26,14 @@ import { SessionStore } from "../../store/index.js";
 import { advanceScenarioUntil } from "../scenario-clock.test-support.js";
 import { useRepoMounts } from "./repo-mounts-binding.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
+import { trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
 import { cloneExpiryReading, type EphemeralCloneStatusRecord } from "./worktree-model.js";
+
+// Every reader a case opens is tracked, and none of them outlives its case.
+afterEach(disposeTrackedReaders);
 
 /** How long the wall-clock control may take to spend a real debounce interval. */
 const WALL_CLOCK_TIMEOUT_MS = 5_000;
-
-const readers: RepoMountsReader[] = [];
-
-afterEach(() => {
-  while (readers.length > 0) {
-    readers.pop()?.dispose();
-  }
-});
 
 /** The scenario's own frozen clock, which is what `consoleClockFor` answers with here. */
 function scenarioNow(bridge: ConsoleBridge): number {
@@ -92,7 +88,7 @@ describe("useRepoMounts — the reading is stamped on the window's own clock", (
       sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
       clock: new RealClock(),
     });
-    readers.push(reader);
+    trackReader(reader);
     reader.start();
     // Spent in real time rather than driven, because a real clock is what this control
     // is about: the scenario engine's advance would move nothing this reader is waiting

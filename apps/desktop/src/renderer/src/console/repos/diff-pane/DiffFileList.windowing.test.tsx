@@ -7,7 +7,7 @@
 // long to mount, an entry reached past the mounted slice, and the row that names the
 // slice it is in.
 
-import { fireEvent, render } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_FILE_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
@@ -17,8 +17,7 @@ import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
 } from "./diff-layout-fixture.test-support.js";
-import { DiffFileList } from "./DiffFileList.js";
-import { type ConsoleDiffModel } from "./diff-model.js";
+import { filterTo, fixtureFileAt, renderFileList } from "./diff-file-list.test-support.js";
 
 const TEXTUAL_ONLY_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
 
@@ -47,44 +46,6 @@ beforeEach(() => {
 afterEach(() => {
   layout.restore();
 });
-
-function renderFileList(diff: ConsoleDiffModel, selectedFilePath?: string): HTMLElement {
-  return render(
-    <DiffFileList
-      diff={diff}
-      selectedFilePath={selectedFilePath}
-      onSelectFilePath={() => undefined}
-    />,
-  ).container;
-}
-
-/** The entry for one path, as the list drew it. */
-/**
- * One file of a change set, by index.
- *
- * Thrown for rather than answered as optional, because a fixture shorter than a case
- * assumes is a broken case and not a state to assert about — and a `function`
- * declaration below carries no narrowing a guard beside the fixture would have made.
- */
-function fixtureFileAt(
-  diff: ConsoleDiffModel,
-  fileIndex: number,
-): ConsoleDiffModel["files"][number] {
-  const file = diff.files[fileIndex];
-  if (file === undefined) {
-    throw new Error(`the generated change set has no file at ${String(fileIndex)}`);
-  }
-  return file;
-}
-
-/** Type into the list's own filter, which is how every filtering case narrows it. */
-function filterTo(container: HTMLElement, filterText: string): void {
-  const filter = container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input");
-  if (filter === null) {
-    throw new Error("the list drew no filter input");
-  }
-  fireEvent.change(filter, { target: { value: filterText } });
-}
 
 /** The change note on one path's entry, or `undefined` where it drew none. */
 describe("diff file list — a change set too long to mount", () => {

@@ -7,12 +7,13 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../../bridge/index.js";
 import { REPOS_SCENARIO, REPOS_WORKTREE_STATUS_REPLY } from "../../bridge/scenarios/repos.js";
 import type { ConsoleScenario } from "../../bridge/scenario.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
-import { SessionStore } from "../../store/index.js";
-import { RepoMountsReader } from "./repo-mounts-reader.js";
+import { openReader, settle, disposeTrackedReaders } from "./repo-mounts.test-support.js";
+
+// Every reader a case opens is tracked, and none of them outlives its case.
+afterEach(disposeTrackedReaders);
 
 /** The one call that names an execution root, whichever kind. */
 const ROOT_READ_CALL = "repo.worktreeStatusRead";
@@ -35,48 +36,6 @@ function scenarioWithoutClones(): ConsoleScenario {
       { call: ROOT_READ_CALL, result: { ...REPOS_WORKTREE_STATUS_REPLY, ephemeralClones: [] } },
     ],
   };
-}
-
-const readers: RepoMountsReader[] = [];
-
-afterEach(() => {
-  while (readers.length > 0) {
-    readers.pop()?.dispose();
-  }
-});
-
-function openReader(
-  scenario: ConsoleScenario,
-  clock: ManualClock,
-  // Defaulted, so the cases that only care about the READ say nothing about the store.
-  // The trigger cases construct their own and drive it.
-  sessionStore: SessionStore = new SessionStore({ sessionId: scenario.sessionId }),
-): RepoMountsReader {
-  const reader = new RepoMountsReader({
-    bridge: createFixtureBridge({ scenario }),
-    sessionStore,
-    clock,
-  });
-  readers.push(reader);
-  return reader;
-}
-
-/**
- * Drive the frozen clock past the debounce and let the read's promises settle.
- *
- * The queued continuations are drained BEFORE the clock moves, not only after: the
- * scheduler clears its in-flight flag and re-arms inside a `finally`, so a case that
- * asked for a second read while the first was landing would otherwise advance past a
- * timer that did not exist yet and observe a re-read that had simply not been armed.
- */
-async function settle(clock: ManualClock, reader: RepoMountsReader): Promise<void> {
-  for (let turn = 0; turn < 5; turn += 1) {
-    await Promise.resolve();
-  }
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && reader.snapshot.status !== "read"; turn += 1) {
-    await Promise.resolve();
-  }
 }
 
 describe("RepoMountsReader — the read", () => {

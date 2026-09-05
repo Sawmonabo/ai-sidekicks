@@ -9,12 +9,9 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { formatRelativeTime } from "../../primitives/index.js";
+import { worktreeRecord } from "./repo-mounts.test-support.js";
 import { WorktreeCard } from "./WorktreeCard.js";
-import {
-  WORKTREE_DISK_DISPOSITION_COPY,
-  WORKTREE_STATE_PRESENTATION,
-  type WorktreeStatusRecord,
-} from "./worktree-model.js";
+import { WORKTREE_DISK_DISPOSITION_COPY, WORKTREE_STATE_PRESENTATION } from "./worktree-model.js";
 import {
   WORKTREE_ABSENT_COLUMN_COPY,
   WORKTREE_COLUMN_LABELS,
@@ -24,21 +21,6 @@ import {
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
-
-function worktreeRecord(overrides: Partial<WorktreeStatusRecord> = {}): WorktreeStatusRecord {
-  return {
-    worktreeId: "worktree-01",
-    repoMountId: "mount-sidekicks",
-    branchName: "sidekicks/abc123/rate-limit-wiring",
-    fsRoot: "/Users/dev/.sidekicks/roots/worktree-01",
-    state: "ready",
-    createdBySessionId: "session-repos",
-    createdByRunId: "run-01",
-    createdAt: "2026-01-01T09:00:00.000Z",
-    updatedAt: "2026-01-01T09:04:00.000Z",
-    ...overrides,
-  } as WorktreeStatusRecord;
-}
 
 describe("WorktreeCard — the face", () => {
   it("names the branch, the state, the root, and the age", () => {

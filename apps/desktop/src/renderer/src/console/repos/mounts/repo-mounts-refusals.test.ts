@@ -22,10 +22,14 @@ import { createFixtureBridge, type ConsoleBridge } from "../../bridge/index.js";
 import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
 import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
 import { GIT_WORKSPACE_ID } from "../../bridge/scenarios/repos-fixture-data.js";
-import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
+import { ManualClock } from "../../core/index.js";
 import { SessionStore, type ConsoleSessionEvent } from "../../store/index.js";
 import { workspaceRefusalFor } from "./repo-mounts-model.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
+import { drain, settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
+
+// Every reader a case opens is tracked, and none of them outlives its case.
+afterEach(disposeTrackedReaders);
 
 const MODE_SELECT_CALL = "repo.executionModeSelect";
 const CAPABILITIES_READ_CALL = "repo.executionModeCapabilitiesRead";
@@ -52,38 +56,6 @@ interface PortBehaviour {
   readonly refuseCapabilitiesForFirstReads?: number;
   /** Drop this workspace from the roster from the second read onwards. */
   readonly dropFromRosterAfterFirstRead?: boolean;
-}
-
-const readers: RepoMountsReader[] = [];
-
-afterEach(() => {
-  while (readers.length > 0) {
-    readers.pop()?.dispose();
-  }
-});
-
-/**
- * Drive the frozen clock past the debounce and let the read's promises settle.
- *
- * The queued continuations are drained BEFORE the clock moves as well as after, on the
- * refresh suite's rule: the scheduler re-arms inside a `finally`, so a case that asked
- * for a read while one was landing would otherwise advance past a timer not yet set.
- */
-async function settle(clock: ManualClock, reader: RepoMountsReader): Promise<void> {
-  for (let turn = 0; turn < 5; turn += 1) {
-    await Promise.resolve();
-  }
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && reader.snapshot.status !== "read"; turn += 1) {
-    await Promise.resolve();
-  }
-}
-
-/** Let the queued continuations of a settled act run, without moving the clock. */
-async function drain(): Promise<void> {
-  for (let turn = 0; turn < 10; turn += 1) {
-    await Promise.resolve();
-  }
 }
 
 function interceptingBridge(behaviour: PortBehaviour, parked: (() => void)[]): ConsoleBridge {
@@ -126,7 +98,7 @@ async function openSection(behaviour: PortBehaviour = {}): Promise<ReadUnderTest
   sessionStore.initialise({ cursor: 0, entities: [], participantJoinLog: [] });
   const bridge = interceptingBridge(behaviour, parked);
   const reader = new RepoMountsReader({ bridge, sessionStore, clock });
-  readers.push(reader);
+  trackReader(reader);
   reader.start();
   await settle(clock, reader);
   let sequence = 0;

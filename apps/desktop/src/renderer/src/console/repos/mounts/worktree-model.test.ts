@@ -23,7 +23,6 @@ import {
   WORKTREE_STATE_PRESENTATION,
   cloneExpiryReading,
   worktreeDiskDisposition,
-  type EphemeralCloneStatusRecord,
   type WorktreeStatusRecord,
 } from "./worktree-model.js";
 import {
@@ -39,42 +38,12 @@ import {
   ephemeralCloneColumnCell,
   worktreeColumnCell,
 } from "./worktree-columns.js";
+import { cloneRecord, worktreeRecord } from "./repo-mounts.test-support.js";
 
 /**
  * A worktree row. Ids are readable rather than UUID-shaped, which is the repos
  * scenario's convention and safe for its reason: no console module parses one.
  */
-function worktreeRecord(overrides: Partial<WorktreeStatusRecord> = {}): WorktreeStatusRecord {
-  return {
-    worktreeId: "worktree-01",
-    repoMountId: "mount-sidekicks",
-    branchName: "sidekicks/abc123/rate-limit-wiring",
-    fsRoot: "/Users/dev/.sidekicks/roots/worktree-01",
-    state: "ready",
-    createdBySessionId: "session-repos",
-    createdByRunId: "run-01",
-    createdAt: "2026-01-01T09:00:00.000Z",
-    updatedAt: "2026-01-01T09:04:00.000Z",
-    ...overrides,
-  } as WorktreeStatusRecord;
-}
-
-function cloneRecord(
-  overrides: Partial<EphemeralCloneStatusRecord> = {},
-): EphemeralCloneStatusRecord {
-  return {
-    cloneId: "clone-01",
-    workspaceId: "workspace-sidekicks",
-    cloneRoot: "/Users/dev/.sidekicks/clones/clone-01",
-    branchName: "run-9f2c1a",
-    state: "ready",
-    cleanupPolicy: "on_run_complete",
-    expiresAt: "2026-01-01T12:00:00.000Z",
-    createdAt: "2026-01-01T09:00:00.000Z",
-    ...overrides,
-  } as EphemeralCloneStatusRecord;
-}
-
 /**
  * Does a summary/detail split cover a labels table exactly once each?
  *

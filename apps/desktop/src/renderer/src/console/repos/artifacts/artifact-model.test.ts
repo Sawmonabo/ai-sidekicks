@@ -9,12 +9,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
 import {
   REPOS_IMPLEMENTER_RUN_ID,
   REPOS_SESSION_ID,
   REPOS_VIEWING_PARTICIPANT_ID,
 } from "../../bridge/scenarios/repos.js";
+import { GROWTH_ARTIFACT_TYPES } from "../../bridge/index.js";
+import { artifactRow } from "./artifacts.test-support.js";
 import * as artifactModel from "./artifact-model.js";
 import {
   ARTIFACT_TYPE_FILTER_ALL,
@@ -50,24 +51,6 @@ const WIRE_OWNED_VOCABULARY_NAMES = [
   "ARTIFACT_REPLICATION_STATUSES",
   "ARTIFACT_PAYLOAD_DISPOSITIONS",
 ] as const;
-
-function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
-  return {
-    id: "artifact-01",
-    sessionId: REPOS_SESSION_ID,
-    runId: REPOS_IMPLEMENTER_RUN_ID,
-    createdBy: REPOS_VIEWING_PARTICIPANT_ID,
-    artifactType: "file",
-    digest: "sha256:3b1f0c",
-    size: 4096,
-    annotations: {},
-    visibility: "local-only",
-    state: "published",
-    metadata: {},
-    createdAt: "2026-01-01T09:00:00.000Z",
-    ...overrides,
-  };
-}
 
 describe("artifact-model and artifact-copy — the closed sets", () => {
   it("declares three states, two visibility classes, six types, and five replication statuses", () => {

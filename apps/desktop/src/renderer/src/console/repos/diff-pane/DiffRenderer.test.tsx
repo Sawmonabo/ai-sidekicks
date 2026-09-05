@@ -18,7 +18,6 @@
 // reimplemented: the library computes it from the numbers a browser would have
 // given it.
 
-import { render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { DIFF_ROW_HEIGHT_PX, DIFF_WINDOW_OVERSCAN_ROWS } from "./diff-bounds.js";
@@ -28,11 +27,7 @@ import {
   DIFF_FIXTURE_VIEWPORT_HEIGHT_PX,
   DiffLayoutFixture,
 } from "./diff-layout-fixture.test-support.js";
-import { DiffRenderer } from "./DiffRenderer.js";
-import { type DiffGapExpansion } from "./diff-row-model.js";
-
-const SMALL_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
-const NO_EXPANSION: DiffGapExpansion = new Map();
+import { SMALL_DIFF, renderDiff, reportedRowCount } from "./diff-renderer.test-support.js";
 
 /**
  * The rendered-row ceiling one window may reach.
@@ -55,34 +50,6 @@ beforeEach(() => {
 afterEach(() => {
   layout.restore();
 });
-
-/** The row count the scroller reports for the whole diff. */
-function reportedRowCount(container: HTMLElement): number {
-  return Number(container.querySelector(".meridian-diff")?.getAttribute("aria-rowcount"));
-}
-
-/** The renderer's props for a case, with whatever that case cares about replaced. */
-function diffRendererProps(
-  overrides: Partial<React.ComponentProps<typeof DiffRenderer>> = {},
-): React.ComponentProps<typeof DiffRenderer> {
-  return {
-    model: SMALL_DIFF,
-    viewMode: "unified",
-    showAttributionMarks: true,
-    wrapLongLines: false,
-    showWhitespaceChanges: true,
-    expansion: NO_EXPANSION,
-    onExpandGap: () => undefined,
-    label: "Diff, main to feat/rate-limit-wiring",
-    ...overrides,
-  };
-}
-
-function renderDiff(
-  overrides: Partial<React.ComponentProps<typeof DiffRenderer>> = {},
-): HTMLElement {
-  return render(<DiffRenderer {...diffRendererProps(overrides)} />).container;
-}
 
 describe("diff renderer — the rows", () => {
   it("names itself as a table and reports the whole diff's row count", () => {

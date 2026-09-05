@@ -26,8 +26,8 @@ import {
   DiffLayoutFixture,
 } from "./diff-layout-fixture.test-support.js";
 import { DiffFileList } from "./DiffFileList.js";
+import { filterTo, fixtureFileAt, renderFileList } from "./diff-file-list.test-support.js";
 import { HIDDEN_SELECTION_COPY } from "./diff-file-entries.js";
-import { type ConsoleDiffModel } from "./diff-model.js";
 
 const EXTENDED_HEADER_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 const TEXTUAL_ONLY_DIFF = buildDiffFixture(SMALL_DIFF_SHAPE);
@@ -58,16 +58,6 @@ afterEach(() => {
   layout.restore();
 });
 
-function renderFileList(diff: ConsoleDiffModel, selectedFilePath?: string): HTMLElement {
-  return render(
-    <DiffFileList
-      diff={diff}
-      selectedFilePath={selectedFilePath}
-      onSelectFilePath={() => undefined}
-    />,
-  ).container;
-}
-
 /** The entry for one path, as the list drew it. */
 function entryFor(container: HTMLElement, path: string): HTMLElement {
   const entry = [...container.querySelectorAll<HTMLElement>(".meridian-diff-files__entry")].find(
@@ -77,33 +67,6 @@ function entryFor(container: HTMLElement, path: string): HTMLElement {
     throw new Error(`the list drew no entry for ${path}`);
   }
   return entry;
-}
-
-/**
- * One file of a change set, by index.
- *
- * Thrown for rather than answered as optional, because a fixture shorter than a case
- * assumes is a broken case and not a state to assert about — and a `function`
- * declaration below carries no narrowing a guard beside the fixture would have made.
- */
-function fixtureFileAt(
-  diff: ConsoleDiffModel,
-  fileIndex: number,
-): ConsoleDiffModel["files"][number] {
-  const file = diff.files[fileIndex];
-  if (file === undefined) {
-    throw new Error(`the generated change set has no file at ${String(fileIndex)}`);
-  }
-  return file;
-}
-
-/** Type into the list's own filter, which is how every filtering case narrows it. */
-function filterTo(container: HTMLElement, filterText: string): void {
-  const filter = container.querySelector<HTMLInputElement>(".meridian-diff-files__filter-input");
-  if (filter === null) {
-    throw new Error("the list drew no filter input");
-  }
-  fireEvent.change(filter, { target: { value: filterText } });
 }
 
 /** The change note on one path's entry, or `undefined` where it drew none. */

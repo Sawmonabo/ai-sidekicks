@@ -24,7 +24,11 @@ import { GIT_WORKSPACE_ID, PLAIN_WORKSPACE_ID } from "../../bridge/scenarios/rep
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
+import { drain, settle, trackReader, disposeTrackedReaders } from "./repo-mounts.test-support.js";
 import { selectionInFlightCopy } from "./execution-mode-selection.js";
+
+// Every reader a case opens is tracked, and none of them outlives its case.
+afterEach(disposeTrackedReaders);
 
 /** The one call a mode switch makes, held open so a case can press again mid-flight. */
 const MODE_SELECT_CALL = "repo.executionModeSelect";
@@ -87,32 +91,6 @@ function bridgeHoldingModeSelect(released: ReleasedSelects = "served"): HeldMode
   };
 }
 
-const readers: RepoMountsReader[] = [];
-
-afterEach(() => {
-  while (readers.length > 0) {
-    readers.pop()?.dispose();
-  }
-});
-
-/** Drive the frozen clock past the debounce and let the read's promises settle. */
-async function settle(clock: ManualClock, reader: RepoMountsReader): Promise<void> {
-  for (let turn = 0; turn < 5; turn += 1) {
-    await Promise.resolve();
-  }
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  for (let turn = 0; turn < 50 && reader.snapshot.status !== "read"; turn += 1) {
-    await Promise.resolve();
-  }
-}
-
-/** Let the queued continuations of a settled act run, without moving the clock. */
-async function drain(): Promise<void> {
-  for (let turn = 0; turn < 10; turn += 1) {
-    await Promise.resolve();
-  }
-}
-
 /** A section that has read, with its mode-select call parked. */
 async function openWithHeldSelect(released: ReleasedSelects = "served"): Promise<{
   reader: RepoMountsReader;
@@ -126,7 +104,7 @@ async function openWithHeldSelect(released: ReleasedSelects = "served"): Promise
     sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
     clock,
   });
-  readers.push(reader);
+  trackReader(reader);
   reader.start();
   await settle(clock, reader);
   return { reader, clock, port };

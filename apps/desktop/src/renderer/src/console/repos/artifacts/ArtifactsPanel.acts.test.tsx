@@ -8,37 +8,14 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  REPOS_IMPLEMENTER_RUN_ID,
-  REPOS_SESSION_ID,
-  REPOS_VIEWING_PARTICIPANT_ID,
-} from "../../bridge/scenarios/repos.js";
 import { refuse } from "../../core/index.js";
+import { artifactRow } from "./artifacts.test-support.js";
 import { ArtifactsPanel } from "./ArtifactsPanel.js";
-import { type ArtifactManifestRow } from "./artifact-model.js";
 import { ARTIFACT_DELETE_CONSEQUENCE, ARTIFACT_PAYLOAD_DISPOSITION_COPY } from "./artifact-copy.js";
 
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
-
-function artifactRow(overrides: Partial<ArtifactManifestRow> = {}): ArtifactManifestRow {
-  return {
-    id: "artifact-01",
-    sessionId: REPOS_SESSION_ID,
-    runId: REPOS_IMPLEMENTER_RUN_ID,
-    createdBy: REPOS_VIEWING_PARTICIPANT_ID,
-    artifactType: "file",
-    digest: "sha256:3b1f0c",
-    size: 4096,
-    annotations: {},
-    visibility: "local-only",
-    state: "published",
-    metadata: {},
-    createdAt: "2026-01-01T09:00:00.000Z",
-    ...overrides,
-  };
-}
 
 describe("ArtifactsPanel — the acts", () => {
   it("offers only the acts the mount wired", () => {
