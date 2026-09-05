@@ -26,6 +26,16 @@
 // rather than drawn disabled — the absent-not-disabled rule
 // `src/shared/auxiliary-routes.ts` applies to the Window menu, applied here.
 //
+// AND SUPPLYING `onOpenInWindow` IS NEVER ENOUGH TO SHOW THE DETACH CONTROL. Only a
+// kind the window model can actually open in a window wears it, which is
+// `isDetachablePaneKind`'s single answer and not a set restated here. The handler is a
+// permission from the HOST and the kind is a fact about the WINDOW MODEL, and a
+// control needs both: the deck supplies its controls through one context, so a host
+// doing the ordinary thing hands every pane it lays out the same handler, and without
+// this a `runs` pane would offer a button whose act has no route. A family passing the
+// handler for a non-detachable kind is not making an error to be reported — it is the
+// expected shape — so the control is simply absent.
+//
 // AND THE HEAD IS ALSO THE DRAG HANDLE. `Spec-023 §Console Libraries` puts pointer
 // reorder on `@atlaskit/pragmatic-drag-and-drop`, which binds to an element. The head
 // is the strip that means "this pane" in every deck a person has used, and making the
@@ -47,7 +57,7 @@ import { type ConsoleEntityRef } from "../store/index.js";
 import { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME, type GlyphName } from "../tokens/index.js";
 import { PaneBreadcrumb } from "./PaneBreadcrumb.js";
 import { usePaneControls } from "./pane-controls.js";
-import { type PaneKind } from "./pane-kinds.js";
+import { isDetachablePaneKind, type PaneKind } from "./pane-kinds.js";
 import { type ConsolePaneContext } from "./pane-registry.js";
 
 /**
@@ -180,7 +190,13 @@ export interface ConsolePaneChromeProps {
   readonly actions?: React.ReactNode;
   /** Overrides the host's close, where the caller owns this pane's lifetime. */
   readonly onClose?: () => void;
-  /** Overrides the host's detach, on the same terms. */
+  /**
+   * Overrides the host's detach, on the same terms.
+   *
+   * Supplying it is necessary and NOT sufficient: the control renders only for a kind
+   * `isDetachablePaneKind` admits, so a handler passed for a `runs` or `browser` pane
+   * is silently unused rather than drawing a button the window model cannot serve.
+   */
   readonly onOpenInWindow?: () => void;
   readonly children: React.ReactNode;
 }
@@ -204,7 +220,15 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
   const headingId = props.headingId ?? mintedHeadingId;
   const hostControls = usePaneControls();
   const onClose = props.onClose ?? hostControls?.onClose;
-  const onOpenInWindow = props.onOpenInWindow ?? hostControls?.onOpenInWindow;
+  // GATED ON THE KIND AND NOT ON THE HANDLER ALONE. A host that provides one
+  // `onOpenInWindow` to every pane it lays out — the ordinary shape, since the deck
+  // supplies its controls through one context — would otherwise put a detach button on
+  // a `runs` or `browser` pane, and pressing it asks for a window the model has no
+  // route to open. `isDetachablePaneKind` is the ONE answer to which kinds may be torn
+  // off; the set is not restated here, so a kind added to the auxiliary routes reaches
+  // this control without an edit.
+  const requestedOpenInWindow = props.onOpenInWindow ?? hostControls?.onOpenInWindow;
+  const onOpenInWindow = isDetachablePaneKind(props.kind) ? requestedOpenInWindow : undefined;
   const registerDragHandle = hostControls?.registerDragHandle;
   const title = TITLE_BY_PANE_KIND[props.kind];
   const focusRingStyle: PaneFocusRingStyle | undefined =

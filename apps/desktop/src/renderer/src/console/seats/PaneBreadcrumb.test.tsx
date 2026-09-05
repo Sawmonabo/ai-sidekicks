@@ -6,7 +6,7 @@
 // render rather than as an address that names nothing.
 
 import { render } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { PaneBreadcrumb, paneScopeCrumbs, type PaneScopeAddress } from "./PaneBreadcrumb.js";
 
@@ -36,9 +36,9 @@ function crumbTexts(crumbs: HTMLElement): readonly (string | null)[] {
 
 describe("paneScopeCrumbs — what the address carries, and nothing else", () => {
   it("orders the crumbs session, channel, run, entity", () => {
-    // Every id is DISTINCT on purpose. Two crumbs sharing a string cannot witness "in
-    // order" — the assertion holds over either arrangement — and the trail keys each
-    // crumb by its own text, so a repeated one is also a duplicate React key.
+    // Every id is DISTINCT on purpose: two crumbs sharing a string cannot witness "in
+    // order", because the assertion holds over either arrangement. The colliding case
+    // is a claim about KEYS rather than about order, and is made below.
     expect(
       paneScopeCrumbs({
         sessionId: "session-1",
@@ -46,7 +46,36 @@ describe("paneScopeCrumbs — what the address carries, and nothing else", () =>
         runId: "run-03",
         entity: { kind: "agent", id: "agent-04" },
       }),
-    ).toStrictEqual(["session-1", "channel-2", "run-03", "agent-04"]);
+    ).toStrictEqual([
+      { scope: "session", value: "session-1" },
+      { scope: "channel", value: "channel-2" },
+      { scope: "run", value: "run-03" },
+      { scope: "entity", value: "agent-04" },
+    ]);
+  });
+
+  it("carries a distinct scope on every crumb, however the identifiers collide", () => {
+    // THE FINDING. Nothing on the wire forbids two scopes of one address holding the
+    // same string — a run whose id is its session's is the shape that reaches this
+    // first — and the crumbs used to be bare identifiers, so the trail keyed sibling
+    // `<li>` on a value that was not unique. The scope is unique BY CONSTRUCTION: an
+    // address has at most one crumb per scope, so this cannot be defeated by any
+    // arrangement of identifiers.
+    const collided = paneScopeCrumbs({
+      sessionId: "shared-id",
+      channelId: "shared-id",
+      runId: "shared-id",
+      entity: { kind: "run", id: "shared-id" },
+    });
+    expect(collided.map((crumb) => crumb.value)).toStrictEqual([
+      "shared-id",
+      "shared-id",
+      "shared-id",
+      "shared-id",
+    ]);
+    const scopes = collided.map((crumb) => crumb.scope);
+    expect(new Set(scopes).size, "two crumbs of one address share a scope").toBe(scopes.length);
+    expect(scopes).toStrictEqual(["session", "channel", "run", "entity"]);
   });
 
   it("leaves out what the address does not carry", () => {
@@ -57,7 +86,10 @@ describe("paneScopeCrumbs — what the address carries, and nothing else", () =>
         runId: undefined,
         entity: { kind: "run", id: "run-10" },
       }),
-    ).toStrictEqual(["session-1", "run-10"]);
+    ).toStrictEqual([
+      { scope: "session", value: "session-1" },
+      { scope: "entity", value: "run-10" },
+    ]);
   });
 
   it("answers nothing for an address that names nothing", () => {
@@ -77,7 +109,89 @@ describe("paneScopeCrumbs — what the address carries, and nothing else", () =>
     // agent-04` in the trail would be the console saying it twice in two registers.
     expect(
       paneScopeCrumbs({ ...NO_ADDRESS, entity: { kind: "agent", id: "agent-04" } }),
-    ).toStrictEqual(["agent-04"]);
+    ).toStrictEqual([{ scope: "entity", value: "agent-04" }]);
+  });
+});
+
+/** Every React warning raised while `act` ran, so a keying fault is read rather than logged. */
+function reactWarnings(): { readonly lines: () => readonly string[] } {
+  const raised: string[] = [];
+  vi.spyOn(console, "error").mockImplementation((...parts: readonly unknown[]) => {
+    raised.push(parts.map((part) => String(part)).join(" "));
+  });
+  return { lines: () => raised };
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("PaneBreadcrumb — two scopes may carry one identifier", () => {
+  // WHERE THE PROOF ACTUALLY LIVES, stated because it is not where it first appears to.
+  // The `console-unit` project declares no `setupFiles` and fails on no warning, so
+  // React's duplicate-key report would be logged and never read — it is captured here
+  // explicitly, and that capture is the case that fails on the pre-fix shape. The
+  // rendered-outcome case below is NOT a second control: measured on the pinned React,
+  // a duplicate key still renders both children and still updates the second by
+  // position, so that case passes either way. Keying is a property of the derivation
+  // (asserted above, where scope uniqueness is structural) and of what React is handed
+  // (asserted here); it is deliberately not asserted through a misbehaviour React
+  // documents as unpredictable and could change between versions.
+
+  it("renders both crumbs and raises no duplicate-key warning", () => {
+    const warnings = reactWarnings();
+    const crumbs = renderTrail({
+      sessionId: "shared-id",
+      channelId: undefined,
+      runId: "shared-id",
+      entity: undefined,
+    });
+    // Two address crumbs plus the pane's own name. Before the fix React kept ONE of
+    // the colliding pair, so this read two rather than three.
+    expect(crumbTexts(crumbs)).toStrictEqual(["shared-id", "shared-id", "Inspector"]);
+    expect(warnings.lines().filter((line) => /same key/u.test(line))).toStrictEqual([]);
+  });
+
+  it("negative control: the warning capture is wired, and reads a real duplicate key", () => {
+    // Without this the claim above passes over a spy that never saw anything — the
+    // failure this class of assertion is most prone to. A list keyed on a repeated
+    // value is exactly the pre-fix shape, planted here rather than described.
+    const warnings = reactWarnings();
+    render(
+      <ol>
+        {["shared-id", "shared-id"].map((value) => (
+          <li key={value}>{value}</li>
+        ))}
+      </ol>,
+    );
+    expect(warnings.lines().filter((line) => /same key/u.test(line)).length).toBeGreaterThan(0);
+  });
+
+  it("moves the right crumb when one scope of a colliding pair changes", () => {
+    // The OUTCOME the key exists to protect, pinned separately from the key itself.
+    // React documents its behaviour on duplicate keys as unpredictable, and measured
+    // on the version this console pins it keeps both children and reconciles the
+    // second by position — so this case passes on the pre-fix shape too, and it is
+    // NOT the control for the finding. It is here because "the trail shows the new run
+    // id in the run's place" is what a reader needs to stay true whatever a future
+    // reconciler does with a duplicate, and nothing else asserts it.
+    const shared: PaneScopeAddress = {
+      sessionId: "shared-id",
+      channelId: undefined,
+      runId: "shared-id",
+      entity: undefined,
+    };
+    const { container, rerender } = render(
+      <PaneBreadcrumb {...shared} crumbsId={CRUMBS_ID} currentCrumb="Inspector" />,
+    );
+    rerender(
+      <PaneBreadcrumb {...shared} runId="run-99" crumbsId={CRUMBS_ID} currentCrumb="Inspector" />,
+    );
+    const crumbs = container.querySelector(".meridian-pane__crumbs");
+    if (!(crumbs instanceof HTMLElement)) {
+      throw new Error("the breadcrumb rendered no crumb list");
+    }
+    expect(crumbTexts(crumbs)).toStrictEqual(["shared-id", "run-99", "Inspector"]);
   });
 });
 

@@ -22,7 +22,7 @@ import {
   paneBodyForKind,
 } from "./ConsolePaneChrome.js";
 import { PaneControlsContext } from "./pane-controls.js";
-import { PANE_KINDS } from "./pane-kinds.js";
+import { PANE_KINDS, isDetachablePaneKind } from "./pane-kinds.js";
 import { type ConsolePaneContext } from "./pane-registry.js";
 
 function renderChrome(element: React.JSX.Element): HTMLElement {
@@ -224,6 +224,72 @@ describe("ConsolePaneChrome — where the controls come from", () => {
       </PaneControlsContext.Provider>,
     );
     expect(controlLabels(pane)).toStrictEqual([
+      "Open this timeline in its own window",
+      "Close this pane",
+    ]);
+  });
+
+  it("draws the detach control only for a kind the window model can open", () => {
+    // THE GATE. A deck supplies its controls through ONE context, so a host doing the
+    // ordinary thing hands every pane it lays out the same `onOpenInWindow`. Keyed on
+    // the handler alone that put a detach button on a `runs` pane, whose act the window
+    // model has no route to serve. Driven over the whole closed kind set rather than
+    // asserted for two names, so a kind added to the auxiliary routes is covered here
+    // without an edit and a kind quietly dropped from them fails.
+    const bothOffered = { onClose: () => undefined, onOpenInWindow: () => undefined };
+    const detachable: string[] = [];
+    const withheld: string[] = [];
+    for (const kind of PANE_KINDS) {
+      const pane = renderChrome(
+        <PaneControlsContext.Provider value={bothOffered}>
+          <ConsolePaneChrome kind={kind} sessionId="session-1" focusHue={undefined}>
+            <p>body</p>
+          </ConsolePaneChrome>
+        </PaneControlsContext.Provider>,
+      );
+      const labels = controlLabels(pane);
+      // The close is offered to every kind, so its presence is what proves the handler
+      // reached the chrome at all and the detach was withheld rather than both lost.
+      expect(labels, `${kind} lost the close control`).toContain("Close this pane");
+      (labels.length === 2 ? detachable : withheld).push(kind);
+    }
+    expect(detachable).toStrictEqual([...PANE_KINDS].filter(isDetachablePaneKind));
+    expect(withheld).toStrictEqual([...PANE_KINDS].filter((kind) => !isDetachablePaneKind(kind)));
+    // Both sides have members, or the claim above holds over an arrangement that
+    // proves nothing — every kind detachable, or none.
+    expect(detachable.length).toBeGreaterThan(0);
+    expect(withheld.length).toBeGreaterThan(0);
+  });
+
+  it("withholds it from an explicit prop too, not only from the context", () => {
+    // The other door. Explicit wins over the context for the close, so a gate applied
+    // to one path and not the other would leave a non-deck host able to draw the
+    // button the deck path refuses.
+    const runs = renderChrome(
+      <ConsolePaneChrome
+        kind="runs"
+        sessionId="session-1"
+        focusHue={undefined}
+        onOpenInWindow={() => undefined}
+        onClose={() => undefined}
+      >
+        <p>body</p>
+      </ConsolePaneChrome>,
+    );
+    expect(controlLabels(runs)).toStrictEqual(["Close this pane"]);
+
+    const timeline = renderChrome(
+      <ConsolePaneChrome
+        kind="timeline"
+        sessionId="session-1"
+        focusHue={undefined}
+        onOpenInWindow={() => undefined}
+        onClose={() => undefined}
+      >
+        <p>body</p>
+      </ConsolePaneChrome>,
+    );
+    expect(controlLabels(timeline)).toStrictEqual([
       "Open this timeline in its own window",
       "Close this pane",
     ]);

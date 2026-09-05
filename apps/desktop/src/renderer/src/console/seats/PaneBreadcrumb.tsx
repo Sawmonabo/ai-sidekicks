@@ -43,17 +43,46 @@ export interface PaneScopeAddress {
 }
 
 /**
- * The wire identifiers a pane's address carries, outermost first.
+ * Which member of the address a crumb came from.
+ *
+ * Exactly the members of {@link PaneScopeAddress}, and the reason it exists is React
+ * keys: an address has AT MOST ONE crumb per scope, so a scope is unique across a
+ * trail by construction, while the identifier is not.
+ */
+export type PaneScopeName = "session" | "channel" | "run" | "entity";
+
+/** One crumb: the scope it came from, and the wire identifier that scope carries. */
+export interface PaneScopeCrumb {
+  readonly scope: PaneScopeName;
+  readonly value: string;
+}
+
+/**
+ * The wire identifiers a pane's address carries, outermost first, each with its scope.
  *
  * The identifiers are wire-verbatim — they are strings, so they are rendered as
  * received. An entity contributes its `id` and not its `kind`: the kind is already
  * said by the pane's own glyph and title, and repeating it in the trail would make
  * `agent agent-01` the crumb for a pane that says "Agent console" two elements away.
+ *
+ * EACH CRUMB CARRIES ITS SCOPE because the identifier alone cannot key it. Two scopes
+ * of one address may hold the same string — a run whose id is its session's is the
+ * shape that reaches this first, and nothing in the wire forbids it — and keying
+ * sibling `<li>` on the identifier then gives React two children with one key: it
+ * warns, and it reconciles the pair as one element, so the second crumb's updates land
+ * on the first or are dropped. The scope is not merely unique, it is STABLE: a channel
+ * appearing between the session and the run re-keys nothing, where a positional key
+ * would remount every crumb after the insertion.
  */
-export function paneScopeCrumbs(address: PaneScopeAddress): readonly string[] {
-  return [address.sessionId, address.channelId, address.runId, address.entity?.id].filter(
-    (crumb): crumb is string => crumb !== undefined,
-  );
+export function paneScopeCrumbs(address: PaneScopeAddress): readonly PaneScopeCrumb[] {
+  const carried: readonly { readonly scope: PaneScopeName; readonly value: string | undefined }[] =
+    [
+      { scope: "session", value: address.sessionId },
+      { scope: "channel", value: address.channelId },
+      { scope: "run", value: address.runId },
+      { scope: "entity", value: address.entity?.id },
+    ];
+  return carried.filter((crumb): crumb is PaneScopeCrumb => crumb.value !== undefined);
 }
 
 /** What the trail says when the address names nothing at all. */
@@ -85,9 +114,11 @@ export function PaneBreadcrumb(props: PaneBreadcrumbProps): React.JSX.Element {
           <li className="meridian-pane__crumb-absent">{NO_ADDRESS_CRUMB}</li>
         ) : (
           scopeCrumbs.map((crumb, position) => (
-            <li className="meridian-pane__crumb" key={crumb}>
+            // Keyed on the SCOPE and never on the identifier: an address holds at most
+            // one crumb per scope, so the key is unique however the ids collide.
+            <li className="meridian-pane__crumb" key={crumb.scope}>
               {position === 0 ? null : <Glyph name="chevron-right" size={GLYPH_SIZE_CHROME} />}
-              <WireFigure value={crumb} />
+              <WireFigure value={crumb.value} />
             </li>
           ))
         )}
