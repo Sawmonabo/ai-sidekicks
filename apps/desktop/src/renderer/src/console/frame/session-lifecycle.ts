@@ -64,6 +64,14 @@
 // accidental — its dependency list named `bridge`, which the body did not use, so a
 // bridge change tore the LIVE plumbing down and then rebuilt it only because
 // `disposeAll` happens to set `isDisposed` before the body reads it.
+//
+// WHICH IS WHY THE REMOUNT ARM IS ITS OWN EFFECT. It is the one thing here that reads
+// the bridge and the projector board, so it is the one thing whose dependency list has
+// to name them — and a list that names them cannot also own a teardown, because a
+// projector board rebuilt while the bridge stood would then dispose plumbing nothing
+// had retired and rebuild it only by the same accident. The two are split by what
+// they DO: one owns the resource's life and is keyed on the resource, the other only
+// publishes and acts on no condition but a plumbing that has already disposed itself.
 
 import { useEffect } from "react";
 
@@ -131,9 +139,13 @@ export function useSessionStoreRegistry(
     useSubjectScopedState<WindowSessionPlumbing>(bridge, undefined, () =>
       createWindowSessionPlumbing(bridge, projectorRegistry),
     );
+  // THE LIFE OF THE PLUMBING, KEYED ON THE PLUMBING AND NOTHING ELSE. Anything else
+  // in this list is a reason to tear down live subscriptions that has nothing to do
+  // with the resource: the registry is rebuilt by the HOLDER when its bridge moves,
+  // so a dependency the body does not read can only ever fire when the plumbing is
+  // exactly what it was.
   useEffect(() => {
     if (plumbing.registry.isDisposed) {
-      publishPlumbing(createWindowSessionPlumbing(bridge, projectorRegistry));
       return;
     }
     plumbing.binder.attach();
@@ -151,6 +163,16 @@ export function useSessionStoreRegistry(
       plumbing.binder.dispose();
       plumbing.registry.disposeAll();
     };
+  }, [plumbing]);
+  // THE REMOUNT ARM, SEPARATELY, because it is the one thing here that does read the
+  // bridge and the projector board. It publishes and never disposes, so the widest
+  // dependency list in this hook cannot retire anything: the effect above already
+  // disposed this plumbing, which is the only condition under which this one acts.
+  useEffect(() => {
+    if (!plumbing.registry.isDisposed) {
+      return;
+    }
+    publishPlumbing(createWindowSessionPlumbing(bridge, projectorRegistry));
   }, [plumbing, publishPlumbing, bridge, projectorRegistry]);
   return plumbing.registry;
 }

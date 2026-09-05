@@ -83,7 +83,17 @@ interface SwapHarness {
   readonly observed: readonly Observation[];
   /** Every distinct registry that answered a render, in the order it appeared. */
   readonly registries: () => readonly SessionStoreRegistry[];
-  readonly renderAgainst: (bridge: ConsoleBridge) => void;
+  /**
+   * Re-render under a bridge, and optionally under a different projector board.
+   *
+   * The board is a parameter rather than a second harness because the claim it
+   * carries is about this same hook: the board is NOT the plumbing's subject, so
+   * replacing it must leave a live registry alone.
+   */
+  readonly renderAgainst: (
+    bridge: ConsoleBridge,
+    projectorRegistry?: ConsoleEntityProjectorRegistry,
+  ) => void;
   readonly unmount: () => void;
 }
 
@@ -103,18 +113,24 @@ function mountAgainst(bridge: ConsoleBridge): SwapHarness {
   const record = (observation: Observation): void => {
     observed.push(observation);
   };
-  const projectorRegistry = new ConsoleEntityProjectorRegistry();
-  const hostFor = (against: ConsoleBridge): React.JSX.Element => (
-    <SwapHost bridge={against} projectorRegistry={projectorRegistry} onObserve={record} />
+  const firstBoard = new ConsoleEntityProjectorRegistry();
+  const hostFor = (
+    against: ConsoleBridge,
+    board: ConsoleEntityProjectorRegistry,
+  ): React.JSX.Element => (
+    <SwapHost bridge={against} projectorRegistry={board} onObserve={record} />
   );
-  const mounted = render(hostFor(bridge));
+  const mounted = render(hostFor(bridge, firstBoard));
   return {
     observed,
     registries: (): readonly SessionStoreRegistry[] => [
       ...new Set(observed.map((observation) => observation.registry)),
     ],
-    renderAgainst: (next: ConsoleBridge): void => {
-      mounted.rerender(hostFor(next));
+    renderAgainst: (
+      next: ConsoleBridge,
+      board: ConsoleEntityProjectorRegistry = firstBoard,
+    ): void => {
+      mounted.rerender(hostFor(next, board));
     },
     unmount: (): void => {
       mounted.unmount();
@@ -259,6 +275,35 @@ describe("useSessionStoreRegistry — the plumbing follows the bridge", () => {
     expect(third?.isDisposed).toBe(false);
     expect(third?.canInitialiseSessionStores).toBe(true);
     expect(registries.slice(0, 2).every((registry) => registry.isDisposed)).toBe(true);
+
+    harness.unmount();
+  });
+
+  it("leaves live plumbing alone when a dependency that is not its subject changes", () => {
+    // The projector board is deliberately not the plumbing's subject: a registry
+    // takes a SNAPSHOT of it at construction, so a board replaced later is not part
+    // of what this resource is about. The shape this replaced disposed the LIVE
+    // registry anyway — its one effect listed the board among dependencies its
+    // teardown did not read — and then rebuilt it only because `disposeAll` happens
+    // to set `isDisposed` before the body reads it. Between those two moments every
+    // `useOpenSessionStore` consumer reads through a disposed registry.
+    const bridge = createFixtureBridge({ scenario: FLAGSHIP_SCENARIO });
+    const harness = mountAgainst(bridge);
+    const live = harness.registries().at(-1);
+    expect(live).toBeDefined();
+
+    harness.renderAgainst(bridge, new ConsoleEntityProjectorRegistry());
+
+    expect(harness.registries()).toHaveLength(1);
+    expect(harness.registries()[0]).toBe(live);
+    expect(live?.isDisposed).toBe(false);
+
+    // Negative control: the subject that IS the plumbing's still retires it, so the
+    // claim above is about which dependency decided rather than about a hook that
+    // stopped re-minting at all.
+    harness.renderAgainst(bridgeServingNoGrowthOperation());
+    expect(harness.registries()).toHaveLength(2);
+    expect(live?.isDisposed).toBe(true);
 
     harness.unmount();
   });
