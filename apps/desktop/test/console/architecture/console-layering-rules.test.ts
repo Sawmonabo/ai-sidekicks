@@ -33,6 +33,7 @@
 // slices a case can spend, plus the settlement residual that module already owns —
 // rather than a literal chosen to be comfortable.
 
+import { existsSync } from "node:fs";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -40,7 +41,7 @@ import { fileURLToPath } from "node:url";
 
 import { cruise } from "dependency-cruiser";
 import extractDepcruiseConfig from "dependency-cruiser/config-utl/extract-depcruise-config";
-import { afterAll, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { MINIMUM_SETTLEMENT_RESIDUAL_MS } from "../launch-deadline.js";
 
@@ -92,6 +93,24 @@ const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
 };
 
 /**
+ * The clean shape again under a FRESH identity, for the cleanup proof below.
+ *
+ * A distinct object rather than one of the three above, because the memo answers a
+ * tree a case has already named without planting anything — so a proof about planting
+ * has to be the case that plants. Clean, so it asserts the same nothing the first case
+ * does and adds no second claim about the rules.
+ */
+const PROOF_TREE: PlantedTree = { ...CLEAN_TREE, "core/clock.ts": `export const NOW = 0;\n` };
+
+/** Every tree this file plants. The memo control bounds the cruise count on it. */
+const EVERY_PLANTED_TREE: readonly PlantedTree[] = [
+  CLEAN_TREE,
+  BARREL_CHAIN_TREE,
+  VIEW_FAMILY_EDGE_TREE,
+  PROOF_TREE,
+];
+
+/**
  * What one cruise of a planted tree may cost, in milliseconds.
  *
  * A CEILING FOR A WEDGED CRUISE, not an expectation, on the same posture the launch
@@ -138,8 +157,11 @@ const EVERY_TREE_MS = layeringTimeoutFor(3);
  * TWO LIFETIMES, AND THEY ARE DELIBERATELY DIFFERENT. A completed cruise RESULT is
  * shared across cases — that is what makes the aggregate case free and keeps each
  * case at one cruise — while the planted DIRECTORY is finished the instant the cruise
- * that read it settles. Holding them on one object is what lets the second be
- * released without the first.
+ * that read it settles. So the result is kept and the tree is removed at the end of
+ * the case that planted it, which is what `apps/desktop/AGENTS.md` requires of every
+ * temporary directory and what a removal deferred to the suite's end could not give:
+ * every tree on disk for the whole run, and all of them leaked if the worker exits
+ * before teardown.
  *
  * Behind private fields on one object rather than two module-level collections,
  * because module-level mutable state is shared by every case in the file and a prior
@@ -148,6 +170,7 @@ const EVERY_TREE_MS = layeringTimeoutFor(3);
 class PlantedTreeCache {
   readonly #violationsByTree = new Map<PlantedTree, Promise<readonly string[]>>();
   #plantedRoots: string[] = [];
+  #removedRoots: string[] = [];
 
   /**
    * Which rules fired on `tree`, on which edge — cruised once and remembered.
@@ -167,6 +190,16 @@ class PlantedTreeCache {
     return cruising;
   }
 
+  /** The directories planted since the last removal, and still on disk. */
+  public get plantedRoots(): readonly string[] {
+    return [...this.#plantedRoots];
+  }
+
+  /** Every directory this cache has removed, for the case that asserts they are gone. */
+  public get removedRoots(): readonly string[] {
+    return [...this.#removedRoots];
+  }
+
   /** How many trees have been cruised, for the control that no tree is cruised twice. */
   public get cruisedTreeCount(): number {
     return this.#violationsByTree.size;
@@ -176,6 +209,7 @@ class PlantedTreeCache {
   public async removePlantedTrees(): Promise<void> {
     const planted = this.#plantedRoots;
     this.#plantedRoots = [];
+    this.#removedRoots = [...this.#removedRoots, ...planted];
     await Promise.all(planted.map((root) => rm(root, { recursive: true, force: true })));
   }
 
@@ -233,7 +267,12 @@ class PlantedTreeCache {
 describe("console layering rules", () => {
   const cruiseCache = new PlantedTreeCache();
 
-  afterAll(async () => {
+  // THE DIRECTORY GOES AND THE RESULT STAYS. A tree is finished the instant the cruise
+  // that read it settles, so it is removed here rather than at the suite's end — where
+  // every tree would sit on disk for the whole run and all of them would be leaked by a
+  // worker that exits before teardown. The cache holds cruise OUTPUTS, which is what a
+  // later case reads; no case reads a planted path.
+  afterEach(async () => {
     await cruiseCache.removePlantedTrees();
   });
 
@@ -290,7 +329,42 @@ describe("console layering rules", () => {
       // rather than equality, because what is asserted is that no second cruise ran.
       const first = cruiseCache.violationsFor(CLEAN_TREE);
       expect(cruiseCache.violationsFor(CLEAN_TREE)).toBe(first);
-      expect(cruiseCache.cruisedTreeCount).toBeLessThanOrEqual(3);
+      expect(cruiseCache.cruisedTreeCount).toBeLessThanOrEqual(EVERY_PLANTED_TREE.length);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "plants a tree on disk to cruise it",
+    async () => {
+      // The other half of the pair below, and the reason it is not vacuous: a case
+      // that planted nothing would satisfy "the directory is gone" trivially. This is
+      // the case that plants `PROOF_TREE` — no earlier case names it, so the memo
+      // cannot answer it — and the tree is on disk while the cruise reads it.
+      //
+      // EXACTLY ONE outstanding root, which is the per-case claim stated from the
+      // planting side: every earlier case's tree went when that case ended, so what is
+      // held here is this case's alone.
+      expect(await cruiseCache.violationsFor(PROOF_TREE)).toEqual([]);
+      expect(cruiseCache.plantedRoots).toHaveLength(1);
+      expect(cruiseCache.plantedRoots.every((root) => existsSync(root))).toBe(true);
+    },
+    ONE_TREE_MS,
+  );
+
+  it(
+    "has removed every planted tree by the case after the one that planted it",
+    async () => {
+      // The cleanup claim, observed from OUTSIDE the case that planted — which is the
+      // only place an `afterEach` is observable at all. Every tree this suite has
+      // planted, not just the last one, so a removal that missed a case is a failure
+      // here rather than a directory nobody looks at again.
+      expect(cruiseCache.removedRoots.length).toBeGreaterThan(0);
+      expect(cruiseCache.removedRoots.filter((root) => existsSync(root))).toEqual([]);
+      // And the result outlived its directory: the cached cruise is served without
+      // planting anything, which is the whole reason the two lifetimes are separate.
+      expect(await cruiseCache.violationsFor(PROOF_TREE)).toEqual([]);
+      expect(cruiseCache.plantedRoots).toEqual([]);
     },
     ONE_TREE_MS,
   );
