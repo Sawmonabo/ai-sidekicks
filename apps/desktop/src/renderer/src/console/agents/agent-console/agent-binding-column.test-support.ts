@@ -328,6 +328,19 @@ export function editProviderAccount(container: HTMLElement, value: string): void
   fireEvent.change(input as HTMLInputElement, { target: { value } });
 }
 
+/**
+ * One agent's card as it stands now — re-queried, never held across a render.
+ *
+ * Addressed by the accessible name the card publishes rather than by position,
+ * because the cases that need it are the multi-agent ones and "the first card" is
+ * exactly the assumption that let a settlement render under the wrong agent.
+ */
+export function currentAgentCard(container: HTMLElement, agentLabel: string): HTMLElement {
+  const card = container.querySelector(`[aria-label="Agent ${agentLabel}"]`);
+  expect(card).not.toBeNull();
+  return card as HTMLElement;
+}
+
 /** The detach control as it stands now — re-queried, never held across a render. */
 export function currentDetachControl(container: HTMLElement): HTMLButtonElement {
   const detach = [...container.querySelectorAll(".meridian-agent-card__action")].find(

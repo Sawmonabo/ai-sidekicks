@@ -22,6 +22,14 @@
 // re-address keeps its busy state and its refusal — which is what a reader would come
 // here to check — and not a control that fails on the shape it replaced.
 //
+// AND THE ADDRESS SHAPE IS PART OF THE SUBJECT. `agentId` is legitimately absent —
+// the frame's context picker resolves a bare auxiliary address by choosing a session,
+// and this column answers it by showing the whole roster — so a detach is reachable
+// with two or more cards on screen and no switch form anywhere. Every case below that
+// asserts a busy control or a refusal is therefore run in that shape as well as in
+// the one-agent one: the busy state has to name ONE row, and the refusal has to reach
+// a pixel through a surface that exists in the shape it was raised in.
+//
 // The column's other two subjects have their own files —
 // `AgentBindingColumn.attach.test.tsx` and `AgentBindingColumn.switch.test.tsx` — and
 // the scaffolding all three share is `agent-binding-column.test-support.ts`.
@@ -32,8 +40,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { settleReads } from "./agent-console.test-support.js";
 import {
   AGENT_ON_CLAUDE,
+  AGENT_ON_CODEX,
   HeldBindingMoveDaemon,
   bridgeCalling,
+  currentAgentCard,
   currentDetachControl,
   disposeOpenedModels,
   modelsOver,
@@ -143,5 +153,76 @@ describe("agent binding column — detaching an agent", () => {
     });
 
     expect(mounted.container.textContent ?? "").toContain("the agent is mid-run");
+  });
+
+  it("marks only the pressed row busy on a bare address with two agents", async () => {
+    // The shape the fix is about. `soleAgent` is `undefined` here, so the round used
+    // to read as idle: every card rendered enabled, `aria-busy` was never set, and
+    // the visually-hidden reason the card exists to speak was not rendered — over a
+    // detach that had already reached the wire and disabled an agent.
+    const scriptedDaemon = new HeldBindingMoveDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(scriptedDaemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+    );
+    await settleReads(bridge);
+
+    await act(async () => {
+      fireEvent.click(currentDetachControl(currentAgentCard(container, "Scout")));
+    });
+
+    expect(scriptedDaemon.detachCallCount).toBe(1);
+    const pressed = currentDetachControl(currentAgentCard(container, "Scout"));
+    expect(pressed.disabled).toBe(true);
+    expect(pressed.getAttribute("aria-busy")).toBe("true");
+  });
+
+  it("negative control: the other row stays offered while the first is outstanding", async () => {
+    // Without this, the case above would hold for a column that disabled every card
+    // whenever anything was in flight — which reports a second agent as busy over an
+    // act that has nothing to do with it.
+    const scriptedDaemon = new HeldBindingMoveDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(scriptedDaemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+    );
+    await settleReads(bridge);
+
+    await act(async () => {
+      fireEvent.click(currentDetachControl(currentAgentCard(container, "Scout")));
+    });
+
+    const untouched = currentDetachControl(currentAgentCard(container, "Runner"));
+    expect(untouched.disabled).toBe(false);
+    expect(untouched.getAttribute("aria-busy")).toBe("false");
+  });
+
+  it("renders the refusal on the pressed row's own card, where no switch form exists", async () => {
+    // The worst half of the same shape: the daemon refuses and the answer reaches no
+    // pixel at all, because the switch form was the only element carrying a refusal
+    // and it is not rendered where more than one agent is shown.
+    const scriptedDaemon = new HeldBindingMoveDaemon([AGENT_ON_CLAUDE, AGENT_ON_CODEX]);
+    const bridge = bridgeCalling(scriptedDaemon);
+    const { container } = render(
+      <AgentBindingColumn models={modelsOver(bridge)} agentId={undefined} />,
+    );
+    await settleReads(bridge);
+
+    await act(async () => {
+      fireEvent.click(currentDetachControl(currentAgentCard(container, "Runner")));
+    });
+    await act(async () => {
+      await scriptedDaemon.refuse(new Error("the agent is mid-run"));
+    });
+
+    expect(currentAgentCard(container, "Runner").textContent ?? "").toContain(
+      "the agent is mid-run",
+    );
+    // And on that row alone: a refusal about one agent's binding shown under another
+    // is the same defect as showing none at all, arriving from the other side.
+    expect(currentAgentCard(container, "Scout").textContent ?? "").not.toContain(
+      "the agent is mid-run",
+    );
+    expect(currentDetachControl(currentAgentCard(container, "Runner")).disabled).toBe(false);
   });
 });
