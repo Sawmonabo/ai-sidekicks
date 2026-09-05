@@ -131,86 +131,116 @@ const ONE_TREE_MS = layeringTimeoutFor(1);
  */
 const EVERY_TREE_MS = layeringTimeoutFor(3);
 
-const plantRoots: string[] = [];
-const cruisedTrees = new Map<PlantedTree, Promise<readonly string[]>>();
-
-afterAll(async () => {
-  await Promise.all(plantRoots.map((root) => rm(root, { recursive: true, force: true })));
-});
-
-async function plant(tree: PlantedTree): Promise<string> {
-  // `realpath` is load-bearing on macOS, where `tmpdir()` is `/var/folders/…`, a symlink
-  // to `/private/var/…`: dependency-cruiser resolves modules to their real paths, so a
-  // `baseDir` on the symlinked side leaves every module absolute and outside it, and every
-  // path-anchored rule silently matches nothing. Measured — without it all four cases
-  // report zero violations, including the two that must fail.
-  const plantRoot = await realpath(await mkdtemp(join(tmpdir(), "console-layering-")));
-  plantRoots.push(plantRoot);
-  for (const [relativePath, contents] of Object.entries(tree)) {
-    const absolutePath = join(plantRoot, CONSOLE_ROOT, relativePath);
-    await mkdir(dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, contents, "utf8");
-  }
-  return plantRoot;
-}
-
 /**
- * Which rules fired on `tree`, on which edge — cruised once and remembered.
+ * The cruise results this file has paid for, and the directories it planted to get
+ * them.
  *
- * Keyed on the tree OBJECT rather than on its contents: every tree is a module-level
- * constant, so identity is exactly the right key and no hashing of file contents has
- * to agree with it. A case that asks for the same tree twice is answered from the
- * pending promise, so two cases racing for one tree still cruise it once.
+ * TWO LIFETIMES, AND THEY ARE DELIBERATELY DIFFERENT. A completed cruise RESULT is
+ * shared across cases — that is what makes the aggregate case free and keeps each
+ * case at one cruise — while the planted DIRECTORY is finished the instant the cruise
+ * that read it settles. Holding them on one object is what lets the second be
+ * released without the first.
+ *
+ * Behind private fields on one object rather than two module-level collections,
+ * because module-level mutable state is shared by every case in the file and a prior
+ * failure or a changed case order then reaches into a later observation.
  */
-function violationsFor(tree: PlantedTree): Promise<readonly string[]> {
-  const already = cruisedTrees.get(tree);
-  if (already !== undefined) {
-    return already;
-  }
-  const cruising = cruiseOnce(tree);
-  cruisedTrees.set(tree, cruising);
-  return cruising;
-}
+class PlantedTreeCache {
+  readonly #violationsByTree = new Map<PlantedTree, Promise<readonly string[]>>();
+  #plantedRoots: string[] = [];
 
-/**
- * Run the REAL rule set over the planted tree and report which rules fired, on which edge.
- *
- * `baseDir` is the only thing that differs from a `pnpm structure:layering` run; the
- * forbidden set, the resolver extensions, and the test-file exclusion all come out of
- * the config file itself.
- */
-async function cruiseOnce(tree: PlantedTree): Promise<readonly string[]> {
-  const plantRoot = await plant(tree);
-  const configuration = await extractDepcruiseConfig(CONFIG_PATH);
-  const { forbidden } = configuration;
-  if (forbidden === undefined) {
-    // The loader types the set as optional, and a run over an empty rule set would
-    // report clean for every tree — the failure this whole file exists to prevent.
-    throw new TypeError("the layering config declares no forbidden rules");
+  /**
+   * Which rules fired on `tree`, on which edge — cruised once and remembered.
+   *
+   * Keyed on the tree OBJECT rather than on its contents: every tree is a constant,
+   * so identity is exactly the right key and no hashing of file contents has to agree
+   * with it. A case that asks for the same tree twice is answered from the pending
+   * promise, so two cases racing for one tree still cruise it once.
+   */
+  public violationsFor(tree: PlantedTree): Promise<readonly string[]> {
+    const already = this.#violationsByTree.get(tree);
+    if (already !== undefined) {
+      return already;
+    }
+    const cruising = this.#cruiseOnce(tree);
+    this.#violationsByTree.set(tree, cruising);
+    return cruising;
   }
-  const cruised = await cruise(["src"], {
-    ...configuration.options,
-    ruleSet: { forbidden },
-    validate: true,
-    baseDir: plantRoot,
-  });
-  if (typeof cruised.output === "string") {
-    throw new TypeError("expected a cruise result object, not a formatted report");
+
+  /** How many trees have been cruised, for the control that no tree is cruised twice. */
+  public get cruisedTreeCount(): number {
+    return this.#violationsByTree.size;
   }
-  return cruised.output.summary.violations
-    .filter(
-      (violation) =>
-        violation.rule.name === BARREL_CHAIN_RULE ||
-        violation.rule.name === VIEW_FAMILY_ISOLATION_RULE,
-    )
-    .map((violation) => `${violation.rule.name}: ${violation.from} → ${violation.to}`);
+
+  /** Remove every directory planted so far, keeping the results read out of them. */
+  public async removePlantedTrees(): Promise<void> {
+    const planted = this.#plantedRoots;
+    this.#plantedRoots = [];
+    await Promise.all(planted.map((root) => rm(root, { recursive: true, force: true })));
+  }
+
+  async #plant(tree: PlantedTree): Promise<string> {
+    // `realpath` is load-bearing on macOS, where `tmpdir()` is `/var/folders/…`, a symlink
+    // to `/private/var/…`: dependency-cruiser resolves modules to their real paths, so a
+    // `baseDir` on the symlinked side leaves every module absolute and outside it, and every
+    // path-anchored rule silently matches nothing. Measured — without it all four cases
+    // report zero violations, including the two that must fail.
+    const plantRoot = await realpath(await mkdtemp(join(tmpdir(), "console-layering-")));
+    this.#plantedRoots.push(plantRoot);
+    for (const [relativePath, contents] of Object.entries(tree)) {
+      const absolutePath = join(plantRoot, CONSOLE_ROOT, relativePath);
+      await mkdir(dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, contents, "utf8");
+    }
+    return plantRoot;
+  }
+
+  /**
+   * Run the REAL rule set over the planted tree and report which rules fired, on which edge.
+   *
+   * `baseDir` is the only thing that differs from a `pnpm structure:layering` run; the
+   * forbidden set, the resolver extensions, and the test-file exclusion all come out of
+   * the config file itself.
+   */
+  async #cruiseOnce(tree: PlantedTree): Promise<readonly string[]> {
+    const plantRoot = await this.#plant(tree);
+    const configuration = await extractDepcruiseConfig(CONFIG_PATH);
+    const { forbidden } = configuration;
+    if (forbidden === undefined) {
+      // The loader types the set as optional, and a run over an empty rule set would
+      // report clean for every tree — the failure this whole file exists to prevent.
+      throw new TypeError("the layering config declares no forbidden rules");
+    }
+    const cruised = await cruise(["src"], {
+      ...configuration.options,
+      ruleSet: { forbidden },
+      validate: true,
+      baseDir: plantRoot,
+    });
+    if (typeof cruised.output === "string") {
+      throw new TypeError("expected a cruise result object, not a formatted report");
+    }
+    return cruised.output.summary.violations
+      .filter(
+        (violation) =>
+          violation.rule.name === BARREL_CHAIN_RULE ||
+          violation.rule.name === VIEW_FAMILY_ISOLATION_RULE,
+      )
+      .map((violation) => `${violation.rule.name}: ${violation.from} → ${violation.to}`);
+  }
 }
 
 describe("console layering rules", () => {
+  const cruiseCache = new PlantedTreeCache();
+
+  afterAll(async () => {
+    await cruiseCache.removePlantedTrees();
+  });
+
   it(
     "passes the shape the console ships",
     async () => {
-      expect(await violationsFor(CLEAN_TREE)).toEqual([]);
+      expect(await cruiseCache.violationsFor(CLEAN_TREE)).toEqual([]);
     },
     ONE_TREE_MS,
   );
@@ -218,7 +248,7 @@ describe("console layering rules", () => {
   it(
     "fails a family door that re-exports through a sub-module door",
     async () => {
-      expect(await violationsFor(BARREL_CHAIN_TREE)).toEqual([
+      expect(await cruiseCache.violationsFor(BARREL_CHAIN_TREE)).toEqual([
         `${BARREL_CHAIN_RULE}: ${join(CONSOLE_ROOT, "bridge/index.ts")} → ${join(CONSOLE_ROOT, "bridge/growth-values/index.ts")}`,
       ]);
     },
@@ -228,7 +258,7 @@ describe("console layering rules", () => {
   it(
     "fails one view family importing another",
     async () => {
-      expect(await violationsFor(VIEW_FAMILY_EDGE_TREE)).toEqual([
+      expect(await cruiseCache.violationsFor(VIEW_FAMILY_EDGE_TREE)).toEqual([
         `${VIEW_FAMILY_ISOLATION_RULE}: ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")} → ${join(CONSOLE_ROOT, "repos/RepoList.ts")}`,
       ]);
     },
@@ -243,9 +273,9 @@ describe("console layering rules", () => {
       // matched on the module pair rather than on the `export … from` dependency type, and
       // a rule that reported it would make the pane board unwritable.
       const everyViolation = [
-        ...(await violationsFor(CLEAN_TREE)),
-        ...(await violationsFor(BARREL_CHAIN_TREE)),
-        ...(await violationsFor(VIEW_FAMILY_EDGE_TREE)),
+        ...(await cruiseCache.violationsFor(CLEAN_TREE)),
+        ...(await cruiseCache.violationsFor(BARREL_CHAIN_TREE)),
+        ...(await cruiseCache.violationsFor(VIEW_FAMILY_EDGE_TREE)),
       ];
       expect(everyViolation.filter((line) => line.includes("panes/index.ts"))).toEqual([]);
     },
@@ -258,9 +288,9 @@ describe("console layering rules", () => {
       // Without this the memo is invisible: the file would still pass with a cruise per
       // call, at the six-cruise cost that made the aggregate case time out. Identity
       // rather than equality, because what is asserted is that no second cruise ran.
-      const first = violationsFor(CLEAN_TREE);
-      expect(violationsFor(CLEAN_TREE)).toBe(first);
-      expect(cruisedTrees.size).toBeLessThanOrEqual(3);
+      const first = cruiseCache.violationsFor(CLEAN_TREE);
+      expect(cruiseCache.violationsFor(CLEAN_TREE)).toBe(first);
+      expect(cruiseCache.cruisedTreeCount).toBeLessThanOrEqual(3);
     },
     ONE_TREE_MS,
   );
