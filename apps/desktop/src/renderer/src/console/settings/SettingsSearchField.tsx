@@ -1,5 +1,4 @@
 import { Glyph } from "../primitives/index.js";
-import { SEARCH_GLYPH_SIZE } from "./SettingsSurface.js";
 
 export interface SettingsSearchFieldProps {
   readonly query: string;
@@ -31,3 +30,6 @@ export function SettingsSearchField(props: SettingsSearchFieldProps): React.JSX.
     </div>
   );
 }
+
+export /** The search glyph sits inside the field, at the field's own optical size. */
+const SEARCH_GLYPH_SIZE = 14;

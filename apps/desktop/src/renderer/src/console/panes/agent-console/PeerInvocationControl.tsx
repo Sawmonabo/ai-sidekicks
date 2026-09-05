@@ -4,7 +4,6 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { useSubjectScopedState, type SessionStore } from "../../store/index.js";
 import { AgentMutationControl, useAgentMutationControl } from "./mutation-control.js";
 import { useSessionProjectionReRead, type PeerInvocationProjection } from "./session-projection.js";
-import { PEER_INVOCATION_ORIGIN } from "./PeerInvocationMount.js";
 
 /** The control itself: the projected grant, the one mutation, and the re-read. */
 export function PeerInvocationControl(props: {
@@ -94,3 +93,6 @@ export function PeerInvocationControl(props: {
     />
   );
 }
+
+export /** Names a peer-invocation failure the thrown value carried no refusal for. */
+const PEER_INVOCATION_ORIGIN = "peer-invocation";

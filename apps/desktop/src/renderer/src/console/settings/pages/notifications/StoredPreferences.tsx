@@ -2,7 +2,7 @@ import { type ReactNode } from "react";
 import { InlineRefusal, Nothing, WireFigure } from "../../../primitives/index.js";
 import { projectPreferenceRows } from "./attention-preference-model.js";
 import { StoredPreferenceValue } from "./StoredPreferenceValue.js";
-import { type StoredPreferenceBinding } from "./NotificationsPage.js";
+import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";
 
 /** Every state the two-read chain can be in, and what each one renders. */
 export function StoredPreferences(props: {

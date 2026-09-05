@@ -1,7 +1,6 @@
 import { Chip, WireFigure } from "../../primitives/index.js";
 import { type ChildRunLink } from "../../bridge/index.js";
 import { CHILD_RUN_LINK_TYPES, CHILD_RUN_VISIBILITIES, isKnownMember } from "../agent-wire.js";
-import { LINK_TYPE_MEANINGS } from "./RunLinkage.js";
 
 /**
  * One child link.
@@ -69,3 +68,9 @@ export function ChildLinkRow(props: {
     </li>
   );
 }
+
+export const LINK_TYPE_MEANINGS: Readonly<Record<string, string>> = {
+  spawn: "a helper this run started; its output returns here",
+  delegate: "a bounded task published to its own channel",
+  handoff: "this run's continuation, transferred; the parent completed",
+};

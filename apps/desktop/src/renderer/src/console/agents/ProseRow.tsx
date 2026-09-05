@@ -1,5 +1,4 @@
-import { clampProse } from "./ResolvedConfigurationEcho.js";
-
+import { RESOLVED_PROSE_INLINE_CAP } from "../core/index.js";
 export function ProseRow(props: {
   readonly label: string;
   readonly text: string | undefined;
@@ -16,4 +15,11 @@ export function ProseRow(props: {
       </dd>
     </div>
   );
+}
+
+export /** Leading prose, clamped at the named bound. Never re-wrapped and never summarized. */
+function clampProse(text: string): string {
+  return text.length <= RESOLVED_PROSE_INLINE_CAP
+    ? text
+    : `${text.slice(0, RESOLVED_PROSE_INLINE_CAP)}…`;
 }

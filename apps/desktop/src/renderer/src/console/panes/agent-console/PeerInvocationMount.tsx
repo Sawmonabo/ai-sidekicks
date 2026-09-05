@@ -5,9 +5,6 @@ import { NOTHING_PROJECTED } from "./session-projection.js";
 import { SubscribedPeerInvocation } from "./SubscribedPeerInvocation.js";
 import { PeerInvocationControl } from "./PeerInvocationControl.js";
 
-/** Names a peer-invocation failure the thrown value carried no refusal for. */
-export const PEER_INVOCATION_ORIGIN = "peer-invocation";
-
 /** The grant's mount: subscribed where a store exists, stated where none does. */
 export function PeerInvocationMount(props: {
   readonly models: AgentConsoleModels | undefined;

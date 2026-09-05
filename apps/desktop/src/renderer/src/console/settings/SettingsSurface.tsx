@@ -41,9 +41,6 @@ import { SettingsSectionRail } from "./SettingsSectionRail.js";
 import { SettingsSearchResults } from "./SettingsSearchResults.js";
 import { SettingsPane } from "./SettingsPane.js";
 
-/** The search glyph sits inside the field, at the field's own optical size. */
-export const SEARCH_GLYPH_SIZE = 14;
-
 export interface SettingsSurfaceProps {
   readonly context: ConsoleSurfaceContext;
   /**

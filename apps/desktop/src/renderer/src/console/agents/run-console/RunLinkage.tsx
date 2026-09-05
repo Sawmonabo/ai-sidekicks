@@ -43,12 +43,6 @@ import { type ChildRunLinkReading } from "../../bridge/index.js";
 import { ChildLinkRow } from "./ChildLinkRow.js";
 import { RefusalRow } from "./RefusalRow.js";
 
-export const LINK_TYPE_MEANINGS: Readonly<Record<string, string>> = {
-  spawn: "a helper this run started; its output returns here",
-  delegate: "a bounded task published to its own channel",
-  handoff: "this run's continuation, transferred; the parent completed",
-};
-
 export interface RunLinkageProps {
   /** The parent run the read is keyed by. `undefined` renders the absence. */
   readonly parentRunId: string | undefined;

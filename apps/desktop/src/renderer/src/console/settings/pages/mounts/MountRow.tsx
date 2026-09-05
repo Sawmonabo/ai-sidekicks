@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Chip, InlineRefusal, WireFigure, formatDateTime } from "../../../primitives/index.js";
 import { type MountReading } from "./mount-inventory.js";
-import { attachmentTone, reachabilityTone } from "./WorkspaceMountsPage.js";
+import type { RepoMountReadResponse } from "@ai-sidekicks/contracts";
 
 /** One row: the path, the two axes, and whatever the read had to say about it. */
 export function MountRow(props: { readonly reading: MountReading }): ReactNode {
@@ -39,4 +39,18 @@ export function MountRow(props: { readonly reading: MountReading }): ReactNode {
       </span>
     </div>
   );
+}
+
+export /**
+ * How the lifecycle axis is toned. A PRESENTATION of the daemon's own value and
+ * never a verdict: the value renders verbatim beside the tone, so a reader is never
+ * shown a colour in place of a state name.
+ */
+function attachmentTone(mount: RepoMountReadResponse): "neutral" | "attention" {
+  return mount.state === "attached" ? "neutral" : "attention";
+}
+
+export /** The same, for the reachability axis. The two are toned independently. */
+function reachabilityTone(mount: RepoMountReadResponse): "neutral" | "failure" {
+  return mount.health.status === "healthy" ? "neutral" : "failure";
 }

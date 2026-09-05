@@ -12,7 +12,6 @@
 // configuration too.
 
 import { WireFigure } from "../primitives/index.js";
-import { RESOLVED_PROSE_INLINE_CAP } from "../core/index.js";
 import type { AgentResolvedConfiguration } from "../bridge/index.js";
 import { ToolAllowlist } from "./ToolAllowlist.js";
 import { ProseRow } from "./ProseRow.js";
@@ -73,11 +72,4 @@ export function ResolvedConfigurationEcho(props: {
       </p>
     </>
   );
-}
-
-/** Leading prose, clamped at the named bound. Never re-wrapped and never summarized. */
-export function clampProse(text: string): string {
-  return text.length <= RESOLVED_PROSE_INLINE_CAP
-    ? text
-    : `${text.slice(0, RESOLVED_PROSE_INLINE_CAP)}…`;
 }

@@ -2,7 +2,7 @@ import type { MembershipUpdate } from "@ai-sidekicks/contracts";
 import { Chip, InlineRefusal, Nothing, WireFigure } from "../../primitives/index.js";
 import { MembershipActionsMenu } from "./MembershipActionsMenu.js";
 import { MEMBERSHIP_ROLE_NOTES, type MembershipRow } from "./members-model.js";
-import { remedySuffix } from "./Memberships.js";
+import { membershipRefusalRemedy } from "./members-model.js";
 
 export function MembershipLedgerRow(props: {
   readonly row: MembershipRow;
@@ -82,4 +82,9 @@ export function MembershipLedgerRow(props: {
       )}
     </div>
   );
+}
+
+export function remedySuffix(code: string): string {
+  const remedy = membershipRefusalRemedy(code);
+  return remedy === undefined ? "" : ` ${remedy}`;
 }

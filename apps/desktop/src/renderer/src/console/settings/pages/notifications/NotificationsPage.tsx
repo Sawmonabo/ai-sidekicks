@@ -63,49 +63,24 @@ import {
 } from "react";
 
 import "./notifications.css";
-
-import type { ConsoleRefusal } from "../../../core/index.js";
 import { useAnnounce } from "../../../primitives/index.js";
 import {
   announcementFor,
   type AttentionPreferenceReadOutcome,
   type CallerParticipantOutcome,
-  type PreferenceToggleMember,
 } from "./attention-preference-model.js";
-import {
-  NotificationPreferenceWriter,
-  type TogglePreferenceRow,
-} from "./notification-preference-writer.js";
+import { NotificationPreferenceWriter } from "./notification-preference-writer.js";
 import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import { useShellPreferences } from "../shell-preferences/shell-preferences-holder.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
 import { StoredPreferences } from "./StoredPreferences.js";
+import { type StoredPreferenceBinding } from "./StoredPreferenceValue.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-notifications";
 
 /** The one key this page spends. Named once so the row and its note cannot drift. */
 const OS_TOAST_MUTE_KEY = "notifications.osToastsMuted";
-
-/**
- * What every stored switch says about itself.
- *
- * The same sentence under every member because it is the same fact about every one
- * of them: this console was told the member exists and was not told what it governs.
- * A per-member sentence would be copy invented for a key nothing has named.
- */
-export const STORED_MEMBER_DESCRIPTION =
-  "Shown exactly as the daemon stores it. Nothing here says what it governs.";
-
-/** What one preference edit is doing right now: busy per record, refused per switch. */
-export interface StoredPreferenceBinding {
-  readonly participantOutcome: CallerParticipantOutcome | undefined;
-  readonly readOutcome: AttentionPreferenceReadOutcome | undefined;
-  /** True while any switch in this record has a write out or queued behind one. */
-  readonly isRecordBusy: (recordKey: string) => boolean;
-  readonly refusalFor: (memberKey: string) => ConsoleRefusal | undefined;
-  readonly toggleMember: (row: TogglePreferenceRow, member: PreferenceToggleMember) => void;
-}
 
 export function NotificationsPage(props: { readonly context: SettingsPageContext }): ReactNode {
   const shellPreferences = useShellPreferences(props.context.bridge);

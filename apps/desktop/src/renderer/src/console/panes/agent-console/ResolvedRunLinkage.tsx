@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { RunLinkage, type AgentConsoleModels } from "../../agents/index.js";
 import { HeldRunLinkage } from "./HeldRunLinkage.js";
-import { linkageReadFor, type AcquiredLinkage } from "./RunLinkageMount.js";
+import { type ChildRunLinkageRead } from "../../agents/index.js";
 
 /**
  * The mounted arm, where both halves exist and the read may be taken.
@@ -33,4 +33,28 @@ export function ResolvedRunLinkage(props: {
     return <RunLinkage parentRunId={parentRunId} state={undefined} />;
   }
   return <HeldRunLinkage parentRunId={parentRunId} read={read} />;
+}
+
+export /** One acquired child-link read, with the parent run it answers for. */
+interface AcquiredLinkage {
+  readonly parentRunId: string;
+  readonly read: ChildRunLinkageRead;
+}
+
+export /**
+ * The read to render for `parentRunId`, or `undefined` for the not-checked absence.
+ *
+ * A pure function rather than an expression inside the body, so the rule can be
+ * driven directly with an acquisition whose verdict is known — the mismatched frame
+ * it exists to catch is transient in the DOM and is not observable after `act` has
+ * flushed the effect that ends it.
+ */
+function linkageReadFor(
+  acquired: AcquiredLinkage | undefined,
+  parentRunId: string,
+): ChildRunLinkageRead | undefined {
+  if (acquired === undefined || acquired.parentRunId !== parentRunId) {
+    return undefined;
+  }
+  return acquired.read;
 }

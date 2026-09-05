@@ -69,13 +69,6 @@ export interface ChannelListProps {
   readonly isCatchingUp: boolean;
 }
 
-/** How a channel's wire state reads as a chip. Total over the closed three. */
-export const STATE_LABEL: Readonly<Record<string, string>> = {
-  active: "active",
-  muted: "muted",
-  archived: "archived",
-};
-
 export function ChannelList(props: ChannelListProps): React.JSX.Element {
   const { state, openPane, activity, labels, isCatchingUp } = props;
 

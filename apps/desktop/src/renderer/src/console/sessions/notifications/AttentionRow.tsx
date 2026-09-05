@@ -1,6 +1,6 @@
 import type { AttentionItem } from "../../bridge/index.js";
 import { Chip, WireFigure, formatDateTime } from "../../primitives/index.js";
-import { TRIGGER_LABELS } from "./NotificationCenter.js";
+import type { AttentionTrigger } from "../../bridge/index.js";
 
 /**
  * One item.
@@ -62,3 +62,23 @@ export function AttentionRow(props: {
     </button>
   );
 }
+
+export /**
+ * How one trigger reads. Total over the closed six by construction, so a seventh
+ * fails to compile here before it can reach a surface that renders it namelessly.
+ *
+ * The label is the console's own reading of a wire value; the item's `summary` is
+ * the projection's own text and is rendered beside it verbatim. Exactly one of the
+ * six earns red and a glyph — the one that names a failure — so the two-hue rule
+ * holds: amber means a person is needed, red means something failed, and every
+ * other trigger carries whichever of those its severity says and no colour of its
+ * own.
+ */
+const TRIGGER_LABELS: Readonly<Record<AttentionTrigger, string>> = {
+  pending_approval: "Waiting on an approval",
+  pending_input: "Waiting on your input",
+  run_completed: "A run finished",
+  run_failed: "A run failed",
+  invite_received: "An invitation arrived",
+  mention: "You were mentioned",
+};

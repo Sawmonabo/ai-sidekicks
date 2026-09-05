@@ -46,7 +46,7 @@ import {
   InviteConfirmation,
   type PendingInviteConfirmation,
 } from "../invites/InviteConfirmation.js";
-import { deriveMembershipRows, membershipRefusalRemedy } from "./members-model.js";
+import { deriveMembershipRows } from "./members-model.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
@@ -133,9 +133,4 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
       <SentInvites bridge={bridge} sessionId={sessionStore.sessionId} />
     </section>
   );
-}
-
-export function remedySuffix(code: string): string {
-  const remedy = membershipRefusalRemedy(code);
-  return remedy === undefined ? "" : ` ${remedy}`;
 }

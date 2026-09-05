@@ -16,7 +16,8 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ChildRunLinkageRead } from "../../agents/index.js";
-import { linkageReadFor, RunLinkageMount, type AcquiredLinkage } from "./RunLinkageMount.js";
+import { RunLinkageMount } from "./RunLinkageMount.js";
+import { linkageReadFor, type AcquiredLinkage } from "./ResolvedRunLinkage.js";
 
 const FIRST_RUN_ID = "run-7";
 const SECOND_RUN_ID = "run-9";

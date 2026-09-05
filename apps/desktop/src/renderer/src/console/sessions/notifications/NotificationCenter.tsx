@@ -36,29 +36,9 @@
 // control-plane procedures the console cannot reach, so the center says where mute
 // lives rather than drawing a switch that would write nowhere.
 
-import type { AttentionItem, AttentionTrigger } from "../../bridge/index.js";
+import type { AttentionItem } from "../../bridge/index.js";
 import { type AttentionReading } from "./attention-plane.js";
 import { ProjectionBody } from "./ProjectionBody.js";
-
-/**
- * How one trigger reads. Total over the closed six by construction, so a seventh
- * fails to compile here before it can reach a surface that renders it namelessly.
- *
- * The label is the console's own reading of a wire value; the item's `summary` is
- * the projection's own text and is rendered beside it verbatim. Exactly one of the
- * six earns red and a glyph — the one that names a failure — so the two-hue rule
- * holds: amber means a person is needed, red means something failed, and every
- * other trigger carries whichever of those its severity says and no colour of its
- * own.
- */
-export const TRIGGER_LABELS: Readonly<Record<AttentionTrigger, string>> = {
-  pending_approval: "Waiting on an approval",
-  pending_input: "Waiting on your input",
-  run_completed: "A run finished",
-  run_failed: "A run failed",
-  invite_received: "An invitation arrived",
-  mention: "You were mentioned",
-};
 
 export interface NotificationCenterProps {
   /**

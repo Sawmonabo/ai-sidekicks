@@ -1,7 +1,6 @@
 import { Chip, Glyph, WireFigure, formatRelativeTime } from "../../primitives/index.js";
 import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
 import type { RosterRow } from "./presence-model.js";
-import { PRESENCE_TONE, ROSTER_GLYPH_SIZE, type IdentityMarkStyle } from "./Roster.js";
 
 export interface RosterListRowProps {
   readonly row: RosterRow;
@@ -60,3 +59,20 @@ export function RosterListRow(props: RosterListRowProps): React.JSX.Element {
     </li>
   );
 }
+
+export /** The hue a row's identity mark carries, as a `var()` reference. */
+interface IdentityMarkStyle extends React.CSSProperties {
+  readonly "--meridian-roster-hue": string;
+}
+
+export /** Which chip tone a presence state earns. Amber only where a person is needed. */
+const PRESENCE_TONE: Readonly<Record<string, "neutral" | "attention">> = {
+  online: "neutral",
+  idle: "neutral",
+  // A reconnecting client is the one presence state a person may have to act on —
+  // it is the state where their work may not be reaching anyone.
+  reconnecting: "attention",
+  offline: "neutral",
+};
+
+export const ROSTER_GLYPH_SIZE = 12;

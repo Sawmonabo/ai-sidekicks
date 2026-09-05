@@ -2,7 +2,6 @@ import { Chip, DerivedFigure, WireFigure, formatCount } from "../../primitives/i
 import { type ActivityIndicatorRegistry, type ChannelActivityLabels } from "../activity-model.js";
 import { type ChannelRow } from "./channel-model.js";
 import { ChannelRowActivity } from "./ChannelRowActivity.js";
-import { STATE_LABEL } from "./ChannelList.js";
 
 export interface ChannelListRowProps {
   readonly row: ChannelRow;
@@ -64,3 +63,10 @@ export function ChannelListRow(props: ChannelListRowProps): React.JSX.Element {
     </li>
   );
 }
+
+export /** How a channel's wire state reads as a chip. Total over the closed three. */
+const STATE_LABEL: Readonly<Record<string, string>> = {
+  active: "active",
+  muted: "muted",
+  archived: "archived",
+};

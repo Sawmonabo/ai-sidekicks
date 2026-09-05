@@ -45,18 +45,6 @@ export interface RosterProps {
   readonly isLastKnown: boolean;
 }
 
-/** Which chip tone a presence state earns. Amber only where a person is needed. */
-export const PRESENCE_TONE: Readonly<Record<string, "neutral" | "attention">> = {
-  online: "neutral",
-  idle: "neutral",
-  // A reconnecting client is the one presence state a person may have to act on —
-  // it is the state where their work may not be reaching anyone.
-  reconnecting: "attention",
-  offline: "neutral",
-};
-
-export const ROSTER_GLYPH_SIZE = 12;
-
 export function Roster(props: RosterProps): React.JSX.Element {
   const { state, rows, nowMilliseconds, labels, composingChannelFor, isLastKnown } = props;
 
@@ -108,9 +96,4 @@ export function Roster(props: RosterProps): React.JSX.Element {
       )}
     </div>
   );
-}
-
-/** The hue a row's identity mark carries, as a `var()` reference. */
-export interface IdentityMarkStyle extends React.CSSProperties {
-  readonly "--meridian-roster-hue": string;
 }
