@@ -11,15 +11,15 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ManualClock } from "../../core/index.js";
 import { installFakeResizeObserver } from "../../primitives/element-resize.test-support.js";
 import { observeElementPosition } from "./element-motion.js";
-import { settleMutationRecords } from "./element-motion.test-support.js";
-
-const attachedRoots: Element[] = [];
+import {
+  detachAttachedRoots,
+  settleMutationRecords,
+  trackAttachedRoot,
+} from "./element-motion.test-support.js";
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  for (const root of attachedRoots.splice(0)) {
-    root.remove();
-  }
+  detachAttachedRoots();
 });
 
 /**
@@ -41,7 +41,7 @@ function attachedNeighbourhood(): {
   ancestor.append(element, sibling);
   root.append(ancestor);
   document.body.append(root);
-  attachedRoots.push(root);
+  trackAttachedRoot(root);
   return { ancestor, element, sibling };
 }
 

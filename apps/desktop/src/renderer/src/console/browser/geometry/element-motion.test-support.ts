@@ -109,3 +109,36 @@ export async function settleMutationRecords(): Promise<void> {
   });
   await Promise.resolve();
 }
+
+const attachedRoots: Element[] = [];
+
+/**
+ * Hold a root in the live document until the case ends.
+ *
+ * Three suites drive these seams — the predicates, the composed position observer, and
+ * the content-layout wiring — and every one of them needs elements that are really
+ * attached, because a transition on a detached ancestor bubbles to nothing. Three
+ * private registries is three teardown loops free to drift, and a root left in the
+ * document is an observer the next case's document-wide reading still finds.
+ */
+export function trackAttachedRoot<ElementType extends Element>(root: ElementType): ElementType {
+  attachedRoots.push(root);
+  return root;
+}
+
+/** `ancestor > element`, both in the live document so events really bubble. */
+export function attachedPair(): { readonly ancestor: HTMLElement; readonly element: HTMLElement } {
+  const ancestor = document.createElement("div");
+  const element = document.createElement("div");
+  ancestor.append(element);
+  document.body.append(ancestor);
+  trackAttachedRoot(ancestor);
+  return { ancestor, element };
+}
+
+/** Every suite's `afterEach` half. Paired with `vi.unstubAllGlobals()` at the call site. */
+export function detachAttachedRoots(): void {
+  for (const root of attachedRoots.splice(0)) {
+    root.remove();
+  }
+}
