@@ -5,7 +5,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { McpServersPage, registerMcpServersPage } from "./McpServersPage.js";
-import { MCP_SERVERS_PAGE, MCP_SERVERS_PAGE_SLOT } from "./McpServersSlot.js";
+import { MCP_SERVERS_PAGE, MCP_SERVERS_PAGE_SLOT } from "./mcp-servers-slot.js";
 import { SettingsPageRegistry, type SettingsPageContext } from "../../settings-page-registry.js";
 
 const CONTEXT = {

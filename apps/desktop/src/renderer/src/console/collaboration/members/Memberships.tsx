@@ -40,31 +40,20 @@
 // reading; printed in the confirmation it is the sentence they are agreeing to.
 
 import { useMemo, useState } from "react";
-
-import type { MembershipUpdate } from "@ai-sidekicks/contracts";
-
-import { Chip, InlineRefusal, Nothing, WireFigure, formatCount } from "../../primitives/index.js";
 import { useSessionPartition } from "../../store/index.js";
 import type { SidebarSectionContext } from "../../seats/index.js";
 import {
   InviteConfirmation,
   type PendingInviteConfirmation,
 } from "../invites/InviteConfirmation.js";
-import { MembershipActionsMenu } from "./MembershipActionsMenu.js";
-import {
-  MEMBERSHIP_ROLE_NOTES,
-  deriveMembershipRows,
-  isLastRemainingOwner,
-  membershipRefusalRemedy,
-  type MembershipRow,
-} from "./members-model.js";
+import { deriveMembershipRows, membershipRefusalRemedy } from "./members-model.js";
 import {
   WireMutationCoordinator,
   daemonMutation,
   useWireMutation,
-  type WireMutationSnapshot,
 } from "../mutation-coordinator.js";
 import { SentInvites } from "../invites/SentInvites.js";
+import { MembershipLedger } from "./MembershipLedger.js";
 
 /** The wire method every one of the four controls calls, through the daemon gateway. */
 const MEMBERSHIP_UPDATE_METHOD = "membership.update";
@@ -146,144 +135,7 @@ export function Memberships(props: MembershipsProps): React.JSX.Element {
   );
 }
 
-function MembershipLedger(props: {
-  readonly rows: readonly MembershipRow[];
-  readonly mutation: WireMutationSnapshot;
-  readonly onApply: (row: MembershipRow, update: MembershipUpdate) => void;
-  readonly onDismissRefusal: (membershipId: string) => void;
-}): React.JSX.Element {
-  if (props.rows.length === 0) {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="No membership has been read."
-        detail="Roles and membership states come from the session's own event log, and this console has projected none for this session. There is no membership-list read to ask with either, so nobody asked — this is not an empty session."
-      />
-    );
-  }
-  return (
-    <>
-      <p className="meridian-members__count">
-        {props.rows.length === 1
-          ? "One membership."
-          : `${formatCount(props.rows.length)} memberships.`}
-      </p>
-      <ul className="meridian-members__rows">
-        {props.rows.map((row) => (
-          <li key={row.participantId}>
-            <MembershipLedgerRow
-              row={row}
-              isLastOwner={isLastRemainingOwner(row, props.rows)}
-              isPending={
-                row.membershipId !== undefined && props.mutation.pendingKey === row.membershipId
-              }
-              // Every row's controls close while ANY row's change is unsettled,
-              // not only the pending one's: the coordinator applies one at a time,
-              // so a second row's control offers an act the surface would refuse.
-              isAnyPending={props.mutation.pendingKey !== undefined}
-              refusal={
-                row.membershipId === undefined
-                  ? undefined
-                  : props.mutation.refusalByKey[row.membershipId]
-              }
-              onApply={(update) => {
-                props.onApply(row, update);
-              }}
-              onDismissRefusal={() => {
-                if (row.membershipId !== undefined) {
-                  props.onDismissRefusal(row.membershipId);
-                }
-              }}
-            />
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
-function MembershipLedgerRow(props: {
-  readonly row: MembershipRow;
-  readonly isLastOwner: boolean;
-  /** This row's own change is the one in flight. */
-  readonly isPending: boolean;
-  /** Some row's change is in flight — this one's, or a neighbour's. */
-  readonly isAnyPending: boolean;
-  readonly refusal: { readonly code: string; readonly detail: string } | undefined;
-  readonly onApply: (update: MembershipUpdate) => void;
-  readonly onDismissRefusal: () => void;
-}): React.JSX.Element {
-  const { row } = props;
-  const notes = row.role === undefined ? undefined : MEMBERSHIP_ROLE_NOTES[row.role];
-  return (
-    <div className="meridian-members__row">
-      <div className="meridian-members__row-facts">
-        <WireFigure value={row.participantId} />
-        {row.role === undefined ? (
-          <Nothing
-            kind="not-checked"
-            placement="inline"
-            title="Role not read"
-            detail="No event this console projected stated this membership's role."
-          />
-        ) : (
-          <Chip label={row.role} mono tone={row.role === "owner" ? "accent" : "neutral"} />
-        )}
-        {row.state === undefined ? null : (
-          <Chip
-            label={row.state}
-            mono
-            tone={row.state === "suspended" || row.state === "revoked" ? "attention" : "neutral"}
-          />
-        )}
-      </div>
-
-      {notes === undefined ? null : <p className="meridian-members__row-reach">{notes.reach}</p>}
-
-      {props.isLastOwner ? (
-        <p className="meridian-members__row-note">
-          This is the last owner. Ownership has to be transferred before this membership can be
-          given up.
-        </p>
-      ) : null}
-
-      {row.membershipId === undefined ? (
-        <Nothing
-          kind="not-checked"
-          placement="inline"
-          title="No controls for this row"
-          detail="Changing a membership names its membership id, and no read this console has returns one alongside a participant."
-        />
-      ) : (
-        <MembershipActionsMenu
-          row={row}
-          isPending={props.isPending}
-          isAnyPending={props.isAnyPending}
-          onApply={props.onApply}
-        />
-      )}
-
-      {props.refusal === undefined ? null : (
-        <InlineRefusal
-          code={props.refusal.code}
-          detail={`${props.refusal.detail}${remedySuffix(props.refusal.code)}`}
-          action={
-            <button
-              type="button"
-              className="meridian-members__refusal-dismiss"
-              onClick={props.onDismissRefusal}
-            >
-              Dismiss
-            </button>
-          }
-        />
-      )}
-    </div>
-  );
-}
-
-function remedySuffix(code: string): string {
+export function remedySuffix(code: string): string {
   const remedy = membershipRefusalRemedy(code);
   return remedy === undefined ? "" : ` ${remedy}`;
 }

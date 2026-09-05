@@ -27,7 +27,7 @@
 import type { ReactNode } from "react";
 
 import { Chip } from "../../../primitives/index.js";
-import { MCP_SERVERS_PAGE } from "./McpServersSlot.js";
+import { MCP_SERVERS_PAGE } from "./mcp-servers-slot.js";
 import {
   renderOwnerSlotPage,
   type SettingsPageContext,

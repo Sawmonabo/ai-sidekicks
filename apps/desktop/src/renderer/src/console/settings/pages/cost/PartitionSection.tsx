@@ -1,14 +1,14 @@
 // The one table all three of a cost receipt's splits are drawn as.
 //
 // Its own module because a component is one subject: the column sets it renders are
-// `cost-receipt-columns.tsx` and the money figure their amount column uses is
+// `run-columns.tsx` and its two siblings, and the money figure their amount column uses is
 // `MoneyFigure.tsx`. Every value here is a prop, so a case can drive all three
 // splits — and the failed-verification arm — with no bridge at all.
 
 import type { ReactNode } from "react";
 
 import { Nothing } from "../../../primitives/index.js";
-import type { PartitionColumn } from "./cost-receipt-columns.js";
+import type { PartitionColumn } from "./partition-column.js";
 
 /**
  * One split: its rows, or the reason they are not there.

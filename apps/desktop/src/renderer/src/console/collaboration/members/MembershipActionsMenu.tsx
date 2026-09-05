@@ -1,19 +1,3 @@
-// The controls one membership row offers, and the confirmation the destructive one
-// opens.
-//
-// Split out of the ledger beside it because the two are different subjects: the
-// ledger decides WHICH rows exist and what each states, and this decides what a
-// person can do to one and what they are told before they do it. Both are Base UI
-// compositions under Meridian tokens, and the accessibility they rest on —
-// `aria-haspopup` / `aria-expanded`, roving focus, typeahead, Escape, outside
-// press, focus return, the dialog's focus trap — is the library's rather than
-// hand-rolled here.
-//
-// ELIGIBILITY IS THE DAEMON'S. Nothing below computes permission. The one thing a
-// control gates on is a fact printed on the row it belongs to, and the caller's
-// authority is `membership.permission_denied`, rendered where it is raised.
-
-import { AlertDialog } from "@base-ui/react/alert-dialog";
 import { Menu } from "@base-ui/react/menu";
 
 import type { MembershipId, MembershipUpdate } from "@ai-sidekicks/contracts";
@@ -22,10 +6,10 @@ import {
   MEMBERSHIP_ACTIONS,
   MEMBERSHIP_ACTION_NOTES,
   MEMBERSHIP_ROLES,
-  MEMBERSHIP_ROLE_NOTES,
   type ArgumentFreeMembershipAction,
   type MembershipRow,
 } from "./members-model.js";
+import { RevokeConfirmation } from "./RevokeConfirmation.js";
 
 /**
  * The acts the menu itself carries, derived from the vocabulary rather than typed
@@ -127,56 +111,5 @@ export function MembershipActionsMenu(props: {
         }}
       />
     </div>
-  );
-}
-
-/**
- * Revoking, and what it costs, stated before it happens.
- *
- * An alert dialog rather than a menu item: it traps focus, it has no default
- * dismissal on outside press, and its description is the consequence sentence for
- * THIS row's role. A role whose revocation the contract gives no named cost gets
- * the plain sentence rather than an invented one.
- */
-function RevokeConfirmation(props: {
-  readonly row: MembershipRow;
-  /** Some row's change is in flight, so this row's confirmation cannot be opened. */
-  readonly isAnyPending: boolean;
-  readonly onConfirm: () => void;
-}): React.JSX.Element {
-  const cost =
-    props.row.role === undefined ? undefined : MEMBERSHIP_ROLE_NOTES[props.row.role].revocationCost;
-  return (
-    <AlertDialog.Root>
-      <AlertDialog.Trigger
-        className="meridian-members__revoke"
-        disabled={props.isAnyPending}
-        aria-label={`Revoke the membership of ${props.row.participantId}`}
-      >
-        {MEMBERSHIP_ACTION_NOTES.revoke.label}
-      </AlertDialog.Trigger>
-      <AlertDialog.Portal>
-        <AlertDialog.Backdrop className="meridian-members__dialog-backdrop" />
-        <AlertDialog.Popup className="meridian-members__dialog">
-          <AlertDialog.Title className="meridian-members__dialog-title">
-            Revoke this membership?
-          </AlertDialog.Title>
-          <AlertDialog.Description className="meridian-members__dialog-body">
-            {cost ?? "The membership ends. Nothing else about the session changes."}
-          </AlertDialog.Description>
-          <div className="meridian-members__dialog-acts">
-            <AlertDialog.Close className="meridian-members__dialog-cancel">
-              Keep it
-            </AlertDialog.Close>
-            <AlertDialog.Close
-              className="meridian-members__dialog-confirm"
-              onClick={props.onConfirm}
-            >
-              Revoke
-            </AlertDialog.Close>
-          </div>
-        </AlertDialog.Popup>
-      </AlertDialog.Portal>
-    </AlertDialog.Root>
   );
 }

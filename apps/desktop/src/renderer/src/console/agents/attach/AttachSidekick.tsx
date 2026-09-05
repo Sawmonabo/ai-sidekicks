@@ -26,7 +26,7 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useId } from "react";
 
 import type { ConsoleRefusal } from "../../core/index.js";
-import { Chip, Nothing, RefusalCard, WireFigure } from "../../primitives/index.js";
+import { Nothing, RefusalCard } from "../../primitives/index.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
 import { AxisCombobox } from "../AxisCombobox.js";
 import { ATTACH_ARMS, type AttachArm, type AttachSidekickForm } from "./attach-model.js";
@@ -36,8 +36,10 @@ import {
   modelsFor,
   type DriverCatalogReading,
 } from "../driver-catalog.js";
-import type { AgentAttachReading, AgentResolvedConfiguration } from "../../bridge/index.js";
+import type { AgentAttachReading } from "../../bridge/index.js";
 import type { SidekickDefinitionListReading } from "../agent-wire.js";
+import { DefinitionPicker } from "./DefinitionPicker.js";
+import { AttachConfirmation } from "./AttachConfirmation.js";
 
 export interface AttachSidekickProps {
   readonly open: boolean;
@@ -233,93 +235,4 @@ export function AttachSidekick(props: AttachSidekickProps): React.JSX.Element {
 
 function armLabel(arm: AttachArm): string {
   return arm === "definition" ? "From a definition" : "Spell it out";
-}
-
-/** The definition arm's picker, with the whole definition folded into one line. */
-function DefinitionPicker(props: {
-  readonly form: AttachSidekickForm;
-  readonly definitions: PushDrivenReadState<SidekickDefinitionListReading>;
-}): React.JSX.Element {
-  const { definitions, form } = props;
-  if (definitions.kind === "not-loaded") {
-    return <Nothing kind="not-loaded" title="Reading the definitions" />;
-  }
-  if (definitions.kind === "failed") {
-    // Not reachable through the arm button, which is disabled in this state; kept
-    // because a read can fail while the arm is already selected.
-    return <RefusalCard {...definitions.refusal} />;
-  }
-  const rows = definitions.value.definitions;
-  if (rows.length === 0) {
-    return (
-      <Nothing
-        kind="empty"
-        title="No sidekick definitions exist yet."
-        detail="Spelling out a driver and a model attaches an agent without one."
-      />
-    );
-  }
-  return (
-    <ul className="meridian-attach__definitions">
-      {rows.map((definition) => (
-        <li key={definition.definitionId} className="meridian-attach__definition">
-          <button
-            type="button"
-            className="meridian-attach__definition-button"
-            aria-pressed={form.definition?.definitionId === definition.definitionId}
-            onClick={() => form.selectDefinition(definition)}
-          >
-            <span className="meridian-attach__definition-name">
-              {definition.name ?? definition.definitionId}
-            </span>
-            <span className="meridian-attach__definition-summary">
-              {[definition.driverName, definition.modelId, definition.effort]
-                .filter((axis): axis is string => axis !== undefined)
-                .join(" · ")}
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** The reply, as applied. Every axis the daemon resolved, and no row it did not. */
-function AttachConfirmation(props: {
-  readonly confirmation: AgentAttachReading;
-}): React.JSX.Element {
-  const resolved: AgentResolvedConfiguration = props.confirmation.resolvedConfiguration ?? {};
-  return (
-    <section className="meridian-attach__confirmation" aria-label="Attached">
-      <p className="meridian-attach__confirmation-head">
-        Attached as <WireFigure value={props.confirmation.agentId} />.
-      </p>
-      <ul className="meridian-attach__resolved">
-        {(
-          [
-            ["driver", resolved.driverName],
-            ["model", resolved.modelId],
-            ["account", resolved.providerAccountId],
-            ["effort", resolved.effort],
-            ["posture", resolved.executionPostureMode],
-          ] as const
-        ).map(([label, value]) => (
-          <li key={label} className="meridian-attach__resolved-axis">
-            <span className="meridian-axis-field__label">{label}</span>{" "}
-            {value === undefined ? (
-              <Chip tone="neutral" label="not reported" />
-            ) : (
-              <WireFigure value={value} />
-            )}
-          </li>
-        ))}
-      </ul>
-      {resolved.instructions === undefined ? null : (
-        <p className="meridian-attach__resolved-prose">{resolved.instructions}</p>
-      )}
-      {resolved.goal === undefined ? null : (
-        <p className="meridian-attach__resolved-prose">{resolved.goal}</p>
-      )}
-    </section>
-  );
 }

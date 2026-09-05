@@ -27,22 +27,22 @@
 // already said the page is missing.
 
 import { useMemo, useState } from "react";
-
-import { Glyph, Nothing } from "../primitives/index.js";
 import { useFrameStore, useOpenSessionStore } from "../store/index.js";
 import type { ConsoleSurfaceContext } from "../frame/surface-registry.js";
 import {
   SETTINGS_SECTION_IDS,
-  SETTINGS_SECTION_LABELS,
   matchSettingsEntries,
-  type SettingsEntryMatch,
   type SettingsPageContext,
   type SettingsPageRegistry,
   type SettingsSectionId,
 } from "./settings-page-registry.js";
+import { SettingsSearchField } from "./SettingsSearchField.js";
+import { SettingsSectionRail } from "./SettingsSectionRail.js";
+import { SettingsSearchResults } from "./SettingsSearchResults.js";
+import { SettingsPane } from "./SettingsPane.js";
 
 /** The search glyph sits inside the field, at the field's own optical size. */
-const SEARCH_GLYPH_SIZE = 14;
+export const SEARCH_GLYPH_SIZE = 14;
 
 export interface SettingsSurfaceProps {
   readonly context: ConsoleSurfaceContext;
@@ -130,177 +130,5 @@ export function SettingsSurface(props: SettingsSurfaceProps): React.JSX.Element 
         />
       </div>
     </section>
-  );
-}
-
-interface SettingsSearchFieldProps {
-  readonly query: string;
-  readonly onQueryChange: (query: string) => void;
-}
-
-/**
- * The one control above the rail.
- *
- * A plain `<input type="search">` with a visible label association rather than a
- * combobox: the results below are a navigable list of links, not an autocomplete
- * popover, and announcing them as one would promise a keyboard grammar this surface
- * does not implement.
- */
-function SettingsSearchField(props: SettingsSearchFieldProps): React.JSX.Element {
-  return (
-    <div className="meridian-settings__search">
-      <Glyph name="search" size={SEARCH_GLYPH_SIZE} />
-      <input
-        type="search"
-        className="meridian-settings__search-input"
-        value={props.query}
-        placeholder="Search settings"
-        aria-label="Search settings"
-        onChange={(changeEvent) => {
-          props.onQueryChange(changeEvent.target.value);
-        }}
-      />
-    </div>
-  );
-}
-
-interface SettingsSectionRailProps {
-  readonly selectedSection: SettingsSectionId | undefined;
-  readonly onOpenSection: (section: SettingsSectionId) => void;
-}
-
-/** Every section, always. The rail is the closed tuple and never a filtered view of it. */
-function SettingsSectionRail(props: SettingsSectionRailProps): React.JSX.Element {
-  return (
-    <nav aria-label="Settings sections">
-      <ul className="meridian-settings__sections">
-        {SETTINGS_SECTION_IDS.map((section) => (
-          <li key={section}>
-            <button
-              type="button"
-              className="meridian-settings__section"
-              aria-current={section === props.selectedSection ? "page" : undefined}
-              onClick={() => {
-                props.onOpenSection(section);
-              }}
-            >
-              {SETTINGS_SECTION_LABELS[section]}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-interface SettingsSearchResultsProps {
-  readonly query: string;
-  readonly matches: readonly SettingsEntryMatch[];
-  readonly selectedSection: SettingsSectionId | undefined;
-  readonly onOpenSection: (section: SettingsSectionId) => void;
-}
-
-/**
- * Ranked hits, each naming the section it landed in.
- *
- * A miss names the query and what was searched, which is the difference between "no
- * such setting" and "this console has not built that page yet" — and only the
- * second is true here, so the copy says the second.
- */
-function SettingsSearchResults(props: SettingsSearchResultsProps): React.JSX.Element {
-  if (props.matches.length === 0) {
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title={`Nothing in settings matches “${props.query}”.`}
-        detail="Every section was searched by its name, its page heading, and its aliases. A section whose page has not been built here yet carries no searchable text."
-      />
-    );
-  }
-  return (
-    <nav aria-label="Settings search results">
-      <ul className="meridian-settings__sections">
-        {props.matches.map((match) => (
-          <li key={match.descriptor.section}>
-            <button
-              type="button"
-              className="meridian-settings__section meridian-settings__section--result"
-              aria-current={match.descriptor.section === props.selectedSection ? "page" : undefined}
-              onClick={() => {
-                props.onOpenSection(match.descriptor.section);
-              }}
-            >
-              <span className="meridian-settings__result-label">{match.descriptor.label}</span>
-              <span className="meridian-settings__result-section">
-                {SETTINGS_SECTION_LABELS[match.descriptor.section]}
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-interface SettingsPaneProps {
-  readonly section: SettingsSectionId | undefined;
-  /** The address's own page segment, so an unknown one can be named back. */
-  readonly attempted: string | undefined;
-  readonly context: SettingsPageContext;
-  readonly pages: SettingsPageRegistry;
-}
-
-/**
- * The right-hand pane: the selected section's page, or the reason there is none.
- *
- * Three distinct absences, kept apart because the next move differs:
- *
- *   • no section chosen — the address is `#/settings` with no page, so the pane
- *     invites a choice rather than picking one, which would make the rail's
- *     selection depend on tuple order.
- *   • a section the address named that does not exist — an error, named back.
- *   • a section with no page registered — reserved, not stubbed.
- */
-function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
-  if (props.section === undefined) {
-    if (props.attempted !== undefined) {
-      return (
-        <Nothing
-          kind="error"
-          placement="surface"
-          title="That settings address does not name a section."
-          detail={`Nothing in settings is called “${props.attempted}”. The rail on the left lists every section this console has.`}
-        />
-      );
-    }
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="Choose a section."
-        detail="Settings are grouped by what they govern. Search above to jump straight to one."
-      />
-    );
-  }
-
-  const descriptor = props.pages.descriptorFor(props.section);
-  const label = SETTINGS_SECTION_LABELS[props.section];
-  return (
-    <article className="meridian-settings__page" aria-label={label}>
-      <h2 className="meridian-settings__page-heading">{descriptor?.label ?? label}</h2>
-      <div className="meridian-settings__page-body">
-        {descriptor === undefined ? (
-          <Nothing
-            kind="empty"
-            placement="surface"
-            title={`The ${label.toLowerCase()} page has not been built yet.`}
-            detail="It is reserved rather than missing — the section exists and its page is still being built. Nothing was asked of the daemon for it."
-          />
-        ) : (
-          descriptor.render(props.context)
-        )}
-      </div>
-    </article>
   );
 }

@@ -75,7 +75,6 @@
 import { useEffect, useMemo } from "react";
 
 import { heldIdAsWireId, type ConsoleBridge, type InvitesListOutcome } from "../../bridge/index.js";
-import { Nothing } from "../../primitives/index.js";
 import { useSubjectScopedState } from "../../store/index.js";
 import { partitionInvites, withSettledInvite } from "./invite-ledger.js";
 import {
@@ -84,6 +83,7 @@ import {
   useWireMutation,
 } from "../mutation-coordinator.js";
 import { SentInvitesLedger } from "./SentInvitesLedger.js";
+import { InviteCreationAbsence } from "./InviteCreationAbsence.js";
 
 /** The wire method the revoke control calls, through the daemon gateway. */
 const INVITE_REVOKE_METHOD = "invite.revoke";
@@ -207,22 +207,5 @@ export function SentInvites(props: SentInvitesProps): React.JSX.Element {
         }}
       />
     </section>
-  );
-}
-
-/**
- * Why there is no create control here.
- *
- * `not-checked` rather than `error`: nothing failed, and nothing is missing from
- * the daemon either. The console cannot ASK, because it does not know who it is.
- */
-function InviteCreationAbsence(): React.JSX.Element {
-  return (
-    <Nothing
-      kind="not-checked"
-      placement="surface"
-      title="This console cannot mint an invitation yet."
-      detail="Creating one names the sender's own participant id, and no read this console has tells it which participant it is. Nothing was asked — this is not a refusal from the daemon."
-    />
   );
 }

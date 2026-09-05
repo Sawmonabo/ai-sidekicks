@@ -65,15 +65,14 @@ import {
   useAttentionSettlementAnnouncement,
   type AttentionReading,
 } from "./notifications/index.js";
-import { DerivedFigure, InlineRefusal, formatCount } from "../primitives/index.js";
+import { InlineRefusal, formatCount } from "../primitives/index.js";
 import { useOpenSessionIds } from "../store/index.js";
 import { InviteShelf, type InviteShelfReader } from "./invitations/InviteShelf.js";
 import { useOpenSessionRows } from "./rows/open-session-rows.js";
-import { SessionList } from "./SessionList.js";
-import { SessionsAbsence } from "./SessionsAbsence.js";
-import { mergeSessionRows, withAttentionSeverity } from "./rows/session-directory-rows.js";
+import { mergeSessionRows } from "./rows/session-directory-rows.js";
 import { useSessionPins, type SessionPinBinding } from "./rows/session-pins.js";
 import type { SessionListRow } from "./rows/session-rows.js";
+import { SessionRowsView } from "./SessionRowsView.js";
 
 export interface SessionsSurfaceProps {
   readonly context: ConsoleSurfaceContext;
@@ -217,7 +216,7 @@ function inviteShelfReaderFor(
 }
 
 /** What the list is handed: the node's answer, this window's set, and its projection. */
-interface SessionRowsProps {
+export interface SessionRowsProps {
   readonly directory: SessionDirectoryState;
   readonly windowSessionIds: readonly string[];
   /** What every open session's store can describe, from `open-session-rows.ts`. */
@@ -246,48 +245,11 @@ function sessionIdOf(row: SessionListRow): string {
  * A factory rather than a lambda written inside the memo, for {@link sessionIdOf}'s
  * reason: the reading is the argument, and the session is the returned function's.
  */
-function severityReaderFor(
+export function severityReaderFor(
   attention: AttentionReading,
 ): (sessionId: string) => AttentionSeverity | undefined {
   return (sessionId) =>
     attention.phase === "read" ? attention.plane.severityFor(sessionId) : undefined;
-}
-
-/**
- * The list itself, once all three sources have been named.
- *
- * The directory still answers on an address that names no session — it is a node read
- * and not a session read — which is what lets this surface tell a window holding
- * nothing apart from a node holding nothing, and report the first as the first.
- */
-function SessionRowsView(props: SessionRowsProps): React.JSX.Element {
-  const { attention, directory, projectedRows, windowSessionIds } = props;
-  const rows = useMemo<readonly SessionListRow[]>(
-    () =>
-      withAttentionSeverity(
-        mergeSessionRows({ directory, windowSessionIds, projectedRows }),
-        severityReaderFor(attention),
-      ),
-    [attention, directory, windowSessionIds, projectedRows],
-  );
-
-  if (rows.length === 0) {
-    return <SessionsAbsence directory={directory} action={props.startControl} />;
-  }
-  return (
-    <>
-      <p className="meridian-sessions__count">
-        <DerivedFigure text={countSentence(rows.length, directory)} />
-      </p>
-      <SessionList
-        rows={rows}
-        tierBySessionId={props.pins.tiers}
-        onOpen={props.onOpen}
-        onSetTier={props.pins.setTier}
-      />
-      {props.startControl}
-    </>
-  );
 }
 
 /**
@@ -298,7 +260,7 @@ function SessionRowsView(props: SessionRowsProps): React.JSX.Element {
  * hold is this window's. Reporting the second in the first's words would be the
  * surface's one remaining chance to overclaim.
  */
-function countSentence(rowCount: number, directory: SessionDirectoryState): string {
+export function countSentence(rowCount: number, directory: SessionDirectoryState): string {
   if (directory.status === "served") {
     return rowCount === 1
       ? "One session is on this node."

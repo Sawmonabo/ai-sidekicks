@@ -31,18 +31,13 @@
 // is bounded by a constant no matter how many sessions the console holds. Rows are
 // memoised on top of that, so a change to one row's attention re-renders one row.
 
-import { memo, useMemo } from "react";
+import { useMemo } from "react";
 
-import { Chip, Nothing, WireFigure, formatCount, formatDateTime } from "../primitives/index.js";
+import { formatCount } from "../primitives/index.js";
 import { SESSION_BACK_TIER_VISIBLE_CAP } from "../core/index.js";
-import {
-  foldIntoTiers,
-  isAuditStubSession,
-  type PlacedSessionRow,
-  type SessionListRow,
-  type SessionPinTier,
-} from "./rows/session-rows.js";
+import { foldIntoTiers, type SessionListRow, type SessionPinTier } from "./rows/session-rows.js";
 import type { SessionPinMap } from "./rows/session-pins.js";
+import { SessionRowGroup } from "./SessionRowGroup.js";
 
 export interface SessionListProps {
   readonly rows: readonly SessionListRow[];
@@ -100,143 +95,5 @@ export function SessionList(props: SessionListProps): React.JSX.Element {
         </details>
       )}
     </div>
-  );
-}
-
-function SessionRowGroup(props: {
-  readonly label: string;
-  readonly rows: readonly PlacedSessionRow[];
-  readonly onOpen: (sessionId: string) => void;
-  readonly onSetTier: (sessionId: string, tier: SessionPinTier) => void;
-}): React.JSX.Element {
-  return (
-    <ul className="meridian-session-list__rows" aria-label={props.label}>
-      {props.rows.map((row) => (
-        <li key={row.sessionId}>
-          <SessionRow row={row} onOpen={props.onOpen} onSetTier={props.onSetTier} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-interface SessionRowProps {
-  readonly row: PlacedSessionRow;
-  readonly onOpen: (sessionId: string) => void;
-  readonly onSetTier: (sessionId: string, tier: SessionPinTier) => void;
-}
-
-/**
- * One row.
- *
- * Memoised, so a projection read that changes one session's attention re-renders
- * that row and not its neighbours. The comparison is the default shallow one and
- * that is sufficient here: `rows` is rebuilt from the store's own references, and
- * both callbacks are stable for the life of the surface.
- */
-const SessionRow = memo(function SessionRow(props: SessionRowProps): React.JSX.Element {
-  const { row } = props;
-  const isAuditStub = isAuditStubSession(row.state);
-  return (
-    <div
-      className={`meridian-session-row${isAuditStub ? " meridian-session-row--audit-stub" : ""}`}
-    >
-      <div className="meridian-session-row__identity">
-        {isAuditStub ? (
-          <span className="meridian-session-row__name">
-            <WireFigure value={row.sessionId} />
-          </span>
-        ) : (
-          <button
-            type="button"
-            className="meridian-session-row__name meridian-session-row__name--open"
-            onClick={() => {
-              props.onOpen(row.sessionId);
-            }}
-          >
-            <WireFigure value={row.sessionId} />
-          </button>
-        )}
-        <SessionRowFacts row={row} />
-      </div>
-      {/* An audit stub gets no controls at all. It is a retention record rather
-          than work, and the retention read-out is another surface's. */}
-      {isAuditStub ? null : (
-        <TierToggle sessionId={row.sessionId} tier={row.tier} onSetTier={props.onSetTier} />
-      )}
-    </div>
-  );
-});
-
-/**
- * A row's facts, including the instant it was last touched.
- *
- * THAT INSTANT CARRIES ITS DAY. The list groups by tier and by nothing else — it
- * has no day divider and cannot grow one, since the tiers are what a person pinned
- * — so a clock-only reading made a session touched an hour ago and one touched last
- * week at the same minute the same eight characters, and the sort order was the only
- * thing left saying which was which. `formatDateTime` exists for exactly the surface
- * that has no other carrier of the day, and says so in its own words.
- */
-function SessionRowFacts(props: { readonly row: PlacedSessionRow }): React.JSX.Element {
-  const { row } = props;
-  return (
-    <div className="meridian-session-row__facts">
-      {row.state === undefined ? (
-        <Nothing
-          kind="not-checked"
-          title="No state"
-          detail="The wire named none for this session."
-        />
-      ) : (
-        <Chip label={row.state} mono />
-      )}
-      {row.attentionSeverity === undefined ? null : (
-        <Chip
-          tone={row.attentionSeverity === "actionable" ? "attention" : "neutral"}
-          label={row.attentionSeverity === "actionable" ? "Needs you" : "Something happened"}
-        />
-      )}
-      {row.touchedAtIso === undefined ? null : (
-        <WireFigure value={formatDateTime(row.touchedAtIso)} title={row.touchedAtIso} />
-      )}
-      {row.participantIds.length === 0 ? null : (
-        <span className="meridian-session-row__participants">
-          {row.participantIds.map((participantId) => (
-            <WireFigure key={participantId} value={participantId} />
-          ))}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/**
- * The tier control.
- *
- * Labelled by the act rather than by the state, so a screen reader hears what
- * pressing it does. Revealed on hover and on `:focus-within` (see the stylesheet)
- * and never removed from the tab order while hidden, because a control a pointer
- * can reach and a keyboard cannot is not a control.
- */
-function TierToggle(props: {
-  readonly sessionId: string;
-  readonly tier: SessionPinTier;
-  readonly onSetTier: (sessionId: string, tier: SessionPinTier) => void;
-}): React.JSX.Element {
-  const isPinnedToFront = props.tier === "front";
-  const label = isPinnedToFront ? "Move to the back tier" : "Pin to the front tier";
-  return (
-    <button
-      type="button"
-      className="meridian-session-row__tier"
-      aria-label={label}
-      title={label}
-      onClick={() => {
-        props.onSetTier(props.sessionId, isPinnedToFront ? "back" : "front");
-      }}
-    >
-      {isPinnedToFront ? "Unpin" : "Pin"}
-    </button>
   );
 }

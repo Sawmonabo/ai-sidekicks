@@ -65,13 +65,11 @@ import {
 import "./notifications.css";
 
 import type { ConsoleRefusal } from "../../../core/index.js";
-import { InlineRefusal, Nothing, WireFigure, useAnnounce } from "../../../primitives/index.js";
+import { useAnnounce } from "../../../primitives/index.js";
 import {
   announcementFor,
-  projectPreferenceRows,
   type AttentionPreferenceReadOutcome,
   type CallerParticipantOutcome,
-  type PreferenceRow,
   type PreferenceToggleMember,
 } from "./attention-preference-model.js";
 import {
@@ -81,6 +79,7 @@ import {
 import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import { useShellPreferences } from "../shell-preferences/shell-preferences-holder.js";
 import type { SettingsPageContext, SettingsPageRegistry } from "../../settings-page-registry.js";
+import { StoredPreferences } from "./StoredPreferences.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-notifications";
@@ -95,11 +94,11 @@ const OS_TOAST_MUTE_KEY = "notifications.osToastsMuted";
  * of them: this console was told the member exists and was not told what it governs.
  * A per-member sentence would be copy invented for a key nothing has named.
  */
-const STORED_MEMBER_DESCRIPTION =
+export const STORED_MEMBER_DESCRIPTION =
   "Shown exactly as the daemon stores it. Nothing here says what it governs.";
 
 /** What one preference edit is doing right now: busy per record, refused per switch. */
-interface StoredPreferenceBinding {
+export interface StoredPreferenceBinding {
   readonly participantOutcome: CallerParticipantOutcome | undefined;
   readonly readOutcome: AttentionPreferenceReadOutcome | undefined;
   /** True while any switch in this record has a write out or queued behind one. */
@@ -270,106 +269,6 @@ function useStoredAttentionPreferences(context: SettingsPageContext): StoredPref
       writer.toggle(row, member);
     },
   };
-}
-
-/** Every state the two-read chain can be in, and what each one renders. */
-function StoredPreferences(props: {
-  readonly binding: StoredPreferenceBinding;
-  readonly hasSession: boolean;
-}): ReactNode {
-  const { binding } = props;
-  if (!props.hasSession) {
-    return (
-      <Nothing
-        kind="not-checked"
-        placement="surface"
-        title="Your preferences have not been read yet."
-        detail="Reading them starts with knowing which participant you are, and this window has opened no session to resolve one from. Nothing was asked — so nothing here is a reading, and a default would look like your answer."
-      />
-    );
-  }
-  if (binding.participantOutcome === undefined) {
-    return <Nothing kind="not-loaded" placement="surface" title="Finding out who you are." />;
-  }
-  if (binding.participantOutcome.status === "unavailable") {
-    // The chain's own refusal, rendered where the set would have been: nothing was
-    // asked of the preference store, and no participant was guessed to ask with.
-    return (
-      <InlineRefusal
-        code={binding.participantOutcome.code}
-        detail={binding.participantOutcome.detail}
-      />
-    );
-  }
-  if (binding.readOutcome === undefined) {
-    return <Nothing kind="not-loaded" placement="surface" title="Reading your preferences." />;
-  }
-  if (binding.readOutcome.status === "unavailable") {
-    return <InlineRefusal code={binding.readOutcome.code} detail={binding.readOutcome.detail} />;
-  }
-  const rows = projectPreferenceRows(binding.readOutcome.value.preferences);
-  if (rows.length === 0) {
-    return (
-      <Nothing
-        kind="empty"
-        placement="surface"
-        title="The daemon holds no preference for you yet."
-        detail="Nothing is stored under your name, and nothing is assumed in its place."
-      />
-    );
-  }
-  return (
-    <ul className="meridian-attention-preferences">
-      {rows.map((row) => (
-        // `aria-busy` on the RECORD rather than on one switch, because that is the
-        // scope the write locks: the value goes back whole, so every member of it is
-        // unpressable until the daemon answers.
-        <li
-          className="meridian-attention-preferences__row"
-          key={row.key}
-          aria-busy={binding.isRecordBusy(row.key)}
-        >
-          <p className="meridian-attention-preferences__key">
-            <WireFigure value={row.key} />
-          </p>
-          <StoredPreferenceValue row={row} binding={binding} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-/** One stored value: switches where the rule allows it, and reading where it does not. */
-function StoredPreferenceValue(props: {
-  readonly row: PreferenceRow;
-  readonly binding: StoredPreferenceBinding;
-}): ReactNode {
-  const { row, binding } = props;
-  if (row.kind === "opaque") {
-    return (
-      <p className="meridian-attention-preferences__opaque">
-        <WireFigure value={row.rendering} />
-      </p>
-    );
-  }
-  const isBusy = binding.isRecordBusy(row.key);
-  return (
-    <>
-      {row.members.map((member) => (
-        <PreferenceToggleRow
-          key={member.memberKey}
-          label={member.name}
-          description={STORED_MEMBER_DESCRIPTION}
-          checked={member.isEnabled}
-          isPending={isBusy}
-          refusal={binding.refusalFor(member.memberKey)}
-          onCheckedChange={() => {
-            binding.toggleMember(row, member);
-          }}
-        />
-      ))}
-    </>
-  );
 }
 
 /** Claim the notifications section. See `RuntimeNodesPage.tsx` on the seam's shape. */

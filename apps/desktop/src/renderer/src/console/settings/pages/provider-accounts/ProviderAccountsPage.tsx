@@ -6,7 +6,7 @@
 // puts the flow that gets an account from unusable to usable beside it. Both of
 // those are the account plane's BODY, and this repository authors none of it — the
 // page frame, the vocabulary, and the discipline are here, and the body arrives
-// through `ProviderAccountsSlot.tsx`.
+// through `provider-accounts-slot.ts`.
 //
 // WHY THE VOCABULARY IS RENDERED AND THE ROWS ARE NOT
 //
@@ -39,13 +39,13 @@ import {
 import type { ReactNode } from "react";
 
 import { Chip, WireFigure } from "../../../primitives/index.js";
-import { DefinitionGrid } from "../../shared/DefinitionGrid.js";
-import { PROVIDER_ACCOUNTS_PAGE } from "./ProviderAccountsSlot.js";
+import { PROVIDER_ACCOUNTS_PAGE } from "./provider-accounts-slot.js";
 import {
   renderOwnerSlotPage,
   type SettingsPageContext,
   type SettingsPageRegistry,
 } from "../../settings-page-registry.js";
+import { WireVocabulary } from "./WireVocabulary.js";
 
 /** The lane that owns this page, so an unfilled section names someone. */
 const OWNER = "collaboration-settings-accounts";
@@ -88,38 +88,6 @@ const QUOTA_SOURCE_MEANINGS: Readonly<Record<ProviderAccountUsageWindowSource, s
   probe: "A deliberate re-observation of this account, asked for from here.",
   run: "Real traffic. The provider reported the window while a run was using it.",
 };
-
-/**
- * One vocabulary block: the closed set the wire declares, and what each member means.
- *
- * The terms render through `WireFigure` because each one is a value the daemon
- * sends: verbatim, in mono, never re-cased. The meanings are the console's own
- * words, and they are TOTAL over the union by their record type — a member added
- * upstream is a compile error here rather than a term that stops being explained.
- */
-function WireVocabulary<TTerm extends string>(props: {
-  readonly label: string;
-  readonly terms: readonly TTerm[];
-  readonly meanings: Readonly<Record<TTerm, string>>;
-  /** One clause about the set as a whole, where the members do not carry it. */
-  readonly note?: string;
-}): ReactNode {
-  return (
-    <section className="meridian-settings-page__block" aria-label={props.label}>
-      <h3 className="meridian-settings-page__block-title">{props.label}</h3>
-      {props.note === undefined ? null : (
-        <p className="meridian-settings-page__aside">{props.note}</p>
-      )}
-      <DefinitionGrid
-        entries={props.terms.map((term) => ({
-          key: term,
-          term: <WireFigure value={term} />,
-          definition: props.meanings[term],
-        }))}
-      />
-    </section>
-  );
-}
 
 export function ProviderAccountsPage(props: { readonly context: SettingsPageContext }): ReactNode {
   return (

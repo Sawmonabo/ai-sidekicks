@@ -94,29 +94,3 @@ export function LeaseProbe(props: {
   });
   return <p>{modelsSessionId ?? "waiting"}</p>;
 }
-
-/** A section body that fails the way a real one does: during its own render. */
-export function ExplodingProbe(props: {
-  readonly holder: CollaborationSessionModelHolder;
-  readonly bridge: ConsoleBridge;
-  readonly sessionStore: SessionStore;
-}): React.JSX.Element {
-  useSessionModels(props.holder, props.bridge, props.sessionStore);
-  throw new Error(RENDER_FAILURE_MESSAGE);
-}
-
-/**
- * The shape this finding replaced: the models taken during the render body itself.
- *
- * The negative control. It exists so the two instruments above are shown to REPORT a
- * leak when there is one — without it, every clean assertion here would also pass
- * against a holder that never started anything at all.
- */
-export function RenderTimeAcquisitionProbe(props: {
-  readonly holder: CollaborationSessionModelHolder;
-  readonly bridge: ConsoleBridge;
-  readonly sessionStore: SessionStore;
-}): React.JSX.Element {
-  props.holder.acquire(props.bridge, props.sessionStore);
-  throw new Error(RENDER_FAILURE_MESSAGE);
-}

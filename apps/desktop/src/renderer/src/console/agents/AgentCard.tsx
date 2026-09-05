@@ -22,12 +22,12 @@
 // inputs and reach no caller at all.
 
 import { useId } from "react";
-
-import { Chip, WireFigure } from "../primitives/index.js";
-import { boundaryPhrase } from "./provider-switch/switch-settlement.js";
-import { type AgentPendingSwitch, type AgentRosterEntry } from "../bridge/index.js";
-import { AGENT_STATES, isKnownMember } from "./agent-wire.js";
+import { type AgentRosterEntry } from "../bridge/index.js";
 import { ResolvedConfigurationEcho } from "./ResolvedConfigurationEcho.js";
+import { BindingAxis } from "./BindingAxis.js";
+import { AgentStateChip } from "./AgentStateChip.js";
+import { ObservedOutputSpeed } from "./ObservedOutputSpeed.js";
+import { PendingSwitchLine } from "./PendingSwitchLine.js";
 
 export interface AgentCardProps {
   readonly agent: AgentRosterEntry;
@@ -144,141 +144,5 @@ export function AgentCard(props: AgentCardProps): React.JSX.Element {
         ) : null}
       </div>
     </article>
-  );
-}
-
-/**
- * One axis of the effective binding.
- *
- * An absent axis is not blank and is not a fault: each absence MEANS something
- * specific, and the card says which. An axis the reply did not carry at all — the
- * roster read today answers identity and lifecycle and no binding — says that
- * instead, because "the provider's default" would be a claim nobody made.
- */
-function BindingAxis(props: {
-  readonly label: string;
-  readonly value: string | undefined;
-  readonly absenceMeaning?: string;
-}): React.JSX.Element {
-  return (
-    <span className="meridian-agent-card__axis">
-      <span className="meridian-agent-card__axis-label">{props.label}</span>{" "}
-      {props.value === undefined ? (
-        <span className="meridian-agent-card__axis-absent">
-          {props.absenceMeaning ?? "not reported"}
-        </span>
-      ) : (
-        <WireFigure value={props.value} />
-      )}
-    </span>
-  );
-}
-
-/**
- * The state, with the one degraded reading named as a reason rather than a fault.
- *
- * `configured` means the pinned node is not attached — the agent is configured and
- * cannot run yet — which is a sentence about the machine, not about the agent.
- */
-function AgentStateChip(props: {
-  readonly state: string | undefined;
-  readonly defaultNodeId: string | undefined;
-}): React.JSX.Element {
-  const { state } = props;
-  if (state === undefined) {
-    return <Chip tone="neutral" label="state not reported" />;
-  }
-  if (!isKnownMember(AGENT_STATES, state)) {
-    return <Chip tone="neutral" mono label={state} />;
-  }
-  if (state === "configured") {
-    return (
-      <span className="meridian-agent-card__state">
-        <Chip tone="attention" mono label={state} />
-        <span className="meridian-agent-card__state-reason">
-          {props.defaultNodeId === undefined
-            ? "waiting on its pinned machine to attach"
-            : "waiting on its pinned machine to attach: "}
-          {props.defaultNodeId === undefined ? null : <WireFigure value={props.defaultNodeId} />}
-        </span>
-      </span>
-    );
-  }
-  return <Chip tone={state === "ready" ? "accent" : "neutral"} mono label={state} />;
-}
-
-/**
- * The mode the provider declared, beside the one that was requested.
- *
- * Never folded into the requested value and never substituted for it. Absence has
- * exactly three causes and none of them is "the mode is off", so the card reads NOT
- * YET OBSERVED and names the three rather than implying a fourth.
- */
-function ObservedOutputSpeed(props: { readonly agent: AgentRosterEntry }): React.JSX.Element {
-  const observed = props.agent.observedOutputSpeed;
-  if (observed === undefined) {
-    return (
-      <p className="meridian-agent-card__observed">
-        <span className="meridian-agent-card__line-label">Output speed, as declared</span> not yet
-        observed — the driver declares no output-speed axis, no turn-bearing exchange has carried
-        the handshake, or no binding is live.
-      </p>
-    );
-  }
-  return (
-    <p className="meridian-agent-card__observed">
-      <span className="meridian-agent-card__line-label">Output speed, as declared</span>{" "}
-      <WireFigure value={observed.declared} />
-      {observed.reason === undefined ? null : (
-        <span className="meridian-agent-card__observed-reason"> — {observed.reason}</span>
-      )}
-    </p>
-  );
-}
-
-/**
- * A switch the daemon accepted and has not applied, as a line of its own.
- *
- * It survives a daemon restart because the daemon re-arms it from the agent row, so
- * this line is a durable promise rather than an optimistic echo of a request.
- */
-function PendingSwitchLine(props: {
-  readonly pendingSwitch: AgentPendingSwitch | undefined;
-}): React.JSX.Element | null {
-  const pending = props.pendingSwitch;
-  if (pending === undefined) {
-    return null;
-  }
-  return (
-    <p className="meridian-agent-card__pending">
-      <span className="meridian-agent-card__line-label">Promised</span>{" "}
-      {pending.pendingAxes.length === 0 ? (
-        <span className="meridian-agent-card__axis-absent">no axis was named</span>
-      ) : (
-        pending.pendingAxes.map((axis) => (
-          <span key={axis.axis} className="meridian-agent-card__axis">
-            <span className="meridian-agent-card__axis-label">{axis.axis}</span>{" "}
-            <WireFigure value={axis.value} />
-          </span>
-        ))
-      )}
-      <span className="meridian-agent-card__pending-when">
-        {/* Read from the durable row. The boundary is resolved against the target
-            driver's declared vocabulary and a multi-axis update takes the widest of
-            them, so the axis names here cannot produce it — and the phrase itself
-            comes from the family's one mapping rather than a second copy. */}{" "}
-        {boundaryPhrase(pending.appliesAt)}
-        {/* A deferred switch and an interrupted one both read `turn_boundary`, so
-            this is read from its own field and never inferred from the one above. */}
-        {pending.interruptRequested ? ", reached by interrupting the run now" : ""}.
-      </span>
-      {pending.replacedSwitchId === undefined ? null : (
-        <span className="meridian-agent-card__pending-superseded">
-          {" "}
-          This supersedes <WireFigure value={pending.replacedSwitchId} />, which reaches no
-          settlement of its own.
-        </span>
-      )}
-    </p>
   );
 }

@@ -20,19 +20,11 @@
 // same colour here, in the log, and on a pane's focus ring. A participant the wheel
 // has not admitted renders unattributed rather than borrowing a neighbour's colour.
 
-import {
-  Chip,
-  DerivedFigure,
-  Glyph,
-  Nothing,
-  RefusalCard,
-  WireFigure,
-  formatRelativeTime,
-} from "../../primitives/index.js";
-import { participantHueTokenName, tokenReference } from "../../tokens/index.js";
+import { DerivedFigure, Nothing, RefusalCard } from "../../primitives/index.js";
 import type { ChannelActivityLabels } from "../activity-model.js";
 import type { PushDrivenReadState } from "../../seats/index.js";
 import type { PresenceReading, RosterRow } from "./presence-model.js";
+import { RosterListRow } from "./RosterListRow.js";
 
 export interface RosterProps {
   readonly state: PushDrivenReadState<PresenceReading>;
@@ -54,7 +46,7 @@ export interface RosterProps {
 }
 
 /** Which chip tone a presence state earns. Amber only where a person is needed. */
-const PRESENCE_TONE: Readonly<Record<string, "neutral" | "attention">> = {
+export const PRESENCE_TONE: Readonly<Record<string, "neutral" | "attention">> = {
   online: "neutral",
   idle: "neutral",
   // A reconnecting client is the one presence state a person may have to act on —
@@ -63,7 +55,7 @@ const PRESENCE_TONE: Readonly<Record<string, "neutral" | "attention">> = {
   offline: "neutral",
 };
 
-const ROSTER_GLYPH_SIZE = 12;
+export const ROSTER_GLYPH_SIZE = 12;
 
 export function Roster(props: RosterProps): React.JSX.Element {
   const { state, rows, nowMilliseconds, labels, composingChannelFor, isLastKnown } = props;
@@ -118,65 +110,7 @@ export function Roster(props: RosterProps): React.JSX.Element {
   );
 }
 
-interface RosterListRowProps {
-  readonly row: RosterRow;
-  readonly nowMilliseconds: number;
-  readonly label: string;
-  readonly composingChannelId: string | undefined;
-}
-
 /** The hue a row's identity mark carries, as a `var()` reference. */
-interface IdentityMarkStyle extends React.CSSProperties {
+export interface IdentityMarkStyle extends React.CSSProperties {
   readonly "--meridian-roster-hue": string;
-}
-
-function RosterListRow(props: RosterListRowProps): React.JSX.Element {
-  const { row, nowMilliseconds, label, composingChannelId } = props;
-  const { participant } = row;
-  const isOffline = participant.state === "offline";
-
-  // Fail-closed, exactly as the ledger row does it: a participant the session's
-  // wheel has not admitted takes the neutral boundary rather than whichever colour
-  // a fallback step would have produced, because a borrowed hue attributes this
-  // person's rows to somebody else everywhere hue is read.
-  const markStyle: IdentityMarkStyle = {
-    "--meridian-roster-hue":
-      row.hue === undefined
-        ? tokenReference("edge-strong")
-        : tokenReference(participantHueTokenName(row.hue.step)),
-  };
-
-  const className = [
-    "meridian-roster-row",
-    `meridian-roster-row--${row.hue?.ringTreatment ?? "solid"}`,
-    isOffline ? "meridian-roster-row--offline" : "",
-    row.isSelf ? "meridian-roster-row--self" : "",
-  ]
-    .filter((part) => part !== "")
-    .join(" ");
-
-  return (
-    <li className={className}>
-      <span className="meridian-roster-row__mark" style={markStyle} aria-hidden="true" />
-      <span className="meridian-roster-row__identity">
-        <span className="meridian-roster-row__label">{label}</span>
-        {row.isSelf ? <span className="meridian-roster-row__self-mark">You</span> : null}
-      </span>
-      <span className="meridian-roster-row__marks">
-        <Chip label={participant.state} mono tone={PRESENCE_TONE[participant.state] ?? "neutral"} />
-        {composingChannelId === undefined ? null : (
-          <span className="meridian-roster-row__composing">
-            <Glyph name="pencil" size={ROSTER_GLYPH_SIZE} title="Composing" />
-            <WireFigure value={composingChannelId} />
-          </span>
-        )}
-      </span>
-      <span className="meridian-roster-row__seen">
-        <WireFigure
-          value={formatRelativeTime(participant.lastSeen, nowMilliseconds)}
-          title={participant.lastSeen}
-        />
-      </span>
-    </li>
-  );
 }

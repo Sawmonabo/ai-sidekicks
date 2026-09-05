@@ -11,14 +11,45 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { consoleTripwires } from "../core/tripwires.js";
 import { SurfaceErrorBoundary } from "../frame/ErrorBoundary.js";
 import { SessionStore } from "../store/index.js";
-import { CollaborationSessionModelHolder } from "./session-models.js";
+import type { ConsoleBridge } from "../bridge/index.js";
+import { CollaborationSessionModelHolder, useSessionModels } from "./session-models.js";
 import {
-  ExplodingProbe,
   LeaseProbe,
-  RenderTimeAcquisitionProbe,
+  RENDER_FAILURE_MESSAGE,
   countedFixtureBridge,
 } from "./session-models.test-support.js";
 import type { RenderPhaseReading } from "./session-models.test-support.js";
+
+// The two probes below are this suite's alone, so they live in it: the rule that a
+// `.tsx` module declares one component exempts a co-located test file exactly because
+// its probes are private to its cases, and a shared support module holding a probe
+// one suite drives would be scaffolding nobody else could read a use for.
+
+/** A section body that fails the way a real one does: during its own render. */
+function ExplodingProbe(props: {
+  readonly holder: CollaborationSessionModelHolder;
+  readonly bridge: ConsoleBridge;
+  readonly sessionStore: SessionStore;
+}): React.JSX.Element {
+  useSessionModels(props.holder, props.bridge, props.sessionStore);
+  throw new Error(RENDER_FAILURE_MESSAGE);
+}
+
+/**
+ * The shape this finding replaced: the models taken during the render body itself.
+ *
+ * The negative control. It exists so the two instruments above are shown to REPORT a
+ * leak when there is one — without it, every clean assertion here would also pass
+ * against a holder that never started anything at all.
+ */
+function RenderTimeAcquisitionProbe(props: {
+  readonly holder: CollaborationSessionModelHolder;
+  readonly bridge: ConsoleBridge;
+  readonly sessionStore: SessionStore;
+}): React.JSX.Element {
+  props.holder.acquire(props.bridge, props.sessionStore);
+  throw new Error(RENDER_FAILURE_MESSAGE);
+}
 
 describe("the sidebar's models — acquisition is an effect and never a render", () => {
   it("holds no lease and opens no subscription while the first render body runs", () => {
