@@ -152,7 +152,34 @@ describe("resolveTargetChipModel — the binding clause is assembled, never defa
     const model = resolveTargetChipModel(target, { [AGENT.id]: AGENT });
 
     expect(model.bindingClause).toBe("claude · opus · high");
-    expect(model.payingAccountLabel).toBe("work");
+  });
+
+  it("reads no paying account, pending switch, or switch failure off the body", () => {
+    // The negative control for the three chips that read member names no contract,
+    // registry, or document carries. A body spelling all three is admitted by the
+    // untyped bag and must reach the model as nothing: their carriers are the
+    // `agent.list` reply and a mutation response, both read in
+    // `agent-binding-read.ts`, and a body read here would be a fourth carrier the
+    // console invented.
+    const fabricated: ConsoleEntity = {
+      ...AGENT,
+      body: {
+        ...AGENT.body,
+        providerAccountLabel: "work",
+        pendingSwitchBoundary: "turn",
+        providerSwitchFailureReason: "driver_unavailable",
+      },
+    };
+    const target = resolveComposerTarget(
+      input({
+        focusedPane: { kind: "agent-console", entity: { kind: "agent", id: AGENT.id } },
+        agents: { [fabricated.id]: fabricated },
+        runs: { [RUN.id]: RUN },
+      }),
+    );
+    const model = resolveTargetChipModel(target, { [fabricated.id]: fabricated });
+
+    expect(Object.keys(model).sort()).toStrictEqual(["bindingClause", "target"]);
   });
 
   it("supplies no clause at all when the wire supplied no axis", () => {

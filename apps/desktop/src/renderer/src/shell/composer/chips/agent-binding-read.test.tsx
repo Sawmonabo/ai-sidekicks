@@ -1,0 +1,142 @@
+// What the binding reads say, and what the console does when they say nothing.
+//
+// The claim worth a unit is the one the fabricated body reads could never make: each
+// fact reaches the chip from the wire that carries it, and every arm where a wire
+// carries nothing is a stated absence rather than a value the console picked.
+
+import { act, renderHook } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
+
+import {
+  createFixtureBridge,
+  type ConsoleBridge,
+  type GrowthAgentSummary,
+  type GrowthOutcome,
+} from "../../../console/bridge/index.js";
+import { drainMicrotasks } from "../../../console/bridge/fixture-bridge.test-support.js";
+import { COMPOSER_SCENARIO } from "../../../console/bridge/scenarios/composer.js";
+import { useAgentBindingReading } from "./agent-binding-read.js";
+
+const AGENT_ID = "agent-implementer";
+/** The account the composer scenario's own `providerAccount.list` reply names. */
+const SCENARIO_ACCOUNT_ID = "acct-claude-team";
+const SCENARIO_ACCOUNT_LABEL = "Claude — team";
+
+/**
+ * The shipped fixture with the roster operation answered.
+ *
+ * A spread over a REAL bridge and not a hand-built object, which is the shape
+ * `fixture-bridge.test-support.ts` states for driving one namespace: the account
+ * read, the clock, and the scenario stay the fixture's, so what these cases prove is
+ * a join across two live seams rather than across two literals.
+ */
+function bridgeServingRoster(outcome: GrowthOutcome<readonly GrowthAgentSummary[]>): ConsoleBridge {
+  const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+  return {
+    ...bridge,
+    growth: { ...bridge.growth, agentList: async () => outcome },
+  };
+}
+
+/** One roster row, with whatever the case is about layered on. */
+function rosterRow(overrides: Partial<GrowthAgentSummary> = {}): GrowthAgentSummary {
+  return {
+    agentId: AGENT_ID,
+    providerAccountId: undefined,
+    pendingSwitch: undefined,
+    ...overrides,
+  };
+}
+
+async function readBinding(bridge: ConsoleBridge, agentId: string | undefined) {
+  const rendered = renderHook(() =>
+    useAgentBindingReading(bridge, COMPOSER_SCENARIO.sessionId, agentId),
+  );
+  await act(async () => {
+    await drainMicrotasks();
+  });
+  return rendered;
+}
+
+describe("useAgentBindingReading — every fact comes from the wire that carries it", () => {
+  it("joins the roster's account id with the account plane's own label", async () => {
+    const bridge = bridgeServingRoster({
+      status: "served",
+      value: [rosterRow({ providerAccountId: SCENARIO_ACCOUNT_ID })],
+    });
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("read");
+    expect(result.current.payingAccountLabel).toBe(SCENARIO_ACCOUNT_LABEL);
+    // The negative control: the handle never stands in for the label. An id in a
+    // chip is an internal identifier a person cannot act on.
+    expect(result.current.payingAccountLabel).not.toBe(SCENARIO_ACCOUNT_ID);
+    expect(result.current.isProviderDefaultAccount).toBe(false);
+  });
+
+  it("reads an absent account id as the provider's registered default paying", async () => {
+    const bridge = bridgeServingRoster({ status: "served", value: [rosterRow()] });
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.isProviderDefaultAccount).toBe(true);
+    expect(result.current.payingAccountLabel).toBeUndefined();
+  });
+
+  it("carries the pending switch the reply reports, and nothing when it reports none", async () => {
+    const pending = {
+      switchId: "switch-1",
+      appliesAt: "run_boundary",
+      interruptRequested: true,
+    } as const;
+    const served = await readBinding(
+      bridgeServingRoster({ status: "served", value: [rosterRow({ pendingSwitch: pending })] }),
+      AGENT_ID,
+    );
+    expect(served.result.current.pendingSwitch).toStrictEqual(pending);
+
+    // The negative control for the chip this replaced: a row with no pending switch
+    // produces no pending reading, so the chip has nothing to render — the previous
+    // code read a member no daemon sends and so could never distinguish the two.
+    const quiet = await readBinding(
+      bridgeServingRoster({ status: "served", value: [rosterRow()] }),
+      AGENT_ID,
+    );
+    expect(quiet.result.current.pendingSwitch).toBeUndefined();
+  });
+
+  it("asks nothing at all while the composer is addressed at a channel", async () => {
+    const { result } = await readBinding(
+      bridgeServingRoster({ status: "served", value: [] }),
+      undefined,
+    );
+
+    expect(result.current.phase).toBe("not-checked");
+  });
+
+  it("carries the growth port's own refusal through untouched", async () => {
+    // The live bridge answers exactly this: the operation refuses by name and the
+    // refusal says which document owes the wire. Re-minting one here would lose the
+    // operation, the slate row, and that document.
+    const bridge = createFixtureBridge({ scenario: COMPOSER_SCENARIO });
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("refused");
+    expect(result.current.refusal?.origin).toBe("growth-port");
+    expect(result.current.payingAccountLabel).toBeUndefined();
+  });
+
+  it("reports a served roster that does not list this agent as a read, not a refusal", async () => {
+    const bridge = bridgeServingRoster({
+      status: "served",
+      value: [rosterRow({ agentId: "agent-reviewer" })],
+    });
+
+    const { result } = await readBinding(bridge, AGENT_ID);
+
+    expect(result.current.phase).toBe("read");
+    expect(result.current.refusal).toBeUndefined();
+    expect(result.current.isProviderDefaultAccount).toBe(false);
+  });
+});

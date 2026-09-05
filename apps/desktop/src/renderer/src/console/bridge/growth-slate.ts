@@ -28,6 +28,8 @@ export type GrowthSlateRowId =
   | "invites-list"
   | "health-subscribe"
   | "agent-snapshot-axes"
+  | "agent-roster-read"
+  | "agent-provider-switch-failure"
   | "gitflow-actions"
   | "artifact-ingest-and-crud"
   | "artifact-allowlist-and-abort"
@@ -167,6 +169,20 @@ const GROWTH_SLATE_ROWS_BY_ID: {
     wire: "agent-list projection of the four attach-time snapshot axes (optional members)",
     owningDocument: "Spec-030, Spec-016",
     consumingSurface: "agent console, cast bar",
+    wireRegistered: false,
+  },
+  "agent-roster-read": {
+    id: "agent-roster-read",
+    wire: "registered request and reply payload shapes for `agent.list`, whose reply carries the effective provider axis and the pending switch",
+    owningDocument: "Plan-016",
+    consumingSurface: "composer (the target chip)",
+    wireRegistered: false,
+  },
+  "agent-provider-switch-failure": {
+    id: "agent-provider-switch-failure",
+    wire: "the `agent.provider_switch_failed` event type, so a deferred switch that could not be applied reaches a client that did not issue the mutation",
+    owningDocument: "Spec-006, Plan-016",
+    consumingSurface: "composer (the target chip)",
     wireRegistered: false,
   },
   "gitflow-actions": {

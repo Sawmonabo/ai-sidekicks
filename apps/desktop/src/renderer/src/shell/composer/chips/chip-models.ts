@@ -19,6 +19,16 @@
 // resolvers routinely answer with an incomplete target. That is the honest answer
 // and the chips render it as an absence; the alternative, defaulting a missing
 // field, is how a console starts asserting facts nobody established.
+//
+// AND WHAT IS READ OFF A BODY IS ONLY WHAT A BODY CARRIES. `ConsoleEntity.body` is
+// an untyped bag, so a member read from it typechecks whatever its name is — which
+// is how three chips came to render `providerAccountLabel`, `pendingSwitchBoundary`,
+// and `providerSwitchFailureReason`, none of which exists in any contract, registry,
+// or document, and none of which any daemon has ever sent. Those three facts have
+// real carriers — the `agent.list` reply for the first two, and a mutation response
+// or an event for the third — and they are read from those carriers in
+// `agent-binding-read.ts`, which states which of them this console can reach today
+// and which it cannot. What is left here is what the store's own log supplies.
 
 import type { ExecutionPosture } from "@ai-sidekicks/contracts";
 
@@ -103,12 +113,6 @@ export interface TargetChipModel {
    * exactly like one the daemon reported.
    */
   readonly bindingClause: string | undefined;
-  /** The paying account's wire-verbatim label, when the wire named one. */
-  readonly payingAccountLabel: string | undefined;
-  /** Set while a provider switch has been accepted and not yet applied. */
-  readonly pendingSwitchBoundary: string | undefined;
-  /** The failed switch's wire-verbatim reason, when the last switch failed. */
-  readonly switchFailureReason: string | undefined;
 }
 
 /**
@@ -192,13 +196,7 @@ export function resolveTargetChipModel(
   agents: Readonly<Record<string, ConsoleEntity>>,
 ): TargetChipModel {
   const agent = target.path === "provider-bound" ? agents[target.agentId] : undefined;
-  return {
-    target,
-    bindingClause: composeBindingClause(agent?.body),
-    payingAccountLabel: readWireString(agent?.body, "providerAccountLabel"),
-    pendingSwitchBoundary: readWireString(agent?.body, "pendingSwitchBoundary"),
-    switchFailureReason: readWireString(agent?.body, "providerSwitchFailureReason"),
-  };
+  return { target, bindingClause: composeBindingClause(agent?.body) };
 }
 
 /**

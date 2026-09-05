@@ -65,6 +65,7 @@ export {
 // parse per call site of exactly the kind the call door next door exists to end.
 export {
   readChannelId,
+  // Consumed by T-023p-1C-2
   readQueueItemId,
   readRunId,
   readRunState,
@@ -195,6 +196,11 @@ export type {
 export { growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
+export type {
+  GrowthAgentPendingSwitch,
+  GrowthAgentSummary,
+  GrowthAgentSwitchBoundary,
+} from "./growth-values/agents.js";
 export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
 
 // The boot-time scenario decision. Exported through this door because the

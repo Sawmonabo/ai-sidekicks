@@ -464,6 +464,16 @@ export const GROWTH_OPERATIONS: Readonly<Record<GrowthOperationId, GrowthOperati
     "revoke one standing permission, fired only by the confirming click of the two-step control",
     "approval.ruleRevoke",
   ),
+  // the agent roster — the composer's target chip reads the paying account and the
+  // pending switch off it, and the deferred failure arm rides an event type this
+  // console cannot fold, which is the `agent-provider-switch-failure` prerequisite.
+  agentList: op(
+    "agentList",
+    "agent-roster-read",
+    "method",
+    "read a session's agents with the effective provider axis and any pending switch, the two facts the target chip renders and no entity body carries",
+    "agent.list",
+  ),
   // session goals — the owner/collaborator pair the goal card drives.
   sessionGoalUpdate: op(
     "sessionGoalUpdate",
