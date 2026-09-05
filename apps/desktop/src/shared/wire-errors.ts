@@ -16,9 +16,15 @@
 // This module lives in `src/shared/` rather than under `src/renderer/` because
 // the same shapes cross the preload boundary in both directions and a main-side
 // consumer must not have to reach into renderer source for them. It imports
-// nothing at all: no `electron`, no `node:*`, not even contracts — the guards are
-// structural by design (see `isWireErrorEnvelope`), so binding them to a schema
+// nothing at all: no `electron`, no `node:*`, not even contracts — the readers are
+// structural by design (see `readWireErrorEnvelope`), so binding them to a schema
 // would narrow them below what their callers need.
+//
+// AND NOTHING HERE IS A TYPE PREDICATE OVER A CANDIDATE. Every envelope question is
+// answered by a READER that hands back a snapshot it has already taken, because a
+// predicate answers by narrowing the source — and the source is a rejected value
+// nobody validated, whose next property access is the throw these guards exist to
+// prevent. See {@link readWireErrorEnvelope}.
 
 /**
  * The code+message-only refusal shape the typed wire errors carry.
@@ -33,6 +39,31 @@ export interface WireErrorEnvelope {
 }
 
 /**
+ * What this module renders where a value cannot be rendered as itself.
+ *
+ * The one piece of vocabulary the readers here share, exported because it is a
+ * SEAM rather than an implementation detail: {@link lossyStringify} answers it when
+ * a value refuses to stringify, and `console/core/wire-rejection.ts` answers it
+ * where a rejection carries a code but no sentence — and a renderer that saw two
+ * spellings of "this could not be read" would be reading two different facts.
+ */
+export const UNREPRESENTABLE_VALUE_TEXT = "[unrepresentable value]";
+
+/**
+ * Whether a value can carry properties at all — an object or a function, not null.
+ *
+ * The one pre-check every guarded reader here shares, and the one every caller that
+ * asks "is this a structure or a bare value" shares with them. Written once because
+ * a second copy is a predicate that drifts: `function` belongs in the accepted set
+ * (a null-prototype function carrying `code` and `message` is a perfectly good
+ * envelope, and `typeof` reports it as neither `"object"` nor null), and a copy
+ * written without that clause silently rejects exactly those envelopes.
+ */
+export function isPropertyContainer(value: unknown): boolean {
+  return value !== null && (typeof value === "object" || typeof value === "function");
+}
+
+/**
  * Read one property off an arbitrary rejected value, and cannot throw.
  *
  * A plain `value.code` is NOT safe on a value nobody validated: a property access
@@ -42,13 +73,9 @@ export interface WireErrorEnvelope {
  * The absent reading and the throwing reading collapse to the same `undefined`,
  * because to every caller here they mean the same thing: this value does not carry
  * that member in any usable form.
- *
- * `function` joins `object` in the accepted set because a function is a property
- * container too — a null-prototype function carrying `code` and `message` is a
- * perfectly good envelope and `typeof` reports it as neither `"object"` nor null.
  */
 export function readGuardedProperty(value: unknown, key: string): unknown {
-  if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+  if (!isPropertyContainer(value)) {
     return undefined;
   }
   try {
@@ -83,16 +110,16 @@ export function isErrorInstance(value: unknown): value is Error {
 /**
  * Read `value` as a wire error envelope, or answer `undefined`.
  *
- * THE READER, and {@link isWireErrorEnvelope} is the predicate spelled on top of it.
- * That direction is the point: a predicate promises a caller that `.code` is a
- * string, and the caller's own read is then a SECOND property access on the same
- * unvalidated value — which a getter that throws on its second read defeats, in the
- * one line the narrowing was supposed to make safe. A reader hands back the strings
- * it already read, on a fresh object, so there is no second access to defeat.
+ * THE READER, AND THERE IS NO PREDICATE BESIDE IT. That is the point rather than a
+ * preference: a predicate promises a caller that `.code` is a string, and the
+ * caller's own read is then a SECOND property access on the same unvalidated value —
+ * which a getter that throws on its second read defeats, in the one line the
+ * narrowing was supposed to make safe. A reader hands back the strings it already
+ * read, on a fresh object, so there is no second access to defeat.
  *
  * Shape-generic — any string `code` plus any string `message` — deliberately not
  * bound to specific code literals: a caller that needs to branch on a particular
- * code uses {@link isWireErrorEnvelopeWithCode}, and one that only needs to
+ * code uses {@link readWireErrorEnvelopeWithCode}, and one that only needs to
  * render `code: message` must not have to enumerate every code that exists.
  */
 export function readWireErrorEnvelope(value: unknown): WireErrorEnvelope | undefined {
@@ -102,33 +129,33 @@ export function readWireErrorEnvelope(value: unknown): WireErrorEnvelope | undef
 }
 
 /**
- * Whether `value` is a wire error envelope.
+ * Read `value` as a wire error envelope carrying exactly `code`, or `undefined`.
  *
- * Kept as a predicate for the arms that only need to BRANCH; an arm that goes on to
- * read the members takes {@link readWireErrorEnvelope} instead, for the reason that
- * function's own note gives.
- */
-export function isWireErrorEnvelope(value: unknown): value is WireErrorEnvelope {
-  return readWireErrorEnvelope(value) !== undefined;
-}
-
-/**
- * Whether `value` is a wire error envelope carrying exactly `code`.
- *
- * The narrowing form, so a caller that distinguishes one typed refusal from the
- * generic case writes the discriminant once. `===` on the code is sound because
+ * The discriminating form, so a caller that distinguishes one typed refusal from
+ * the generic case writes the discriminant once. `===` on the code is sound because
  * every wire code is a plain single-sourced string-literal type and not a
  * nominal brand; passing the contracts-exported const rather than a free string
  * is what keeps the comparison compile-time-bound to the contract.
  *
+ * A READER RATHER THAN A TYPE PREDICATE, and this module offers no predicate over a
+ * candidate at all. A predicate's whole product is a narrowing of the SOURCE object,
+ * which is precisely the value nobody may read again: the guard reads a snapshot,
+ * says yes, and every member the caller then renders is a fresh access on the
+ * unvalidated candidate — a second reading, one layer later, in a render, outside
+ * every `catch`. A getter that answers something else the second time renders an arm
+ * the wire never sent; one that throws unmounts the surface that exists to say a call
+ * failed. The reader hands back the strings it already read, so there is no second
+ * access for a caller to be tempted into.
+ *
  * The comparison is against the code the READER returned, not against a second read
  * of the candidate's own property — one access per member, whatever the answer.
  */
-export function isWireErrorEnvelopeWithCode<TCode extends string>(
+export function readWireErrorEnvelopeWithCode<TCode extends string>(
   value: unknown,
   code: TCode,
-): value is { readonly code: TCode; readonly message: string } {
-  return readWireErrorEnvelope(value)?.code === code;
+): { readonly code: TCode; readonly message: string } | undefined {
+  const envelope = readWireErrorEnvelope(value);
+  return envelope?.code === code ? { code, message: envelope.message } : undefined;
 }
 
 /**
@@ -137,17 +164,17 @@ export function isWireErrorEnvelopeWithCode<TCode extends string>(
  * Bare `String(...)` is NOT total: it runs ToPrimitive, which itself throws for
  * a null-prototype object — or a null-prototype FUNCTION — carrying no
  * `toString` / `valueOf` / `Symbol.toPrimitive`, and a hostile throwing
- * `toString` propagates the same way. The terminal fallback is a string LITERAL,
+ * `toString` propagates the same way. The terminal fallback is a string CONSTANT,
  * deliberately not `Object.prototype.toString.call(...)`: even that can throw
  * (its `Symbol.toStringTag` lookup is a Get, and a hostile getter propagates),
- * so only a literal makes the totality claim PROVABLE rather than merely one
+ * so only a constant makes the totality claim PROVABLE rather than merely one
  * pathological layer deeper.
  */
 export function lossyStringify(value: unknown): string {
   try {
     return String(value);
   } catch {
-    return "[unrepresentable value]";
+    return UNREPRESENTABLE_VALUE_TEXT;
   }
 }
 
