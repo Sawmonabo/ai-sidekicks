@@ -37,8 +37,9 @@ import {
 
 import type { UpdateState } from "@ai-sidekicks/contracts";
 
-import { wireRejectionToError } from "../../../../../../shared/wire-errors.js";
-import { useSettlementAnnouncement } from "../../../primitives/index.js";
+import type { ConsoleRefusal } from "../../../core/index.js";
+import { InlineRefusal, useSettlementAnnouncement } from "../../../primitives/index.js";
+import { consoleRefusalFrom } from "../../../seats/index.js";
 import type { ConsoleBridge } from "../../../bridge/index.js";
 import { PreferenceToggleRow } from "../../shared/PreferenceToggleRow.js";
 import { useShellPreferences } from "../shell-preferences/shell-preferences-holder.js";
@@ -47,6 +48,12 @@ import { UpdateReadOut } from "./UpdateReadOut.js";
 
 /** The one key this block spends. Named once so the row and its note cannot drift. */
 const AUTOMATIC_UPDATE_KEY = "updates.automatic";
+
+/** Names this block in a refusal a control's failure carried no code of its own on. */
+const UPDATE_CONTROL_ORIGIN = "updates";
+
+/** What a control failure with no registered code of its own is called. */
+const UPDATE_CONTROL_FAILED = "control-failed";
 
 /**
  * Bind this window's reading of the updater.
@@ -108,7 +115,7 @@ function updateSettlementSentence(reading: UpdateReading): string | undefined {
     case "not-read":
       return undefined;
     case "unreachable":
-      return `The update feed was not reached from this window. ${reading.detail}`;
+      return `The update feed was not reached from this window. ${reading.refusal.detail}`;
     case "state":
       return reading.state.status === "error"
         ? `${UPDATE_STATUS_SETTLEMENTS.error} ${reading.state.message}`
@@ -125,7 +132,7 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
   // there is no settlement on screen for an announcement to be the spoken half of.
   useSettlementAnnouncement(updateSettlementSentence(reading));
   const preferences = useShellPreferences(bridge);
-  const [requestRefusal, setRequestRefusal] = useState<string | undefined>(undefined);
+  const [requestRefusal, setRequestRefusal] = useState<ConsoleRefusal | undefined>(undefined);
   const isAutomatic = preferences.isEnabled(AUTOMATIC_UPDATE_KEY);
   const isReady = reading.kind === "state" && reading.state.status === "ready";
   // One place a control's failure becomes a line on screen. The two controls below
@@ -145,7 +152,13 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
     try {
       await perform();
     } catch (rejection: unknown) {
-      setRequestRefusal(wireRejectionToError(rejection, { total: true }).message);
+      // Through the console's one converter, so a daemon code reaches the screen.
+      // `wireRejectionToError` puts that code on `Error.name` and this site read only
+      // `.message`, which discarded every registered code the updater namespace can
+      // refuse with — the one part of a refusal rule 9 requires verbatim.
+      setRequestRefusal(
+        consoleRefusalFrom(rejection, UPDATE_CONTROL_ORIGIN, UPDATE_CONTROL_FAILED),
+      );
     }
   }, []);
 
@@ -194,9 +207,7 @@ export function UpdatesPage(props: { readonly bridge: ConsoleBridge }): ReactNod
         ) : null}
       </div>
 
-      {requestRefusal === undefined ? null : (
-        <p className="meridian-settings-page__aside">{requestRefusal}</p>
-      )}
+      {requestRefusal === undefined ? null : <InlineRefusal {...requestRefusal} />}
     </section>
   );
 }

@@ -34,9 +34,23 @@
 
 import type { SidekicksBridge, UpdateState } from "@ai-sidekicks/contracts";
 
-import { wireRejectionToError } from "../../../../../../shared/wire-errors.js";
-import { Emitter, type Unsubscribe } from "../../../core/index.js";
+import { Emitter, type ConsoleRefusal, type Unsubscribe } from "../../../core/index.js";
+import { consoleRefusalFrom } from "../../../seats/index.js";
 import { GenerationLatch, type GenerationClaim } from "../../../store/index.js";
+
+/**
+ * What this module names a failure it could not read a code off.
+ *
+ * Two codes rather than one, because the two legs fail for different reasons and a
+ * person reading the line needs to know which: the stream would not open, or the
+ * state would not be read. Neither is a translation — a rejection that arrives
+ * carrying a registered daemon code keeps it.
+ */
+const UPDATER_SUBSCRIBE_FAILED = "updater-subscribe-failed";
+const UPDATER_READ_FAILED = "updater-read-failed";
+
+/** Names this seam in a refusal, so a failure says which conversation failed. */
+const UPDATER_ORIGIN = "updates";
 
 /**
  * What the block knows about the updater. Total; every arm renders something.
@@ -48,7 +62,7 @@ import { GenerationLatch, type GenerationClaim } from "../../../store/index.js";
 export type UpdateReading =
   | { readonly kind: "not-read" }
   | { readonly kind: "state"; readonly state: UpdateState }
-  | { readonly kind: "unreachable"; readonly detail: string };
+  | { readonly kind: "unreachable"; readonly refusal: ConsoleRefusal };
 
 /**
  * Which side of the updater seam the held reading came from.
@@ -135,10 +149,10 @@ export class UpdaterReadingHolder {
           this.#observeOpening(opening, { kind: "state", state });
         })
         .catch((readRejection: unknown) => {
-          this.#observeOpening(opening, unreachableFrom(readRejection));
+          this.#observeOpening(opening, unreachableFrom(readRejection, UPDATER_READ_FAILED));
         });
     } catch (openingRejection: unknown) {
-      this.#observeOpening(opening, unreachableFrom(openingRejection));
+      this.#observeOpening(opening, unreachableFrom(openingRejection, UPDATER_SUBSCRIBE_FAILED));
     }
   }
 
@@ -181,16 +195,20 @@ export class UpdaterReadingHolder {
 }
 
 /**
- * The reading a rejection settles on, in the words the failure arrived in.
+ * The reading a rejection settles on, in the words AND the code it arrived with.
  *
- * Through the repository's one rejection normalizer rather than a local
- * `instanceof Error` ladder: it renders a wire envelope as its own `code: message`
- * instead of `[object Object]`, and its total arm cannot throw while composing the
- * sentence that says something failed.
+ * Through the console's one refusal converter rather than `wireRejectionToError`:
+ * that helper puts the daemon's registered code on `Error.name` and this seam read
+ * only `.message`, so every refusal the updater namespace can raise reached the
+ * screen with its code discarded — which is the one part of a refusal
+ * `Spec-023 §Console Design (Meridian)` rule 9 requires verbatim. The converter
+ * hands a `ConsoleRefusalError`'s refusal back untouched and normalizes everything
+ * else under the fallback code this leg names, so a registered code is never
+ * relabelled on its way through.
  */
-function unreachableFrom(rejection: unknown): UpdateReading {
+function unreachableFrom(rejection: unknown, fallbackCode: string): UpdateReading {
   return {
     kind: "unreachable",
-    detail: wireRejectionToError(rejection, { total: true }).message,
+    refusal: consoleRefusalFrom(rejection, UPDATER_ORIGIN, fallbackCode),
   };
 }

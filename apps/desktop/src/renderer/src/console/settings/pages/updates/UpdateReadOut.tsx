@@ -1,5 +1,11 @@
 import { useId } from "react";
-import { DerivedFigure, Nothing, WireFigure, formatPercent } from "../../../primitives/index.js";
+import {
+  DerivedFigure,
+  InlineRefusal,
+  Nothing,
+  WireFigure,
+  formatPercent,
+} from "../../../primitives/index.js";
 import { type UpdateReading } from "./updater-reading.js";
 
 /** The five arms, plus the conversation's own absence. One render per arm. */
@@ -13,10 +19,14 @@ export function UpdateReadOut(props: { readonly reading: UpdateReading }): React
   }
   if (reading.kind === "unreachable") {
     // Quiet, and informational. Nothing failed: the update feed was not reached, and
-    // saying otherwise would put words in an updater's mouth.
+    // saying otherwise would put words in an updater's mouth — so the sentence stays
+    // an aside and the refusal takes the console's INLINE shape, whose grammar is
+    // "nothing changed, the control stays" and whose role is `status` rather than
+    // `alert`. What that buys is the part the aside could not say: the refuser's own
+    // code, which rule 9 requires verbatim and which this arm used to discard.
     return (
       <p className="meridian-settings-page__aside">
-        The update feed was not reached from this window. <WireFigure value={reading.detail} />
+        The update feed was not reached from this window. <InlineRefusal {...reading.refusal} />
       </p>
     );
   }

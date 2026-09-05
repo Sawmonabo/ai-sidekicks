@@ -62,6 +62,50 @@ describe("updates page — nothing restarts without a press", () => {
     await pressCheckNow(container);
     expect(container.textContent ?? "").toContain("the updater is disabled in this build");
   });
+
+  it("puts the refuser's own code on screen beside its message", async () => {
+    // The code used to be discarded entirely: `wireRejectionToError` puts a
+    // registered daemon code on `Error.name` and this page read only `.message`, so
+    // every refusal the updater namespace can raise reached a person with the one
+    // part `Spec-023 §Console Design (Meridian)` rule 9 requires verbatim missing.
+    const { page: container } = await renderSettled(
+      bridgeReporting(
+        { status: "idle" },
+        {
+          requestCheck: () =>
+            Promise.reject({
+              code: "update.channel_unavailable",
+              message: "no feed is configured",
+            }),
+        },
+      ),
+    );
+    await pressCheckNow(container);
+
+    const refusal = container.querySelector(".meridian-refusal--inline");
+    expect(refusal?.textContent ?? "").toContain("update.channel_unavailable");
+    expect(refusal?.textContent ?? "").toContain("no feed is configured");
+  });
+
+  it("negative control: a code this page invented never displaces a registered one", async () => {
+    // Without this, the case above would hold for a page that rendered its own
+    // fallback code beside every message it happened to keep.
+    const { page: container } = await renderSettled(
+      bridgeReporting(
+        { status: "idle" },
+        {
+          requestCheck: () =>
+            Promise.reject({
+              code: "update.channel_unavailable",
+              message: "no feed is configured",
+            }),
+        },
+      ),
+    );
+    await pressCheckNow(container);
+
+    expect(container.textContent ?? "").not.toContain("control-failed");
+  });
 });
 
 describe("updates page — a control fails onto one line, however it failed", () => {
@@ -117,7 +161,7 @@ describe("updates page — a control fails onto one line, however it failed", ()
     // telling a person their successful check had failed.
     const { page: container } = await renderSettled(bridgeReporting({ status: "idle" }));
     await pressCheckNow(container);
-    expect(container.querySelectorAll(".meridian-settings-page__aside")).toHaveLength(0);
+    expect(container.querySelectorAll(".meridian-refusal")).toHaveLength(0);
   });
 });
 

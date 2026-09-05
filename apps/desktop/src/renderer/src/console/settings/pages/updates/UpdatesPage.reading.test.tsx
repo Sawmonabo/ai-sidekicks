@@ -47,6 +47,21 @@ describe("updates page — the five arms", () => {
     expect(text).not.toContain("The updater reported a failure");
     expect(container.querySelectorAll('[role="alert"]')).toHaveLength(0);
   });
+
+  it("names the leg that could not be reached, in a code a person can quote", async () => {
+    // The arm used to render the thrown message alone. `wireRejectionToError` puts a
+    // code on `Error.name` and this seam read only `.message`, so nothing on screen
+    // said WHICH conversation failed — and a registered daemon code would have been
+    // discarded the same way. The sentence stays an aside and the code arrives with
+    // it, in the console's own inline shape rather than as a second kind of prose.
+    const { page: container } = await renderSettled(bridgeWithNoUpdater());
+
+    const refusal = container.querySelector(".meridian-refusal--inline");
+    expect(refusal?.textContent ?? "").toContain("updater-subscribe-failed");
+    expect(
+      container.querySelector(".meridian-settings-page__aside .meridian-refusal"),
+    ).not.toBeNull();
+  });
 });
 
 describe("updates page — the two sources are sequenced", () => {
