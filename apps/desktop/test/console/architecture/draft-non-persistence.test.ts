@@ -24,18 +24,6 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  CONSOLE_DIRECTORY,
-  consoleSourceModules,
-  moduleNamed,
-  readConsoleSourceModule,
-} from "../console-source-modules.js";
-
-const PERSISTENCE_DIRECTORY = join(CONSOLE_DIRECTORY, "persistence");
-
-/** The persistence subtree, through the tier's one walk. */
-const PERSISTENCE_MODULES = consoleSourceModules({ roots: [PERSISTENCE_DIRECTORY] });
-
 // Statically, not through `await import()` inside each case, which is what these
 // three used to do. A dynamic import inside a case charges the module's whole
 // transform-and-load cost — Vite resolving the console's persistence graph — to
@@ -50,6 +38,18 @@ import {
   PERSISTED_VALUE_CLASSES,
   validatePersistedValue,
 } from "../../../src/renderer/src/console/persistence/value-classes.js";
+
+import {
+  CONSOLE_DIRECTORY,
+  consoleSourceModules,
+  moduleNamed,
+  readConsoleSourceModule,
+} from "../console-source-modules.js";
+
+const PERSISTENCE_DIRECTORY = join(CONSOLE_DIRECTORY, "persistence");
+
+/** The persistence subtree, through the tier's one walk. */
+const PERSISTENCE_MODULES = consoleSourceModules({ roots: [PERSISTENCE_DIRECTORY] });
 
 /**
  * The browser storage APIs a renderer can reach. `caches` and `openDatabase` are

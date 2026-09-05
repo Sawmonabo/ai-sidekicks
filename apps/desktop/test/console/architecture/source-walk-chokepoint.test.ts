@@ -220,11 +220,10 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
   });
 
   it("finds gates on both sides of the scope, so neither claim is vacuous", () => {
-    // The scope is what replaced two hand-written admission lists, so both of its sides
-    // have to have members or the claims above and below quantify over nothing. Gates
-    // that walk and do NOT reach renderer source are the tier's own file enumerations —
-    // which project owns a test file, which bounded wait a launched body declares — and
-    // they are the reason the claims are scoped rather than absolute.
+    // The scope replaced two hand-written admission lists, so both of its sides need
+    // members or the claims around it quantify over nothing. Gates that walk and do NOT
+    // reach renderer source are the tier's own file enumerations — which project owns a
+    // test file, which launch a tier can seat — and they are why the claims are scoped.
     const reaching = gates.filter((gate) =>
       reachesRendererSource(readArchitectureGate(gate), gate),
     );
@@ -261,7 +260,10 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
     const readers = gates.filter(
       (gate) => gate !== FORM_DECLARING_GATE && readsAFile(readArchitectureGate(gate)),
     );
-    expect(readers.length).toBeGreaterThan(2);
+    // A vacuity floor and not a pin: a gate that stops reading a file itself and takes
+    // the shared walk is this chokepoint working, so the number may fall — reaching
+    // zero is what would make the claim below pass over the empty set.
+    expect(readers.length).toBeGreaterThan(1);
     const offenders = readers.filter((gate) => {
       const source = readArchitectureGate(gate);
       return !source.includes(SHARED_WALK_IMPORT) && reachesRendererSource(source, gate);
@@ -270,8 +272,7 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
   });
 
   it("negative control: the walk scan reads an import and not a mention of one", () => {
-    // Both sides, against the predicate rather than against whichever gate names a walk
-    // in prose today — this file's own header does.
+    // Both sides, against the predicate rather than a gate that names a walk in prose.
     expect(directoryWalkImports('import { readdirSync } from "node:fs";', "probe.ts")) //
       .toStrictEqual(["readdirSync"]);
     // The three spellings the text needles missed, each measured passing them.
@@ -313,10 +314,9 @@ describe("source-walk chokepoint — one walk under every source-text claim", ()
   });
 
   it("negative control: the shared walk itself is the one module that walks", () => {
-    // The clean result above is only meaningful if the needles match real code, and
-    // the one place they must match is the module that owns the walk. It is outside
-    // this directory, so it is not an offender — and asserting it still trips turns a
-    // renamed API into a red gate rather than a silent hole.
+    // The clean result above is only meaningful if the scan matches real code, and the
+    // one place it must is the module that owns the walk — outside this directory, so
+    // not an offender, and a renamed API becomes a red gate rather than a silent hole.
     expect(
       directoryWalkImports(readFileSync(SHARED_WALK_MODULE, "utf8"), SHARED_WALK_MODULE),
     ).toContain("readdirSync");
@@ -377,8 +377,8 @@ describe("the shared walk — answers files, never a directory with a file's nam
   const screenshotTier = resolve(HERE, "..", "screenshot");
 
   it("control: the tier holds a DIRECTORY whose name is extension-shaped", () => {
-    // Vitest names a screenshot tier's committed reference directory after its spec,
-    // so this entry is what a walk deciding by extension would admit as a module.
+    // Vitest names a screenshot tier's reference directory after its spec, so this is
+    // what a walk deciding by extension would admit as a module.
     const entries = readdirSync(screenshotTier, { recursive: true, encoding: "utf8" }).map(
       (entry) => entry.split("\\").join("/"),
     );

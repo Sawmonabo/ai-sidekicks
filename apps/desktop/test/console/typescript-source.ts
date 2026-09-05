@@ -20,11 +20,12 @@
 // text passes the parsed file to `node.getText(parsed)`, which reads the source
 // text it already has rather than climbing to it.
 //
-// THE SCRIPT KIND IS A PARAMETER, and the one legitimate divergence. A `.tsx`
-// module's rows are JSX elements, and parsed as `TS` a JSX opening tag reads as a
-// comparison — so the windowed-row census asks for `TSX` while every other caller
-// takes the default. Expressing that here is what keeps it from being answered by
-// a second `createSourceFile` somewhere with its own idea of the other options.
+// THE SCRIPT KIND IS DERIVED FROM THE FILE NAME, not asked for. A `.tsx` module's
+// rows are JSX elements, and parsed as `TS` a JSX opening tag reads as a
+// comparison — so the windowed-row census would see no rows at all. Deriving it
+// here rather than taking it as an argument means no caller can pass the wrong
+// one for the text it is holding, and a caller reading a `.tsx` module gets JSX
+// without knowing it had to ask.
 
 import ts from "typescript";
 
@@ -33,14 +34,10 @@ import ts from "typescript";
  *
  * `fileName` is a label rather than a path: nothing is read from disk here, and
  * a caller that has already read a file passes its name so a diagnostic can say
- * which text this was. `scriptKind` defaults to `TS`; a caller reading JSX passes
- * `TSX`, which is the only option any caller varies.
+ * which text this was — and so the script kind can be read off it.
  */
-export function parseSourceText(
-  fileName: string,
-  sourceText: string,
-  scriptKind: ts.ScriptKind = ts.ScriptKind.TS,
-): ts.SourceFile {
+export function parseSourceText(fileName: string, sourceText: string): ts.SourceFile {
+  const scriptKind = fileName.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   return ts.createSourceFile(fileName, sourceText, ts.ScriptTarget.Latest, false, scriptKind);
 }
 
