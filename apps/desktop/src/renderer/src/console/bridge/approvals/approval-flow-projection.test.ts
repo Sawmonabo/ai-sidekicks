@@ -1,87 +1,20 @@
-// The `approval` partition, driven by the real scenario through the real store.
+// The fold itself: the kinds it claims, the member tables it reads a payload
+// through, and what one event does to the board.
 //
-// Four claims, and every one of them failed before this projector existed:
-//
-//   • The kinds it claims ARE the taxonomy's `approval_flow` category minus the one
-//     event in it that is not an approval request's — not a list written beside the
-//     census that an eighth approval event would silently leave out, and not the
-//     whole category either, which would take `moderation.review_flagged` off the
-//     board for the family that renders moderation.
-//   • The scenario's approval beats reach the `approval` partition through the
-//     shipped apply chokepoint. A real scenario and a real `SessionStore`: a local
-//     stand-in for either would be checking this file's own copy of the thing under
-//     test.
-//   • The body carries the members the corpus registers PER TYPE, so `askId` — which
-//     is on the event and on no read — survives the request that carried it and is
-//     still there when the pane asks.
-//   • The fold KEEPS what an earlier event named. `approval.requested` is the only
-//     kind that carries `askId`, so a fold that replaced the body wholesale would
-//     lose the ask origin on the very next transition — visible to nobody, because a
-//     resolved provider ask renders exactly like a resolved direct request.
+// The claim is that nothing here sniffs. A kind this family does not claim is left
+// alone, and a payload is read through the table its kind names rather than by
+// looking for members that happen to be present.
 
 import { describe, expect, it } from "vitest";
-
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
-
 import {
   APPROVAL_BODY_MEMBER_TABLES,
   APPROVAL_FLOW_EVENT_KINDS,
   APPROVAL_FLOW_PROJECTORS,
   projectApprovalFlowEvent,
 } from "./approval-flow-projection.js";
-import { APPROVALS_SCENARIO } from "../scenarios/approvals.js";
 import { RUN_LIFECYCLE_EVENT_KINDS } from "../../frame/run-lifecycle-projector.js";
-import {
-  ConsoleEntityProjectorRegistry,
-  SessionStore,
-  type ConsoleSessionEvent,
-  type EntityProjectorRegistry,
-} from "../../store/index.js";
-import { registerComposerFamily } from "../../../shell/index.js";
-
-const SESSION_ID = APPROVALS_SCENARIO.sessionId;
-
-/** One store, opened with exactly what the composer family registers. */
-function storeDrivenByScenario(): SessionStore {
-  return storeOver(APPROVAL_FLOW_PROJECTORS);
-}
-
-/** One store fed the scenario's whole log, folding with whatever it was opened with. */
-function storeOver(projectors: EntityProjectorRegistry | undefined): SessionStore {
-  const sequences = APPROVALS_SCENARIO.beats.map((beat) => beat.event.sequence);
-  const store = new SessionStore({
-    sessionId: SESSION_ID,
-    ...(projectors === undefined ? {} : { projectors }),
-  });
-  // A base state current as of the beat just before the scenario's first: a store
-  // treats the distance from its cursor to an event as a gap, so a cursor of `-1`
-  // would degrade a store for a hole the scenario never had.
-  store.initialise({
-    cursor: Math.min(...sequences) - 1,
-    entities: [],
-    participantJoinLog: [...APPROVALS_SCENARIO.participantIdsInJoinOrder],
-  });
-  store.applyBatch(APPROVALS_SCENARIO.beats.map((beat) => beat.event as ConsoleSessionEvent));
-  return store;
-}
-
-/** One hand-built beat, for the payload shapes no scenario has a reason to play. */
-function approvalEvent(options: {
-  readonly kind: string;
-  readonly sequence: number;
-  readonly payload: Readonly<Record<string, unknown>> | undefined;
-  readonly actorId?: string;
-}): ConsoleSessionEvent {
-  return {
-    id: `event-${String(options.sequence)}`,
-    sessionId: SESSION_ID,
-    sequence: options.sequence,
-    kind: options.kind,
-    occurredAt: "2026-01-01T13:30:00.000Z",
-    ...(options.actorId === undefined ? {} : { actorId: options.actorId }),
-    ...(options.payload === undefined ? {} : { payload: options.payload }),
-  };
-}
+import { SESSION_ID, approvalEvent } from "./approval-flow-projection.test-support.js";
 
 describe("the kinds the composer family claims", () => {
   it("is the approval_flow category minus the one event that is not a request's", () => {
@@ -154,52 +87,6 @@ describe("the member tables the fold reads a payload through", () => {
     for (const eventKind of APPROVAL_FLOW_EVENT_KINDS) {
       expect(Object.hasOwn(APPROVAL_BODY_MEMBER_TABLES.byEventKind, eventKind)).toBe(true);
     }
-  });
-});
-
-describe("the scenario's approval beats, folded through the shipped store", () => {
-  it("puts every request the beats name into the approval partition", () => {
-    const partition = storeDrivenByScenario().snapshot().partitions.approval;
-    const requestIds = APPROVALS_SCENARIO.beats
-      .filter((beat) => APPROVAL_FLOW_EVENT_KINDS.includes(beat.event.kind))
-      .map((beat) => beat.event.payload?.["approvalRequestId"])
-      .filter((value): value is string => typeof value === "string");
-
-    expect(requestIds.length).toBeGreaterThan(0);
-    for (const requestId of requestIds) {
-      expect(Object.hasOwn(partition, requestId)).toBe(true);
-    }
-    expect(storeDrivenByScenario().snapshot().degradedCause).toBeUndefined();
-  });
-
-  it("marks a settled request rather than dropping it", () => {
-    const partition = storeDrivenByScenario().snapshot().partitions.approval;
-    // The scenario requests one approval and then expires it. History is a read, so
-    // the expiry marks the row it already has.
-    const expired = Object.values(partition).filter((entity) => entity.state === "expired");
-    expect(expired).toHaveLength(1);
-    expect(Object.values(partition).some((entity) => entity.state === "approved")).toBe(true);
-    expect(Object.values(partition).some((entity) => entity.state === "pending")).toBe(true);
-  });
-
-  it("keeps the ask origin the request carried", () => {
-    const partition = storeDrivenByScenario().snapshot().partitions.approval;
-    const withAsk = Object.values(partition).filter(
-      (entity) => typeof entity.body?.["askId"] === "string",
-    );
-    // Exactly one of the scenario's requests arrived as a provider permission ask,
-    // and the member reaches the console on that event and on no read.
-    expect(withAsk).toHaveLength(1);
-    expect(withAsk[0]?.body?.["expiryAt"]).toBe("2026-01-01T17:30:01.100Z");
-  });
-
-  it("negative control: a store opened without this family's projectors folds none of it", () => {
-    // The state every approvals surface was built against: the beats reach the
-    // timeline and the partition stays empty, so a pane joining a row to an entity
-    // finds nothing however many approval events landed.
-    const store = storeOver(undefined);
-    expect(store.snapshot().timeline.length).toBeGreaterThan(0);
-    expect(store.snapshot().partitions.approval).toStrictEqual({});
   });
 });
 
@@ -371,39 +258,5 @@ describe("one event, folded", () => {
         }),
       ),
     ).toHaveLength(1);
-  });
-});
-
-describe("the composer family's claim on the board it is handed", () => {
-  it("registers exactly the approval kinds, under its own name", () => {
-    const projectors = new ConsoleEntityProjectorRegistry();
-
-    registerComposerFamily(projectors);
-
-    expect(Object.keys(projectors.snapshot()).toSorted()).toStrictEqual(
-      [...APPROVAL_FLOW_EVENT_KINDS].toSorted(),
-    );
-    for (const eventKind of APPROVAL_FLOW_EVENT_KINDS) {
-      expect(projectors.ownerOf(eventKind)).toBe("composer");
-    }
-  });
-
-  it("claims none of the run kinds the frame owns", () => {
-    // The registry refuses a second owner on one kind, so a family that reached one
-    // kind too far would break the whole composition at import time in a running
-    // window. Named here, by kind, instead.
-    const projectors = new ConsoleEntityProjectorRegistry();
-
-    registerComposerFamily(projectors);
-
-    for (const eventKind of RUN_LIFECYCLE_EVENT_KINDS) {
-      expect(projectors.ownerOf(eventKind)).toBeUndefined();
-    }
-  });
-
-  it("negative control: a board no family composed into claims nothing", () => {
-    // Without it the two cases above would pass over a registry that reported
-    // ownership nobody registered.
-    expect(new ConsoleEntityProjectorRegistry().snapshot()).toStrictEqual({});
   });
 });
