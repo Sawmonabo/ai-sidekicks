@@ -41,10 +41,6 @@ export { Glyph } from "./Glyph.js";
 
 export { ChordHint } from "./ChordHint.js";
 
-// Rule 4's mono provenance signature. Through the door because the frame renders
-// session ids with it, and a surface that reached for its own mono span would be
-// the second rendering of the one claim this primitive exists to make.
-
 // The console's ONE `ResizeObserver` construction site, through the door for the
 // reason the announcer is: two view families arm a size source — the browser
 // family's overlay registry and pane geometry publisher, and the terminal family's
