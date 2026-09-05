@@ -63,6 +63,8 @@ interface ImportEdge {
   readonly targetPath: string;
   /** The names taken, or `"namespace"` for `import * as`. */
   readonly names: readonly string[] | "namespace";
+  /** Whether the edge republishes the names rather than using them. */
+  readonly forwarded: boolean;
 }
 
 /** How many doors a symbol may travel through before the resolver calls it a cycle. */
@@ -76,6 +78,38 @@ export function isConsoleBarrel(path: string): boolean {
 /** Every barrel specifier in the module set, in walk order. */
 export function barrelSpecifiers(modules: readonly CensusModule[]): readonly BarrelSpecifier[] {
   return specifiersOf(readModuleSyntax(modules));
+}
+
+/**
+ * Every console door that publishes nothing it did not declare itself.
+ *
+ * DERIVED FROM THE PARSED DOOR, and it was a hand-maintained list of two until this
+ * became one. Every view family's door is a composition site — it registers a surface
+ * or a pane against a registry it is handed, which is a CALL — so every family
+ * landing appended its own path to that list, in its own branch, in the same three
+ * lines. Four branches editing one list is a conflict by construction, and the list
+ * was the only thing standing between the census's per-door claim and a quantifier.
+ *
+ * The reading is the door's own text: a door forwards if it carries a re-export — an
+ * `export … from` line, or a set its text does not enumerate — and forwards nothing
+ * if every name it publishes is declared in place. That is a DIFFERENT reading from
+ * the specifier census next to it, which is what makes the claim that compares them
+ * worth making: the defect it was written for is a clause reader that drops a door
+ * line, and a dropped clause still leaves the statement this reads.
+ */
+export function doorsThatForwardNothing(modules: readonly CensusModule[]): readonly string[] {
+  return readModuleSyntax(modules)
+    .filter((module) => isConsoleBarrel(module.path) && !forwardsAnything(module))
+    .map((module) => module.path)
+    .sort();
+}
+
+/** Whether a module republishes any name it did not declare. */
+function forwardsAnything(module: ModuleSyntax): boolean {
+  return (
+    module.forwardsUnnamedSet ||
+    module.reaches.some((reach) => reach.forwarded && reach.moduleSpecifier !== undefined)
+  );
 }
 
 /**
@@ -119,7 +153,7 @@ export function censusFindings(modules: readonly CensusModule[]): readonly Censu
           importers.add(edge.importerPath);
           testImportersBySpecifier.set(key, importers);
         }
-      } else if (!isConsoleBarrel(edge.importerPath)) {
+      } else if (!edge.forwarded) {
         productionIdentities.add(declaringIdentity(edge.targetPath, name, specifiersByModule));
         if (isConsoleBarrel(edge.targetPath)) {
           productionDoorReads.add(`${edge.targetPath}#${name}`);
@@ -139,6 +173,14 @@ export function censusFindings(modules: readonly CensusModule[]): readonly Censu
     // and a claim standing after its consumer landed is the rot the tag's own hint
     // exists to prevent — a hint the dead-code gate cannot raise wherever it already
     // counts the specifier as referenced.
+    //
+    // A READER IS DECIDED BY WHAT THE EDGE DOES, NOT BY WHERE IT STARTS. A door that
+    // writes `export { X } from` moves `X` and consumes nothing; a door that writes
+    // `import { X }` and builds a table out of it is a consumer like any other module.
+    // The rule asked only whether the importer was a barrel, which called both of them
+    // forwarding — so `ConsolePaneDescriptor`, whose one production consumer is each
+    // family's own door, stayed claimed with no reachable retiring event while knip,
+    // counting the reference either way, failed the run on the unretirable tag.
     const failing = entry.claimed
       ? productionDoorReads.has(specifierKey)
       : !productionIdentities.has(identity);
@@ -208,6 +250,7 @@ function importEdges(modules: readonly ModuleSyntax[]): readonly ImportEdge[] {
           isTest: module.isTest,
           targetPath,
           names: reach.names,
+          forwarded: reach.forwarded,
         });
       }
     }
