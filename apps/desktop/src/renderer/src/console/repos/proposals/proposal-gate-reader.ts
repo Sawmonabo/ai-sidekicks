@@ -24,7 +24,7 @@
 // "Reads happen on subscribe, on window focus, on reconnect, and on the terminal events
 // the owning spec names", under "No interval polling" — so this class arms no timer of
 // its own and owns no listener of
-// its own either: it builds a `RepoRefreshTriggers` over its own scheduler exactly as
+// its own either: it builds a `SessionRefreshTriggers` over its own scheduler exactly as
 // `repo-mounts-reader.ts` beside it does, which is what makes all four reasons reach
 // a gate rather than only window focus. A daemon that reconnected, or a `workspace.stale`
 // frame arriving in an already-focused window, used to leave the branch context and
@@ -63,7 +63,7 @@
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { CallerParticipantRead } from "./caller-participant-read.js";
 import { Emitter, refuse, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
-import { RefreshScheduler, type SessionStore } from "../../store/index.js";
+import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { ProposalGateActions } from "./proposal-gate-actions.js";
 import type { ProposalGateActionHost } from "./proposal-gate-action-host.js";
@@ -86,7 +86,7 @@ import {
 } from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
 import { repoCallRefusal } from "../repo-reads.js";
-import { RepoRefreshTriggers } from "../mounts/repo-refresh-triggers.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
 
 /**
  * Re-exported from the module that declares it, because every importer names it here.
@@ -126,7 +126,7 @@ export class ProposalGateReader {
   /** Resolved once: whether this root can be asked about, and with what. */
   readonly #readPlan: BranchContextReadPlan;
   readonly #scheduler: RefreshScheduler;
-  readonly #triggers: RepoRefreshTriggers;
+  readonly #triggers: SessionRefreshTriggers;
   readonly #actions: ProposalGateActions;
   readonly #callerParticipant: CallerParticipantRead;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
@@ -178,9 +178,12 @@ export class ProposalGateReader {
       },
     });
     // The three reasons to read again. They reach this reader only through the scheduler.
-    this.#triggers = new RepoRefreshTriggers({
+    this.#triggers = new SessionRefreshTriggers({
       scheduler: this.#scheduler,
       sessionStore: options.sessionStore,
+      // The family's own answer to which frames matter, shared by both readers so
+      // neither can watch a different frame while reading the same rows.
+      terminalEventKinds: REPO_LIFECYCLE_EVENT_KINDS,
     });
     this.#callerParticipant = new CallerParticipantRead({
       bridge: options.bridge,

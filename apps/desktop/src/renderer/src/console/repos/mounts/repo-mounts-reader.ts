@@ -8,7 +8,8 @@
 // arms a timer of its own; the scheduler coalesces a burst of reasons into one read
 // and serializes reads so two never overlap. All FOUR of that rule's reasons are wired:
 // `subscribe` by this class's own `start`, and the other three by
-// `repo-refresh-triggers.ts` beside this file, whose terminal event is a
+// the shared `SessionRefreshTriggers` this class builds over the family's kind set,
+// `repo-lifecycle-events.ts`, whose terminal event is a
 // `workspace.stale` frame. This class owns the read and that one owns when.
 //
 // THE ROOTS COME FROM THEIR OWN READ, and it is the only one that names a worktree.
@@ -65,6 +66,7 @@ import {
 } from "../../core/index.js";
 import {
   RefreshScheduler,
+  SessionRefreshTriggers,
   useSubjectScopedResource,
   type SessionStore,
 } from "../../store/index.js";
@@ -84,7 +86,7 @@ import {
   readWorktreeStatus,
   repoCallRefusal,
 } from "../repo-reads.js";
-import { RepoRefreshTriggers } from "./repo-refresh-triggers.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
 
 /**
  * Re-exported from the module that declares it, because every importer names it here.
@@ -128,7 +130,7 @@ export class RepoMountsReader {
   readonly #sessionId: string;
   readonly #clock: ConsoleClock;
   readonly #scheduler: RefreshScheduler;
-  readonly #triggers: RepoRefreshTriggers;
+  readonly #triggers: SessionRefreshTriggers;
   readonly #selections: ExecutionModeSelections;
   readonly #changes = new Emitter<RepoMountsReading>("repo mounts reading");
 
@@ -161,9 +163,12 @@ export class RepoMountsReader {
       },
     });
     // The three reasons to read again. They reach this reader only through the scheduler.
-    this.#triggers = new RepoRefreshTriggers({
+    this.#triggers = new SessionRefreshTriggers({
       scheduler: this.#scheduler,
       sessionStore: options.sessionStore,
+      // The family's own answer to which frames matter, shared by both readers so
+      // neither can watch a different frame while reading the same rows.
+      terminalEventKinds: REPO_LIFECYCLE_EVENT_KINDS,
     });
     this.#selections = new ExecutionModeSelections({
       bridge: options.bridge,

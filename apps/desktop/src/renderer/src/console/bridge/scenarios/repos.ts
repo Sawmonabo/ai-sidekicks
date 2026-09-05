@@ -353,7 +353,7 @@ export const REPOS_SCENARIO: ConsoleScenario = {
       },
     }),
     // The plain mount's workspace loses its path. This is the terminal event
-    // `repos/repo-refresh-triggers.ts` re-reads on — the section reads on this frame
+    // `repos/repo-lifecycle-events.ts` re-reads on — the section reads on this frame
     // and on nothing timed — and the scripted
     // `repo.workspaceList` below reports the same `stale` state, so the frame and
     // the read agree rather than telling a surface two different stories.
