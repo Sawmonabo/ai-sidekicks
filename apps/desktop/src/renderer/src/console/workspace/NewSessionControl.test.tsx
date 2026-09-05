@@ -244,14 +244,13 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     });
     await press("Send");
 
-    // The session exists — `session.create` is the one call of the three that is
-    // registered — and the other two are named rather than silently skipped.
-    expect(container.textContent).toContain("wire-unregistered");
-    // Named apart rather than joined, because they are unsendable for different
-    // reasons: one has no registered shape at all, and the other has a shape and no
-    // first turn to put in it.
-    expect(container.textContent).toContain("agent.attach");
+    // The session exists, and what could not follow it is named. This draft chose a
+    // posture and no sidekicks, so the only call left is the registered one with no
+    // turn to carry — a different code from the one a draft naming sidekicks gets,
+    // because they are unsendable for different reasons and a person pastes the code.
+    expect(container.textContent).toContain("first-turn-missing");
     expect(container.textContent).toContain("run.queueCreate");
+    expect(container.textContent).not.toContain("agent.attach");
     // Said once, in the announcer, in the vocabulary of what happened rather than
     // in the wire's.
     expect(politeText(container)).toBe(
@@ -298,7 +297,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     // person may still correct. A flag that never cleared would be a control frozen
     // by its own guard.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
-    expect(container.textContent).toContain("wire-unregistered");
+    expect(container.textContent).toContain("first-turn-missing");
   });
 
   it("drops a discarded draft's settlement rather than showing it under its replacement", async () => {
@@ -318,7 +317,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
       await Promise.resolve();
     });
 
-    expect(container.textContent).not.toContain("wire-unregistered");
+    expect(container.textContent).not.toContain("first-turn-missing");
     expect(politeText(container)).toBe("");
     // The replacement is untouched and still sendable — nothing about the old send
     // reached it, including its sending flag.
@@ -344,7 +343,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
     });
 
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
-    expect(container.textContent).not.toContain("wire-unregistered");
+    expect(container.textContent).not.toContain("first-turn-missing");
 
     await act(async () => {
       queued.answerOldest();
@@ -353,7 +352,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
 
     // The newer draft's own settlement is the one that lands.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
-    expect(container.textContent).toContain("wire-unregistered");
+    expect(container.textContent).toContain("first-turn-missing");
   });
 
   it("negative control: a settlement for the draft still on screen is rendered", async () => {
@@ -369,7 +368,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
       await Promise.resolve();
     });
 
-    expect(container.textContent).toContain("wire-unregistered");
+    expect(container.textContent).toContain("first-turn-missing");
     expect(politeText(container)).toBe(
       "The session was created, but not everything the draft asked for could be sent.",
     );
@@ -386,7 +385,7 @@ describe("the composed new-session draft — reachable, and only on an act", () 
       await Promise.resolve();
     });
 
-    expect(container.textContent).not.toContain("wire-unregistered");
+    expect(container.textContent).not.toContain("first-turn-missing");
     expect(container.textContent).not.toContain("session-create-failed");
     expect(politeText(container)).toBe("");
   });

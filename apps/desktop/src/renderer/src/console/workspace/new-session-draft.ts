@@ -28,7 +28,7 @@
 // which means Send stays pressable with the same choices behind it. Without a
 // memory of what a previous press already did, the next press would reach
 // `session.create` again: a double-click would mint two daemon sessions, and a
-// retry after the `wire-unregistered` partial would mint a third, none of them the
+// retry after the partial would mint a third, none of them the
 // one the person is looking at. So this class coalesces rather than refuses, on the
 // deck writer's idiom: a send while one is in flight yields THAT send, and a send
 // after a session has been created re-reports the same session instead of making
@@ -38,14 +38,18 @@
 // WIRE TRUTH. Of the three calls the coalesced send names, exactly one is issued
 // from here: `session.create`, over the bridge's own call door, which parses the
 // request before sending and the reply after. The other two are not sent, for
-// different reasons that the refusal names apart rather than lumping together.
-// `agent.attach` is registered nowhere in `@ai-sidekicks/contracts` and has no entry
-// on the growth port, so there is no shape to send. `run.queueCreate` IS registered
-// and callable — what is missing is the first turn's own body, which lives in the
-// composer and not in a draft that holds agents, a mount and a posture; inventing a
-// payload for it here would be this console sending words nobody typed. Auto-pin is
-// deliberately absent for the same reason it always was: it fires on a first
-// SUCCESSFUL send, and no send is complete while either call is unmade.
+// different reasons — and the refusal CODE is which of the two it was, not a single
+// word covering both. `agent.attach` is registered nowhere in
+// `@ai-sidekicks/contracts` and has no entry on the growth port, so there is no shape
+// to send: that is `wire-unregistered`, and it is a fact about this build.
+// `run.queueCreate` IS registered and callable — what is missing is the first turn's
+// own body, which lives in the composer and not in a draft that holds agents, a mount
+// and a posture; inventing a payload for it here would be this console sending words
+// nobody typed. That is `first-turn-missing`, and it is a fact about this draft.
+// Which one a send reports follows from the draft itself, because the send is ordered
+// and a draft that named no sidekicks has no attach to make. Auto-pin is deliberately
+// absent for the same reason it always was: it fires on a first SUCCESSFUL send, and
+// no send is complete while either call is unmade.
 
 import type { ExecutionMode, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { callDaemon, type ConsoleBridge } from "../bridge/index.js";
@@ -86,11 +90,17 @@ export interface NewSessionDraftState {
   readonly revision: number;
 }
 
-/** Why a send could not complete. Closed, so a fourth cause is a decision. */
+/** Why a send could not complete. Closed, so a fifth cause is a decision. */
 export const NEW_SESSION_DRAFT_REFUSAL_CODES = [
   "draft-empty",
   "session-create-failed",
+  // The two remaining calls are unreachable for DIFFERENT reasons, and a person who
+  // pastes a code into an issue is telling somebody which of the two it was.
+  // `agent.attach` has no registered shape at all; `run.queueCreate` has one and no
+  // first turn to put in it, which is a fact about this draft rather than about the
+  // build it is running in.
   "wire-unregistered",
+  "first-turn-missing",
 ] as const;
 
 /** One draft refusal code. Derived, so the vocabulary is declared once. */
@@ -127,18 +137,27 @@ export interface NewSessionSendResult {
 const SESSION_CREATE_METHOD = "session.create";
 
 /**
- * The two the coalesced send needs and this draft cannot issue, and why.
+ * What a send says when the draft named sidekicks it cannot attach.
  *
- * They are unreachable for DIFFERENT reasons, which is why the sentence below
- * names them apart rather than calling both unavailable. `agent.attach` has no
- * request or response pair in the contracts package and no growth-port operation,
- * so there is no shape to send. `run.queueCreate` is registered and callable — what
- * is missing is the first turn's own body, which lives in the composer and not in a
- * draft that holds agents, a mount and a posture.
+ * `agent.attach` has no request or response pair in the contracts package and no
+ * growth-port operation, so there is no shape to send. The send is ordered, so the
+ * turn behind it is not attempted either — said here rather than left for the reader
+ * to infer from a call that is not mentioned.
  */
-const UNSENDABLE_CALL_WORDS =
-  "agent.attach is not available in this build, and run.queueCreate has no first turn to carry — " +
-  "a draft holds agents, a repository and a posture, and the turn's own words are the composer's";
+const ATTACH_UNAVAILABLE_WORDS =
+  "agent.attach is not available in this build, so run.queueCreate was not attempted either";
+
+/**
+ * What a send says when the only call left is the first turn.
+ *
+ * `run.queueCreate` IS registered and callable, so "unregistered" would be the wrong
+ * word for it: what is missing is the turn's own body, which lives in the composer
+ * and not in a draft that holds agents, a mount and a posture. A draft that named no
+ * sidekicks reaches this and nothing else, because zero agents is zero attaches.
+ */
+const FIRST_TURN_MISSING_WORDS =
+  "run.queueCreate is registered and callable, and a draft holds agents, a repository and a " +
+  "posture: the turn's own words are the composer's";
 
 export class NewSessionDraft {
   readonly #bridge: ConsoleBridge;
@@ -279,7 +298,7 @@ export class NewSessionDraft {
     // because nothing about the outcome has changed: the session still exists and
     // the two calls that would have finished the send are still unregistered.
     if (this.#landedCreate !== undefined) {
-      return this.#unregisteredRemainder(this.#landedCreate.sessionId);
+      return this.#remainderAfterCreate(this.#landedCreate.sessionId);
     }
 
     // Through the bridge's one call door, which parses the request before sending
@@ -303,7 +322,7 @@ export class NewSessionDraft {
 
     const sessionId = reply.value.sessionId;
     this.#landedCreate = { sessionId };
-    return this.#unregisteredRemainder(sessionId);
+    return this.#remainderAfterCreate(sessionId);
   }
 
   /**
@@ -313,20 +332,30 @@ export class NewSessionDraft {
    * two must report the same thing: a retry that described the session differently
    * from the press that made it would read as a second session.
    *
-   * Both remaining calls are unreachable — neither is registered in the contracts
-   * package and neither has a growth-port operation, so there is no honest way to
-   * issue them. The session exists, so the outcome is PARTIAL and says which call
-   * landed, which is this module's "with the calls that succeeded named".
+   * WHICH CODE IT CARRIES IS DECIDED BY THE DRAFT, not by the build. The send is
+   * ordered — create, then one attach per agent, then the turn — so it stops at the
+   * first call it cannot make, and which one that is depends on whether this draft
+   * named any sidekicks at all. A draft that named none has no attach to make, and
+   * reporting one as unavailable would name a call its send was never going to
+   * issue. The session exists either way, so the outcome is PARTIAL and says which
+   * call landed, which is this module's "with the calls that succeeded named".
    */
-  #unregisteredRemainder(sessionId: string | undefined): NewSessionSendResult {
+  #remainderAfterCreate(sessionId: string | undefined): NewSessionSendResult {
+    const refusal =
+      this.#state.agents.length > 0
+        ? refuseDraft(
+            "wire-unregistered",
+            `The session was created, but its sidekicks could not be attached — ${ATTACH_UNAVAILABLE_WORDS}.`,
+          )
+        : refuseDraft(
+            "first-turn-missing",
+            `The session was created, but no first turn was queued — ${FIRST_TURN_MISSING_WORDS}.`,
+          );
     return {
       outcome: "partial",
       sessionId,
       completedCalls: [SESSION_CREATE_METHOD],
-      refusal: refuseDraft(
-        "wire-unregistered",
-        `The session was created, but its sidekicks could not be attached and no first turn was queued — ${UNSENDABLE_CALL_WORDS}.`,
-      ),
+      refusal,
     };
   }
 
