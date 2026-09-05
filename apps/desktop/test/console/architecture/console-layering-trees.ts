@@ -148,7 +148,76 @@ export const PROOF_TREE: PlantedTree = {
 };
 
 /**
- * Every tree that carries a rule control — the clean shape and the six that offend.
+ * A view family's SUB-DIRECTORY reaching a layer family's module, past that door.
+ *
+ * The shape found in production and cruised clean before this rule existed: a pane body
+ * two directories deep inside its family reaching `bridge/node-state-read.js` rather
+ * than `bridge/index.js`. Planted beside the family-root case because the source's DEPTH
+ * is the thing that could be got wrong — the rule captures the owning family from the
+ * first path segment, so a source one directory deeper has to resolve to the same owner
+ * and be held to the same target set.
+ */
+export const DEEP_SOURCE_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "repos/pane/node-presence-model.ts": `import type { GrowthSessionSummary } from "../../bridge/growth-signatures.js";\n\nexport type PresentNode = GrowthSessionSummary;\n`,
+};
+
+/**
+ * The door rule's ONE subtraction, planted so that widening it goes red.
+ *
+ * `.test-support.*` is subtracted from the door rule alone — a harness reaches for the
+ * symbols a door deliberately does not publish, and the barrel census fails a door line
+ * whose only reader is a test, so without the subtraction the module class has no legal
+ * form. The subtraction was the one arm of this rule set with no failing control, which
+ * means a pattern widened by one character would exempt every module in the console and
+ * nothing would go red.
+ *
+ * TWO MODULES WRITE THE SAME EDGE, and that is what makes this discriminating rather
+ * than a restatement: the harness is exempt and the ordinary module beside it is not, so
+ * a subtraction that stopped being narrow takes the ordinary module's violation with it
+ * and this control fails. One module alone would prove only that the exemption exists.
+ */
+export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "repos/fixtures.test-support.ts": `import type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type SeededSession = ActiveSession;\n`,
+  "repos/RepoList.ts": `import type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type RepoRefusal = ActiveSession;\n`,
+};
+
+/**
+ * A renderer subtree BESIDE the console reaching past a family door.
+ *
+ * Every other rule here is `from`-scoped to `console/`, so an importer that lives
+ * outside it matches none of them — which is how a Tier-1 subtree came to hold a
+ * `console/store/subject-scoped-state.js` specifier while three gates reported clean.
+ * The door import beside it is the other half of the control: an outside subtree
+ * reaching the DOOR is the shape the console offers and must stay legal.
+ */
+export const OUTSIDE_RENDERER_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "../session-bootstrap/SessionBootstrap.ts": `import type { ActiveSession } from "../console/frame/session-lifecycle.js";\n\nexport type BootstrapSession = ActiveSession;\n`,
+  "../session-members/SessionMembers.ts": `import type { RepoRefusal } from "../console/repos/index.js";\n\nexport type MemberRefusal = RepoRefusal;\n`,
+};
+
+/**
+ * A console ROOT module that is not one of the enumerated composition sites.
+ *
+ * The root is where a composition lives, and a composition is the one thing that may
+ * name more than one view family — so a file that lands there and is not on the list is
+ * a family importing a sibling with the isolation rule stepped around. That rule cannot
+ * see it: its `from` captures the owning DIRECTORY so it can subtract that family from
+ * its own targets, and a root file has no directory to capture.
+ *
+ * `families.ts` is planted beside it doing the same thing, which is the half that makes
+ * the enumeration a claim rather than a ban on root files.
+ */
+export const CONSOLE_ROOT_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "families.ts": `import type { RepoRefusal } from "./repos/index.js";\n\nexport type FamilyRefusal = RepoRefusal;\n`,
+  "rogue-composition.ts": `import type { RepoRefusal } from "./repos/index.js";\n\nexport type RogueRefusal = RepoRefusal;\n`,
+};
+
+/**
+ * Every tree that carries a rule control — the clean shape and the ten that offend.
  *
  * The aggregate case below reads this rather than naming three of them, so a control
  * added for a fifth rule joins that case's quantifier by construction. `PROOF_TREE` is
@@ -163,6 +232,10 @@ export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
   SUB_MODULE_DOOR_TREE,
   PANE_BOARD_SUBDIRECTORY_TREE,
   PANE_BOARD_DEEP_IMPORT_TREE,
+  DEEP_SOURCE_TREE,
+  TEST_SUPPORT_SUBTRACTION_TREE,
+  OUTSIDE_RENDERER_TREE,
+  CONSOLE_ROOT_TREE,
 ];
 
 /** Every tree this file plants. The memo control bounds the cruise count on it. */

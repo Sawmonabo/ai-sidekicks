@@ -48,7 +48,7 @@
 
 import { consoleClockFor, useConsoleBridge, type ConsoleBridge } from "../bridge/index.js";
 import { UiStateStore } from "../persistence/index.js";
-import { useSubjectScopedResource } from "../store/index.js";
+import { useSubjectScopedResource, type SubjectScopedDisposal } from "../store/index.js";
 
 /**
  * This window's UI-state store, rebuilt on a new bridge and closed when the console
@@ -70,8 +70,7 @@ export function useUiStateStore(): UiStateStore {
     bridge,
     undefined,
     () => openUiStateStore(bridge),
-    closeUiStateStore,
-    (store) => store.isClosed,
+    UI_STATE_STORE_DISPOSAL,
   );
   return uiStateStore;
 }
@@ -95,3 +94,20 @@ function openUiStateStore(bridge: ConsoleBridge): UiStateStore {
 function closeUiStateStore(store: UiStateStore): void {
   void store.close();
 }
+
+/**
+ * How a store ends, stated once: it is closed, and a closed one is readable.
+ *
+ * THE TERMINAL ARM, for the reason `session-lifecycle.ts` states about the plumbing:
+ * `close` shuts one database connection and there is no reopening it, so React's
+ * double-mount would leave the window writing into a connection that answers nothing
+ * unless the hook can tell a closed store from a live one. `isClosed` is the store's
+ * own reading of its connection rather than a flag kept beside it here.
+ *
+ * A module-level constant rather than a literal at the call site, so the hook's
+ * dependency lists hold still across renders that are not about this store.
+ */
+const UI_STATE_STORE_DISPOSAL: SubjectScopedDisposal<UiStateStore> = {
+  dispose: closeUiStateStore,
+  isClosed: (store) => store.isClosed,
+};

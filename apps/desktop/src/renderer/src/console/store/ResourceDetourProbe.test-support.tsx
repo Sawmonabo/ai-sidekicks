@@ -13,7 +13,7 @@ export function ResourceDetourProbe(props: ResourceProbeProps): ReactElement {
     props.subject,
     undefined,
     () => props.ledger.open(props.subject.name),
-    props.ledger.close,
+    { release: props.ledger.close },
   );
   props.onReady(publish);
   if (props.suspendOn !== undefined) {
