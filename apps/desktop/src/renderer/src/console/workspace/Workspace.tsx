@@ -46,7 +46,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 
 import { DECK_RESTORED_PANE_CAP, type ConsoleRefusal } from "../core/index.js";
 import { type ConsoleBridge } from "../bridge/index.js";
-import { RefusalBanner, useAnnounce } from "../primitives/index.js";
+import { DerivedFigure, RefusalBanner, useAnnounce } from "../primitives/index.js";
 import { routeSessionId, type ConsoleRoute } from "../routing/index.js";
 import { type FrameStore, type SessionStore } from "../store/index.js";
 import { type DraftStore, type UiStateStore } from "../persistence/index.js";
@@ -75,6 +75,12 @@ import {
   type ConsolePaneRegistry,
 } from "../seats/index.js";
 import { useActorFollow } from "./actor-follow.js";
+import {
+  dismissWorkspaceBanner,
+  raiseWorkspaceBanner,
+  workspaceBannerKey,
+  type WorkspaceBanner,
+} from "./workspace-banners.js";
 
 /**
  * The sidebar's two palette rows, contributed the moment this module is evaluated.
@@ -127,10 +133,14 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
   // rather than the first time somebody presses a chip.
   const announce = useAnnounce();
   const sessionStore = props.sessionStore;
-  const [banners, setBanners] = useState<readonly ConsoleRefusal[]>([]);
+  const [banners, setBanners] = useState<readonly WorkspaceBanner[]>([]);
 
   const raise = useCallback((refusal: ConsoleRefusal) => {
-    setBanners((current) => [...current, refusal]);
+    setBanners((current) => raiseWorkspaceBanner(current, refusal));
+  }, []);
+
+  const dismiss = useCallback((key: string) => {
+    setBanners((current) => dismissWorkspaceBanner(current, key));
   }, []);
 
   const restoreRefusals = useDeckPersistence({
@@ -208,14 +218,11 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
 
   return (
     <div className="meridian-workspace">
-      {banners.map((refusal, position) => (
-        <RefusalBanner
-          key={`${refusal.code}-${String(position)}`}
-          code={refusal.code}
-          detail={refusal.detail}
-          onDismiss={() => {
-            setBanners((current) => current.filter((candidate) => candidate !== refusal));
-          }}
+      {banners.map((banner) => (
+        <WorkspaceBannerRow
+          key={workspaceBannerKey(banner.refusal)}
+          banner={banner}
+          onDismiss={dismiss}
         />
       ))}
       <CastBar sessionId={sessionId} sessionStore={props.sessionStore} onFollow={onFollow} />
@@ -291,6 +298,33 @@ export function Workspace(props: WorkspaceProps): React.JSX.Element {
           })}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * One banner, and the count of the raises it stands for.
+ *
+ * The count sits BESIDE the banner rather than inside it: `RefusalBanner` renders the
+ * code verbatim and the daemon's sentence unedited, and a repeat count is neither —
+ * it is the console's own reading of how many times this room heard the same refusal,
+ * so it takes the derived figure's proportional face rather than the wire's mono one.
+ */
+function WorkspaceBannerRow(props: {
+  readonly banner: WorkspaceBanner;
+  readonly onDismiss: (key: string) => void;
+}): React.JSX.Element {
+  const { refusal, repeatCount } = props.banner;
+  return (
+    <div className="meridian-workspace__banner">
+      <RefusalBanner
+        code={refusal.code}
+        detail={refusal.detail}
+        onDismiss={() => {
+          props.onDismiss(workspaceBannerKey(refusal));
+        }}
+      />
+      {repeatCount > 1 ? <DerivedFigure text={`×${String(repeatCount)}`} /> : null}
     </div>
   );
 }

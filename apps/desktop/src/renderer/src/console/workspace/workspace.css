@@ -25,6 +25,19 @@
   font-family: var(--meridian-font-sans);
 }
 
+/*
+ * A banner and the count of the raises it stands for, on one line.
+ *
+ * The row exists so the count can sit beside the banner without the banner having to
+ * take a slot for it: a repeat count is the console's own reading, and the refusal
+ * shape's two fields are the daemon's.
+ */
+.meridian-workspace__banner {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+}
+
 .meridian-workspace__composer {
   border-top: 1px solid var(--meridian-edge);
   background: var(--meridian-surface);
