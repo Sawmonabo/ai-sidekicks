@@ -46,7 +46,7 @@ import {
   mountRepoSection,
   mountRepoSectionWithOpenGate,
   type MountedFamilySurface,
-} from "../repos-surfaces.js";
+} from "../surfaces/repos.js";
 import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";

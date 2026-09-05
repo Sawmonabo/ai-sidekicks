@@ -63,7 +63,10 @@
     "node_modules",
     "src/renderer/**",
     "test/console/console-harness.tsx",
-    "test/console/repos-surfaces.tsx",
+    // Every per-family surface module, and the fixture corpus each is drawn
+    // against: both halves import renderer sources, so the directory is excluded
+    // rather than its `.tsx` half alone.
+    "test/console/surfaces/**",
     // The architecture tier moved to `tsconfig.console-architecture-test.json` when
     // its wire-truth test started IMPORTING console source rather than reading it:
     // that pulls `store/hooks.ts` into the program, which reaches `window`. Same

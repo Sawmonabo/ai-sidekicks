@@ -35,7 +35,7 @@ import {
   mountRepoSection,
   mountRepoSectionWithOpenGate,
   type MountedFamilySurface,
-} from "../repos-surfaces.js";
+} from "../surfaces/repos.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,
