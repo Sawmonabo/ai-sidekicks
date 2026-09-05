@@ -8,16 +8,25 @@
 // the launch and then leaving the last one unbounded is not a fix; it is the same
 // undiagnosable kill one line further down.
 //
-// WHY THE BOUND IS A FLOOR AND NOT SIMPLY WHAT THE DEADLINE HAS LEFT
+// WHY THE BOUND IS THE REGISTERED CEILING AND NOT WHAT THE DEADLINE HAS LEFT
 //
 // `close()` is reached on two paths that look alike and are not. On the failure
-// path it runs inside the launch, where the deadline is the right authority and
-// its remaining time is exactly the cleanup slice. On the SUCCESS path the caller
-// closes when its test is done — for the endurance tier, minutes later — and by
-// then the launch deadline is long spent. A bound drawn from the deadline alone
-// would be 1 ms there and would SIGKILL a perfectly healthy application on its
-// way out. So the bound is `max(what the deadline has left, the reserved slice)`:
-// the deadline can only ever GRANT more time than the reserve, never less.
+// path it runs inside the launch, with most of the deadline still unspent; on the
+// SUCCESS path the caller closes when its test is done — for the endurance tier,
+// minutes later — and by then the launch deadline is long gone. A bound drawn
+// from the deadline alone would be 1 ms there and would SIGKILL a perfectly
+// healthy application on its way out, and `max(what the deadline has left, the
+// reserved slice)` fixed that by granting the OTHER path almost the whole 55 000
+// ms deadline instead: five times the bound `budget/budgets.json` declares
+// enforced for `console-launch-cleanup`, in a registry that models every row as a
+// ceiling. A budget audit that reads a constraint the harness does not apply is
+// worse than no row at all.
+//
+// So the deadline is not consulted here. The applied bound is the registry's
+// figure and the same one on both paths, which is strictly tighter than what it
+// replaces — the launch still settles inside `LAUNCH_BUDGET_MS`, whose cleanup
+// slice the readiness ladder reserves for exactly this and which is now spent as
+// a ceiling rather than drawn down.
 //
 // WHAT HAPPENS WHEN THE BOUND IS REACHED
 //
@@ -25,10 +34,24 @@
 // Cleanup is never the interesting failure — something else already went wrong to
 // get here — so it returns a verdict the caller attaches to the error it was
 // already carrying, in the shape `FrameWitness` uses for the same reason.
+//
+// THE PROFILE IS PART OF THE VERDICT, NOT A STEP BESIDE IT
+//
+// Closing a launched console is not finished until its private profile is off
+// disk, so the removal happens here and its failure travels on the outcome. It
+// was a `try`/`catch` at the caller whose `catch` only logged, which meant a
+// removal that failed on a Windows file lock left a passing tier green and the
+// directory on disk for every launch after it to add to. What a caller is TOLD
+// about any of this — including which outcomes raise — is
+// `cleanup-disposition.ts`.
 
 import { processExists, terminateProcessTree } from "../helpers/process-tree.js";
 import { CLEANUP_BUDGET_MS } from "./launch-budgets.js";
-import { type LaunchDeadline } from "./launch-deadline.js";
+import {
+  type LaunchProfile,
+  type ProfileRemovalFailure,
+  removeLaunchProfile,
+} from "./launch-profile.js";
 
 /**
  * The launched application, reduced to what cleanup needs of it.
@@ -96,15 +119,13 @@ export interface CleanupOutcome {
   /** Wall milliseconds spent closing, measured driver-side. */
   readonly waitedMs: number;
   /**
-   * The bound this close was actually held to, in milliseconds.
+   * The bound this close was held to, in milliseconds.
    *
-   * Reported rather than assumed to be `CLEANUP_BUDGET_MS`, because it usually
-   * is not. The applied bound is `max(what the deadline has left, the reserve)`,
-   * and a launch that failed EARLY leaves most of the deadline unspent — so a
-   * readiness failure two seconds in gives cleanup nearly 55 000 ms. A message
-   * that named the reserve there would claim a process failed to close within
-   * ten seconds when it had been given five times that, which is a diagnostic
-   * that misdescribes the very measurement it is reporting.
+   * `CLEANUP_BUDGET_MS` for every launched console, and reported rather than
+   * re-derived by its readers so the sentence a reader sees and the race that
+   * produced it cannot disagree: the cases that exercise a hung close supply a
+   * bound short enough to exhaust, and a message naming the constant there would
+   * misdescribe the very measurement it is reporting.
    */
   readonly budgetMs: number;
   /**
@@ -114,6 +135,15 @@ export interface CleanupOutcome {
    * refused has nothing to look for in `ps`.
    */
   readonly processId?: number | undefined;
+  /**
+   * The launch profile still on disk, when removing it failed.
+   *
+   * On the verdict rather than raised where it happens, and independent of the
+   * settlement rather than folded into it: a close can go perfectly while the
+   * removal fails, and the two facts are separately actionable. Absent means the
+   * directory is gone.
+   */
+  readonly profileRemovalFailure?: ProfileRemovalFailure | undefined;
 }
 
 /**
@@ -132,33 +162,53 @@ export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
 };
 
 /**
- * Closes an application within the deadline's cleanup slice, or kills it.
+ * Closes an application within the cleanup budget, or kills it.
  *
- * A class for the reason its two collaborators are constructor arguments: the
- * application and the terminator are both seams, and the one behaviour worth
- * checking — a close that never settles — is unreachable through the real ones.
+ * A class for the reason its three collaborators are constructor arguments: the
+ * application, the terminator, and the profile are all seams, and the behaviours
+ * worth checking — a close that never settles, a removal that will not — are
+ * unreachable through the real ones. The bound is the fourth argument for the
+ * same reason and no other: a case that has to EXHAUST it cannot afford to wait
+ * the registered ten seconds out.
  */
 export class BoundedCleanup {
   readonly #application: ClosableApplication;
   readonly #terminator: ProcessTerminator;
-  readonly #deadline: LaunchDeadline;
-  readonly #reservedMs: number;
+  readonly #profile: LaunchProfile;
+  readonly #budgetMs: number;
 
   constructor(
     application: ClosableApplication,
     terminator: ProcessTerminator,
-    deadline: LaunchDeadline,
-    reservedMs: number = CLEANUP_BUDGET_MS,
+    profile: LaunchProfile,
+    budgetMs: number = CLEANUP_BUDGET_MS,
   ) {
     this.#application = application;
     this.#terminator = terminator;
-    this.#deadline = deadline;
-    this.#reservedMs = reservedMs;
+    this.#profile = profile;
+    this.#budgetMs = budgetMs;
   }
 
+  /**
+   * Close the application, then remove the profile, and report both.
+   *
+   * In that order and never in a `finally` around the close: either shape lets a
+   * removal that failed displace the settlement the close reached, which is the
+   * inversion `closeAfterBody` exists to stop one level up. The profile comes off
+   * disk whatever the close settled — a directory left behind by a run that
+   * crashed is what makes the NEXT run's disk-space failure look like a console
+   * defect.
+   */
   async close(): Promise<CleanupOutcome> {
+    const settled = await this.#closeOrTerminate();
+    const profileRemovalFailure = removeLaunchProfile(this.#profile);
+    return profileRemovalFailure === undefined ? settled : { ...settled, profileRemovalFailure };
+  }
+
+  /** The race itself: close inside the bound, or SIGKILL what would not. */
+  async #closeOrTerminate(): Promise<CleanupOutcome> {
     const startedAt = Date.now();
-    const budgetMs = Math.max(this.#deadline.remainingMs(), this.#reservedMs);
+    const budgetMs = this.#budgetMs;
     let timeoutHandle: NodeJS.Timeout | undefined;
     const budgetExpired = new Promise<"expired">((resolveExpiry) => {
       timeoutHandle = setTimeout(() => {
@@ -227,174 +277,4 @@ export class BoundedCleanup {
       processId,
     };
   }
-}
-
-/**
- * Re-word a failure whose cleanup ALSO went wrong, without losing either.
- *
- * Cleanup is never the interesting failure — something else went wrong first to
- * reach it — so the original stays as `cause` and this only adds what the reader
- * could not otherwise know: that a process may still be running. Silent on a
- * clean close, because a sentence about cleanup on every failure would train a
- * reader to skip the one that matters.
- *
- * The sentence names no phase, deliberately: it is reached from the launch's own
- * failure path AND from `closeAfterBody`, where the failure kept is a test
- * body's assertion, and "a launch failed" would misdescribe that run.
- */
-export function withCleanupOutcome(error: unknown, outcome: CleanupOutcome | undefined): unknown {
-  if (outcome === undefined || outcome.settlement === "closed") {
-    return error;
-  }
-  const rejectionNote =
-    outcome.closeRejection instanceof Error
-      ? ` (close rejected: ${outcome.closeRejection.message})`
-      : "";
-  if (outcome.settlement === "closed-after-rejection") {
-    return new Error(
-      `closing the launched Electron failed${rejectionNote} — though the process did exit, so nothing ` +
-        `was left running; the failure that started this is the cause below`,
-      { cause: error },
-    );
-  }
-  const consequence =
-    outcome.settlement === "terminated"
-      ? "so its process tree was SIGKILLed; later launches are unaffected"
-      : "and could not be terminated either, so it may still be running and holding its profile — " +
-        "a later launch in the same job losing `requestSingleInstanceLock()` starts here";
-  return new Error(
-    `the launched Electron did not close within the ${String(outcome.budgetMs)} ms it was given ` +
-      `(waited ${String(outcome.waitedMs)} ms)${rejectionNote} ${consequence}; the failure that started ` +
-      "this is the cause below",
-    { cause: error },
-  );
-}
-
-/**
- * Raised when cleanup may have left something behind, or failed outright.
- *
- * Thrown rather than logged, which is the whole point. A `console.error` is not a
- * failure to vitest, so a tier whose assertions passed reported success while
- * leaving an Electron alive — consuming the runner and, because every Playwright
- * tier shares one harness, interfering with the launches after it. The one
- * outcome a test cannot be allowed to ignore is the one it cannot see.
- *
- * Names the settlement AND the process id: an operator told only that termination
- * was refused has nothing to look for.
- */
-export class CleanupFailedError extends Error {
-  /**
-   * The verdict this error was built from, carried whole.
-   *
-   * A caller folding this cleanup into a failure of its own needs the outcome,
-   * not a re-derivation of it from the message — and two copied fields used to
-   * be the only way through. `closeAfterBody` reads it and hands it straight to
-   * `withCleanupOutcome`.
-   */
-  readonly outcome: CleanupOutcome;
-
-  constructor(outcome: CleanupOutcome) {
-    const target =
-      outcome.processId === undefined
-        ? "an unidentified process"
-        : `pid ${String(outcome.processId)}`;
-    super(
-      `the launched Electron did not close cleanly: ${outcome.settlement} for ${target} after ` +
-        `${String(outcome.waitedMs)} ms of the ${String(outcome.budgetMs)} ms it was given` +
-        (outcome.settlement === "unterminable"
-          ? " — it may still be running and holding its profile, and a later launch in the same job " +
-            "losing `requestSingleInstanceLock()` starts here"
-          : ""),
-      outcome.closeRejection === undefined ? undefined : { cause: outcome.closeRejection },
-    );
-    this.name = "CleanupFailedError";
-    this.outcome = outcome;
-  }
-
-  get settlement(): CleanupSettlement {
-    return this.outcome.settlement;
-  }
-
-  get processId(): number | undefined {
-    return this.outcome.processId;
-  }
-}
-
-/**
- * The error a caller must be shown, or `undefined` when nothing was left behind.
- *
- * A function rather than a conditional at the call site so the rule is stated
- * once and can be tested without launching Electron, which is the only way to
- * reach these settlements for real. Two raise, and they are the two a later
- * launch can feel: `unterminable`, where a process nothing could kill may still
- * be holding its profile, and `closed-after-rejection`, where the close failed
- * outright and the caller would otherwise never hear the rejection.
- *
- * `terminated` is deliberately NOT one of them. It says the tree was SIGKILLed,
- * which `withCleanupOutcome` reports in the same breath as "later launches are
- * unaffected" — and a verdict cannot both say that and fail a tier over it. What
- * failing it would catch is a healthy shutdown that ran long: the endurance tier
- * closes minutes after its launch deadline is spent, so the applied bound is the
- * reserve alone, and an Electron flushing a session store on a loaded two-core
- * runner can lose that race with nothing leaked. It is a breadcrumb, not a red
- * check.
- */
-export function cleanupFailure(outcome: CleanupOutcome): CleanupFailedError | undefined {
-  return outcome.settlement === "unterminable" || outcome.settlement === "closed-after-rejection"
-    ? new CleanupFailedError(outcome)
-    : undefined;
-}
-
-/**
- * Run `body`, then close — and when both fail, keep the body's failure.
- *
- * `close()` is not total: it rejects when cleanup may have left something
- * behind. A caller that awaited it in a bare `finally` therefore DESTROYED
- * whatever the body had thrown, because JavaScript discards the in-flight
- * completion when a `finally` block throws — and the two co-occur by
- * construction rather than by coincidence, since a wedged renderer is exactly
- * the state in which an assertion fails AND the close then loses its race.
- *
- * The disposition is `withCleanupOutcome`'s, applied rather than restated: the
- * failure that explains the run stays as the cause, and cleanup adds only what
- * the reader could not otherwise know. A cleanup failure surfaces on its own
- * exactly when the body SUCCEEDED, which is where it IS that failure.
- *
- * Takes the close alone rather than a whole launched application, which is what
- * makes the interesting case reachable: a body that fails while the close also
- * fails is one object literal, and unproducible with a real Electron.
- */
-export async function closeAfterBody<TResult>(
-  application: Pick<ClosableApplication, "close">,
-  body: () => Promise<TResult>,
-): Promise<TResult> {
-  let bodyOutcome:
-    | { readonly succeeded: true; readonly value: TResult }
-    | { readonly succeeded: false; readonly failure: unknown };
-  try {
-    bodyOutcome = { succeeded: true, value: await body() };
-  } catch (failure: unknown) {
-    bodyOutcome = { succeeded: false, failure };
-  }
-  try {
-    await application.close();
-  } catch (cleanupError: unknown) {
-    if (bodyOutcome.succeeded) {
-      throw cleanupError;
-    }
-    // A close that rejected with something other than the verdict has no
-    // settlement to fold, and `withCleanupOutcome` hands the body's failure back
-    // untouched there rather than inventing a sentence about a cleanup it cannot
-    // describe. The launcher's own close does not produce that arm — it raises
-    // the verdict and breadcrumbs everything else — so this is the guard for a
-    // caller that closes some other way, not a path in the tiers.
-    throw withCleanupOutcome(
-      bodyOutcome.failure,
-      cleanupError instanceof CleanupFailedError ? cleanupError.outcome : undefined,
-    );
-  }
-  if (!bodyOutcome.succeeded) {
-    throw bodyOutcome.failure;
-  }
-  return bodyOutcome.value;
 }

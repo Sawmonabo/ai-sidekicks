@@ -226,7 +226,7 @@
       "status": "enforced",
       "producedBy": "T-023p-1C-8",
       "measuredBy": "apps/desktop/test/console/architecture/launch-deadline.test.ts",
-      "notes": "A reserve rather than a target: what it guards against is an Electron wedged rather than slow, so what matters is that some finite number is enforced. It is the FLOOR of the applied bound — a launch that failed early leaves most of the deadline unspent, and cleanup is given whatever is left. Because `terminated` records and passes, this figure decides when the process tree is SIGKILLed rather than whether the tier goes red; `unterminable` and `closed-after-rejection` fail, and those are the two settlements that harm the launches after them. The derivation these three bounds share is stated once in `harnessBudgetDerivation`."
+      "notes": "A ceiling rather than a target: what it guards against is an Electron wedged rather than slow, so what matters is that some finite number is enforced. It is the WHOLE applied bound and the same one on both closing paths — a close reached from a failed launch is held to it exactly as one reached minutes later on the success path is, so the figure a budget audit reads is the figure the harness enforces. It was a floor until 2026-09-04, raised by whatever the launch deadline had left, which handed an early readiness failure nearly the whole 55 000 ms deadline. Because `terminated` records and passes, this figure decides when the process tree is SIGKILLed rather than whether the tier goes red; `unterminable` and `closed-after-rejection` fail, and those are the two settlements that harm the launches after them. The derivation these three bounds share is stated once in `harnessBudgetDerivation`."
     }
   ]
 }
