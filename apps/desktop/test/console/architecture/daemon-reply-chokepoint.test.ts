@@ -118,19 +118,28 @@ function isBridgeFamilyModule(module: string): boolean {
 /**
  * How many modules outside the bridge family import the call door on this branch.
  *
- * SIX, and PINNED rather than left as a floor. The count was zero when this gate
+ * FIVE, and PINNED rather than left as a floor. The count was zero when this gate
  * landed, and zero was the whole reading then: the two reach claims above are
  * satisfied by an empty set, so a scan reporting the tree compliant because nothing
  * called the daemon at all was not making the claim this file's title makes.
  *
- * It is no longer vacuous. The six are the composer's `router/send-dispatch.ts`,
- * its compaction dispatch, its provider-command read, and its target chip's
- * agent-binding read, and the runs pane's run-control dispatch and its step-in
- * control — every surface in this family that reaches the wire, each through
- * `callDaemon` and none around it. The send half is named by its module rather than
- * as "the send router": the router was split and imports the door nowhere, so a
- * reader reconciling this number against the tree would have gone looking in the
- * wrong file.
+ * It is no longer vacuous. The five, by module:
+ *
+ *   1. `shell/composer/router/send-dispatch.ts` — the send dispatch. Named by its
+ *      module rather than as "the send router": the router was split and imports the
+ *      door nowhere, so a reader reconciling this number against the tree would have
+ *      gone looking in the wrong file.
+ *   2. `shell/composer/accessories/compaction-dispatch.ts` — the compaction dispatch.
+ *   3. `shell/composer/commands/provider-command-read.ts` — the provider-command read.
+ *   4. `console/runs/pane/controls/run-control-dispatch.ts` — the runs pane's
+ *      run-control dispatch.
+ *   5. `console/runs/pane/controls/StepIn.tsx` — its step-in control.
+ *
+ * Every surface in this family that reaches the wire, each through `callDaemon` and
+ * none around it. It was six until the composer's target chip stopped taking a
+ * `providerAccount.list` of its own to join a paying account's label: that registry is
+ * node-scoped and `console/bridge/provider-account-quota.ts` already reads it once per
+ * window, so the label rows are folded off that reading and the chip joins them.
  *
  * The pin stays because the reading it protects is unchanged in the other direction:
  * a surface that stopped going through the door would drop this number, and one that
@@ -139,7 +148,7 @@ function isBridgeFamilyModule(module: string): boolean {
  * surface moves this constant in its own PR and a reader learns from that diff that
  * the console grew a wire.
  */
-const CALL_DOOR_CONSUMER_COUNT = 6;
+const CALL_DOOR_CONSUMER_COUNT = 5;
 
 describe("daemon-reply chokepoint — one module reaches the call door", () => {
   const modules = governedSourceModules();

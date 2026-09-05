@@ -221,6 +221,31 @@ export class ProviderQuotaFold {
     }
     return readings.length === 0 ? NO_READINGS : readings.sort(compareByLabels);
   }
+
+  /**
+   * Every account the registry carries, by the id the daemon minted for it.
+   *
+   * OFF THE SAME SEATING AS THE READINGS, and that is the whole point of publishing
+   * it here. `accountId` is a handle and `displayLabel` is what a person reads, so
+   * any surface naming a paying account has to join the two — and the account plane
+   * has exactly one reader in this window, whose read and tail already hold every
+   * account whole. A surface that took its own `providerAccount.list` would be a
+   * second reading of one registry: two arrival orders, and no way to say which was
+   * right when a removal reached one of them first.
+   *
+   * A SEPARATE ANSWER FROM {@link readings}, because the two have different
+   * membership. A reading exists only where a quota row has been observed, and an
+   * account with no observed window still has a label to render — so a consumer that
+   * scanned the readings for one would find nothing and fall back to the handle,
+   * which is the state that rule forbids.
+   */
+  public accountLabels(): ReadonlyMap<string, string> {
+    const labels = new Map<string, string>();
+    for (const account of this.#accountsById.values()) {
+      labels.set(account.accountId, account.displayLabel);
+    }
+    return labels;
+  }
 }
 
 /** One window and its account, as a surface renders the pair. */

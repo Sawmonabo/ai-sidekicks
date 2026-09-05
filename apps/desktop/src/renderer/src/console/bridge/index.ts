@@ -123,15 +123,18 @@ export {
 // Here rather than beside either consumer because two view families gate controls on
 // it and neither may import the other — one read per bridge serves both, and a hook
 // living in one of them would make the other's copy a second call on one wire.
+export { useDriverCapabilities, useDriverCapabilityRepairRead } from "./driver-capability-read.js";
+export { useRunDriverBindings } from "./run-driver-binding.js";
+export type { DriverCapabilityReadout } from "./driver-capability-read.js";
+// The pure readers over that readout, from the module that declares them: the wire
+// and the questions asked of its answer are two subjects, and a door line pointing at
+// whichever file used to hold both would say otherwise.
 export {
   readingForDriver,
   readingForRun,
-  useDriverCapabilities,
-  useDriverCapabilityRepairRead,
   withRunDriverBindings,
-} from "./driver-capability-read.js";
-export { useRunDriverBindings } from "./run-driver-binding.js";
-export type { DriverCapabilityReadout, DriverCapabilityReading } from "./driver-capability-read.js";
+} from "./driver-capability-readings.js";
+export type { DriverCapabilityReading } from "./driver-capability-readings.js";
 
 // The session's one queue reading. Here for the same reason the capability read is:
 // the runs pane and the composer's shelf ask two questions of one list, and each

@@ -39,9 +39,11 @@
 //     drained but never deleted — so a state that is no longer `queued` updates the
 //     row rather than removing it. A surface that shows only the waiting rows
 //     filters them out at the point it renders; nothing here forgets a row.
-//   • **Client memory is never the queue of record.** Cancel does not remove a row.
-//     `run.queueCancel` answering confirms the request; the row changes state when
-//     the daemon says it did, on the snapshot or on the tail.
+//   • **Client memory is never the queue of record.** Cancel is a MUTATION rather
+//     than a fold, and `queue-cancellation.ts` owns it and states the rule. It holds
+//     no rows at all, so a reader looking for what the queue contains looks here and
+//     only here; this module composes its state onto the feed and publishes when it
+//     moves.
 //
 // AN UNOPENABLE STREAM IS A REFUSAL AND NOT A CRASH. Opening the tail is the first
 // thing this reading does, and on the shipped live bridge every daemon method throws
@@ -56,24 +58,14 @@
 // createdAt, updatedAt }`, parsed `.strict()` — has no run member, so there is
 // nothing here to render it from and this module invents none.
 //
-// A DELIVERY THIS BUILD CANNOT READ IS A PARTIAL READ AND NOT A DROP. The tail's
-// parse used to discard a payload that failed `QueueItemSummarySchema` and go on
-// serving the list as current — so a protocol-version mismatch left a changed or
-// newly queued row stale with nothing anywhere saying so, which reads exactly like
-// a queue that has not moved. The reading now carries what the run-state feed
-// already carried for its own stream: a count of the deliveries that parsed as no
-// registered row and the newest one's own parse refusal, which every surface renders
-// as a warning beside the rows rather than in place of them. The feed is live and
-// behind at once, and both halves are said. There is no derived `isPartial` flag
-// beside the count: a boolean whose whole body is `count > 0` is a second reading of
-// one fact, and the surfaces compose the notice from the count and the refusal
-// together through the partial-read primitive.
-//
-// AND A WELL-FORMED SNAPSHOT SUPERSEDES WHAT PRECEDED IT. `run.queueList` answers
-// with the whole list at one moment, so a seat clears the count: every delivery
-// counted before it described a row the snapshot has now restated. Deliveries after
-// the seat count again, which keeps the flag exact rather than sticky — the tail
-// opens BEFORE the snapshot lands, so the window this clears is a real one.
+// A WELL-FORMED SNAPSHOT SUPERSEDES WHAT PRECEDED IT, which is this stream's half of
+// a rule `unreadable-deliveries.ts` states the rest of. A delivery this build cannot
+// read is counted rather than dropped, and `run.queueList` answers with the whole
+// list at one moment — so a seat CLEARS that count: every delivery counted before it
+// described a row the snapshot has now restated. Deliveries after the seat count
+// again, which keeps the reading exact rather than sticky. The tail opens BEFORE the
+// snapshot lands, so the window this clears is a real one, and the account plane's
+// reading — whose read cannot make the same claim — deliberately never clears its own.
 
 import {
   QueueItemSummarySchema,
@@ -87,6 +79,11 @@ import {
   streamRefusalFor,
   unreadableDeliveryRefusal,
 } from "./queue-refusals.js";
+import { QueueCancellations, type QueueCancellationState } from "./queue-cancellation.js";
+import {
+  UnreadableDeliveryLedger,
+  type UnreadableDeliveryReading,
+} from "./unreadable-deliveries.js";
 import {
   NO_TRIGGERING_EVENT_KINDS,
   RefreshScheduler,
@@ -96,7 +93,6 @@ import {
 import { QUEUE_SUBSCRIBE_STREAM, subscribeDaemon } from "./daemon-streams.js";
 import { callDaemon } from "./daemon-reply.js";
 import { QueueOrder } from "./queue-order.js";
-import { readQueueItemId } from "./wire-identifiers.js";
 import { consoleClockFor, type ConsoleBridge } from "./console-bridge.js";
 
 /**
@@ -110,32 +106,20 @@ type ScopedSessionId = ReturnType<typeof RunQueueSubscribeRequestSchema.parse>["
 /** How the snapshot read has gone. Three answers, and none of them is an empty list. */
 export type QueueReadPhase = "reading" | "read" | "refused";
 
-/** What the pane reads off the queue. */
-export interface QueueFeed {
+/**
+ * What the pane reads off the queue.
+ *
+ * The three cancel members and the two unreadable-delivery members are the modules'
+ * that own them rather than restated here: each pair is one module's whole surface,
+ * and a second declaration would be two places to keep a shape in step with the
+ * surfaces that render it.
+ */
+export interface QueueFeed extends QueueCancellationState, UnreadableDeliveryReading {
   /** Canonical order: the snapshot's, with live-only rows appended in arrival order. */
   readonly items: readonly QueueItemSummary[];
   readonly phase: QueueReadPhase;
   /** Why the snapshot could not be read. Rendered rather than swallowed. */
   readonly readRefusal: ConsoleRefusal | undefined;
-  /** Items whose cancel is in flight, so the control disables rather than re-fires. */
-  readonly pendingCancelIds: ReadonlySet<string>;
-  /** The refusal a cancel came back with, keyed by the item it was asked for. */
-  readonly cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal>;
-  readonly cancelItem: (queueItemId: string) => void;
-  /**
-   * Deliveries that parsed as no registered queue row since the newest snapshot.
-   *
-   * Named as `run-state-feed.ts` names its own, deliberately: one stream vocabulary
-   * for two streams, so a surface rendering both is not reading two words for one
-   * fact.
-   */
-  readonly unreadableDeliveryCount: number;
-  /**
-   * The newest unreadable delivery's own parse refusal, naming the members that
-   * failed. Bounded by keeping only the newest — the refusals do not accumulate —
-   * and by naming member paths rather than carrying the payload that failed.
-   */
-  readonly unreadableRefusal: ConsoleRefusal | undefined;
 }
 
 /**
@@ -160,6 +144,8 @@ export class SessionQueueReading implements ReadTriggerTarget {
   readonly #sessionId: string;
   readonly #refresh: RefreshScheduler;
   readonly #order = new QueueOrder();
+  readonly #unreadable = new UnreadableDeliveryLedger(unreadableDeliveryRefusal);
+  readonly #cancellations: QueueCancellations;
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
   #closeStream: (() => void) | undefined = undefined;
@@ -189,16 +175,18 @@ export class SessionQueueReading implements ReadTriggerTarget {
   #items: readonly QueueItemSummary[] = EMPTY_ITEMS;
   #phase: QueueReadPhase = "reading";
   #readRefusal: ConsoleRefusal | undefined = undefined;
-  #pendingCancelIds: ReadonlySet<string> = EMPTY_IDS;
-  #cancelRefusalByItemId: ReadonlyMap<string, ConsoleRefusal> = EMPTY_REFUSALS;
-  #unreadableDeliveryCount = 0;
-  #unreadableRefusal: ConsoleRefusal | undefined = undefined;
   #feed: QueueFeed;
 
   public constructor(bridge: ConsoleBridge, sessionId: string, onIdle: () => void) {
     this.#bridge = bridge;
     this.#sessionId = sessionId;
     this.#onIdle = onIdle;
+    // Publishing through this reading's own `#publish` rather than through listeners
+    // of its own: one surface, one publication path, so a cancel's settlement never
+    // renders a frame the rows have not reached.
+    this.#cancellations = new QueueCancellations(bridge, () => {
+      this.#publish();
+    });
     this.#refresh = new RefreshScheduler({
       // The fixture's frozen clock wherever a scenario is playing and the real one
       // otherwise, resolved once per reading — the fixture bridge makes the frozen
@@ -297,12 +285,10 @@ export class SessionQueueReading implements ReadTriggerTarget {
           }
           const parsed = QueueItemSummarySchema.safeParse(payload);
           if (!parsed.success) {
-            // EVERY delivery publishes, readable or not. A delivery this build
-            // cannot read changes no row — the fold never saw it — but it does
-            // change what the rows MEAN, and a count that never reached a render
-            // could not say so.
-            this.#unreadableDeliveryCount += 1;
-            this.#unreadableRefusal = unreadableDeliveryRefusal(parsed.error.issues);
+            // EVERY delivery publishes, readable or not. One this build cannot
+            // read changes no row — the fold never saw it — but it does change what
+            // the rows MEAN, and a count that never reached a render could not say so.
+            this.#unreadable.record(parsed.error.issues);
             this.#publish();
             return;
           }
@@ -363,8 +349,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
       this.#phase = "read";
       // The snapshot restates the whole list at one moment, so whatever the tail
       // delivered unreadably before it is superseded rather than still missing.
-      this.#unreadableDeliveryCount = 0;
-      this.#unreadableRefusal = undefined;
+      this.#unreadable.clear();
       this.#publish();
     });
   }
@@ -376,47 +361,6 @@ export class SessionQueueReading implements ReadTriggerTarget {
     this.#closeStream = undefined;
   }
 
-  #cancelItem = (rawQueueItemId: string): void => {
-    // Through the family's own reader rather than a schema parsed here: one reading
-    // of what the wire admits as a queue-item identifier, in the module that owns it.
-    const queueItemId = readQueueItemId(rawQueueItemId);
-    if (queueItemId === undefined) {
-      const next = new Map(this.#cancelRefusalByItemId);
-      next.set(
-        rawQueueItemId,
-        refuse(
-          QUEUE_REFUSAL_ORIGIN,
-          "queue-item-unreadable",
-          "The console is holding an identifier for this queued message that the daemon would not accept, so it asked for no cancel.",
-        ),
-      );
-      this.#cancelRefusalByItemId = next;
-      this.#publish();
-      return;
-    }
-    if (this.#pendingCancelIds.has(rawQueueItemId)) {
-      // Silent rather than refused: the person pressed Cancel for the cancel that is
-      // already going, and a refusal card would report a failure where the only
-      // thing that happened is that they were early. This is the chokepoint and not
-      // the button, because the set the button disables from is published one render
-      // behind — two presses inside one frame both read a control that was live.
-      return;
-    }
-    this.#pendingCancelIds = withId(this.#pendingCancelIds, rawQueueItemId);
-    this.#publish();
-    void callDaemon(this.#bridge, "run.queueCancel", { queueItemId }).then((reply) => {
-      this.#pendingCancelIds = withoutId(this.#pendingCancelIds, rawQueueItemId);
-      if (reply.status === "refused") {
-        const next = new Map(this.#cancelRefusalByItemId);
-        next.set(rawQueueItemId, reply.refusal);
-        this.#cancelRefusalByItemId = next;
-      }
-      // A served reply changes nothing about the list. It confirms the REQUEST; the
-      // row's state changes when the tail says the daemon changed it.
-      this.#publish();
-    });
-  };
-
   #settleRefused(refusal: ConsoleRefusal): void {
     this.#phase = "refused";
     this.#readRefusal = refusal;
@@ -425,14 +369,11 @@ export class SessionQueueReading implements ReadTriggerTarget {
 
   #composeFeed(): QueueFeed {
     return {
+      ...this.#cancellations.state,
+      ...this.#unreadable.reading,
       items: this.#items,
       phase: this.#phase,
       readRefusal: this.#readRefusal,
-      pendingCancelIds: this.#pendingCancelIds,
-      cancelRefusalByItemId: this.#cancelRefusalByItemId,
-      cancelItem: this.#cancelItem,
-      unreadableDeliveryCount: this.#unreadableDeliveryCount,
-      unreadableRefusal: this.#unreadableRefusal,
     };
   }
 
@@ -445,17 +386,3 @@ export class SessionQueueReading implements ReadTriggerTarget {
 }
 
 const EMPTY_ITEMS: readonly QueueItemSummary[] = Object.freeze([]);
-const EMPTY_IDS: ReadonlySet<string> = new Set<string>();
-const EMPTY_REFUSALS: ReadonlyMap<string, ConsoleRefusal> = new Map<string, ConsoleRefusal>();
-
-function withId(held: ReadonlySet<string>, id: string): ReadonlySet<string> {
-  const next = new Set(held);
-  next.add(id);
-  return next;
-}
-
-function withoutId(held: ReadonlySet<string>, id: string): ReadonlySet<string> {
-  const next = new Set(held);
-  next.delete(id);
-  return next;
-}

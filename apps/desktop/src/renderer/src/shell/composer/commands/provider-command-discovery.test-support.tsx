@@ -112,7 +112,6 @@ export function composerBridgeAnswering(
   return bridgeAnswering(answer, COMPOSER_SCENARIO).bridge;
 }
 
-/** The fixture, with a note of what was asked. */
 /** The fixture scenario, with the enumeration refused by the daemon's own code. */
 export function refusingEnumerationBridge(): ConsoleBridge {
   return createFixtureBridge({

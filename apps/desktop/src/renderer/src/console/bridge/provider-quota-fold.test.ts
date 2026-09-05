@@ -185,3 +185,44 @@ describe("ProviderQuotaFold — the readings a surface renders", () => {
     expect(usedPercentFor(fold, "weekly-opus")).toBe(30);
   });
 });
+
+describe("ProviderQuotaFold — the account labels a surface joins a handle to", () => {
+  it("labels an account that has no observed window at all", () => {
+    // The membership difference that makes this a second answer rather than a scan
+    // over the readings: an account the registry carries has a label whether or not
+    // a quota row has ever been observed for it, and a surface naming its handle
+    // needs that label. Scanning `readings()` for one would find nothing here.
+    const fold = new ProviderQuotaFold();
+    fold.seatAccount(account());
+
+    expect(fold.readings()).toStrictEqual([]);
+    expect([...fold.accountLabels()]).toStrictEqual([[ACCOUNT_ID, "Team"]]);
+  });
+
+  it("takes the label the newest seating carries, not the first", () => {
+    // The registry sends state and not deltas, so a renamed account is re-seated
+    // whole; a label that stuck at the first reading would name the account by a
+    // word its operator has already changed.
+    const fold = new ProviderQuotaFold();
+    fold.seatAccount(account());
+    fold.seatAccount(account({ displayLabel: "Team (renamed)" }));
+
+    expect(fold.accountLabels().get(ACCOUNT_ID)).toBe("Team (renamed)");
+  });
+
+  it("drops a removed account's label, so a stale handle joins to nothing", () => {
+    const fold = new ProviderQuotaFold();
+    fold.seatAccount(account());
+    expect(fold.accountLabels().has(ACCOUNT_ID)).toBe(true);
+
+    fold.forgetAccount(ACCOUNT_ID);
+
+    expect(fold.accountLabels().has(ACCOUNT_ID)).toBe(false);
+  });
+
+  it("negative control: the rows are empty before anything is seated", () => {
+    // Without this, every assertion above would also pass over a `accountLabels`
+    // that answered with one fixed row whatever the fold held.
+    expect([...new ProviderQuotaFold().accountLabels()]).toStrictEqual([]);
+  });
+});

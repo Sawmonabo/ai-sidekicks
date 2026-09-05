@@ -24,7 +24,7 @@
 //
 // The pane surfaces ride the same table on their own scenarios, their claims
 // likewise pictorial: the runs pane's nine wire-verbatim states and
-// waiting-is-not-pausing that `panes/runs/run-status.ts` states with the
+// waiting-is-not-pausing that `runs/pane/run-status.ts` states with the
 // rendered-never-reordered queue order that `bridge/queue-feed.ts` states, and the
 // approvals pane's own.
 //

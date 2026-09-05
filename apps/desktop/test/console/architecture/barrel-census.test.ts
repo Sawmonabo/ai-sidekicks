@@ -36,6 +36,13 @@
 //         says so; it cannot wherever knip already counts the specifier referenced,
 //         which is why the retirement is stated here too.
 //
+// ONE WALK, AND A BUDGET PER FILE. The corpus is read once at `describe` scope and
+// every case works over the same in-memory modules; a walk per case would multiply the
+// whole file read by the case count for one answer. Measured on this tree 2026-09-05:
+// 782 modules, 1.45 s of test time over seventeen cases — about 1.9 ms per module for
+// the file, walk and parse included. A case that pushes it past about 5 ms per module
+// is doing its own IO, which is the shape this budget exists to catch.
+//
 // The rule itself is `barrel-census.ts` beside this file, and the reading it judges
 // is `barrel-syntax.ts` beside that, so the controls below can hand either one
 // corpora written to fail. The walk stays here, where the source-walk chokepoint can
@@ -85,7 +92,9 @@ const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT
  * Every one is a composition site: `scenarios/index.ts` composes the scenario list,
  * `panes/index.ts` registers the pane board, and a pane family's own door claims its
  * kind — each declaring its one export in place rather than forwarding a name from
- * elsewhere. The approvals door joined them when its approval-flow projector moved
+ * elsewhere. The three pane families sit beside `panes/` rather than inside it: that
+ * directory holds the deck's composition and no body, so each family door is a family
+ * door like any other and is censused as one. The approvals door joined them when its approval-flow projector moved
  * into `bridge/approvals/`: the composition that registers the fold now reaches the
  * bridge door directly, which is where a validator's registrar belongs, and a
  * forwarding line here would have been an index-to-index chain. Named here so the per-door claim below is a quantifier rather than a
@@ -93,11 +102,11 @@ const CENSUS_ROOTS: readonly string[] = [RENDERER_SOURCE_ROOT, TEST_CONSOLE_ROOT
  * symbol would leave this list and be censused like every other door.
  */
 const DOORS_THAT_FORWARD_NOTHING: readonly string[] = [
+  `${CONSOLE_PREFIX}/approvals/index.ts`,
   `${CONSOLE_PREFIX}/bridge/scenarios/index.ts`,
-  `${CONSOLE_PREFIX}/panes/approvals/index.ts`,
+  `${CONSOLE_PREFIX}/inspector/index.ts`,
   `${CONSOLE_PREFIX}/panes/index.ts`,
-  `${CONSOLE_PREFIX}/panes/inspector/index.ts`,
-  `${CONSOLE_PREFIX}/panes/runs/index.ts`,
+  `${CONSOLE_PREFIX}/runs/index.ts`,
 ];
 
 function toKey(absolutePath: string): string {
