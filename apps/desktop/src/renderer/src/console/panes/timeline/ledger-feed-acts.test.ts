@@ -23,22 +23,15 @@ import {
 // Deeply, and only here: the tuple's one consumer outside its own directory is this
 // suite's totality case, so a door line for it would be a door widened for testing.
 import { REPLAY_STATES } from "../../ledger/structure/replay-model.js";
-import { type ConsoleSessionEvent } from "../../store/index.js";
 import {
   LEDGER_NOTHING_FILTERED_REFUSAL,
   LEDGER_NO_REPLAY_ANCHOR_REFUSAL,
-  buildActorFollowHandler,
   buildLedgerStructureActs,
   type LedgerFeedActInputs,
 } from "./ledger-feed-acts.js";
 import { type LedgerFindState } from "./ledger-find.js";
 import { type LedgerFilterState } from "./ledger-narrowing.js";
 import { type LedgerReplayState } from "./ledger-replay-window.js";
-import { ledgerFixtureStampAt } from "./ledger-feed-logs.test-support.js";
-import { deriveLedgerWindow } from "./ledger-window.js";
-
-const SESSION_ID = "session-ledger-feed-acts";
-const LOG_EVENT_COUNT = 6;
 
 /** What one case watched happen, in the order it happened. */
 type ActTrace = string[];
@@ -338,71 +331,5 @@ describe("the ledger's acts — the one that refuses", () => {
     acts.toggleReplay();
     acts.jumpToNextSeam();
     expect(raised).toStrictEqual([]);
-  });
-});
-
-/** A log of participant messages, oldest first, so every row carries a sequence. */
-function syntheticLog(count: number): readonly ConsoleSessionEvent[] {
-  return Array.from({ length: count }, (_unused, index) => ({
-    id: `event-${String(index)}`,
-    sessionId: SESSION_ID,
-    sequence: index,
-    kind: "user.message",
-    occurredAt: ledgerFixtureStampAt(index),
-    payload: {},
-  }));
-}
-
-describe("the follow handler — resolving a cast chip against this window", () => {
-  const rows = deriveLedgerWindow(syntheticLog(LOG_EVENT_COUNT), false).rows;
-  const NEWEST_SEQUENCE = LOG_EVENT_COUNT - 1;
-  const PARTICIPANT_ID = "participant-alba";
-
-  it("scrolls to the row the wire sequence names and says it revealed it", () => {
-    const trace: ActTrace = [];
-    const follow = buildActorFollowHandler({
-      visibleRows: rows,
-      jumpToRow: (rowId) => {
-        trace.push(rowId);
-      },
-    });
-    expect(follow({ participantId: PARTICIPANT_ID, newestSequence: NEWEST_SEQUENCE })).toBe(
-      "revealed",
-    );
-    expect(trace).toStrictEqual([rows[NEWEST_SEQUENCE]?.id]);
-  });
-
-  it("answers row-not-in-view for a row this window no longer holds", () => {
-    // The window the cap left, not the log: `jumpToRow` scrolls to what the
-    // viewport reconciled, so a row outside it would report a reveal and move
-    // nothing — which is the silent press the seat's outcome exists to end.
-    const trace: ActTrace = [];
-    const follow = buildActorFollowHandler({
-      visibleRows: rows.slice(-2),
-      jumpToRow: (rowId) => {
-        trace.push(rowId);
-      },
-    });
-    expect(follow({ participantId: PARTICIPANT_ID, newestSequence: 0 })).toBe("row-not-in-view");
-    expect(trace).toStrictEqual([]);
-  });
-
-  it("negative control: a sequence no row carries reveals nothing over the whole window", () => {
-    // Without this the case above would pass over a handler that answered
-    // `row-not-in-view` for everything, which reports a working ledger as broken.
-    const trace: ActTrace = [];
-    const follow = buildActorFollowHandler({
-      visibleRows: rows,
-      jumpToRow: (rowId) => {
-        trace.push(rowId);
-      },
-    });
-    expect(follow({ participantId: PARTICIPANT_ID, newestSequence: LOG_EVENT_COUNT + 1 })).toBe(
-      "row-not-in-view",
-    );
-    expect(follow({ participantId: PARTICIPANT_ID, newestSequence: NEWEST_SEQUENCE })).toBe(
-      "revealed",
-    );
-    expect(trace).toHaveLength(1);
   });
 });

@@ -52,7 +52,8 @@
 // AND TWO SEATS THIS MOUNT CLAIMS, both for callers composed before it existed: the
 // palette's, so a ledger chord acts on the feed that is up when it fires, and the
 // workspace's follow seat, so a cast chip scrolls this ledger through this ledger's
-// own chokepoint. Every act behind both is built in `ledger-feed-acts.ts`.
+// own chokepoint. The palette's nine acts are built in `ledger-feed-acts.ts` and the
+// follow seat in `ledger-actor-follow-seat.ts`.
 //
 // NEITHER STRUCTURAL CONTROL IS GIVEN AN `onLoadEarlier` HANDLER, and the omission
 // is the offer being absent rather than the boundary being denied. The two rows the
@@ -88,7 +89,8 @@ import { matchWalkReading } from "./ledger-find-readings.js";
 import { PartialRead } from "../../primitives/index.js";
 import { type SessionStore } from "../../store/index.js";
 import { type TimelineRowRenderer } from "../../seats/index.js";
-import { useActorFollowSeat, useLedgerStructureActs } from "./ledger-feed-acts.js";
+import { useActorFollowSeat } from "./ledger-actor-follow-seat.js";
+import { useLedgerStructureActs } from "./ledger-feed-acts.js";
 import { useChapterDisclosure, useFoldedChapters } from "./ledger-chapter-fold.js";
 import {
   useLedgerFindAndJump,
@@ -245,7 +247,7 @@ export function LedgerFeed(props: LedgerFeedProps): React.JSX.Element {
 
   // The palette's chords and the cast bar's chips both act on whichever ledger is
   // mounted when they fire, and neither can import this component. Both seats are
-  // claimed here for the mount's lifetime; what each act does is `ledger-feed-acts.ts`'.
+  // claimed here for the mount's lifetime; what each act does is its own module's.
   const collapseAllTerminal = chapterDisclosure.collapseAllTerminal;
   const collapseAllTerminalChapters = useCallback(() => {
     collapseAllTerminal([...ledgerWindow.chapterByHeaderKey.values()]);
