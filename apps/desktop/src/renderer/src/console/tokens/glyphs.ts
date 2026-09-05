@@ -39,20 +39,37 @@ export const GLYPH_STROKE_WIDTH = 1.5;
 /** Rendered edge length when a caller names no size, in CSS pixels. */
 export const GLYPH_DEFAULT_SIZE = 16;
 
+// THE ICON SCALE, and why it is a token rather than a constant beside each caller.
+//
+// A glyph's rendered edge length is a decision of the design language, not of the
+// surface that happens to draw one: tighten the console's icons by a pixel and every
+// glyph in every family moves together or the set stops reading as one family. It had
+// been re-declared once per component — eight copies across one family alone, four of
+// them the literal `12` — so the tightening was eight edits with nothing failing when
+// seven were made.
+//
+// Three steps, named for the density they belong to rather than for the caller that
+// spends them, so a second caller at the same density reads its own name in the
+// import. Every step is strictly below `GLYPH_DEFAULT_SIZE`: a glyph inside a row, a
+// chip, or a piece of chrome is subordinate to the text it sits beside, and the
+// default is the standalone size. `tokens/glyphs.test.ts` asserts both properties, so
+// a fourth step added out of order fails rather than silently inverting the scale.
+
+/** Inside a dense gutter or a numeric column — the smallest step the set reads at. */
+export const GLYPH_SIZE_DENSE = 10;
+
+/** Inside a row, a chip, a toolbar toggle, or a card's leading mark. */
+export const GLYPH_SIZE_ROW = 12;
+
 /**
- * Rendered edge length for a glyph drawn inside chrome, in CSS pixels.
+ * Beside a section heading, a disclosure summary, a refusal's leading alert, or a
+ * pane head's control — every mark that sits INSIDE a frame rather than being the
+ * thing the frame is about.
  *
- * The console draws glyphs at exactly two sizes and this is the smaller one: a
- * refusal's leading alert, a pane head's control, a breadcrumb separator — every
- * mark that sits INSIDE a frame rather than being the thing the frame is about.
- * The default above is the other: a kind mark beside a 600-weight heading, a rail
- * destination, a gallery cell.
- *
- * The pair lives here rather than beside either caller because the two sizes are a
- * ratio and not two independent preferences — 14 reads quiet against 16 at this
- * stroke width, and a chrome size chosen in one family drifts from the same size
- * chosen in another. That drift is what this constant retired: three private copies
- * of `14`, two of which cited each other as their authority.
+ * This step in particular is a ratio and not a preference: 14 reads quiet against the
+ * default's 16 at this stroke width, and a chrome size chosen in one family drifts
+ * from the same size chosen in another. That drift is what it retired — three private
+ * copies of `14`, two of which cited each other as their authority.
  */
 export const GLYPH_SIZE_CHROME = 14;
 

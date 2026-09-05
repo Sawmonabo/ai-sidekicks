@@ -46,7 +46,7 @@
 // tense for receipts, no exclamation marks, no blame. This component supplies the
 // shape; it never invents a sentence.
 
-import { type GlyphName } from "../tokens/index.js";
+import { GLYPH_SIZE_ROW, type GlyphName } from "../tokens/index.js";
 import { Glyph } from "./Glyph.js";
 
 /**
@@ -167,8 +167,6 @@ const SHAPE_MODIFIER_BY_PLACEMENT: Readonly<Record<NothingPlacement, string>> = 
   surface: "meridian-nothing--block",
 };
 
-const NOTHING_GLYPH_SIZE = 12;
-
 /** How wide each skeleton bar is, as a fraction of the measure. Uneven on purpose:
  *  three equal bars read as a table, and the shape being imitated is a ledger row. */
 const SKELETON_BAR_WIDTHS: readonly string[] = ["38%", "82%", "61%"];
@@ -205,7 +203,7 @@ function renderBadge(
   }
   return (
     <span className={className} role={traits.role} aria-busy={traits.busy}>
-      {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={NOTHING_GLYPH_SIZE} />}
+      {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
       <span className="meridian-nothing__badge-label" title={props.detail}>
         {props.title}
       </span>
@@ -240,9 +238,7 @@ function renderBlock(
   return (
     <div className={className} role={traits.role} aria-busy={traits.busy}>
       <p className="meridian-nothing__title">
-        {traits.glyph === undefined ? null : (
-          <Glyph name={traits.glyph} size={NOTHING_GLYPH_SIZE} />
-        )}
+        {traits.glyph === undefined ? null : <Glyph name={traits.glyph} size={GLYPH_SIZE_ROW} />}
         {props.title}
       </p>
       {props.detail === undefined ? null : <p className={traits.detailClassName}>{props.detail}</p>}
