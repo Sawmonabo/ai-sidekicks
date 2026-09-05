@@ -34,6 +34,7 @@ import { describe, expect, it } from "vitest";
 import { CONSOLE_SCENARIOS } from "../../../src/renderer/src/console/bridge/scenarios/index.js";
 import { findScenarioWireTruthDefects } from "../../../src/renderer/src/console/bridge/scenarios/wire-truth.js";
 import type { ConsoleScenario } from "../../../src/renderer/src/console/bridge/scenario.js";
+import { parseInstant } from "../../../src/renderer/src/console/core/instant.js";
 
 /** A UUID the branded id types accept, so a control fails for its own reason. */
 const CONTROL_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a99a9";
@@ -58,6 +59,27 @@ const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
 const CONTROL_STARTED_AT = "2026-01-01T00:00:00.000Z";
 
 /**
+ * The same instant as the number the beats offset from.
+ *
+ * Through the console's own reader rather than `Date.parse`, which the tier's syntax
+ * bans refuse for the reason that bites hardest here: this file composes the stamps
+ * it then measures the wire contract against, so a lenient reading would write the
+ * HOST's zone into a control the predicate is judged by.
+ *
+ * Asserted rather than defaulted. `epochMilliseconds` is `number | undefined` across
+ * the reading's two arms, and `?? 0` would stamp every control beat from the epoch on
+ * the day this constant is mistyped — a corpus defect that would show up as a
+ * predicate failure somewhere else entirely.
+ */
+const CONTROL_STARTED_AT_MILLISECONDS = ((): number => {
+  const reading = parseInstant(CONTROL_STARTED_AT);
+  if (reading.kind !== "instant") {
+    throw new Error(`this file's own control stamp is not readable: ${CONTROL_STARTED_AT}`);
+  }
+  return reading.epochMilliseconds;
+})();
+
+/**
  * One run-transition beat, complete as the stream that carries it projects it.
  *
  * The ordering and carrier controls below are about a POSITION or an envelope member,
@@ -79,7 +101,7 @@ function runControlBeat(
       sessionId: CONTROL_SESSION_ID,
       sequence,
       kind: `run.${newState}`,
-      occurredAt: new Date(Date.parse(CONTROL_STARTED_AT) + atMs).toISOString(),
+      occurredAt: new Date(CONTROL_STARTED_AT_MILLISECONDS + atMs).toISOString(),
       payload: {
         sessionId: CONTROL_SESSION_ID,
         runId: CONTROL_RUN_ID,

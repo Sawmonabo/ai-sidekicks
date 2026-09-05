@@ -40,6 +40,23 @@ export const GLYPH_STROKE_WIDTH = 1.5;
 export const GLYPH_DEFAULT_SIZE = 16;
 
 /**
+ * Rendered edge length for a glyph drawn inside chrome, in CSS pixels.
+ *
+ * The console draws glyphs at exactly two sizes and this is the smaller one: a
+ * refusal's leading alert, a pane head's control, a breadcrumb separator — every
+ * mark that sits INSIDE a frame rather than being the thing the frame is about.
+ * The default above is the other: a kind mark beside a 600-weight heading, a rail
+ * destination, a gallery cell.
+ *
+ * The pair lives here rather than beside either caller because the two sizes are a
+ * ratio and not two independent preferences — 14 reads quiet against 16 at this
+ * stroke width, and a chrome size chosen in one family drifts from the same size
+ * chosen in another. That drift is what this constant retired: three private copies
+ * of `14`, two of which cited each other as their authority.
+ */
+export const GLYPH_SIZE_CHROME = 14;
+
+/**
  * The path data, keyed by name. One `d` string per glyph — no groups, no fills, no
  * per-glyph stroke overrides, because a family whose members each carry their own
  * rendering options is not a family.

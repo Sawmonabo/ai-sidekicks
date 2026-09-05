@@ -130,6 +130,39 @@ export function tierTimeoutFor(bodyAllowanceMs: number): number {
  * and because `now` is a seam a test supplies rather than a clock a test waits
  * on.
  */
+/**
+ * The rejection a deadline raises when its OWN budget, rather than the work, settled first.
+ *
+ * A type rather than a bare `Error` so a caller can recognise it by identity. What a
+ * caller actually wants to know — "was that my budget, or did the work fail?" — was
+ * previously re-derived by reading the clock a second time, which answers a different
+ * question and answers it wrong at the boundary (`LaunchDeadline.raisedExpiry`).
+ *
+ * Carries the deadline that raised it rather than only its own name: a nested deadline
+ * inside the work would otherwise be mistaken for the outer one and have its more
+ * specific phase reworded away.
+ *
+ * The message is unchanged from the sentence this replaced, and deliberately so — it
+ * is what a reader sees when no caller rewords it, and rewording it here would move
+ * text that suites already read.
+ */
+export class DeadlineExpiredError extends Error {
+  /** The deadline whose budget expired. Compared by identity, never by name. */
+  readonly deadline: LaunchDeadline;
+  /** The phase that was being bounded, as the deadline was told to call it. */
+  readonly phase: string;
+  /** What the budget was when this bound was armed, in milliseconds. */
+  readonly budgetMs: number;
+
+  constructor(deadline: LaunchDeadline, phase: string, budgetMs: number) {
+    super(`${phase} did not settle within the deadline's remaining ${String(budgetMs)} ms`);
+    this.name = "DeadlineExpiredError";
+    this.deadline = deadline;
+    this.phase = phase;
+    this.budgetMs = budgetMs;
+  }
+}
+
 export class LaunchDeadline {
   readonly #expiresAt: number;
   readonly #now: () => number;
@@ -156,6 +189,36 @@ export class LaunchDeadline {
    */
   expired(reservedMs = 0): boolean {
     return this.#now() >= this.#expiresAt - reservedMs;
+  }
+
+  /**
+   * Whether `error` is THIS deadline's own budget expiring.
+   *
+   * The question `expired()` cannot answer, and the reason it must not be asked to.
+   * `expired()` reads the clock a SECOND time, and the two readings disagree: the
+   * bounding `setTimeout` fires against libuv's loop time while `Date.now()` is a
+   * separate reading of the same instant, and a timer scheduled for N milliseconds
+   * can fire while `Date.now()` still reads N-1 since the start. Measured at a 5 ms
+   * budget on the authoring machine: 55 of 4 000 firings, 1.4 %. A caller deciding
+   * "was it my budget that fired" from `expired()` therefore answers NO to its own
+   * timer roughly one time in seventy, and reports the expiry in the wrong words.
+   *
+   * It also cannot separate "my timer fired" from "time has passed", so a failure
+   * the WORK raised after the budget was gone was being blamed on the clock — the
+   * inversion `launch-body.ts` says in its own header that it exists to stop.
+   *
+   * Identity rather than a message match or a bare `instanceof`: an inner deadline
+   * inside the work is a different subject with a more specific phase, and its
+   * expiry must reach the caller as the work's own failure rather than be reworded
+   * as this one's.
+   *
+   * The precedent is `bounded-cleanup.ts`'s own race, which was written this way from
+   * the start: it resolves a discriminated `"closed" | "expired" | "rejected"` out of
+   * the race itself and reads the clock only to REPORT how long the close took, never
+   * to decide which side won. This method brings the deadline to that shape.
+   */
+  raisedExpiry(error: unknown): boolean {
+    return error instanceof DeadlineExpiredError && error.deadline === this;
   }
 
   /**
@@ -197,11 +260,7 @@ export class LaunchDeadline {
     let timeoutHandle: NodeJS.Timeout | undefined;
     const budgetExpired = new Promise<never>((_resolveNever, rejectExpired) => {
       timeoutHandle = setTimeout(() => {
-        rejectExpired(
-          new Error(
-            `${phase} did not settle within the deadline's remaining ${String(budgetMs)} ms`,
-          ),
-        );
+        rejectExpired(new DeadlineExpiredError(this, phase, budgetMs));
       }, budgetMs);
     });
     // An ABANDONED operation must not take the process down. When the budget
@@ -239,11 +298,21 @@ export class LaunchDeadline {
  * untouched rather than being blamed on a clock with time left on it.
  */
 export function readinessFailure(deadline: LaunchDeadline, error: unknown): unknown {
-  // Asked WITH the reserve, because the readiness ladder ran out of time when its
-  // own allowance was gone, not when the whole launch deadline expires — those
-  // are 25 000 ms apart, and asking the unreserved question meant this returned
-  // the raw phase timeout in precisely the case it was written for.
-  if (!deadline.expired(POST_READINESS_RESERVE_MS)) {
+  // TWO QUESTIONS, AND THE FIRST IS THE ONLY EXACT ONE. A phase bounded by
+  // `settleWithin` is answered by the deadline itself, which knows whether its own
+  // timer fired; the clock reading below can only guess, and guesses wrong roughly
+  // one firing in seventy because a `setTimeout` and `Date.now()` are separate
+  // readings of one instant (see `raisedExpiry`). So the deadline's own answer is
+  // asked FIRST and can never be vetoed by the clock.
+  //
+  // The clock reading stays because the other phases here are Playwright's, bounded
+  // by a `timeout` this deadline handed them: those reject with Playwright's own
+  // error, which carries no mark of this deadline, and the reading is then the only
+  // signal there is. Asked WITH the reserve, because the readiness ladder ran out of
+  // time when its own allowance was gone, not when the whole launch deadline expires
+  // — those are 25 000 ms apart, and asking the unreserved question meant this
+  // returned the raw phase timeout in precisely the case it was written for.
+  if (!deadline.raisedExpiry(error) && !deadline.expired(POST_READINESS_RESERVE_MS)) {
     return error;
   }
   return new Error(
