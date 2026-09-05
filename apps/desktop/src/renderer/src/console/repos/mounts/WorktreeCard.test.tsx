@@ -11,13 +11,15 @@ import { describe, expect, it } from "vitest";
 import { formatRelativeTime } from "../../primitives/index.js";
 import { WorktreeCard } from "./WorktreeCard.js";
 import {
-  WORKTREE_ABSENT_COLUMN_COPY,
-  WORKTREE_COLUMN_LABELS,
-  WORKTREE_DETAIL_COLUMNS,
   WORKTREE_DISK_DISPOSITION_COPY,
   WORKTREE_STATE_PRESENTATION,
   type WorktreeStatusRecord,
 } from "./worktree-model.js";
+import {
+  WORKTREE_ABSENT_COLUMN_COPY,
+  WORKTREE_COLUMN_LABELS,
+  WORKTREE_DETAIL_COLUMNS,
+} from "./worktree-columns.js";
 
 // Built rather than parsed: a fixture instant is this suite's own decision, and the
 // console's one reader of a wire stamp is `parseInstant`, not this line.

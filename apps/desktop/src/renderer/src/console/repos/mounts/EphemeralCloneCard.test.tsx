@@ -8,12 +8,14 @@ import { formatRelativeTime } from "../../primitives/index.js";
 import { EphemeralCloneCard } from "./EphemeralCloneCard.js";
 import {
   CLONE_EXPIRY_COPY,
-  EPHEMERAL_CLONE_ABSENT_COLUMN_COPY,
-  EPHEMERAL_CLONE_COLUMN_LABELS,
-  EPHEMERAL_CLONE_DETAIL_COLUMNS,
   EPHEMERAL_CLONE_STATE_PRESENTATION,
   type EphemeralCloneStatusRecord,
 } from "./worktree-model.js";
+import {
+  EPHEMERAL_CLONE_ABSENT_COLUMN_COPY,
+  EPHEMERAL_CLONE_COLUMN_LABELS,
+  EPHEMERAL_CLONE_DETAIL_COLUMNS,
+} from "./worktree-columns.js";
 
 const EXPIRES_AT = "2026-01-01T12:00:00.000Z";
 // Built rather than parsed: a fixture instant is this suite's own decision, and the

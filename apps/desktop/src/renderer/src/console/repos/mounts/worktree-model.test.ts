@@ -17,26 +17,28 @@ import { describe, expect, it } from "vitest";
 import {
   CLONE_EXPIRY_COPY,
   CLONE_EXPIRY_READINGS,
-  COLUMN_ABSENT_FALLBACK,
-  EPHEMERAL_CLONE_ABSENT_COLUMN_COPY,
-  EPHEMERAL_CLONE_COLUMN_LABELS,
-  EPHEMERAL_CLONE_DETAIL_COLUMNS,
   EPHEMERAL_CLONE_STATE_PRESENTATION,
-  EPHEMERAL_CLONE_SUMMARY_COLUMNS,
-  WORKTREE_ABSENT_COLUMN_COPY,
-  WORKTREE_COLUMN_LABELS,
-  WORKTREE_DETAIL_COLUMNS,
   WORKTREE_DISK_DISPOSITIONS,
   WORKTREE_DISK_DISPOSITION_COPY,
   WORKTREE_STATE_PRESENTATION,
-  WORKTREE_SUMMARY_COLUMNS,
   cloneExpiryReading,
-  ephemeralCloneColumnCell,
-  worktreeColumnCell,
   worktreeDiskDisposition,
   type EphemeralCloneStatusRecord,
   type WorktreeStatusRecord,
 } from "./worktree-model.js";
+import {
+  COLUMN_ABSENT_FALLBACK,
+  EPHEMERAL_CLONE_ABSENT_COLUMN_COPY,
+  EPHEMERAL_CLONE_COLUMN_LABELS,
+  EPHEMERAL_CLONE_DETAIL_COLUMNS,
+  EPHEMERAL_CLONE_SUMMARY_COLUMNS,
+  WORKTREE_ABSENT_COLUMN_COPY,
+  WORKTREE_COLUMN_LABELS,
+  WORKTREE_DETAIL_COLUMNS,
+  WORKTREE_SUMMARY_COLUMNS,
+  ephemeralCloneColumnCell,
+  worktreeColumnCell,
+} from "./worktree-columns.js";
 
 /**
  * A worktree row. Ids are readable rather than UUID-shaped, which is the repos
@@ -92,7 +94,7 @@ function splitCoverage(
   };
 }
 
-describe("worktree-model — every column has a home", () => {
+describe("worktree-columns — every column has a home", () => {
   it("splits the ten worktree columns across the summary and the disclosure", () => {
     const coverage = splitCoverage(
       Object.keys(WORKTREE_COLUMN_LABELS),
@@ -186,7 +188,7 @@ describe("worktree-model — clone expiry", () => {
   });
 });
 
-describe("worktree-model — column cells", () => {
+describe("worktree-columns — column cells", () => {
   it("hands back the wire's own string", () => {
     expect(worktreeColumnCell(worktreeRecord(), "branchName")).toStrictEqual({
       kind: "value",

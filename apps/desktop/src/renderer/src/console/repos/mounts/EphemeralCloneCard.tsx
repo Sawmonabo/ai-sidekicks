@@ -45,13 +45,15 @@ import {
 import {
   CLONE_EXPIRY_COPY,
   CLONE_EXPIRY_TONE,
-  EPHEMERAL_CLONE_COLUMN_LABELS,
-  EPHEMERAL_CLONE_DETAIL_COLUMNS,
   EPHEMERAL_CLONE_STATE_PRESENTATION,
   cloneExpiryReading,
-  ephemeralCloneColumnCell,
   type EphemeralCloneStatusRecord,
 } from "./worktree-model.js";
+import {
+  EPHEMERAL_CLONE_COLUMN_LABELS,
+  EPHEMERAL_CLONE_DETAIL_COLUMNS,
+  ephemeralCloneColumnCell,
+} from "./worktree-columns.js";
 
 export interface EphemeralCloneCardProps {
   readonly record: EphemeralCloneStatusRecord;

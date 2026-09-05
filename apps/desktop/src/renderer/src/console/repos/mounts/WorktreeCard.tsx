@@ -43,14 +43,16 @@ import {
   formatRelativeTime,
 } from "../../primitives/index.js";
 import {
-  WORKTREE_COLUMN_LABELS,
-  WORKTREE_DETAIL_COLUMNS,
   WORKTREE_DISK_DISPOSITION_COPY,
   WORKTREE_STATE_PRESENTATION,
-  worktreeColumnCell,
   worktreeDiskDisposition,
   type WorktreeStatusRecord,
 } from "./worktree-model.js";
+import {
+  WORKTREE_COLUMN_LABELS,
+  WORKTREE_DETAIL_COLUMNS,
+  worktreeColumnCell,
+} from "./worktree-columns.js";
 
 export interface WorktreeCardProps {
   readonly record: WorktreeStatusRecord;
