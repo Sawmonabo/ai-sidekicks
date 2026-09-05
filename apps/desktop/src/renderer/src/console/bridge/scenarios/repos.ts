@@ -61,6 +61,8 @@ import {
 } from "./repos-fixture-data.js";
 import { REPOS_SCENARIO_REPLIES } from "./repos-replies.js";
 
+export { REPOS_WORKTREE_STATUS_REPLY } from "./repos-replies.js";
+
 export const REPOS_SCENARIO_ID = "repos";
 
 /**

@@ -27,6 +27,11 @@
 // gap. A fixture that served the git answer for both would have drawn four execution
 // modes on a mount that can host one.
 
+import {
+  WorktreeStatusReadResponseSchema,
+  type WorktreeStatusReadResponse,
+} from "@ai-sidekicks/contracts";
+
 import type { ConsoleScenario } from "../scenario.js";
 
 import {
@@ -194,6 +199,75 @@ function branchContextFor(request: unknown): unknown {
 }
 
 /** Every scripted answer this scenario has, in the order a reader meets them. */
+/**
+ * The scripted `repo.worktreeStatusRead` answer, typed by the wire it answers on.
+ *
+ * Parsed ONCE, here, against the contract — this module sits inside `bridge/`, which
+ * is where the console's schemas are bound and the one place a suite outside it may
+ * not reach them from. Exported as the typed value so a suite that rebuilds this reply
+ * with one array changed (the reader test strips the clones to prove the two arrays
+ * travel independently) spreads a wire-typed object instead of parsing the scenario a
+ * second time, and so a fixture that drifts from the wire fails at import rather than
+ * inside whichever surface first reads it.
+ */
+export const REPOS_WORKTREE_STATUS_REPLY: WorktreeStatusReadResponse =
+  WorktreeStatusReadResponseSchema.parse({
+    worktrees: [
+      {
+        worktreeId: IMPLEMENTER_WORKTREE_ID,
+        repoMountId: GIT_MOUNT_ID,
+        // The same string the branch context below carries as its head branch: the
+        // gate drawn under this root and the root itself are one piece of work, and
+        // two spellings of one branch is how a fixture stops representing a session.
+        branchName: "feat/rate-limit-wiring",
+        fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/rate-limit-wiring",
+        state: "dirty",
+        createdBySessionId: SESSION_ID,
+        createdAt: "2026-01-01T09:05:00.700Z",
+        updatedAt: "2026-01-01T09:05:01.200Z",
+      },
+      {
+        worktreeId: REVIEWER_WORKTREE_ID,
+        repoMountId: GIT_MOUNT_ID,
+        branchName: "review/rate-limit-wiring",
+        fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/review-rate-limit-wiring",
+        state: "ready",
+        createdBySessionId: SESSION_ID,
+        createdAt: "2026-01-01T09:05:00.840Z",
+        updatedAt: "2026-01-01T09:05:00.840Z",
+      },
+    ],
+    ephemeralClones: [
+      {
+        cloneId: EPHEMERAL_CLONE_ID,
+        // WORKSPACE-anchored, where a worktree row is mount-anchored. The git
+        // workspace, because a clone is a git clone and the plain-directory mount
+        // could not host one.
+        workspaceId: GIT_WORKSPACE_ID,
+        cloneRoot: "/Users/dev/code/ai-sidekicks-clones/rate-limit-audit",
+        branchName: "audit/rate-limit-wiring",
+        state: "ready",
+        cleanupPolicy: "on_run_complete",
+        expiresAt: "2026-01-01T09:05:01.500Z",
+        createdAt: "2026-01-01T09:05:00.960Z",
+      },
+      {
+        cloneId: RECLAIMED_CLONE_ID,
+        workspaceId: GIT_WORKSPACE_ID,
+        cloneRoot: "/Users/dev/code/ai-sidekicks-clones/rate-limit-probe",
+        branchName: "probe/rate-limit-wiring",
+        state: "ready",
+        cleanupPolicy: "on_run_complete",
+        // Ahead of the scenario's own instant where the row above is behind it, so
+        // the two clones differ in the one field a countdown is derived from and the
+        // stamp below is what separates their dispositions.
+        expiresAt: "2026-01-01T09:35:00.000Z",
+        createdAt: "2026-01-01T09:05:00.980Z",
+        cleanedAt: "2026-01-01T09:05:01.100Z",
+      },
+    ],
+  });
+
 export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
   {
     // `Spec-009`'s only health-carrying read, answered per mount.
@@ -270,62 +344,7 @@ export const REPOS_SCENARIO_REPLIES: ConsoleScenario["replies"] = [
     // controls have to be unavailable somewhere, and a fixture whose every root is
     // clean cannot reach that state.
     call: "repo.worktreeStatusRead",
-    result: {
-      worktrees: [
-        {
-          worktreeId: IMPLEMENTER_WORKTREE_ID,
-          repoMountId: GIT_MOUNT_ID,
-          // The same string the branch context below carries as its head branch: the
-          // gate drawn under this root and the root itself are one piece of work, and
-          // two spellings of one branch is how a fixture stops representing a session.
-          branchName: "feat/rate-limit-wiring",
-          fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/rate-limit-wiring",
-          state: "dirty",
-          createdBySessionId: SESSION_ID,
-          createdAt: "2026-01-01T09:05:00.700Z",
-          updatedAt: "2026-01-01T09:05:01.200Z",
-        },
-        {
-          worktreeId: REVIEWER_WORKTREE_ID,
-          repoMountId: GIT_MOUNT_ID,
-          branchName: "review/rate-limit-wiring",
-          fsRoot: "/Users/dev/code/ai-sidekicks-worktrees/review-rate-limit-wiring",
-          state: "ready",
-          createdBySessionId: SESSION_ID,
-          createdAt: "2026-01-01T09:05:00.840Z",
-          updatedAt: "2026-01-01T09:05:00.840Z",
-        },
-      ],
-      ephemeralClones: [
-        {
-          cloneId: EPHEMERAL_CLONE_ID,
-          // WORKSPACE-anchored, where a worktree row is mount-anchored. The git
-          // workspace, because a clone is a git clone and the plain-directory mount
-          // could not host one.
-          workspaceId: GIT_WORKSPACE_ID,
-          cloneRoot: "/Users/dev/code/ai-sidekicks-clones/rate-limit-audit",
-          branchName: "audit/rate-limit-wiring",
-          state: "ready",
-          cleanupPolicy: "on_run_complete",
-          expiresAt: "2026-01-01T09:05:01.500Z",
-          createdAt: "2026-01-01T09:05:00.960Z",
-        },
-        {
-          cloneId: RECLAIMED_CLONE_ID,
-          workspaceId: GIT_WORKSPACE_ID,
-          cloneRoot: "/Users/dev/code/ai-sidekicks-clones/rate-limit-probe",
-          branchName: "probe/rate-limit-wiring",
-          state: "ready",
-          cleanupPolicy: "on_run_complete",
-          // Ahead of the scenario's own instant where the row above is behind it, so
-          // the two clones differ in the one field a countdown is derived from and the
-          // stamp below is what separates their dispositions.
-          expiresAt: "2026-01-01T09:35:00.000Z",
-          createdAt: "2026-01-01T09:05:00.980Z",
-          cleanedAt: "2026-01-01T09:05:01.100Z",
-        },
-      ],
-    },
+    result: REPOS_WORKTREE_STATUS_REPLY,
   },
   {
     // The first growth read this fixture answers from a SCRIPT rather than from a

@@ -5,12 +5,11 @@
 // manual clock's `pendingCount` after teardown is what makes the "no timer outlives
 // the section" claim a check rather than an assertion.
 
-import { WorktreeStatusReadResponseSchema } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createFixtureBridge } from "../../bridge/index.js";
-import { REPOS_SCENARIO } from "../../bridge/scenarios/repos.js";
-import type { ConsoleScenario, ScenarioResolvingReply } from "../../bridge/scenario.js";
+import { REPOS_SCENARIO, REPOS_WORKTREE_STATUS_REPLY } from "../../bridge/scenarios/repos.js";
+import type { ConsoleScenario } from "../../bridge/scenario.js";
 import { ManualClock, REFRESH_DEBOUNCE_MS } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { RepoMountsReader } from "./repo-mounts-reader.js";
@@ -21,25 +20,19 @@ const ROOT_READ_CALL = "repo.worktreeStatusRead";
 /**
  * The scenario's own root read, with its clones removed and its worktrees kept.
  *
- * Rebuilt through the CONTRACT's schema rather than by spreading an `unknown`: the
- * negative control's whole claim is that the two arrays travel independently, and a
- * control assembled from a cast could disagree with the wire and still pass.
+ * Rebuilt from the scenario's own TYPED reply rather than by spreading an `unknown`
+ * or parsing it here: the negative control's whole claim is that the two arrays travel
+ * independently, a control assembled from a cast could disagree with the wire and
+ * still pass, and the bridge door is the console's one parser — a suite that reached
+ * the contract's schema would be a second one.
  */
 function scenarioWithoutClones(): ConsoleScenario {
-  const scripted = REPOS_SCENARIO.replies.find(
-    (reply): reply is ScenarioResolvingReply =>
-      reply.call === ROOT_READ_CALL && reply.result !== undefined,
-  );
-  if (scripted === undefined) {
-    throw new Error(`the repos scenario scripts no \`${ROOT_READ_CALL}\` reply to strip`);
-  }
-  const answered = WorktreeStatusReadResponseSchema.parse(scripted.result);
   return {
     ...REPOS_SCENARIO,
     id: "repos-without-clones",
     replies: [
       ...REPOS_SCENARIO.replies.filter((reply) => reply.call !== ROOT_READ_CALL),
-      { call: ROOT_READ_CALL, result: { ...answered, ephemeralClones: [] } },
+      { call: ROOT_READ_CALL, result: { ...REPOS_WORKTREE_STATUS_REPLY, ephemeralClones: [] } },
     ],
   };
 }
