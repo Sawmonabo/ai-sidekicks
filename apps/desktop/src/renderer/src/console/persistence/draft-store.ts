@@ -50,12 +50,15 @@ export interface DraftStoreOptions {
    * restart. True for a real window; a test that does not care passes false.
    */
   readonly restartNoticePending?: boolean;
-  /** Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded. */
-  readonly maximumDraftCount?: number;
+  /**
+   * Ceiling on live drafts. Oldest is evicted past it, so a long session is bounded.
+   *
+   * Required, and supplied by the caller rather than defaulted here: the bound's
+   * home is `core/constants.ts` and this module imports nothing at all, so a
+   * default in this file would be the console's second home for one number.
+   */
+  readonly maximumDraftCount: number;
 }
-
-/** The default ceiling: more composers than a person has open, and still bounded. */
-export const MAXIMUM_LIVE_DRAFT_COUNT = 64;
 
 export class DraftStore {
   readonly #draftsByKey = new Map<string, DraftEntry>();
@@ -64,10 +67,10 @@ export class DraftStore {
   readonly #maximumDraftCount: number;
   #restartNoticePending: boolean;
 
-  public constructor(options: DraftStoreOptions = {}) {
+  public constructor(options: DraftStoreOptions) {
     this.#now = options.now ?? (() => Date.now());
     this.#restartNoticePending = options.restartNoticePending ?? true;
-    this.#maximumDraftCount = options.maximumDraftCount ?? MAXIMUM_LIVE_DRAFT_COUNT;
+    this.#maximumDraftCount = options.maximumDraftCount;
   }
 
   /**

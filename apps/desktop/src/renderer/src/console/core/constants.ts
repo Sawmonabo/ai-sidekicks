@@ -108,6 +108,28 @@ export const PERSISTENCE_RECORD_BYTE_CAP: number = 64 * 1024;
  */
 export const PERSISTENCE_QUOTA_PRESSURE_RATIO = 0.8;
 
+/**
+ * The longest identifier the persistence grammar admits. A UUID is 36 characters
+ * and a namespaced command id is well under this; prose is not.
+ *
+ * Held to by two boundaries rather than one — the durable value walk and the pane
+ * address parse — which is why it is a bound with a home and not a literal beside
+ * either of them.
+ */
+export const IDENTIFIER_MAX_LENGTH = 128;
+
+/**
+ * Live composer drafts one window holds before the oldest is evicted.
+ *
+ * More composers than a person has open, and still bounded: drafts are held in
+ * memory and never persisted, so the ceiling is what keeps a long session's
+ * abandoned text from growing without limit. It is supplied to `DraftStore` by the
+ * frame rather than defaulted inside it, because that module imports nothing at all
+ * — `draft-non-persistence.test.ts` asserts the zero, since acquiring anything there
+ * is the first move of persisting a draft.
+ */
+export const MAXIMUM_LIVE_DRAFT_COUNT = 64;
+
 /** Commands the palette remembers. Enough to cover a working session's rhythm. */
 export const PALETTE_RECENTS_CAP = 8;
 
@@ -118,11 +140,35 @@ export const PALETTE_RECENTS_CAP = 8;
 export const PALETTE_RESULT_CAP = 40;
 
 /**
+ * Rows a bounded enumeration shows before it scrolls.
+ *
+ * Six, and the number is a ceiling rather than a preference. The shortest window
+ * the console ships is 720 px tall (the agent-console auxiliary geometry), which is
+ * 45 rem at the 16 px root; an enumeration allowed to take more than a third of
+ * that would leave the surface holding it with nothing else on screen. Six rows is
+ * 13.875 rem and clears that third; seven is 16.1875 rem and does not. The rem
+ * height itself is the token family's, because it is this count multiplied by a row
+ * height the type and space scales decide.
+ */
+export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
+
+/**
  * Maximum nesting depth of a keybinding when-clause. Bounded so a malformed or
  * hostile expression cannot recurse the parser; past the bound the clause is
  * refused and the binding evaluates false, which is the fail-closed arm.
  */
 export const WHEN_CLAUSE_MAX_DEPTH = 8;
+
+/**
+ * Distinct context keys a pair of when-clauses may name before
+ * `whenClausesCanOverlap` stops enumerating.
+ *
+ * Twelve keys is 4096 assignments per pair, checked only for bindings that share a
+ * chord — microseconds, once, at install. It is set by what a human writes: a
+ * console clause names two or three keys, and a pair naming thirteen is a design
+ * smell long before it is a performance problem.
+ */
+export const WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS = 12;
 
 /**
  * Participant chips the cast bar shows before folding to "+N" (rule 7).

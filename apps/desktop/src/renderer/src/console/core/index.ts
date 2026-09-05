@@ -11,11 +11,14 @@
 export { ManualClock, RealClock, type ConsoleClock, type ScheduledHandle } from "./clock.js";
 export {
   APPLY_COALESCE_MS,
+  BOUNDED_ENUMERATION_MAX_ROWS,
   COMPOSING_NAMED_CAP,
   COMPOSING_RECEIVED_STALE_MS,
   HIDDEN_INVITE_CAP,
+  IDENTIFIER_MAX_LENGTH,
   LIVE_ANNOUNCEMENT_HOLD_MS,
   LIVE_ANNOUNCEMENT_QUEUE_CAP,
+  MAXIMUM_LIVE_DRAFT_COUNT,
   MAX_REPAIRABLE_SEQUENCE_GAP,
   MOUNT_INVENTORY_READ_CAP,
   PALETTE_RECENTS_CAP,
@@ -33,6 +36,7 @@ export {
   SETTLED_INVITE_VISIBLE_CAP,
   TOOL_ALLOWLIST_NAMED_CAP,
   WHEN_CLAUSE_MAX_DEPTH,
+  WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS,
 } from "./constants.js";
 export { Emitter, type EmitterSink, type Unsubscribe } from "./emitter.js";
 // The two fixture-global names whose installers live ABOVE this family and so

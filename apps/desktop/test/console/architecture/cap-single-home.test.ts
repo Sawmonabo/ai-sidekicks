@@ -11,7 +11,7 @@
 // a filename is a rule a filename evades, and `sessions/bounds.ts` is the proof that
 // one already had. The subject is every console source module except the one home,
 // and what it looks for is the EXPORTED NAME: a bound announces itself in its
-// identifier, and the three suffixes below are how this tree spells one.
+// identifier, and `bound-words.ts` is how this tree spells one.
 //
 // Names, not values, and that line is deliberate. A module may hold `slice(0, 2)` or
 // a layout literal and this says nothing about either — the review rule covers those
@@ -30,7 +30,14 @@
 // with a suffix the alternation did not carry. The first three are declaration-boundary
 // misreadings of exactly the class `test/console/typescript-source.ts` exists to end,
 // and the fourth is why the vocabulary is now one exported tuple in
-// `bound-suffixes.ts` rather than an alternation inside a pattern inside this file.
+// `bound-words.ts` rather than an alternation inside a pattern inside this file.
+//
+// AND THE VOCABULARY IS MATCHED BY TOKEN, NOT BY SUFFIX. It was anchored at the end of
+// the identifier, which four bounds walked past by saying WHAT they bound after saying
+// that they bound it. The word carries the claim wherever it sits, so the name is split
+// on `_` and each token is asked whether it IS a bound word — which keeps
+// `DRIVER_LIST_CAPABILITIES_METHOD` out on `CAPABILITIES`, in every position rather
+// than only in the last.
 
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
@@ -42,7 +49,7 @@ import {
   readConsoleSourceModule,
 } from "../console-source-modules.js";
 import { parseSourceText } from "../typescript-source.js";
-import { BOUND_NAME_SUFFIXES } from "./bound-suffixes.js";
+import { BOUND_NAME_WORDS } from "./bound-words.js";
 
 /**
  * The one module allowed to declare a bound.
@@ -56,11 +63,14 @@ const BOUNDS_MODULE = ["console", "core", "constants.ts"].join("/");
  * Whether one binding name is a bound, by the vocabulary and the casing together.
  *
  * The casing half is what separates a constant from a local: a `capThreshold` inside
- * a function body ends in the letters and is not a declaration of a bound.
+ * a function body carries the letters and is not a declaration of a bound. The
+ * vocabulary half reads TOKENS — the name split on `_` — so a bound word is found
+ * wherever it sits, and a longer word that merely begins with one is not found at all.
  */
 function isBoundName(name: string): boolean {
   return (
-    /^[A-Z][A-Z0-9_]*$/u.test(name) && BOUND_NAME_SUFFIXES.some((suffix) => name.endsWith(suffix))
+    /^[A-Z][A-Z0-9_]*$/u.test(name) &&
+    name.split("_").some((token) => BOUND_NAME_WORDS.includes(token))
   );
 }
 
@@ -196,6 +206,40 @@ describe("console bounds — every cap is declared in one module", () => {
         ["export const", "  ATTENTION_ROWS_MAX: number =", "  computeRowBudget();"].join("\n"),
       ),
     ).toStrictEqual(["ATTENTION_ROWS_MAX"]);
+  });
+
+  it("negative control: it catches a bound whose word is not at the end", () => {
+    // The four this vocabulary was widened for. Under the suffix rule each of these
+    // read as no bound at all, so a family could publish a second home for one by
+    // saying WHAT it bounded after saying that it bounded it.
+    const interior = [
+      "export const MAXIMUM_LIVE_DRAFT_COUNT = 64;",
+      "export const IDENTIFIER_MAX_LENGTH = 128;",
+      "export const BOUNDED_ENUMERATION_MAX_ROWS = 6;",
+      "export const WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS = 12;",
+    ].join("\n");
+    expect(declaredBoundNames("interior.ts", interior)).toStrictEqual([
+      "MAXIMUM_LIVE_DRAFT_COUNT",
+      "IDENTIFIER_MAX_LENGTH",
+      "BOUNDED_ENUMERATION_MAX_ROWS",
+      "WHEN_CLAUSE_OVERLAP_MAX_CONTEXT_KEYS",
+    ]);
+  });
+
+  it("negative control: a longer word that merely begins with a bound word is not one", () => {
+    // What the token test buys over a substring test, in the two positions a
+    // substring rule would have got wrong: `CAPABILITY` is not `CAP` and `LIMITED`
+    // is not `LIMIT`, wherever either sits.
+    expect(
+      declaredBoundNames(
+        "longer.ts",
+        [
+          "export const CAPABILITY_PROBE_ROWS = 3;",
+          "export const LIMITED_SCOPE_LABEL = 4;",
+          "export const ROWS_PER_CAPABILITY = 5;",
+        ].join("\n"),
+      ),
+    ).toStrictEqual([]);
   });
 
   it("negative control: it passes what is not a bound", () => {
