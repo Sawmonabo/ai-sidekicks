@@ -36,7 +36,7 @@ import {
   mountBrowserPane,
   mountTerminalPane,
   type MountedFamilySurface,
-} from "../browser-terminal-surfaces.js";
+} from "../surfaces/browser-terminal.js";
 import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";

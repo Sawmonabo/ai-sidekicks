@@ -1,4 +1,4 @@
-// The renderer source the architecture tier reads.
+// The desktop source the architecture tier reads.
 //
 // Not a test file — no `include` glob reaches it; the architecture tier imports it,
 // the way the browser tiers import `console-harness.tsx`. It exists because three
@@ -31,6 +31,13 @@
 // `.test-support.*`, so one gate scanned `fixture-bridge.test-support.ts` and another
 // did not, with nothing reporting the difference.
 //
+// THE ROOTS ARE A PARAMETER TOO, and one gate's subject is the whole package. A
+// stacked documentation block is an editing accident rather than a console one, so
+// `DESKTOP_PROSE_ROOTS` names `src/` and `test/` and the walk resolves a display base
+// per root — see `displayBaseFor`. Nothing else about the walk changes: it is the same
+// recursion, the same file test, and the same `tests` answer, which is exactly why the
+// widening cost a root list rather than a fifth walk.
+//
 // THE SHELL SUBTREE IS LISTED AND MAY BE ABSENT. `src/renderer/src/shell/` is a
 // console tier — it composes console seats and runs under the same fixture define —
 // and it is where the composer's own surfaces live. It does not exist on every
@@ -43,7 +50,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const RENDERER_SOURCE_ROOT = resolve(HERE, "..", "..", "src", "renderer", "src");
+const DESKTOP_PACKAGE_ROOT = resolve(HERE, "..", "..");
+const RENDERER_SOURCE_ROOT = join(DESKTOP_PACKAGE_ROOT, "src", "renderer", "src");
 
 /** The Meridian console. Always present. */
 export const CONSOLE_DIRECTORY: string = join(RENDERER_SOURCE_ROOT, "console");
@@ -53,6 +61,25 @@ export const SHELL_DIRECTORY: string = join(RENDERER_SOURCE_ROOT, "shell");
 
 /** The two roots a console source-text tripwire scans, in scan order. */
 export const CONSOLE_SOURCE_ROOTS: readonly string[] = [CONSOLE_DIRECTORY, SHELL_DIRECTORY];
+
+/**
+ * Every hand-written module in the package, in scan order.
+ *
+ * The roots for a gate whose subject is PROSE rather than console structure. A stacked
+ * documentation block is an editing accident, not a console one: it lands wherever a
+ * declaration was inserted under a block or a block was copied with its declaration,
+ * and both happen in `src/main/`, in a co-located test, and — most of all — in a
+ * `.test-support.*` module, which is where a block gets copied along with the helper
+ * it describes. Scoping such a gate to the console left the two largest homes of the
+ * defect unscanned, and the tests it did not scan outnumber the modules it did.
+ *
+ * Paired with `{ tests: true }` at every call site, which is what reaches the
+ * `.test-support.*` half; the roots alone would still subtract it.
+ */
+export const DESKTOP_PROSE_ROOTS: readonly string[] = [
+  join(DESKTOP_PACKAGE_ROOT, "src"),
+  join(DESKTOP_PACKAGE_ROOT, "test"),
+];
 
 /** One source module, named by the root it was found under. */
 export interface ConsoleSourceModule {
@@ -103,7 +130,7 @@ function walkRoots(
     if (!existsSync(directory)) {
       continue;
     }
-    const rootName = relative(RENDERER_SOURCE_ROOT, directory).split("\\").join("/");
+    const rootName = relative(displayBaseFor(directory), directory).split("\\").join("/");
     for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
       const absolutePath = join(entry.parentPath, entry.name);
       const relativePath = relative(directory, absolutePath);
@@ -119,6 +146,25 @@ function walkRoots(
     }
   }
   return found.sort((left, right) => left.displayPath.localeCompare(right.displayPath));
+}
+
+/**
+ * What a display path is measured from, so one file has one name however it was found.
+ *
+ * The console roots sit inside `src/renderer/src/`, and their modules have been named
+ * `console/…` and `shell/…` since the first tripwire — every gate's failure text and
+ * every {@link moduleNamed} lookup spells them that way. The package-wide roots sit
+ * above that anchor, where the same rule would produce `../../…`, so they measure from
+ * the package instead and read `src/main/…` and `test/console/…`.
+ *
+ * Two vocabularies rather than one because renaming into a single one would rewrite
+ * the lookups in every gate that has a subject inside the console — the cost is that
+ * a console module found through the package-wide roots is named the long way, which
+ * is still exactly where it lives.
+ */
+function displayBaseFor(directory: string): string {
+  const insideRenderer = relative(RENDERER_SOURCE_ROOT, directory);
+  return insideRenderer.startsWith("..") ? DESKTOP_PACKAGE_ROOT : RENDERER_SOURCE_ROOT;
 }
 
 /**

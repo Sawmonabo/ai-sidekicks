@@ -36,7 +36,11 @@ import { useCallback } from "react";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { normalizeWireRejection, refuse, type ConsoleRefusal } from "../../core/index.js";
-import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
+import {
+  useSubjectScopedResource,
+  useSubjectScopedState,
+  type SubjectScopedDisposal,
+} from "../../store/index.js";
 
 /** The subsystem name every refusal this pane raises itself carries. */
 const BROWSER_PANE_REFUSAL_ORIGIN = "browser-pane";
@@ -85,6 +89,21 @@ class BrowserActSequence {
   }
 }
 
+/**
+ * How the holder lets a sequence go when the subject moves or the pane unmounts.
+ *
+ * A RELEASE rather than a terminal disposal: superseding advances the counter and
+ * leaves the object working, so there is no closed state to read and no corpse a
+ * second mount could be handed. Declared at module level so its identity is stable
+ * across renders, which is what keeps the holder's dependency list from moving every
+ * pass.
+ */
+const BROWSER_ACT_SEQUENCE_DISPOSAL: SubjectScopedDisposal<BrowserActSequence> = {
+  release: (retired) => {
+    retired.supersedeOutstanding();
+  },
+};
+
 /** The pane's acts, and the one refusal they report between them. */
 export interface BrowserPaneActs {
   /** The newest act's refusal, or `undefined` where the newest act did not refuse. */
@@ -120,9 +139,7 @@ export function useBrowserPaneActs(bridge: ConsoleBridge, paneId: string): Brows
     bridge,
     paneId,
     () => new BrowserActSequence(),
-    (retired) => {
-      retired.supersedeOutstanding();
-    },
+    BROWSER_ACT_SEQUENCE_DISPOSAL,
   );
   const { value: refusal, publish } = useSubjectScopedState<ConsoleRefusal | undefined>(
     bridge,

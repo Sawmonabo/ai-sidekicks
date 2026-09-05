@@ -21,9 +21,11 @@
 import { describe, expect, it } from "vitest";
 import {
   GLYPH_DEFAULT_SIZE,
-  GLYPH_SIZE_CHROME,
   GLYPH_NAMES,
   GLYPH_PATHS,
+  GLYPH_SIZE_CHROME,
+  GLYPH_SIZE_DENSE,
+  GLYPH_SIZE_ROW,
   GLYPH_STROKE_WIDTH,
   GLYPH_VIEWBOX_SIZE,
   isGlyphName,
@@ -189,5 +191,39 @@ describe("the glyph family — the geometry every glyph shares", () => {
     // Both are edge lengths for the same 16-unit path data. A size above the box
     // would upscale the stroke past the weight rule 1 fixes.
     expect(GLYPH_DEFAULT_SIZE).toBeLessThanOrEqual(GLYPH_VIEWBOX_SIZE);
+  });
+});
+
+describe("the icon scale — three steps, in order, all subordinate to the default", () => {
+  // Read as one array rather than as three comparisons, so the ordering claim is made
+  // over the whole scale: a fourth step inserted anywhere is covered by the same case
+  // without an assertion having to be remembered for it.
+  const SCALE = [GLYPH_SIZE_DENSE, GLYPH_SIZE_ROW, GLYPH_SIZE_CHROME];
+
+  it("increases strictly, so no two steps are the same size under two names", () => {
+    const ascending = SCALE.every(
+      (size, index) => index === 0 || size > (SCALE[index - 1] ?? Number.POSITIVE_INFINITY),
+    );
+    expect(ascending).toBe(true);
+  });
+
+  it("negative control: the same check fails on a scale that repeats or inverts", () => {
+    // The shape the eight per-component copies had — two callers at 12 under two
+    // names — would pass a `<=` comparison and is exactly what a scale must not be.
+    const repeated = [10, 12, 12];
+    const inverted = [14, 12, 10];
+    for (const candidate of [repeated, inverted]) {
+      const ascending = candidate.every(
+        (size, index) => index === 0 || size > (candidate[index - 1] ?? Number.POSITIVE_INFINITY),
+      );
+      expect(ascending).toBe(false);
+    }
+  });
+
+  it("sits entirely below the standalone default, because every step is subordinate", () => {
+    for (const size of SCALE) {
+      expect(size).toBeGreaterThan(0);
+      expect(size).toBeLessThan(GLYPH_DEFAULT_SIZE);
+    }
   });
 });

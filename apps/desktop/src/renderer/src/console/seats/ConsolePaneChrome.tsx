@@ -44,6 +44,14 @@
 // pane rendered outside a deck is simply not draggable — the absent-not-disabled rule
 // again, applied to a gesture.
 //
+// AND SO IS THE PANE-LEVEL KEY CLAIM, for the same structural reason. A chord that
+// means "this pane" has to be heard wherever focus is inside the pane, and the head
+// is not inside the body — so a family that wants one cannot get it by wrapping its
+// own body, and wrapping the chrome from OUTSIDE puts an element between the deck and
+// the section it lays out. The browser pane shipped exactly that adapter, with
+// `display: contents` on it to stop the deck seeing a box; the prop below is what it
+// was standing in for.
+//
 // ITS STYLESHEET IS IMPORTED BY THE FAMILY DOOR, `seats/index.ts`, which is where
 // every other console family imports its own — `primitives/index.ts` and
 // `frame/index.ts` are the precedent and `apps/desktop/AGENTS.md` is the rule. The
@@ -128,6 +136,46 @@ const PANE_COMPOSITION_ORIGIN = "pane-composition";
 export type PaneContextOf<TKind extends PaneKind> = Extract<ConsolePaneContext, { kind: TKind }>;
 
 /**
+ * What a body that does not take its own kind's context resolves to.
+ *
+ * A UNIQUE SYMBOL SO THE FAILURE NAMES THE RULE. The mechanism is an intersection the
+ * argument cannot satisfy, and without a distinctive member the compiler reports it as
+ * an unassignable anonymous object — a reader would see a type error and not the
+ * standard it broke.
+ */
+declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
+
+/**
+ * Nothing, for a body whose parameter is EXACTLY this kind's context; a refusal
+ * otherwise.
+ *
+ * WHY EXACTNESS AND NOT ASSIGNABILITY. A function parameter is checked
+ * contravariantly, so a body annotated with a WIDER type than the context — a
+ * `Pick<…>` of two members, a hand-written props interface naming a subset — is
+ * assignable and compiled silently. That is how one pane body came to declare its own
+ * props type while its sibling used the seat's: both compiled, and the seat's contract
+ * was restated per family with nothing reporting the divergence. Mutual assignability
+ * is what separates "safe" from "the same type".
+ *
+ * A BODY THAT DECLARES NO PARAMETER IS ADMITTED. Ignoring the context is not restating
+ * it — there is no second spelling of the contract to drift from — and most pane
+ * bodies in the tree take nothing at all.
+ *
+ * The tuple wrappers stop both checks distributing over the context union, which would
+ * ask the question arm by arm and answer it for a kind nobody named.
+ */
+type ExactPaneBody<
+  TKind extends PaneKind,
+  TBody extends (context: PaneContextOf<TKind>) => React.ReactNode,
+> = Parameters<TBody>["length"] extends 0
+  ? unknown
+  : [Parameters<TBody>[0]] extends [PaneContextOf<TKind>]
+    ? [PaneContextOf<TKind>] extends [Parameters<TBody>[0]]
+      ? unknown
+      : { readonly [PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT]: TKind }
+    : { readonly [PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT]: TKind };
+
+/**
  * Adapt a body written for ONE pane kind into the render the registry stores.
  *
  * `ConsolePaneDescriptor.render` takes the whole `ConsolePaneContext` union, because
@@ -144,9 +192,12 @@ export type PaneContextOf<TKind extends PaneKind> = Extract<ConsolePaneContext, 
  * the whole window down for a pane; the refusal keeps the frame and names what was
  * asked for.
  */
-export function paneBodyForKind<TKind extends PaneKind>(
+export function paneBodyForKind<
+  TKind extends PaneKind,
+  TBody extends (context: PaneContextOf<TKind>) => React.ReactNode,
+>(
   kind: TKind,
-  renderBody: (context: PaneContextOf<TKind>) => React.ReactNode,
+  renderBody: TBody & ExactPaneBody<TKind, TBody>,
 ): (context: ConsolePaneContext) => React.ReactNode {
   return (context) =>
     context.kind === kind ? (
@@ -198,6 +249,25 @@ export interface ConsolePaneChromeProps {
    * is silently unused rather than drawing a button the window model cannot serve.
    */
   readonly onOpenInWindow?: () => void;
+  /**
+   * A pane-level key claim, bound on the chrome's own `<section>`.
+   *
+   * IT IS ON THE SECTION AND NOT ON THE BODY, and that is the whole reason the seam
+   * exists. What a pane-level chord protects is the WINDOW, so the claim has to cover
+   * every element the chord can be pressed on while this pane has focus — and the head
+   * this chrome draws is not a descendant of the body a family supplies. A family that
+   * wraps `<ConsolePaneChrome>` from the outside to get the capture is drawing a second
+   * element around a laid-out pane; the one that shipped had to declare
+   * `display: contents` to stop the deck seeing a box, which is an adapter that exists
+   * only because this prop did not.
+   *
+   * CAPTURE and not bubble, on the same reasoning: the claim is the pane's, so it is
+   * decided before whatever the person was typing into sees the key. A handler that
+   * does not claim the event simply returns — nothing here calls `preventDefault` or
+   * `stopPropagation` on the caller's behalf, because which keys belong to the pane is
+   * the pane's question and not this frame's.
+   */
+  readonly onKeyDownCapture?: (event: React.KeyboardEvent<HTMLElement>) => void;
   readonly children: React.ReactNode;
 }
 
@@ -240,6 +310,7 @@ export function ConsolePaneChrome(props: ConsolePaneChromeProps): React.JSX.Elem
       aria-labelledby={headingId}
       tabIndex={-1}
       style={focusRingStyle}
+      onKeyDownCapture={props.onKeyDownCapture}
     >
       <header className="meridian-pane__head" ref={registerDragHandle}>
         <span className="meridian-pane__kind">

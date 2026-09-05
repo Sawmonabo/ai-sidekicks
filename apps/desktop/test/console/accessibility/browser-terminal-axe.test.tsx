@@ -24,7 +24,7 @@ import {
   mountBrowserPane,
   mountTerminalPane,
   type MountedFamilySurface,
-} from "../browser-terminal-surfaces.js";
+} from "../surfaces/browser-terminal.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,

@@ -111,8 +111,21 @@ export { PartialRead } from "./PartialRead.js";
 // route a surface has to the announcer for this case: a family that wrote its own
 // "announce once" latch would be the second latch, and one that made its own region
 // would be the second speaker `LiveAnnouncerProvider` forbids.
+//
+// THE WORKFLOWS FAMILY IS NOT ON THIS CLAIM, and its absence is a finding rather than
+// an omission. That family's two rendering sites are the one place a reader was
+// expected and neither can be one: its scope picker announces nothing at all by
+// design, and its browser's continuation refusal is already spoken through the
+// family's own settlement adapter, so binding here would say that refusal twice.
+// The two latches are also not the same latch — this one dedups on the SENTENCE SET,
+// which is right for an incomplete-reading notice and wrong for a settlement, where
+// two sessions holding the same number of rows say the same words and the second
+// would go unspoken. A caller-supplied dedup key would make one primitive serve both
+// and retire that adapter; it is not minted here, because a parameter with no caller
+// is a policy question moved out of the primitive that currently answers it and into
+// every call site. The family that would spend it owns that call.
 export {
-  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5 */
   useReadingAnnouncement,
 } from "./reading-announcement.js";
 

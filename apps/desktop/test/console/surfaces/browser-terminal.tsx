@@ -24,30 +24,30 @@
 import { waitFor, within } from "@testing-library/react";
 import type { FunctionComponent } from "react";
 
-import { renderSettled } from "./console-harness.js";
+import { renderSettled } from "../console-harness.js";
 
-import { registerBrowserPanes } from "../../src/renderer/src/console/browser/index.js";
-import { BrowserCaptureCard } from "../../src/renderer/src/console/browser/cards/CaptureCard.js";
-import { TERMINAL_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/terminal.js";
-import { fixtureSessionSnapshot } from "../../src/renderer/src/console/bridge/fixture-session-snapshot.js";
-import { BROWSER_SCENARIO } from "../../src/renderer/src/console/bridge/scenarios/browser.js";
+import { registerBrowserPanes } from "../../../src/renderer/src/console/browser/index.js";
+import { BrowserCaptureCard } from "../../../src/renderer/src/console/browser/cards/CaptureCard.js";
+import { TERMINAL_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/terminal.js";
+import { fixtureSessionSnapshot } from "../../../src/renderer/src/console/bridge/fixture-session-snapshot.js";
+import { BROWSER_SCENARIO } from "../../../src/renderer/src/console/bridge/scenarios/browser.js";
 import {
   createFixtureBridge,
   type ConsoleBridge,
-} from "../../src/renderer/src/console/bridge/index.js";
-import { releaseQueuedPaneFrames } from "../../src/renderer/src/console/browser/pane/BrowserPane.test-support.js";
-import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
+} from "../../../src/renderer/src/console/bridge/index.js";
+import { releaseQueuedPaneFrames } from "../../../src/renderer/src/console/browser/pane/BrowserPane.test-support.js";
+import { DraftStore, UiStateStore } from "../../../src/renderer/src/console/persistence/index.js";
 import {
   FrameStore,
   SessionStore,
   type ConsoleSessionEvent,
-} from "../../src/renderer/src/console/store/index.js";
-import { registerTerminalPanes } from "../../src/renderer/src/console/terminal/index.js";
+} from "../../../src/renderer/src/console/store/index.js";
+import { registerTerminalPanes } from "../../../src/renderer/src/console/terminal/index.js";
 import {
   ConsolePaneRegistry,
   type ConsolePaneContext,
   type PaneKind,
-} from "../../src/renderer/src/console/seats/index.js";
+} from "../../../src/renderer/src/console/seats/index.js";
 
 /**
  * A registry carrying exactly this family's two claims.

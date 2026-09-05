@@ -15,7 +15,7 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
 import { consoleOcclusionRegistryFor } from "../geometry/occlusion-registry.js";
 import { resolvePaneViewHost, type PaneViewHost } from "../geometry/view-host.js";
-import { useSubjectScopedResource } from "../../store/index.js";
+import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../store/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 
 /**
@@ -99,6 +99,21 @@ function isGeometryBindingClosed(bound: BoundGeometryPublisher): boolean {
 }
 
 /**
+ * How the holder ends a binding, and how it reads one that already ended.
+ *
+ * A terminal disposal rather than a release, because `dispose` is what the publisher
+ * documents it as: the reading is what lets the holder re-mint for React's second
+ * mount instead of committing the corpse the first mount's teardown left. Declared at
+ * module level so both members keep one identity across every render — the hook holds
+ * them on their own dependency, and a literal built in the body would move the list
+ * every pass.
+ */
+const GEOMETRY_BINDING_DISPOSAL: SubjectScopedDisposal<BoundGeometryPublisher> = {
+  dispose: closeGeometryBinding,
+  isClosed: isGeometryBindingClosed,
+};
+
+/**
  * Publish this pane's rectangle for the life of the mount, and RENDER what the host
  * said back.
  *
@@ -150,8 +165,7 @@ export function useGeometryPublisher(
     bridge,
     paneId,
     openBinding,
-    closeGeometryBinding,
-    isGeometryBindingClosed,
+    GEOMETRY_BINDING_DISPOSAL,
   );
   const publisher = bound.publisher;
   const subscribe = useCallback(
