@@ -8,19 +8,14 @@
 // no effect run exists to consume it — the same steal, reached by a key that asked for
 // nothing.
 //
-// The list and the two scans come from `windowed-row-index.test-support.tsx`.
+// The list and the two scans come from `RovingList.test-support.tsx` / `windowed-row-index.test-support.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import {
-  ListWithNeighbour,
-  RovingList,
-  listOf,
-  neighbourOf,
-  pressEnd,
-  tabbableIndexes,
-} from "./windowed-row-index.test-support.js";
+import { ListWithNeighbour, neighbourOf } from "./ListWithNeighbour.test-support.js";
+import { RovingList } from "./RovingList.test-support.js";
+import { listOf, pressEnd, tabbableIndexes } from "./windowed-row-index.test-support.js";
 
 describe("useWindowedRovingIndex — a pending move is spent once, never left standing", () => {
   it("does not steal focus on a later window change once the move has expired", async () => {

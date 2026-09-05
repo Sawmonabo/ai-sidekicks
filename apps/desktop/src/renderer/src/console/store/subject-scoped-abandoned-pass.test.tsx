@@ -40,10 +40,10 @@ import {
   type NamedFixtureSubject,
 } from "./subject-fixtures.test-support.js";
 import { SubjectScopedHolder } from "./subject-scoped-holder.js";
+import { ResourceDetourProbe } from "./ResourceDetourProbe.test-support.js";
+import { ValueDetourProbe } from "./ValueDetourProbe.test-support.js";
 import {
   DETOUR_KEY,
-  ResourceDetourProbe,
-  ValueDetourProbe,
   type ResourceProbeProps,
   type ValueProbeProps,
 } from "./subject-scoped-probes.test-support.js";

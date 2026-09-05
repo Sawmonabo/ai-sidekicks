@@ -132,8 +132,19 @@ const TWO_COMPONENTS_IN_ONE_MODULE = [
 ].join("\n");
 
 describe("one component per module — the console's .tsx modules", () => {
-  const componentModules: readonly ConsoleSourceModule[] = consoleSourceModules().filter((module) =>
-    module.displayPath.endsWith(".tsx"),
+  // The rule (`apps/desktop/AGENTS.md` §Module layout) binds every `.tsx` module the
+  // console ships or shares: production components and the `.test-support.tsx`
+  // scaffolding suites import, which is a module like any other. A co-located
+  // `.test.tsx` is the one exemption the rule itself states — its probe components are
+  // private to its cases — so the walk includes tests and the filter removes exactly
+  // that suffix, never the support modules.
+  const componentModules: readonly ConsoleSourceModule[] = consoleSourceModules({
+    tests: true,
+  }).filter(
+    (module) => module.displayPath.endsWith(".tsx") && !module.displayPath.endsWith(".test.tsx"),
+  );
+  const productionComponentModules: readonly ConsoleSourceModule[] = componentModules.filter(
+    (module) => !module.displayPath.endsWith(".test-support.tsx"),
   );
 
   it("finds the .tsx modules to scan at all", () => {
@@ -144,7 +155,7 @@ describe("one component per module — the console's .tsx modules", () => {
     // Non-vacuity, and the reason the predicate reads return types as well as JSX: a
     // module resolving to zero components would score clean against a rule that was
     // never applied to it, and `Nothing.tsx` really is such a module.
-    const silent = componentModules
+    const silent = productionComponentModules
       .filter(
         (module) =>
           componentNamesIn(readConsoleSourceModule(module), module.displayPath).length === 0,

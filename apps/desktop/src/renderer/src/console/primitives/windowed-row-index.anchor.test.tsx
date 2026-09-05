@@ -10,17 +10,13 @@
 //
 // So two claims are driven here: the anchor is ASKED FOR, and until it arrives the
 // nearest mounted row holds the stop. The list and the Tab scans come from
-// `windowed-row-index.test-support.tsx`.
+// `RovingList.test-support.tsx` / `windowed-row-index.test-support.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  RovingList,
-  listOf,
-  sequentialTabStops,
-  tabbableIndexes,
-} from "./windowed-row-index.test-support.js";
+import { RovingList } from "./RovingList.test-support.js";
+import { listOf, sequentialTabStops, tabbableIndexes } from "./windowed-row-index.test-support.js";
 
 describe("useWindowedRovingIndex — an anchor outside the mounted window", () => {
   it("asks the window for the anchor rather than assuming it is mounted", () => {

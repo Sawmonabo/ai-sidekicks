@@ -9,7 +9,7 @@
 //
 // A `.tsx` file because the hook half needs a tree to move focus inside. The pure
 // half is driven directly, without one. The fixture and the two Tab scans live in
-// `windowed-row-index.test-support.tsx`, which the claim-expiry and anchor suites
+// `RovingList.test-support.tsx` / `windowed-row-index.test-support.ts`, which the claim-expiry and anchor suites
 // beside this one drive the same list through.
 
 import { act, render } from "@testing-library/react";
@@ -23,12 +23,8 @@ import {
   movedRowIndex,
   type WindowedRowMove,
 } from "./windowed-row-index.js";
-import {
-  RovingList,
-  listOf,
-  sequentialTabStops,
-  tabbableIndexes,
-} from "./windowed-row-index.test-support.js";
+import { RovingList } from "./RovingList.test-support.js";
+import { listOf, sequentialTabStops, tabbableIndexes } from "./windowed-row-index.test-support.js";
 
 describe("windowed-row-index — where a move lands", () => {
   it("clamps at both ends rather than wrapping", () => {
