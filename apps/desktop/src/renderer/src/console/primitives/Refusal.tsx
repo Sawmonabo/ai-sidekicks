@@ -30,7 +30,7 @@
 
 import type { ConsoleRefusal } from "../core/index.js";
 import { Glyph } from "./Glyph.js";
-import { WireFigure } from "./Figure.js";
+import { WireFigure } from "./WireFigure.js";
 import { formatWireString } from "./wire-figures.js";
 
 /**
