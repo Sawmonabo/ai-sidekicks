@@ -110,7 +110,7 @@ describe("stylesheet edges — a sheet is imported from its family's door and no
     // how a family ends up with its styling split across import paths. And the
     // legitimate case beside it, including a door reaching into a sub-module
     // directory for a sheet, which the repos family door does three times.
-    expect(isFamilyDoor("repos/RepoSection.tsx")).toBe(false);
+    expect(isFamilyDoor("repos/mounts/RepoSection.tsx")).toBe(false);
     expect(isFamilyDoor("repos/index.ts")).toBe(true);
     expect(importedStylesheets('import "../repos/artifact-pane/artifact.css";\n')).toStrictEqual([
       "../repos/artifact-pane/artifact.css",

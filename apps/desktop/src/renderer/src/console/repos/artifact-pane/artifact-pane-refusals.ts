@@ -108,7 +108,7 @@ export function readFailureRefusal(error: unknown): WireRefusal {
  * on rather than the one that was pressed: a participant told "something is in
  * flight" cannot tell what. The control that produced it is held while a fetch is
  * pending, so this is structurally unreachable from the pane — and recorded anyway,
- * for `repos/proposal-gate-actions.ts`'s reason: a press that produced nothing at all
+ * for `repos/proposals/proposal-gate-actions.ts`'s reason: a press that produced nothing at all
  * is the silent no-op rule 8 forbids.
  */
 export function payloadFetchInFlightRefusal(pendingArtifactId: string): ConsoleRefusal {

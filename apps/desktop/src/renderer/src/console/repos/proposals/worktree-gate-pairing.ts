@@ -9,7 +9,7 @@
 // what the rule below exists to answer.
 //
 // The branch-context read is keyed by a workspace AND a worktree
-// (`bridge/growth-signatures.ts`), and no registered reply pairs them: a worktree row
+// (`bridge/growth-signatures/gitflow.ts`), and no registered reply pairs them: a worktree row
 // carries `repoMountId` and no workspace id, and a workspace row carries no worktree
 // id at all. The only relation either read establishes is the mount both sit under,
 // so this module states the one inference that relation licenses and refuses the

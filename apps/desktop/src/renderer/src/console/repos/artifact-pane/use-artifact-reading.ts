@@ -1,7 +1,7 @@
 // How a React surface holds one artifact pane's reader, and nothing about what the
 // reader reads.
 //
-// Split from `artifact-reader.ts` on the seam `repos/proposal-gate-binding.ts` already
+// Split from `artifact-reader.ts` on the seam `repos/proposals/proposal-gate-binding.ts` already
 // cuts: the class beside this one owns the READ — which calls, on which of the four
 // reasons, and what it publishes when one does not answer — and this module owns the
 // BINDING, which is a different subject with a different collaborator (React's

@@ -24,7 +24,7 @@ export interface GitflowGrowthSignatures {
   // `params` IS REQUIRED AND ITS CONTENT IS THE CALLER'S. The wire types it
   // `Record<string, unknown>` — the action vocabulary is unregistered, so the daemon
   // cannot type the parameters of an action it has not named — which makes the members
-  // a caller's to state and to justify. `repos/git-action-request.ts` is where this
+  // a caller's to state and to justify. `repos/proposals/git-action-request.ts` is where this
   // console states them, per act, from the branch context it read; nothing here
   // defaults it, because a default would be a parameter no read supplied.
   //

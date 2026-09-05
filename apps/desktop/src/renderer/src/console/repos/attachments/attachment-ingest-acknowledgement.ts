@@ -45,7 +45,8 @@ import { reportTripwire } from "../../core/index.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /** Where this reading's tripwire reports from, so a firing names a module. */
-export const ATTACHMENT_ACKNOWLEDGEMENT_SITE = "repos/attachment-ingest-acknowledgement.ts";
+export const ATTACHMENT_ACKNOWLEDGEMENT_SITE =
+  "repos/attachments/attachment-ingest-acknowledgement.ts";
 
 /**
  * Why the console stopped an ingest on the strength of the daemon's own reply.

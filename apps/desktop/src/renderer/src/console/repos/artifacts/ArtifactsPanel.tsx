@@ -93,7 +93,7 @@ export interface ArtifactsPanelProps {
   /**
    * Re-read one row's manifest.
    *
-   * NAMED FOR WHAT THE READ SERVES. `bridge/growth-signatures.ts` registers
+   * NAMED FOR WHAT THE READ SERVES. `bridge/growth-signatures/artifacts.ts` registers
    * `artifactRead` as answering one manifest summary, with no request member that
    * asks for a payload and no reply member that carries one — the wire's own
    * `payloadHandle` / `payload` pair is on no console port. A control called "fetch

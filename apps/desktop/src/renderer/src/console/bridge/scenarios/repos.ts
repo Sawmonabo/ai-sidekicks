@@ -10,11 +10,11 @@
 //
 // Beyond the two mounts it states four more facts the family's surfaces are drawn
 // against, each of which was previously unreachable: an execution root per agent
-// (`repos/RepoSection.tsx`'s two lists), a proposal waiting at the gate with the branch
-// context it is bound to (`repos/ProposalGate.tsx`), a run that was rewound after
-// publishing work (`repos/FileRestoreDisclosure.tsx`), and three attachments whose
+// (`repos/mounts/RepoSection.tsx`'s two lists), a proposal waiting at the gate with the branch
+// context it is bound to (`repos/proposals/ProposalGate.tsx`), a run that was rewound after
+// publishing work (`repos/restore/FileRestoreDisclosure.tsx`), and three attachments whose
 // payloads stand in three different places
-// (`repos/AttachmentCard.tsx`'s unresolved arm). Every one of them is a beat or a
+// (`repos/attachments/AttachmentCard.tsx`'s unresolved arm). Every one of them is a beat or a
 // scripted reply, so
 // a surface reaches it by advancing the frozen clock and nothing else.
 //

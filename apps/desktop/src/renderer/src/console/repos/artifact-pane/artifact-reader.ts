@@ -8,19 +8,19 @@
 // THE ONE DECISION IN THIS FILE IS WHAT TO DO WITH A SERVED LIST, AND IT HAS CHANGED.
 // The growth port's `artifactList` used to answer a four-member payload summary —
 // `artifactId`, `name`, `byteLength`, `contentType` — while the row
-// `repos/artifact-model.ts` builds renders the MANIFEST ENVELOPE, and none of the
+// `repos/artifacts/artifact-model.ts` builds renders the MANIFEST ENVELOPE, and none of the
 // missing members was derivable from the four that
 // were present. So a served list was REFUSED with the console's own code rather than
 // mapped, and that refusal named the gap "so the day the shape lands the fix is a
 // mapping and not an archaeology". The shape landed: `GrowthArtifactSummary` now
 // mirrors `api-payload-contracts.md §ArtifactManifest` member for member. The fix is
 // the mapping, and it lives on the model beside the vocabularies it fills
-// (`repos/artifact-model.ts:artifactManifestRowFromSummary`) rather than here, because
+// (`repos/artifacts/artifact-model.ts:artifactManifestRowFromSummary`) rather than here, because
 // what a served row IS is a model question and this file owns only who asked.
 //
 // NO TIMER AND NO POLL, AND ALSO NO RACE. The reads run once when the pane mounts and
 // again when the participant asks, and BOTH go through the console's one
-// `RefreshScheduler` (`store/scheduling.ts`, the `repos/repo-mounts-reader.ts`
+// `RefreshScheduler` (`store/scheduling.ts`, the `repos/mounts/repo-mounts-reader.ts`
 // precedent) rather than straight at the port. A reader that called the port on every
 // press started a second list/allow-list pair beside the first: two presses cost two
 // read pairs, an older answer could land after a newer one and overwrite it, and the
@@ -98,7 +98,7 @@ const ARTIFACT_EVENT_NAMESPACE_PREFIX = "artifact.";
  * Every registered frame that names an artifact.
  *
  * DERIVED FROM THE CONTRACT'S OWN CENSUS rather than hand-listed, on
- * `repos/repo-refresh-triggers.ts`'s shape and for its reason: the three kinds this
+ * `repos/repo-lifecycle-events.ts`'s shape and for its reason: the three kinds this
  * used to spell out are a snapshot of a registry that grows, so a fourth
  * `artifact.*` kind — a retention sweep, a re-publication — would have reached this
  * pane and been ignored, with the list on screen going stale and nothing anywhere
@@ -137,7 +137,7 @@ export interface ArtifactPaneReaderOptions {
   /**
    * The session to read, and three of the four reasons to read again.
    *
-   * The STORE rather than a bare session id, on `repos/repo-mounts-reader.ts`'s
+   * The STORE rather than a bare session id, on `repos/mounts/repo-mounts-reader.ts`'s
    * reason: the artifact frames and the repair edge that stands for reconnect are
    * both transitions of this object, and a reader handed only an id could observe
    * neither. The id is read off it, so the pane and the store can never name two
@@ -338,7 +338,7 @@ export class ArtifactPaneReader {
    * This reader's half of the act seam, as the one object the acts are given.
    *
    * AN ADAPTER RATHER THAN A PUBLIC `implements` CLAUSE, on
-   * `repos/proposal-gate-reader.ts`'s reason: every member reads or writes state this
+   * `repos/proposals/proposal-gate-reader.ts`'s reason: every member reads or writes state this
    * class owns — `publish` alone would let any caller put an arbitrary reading on the
    * pane — and implementing the port on the class would have to make all five public
    * to do it. The port stays one declaration, the acts stay unable to reach anything

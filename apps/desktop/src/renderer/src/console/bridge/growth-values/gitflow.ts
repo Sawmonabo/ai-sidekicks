@@ -15,7 +15,7 @@
  * is retained across workspaces, so the worktree alone is 1:N and the PAIR is what
  * resolves one row. Both arms are declared because both are registered and this port
  * mirrors registered shapes; which of them a caller can fill is the caller's own
- * question, and `repos/proposal-gate-model.ts` answers it once as a read plan — the
+ * question, and `repos/proposals/proposal-gate-model.ts` answers it once as a read plan — the
  * console holds no `BranchContextId`, because that id is minted by
  * `repo.executionRootPrepare`, a wire no growth row carries.
  *

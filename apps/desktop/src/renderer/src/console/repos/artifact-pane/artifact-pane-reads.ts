@@ -32,7 +32,7 @@ import { readGrowthAnswer } from "./growth-call.js";
  *
  * THE MAPPING LIVES ON THE MODEL AND NOT HERE. `GrowthArtifactSummary` mirrors
  * `api-payload-contracts.md §ArtifactManifest` member for member, so a served row
- * becomes a rendered row through `repos/artifact-model.ts`'s own constructor beside
+ * becomes a rendered row through `repos/artifacts/artifact-model.ts`'s own constructor beside
  * the vocabularies it fills. What a row IS is a model question; this leg owns only
  * that the list was asked for and what came back.
  */

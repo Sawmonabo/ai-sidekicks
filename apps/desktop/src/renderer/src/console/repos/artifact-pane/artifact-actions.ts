@@ -1,7 +1,7 @@
 // The artifact pane's ACT half: what a press on one row sends, and what each answer
 // leaves standing on the reading the scheduled read published.
 //
-// Split from `artifact-reader.ts` on the seam `repos/proposal-gate-actions.ts` already
+// Split from `artifact-reader.ts` on the seam `repos/proposals/proposal-gate-actions.ts` already
 // cuts twice in this repo. The class next door owns the READS: which pair of calls, on
 // which of the four reasons, coalesced through the console's one scheduler, and what
 // it publishes when one does not answer. This one owns the ACTS: a manifest re-read, a
@@ -226,7 +226,7 @@ export class ArtifactPaneActions {
    *
    * The re-read is `terminal-event` because that is what it is: an act completed
    * and what it changed is what the next read will say. It is the same reason
-   * `repos/repo-mounts-reader.ts` gives its post-mutation re-read.
+   * `repos/mounts/repo-mounts-reader.ts` gives its post-mutation re-read.
    *
    * A SERVED DELETE NEVER RETURNS WITHOUT RECONCILING, WHICH IS WHY DISPOSAL AND
    * SUPERSESSION ARE ASKED SEPARATELY HERE. A participant who confirms Delete and then

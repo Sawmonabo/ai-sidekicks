@@ -13,9 +13,10 @@
 // recording.
 //
 // THE RECORDED SHAPES ARE DERIVED FROM THE REGISTRY, never transcribed from what the
-// client happens to send: `GrowthPort` is the mapped type over `growth-signatures.ts`, so
-// a request that dropped a registered member or invented one fails to compile here rather
-// than passing under a recorder that had been updated to match it.
+// client happens to send: `GrowthPort` is the mapped type over the registry that
+// `bridge/growth-signatures/index.ts` composes, so a request that dropped a registered
+// member or invented one fails to compile here rather than passing under a recorder that
+// had been updated to match it.
 //
 // AND IT IS TEST SUPPORT BY NAME. A recorder that answers every ingest call with a
 // scripted reply is reachable from a rendering path only as a bridge that lies, so the

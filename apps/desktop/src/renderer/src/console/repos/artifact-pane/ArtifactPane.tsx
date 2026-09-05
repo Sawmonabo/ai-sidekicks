@@ -5,7 +5,7 @@
 // Design (Meridian)` puts a surface's composition — what it renders, offers, refuses,
 // and folds — in the console's code. The pane is the DECK's view of the artifact
 // list; the sidebar panel
-// beside it in `repos/ArtifactsPanel.tsx` is the same rows in a narrower column. One
+// beside it in `repos/artifacts/ArtifactsPanel.tsx` is the same rows in a narrower column. One
 // body renders both, which is what keeps the diff pane a view onto this list rather
 // than a second store.
 //
@@ -34,7 +34,7 @@
 //
 // AND ONE ACT THE SHAPE NOW ADMITS. The pane used to offer a manifest re-read and say
 // that payload members were unavailable, which was true of the port it was written
-// against and stopped being true: `bridge/growth-signatures.ts` declares
+// against and stopped being true: `bridge/growth-signatures/artifacts.ts` declares
 // `includePayload` on the request, and `GrowthArtifactRead` carries either inline
 // `payload` beside its `payloadEncoding` or a required deferred `payloadHandle`. So a
 // served read could never reach the explicit fetch the registered shape supports, and

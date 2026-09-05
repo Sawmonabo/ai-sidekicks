@@ -21,7 +21,7 @@ const MANIFEST_RE_READ_ANNOUNCEMENT = "Manifest re-read. The row shows what the 
 /**
  * What a settled delete says: the daemon's own two facts, in the daemon's own words.
  *
- * The sentence is composed by `repos/artifact-model.ts` and is the SAME one the panel
+ * The sentence is composed by `repos/artifacts/artifact-model.ts` and is the SAME one the panel
  * draws in its receipt strip, so the announcement and the screen cannot disagree about
  * what became of the bytes. Both used to say the reply reported nothing, which was
  * true of a `void` reply and is not true of a receipt.

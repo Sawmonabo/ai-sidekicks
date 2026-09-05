@@ -7,10 +7,11 @@
 // DECLARED POSITION rather than being appended or footnoted — which is exactly what a
 // card inside the row is, and why this is a card and not a pane.
 //
-// ONE BODY, NOT TWO. The card this registration mounts is `repos/AttachmentCard.tsx` —
-// the same component the attachment surface renders — rather than a lighter one written
-// for the timeline. A second renderer would drift from the first in exactly the details
-// an unresolved marker is read for: which of the six causes, and what the remedy is.
+// ONE BODY, NOT TWO. The card this registration mounts is the same component the
+// attachment surface renders, `repos/attachments/AttachmentCard.tsx`, rather than a
+// lighter one written for the timeline. A second renderer would drift from the first in
+// exactly the details an unresolved marker is read for: which of the six causes, and
+// what the remedy is.
 //
 // WHAT THE SEAT HANDS OVER, AND WHY THE READING IS `not-checked`. The seat carries
 // `InlineCardAttachmentRef` — an opaque `attachmentId` and nothing else — because
@@ -45,7 +46,7 @@ const UNREAD_ARM_INSTANT = 0;
  * A UNION RATHER THAN TWO OPTIONAL MEMBERS, because the instant is meaningless without
  * the reading it is about and the pair must arrive together. This card used to take
  * the reading alone and capture `Date.now()` at MOUNT for the other half, which is the
- * defect `repos/attachment-carrier.ts` publishes `publishedAtMilliseconds` to close: a
+ * defect `repos/attachments/attachment-carrier.ts` publishes `publishedAtMilliseconds` to close: a
  * frozen instant makes `isIngestStalled` compare a moment against progress stamped
  * AFTER it, so the disclosure `INGEST_STALL_DISCLOSURE_MS` exists to produce can never
  * fire, and it makes the ceiling remainder subtract a later moment from an earlier one

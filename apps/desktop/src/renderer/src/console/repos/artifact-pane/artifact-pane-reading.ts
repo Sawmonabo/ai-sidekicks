@@ -5,7 +5,7 @@
 // the immutable value those produce and every total function over it, so a reduction
 // can be driven directly in a test with no bridge, no clock, and no reader at all.
 //
-// Nothing here CALLS the port or the wire. `repos/artifact-model.ts` owns what a
+// Nothing here CALLS the port or the wire. `repos/artifacts/artifact-model.ts` owns what a
 // served manifest IS; this module owns how one reading becomes the next — and, since
 // `growthAnswerReading` below, what one port ANSWER becomes before it gets there.
 // Reading an answer is the same kind of total reduction as the rest of this file and
@@ -63,7 +63,7 @@ export interface ArtifactPaneReading {
   /**
    * The instant this reading was published at, taken from the window's own clock.
    *
-   * ON THE READING, WHICH IS THE WHOLE POINT. `repos/repo-mounts-model.ts` states the
+   * ON THE READING, WHICH IS THE WHOLE POINT. `repos/mounts/repo-mounts-model.ts` states the
    * rule for this family and names the alternative as the defect: a card reading
    * `Date.now()` in its render body would move an age on any unrelated re-render, and
    * under the fixture it would move against wall time while the scenario advanced on
