@@ -56,10 +56,9 @@ import type {
   WorkspaceId,
 } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
-import type { ConsoleBridge, DaemonReply } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge, type DaemonReply } from "../../bridge/index.js";
 import {
   Emitter,
-  RealClock,
   type ConsoleClock,
   type ConsoleRefusal,
   type Unsubscribe,
@@ -101,8 +100,18 @@ export interface RepoMountsReaderOptions {
    * the store can never name two sessions.
    */
   readonly sessionStore: SessionStore;
-  /** Injected so a test drives every read on frozen time with no real timers. */
-  readonly clock?: ConsoleClock;
+  /**
+   * The clock this section's reading is stamped with. Supplied, never defaulted.
+   *
+   * REQUIRED, BECAUSE A DEFAULT WOULD BE THE WALL CLOCK. `consoleClockFor` is the one
+   * answer to which clock a window runs on, and under the fixture that is the
+   * scenario's frozen clock — so a reader that fell back to a `RealClock` of its own
+   * stamped `readAtMilliseconds` on wall time while the deadline wake-up beside it ran
+   * on the scenario's, and every card rendering an age against that stamp re-rendered
+   * a different string every day. A reader without a clock is a construction error
+   * rather than a reader on the machine's clock.
+   */
+  readonly clock: ConsoleClock;
 }
 
 export class RepoMountsReader {
@@ -124,7 +133,7 @@ export class RepoMountsReader {
     // Bound once and shared with the scheduler, so the instant a reading is stamped
     // with and the instant a refresh is measured from are the same time base — under
     // the fixture that is the scenario's frozen clock and under the app it is the wall.
-    this.#clock = options.clock ?? new RealClock();
+    this.#clock = options.clock;
     this.#scheduler = new RefreshScheduler({
       clock: this.#clock,
       perform: async () => {
@@ -333,14 +342,22 @@ export interface RepoMountsBinding {
  * `useSyncExternalStore` so a publish is a single transition, and disposed on
  * unmount — the three properties `apps/desktop/AGENTS.md` requires of anything that
  * holds state beside a component.
+ *
+ * THE CLOCK COMES FROM THE BRIDGE, on `clone-expiry-wake-up.ts`'s reason one file
+ * over: `consoleClockFor` is the one answer to which clock a window runs on, and the
+ * deadline wake-up in the clone list already reads it — so a reader stamping its
+ * reading off a clock of its own would put two time bases inside one list, and the
+ * wall clock would win every `Math.max`. Memoised because the real arm mints a fresh
+ * `RealClock` per call, and a new object every render would re-mint the reader.
  */
 export function useRepoMounts(
   bridge: ConsoleBridge,
   sessionStore: SessionStore,
 ): RepoMountsBinding {
+  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const reader = useMemo(
-    () => new RepoMountsReader({ bridge, sessionStore }),
-    [bridge, sessionStore],
+    () => new RepoMountsReader({ bridge, sessionStore, clock }),
+    [bridge, sessionStore, clock],
   );
   useEffect(() => {
     reader.start();

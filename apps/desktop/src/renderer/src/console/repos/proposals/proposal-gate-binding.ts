@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
 import type { SessionStore } from "../../store/index.js";
 import { ProposalGateReader, type ProposalGateReading } from "./proposal-gate-reader.js";
 import type { ProposalAction } from "./proposal-actions.js";
@@ -41,6 +41,11 @@ export interface ProposalGateBinding {
  * The session store is the reader's own collaborator rather than the surface's: it is
  * what carries the reconnect edge and the `workspace.stale` frame, two of the four
  * reasons `Spec-023 §Rules every console surface obeys` names.
+ *
+ * THE CLOCK COMES FROM THE BRIDGE, on `repo-mounts-reader.ts`'s reason: `consoleClockFor`
+ * is the one answer to which clock a window runs on, so the gate's refresh window
+ * coalesces on the same time base the section around it advances on. Memoised because
+ * the real arm mints a fresh `RealClock` per call.
  */
 export function useProposalGate(
   bridge: ConsoleBridge,
@@ -49,12 +54,13 @@ export function useProposalGate(
 ): ProposalGateBinding {
   const { kind, workspaceId, executionMode } = subject;
   const executionRootId = proposalGateSubjectRootId(subject);
+  const clock = useMemo(() => consoleClockFor(bridge), [bridge]);
   const reader = useMemo(
-    () => new ProposalGateReader({ bridge, subject, sessionStore }),
+    () => new ProposalGateReader({ bridge, subject, sessionStore, clock }),
     // The subject itself is deliberately NOT a dependency: every caller composes it
     // inline, so its identity changes on every render while its content does not. The
     // four values below ARE its content, on every arm of the union.
-    [bridge, kind, workspaceId, executionRootId, executionMode, sessionStore],
+    [bridge, kind, workspaceId, executionRootId, executionMode, sessionStore, clock],
   );
   useEffect(() => {
     reader.start();

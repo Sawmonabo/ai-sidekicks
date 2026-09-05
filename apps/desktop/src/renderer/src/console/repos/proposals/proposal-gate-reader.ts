@@ -62,13 +62,7 @@
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { CallerParticipantRead } from "./caller-participant-read.js";
-import {
-  Emitter,
-  RealClock,
-  refuse,
-  type ConsoleClock,
-  type Unsubscribe,
-} from "../../core/index.js";
+import { Emitter, refuse, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
 import { RefreshScheduler, type SessionStore } from "../../store/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { ProposalGateActions } from "./proposal-gate-actions.js";
@@ -112,8 +106,16 @@ export interface ProposalGateReaderOptions {
   readonly subject: ProposalGateSubject;
   /** The session whose repair edge and whose frames are two of the three reasons to re-read. */
   readonly sessionStore: SessionStore;
-  /** Injected so a test drives every read on frozen time with no real timers. */
-  readonly clock?: ConsoleClock;
+  /**
+   * The clock this gate's reads are scheduled on. Supplied, never defaulted.
+   *
+   * REQUIRED FOR `repo-mounts-reader.ts`'s REASON: `consoleClockFor` is the one answer
+   * to which clock a window runs on, and a gate that fell back to a `RealClock` of its
+   * own would coalesce its refresh window on wall time while the section it is mounted
+   * inside advanced on the scenario's frozen clock. A reader without a clock is a
+   * construction error rather than a reader on the machine's clock.
+   */
+  readonly clock: ConsoleClock;
 }
 
 export class ProposalGateReader {
@@ -150,7 +152,7 @@ export class ProposalGateReader {
     this.#subject = options.subject;
     this.#readPlan = branchContextReadPlanFor(options.subject);
     this.#scheduler = new RefreshScheduler({
-      clock: options.clock ?? new RealClock(),
+      clock: options.clock,
       perform: async () => {
         await this.#performRead();
       },

@@ -74,6 +74,7 @@ import { registerRepos, registerReposPanes } from "../../src/renderer/src/consol
 import type { BranchContextReading } from "../../src/renderer/src/console/repos/mounts/branch-context-model.js";
 import type { ProposalAction } from "../../src/renderer/src/console/repos/proposals/proposal-actions.js";
 import type { ProposalGateState } from "../../src/renderer/src/console/repos/proposals/proposal-gate-state.js";
+import { advanceScenarioUntil } from "../../src/renderer/src/console/repos/scenario-clock.test-support.js";
 import { FrameStore, SessionStore } from "../../src/renderer/src/console/store/index.js";
 import {
   ConsolePaneRegistry,
@@ -201,6 +202,28 @@ async function waitForWithin(region: HTMLElement, selector: string): Promise<voi
 }
 
 /**
+ * The same wait, for a surface whose reads are scheduled on the SCENARIO's clock.
+ *
+ * THE SECTION AND ITS GATES SCHEDULE ON THE BRIDGE'S CLOCK, which under the fixture is
+ * the scenario's frozen one — the point of taking it from `consoleClockFor`, and what
+ * makes these baselines pin one instant rather than the day they were minted on. Real
+ * time therefore moves none of it, so this wait drives the clock instead of polling the
+ * machine. The pane mounts above keep `waitForWithin`: their reads run on a port this
+ * file scripts directly, with no scenario engine behind them.
+ */
+async function driveUntilWithin(
+  bridge: ConsoleBridge,
+  region: HTMLElement,
+  selector: string,
+): Promise<void> {
+  await advanceScenarioUntil(bridge, () => {
+    if (region.querySelector(selector) === null) {
+      throw new Error(`the surface has not rendered \`${selector}\` yet`);
+    }
+  });
+}
+
+/**
  * The repos sidebar section, open, with its two mounts read.
  *
  * Waited on rather than read straight after the mount: the section holds the
@@ -233,8 +256,8 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
     </LiveAnnouncerProvider>,
   );
   const region = requireElement(container, ".meridian-repo-section");
-  await waitForWithin(region, ".meridian-mount-card");
-  await waitForGatesSettled(region);
+  await driveUntilWithin(bridge, region, ".meridian-mount-card");
+  await waitForGatesSettled(bridge, region);
   return { element: region, bridge };
 }
 
@@ -253,18 +276,15 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
  * timeout is a fixture that stopped serving it — which is a failure worth having
  * rather than a frame worth pinning.
  */
-async function waitForGatesSettled(region: HTMLElement): Promise<void> {
-  await waitFor(
-    () => {
-      const unsettled = [...region.querySelectorAll(".meridian-root-gate__line")].filter(
-        (line) => line.textContent === "reading" || line.textContent === "not checked",
-      );
-      if (unsettled.length > 0) {
-        throw new Error(`${unsettled.length} change-proposal gate(s) have not settled yet`);
-      }
-    },
-    { timeout: FAMILY_READ_TIMEOUT_MS },
-  );
+async function waitForGatesSettled(bridge: ConsoleBridge, region: HTMLElement): Promise<void> {
+  await advanceScenarioUntil(bridge, () => {
+    const unsettled = [...region.querySelectorAll(".meridian-root-gate__line")].filter(
+      (line) => line.textContent === "reading" || line.textContent === "not checked",
+    );
+    if (unsettled.length > 0) {
+      throw new Error(`${unsettled.length} change-proposal gate(s) have not settled yet`);
+    }
+  });
 }
 
 /**
@@ -278,13 +298,13 @@ async function waitForGatesSettled(region: HTMLElement): Promise<void> {
  */
 export async function mountRepoSectionWithOpenGate(): Promise<MountedFamilySurface> {
   const mounted = await mountRepoSection();
-  await waitForWithin(mounted.element, ".meridian-root-gate");
+  await driveUntilWithin(mounted.bridge, mounted.element, ".meridian-root-gate");
   const disclosure = mounted.element.querySelector("details.meridian-root-gate");
   if (!(disclosure instanceof HTMLDetailsElement)) {
     throw new Error("the section mounted no change-proposal gate under its roots");
   }
   disclosure.open = true;
-  await waitForWithin(mounted.element, ".meridian-proposal-gate__body");
+  await driveUntilWithin(mounted.bridge, mounted.element, ".meridian-proposal-gate__body");
   return mounted;
 }
 
