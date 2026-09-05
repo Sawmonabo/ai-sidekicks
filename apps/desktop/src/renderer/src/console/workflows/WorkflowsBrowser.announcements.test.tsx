@@ -9,12 +9,11 @@
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { type GrowthPort } from "../bridge/index.js";
-import { createRefusingGrowthPort, growthUnavailable } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort, growthUnavailable, type GrowthPort } from "../bridge/index.js";
 import { ManualClock } from "../core/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
 import { LiveAnnouncer } from "../primitives/live-announcer.js";
-import type { WorkflowDefinitionRow } from "./definitions/DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 import {
   PROBE_SESSION_ID,

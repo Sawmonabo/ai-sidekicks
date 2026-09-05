@@ -47,7 +47,21 @@ const FRAME = `${CONSOLE}/frame/`;
 // view-family rule below can subtract them rather than report the console's own entry
 // wiring as a violation.
 const COMPOSITION_ROOT_FILES = `${CONSOLE}/[^/]+$`;
-const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
+
+/**
+ * The pane board's own files, one segment deep — and deliberately not the directory.
+ *
+ * `console/panes/` composes the deck: the seat board and the pane chrome beside it.
+ * A pane BODY belongs to the family that owns it, so this constant names the flat
+ * composition files rather than the subtree. The difference is what the subtraction
+ * MEANS: written as the directory it exempted anything a branch parked under it, and
+ * a body sitting there inherited the composition site's standing above every family
+ * — reaching into any family's modules it liked, with no rule able to say so.
+ */
+const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/[^/]+\\.tsx?$`;
+
+/** Anything one segment deeper than that — a directory under the pane board. */
+const PANE_BOARD_SUBDIRECTORY = `${CONSOLE}/panes/[^/]+/`;
 
 /**
  * The one cross-family deep specifier the tree still carries, and why it is named here.
@@ -64,6 +78,29 @@ const COMPOSITION_PANE_BOARD = `${CONSOLE}/panes/`;
  * into this family, including one into this same module's neighbours, still fails.
  */
 const FRAME_SURFACE_REGISTRY = `${CONSOLE}/frame/surface-registry\\.ts$`;
+
+/**
+ * Test scaffolding, subtracted from the DOOR rule alone and from no other rule here.
+ *
+ * A `.test-support.*` module is a module like any other — `apps/desktop/AGENTS.md`
+ * §Module shape says so — and it stays a subject of every rule in this file that is
+ * about module SHAPE: cycles, orphans, the process boundary, the family ordering, and
+ * view-family isolation all still bite it. What it cannot be a subject of is the rule
+ * that says "import the door instead", because two gates would then contradict each
+ * other and leave the module class with no legal form at all:
+ * `test/console/architecture/barrel-census.test.ts` fails a door line whose only
+ * reader is a test, and the symbols a harness reaches for are exactly that class —
+ * `createLiveBridge`, which the shipped console resolves inside the bridge family, and
+ * the per-family scenario seats, which `bridge/index.ts`'s own header records as
+ * deliberately unpublished so that six family branches each edit one file rather than
+ * one shared door.
+ *
+ * The narrowness is the repair. This subtraction replaces an `options.exclude` entry
+ * that removed `.test-support.*` from the graph outright — which took it out of every
+ * rule at once, including the orphan rule whose own comment explains why it must stay
+ * in — and which landed in the same change as the one import it made legal.
+ */
+const TEST_SUPPORT_MODULES = "\\.test-support\\.(ts|tsx)$";
 
 /** Every family door, and only a family door — a sub-module door is one segment deeper. */
 const CONSOLE_FAMILY_DOORS = `${CONSOLE}/[^/]+/index\\.ts$`;
@@ -266,11 +303,15 @@ export default {
         "door (`bridge/growth-values/`, `bridge/scenarios/`) is deliberately NOT a " +
         "legal target here — it publishes to its own family only, which is why the " +
         "exemption below matches a family door's single path segment and not a nested " +
-        "one. The composition sites are subtracted at both ends on the same terms the " +
-        "view-family rule subtracts them: `panes/` sits above every family by " +
-        "construction, so its edges are composition rather than layering.",
+        "one. The pane board is subtracted at the TO end only. It is a legal target " +
+        "because it sits above every family by construction; it is not a legal SOURCE, " +
+        "because standing above the families says nothing about how a file there writes " +
+        "an edge, and subtracting it here made the rule silent about the one directory " +
+        "whose whole job is to name every family — eleven deep specifiers into a family's " +
+        "projection, park badge and refusal helpers read as composition and were reported " +
+        "as nothing.",
       severity: "error",
-      from: { path: `${CONSOLE}/([^/]+)/`, pathNot: [COMPOSITION_PANE_BOARD] },
+      from: { path: `${CONSOLE}/([^/]+)/`, pathNot: [TEST_SUPPORT_MODULES] },
       to: {
         path: `${CONSOLE}/[^/]+/`,
         pathNot: [
@@ -280,6 +321,24 @@ export default {
           FRAME_SURFACE_REGISTRY,
         ],
       },
+    },
+    {
+      name: "console-pane-board-is-flat",
+      comment:
+        "`console/panes/` is the deck's composition site and holds composition files " +
+        "only — the seat board and the pane chrome beside it. A pane BODY belongs to the " +
+        "family that owns it (`workflows/pane/run/` is the shape), because the family is " +
+        "what a reader finds the body from, what the body's own vocabulary lives in, and " +
+        "what one branch edits without touching another's. A directory here also re-opens " +
+        "the exemption the constant above narrows: the pane board is subtracted from the " +
+        "cross-family rule's target end, so a body parked under it would be reachable " +
+        "past every family door in the console. Stated over the SOURCE end, so a nested " +
+        "body is reported for the first thing it imports rather than only when something " +
+        "imports it — a body imports React and its seats before it does anything else, " +
+        "and one that imports nothing at all is what `no-orphans` above reports.",
+      severity: "error",
+      from: { path: PANE_BOARD_SUBDIRECTORY },
+      to: {},
     },
     {
       name: "console-no-barrel-chain",
@@ -301,11 +360,15 @@ export default {
     doNotFollow: { path: "node_modules" },
     // Test files are not subjects of the layering DAG: a `console-unit` test legitimately
     // reaches across families to drive the module it covers, and reaches both process trees to
-    // assert the boundary between them. `*.test-support.*` is the same class by the same
-    // reasoning — it is the scaffolding a suite factors out, imported by test files and by
-    // nothing else — and it was outside this pattern only because the pattern was written
-    // before that suffix existed.
-    exclude: { path: "\\.(test|test-support|bench)\\.(ts|tsx)$|__tests__/" },
+    // assert the boundary between them.
+    //
+    // `*.test-support.*` IS A SUBJECT, and the difference is what the two classes are. A test
+    // file is a leaf nothing imports; scaffolding is a MODULE, imported by name from several
+    // suites, and `apps/desktop/AGENTS.md` §Module shape says so outright — ".test-support.tsx
+    // scaffolding included, since a shared harness is a module like any other". Excluding it
+    // here would exempt it from every layering rule at once, which is how a harness comes to
+    // deep-import past a family door and take four suites with it.
+    exclude: { path: "\\.(test|bench)\\.(ts|tsx)$|__tests__/" },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {
       extensions: [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json"],

@@ -36,15 +36,15 @@ import { join, relative, sep } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { CONSOLE_DIRECTORY, consoleSourceModules } from "../console-source-modules.js";
 import {
   collectStylesheetEdges,
   isOwningBarrel,
   readConsoleFile,
   stylesheetEdgeOffences,
-  stylesheetSpecifiers,
+  moduleStylesheetImports,
+  stylesheetAtImports,
   CONSOLE_STYLESHEET_TREE,
-  STYLESHEET_AT_IMPORT,
-  STYLESHEET_IMPORT,
 } from "./stylesheet-edge-graph.js";
 
 describe("stylesheet edges — a family's rules enter the bundle once", () => {
@@ -52,7 +52,7 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
   const stylesheets = CONSOLE_STYLESHEET_TREE.stylesheetPaths;
 
   it("finds a console tree to scan at all", () => {
-    // Without this, a wrong CONSOLE_SOURCE_DIRECTORY would scan nothing and every
+    // Without this, a wrong CONSOLE_DIRECTORY would scan nothing and every
     // assertion below would pass over the empty set.
     expect(modules.length).toBeGreaterThan(20);
     expect(stylesheets.length).toBeGreaterThan(5);
@@ -61,12 +61,34 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     expect(modules.some((modulePath) => modulePath.split(sep).length > 2)).toBe(true);
   });
 
+  it("scans the same console the rest of the tier walks", () => {
+    // One home for "where the console is". This file's walk and the shared source
+    // walk resolve that root separately, and while they agreed nothing reported it
+    // if they stopped: a resolver pointed one directory off scans a tree that exists,
+    // reports files, and satisfies the floor above while asserting nothing about the
+    // console anyone ships. So the two file sets are compared rather than trusted.
+    //
+    // A SUBSET AND NOT AN EQUALITY, because the two walks disagree on purpose about
+    // what counts: this one keeps `.d.ts` and the shared one never does, and the
+    // shared one keeps co-located tests when asked and this one never does. What must
+    // hold is that every module this walk found is a module that walk can see.
+    const walked = new Set(
+      consoleSourceModules({ roots: [CONSOLE_DIRECTORY], tests: true }).map(
+        (module) => module.relativePath,
+      ),
+    );
+    const unseen = modules.filter(
+      (modulePath) => !modulePath.endsWith(".d.ts") && !walked.has(modulePath),
+    );
+    expect(unseen).toStrictEqual([]);
+  });
+
   it("only an owning barrel imports a stylesheet", () => {
     const offenders = modules
       .filter((modulePath) => !isOwningBarrel(modulePath))
       .map((modulePath) => ({
         modulePath,
-        sheets: stylesheetSpecifiers(readConsoleFile(modulePath), STYLESHEET_IMPORT),
+        sheets: moduleStylesheetImports(modulePath, readConsoleFile(modulePath)),
       }))
       .filter((entry) => entry.sheets.length > 0)
       .map((entry) => `${relative(".", entry.modulePath)}: ${entry.sheets.join(", ")}`);
@@ -93,12 +115,15 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     // and a pattern that matched none of the console's real text would still satisfy
     // them.
     expect(
-      stylesheetSpecifiers(readConsoleFile(join("workflows", "index.ts")), STYLESHEET_IMPORT),
+      moduleStylesheetImports(
+        join("workflows", "index.ts"),
+        readConsoleFile(join("workflows", "index.ts")),
+      ),
     ).toStrictEqual(["./workflows.css"]);
     expect(
-      stylesheetSpecifiers(
+      stylesheetAtImports(
+        join("workflows", "workflows.css"),
         readConsoleFile(join("workflows", "workflows.css")),
-        STYLESHEET_AT_IMPORT,
       ).length,
     ).toBeGreaterThan(1);
   });
@@ -107,9 +132,9 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     // The two sides of the line, driven through the predicate rather than through
     // whichever module happens to hold an edge today.
     const componentSource = 'import "./workflows-destination.css";\n';
-    expect(stylesheetSpecifiers(componentSource, STYLESHEET_IMPORT)).toStrictEqual([
-      "./workflows-destination.css",
-    ]);
+    expect(
+      moduleStylesheetImports(join("workflows", "WorkflowsDestination.tsx"), componentSource),
+    ).toStrictEqual(["./workflows-destination.css"]);
     expect(isOwningBarrel(join("workflows", "WorkflowsDestination.tsx"))).toBe(false);
     expect(isOwningBarrel(join("workflows", "index.ts"))).toBe(true);
   });
@@ -120,14 +145,17 @@ describe("stylesheet edges — a family's rules enter the bundle once", () => {
     // directory's, in that order, and the canvas behind it imports neither. Without
     // the second half the door could be added and the component's edge left in place,
     // which is two ways into one sheet and the cascade order back to a coincidence.
-    const chunkDirectory = join("panes", "workflow-run", "phase-graph");
+    const chunkDirectory = join("workflows", "pane", "run", "phase-graph");
     expect(
-      stylesheetSpecifiers(readConsoleFile(join(chunkDirectory, "index.ts")), STYLESHEET_IMPORT),
+      moduleStylesheetImports(
+        join(chunkDirectory, "index.ts"),
+        readConsoleFile(join(chunkDirectory, "index.ts")),
+      ),
     ).toStrictEqual(["@xyflow/react/dist/base.css", "./phase-graph.css"]);
     expect(
-      stylesheetSpecifiers(
+      moduleStylesheetImports(
+        join(chunkDirectory, "PhaseGraphCanvas.tsx"),
         readConsoleFile(join(chunkDirectory, "PhaseGraphCanvas.tsx")),
-        STYLESHEET_IMPORT,
       ),
     ).toStrictEqual([]);
   });

@@ -8,8 +8,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { WorkflowDefinitionSummary } from "../../bridge/index.js";
-import type { WorkflowDefinitionRow, WorkflowDefinitionScope } from "./DefinitionsBrowser.js";
+import type { WorkflowDefinitionScope, WorkflowDefinitionSummary } from "../../bridge/index.js";
+import type { WorkflowDefinitionRow } from "./definition-rows.js";
 
 /**
  * Whether two types are the same type, rather than one merely fitting the other.

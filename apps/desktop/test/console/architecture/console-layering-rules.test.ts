@@ -44,7 +44,13 @@ const CONSOLE_ROOT = join("src", "renderer", "src", "console");
 const BARREL_CHAIN_RULE = "console-no-barrel-chain";
 const VIEW_FAMILY_ISOLATION_RULE = "console-view-family-isolation";
 const DEEP_IMPORT_RULE = "console-cross-family-deep-import";
-const OWNED_RULES = [BARREL_CHAIN_RULE, VIEW_FAMILY_ISOLATION_RULE, DEEP_IMPORT_RULE];
+const FLAT_PANE_BOARD_RULE = "console-pane-board-is-flat";
+const OWNED_RULES = [
+  BARREL_CHAIN_RULE,
+  VIEW_FAMILY_ISOLATION_RULE,
+  DEEP_IMPORT_RULE,
+  FLAT_PANE_BOARD_RULE,
+];
 
 type PlantedTree = Readonly<Record<string, string>>;
 
@@ -56,6 +62,12 @@ type PlantedTree = Readonly<Record<string, string>>;
  * must stay legal, the family door that must reach past it to the declaring module,
  * the composition site that imports a family door for a type in its signature, and
  * two view families that mind their own business.
+ *
+ * THE PANE BOARD IS ONE FILE AND IT IMPORTS A DOOR. It held a pane BODY under a
+ * kind directory here until the bodies moved into the families that own them, and
+ * the tree it planted was clean only because the deep-import rule subtracted the
+ * board at its SOURCE end — the subtraction the two cases at the foot of this file
+ * now plant against.
  */
 const CLEAN_TREE: PlantedTree = {
   "core/refusal.ts": `export interface ConsoleRefusal {\n  readonly code: string;\n}\n`,
@@ -70,7 +82,6 @@ const CLEAN_TREE: PlantedTree = {
   "frame/session-lifecycle.ts": `export interface ActiveSession {\n  readonly sessionId: string;\n}\n`,
   "frame/index.ts": `export type { ActiveSession } from "./session-lifecycle.js";\n`,
   "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  return registry.size;\n}\n`,
-  "panes/workflow-run/WorkflowRunPane.ts": `import type { InviteRefusal } from "../../collaboration/SentInvites.js";\n\nexport type PaneRefusal = InviteRefusal;\n`,
   "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../frame/surface-registry.js";\n\nexport type InviteRefusal = ConsoleRefusal & { readonly context: ConsoleSurfaceContext };\n`,
   "repos/RepoList.ts": `import type { ConsoleRefusal } from "../core/index.js";\n\nexport type RepoRefusal = ConsoleRefusal;\n`,
   "repos/index.ts": `export type { RepoRefusal } from "./RepoList.js";\n`,
@@ -120,6 +131,32 @@ const DEEP_IMPORT_TREE: PlantedTree = {
 const SUB_MODULE_DOOR_TREE: PlantedTree = {
   ...CLEAN_TREE,
   "repos/RepoList.ts": `import type { GrowthSessionSummary } from "../bridge/growth-values/index.js";\n\nexport type RepoRefusal = GrowthSessionSummary;\n`,
+};
+
+/**
+ * A pane BODY parked under the composition site, the shape the console shipped until
+ * the bodies moved into their families.
+ *
+ * Its one import is a family DOOR, so the deep-import rule has nothing to say about
+ * it and this tree offends exactly one rule — the claim being that the board's
+ * flatness is enforced by where a module SITS and not by what it reaches for.
+ */
+const NESTED_PANE_BODY_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "panes/workflow-run/WorkflowRunPane.ts": `import type { ConsolePaneRegistry } from "../../seats/index.js";\n\nexport type PaneBoard = ConsolePaneRegistry;\n`,
+};
+
+/**
+ * The edge the deep-import rule's own source-end subtraction used to hide.
+ *
+ * FLAT, so the rule above does not fire and this tree offends exactly one rule. The
+ * console carried eleven specifiers of this shape while the subtraction stood, every
+ * one of them reaching a view family's projection or refusal helpers past its door,
+ * and the rule that was added to catch them reported none of them.
+ */
+const PANE_BOARD_DEEP_IMPORT_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "panes/pane-chrome.ts": `import type { InviteRefusal } from "../collaboration/SentInvites.js";\n\nexport type PaneRefusal = InviteRefusal;\n`,
 };
 
 let plantRoot = "";
@@ -204,18 +241,16 @@ describe("console layering rules", () => {
     ]);
   });
 
-  it("leaves the pane board's edges into a view family alone", async () => {
-    // `panes/` is a composition site: it sits above every family by construction, so
-    // its deep specifiers into a view family are composition rather than layering.
-    // Stated as its own case because the door rule would report every one of them if
-    // the composition subtraction were dropped from either endpoint, and the pane
-    // board would become unwritable.
-    const everyViolation = [
-      ...(await violationsFor(CLEAN_TREE)),
-      ...(await violationsFor(DEEP_IMPORT_TREE)),
-      ...(await violationsFor(SUB_MODULE_DOOR_TREE)),
-    ];
-    expect(everyViolation.filter((line) => line.includes("panes/"))).toEqual([]);
+  it("fails a pane body parked under the composition site", async () => {
+    expect(await violationsFor(NESTED_PANE_BODY_TREE)).toEqual([
+      `${FLAT_PANE_BOARD_RULE}: ${join(CONSOLE_ROOT, "panes/workflow-run/WorkflowRunPane.ts")} → ${join(CONSOLE_ROOT, "seats/index.ts")}`,
+    ]);
+  });
+
+  it("fails the pane board reaching past a family door", async () => {
+    expect(await violationsFor(PANE_BOARD_DEEP_IMPORT_TREE)).toEqual([
+      `${DEEP_IMPORT_RULE}: ${join(CONSOLE_ROOT, "panes/pane-chrome.ts")} → ${join(CONSOLE_ROOT, "collaboration/SentInvites.ts")}`,
+    ]);
   });
 
   it("leaves the composition site's import of a family door alone", async () => {

@@ -7,7 +7,7 @@
 // a deep relative import from its host, and no door line, because nothing outside
 // this family composes it.
 //
-// NAMED FOR ITS SECTION AND NOT FOR ITS JOB. `panes/workflow-run/RunReadState.tsx`
+// NAMED FOR ITS SECTION AND NOT FOR ITS JOB. `pane/run/RunReadState.tsx`
 // already holds a component called `RunReadState`, and it draws a different thing:
 // the state of ONE run inside its pane, where this draws the state of the read that
 // enumerates a session's runs. Two files of the same name in one family would make

@@ -62,30 +62,6 @@ import { PartialRead, type ReadingState } from "../../primitives/index.js";
 import { DefinitionScopeGroup } from "./DefinitionScopeGroup.js";
 import type { OpenDefinition, WorkflowDefinitionRow } from "./definition-rows.js";
 
-/**
- * The three definition scopes, in the daemon's own resolution order, and the row the
- * enumeration answers with — both taken from the bridge's declaration of the workflow
- * plane rather than spelled again here.
- *
- * The tuple is a tuple because the ORDER is the claim. Written as three headings in
- * the markup, the order would be a fact about where someone happened to paste a
- * block; declared as a value, it is something a test can compare against the rule it
- * encodes.
- *
- * NEITHER IS RESTATED IN THIS FAMILY, and that is one rule rather than two. The wire
- * declares the scope vocabulary because the enumeration's request carries it and the
- * row because its reply is made of them, and a second tuple or a second interface
- * here would be a closed set with two homes — they agree until one of them is
- * widened, and the compiler sees neither drift: a member added to the reply stays
- * structurally assignable to a mirror that never heard of it, so every callback in
- * this family would read a vocabulary the daemon had already moved past. Consumers
- * keep importing both from the browser, which is where a reader of this surface looks
- * for them.
- */
-export { WORKFLOW_DEFINITION_SCOPES };
-export type { WorkflowDefinitionScope };
-export type { WorkflowDefinitionRow } from "./definition-rows.js";
-
 export interface DefinitionsBrowserProps {
   /** Every definition this context can see, in any order; grouping is done here. */
   readonly definitions: readonly WorkflowDefinitionRow[];

@@ -16,15 +16,14 @@
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { WORKFLOW_DEFINITION_SCOPES } from "../bridge/index.js";
 import { refuse } from "../core/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
-import { WORKFLOW_DEFINITION_SCOPES } from "./definitions/DefinitionsBrowser.js";
 import { WorkflowsSurface } from "./WorkflowsSurface.js";
 import { refusedWorkflowChrome, unaskedWorkflowChrome } from "./chrome-state.js";
+import { PROBE_SESSION_ID } from "./WorkflowsBrowser.test-support.js";
 
 vi.mock(import("./ChatStartSlot.js"), { spy: true });
-
-const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
 function renderSurface(element: React.JSX.Element): HTMLElement {
   const { container } = render(element);
@@ -106,35 +105,37 @@ describe("definitions browser — the entry points", () => {
     ).toHaveLength(0);
   });
 
-  it("draws the authoring control once its caller supplies the action", () => {
-    // Negative control for the case above, which would otherwise pass over a
-    // surface that had no entry points at all.
-    //
-    // One control rather than two: the import entry point this surface used to thread
-    // had no producer anywhere in this repository, so it rendered nowhere and could
-    // not be reached — and a case that supplied the handler itself was the only thing
-    // making it look reachable.
+  it("draws the controls it does have, so the case above is not an empty query", () => {
+    // The floor under the case above, which would otherwise pass over a surface that
+    // rendered no controls at all — including one whose whole body had failed to
+    // mount. The continuation control is the one entry point this surface still has a
+    // producer for, so it stands in for "a button reaches the markup".
     const section = renderSurface(
       <WorkflowsSurface
         state={{ kind: "ready" }}
         sessionId={PROBE_SESSION_ID}
-        onNewDefinition={() => undefined}
+        onContinueReading={() => undefined}
       />,
     );
     expect(
       [...section.querySelectorAll("button")].map((button) => button.textContent),
-    ).toStrictEqual(["New definition"]);
+    ).toStrictEqual(["Show more definitions"]);
   });
 
-  it("negative control: the import seam is gone from the type, not merely unsupplied", () => {
+  it("negative control: both authoring seams are gone from the type, not unsupplied", () => {
     // Compile-time on purpose. Deleting a dead prop leaves nothing to render, so no
     // rendered assertion can tell the deletion from a caller that simply never passed
-    // it — which is how the seam survived this long. This reads the type instead: on
-    // the surface as it was, which declared `onImportDefinition` and threaded it to
-    // the `shared` group's empty state, the suppression below has nothing to suppress
-    // and `tsc` fails the file for an unused directive. That is the control, and the
+    // it — which is how these seams survived this long. This reads the type instead:
+    // on the surface as it was, which declared `onImportDefinition` and threaded it to
+    // the `shared` group's empty state, and which threaded `onNewDefinition` into the
+    // chrome's primary action, each suppression below has nothing to suppress and
+    // `tsc` fails the file for an unused directive. That is the control, and the
     // repo's typecheck gate is what runs it.
-    const section = renderSurface(
+    // Two renders and not one element carrying both: an excess-property check reports
+    // the FIRST unknown member and stops, so a second directive beside the first
+    // suppresses nothing and fails the file as unused — which would report the two
+    // seams as one.
+    const withImport = renderSurface(
       <WorkflowsSurface
         state={{ kind: "ready" }}
         sessionId={PROBE_SESSION_ID}
@@ -142,8 +143,17 @@ describe("definitions browser — the entry points", () => {
         onImportDefinition={() => undefined}
       />,
     );
+    const withAuthoring = renderSurface(
+      <WorkflowsSurface
+        state={{ kind: "ready" }}
+        sessionId={PROBE_SESSION_ID}
+        // @ts-expect-error the surface declares no authoring entry point
+        onNewDefinition={() => undefined}
+      />,
+    );
 
-    expect(section.querySelectorAll("button")).toHaveLength(0);
+    expect(withImport.querySelectorAll("button")).toHaveLength(0);
+    expect(withAuthoring.querySelectorAll("button")).toHaveLength(0);
   });
 });
 

@@ -14,15 +14,14 @@
 // This file sits beside the wrapper rather than inside either mounting directory,
 // because the wrapper does: two surfaces mount it — the definitions browser and the
 // run pane's empty arm — and the sibling cases for the four single-consumer slots
-// stay in `panes/workflow-run/slots/slots.test.tsx`, where those slots live.
+// stay in `pane/run/slots/slots.test.tsx`, where those slots live.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ChatStartSlot, type ChatStartMount } from "./ChatStartSlot.js";
 import { WORKFLOW_CHAT_START_SLOT } from "./owner-slots.js";
-
-const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
+import { PROBE_SESSION_ID } from "./WorkflowsBrowser.test-support.js";
 
 describe("the conversational start is reserved, not stubbed", () => {
   it("stands in its own mount with an empty absence", () => {
@@ -39,8 +38,7 @@ describe("the conversational start is reserved, not stubbed", () => {
   it("negative control: the contract really does carry that prose, so the case is not vacuous", () => {
     // Without this, the case above would hold over a component that rendered the
     // whole contract verbatim, had the contract simply named nobody.
-    expect(WORKFLOW_CHAT_START_SLOT.contract.owningTask).toContain("Plan-017");
-    expect(WORKFLOW_CHAT_START_SLOT.body).toBeUndefined();
+    expect(WORKFLOW_CHAT_START_SLOT.owningTask).toContain("Plan-017");
   });
 });
 

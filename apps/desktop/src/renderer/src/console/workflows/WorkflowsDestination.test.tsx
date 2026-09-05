@@ -11,8 +11,7 @@ import { act, fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createFixtureBridge, createRefusingGrowthPort } from "../bridge/index.js";
 import { WORKFLOWS_SCENARIO } from "../bridge/scenarios/workflows.js";
 import { WORKFLOWS_SCENARIO_DEFINITIONS } from "../bridge/scenarios/workflow-fixture-definitions.js";
 import { WORKFLOWS_SESSION_ID } from "../bridge/scenarios/workflow-fixture-ids.js";
@@ -298,9 +297,9 @@ describe("the workflows destination — what its lists open", () => {
   it("draws no new-definition control, because nothing in this build authors one", async () => {
     // Absent, not disabled, and not dead: the growth port's ten workflow operations
     // include no write of a definition, so this control used to open a pane with
-    // nothing to author. The browser's prop stays optional and unfilled — it is the
-    // mechanism a later authoring wire fills, and an entry point appears when its
-    // caller supplies the action and not before.
+    // nothing to author. No prop threads it now either — the surface declares no
+    // authoring seam at all, so this reads a control that cannot be asked for rather
+    // than one nobody happened to ask for.
     const { container } = renderDestination(
       fixtureGrowthPort(),
       frameStoreRetaining(WORKFLOWS_SESSION_ID),

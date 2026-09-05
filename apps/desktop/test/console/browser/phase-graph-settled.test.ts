@@ -24,7 +24,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { mountWorkflowBuilderPane, mountWorkflowParkedRunPane } from "../workflow-surfaces.js";
+import { mountWorkflowBuilderPane, mountWorkflowParkedRunPane } from "../surfaces/workflows.js";
 import { awaitPhaseGraphSettled, isPhaseGraphSettled } from "../phase-graph-settled.js";
 
 describe("the capture's phase-graph readiness", () => {

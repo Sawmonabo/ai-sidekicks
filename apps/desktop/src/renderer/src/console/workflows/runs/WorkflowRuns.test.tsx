@@ -13,8 +13,11 @@
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type GrowthPort } from "../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
+import {
+  createFixtureBridge,
+  createRefusingGrowthPort,
+  type GrowthPort,
+} from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario.js";
 import {
   WORKFLOWS_RUN_ENUMERATION_CALL,

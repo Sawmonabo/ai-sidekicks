@@ -90,7 +90,7 @@ export type {
 // once; forwarding a name through it from here would chain one barrel into another,
 // which `console-no-barrel-chain` now fails and which makes a symbol's home a matter
 // of following two hops instead of reading one specifier.
-export { growthUnavailable } from "./growth-port.js";
+export { createRefusingGrowthPort, growthUnavailable } from "./growth-port.js";
 export type { GrowthPort } from "./growth-port.js";
 export type { GrowthSessionSummary } from "./growth-values/sessions.js";
 export type { GrowthUnavailable } from "./growth-outcome.js";
@@ -102,7 +102,7 @@ export type { GrowthUnavailable } from "./growth-outcome.js";
 // directly. `READ_SETTLEMENT_REFUSAL_ORIGIN` deliberately stays off this door: its
 // only readers are the two suites that assert who a synthesized refusal names, and a
 // door line no production reader uses is a dead export rather than a convenience.
-export { settleGrowthRead } from "./read-settlement.js";
+export { settleGrowthRead, useSettledGrowthRead } from "./read-settlement.js";
 export type { SettledReadRefusal } from "./read-settlement.js";
 
 // The node's session directory, read through that port. It lives in this family

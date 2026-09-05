@@ -41,7 +41,7 @@ import {
   mountWorkflowParkedRunPane,
   mountWorkflowsDestination,
   type MountedFamilySurface,
-} from "../workflow-surfaces.js";
+} from "../surfaces/workflows.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,

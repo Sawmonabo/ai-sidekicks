@@ -2,12 +2,11 @@
 //
 // The family is the workflows destination's own surface — the definitions browser
 // — plus the two pane kinds `Spec-023 §Console Design (Meridian)` reserves for it,
-// `workflow-run` and `workflow-builder`. The panes live under `console/panes/`
-// because that is where the deck's bodies live and the pane-kind set is what a
-// reader finds them from; the shared vocabulary lives here because it is the
-// family's, not the deck's. The two directories are ONE family under one task, so
-// the imports between them are deep and intra-family rather than through a second
-// barrel, which would be a seam drawn where there is no boundary.
+// `workflow-run` and `workflow-builder`. Both pane BODIES live under `./pane/`,
+// inside the family that owns them: `console/panes/` is the deck's composition site
+// and holds composition files only, so a body there would be one directory's while
+// the vocabulary it is built from was another's. Each body has its own sub-module
+// door, reached from here by a deep intra-family specifier.
 //
 // WHAT LEAVES THE FAMILY IS TWO REGISTRATIONS AND NOTHING ELSE. Not the surface,
 // not the panes, not the chrome: the console composes this family by calling
@@ -44,9 +43,9 @@ import { createElement } from "react";
 // The seat is a registry type and nothing else; the family reaches no other part of
 // the frame.
 import type { ConsoleSurfaceRegistry } from "../frame/surface-registry.js";
-import { WorkflowBuilderPane } from "../panes/workflow-builder/WorkflowBuilderPane.js";
-import { WorkflowRunPane } from "../panes/workflow-run/WorkflowRunPane.js";
 import type { ConsolePaneDescriptor, ConsolePaneRegistry } from "../seats/index.js";
+import { WorkflowBuilderPane } from "./pane/builder/index.js";
+import { WorkflowRunPane } from "./pane/run/index.js";
 import { WorkflowsPaneHost } from "./WorkflowsPaneHost.js";
 
 /**

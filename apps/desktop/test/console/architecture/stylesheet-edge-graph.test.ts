@@ -16,10 +16,9 @@ import {
   isOwningBarrel,
   resolveStylesheet,
   stylesheetEdgeOffences,
-  stylesheetSpecifiers,
+  moduleStylesheetImports,
+  stylesheetAtImports,
   syntheticStylesheetTree,
-  STYLESHEET_AT_IMPORT,
-  STYLESHEET_IMPORT,
 } from "./stylesheet-edge-graph.js";
 
 describe("the stylesheet edge walk", () => {
@@ -152,24 +151,66 @@ describe("the stylesheet edge walk", () => {
     expect(offences.duplicatePaths[0]).toContain(join("family", "family.css"));
   });
 
-  it("negative control: the patterns and the predicate match what they claim to", () => {
-    // Without this a typo in either pattern would make every clean verdict above
-    // meaningless — an empty match set offends nobody — and a predicate that answered
-    // `true` everywhere would admit a component's edge as a barrel's.
-    expect(stylesheetSpecifiers('import "./surface.css";\n', STYLESHEET_IMPORT)).toStrictEqual([
+  it("negative control: the readers and the predicate match what they claim to", () => {
+    // Without this a broken reader would make every clean verdict above meaningless —
+    // an empty specifier set offends nobody — and a predicate that answered `true`
+    // everywhere would admit a component's edge as a barrel's.
+    expect(moduleStylesheetImports("index.ts", 'import "./surface.css";\n')).toStrictEqual([
       "./surface.css",
     ]);
-    expect(stylesheetSpecifiers('@import "./surface.css";\n', STYLESHEET_AT_IMPORT)).toStrictEqual([
+    expect(stylesheetAtImports("family.css", '@import "./surface.css";\n')).toStrictEqual([
       "./surface.css",
     ]);
-    // Each pattern is blind to the other's syntax, so an `@import` inside a module and
-    // a bare `import` inside a stylesheet are both non-edges rather than silent ones.
-    expect(stylesheetSpecifiers('@import "./surface.css";\n', STYLESHEET_IMPORT)).toStrictEqual([]);
-    expect(stylesheetSpecifiers('import "./surface.css";\n', STYLESHEET_AT_IMPORT)).toStrictEqual(
-      [],
-    );
+    // Each reader answers nothing for the other's file, so a stylesheet and a module
+    // are non-edges to each other rather than silent ones. The module reader is blind
+    // by the file's NAME and not by parsing, and this is the measurement that says so:
+    // under a module name TypeScript's error recovery reads `@import "./x.css";` as a
+    // decorator followed by a side-effect import, which is exactly why that reader
+    // carries a guard and why the guard is load-bearing rather than decorative.
+    expect(moduleStylesheetImports("family.css", '@import "./surface.css";\n')).toStrictEqual([]);
+    expect(stylesheetAtImports("family.css", 'import "./surface.css";\n')).toStrictEqual([]);
+    expect(moduleStylesheetImports("index.ts", '@import "./surface.css";\n')).toStrictEqual([
+      "./surface.css",
+    ]);
     expect(isOwningBarrel(join("family", "index.ts"))).toBe(true);
     expect(isOwningBarrel(join("family", "Surface.tsx"))).toBe(false);
+  });
+
+  it("reads the edges a whole-line match could not see", () => {
+    // Every one of these is an edge the console can legitimately carry and the
+    // patterns this replaced reported as nothing — which made a reached sheet read as
+    // unreached and a doubly-reached one read as reached once.
+    expect(
+      moduleStylesheetImports("index.ts", 'import "./surface.css"; // ships with the surface\n'),
+    ).toStrictEqual(["./surface.css"]);
+    expect(moduleStylesheetImports("index.ts", 'import\n  "./surface.css";\n')).toStrictEqual([
+      "./surface.css",
+    ]);
+    expect(stylesheetAtImports("family.css", '@import "./surface.css" screen;\n')).toStrictEqual([
+      "./surface.css",
+    ]);
+    expect(stylesheetAtImports("family.css", '@import url("./surface.css");\n')).toStrictEqual([
+      "./surface.css",
+    ]);
+    expect(
+      stylesheetAtImports("family.css", '@import "./surface.css"; /* the surface */\n'),
+    ).toStrictEqual(["./surface.css"]);
+  });
+
+  it("reads no edge where a reader must not see one", () => {
+    // The other half: a commented-out `@import` is not an edge, and a module's
+    // side-effect import of something that is not a sheet is not one either. Without
+    // this the readers above could be satisfied by anything permissive enough.
+    expect(stylesheetAtImports("family.css", '/* @import "./surface.css"; */\n')).toStrictEqual([]);
+    expect(
+      moduleStylesheetImports("index.ts", 'import "./register-tripwires.js";\n'),
+    ).toStrictEqual([]);
+    // A NAMED import of a sheet-shaped specifier is not a side-effect edge: it binds
+    // something, so a walk that counted it would attribute a sheet to a module that
+    // imports a value out of it.
+    expect(
+      moduleStylesheetImports("index.ts", 'import styles from "./surface.css";\n'),
+    ).toStrictEqual([]);
   });
 
   it("negative control: a bare specifier resolves to nothing this tree can place", () => {

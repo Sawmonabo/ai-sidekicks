@@ -35,14 +35,12 @@
 // appears in this list.
 
 import type { ReadingState } from "../primitives/index.js";
+import type { WorkflowDefinitionScope } from "../bridge/index.js";
 import { ChatStartSlot } from "./ChatStartSlot.js";
 import { WorkflowChrome } from "./WorkflowChrome.js";
 import type { WorkflowChromeState } from "./chrome-state.js";
-import {
-  DefinitionsBrowser,
-  type WorkflowDefinitionRow,
-  type WorkflowDefinitionScope,
-} from "./definitions/DefinitionsBrowser.js";
+import { DefinitionsBrowser } from "./definitions/DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 
 export interface WorkflowsSurfaceProps {
   readonly state: WorkflowChromeState;
@@ -62,15 +60,6 @@ export interface WorkflowsSurfaceProps {
   readonly pendingScopes?: readonly WorkflowDefinitionScope[] | undefined;
   /** True while the enumeration holds pages nobody has read, so no group is empty yet. */
   readonly hasUnreadPages?: boolean | undefined;
-  /**
-   * Opens the builder on a new definition. Absent while nothing can author one.
-   *
-   * `| undefined` explicitly, because `exactOptionalPropertyTypes` is on: without it
-   * a caller holding an optional handler cannot forward it, and the workaround is the
-   * spread-guard this branch had in `WorkflowsBrowser.tsx` — a conditional built to
-   * pass a value the caller already held.
-   */
-  readonly onNewDefinition?: (() => void) | undefined;
   /** Opens one definition's detail. Absent while nothing can open one. */
   readonly onOpenDefinition?: ((definition: WorkflowDefinitionRow) => void) | undefined;
   /** Asks for the page after the ones shown. Absent while no cursor is held. */
@@ -88,17 +77,6 @@ export function WorkflowsSurface(props: WorkflowsSurfaceProps): React.JSX.Elemen
       heading="Workflows"
       summary="Definitions visible from here, in the order a run resolves them."
       state={showsGroups ? { kind: "ready" } : props.state}
-      primaryAction={
-        props.onNewDefinition === undefined ? undefined : (
-          <button
-            type="button"
-            className="meridian-workflow__action"
-            onClick={props.onNewDefinition}
-          >
-            New definition
-          </button>
-        )
-      }
     >
       <DefinitionsBrowser
         definitions={props.definitions ?? []}

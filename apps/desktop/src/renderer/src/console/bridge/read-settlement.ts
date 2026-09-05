@@ -46,7 +46,15 @@
 // both arms reach one `RefusalBanner` with no translation between them. What this adds
 // is the settlement, not a shape.
 
+import { useEffect } from "react";
+
 import { normalizeWireRejection, type WireRefusal } from "../core/index.js";
+import {
+  useSubjectScopedState,
+  type SubjectKey,
+  type SubjectScopedPublish,
+} from "../store/index.js";
+import type { GrowthPort } from "./growth-port.js";
 
 /** The origin on a refusal this seam composes, and the one it relays under. */
 export const READ_SETTLEMENT_REFUSAL_ORIGIN = "growth-read";
@@ -89,4 +97,77 @@ export async function settleGrowthRead<TOutcome>(
       status: "unavailable",
     };
   }
+}
+
+/** A settled read's current value, and the publisher its own answers arrive through. */
+export interface SettledGrowthRead<TState> {
+  readonly value: TState;
+  readonly publish: SubjectScopedPublish<TState>;
+}
+
+/**
+ * How a caller turns one read into the two states a surface renders.
+ *
+ * TWO PROJECTIONS AND NOT ONE, because a read has two moments and they are answered
+ * by different things. `unsettled` is what is true before an answer exists — which is
+ * `unasked` or `reading` depending on whether there was a question to put, a rule
+ * `store/subject-read-start.ts` already owns — and `settled` is the caller's reading
+ * of the port's own outcome. Handed as one object rather than as two positional
+ * callbacks so a call site cannot silently pass them in the wrong order.
+ */
+export interface SettledGrowthReadProjection<TOutcome, TState> {
+  readonly unsettled: (key: SubjectKey) => TState;
+  readonly settled: (settlement: TOutcome | SettledReadRefusal) => TState;
+}
+
+/**
+ * Put one growth read per subject, settle it, and hold its answer against that subject.
+ *
+ * FOUR READS WERE THIS BLOCK, TOKEN FOR TOKEN. The session directory, the definitions
+ * directory, the runs directory and the run snapshot each held state against the port
+ * and their own key, seeded it from `subjectReadStart`, put the read inside an effect
+ * keyed on `[growth, key, publish]`, settled it through `settleGrowthRead`, and
+ * published a projection of the outcome. The only tokens that differed were which
+ * operation was called and which member the served arm carried — so a discarded-answer
+ * bug fixed in one of them stayed in the other three, which is the defect class this
+ * console's shared substrate exists to end.
+ *
+ * WHETHER THERE IS A QUESTION TO PUT IS THE CALLER'S, and it is expressed once, where
+ * the request is built: `read` answers `undefined` when its wire's request cannot be
+ * formed. Three of the four reads carry a required session or run id and say so there;
+ * the session directory's request carries nothing and always answers a promise. Read
+ * off the key here instead, this hook would be restating each wire's own request shape
+ * and would be wrong for the fourth.
+ *
+ * NO MOUNT FLAG AND NO RESET, for the reasons the holder already owns: `publish`
+ * carries the addressing it was captured under, so an answer arriving after the
+ * subject moved writes nowhere, and the holder re-seeds during the render that brings
+ * a new subject rather than in an effect one commit later.
+ */
+export function useSettledGrowthRead<TOutcome, TState>(
+  growth: GrowthPort,
+  key: SubjectKey,
+  read: (key: SubjectKey) => Promise<TOutcome> | undefined,
+  project: SettledGrowthReadProjection<TOutcome, TState>,
+): SettledGrowthRead<TState> {
+  const { value, publish } = useSubjectScopedState<TState>(growth, key, () =>
+    project.unsettled(key),
+  );
+  const { settled } = project;
+  useEffect(() => {
+    const pending = read(key);
+    if (pending === undefined) {
+      return;
+    }
+    void settleGrowthRead(pending).then((settlement) => {
+      publish(settled(settlement));
+    });
+    // `publish` re-identifies exactly when the holder is re-addressed, so it is both
+    // the guard on this read's answer and the whole of what tells this effect to run
+    // again — the dependency list the four hand-written copies of this effect already
+    // carried. `read` and `settled` are deliberately not in it: each is a closure the
+    // caller rebuilds every render over exactly the port and key already named here,
+    // so listing them would re-read on every render of every surface.
+  }, [growth, key, publish]);
+  return { value, publish };
 }

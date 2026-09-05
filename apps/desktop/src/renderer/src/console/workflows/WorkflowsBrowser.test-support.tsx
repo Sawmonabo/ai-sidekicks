@@ -24,15 +24,23 @@
 // What is deliberately NOT here is anything one suite reads: the scope-group queries,
 // the two-page port, the recording announcer, and the start slot's spy each have one
 // reader and stay beside it.
+//
+// THE PROBE SESSION IS THE FAMILY'S AND NOT THE BROWSER'S. Five suites across three
+// directories address the same session — the surface, the start slot, the directory
+// hook and its source-swap sibling, and the run pane's snapshot — and each had typed
+// the literal out. One id in five places is five chances to edit one of them, and a
+// suite addressed at a session its neighbours are not still passes: every assertion
+// it makes is about the value it sent. So the id lives here, where the row factory
+// that carries it in `scopeRef` already does.
 
 import { act, render } from "@testing-library/react";
 
-import { type GrowthPort } from "../bridge/index.js";
-import { createRefusingGrowthPort } from "../bridge/growth-port.js";
+import { createRefusingGrowthPort, type GrowthPort } from "../bridge/index.js";
 import { LiveAnnouncerProvider } from "../primitives/index.js";
-import type { WorkflowDefinitionRow } from "./definitions/DefinitionsBrowser.js";
+import type { WorkflowDefinitionRow } from "./definitions/definition-rows.js";
 import { WorkflowsBrowser } from "./WorkflowsBrowser.js";
 
+/** The session every workflows suite addresses. One id, so five suites probe one. */
 export const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
 /** The continuation token the paged cases hand back. */

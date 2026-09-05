@@ -13,21 +13,18 @@
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { GrowthPort } from "../../bridge/index.js";
-import { createRefusingGrowthPort } from "../../bridge/growth-port.js";
+import { createRefusingGrowthPort, type GrowthPort } from "../../bridge/index.js";
 import {
   latestCommitted,
   observeSubjectRead,
   type ObservedSubjectRead,
 } from "../../store/subject-read-commits.test-support.js";
-import { definition } from "../WorkflowsBrowser.test-support.js";
-import type { WorkflowDefinitionRow } from "./DefinitionsBrowser.js";
+import { definition, PROBE_SESSION_ID } from "../WorkflowsBrowser.test-support.js";
+import type { WorkflowDefinitionRow } from "./definition-rows.js";
 import {
   useWorkflowDefinitionDirectory,
   type WorkflowDefinitionDirectory,
 } from "./definition-directory.js";
-
-const PROBE_SESSION_ID = "019b7a12-0280-75e5-8510-ada11a5a3401";
 
 /**
  * One row per id, which is what these cases read back: the id is the only member that

@@ -61,12 +61,9 @@
 // offering nothing and promising an answer that had already arrived.
 // `read-settlement.ts` next door turns every ending into one value.
 
-import { useEffect } from "react";
-
-import { useSubjectScopedState } from "../store/index.js";
 import type { GrowthPort } from "./growth-port.js";
 import type { GrowthSessionSummary } from "./growth-values/sessions.js";
-import { settleGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
+import { useSettledGrowthRead, type SettledReadRefusal } from "./read-settlement.js";
 
 /** What a surface knows about the node's sessions at one moment. */
 export type SessionDirectoryState =
@@ -84,29 +81,21 @@ export type SessionDirectoryState =
  * again.
  */
 export function useSessionDirectory(growth: GrowthPort): SessionDirectoryState {
-  const { value: state, publish } = useSubjectScopedState<SessionDirectoryState>(
-    growth,
-    undefined,
-    () => ({ status: "reading" }),
-  );
-  useEffect(() => {
-    // No reset here, and no mount flag beside the settlement. The holder above put
-    // this read back at `reading` during the render that changed the port, and
-    // `publish` carries the addressing it was captured under — so an answer arriving
-    // after the port moved, or after the surface went away, writes nowhere. Both were
-    // stated by hand before, one commit too late and with nothing holding them to the
-    // holder's own reading of when a value stops belonging to its subject.
-    void settleGrowthRead(growth.sessionList({})).then((outcome) => {
-      publish(
-        outcome.status === "served"
-          ? { status: "served", sessions: outcome.value }
-          : { status: "unavailable", refusal: outcome },
-      );
-    });
-    // `publish` re-identifies exactly when the holder is re-addressed, so it is both the
-    // guard on this read's answer and the whole of what tells this effect to run again.
-  }, [growth, publish]);
-  return state;
+  // Addressed by the port and by nothing else, so the key is absent — and the read is
+  // put anyway, because `sessionList` carries no required member. That is why the
+  // settled read asks its `read` whether there is a question rather than reading the
+  // key: this directory has no key and always has a question, and the three workflow
+  // reads beside it have a key and only have a question while it is present.
+  return useSettledGrowthRead<
+    Awaited<ReturnType<GrowthPort["sessionList"]>>,
+    SessionDirectoryState
+  >(growth, undefined, () => growth.sessionList({}), {
+    unsettled: () => ({ status: "reading" }),
+    settled: (settlement) =>
+      settlement.status === "served"
+        ? { status: "served", sessions: settlement.value }
+        : { status: "unavailable", refusal: settlement },
+  }).value;
 }
 
 /**

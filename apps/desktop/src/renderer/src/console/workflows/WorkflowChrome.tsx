@@ -24,10 +24,7 @@
 import { useId } from "react";
 
 import { Glyph, Nothing, RefusalBanner, type GlyphName } from "../primitives/index.js";
-import type { WorkflowChromeState } from "./chrome-state.js";
-
-/** Edge length of the header's kind glyph, matching the breadcrumb's scale. */
-const HEADER_GLYPH_SIZE = 14;
+import { WORKFLOW_CHROME_GLYPH_SIZE, type WorkflowChromeState } from "./chrome-state.js";
 
 export interface WorkflowChromeProps {
   /** The kind glyph, so a surface is identifiable before its copy is read. */
@@ -73,7 +70,7 @@ export function WorkflowChrome(props: WorkflowChromeProps): React.JSX.Element {
   return (
     <section className="meridian-workflow" aria-labelledby={headingId}>
       <header className="meridian-workflow__header">
-        <Glyph name={props.glyph} size={HEADER_GLYPH_SIZE} />
+        <Glyph name={props.glyph} size={WORKFLOW_CHROME_GLYPH_SIZE} />
         <div className="meridian-workflow__heading-group">
           <h2 className="meridian-workflow__heading" id={headingId}>
             {props.heading}

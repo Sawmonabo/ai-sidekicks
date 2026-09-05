@@ -57,14 +57,12 @@ export interface ChatStartSlotProps extends ChatStartMount {
 
 /** The conversational start, or the honest statement that it is reserved and unbuilt. */
 export function ChatStartSlot(props: ChatStartSlotProps): React.JSX.Element {
-  const { body: ChatStartBodyComponent, ...mount } = props;
+  const { body, ...mount } = props;
   return (
     <WorkflowSlotMount
-      slot={{
-        contract: WORKFLOW_CHAT_START_SLOT.contract,
-        body:
-          ChatStartBodyComponent === undefined ? undefined : <ChatStartBodyComponent {...mount} />,
-      }}
+      seat={WORKFLOW_CHAT_START_SLOT}
+      body={body}
+      mount={mount}
       title="Starting a run by talking to it is not built yet."
       detail="Runs start from a definition in the workflows browser. This area is reserved for the command and the composer's own affordance."
     />

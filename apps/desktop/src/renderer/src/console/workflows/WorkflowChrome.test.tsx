@@ -26,9 +26,12 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
+import type { GrowthPort } from "../bridge/index.js";
 import { refuse } from "../core/index.js";
+import { OperatorControls } from "./pane/run/OperatorControls.js";
 import { WorkflowChrome } from "./WorkflowChrome.js";
 import {
+  WORKFLOW_CHROME_GLYPH_SIZE,
   WORKFLOW_CHROME_STATES,
   refusedWorkflowChrome,
   unaskedWorkflowChrome,
@@ -218,5 +221,47 @@ describe("workflow chrome — two panes of one kind in one deck", () => {
       labelIn(pair.tree, first)?.textContent,
       labelIn(pair.tree, second)?.textContent,
     ]).toStrictEqual(["Workflow run", "Workflow run"]);
+  });
+});
+
+describe("the family draws its chrome at one scale", () => {
+  // TWO CONSUMERS IN ONE TREE, because the defect this replaces was invisible to
+  // either alone. The header and the run controls each held a private constant of the
+  // same number and each comment named the OTHER as its authority, so nothing owned
+  // the scale and either could be edited while the other stayed. Rendering both and
+  // reading the edge lengths off the markup is the only instrument that fails when
+  // one of them drifts; asserting each against the constant it imports would pass on
+  // a site that had gone back to a literal of its own.
+  function glyphEdgeLengths(tree: HTMLElement): readonly string[] {
+    return [...tree.querySelectorAll("svg.meridian-glyph")].map(
+      (glyph) => `${glyph.getAttribute("width") ?? "?"}x${glyph.getAttribute("height") ?? "?"}`,
+    );
+  }
+
+  it("draws the header glyph and the run controls at the same edge length", () => {
+    const chrome = render(
+      <WorkflowChrome
+        glyph="run"
+        heading="Workflow run"
+        summary="One run."
+        state={{ kind: "ready" }}
+      >
+        <p>Body.</p>
+      </WorkflowChrome>,
+    );
+    const controls = render(
+      <OperatorControls
+        growth={{} as GrowthPort}
+        workflowRunId="run-scale"
+        cancel={{ kind: "admitted", cancel: () => undefined }}
+        resume={{ kind: "admitted", resume: () => undefined, versionChain: [] }}
+      />,
+    );
+    const drawn = [...glyphEdgeLengths(chrome.container), ...glyphEdgeLengths(controls.container)];
+    const scale = `${String(WORKFLOW_CHROME_GLYPH_SIZE)}x${String(WORKFLOW_CHROME_GLYPH_SIZE)}`;
+    // A floor first: an assertion over no glyphs at all would be satisfied by a
+    // chrome that drew none and controls that were refused into prose.
+    expect(drawn.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(drawn)).toStrictEqual(new Set([scale]));
   });
 });
