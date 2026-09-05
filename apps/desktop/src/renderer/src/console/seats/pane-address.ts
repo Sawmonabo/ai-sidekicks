@@ -75,7 +75,8 @@
 // no entity" a fact the compiler holds.
 
 import { refuse, type ConsoleRefusal } from "../core/index.js";
-import { IDENTIFIER_MAX_LENGTH, isSingleNameIdentifierShaped } from "../persistence/index.js";
+import { IDENTIFIER_MAX_LENGTH } from "../core/index.js";
+import { isSingleNameIdentifierShaped } from "../persistence/index.js";
 import { CONSOLE_ENTITY_KINDS, type ConsoleEntityRef } from "../store/index.js";
 import { PANE_KINDS, isPaneKind, type PaneKind } from "./pane-kinds.js";
 

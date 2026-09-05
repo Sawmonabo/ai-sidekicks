@@ -12,7 +12,6 @@
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
 import { op } from "./operation-entry.js";
 
-/** The agent rows, in the order the single table carried them. */
 /**
  * The ids this plane carries, DERIVED from the id union rather than listed again.
  *
@@ -26,6 +25,7 @@ type AgentOperationId = Extract<
   `agent${string}` | "orchestrationChildRunLinkRead"
 >;
 
+/** The agent rows, in the order the single table carried them. */
 export const AGENT_GROWTH_OPERATIONS: Readonly<Record<AgentOperationId, GrowthOperationEntry>> = {
   // agent plane — the four verbs, in the order a surface meets them.
   agentList: op(

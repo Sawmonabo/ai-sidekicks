@@ -1,7 +1,8 @@
 // The per-caused-by split's columns.
 //
 // One of three column sets the session cost receipt's splits are drawn with — see
-// `run-columns.tsx` for why each is its own module and why the name is kebab.
+// `RunColumns.tsx` for why each is its own module and how the naming rule reaches a
+// `.tsx` module whose one declaration is a table.
 
 import { DerivedFigure, WireFigure } from "../../../primitives/index.js";
 import type { CostReceiptCausedByRow } from "./cost-receipt-model.js";

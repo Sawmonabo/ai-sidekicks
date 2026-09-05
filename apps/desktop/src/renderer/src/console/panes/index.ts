@@ -24,10 +24,13 @@
 // THE BODY IS THE FAMILY'S, AND THIS DIRECTORY IS FLAT. A pane body renders one
 // family's vocabulary, so it lives in that family — `agents/agent-console/` for the
 // agent console — and what arrives here is the registrar, through that family's door.
-// `console/panes/` holds composition files and nothing else: this board, the chrome
-// the deck draws around a pane, and their tests. A `panes/<kind>/` subdirectory would
-// make this directory a seventh view family with a seat board inside it, and every
-// reach from the body into its own family would become a cross-family import.
+// `console/panes/` holds composition files and nothing else: this board and its test,
+// one reserved line per family. The chrome a pane wears is not here either — it is
+// `seats/ConsolePaneChrome.tsx`, because the deck that provides its host controls is
+// itself a view family. A `panes/<kind>/` subdirectory would make this directory a
+// seventh view family with a seat board inside it, and every reach from the body into
+// its own family would become a cross-family import; `console-panes-hold-no-body`
+// refuses the shape outright.
 //
 // WHAT A FAMILY DOES NOT DO
 //

@@ -17,8 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isConsoleRefusal } from "../core/index.js";
-import { IDENTIFIER_MAX_LENGTH } from "../persistence/index.js";
+import { IDENTIFIER_MAX_LENGTH, isConsoleRefusal } from "../core/index.js";
 import type { ConsoleEntityRef } from "../store/index.js";
 import {
   paneEntityScopeFor,

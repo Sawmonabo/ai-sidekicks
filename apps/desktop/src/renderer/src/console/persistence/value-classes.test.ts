@@ -9,9 +9,8 @@
 
 import { describe, expect, it } from "vitest";
 
-import { isConsoleRefusal } from "../core/index.js";
+import { IDENTIFIER_MAX_LENGTH, isConsoleRefusal } from "../core/index.js";
 import {
-  IDENTIFIER_MAX_LENGTH,
   PERSISTED_VALUE_CLASSES,
   PERSISTENCE_REFUSAL_CODES,
   PERSISTENCE_REFUSAL_ORIGIN,

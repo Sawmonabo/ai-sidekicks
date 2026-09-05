@@ -146,6 +146,54 @@ describe("body allowance — the close runs whichever way the body went", () => 
     expect(application.closed(), "the close was skipped after an overrun").toBe(true);
   });
 
+  it("words the overrun as the allowance even when the clock disagrees with the timer", async () => {
+    // THE RACE THIS CASE PINS, and why the case above is not enough on its own.
+    //
+    // The bounding `setTimeout` fires against libuv's loop clock while the wording
+    // decision used to be re-derived from `Date.now()` — two independent readings of
+    // "has the budget gone", which disagree. Measured on the authoring machine at a
+    // 5 ms budget: the timer fired with `Date.now()` still one millisecond SHORT of
+    // the expiry instant in 55 of 4 000 trials, 1.4 %. In those runs the overrun was
+    // reported in the deadline's words rather than the allowance's, and the case
+    // above failed on a runner and passed on every re-run — which is what it did.
+    //
+    // A STOPPED clock is that skew taken to its limit and made deterministic: the
+    // timer still fires, and the second reading says the budget is untouched. Before
+    // the fix this produced the deadline's sentence every time rather than one run in
+    // seventy, so this case fails on the pre-fix shape by construction rather than by
+    // luck. The allowance's own path is now what settles a body that overran, and it
+    // knows it fired because the deadline SAYS so, not because a clock agrees.
+    const application = recordingClose();
+    const frozen = stoppedClock(1_000);
+    await expect(
+      withBoundedBody(
+        application,
+        new BodyAllowance(TEST_ALLOWANCE_MS, frozen.now),
+        () => new Promise<void>(() => undefined),
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `test body did not settle within the ${String(TEST_ALLOWANCE_MS)} ms allowance`,
+        "u",
+      ),
+    );
+    expect(application.closed(), "the close was skipped after an overrun").toBe(true);
+  });
+
+  it("still lets a body's own failure through when the deadline has spent its budget", async () => {
+    // The other direction, and the reason the decision cannot simply be "reword
+    // whatever comes out". A body that fails on its own AFTER the allowance is gone
+    // must still report its own assertion: an expiry the deadline never raised is not
+    // this harness's failure to describe.
+    const spent = stoppedClock(1_000);
+    const allowance = new BodyAllowance(TEST_ALLOWANCE_MS, spent.now);
+    const assertionFailure = new Error("the scheme did not change");
+    spent.advance(TEST_ALLOWANCE_MS * 2);
+    await expect(allowance.settle(() => Promise.reject(assertionFailure))).rejects.toBe(
+      assertionFailure,
+    );
+  });
+
   it("negative control: the same wrapper that timed one body out passes a faster one", async () => {
     // Without this the case above is ambiguous between "the allowance expired"
     // and "the wrapper rejects everything".

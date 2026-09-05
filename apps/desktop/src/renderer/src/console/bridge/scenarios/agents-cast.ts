@@ -89,15 +89,6 @@ export const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
   "provider_commands",
 ];
 
-/**
- * The two attached agents, as every view of them reads.
- *
- * One table rather than a literal per beat and a second per roster row, on
- * `flagship.ts`'s rule: `agent.attached` and the `agent.list` entry are two views of
- * one record, and two hand-written copies drift where nothing catches it. The
- * drivers are deliberately mixed — a fixture whose whole cast runs one provider
- * cannot show an axis control what a two-provider session looks like.
- */
 /** One attached sidekick, as both the event and the roster entry read it. */
 export interface AttachedAgent {
   readonly agentId: string;
@@ -113,6 +104,15 @@ export interface AttachedAgent {
   readonly attachedAtIso: string;
 }
 
+/**
+ * The two attached agents, as every view of them reads.
+ *
+ * One table rather than a literal per beat and a second per roster row, on
+ * `flagship.ts`'s rule: `agent.attached` and the `agent.list` entry are two views of
+ * one record, and two hand-written copies drift where nothing catches it. The
+ * drivers are deliberately mixed — a fixture whose whole cast runs one provider
+ * cannot show an axis control what a two-provider session looks like.
+ */
 export const ATTACHED_AGENTS: readonly [AttachedAgent, AttachedAgent] = [
   {
     agentId: AGENT_ARCHITECT,

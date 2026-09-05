@@ -17,6 +17,7 @@ import {
   BROWSER_MODE_OPTIMIZE_DEPS,
   WORKSPACE_SOURCE_CONDITIONS,
 } from "./browser-mode.js";
+import { BROWSER_VISIBLE_ENV_PREFIX } from "../test/console/screenshot/baseline-platform.js";
 import {
   SCREENSHOT_TIER_MATCH_OPTIONS,
   SCREENSHOT_TIER_PROVIDER_OPTIONS,
@@ -66,6 +67,15 @@ export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = [
     define: { __SIDEKICKS_CONSOLE_FIXTURES__: "true" },
     resolve: { conditions: WORKSPACE_SOURCE_CONDITIONS, dedupe: BROWSER_MODE_DEDUPE },
     optimizeDeps: BROWSER_MODE_OPTIMIZE_DEPS,
+    // Browser mode runs the tests inside a page, and a page sees only what Vite
+    // hands it: an unprefixed environment variable reaches `process.env` on the
+    // server and NOTHING on the client, so the tier's baseline guard
+    // (`test/console/screenshot/baseline-platform.ts`) could not read a variable
+    // named the way a developer types it. This second prefix is exactly as wide as
+    // the two variables that guard reads and no wider — Vite's own warning about
+    // `envPrefix` is that a loose one publishes the machine's environment into the
+    // bundle, and `SIDEKICKS_` alone would carry every daemon setting with it.
+    envPrefix: ["VITE_", BROWSER_VISIBLE_ENV_PREFIX],
     test: {
       name: "console-screenshot",
       include: ["test/console/screenshot/**/*.test.{ts,tsx}"],
@@ -127,6 +137,18 @@ export const CONSOLE_TIER_PROJECTS: readonly TestProjectConfiguration[] = [
   },
   {
     // Tier: assets. Generated artifacts byte-identical to their sources.
+    //
+    // The define is here for the architecture tier's reason, reached the same way:
+    // this tier imports the generator, and a token module that reaches its own
+    // family door for a value — the enumeration row ceiling, whose home is
+    // `core/constants.ts` — pulls `core/index.ts` in with it, and that door
+    // re-exports `core/tripwires.ts`, which reads this identifier at MODULE scope.
+    // Without it the whole file aborts at import with a bare `ReferenceError`
+    // naming something that is not a variable in any process. `false`, because the
+    // process generating a stylesheet to compare is not a fixture build.
+    define: {
+      __SIDEKICKS_CONSOLE_FIXTURES__: "false",
+    },
     test: {
       name: "console-assets",
       environment: "node",

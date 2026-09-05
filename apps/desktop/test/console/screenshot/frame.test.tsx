@@ -18,42 +18,61 @@
 //               pass. The deliberate "I have looked at the candidate and it is
 //               correct" gesture, and the only supported way to mint a baseline.
 //
-// WHERE THE PLATFORM PIN LIVES
+// WHO MINTS A REFERENCE, AND WHO MAY COMPARE AGAINST ONE
 //
-// `baseline-platform.ts`, which every file in this tier imports: the pin is a
-// property of the tier and not of one family's captures, and a second copy of it
-// would be a second place it could be relaxed invisibly. The fail-closed guard and
-// the missing-reference probe below are NOT platform-pinned — they assert how this
-// tier behaves when a reference is absent, which is a claim about the runner rather
-// than about pixels, and it holds on every platform.
+// References are keyed by browser AND platform, and font rasterisation differs
+// enough that one image cannot serve two — but the pin this tier needs is finer
+// than a platform, and `baseline-platform.ts` holds it. `darwin` is not one
+// machine: the committed images are what GitHub's `macos-15` runner renders, so a
+// reference minted anywhere else is one no CI run will reproduce, and a comparison
+// run anywhere else is red for reasons belonging to the host. That module's own
+// doc block carries the reasoning, the two variables, and the measured cost of the
+// pin this replaced; `baseline-comparison.ts` is the browser-side half every file
+// in this tier reads that verdict through, so the guard is stated once.
+//
+// They are refreshed by dispatching
+// `.github/workflows/console-screenshot-baselines.yml` with `mode: regenerate` on
+// the branch that changes them, reading every image in the artifact it uploads,
+// and committing that tree.
+//
+// The fail-closed guard and the missing-reference probe are NOT pinned to any host.
+// They assert how this tier behaves when a reference is absent, which is a claim
+// about the runner rather than about pixels, and it holds everywhere — so the tier
+// still proves something where it cannot compare.
+//
+// WHAT AN OPTED-IN LOCAL RUN SHOWS YOU
 //
 // A developer Mac is a LATER macOS with a different system UI face — the console's
 // sans stack names IBM Plex Sans first, nothing self-hosts it yet, and the fallback
-// is whatever `system-ui` resolves to on the host. So a local run is ADVISORY, and
-// it is advisory in a specific and small way: measured 2026-09-02 on macOS 26.6.1
-// against `macos-15` references, the whole disagreement is SIX pixels — one in
-// `frame-first-run-light`, six in `palette-open-light`, none in the dark frame —
-// and every one of them is a corner of a `⌘` keycap glyph, the one character on
-// these surfaces that comes from the host's font rather than the console's.
+// is whatever `system-ui` resolves to on the host. Measured 2026-09-05 on macOS
+// 26.6.1 against the `macos-15` references this tree carries, exactly one of the
+// three comparisons disagrees: SIX pixels of `palette-open-light`, every one a
+// corner of a `⌘` keycap glyph — the one character on these surfaces that comes
+// from the host's font rather than the console's — with both frames matching
+// exactly. That is this host on this tree and not a bound: the same three
+// comparisons have disagreed by four figures on other machines and other reference
+// vintages.
 //
-// The tier allows none of them. `vitest.config.ts`'s `SCREENSHOT_TIER_MATCH_OPTIONS`
-// records why: a single changed glyph in a palette label moves only 20 pixels, so a
-// budget large enough to absorb six is close enough to twenty to hide a punctuation
-// change, and the tier would rather be red on a developer's machine than blind on
-// the runner's. So read a local red the way the numbers make it readable — a
-// handful of pixels on a keycap is the known residue; anything else is yours. A
-// one-pixel rail move is 3 690 pixels; the stale palette reference this lane found
-// (a Help group that had appeared since the capture) was 26 016.
+// The tier allows none of them. `vitest/screenshot-pins.ts`'s
+// `SCREENSHOT_TIER_MATCH_OPTIONS` records why: a single changed glyph in a palette
+// label moves only 20 pixels, so a budget large enough to absorb six is close
+// enough to twenty to hide a punctuation change, and the tier would rather be red
+// on a machine that asked for the comparison than blind on the runner's. So read an
+// opted-in red by looking at the diff the run writes into `.vitest-attachments/`
+// rather than at its pixel count — glyph corners are the host, a moved element is
+// yours. For scale: a one-pixel rail move is 3 690 pixels, and the stale palette
+// reference this lane found (a Help group that had appeared since the capture) was
+// 26 016.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme, pressKeys, renderSettled } from "../console-harness.js";
 import {
-  announceOffPinnedPlatform,
+  announceSkippedBaselines,
   requireCapturedElement,
   screenshotUpdateMode,
-  skipOffPinnedPlatform,
-} from "./baseline-platform.js";
+  skipOffBaselineHost,
+} from "./baseline-comparison.js";
 
 import {
   ConsoleRoot,
@@ -71,7 +90,7 @@ import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens
  */
 const UNCOMMITTED_REFERENCE_NAME = "no-reference-is-committed-under-this-name";
 
-/** The frame element, or a throw naming what did not mount. */
+/** The mounted frame, or a throw naming what did not mount. */
 function requireFrame(container: HTMLElement): Element {
   return requireCapturedElement(container, ".meridian-frame");
 }
@@ -122,13 +141,13 @@ describe("screenshot — the tier gates rather than mints", () => {
 
 describe("screenshot — the frame under the first-run scenario", () => {
   // Said once at collection, on the one channel the terminal reporter forwards.
-  // Without it an off-platform run reports "3 skipped" and nothing else, which a
-  // reader cannot tell from a tier that was quietly switched off.
-  announceOffPinnedPlatform();
+  // Without it a skipped run reports "3 skipped" and nothing else, which a reader
+  // cannot tell from a tier that was quietly switched off.
+  announceSkippedBaselines();
 
   for (const scheme of CONSOLE_SCHEMES) {
     it(`renders the ${scheme} scheme`, async (context) => {
-      skipOffPinnedPlatform(context);
+      skipOffBaselineHost(context);
       await emulateSystemScheme(scheme);
       const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
 
@@ -140,7 +159,7 @@ describe("screenshot — the frame under the first-run scenario", () => {
     // The palette is the one surface that exists on a first run, so it is the one
     // composition worth pinning before the families ship theirs: the scoped
     // context row, the grouped command list, and the chord hints in the footer.
-    skipOffPinnedPlatform(context);
+    skipOffBaselineHost(context);
     await emulateSystemScheme("light");
     const { container } = await renderSettled(<ConsoleRoot scenarioId={FIRST_RUN_SCENARIO_ID} />);
     await pressKeys("{Control>}k{/Control}");

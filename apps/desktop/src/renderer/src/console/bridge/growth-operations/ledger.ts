@@ -7,7 +7,6 @@
 import type { GrowthOperationEntry, GrowthOperationId } from "../growth-entry.js";
 import { op } from "./operation-entry.js";
 
-/** The ledger rows, in the order the single table carried them. */
 /**
  * The ids this plane carries, DERIVED from the id union rather than listed again.
  *
@@ -23,6 +22,7 @@ type LedgerOperationId = Extract<
   "hydratedEventRead" | "orchestrationCostReceiptRead" | "orchestrationBudgetRead"
 >;
 
+/** The ledger rows, in the order the single table carried them. */
 export const LEDGER_GROWTH_OPERATIONS: Readonly<Record<LedgerOperationId, GrowthOperationEntry>> = {
   // The hydrated event read. It names no wire method for the same reason the two
   // identity rows above name none: the projection is built daemon-side and reaches

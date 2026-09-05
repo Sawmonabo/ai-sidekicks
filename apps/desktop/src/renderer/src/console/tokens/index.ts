@@ -45,13 +45,14 @@ export {
 
 export {
   ATTRIBUTION_EDGE_WIDTH_PX,
-  BOUNDED_ENUMERATION_MAX_HEIGHT_REM,
+  BOUNDED_ENUMERATION_HEIGHT_REM,
   MOTION_DURATIONS_MS,
   PARTICIPANT_HUE_STEPS,
 } from "./palette.js";
 
 export { formatOklch } from "./color.js";
 
+export { GLYPH_DEFAULT_SIZE, GLYPH_SIZE_CHROME } from "./glyphs.js";
 export type { GlyphName } from "./glyphs.js";
 
 export type { ParticipantHueAssignment, ParticipantRingTreatment } from "./participant-hue.js";

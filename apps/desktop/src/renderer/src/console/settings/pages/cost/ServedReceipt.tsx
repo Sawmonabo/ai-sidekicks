@@ -1,9 +1,9 @@
 import { type ReactNode } from "react";
 import { Chip } from "../../../primitives/index.js";
 import { verifyReceiptPartitions, type CostReceipt } from "./cost-receipt-model.js";
-import { ACCOUNT_COLUMNS } from "./account-columns.js";
-import { CAUSED_BY_COLUMNS } from "./caused-by-columns.js";
-import { RUN_COLUMNS } from "./run-columns.js";
+import { ACCOUNT_COLUMNS } from "./AccountColumns.js";
+import { CAUSED_BY_COLUMNS } from "./CausedByColumns.js";
+import { RUN_COLUMNS } from "./RunColumns.js";
 import { MoneyFigure } from "./MoneyFigure.js";
 import { PartitionSection } from "./PartitionSection.js";
 
