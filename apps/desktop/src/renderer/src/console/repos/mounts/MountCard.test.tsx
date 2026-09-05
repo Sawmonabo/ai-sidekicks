@@ -13,6 +13,7 @@ import { refuse } from "../../core/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { SessionStore } from "../../store/index.js";
 import { MountCard } from "./MountCard.js";
+import { NO_WORKSPACE_REFUSALS } from "./repo-mounts-model.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
 import type { WorktreeStatusRecord } from "./worktree-model.js";
 
@@ -73,7 +74,7 @@ function renderCard(
         mount={mount()}
         workspaces={[WORKSPACE]}
         capabilitiesByWorkspaceId={{}}
-        refusalByWorkspaceId={{}}
+        workspaceRefusals={NO_WORKSPACE_REFUSALS}
         pendingModeByWorkspaceId={{}}
         worktrees={[]}
         worktreeRefusal={undefined}

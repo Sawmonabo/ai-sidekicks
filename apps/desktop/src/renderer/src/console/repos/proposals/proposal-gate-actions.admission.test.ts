@@ -27,7 +27,7 @@ import {
   servedContext,
   settleAct,
   settle,
-} from "./proposal-gate-scripted-port.js";
+} from "./proposal-gate-scripted-port.test-support.js";
 
 const readers = new OpenReaders();
 

@@ -16,6 +16,14 @@
 // duplicated landmark, an unlabelled disclosure, or a region announced twice would
 // show up.
 //
+// THE GATE'S OFFERS ARE ASSERTED AND NOT ONLY WALKED. Axe reports what is wrong with
+// the nodes it is handed and says nothing about the nodes that are missing, so this
+// file's eight clean walks would have gone on passing over a gate drawing two offers
+// instead of three and no refusal at all — which is exactly what it drew, because the
+// pinned proposal was `draft` and the remote act is withheld on any state but `ready`.
+// One assertion over the drawn rows is what makes the fixture's props reach the DOM a
+// checked claim rather than an assumption every image quietly inherited.
+//
 // THE DIFF PANE IS THE CASE WORTH HAVING. Its rows are a virtualized grid: the
 // scroller carries the row count and each drawn row carries its index, so what a
 // person using a screen reader is told about a five-thousand-line change set is a
@@ -35,7 +43,7 @@ import {
   mountRepoSection,
   mountRepoSectionWithOpenGate,
   type MountedFamilySurface,
-} from "../repos-surfaces.js";
+} from "../surfaces/repos.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
   describeViolations,
@@ -89,6 +97,18 @@ describe("accessibility — the repos, diff, artifact, and proposal surfaces", (
       });
     }
   }
+
+  it("draws the proposal gate's three offers and the refusal beside the remote one", async () => {
+    // The composition the pinned fixture exists to show, asserted where a DOM read can
+    // name what is absent. Three rows, because `PROPOSAL_ACTIONS` is closed at three
+    // and a `ready` proposal offers all of them; one inline refusal, because
+    // `ProposalActionGroup` looks a refusal up only for an act it is already drawing,
+    // so a withheld remote act silently takes the refusal down with it.
+    const mounted = await mountProposalGate();
+
+    expect(mounted.element.querySelectorAll(".meridian-proposal-gate__act-row")).toHaveLength(3);
+    expect(mounted.element.querySelectorAll(".meridian-refusal--inline")).toHaveLength(1);
+  });
 
   it("finds a planted violation, so a clean result means something", async () => {
     // Negative control for this file's own runs: the eight cases above expect an

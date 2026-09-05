@@ -5,7 +5,7 @@ import { RefusalCard } from "../../primitives/index.js";
 
 import { type SidebarSectionContext } from "../../seats/index.js";
 
-import { useRepoMounts } from "./repo-mounts-reader.js";
+import { useRepoMounts } from "./repo-mounts-binding.js";
 import { repoCallRefusal } from "../repo-reads.js";
 import { EphemeralCloneList } from "./EphemeralCloneList.js";
 import { MountList } from "./MountList.js";

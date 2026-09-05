@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { RESTORE_PATH_ROW_HEIGHT_PX } from "../../core/index.js";
-import { WindowedListRow } from "../../primitives/index.js";
+import { WindowedListRow, useWindowedRovingIndex } from "../../primitives/index.js";
 
 import { RestorePathCell } from "./RestorePathCell.js";
 import {
@@ -12,10 +12,21 @@ import {
 /**
  * The same paths, with only the window's worth of rows in the document.
  *
- * The scroll container is keyboard-focusable because a region that scrolls and
- * cannot be reached from the keyboard is a region half the operators cannot read,
- * and it carries the enumeration's own name so the focus stop announces what it
- * holds rather than announcing a group.
+ * A WINDOW MOUNTS A SLICE, SO ITS TAB STOPS WERE A MOVING NUMBER. Every drawn row here
+ * carries a control where the mounting surface can open a diff, and each of those is a
+ * tab stop — so scrolling this region changed how many stops the page's tab order held,
+ * and a reader tabbing past a four-thousand-path enumeration walked whatever slice
+ * happened to be mounted. `useWindowedRovingIndex` is the console's one answer: ONE
+ * entry is tabbable, the arrow keys move which, and the moved-to row is focused on
+ * whichever render the window mounts it on.
+ *
+ * THE STOP IS ON THE CONTROL AND THE REGION KEEPS ITS OWN ONLY WHERE THERE IS NONE.
+ * `RestorePathCell` renders plain text when the surface has no diff to open, and a
+ * scroll region with no control in it still has to be reachable — that is what the
+ * container's own `tabIndex` was always for. So the two are exclusive rather than
+ * stacked: with controls the roving stop is inside the rows and the container takes
+ * none, without them the container keeps the one stop it had. Keeping both would put a
+ * stop on the region AND a stop inside it, which is two stops for one enumeration.
  *
  * Overscan is the library's own default: this list has no expensive row and no
  * horizontal axis, so a band picked here would be a number with no reason behind
@@ -40,13 +51,33 @@ export function WindowedRestorePathList(props: RestorePathListProps): React.JSX.
   });
 
   const virtualRows = virtualizer.getVirtualItems();
+  const revealIndex = useCallback(
+    (rowIndex: number) => {
+      virtualizer.scrollToIndex(rowIndex);
+    },
+    [virtualizer],
+  );
+  // The drawn sequence is the move's identity: a disclosure re-read with a different
+  // change set draws different paths, and an index into a sequence that no longer
+  // exists addresses a different path, or none.
+  const { activeIndex, onKeyDown } = useWindowedRovingIndex({
+    rowCount: props.paths.length,
+    anchorIndex: 0,
+    containerRef: scrollerRef,
+    revealIndex,
+    rowSetIdentity: props.paths,
+    windowRevision: virtualRows,
+  });
+  // The rows carry a control exactly when the mounting surface can open one, which is
+  // the same condition that decides where this enumeration's one tab stop lives.
+  const rowsCarryAControl = props.onOpenPath !== undefined;
   return (
     <div
       className="meridian-restore-disclosure__path-scroller"
       ref={scrollerRef}
       role="group"
       aria-label={props.label}
-      tabIndex={0}
+      tabIndex={rowsCarryAControl ? undefined : 0}
       // Only the bound is inline: it is the same constant the virtualizer measures
       // against, so the window and its arithmetic keep one home. The scroll and the
       // overscroll containment are the sheet's.
@@ -63,6 +94,7 @@ export function WindowedRestorePathList(props: RestorePathListProps): React.JSX.
           // overrides. Only the offset is inline, because only the offset is computed.
           className="meridian-restore-disclosure__paths meridian-restore-disclosure__paths--windowed"
           style={{ transform: `translateY(${String(virtualRows[0]?.start ?? 0)}px)` }}
+          onKeyDown={rowsCarryAControl ? onKeyDown : undefined}
         >
           {virtualRows.map((virtualRow) => {
             const path = props.paths[virtualRow.index];
@@ -80,7 +112,11 @@ export function WindowedRestorePathList(props: RestorePathListProps): React.JSX.
                 totalRowCount={props.paths.length}
                 rowRef={virtualizer.measureElement}
               >
-                <RestorePathCell path={path} onOpenPath={props.onOpenPath} />
+                <RestorePathCell
+                  path={path}
+                  onOpenPath={props.onOpenPath}
+                  isTabbable={virtualRow.index === activeIndex}
+                />
               </WindowedListRow>
             );
           })}

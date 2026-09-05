@@ -24,7 +24,7 @@
 // "Reads happen on subscribe, on window focus, on reconnect, and on the terminal events
 // the owning spec names", under "No interval polling" — so this class arms no timer of
 // its own and owns no listener of
-// its own either: it builds a `RepoRefreshTriggers` over its own scheduler exactly as
+// its own either: it builds a `SessionRefreshTriggers` over its own scheduler exactly as
 // `repo-mounts-reader.ts` beside it does, which is what makes all four reasons reach
 // a gate rather than only window focus. A daemon that reconnected, or a `workspace.stale`
 // frame arriving in an already-focused window, used to leave the branch context and
@@ -62,14 +62,8 @@
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { CallerParticipantRead } from "./caller-participant-read.js";
-import {
-  Emitter,
-  RealClock,
-  refuse,
-  type ConsoleClock,
-  type Unsubscribe,
-} from "../../core/index.js";
-import { RefreshScheduler, type SessionStore } from "../../store/index.js";
+import { Emitter, refuse, type ConsoleClock, type Unsubscribe } from "../../core/index.js";
+import { RefreshScheduler, SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
 import type { BranchContextReading } from "../mounts/branch-context-model.js";
 import { ProposalGateActions } from "./proposal-gate-actions.js";
 import type { ProposalGateActionHost } from "./proposal-gate-action-host.js";
@@ -92,7 +86,7 @@ import {
 } from "./prepared-proposal.js";
 import type { ProposalAction } from "./proposal-actions.js";
 import { repoCallRefusal } from "../repo-reads.js";
-import { RepoRefreshTriggers } from "../mounts/repo-refresh-triggers.js";
+import { REPO_LIFECYCLE_EVENT_KINDS } from "../repo-lifecycle-events.js";
 
 /**
  * Re-exported from the module that declares it, because every importer names it here.
@@ -112,18 +106,27 @@ export interface ProposalGateReaderOptions {
   readonly subject: ProposalGateSubject;
   /** The session whose repair edge and whose frames are two of the three reasons to re-read. */
   readonly sessionStore: SessionStore;
-  /** Injected so a test drives every read on frozen time with no real timers. */
-  readonly clock?: ConsoleClock;
+  /**
+   * The clock this gate's reads are scheduled on. Supplied, never defaulted.
+   *
+   * REQUIRED FOR `repo-mounts-reader.ts`'s REASON: `consoleClockFor` is the one answer
+   * to which clock a window runs on, and a gate that fell back to a `RealClock` of its
+   * own would coalesce its refresh window on wall time while the section it is mounted
+   * inside advanced on the scenario's frozen clock. A reader without a clock is a
+   * construction error rather than a reader on the machine's clock.
+   */
+  readonly clock: ConsoleClock;
 }
 
 export class ProposalGateReader {
   readonly #bridge: ConsoleBridge;
   readonly #subject: ProposalGateSubject;
   /** The session the caller-identity read is asked under. The store's own, never minted. */
+  readonly #sessionStore: SessionStore;
   /** Resolved once: whether this root can be asked about, and with what. */
   readonly #readPlan: BranchContextReadPlan;
   readonly #scheduler: RefreshScheduler;
-  readonly #triggers: RepoRefreshTriggers;
+  readonly #triggers: SessionRefreshTriggers;
   readonly #actions: ProposalGateActions;
   readonly #callerParticipant: CallerParticipantRead;
   readonly #changes = new Emitter<ProposalGateReading>("proposal gate reading");
@@ -148,9 +151,10 @@ export class ProposalGateReader {
   public constructor(options: ProposalGateReaderOptions) {
     this.#bridge = options.bridge;
     this.#subject = options.subject;
+    this.#sessionStore = options.sessionStore;
     this.#readPlan = branchContextReadPlanFor(options.subject);
     this.#scheduler = new RefreshScheduler({
-      clock: options.clock ?? new RealClock(),
+      clock: options.clock,
       perform: async () => {
         await this.#performRead();
       },
@@ -174,9 +178,12 @@ export class ProposalGateReader {
       },
     });
     // The three reasons to read again. They reach this reader only through the scheduler.
-    this.#triggers = new RepoRefreshTriggers({
+    this.#triggers = new SessionRefreshTriggers({
       scheduler: this.#scheduler,
       sessionStore: options.sessionStore,
+      // The family's own answer to which frames matter, shared by both readers so
+      // neither can watch a different frame while reading the same rows.
+      terminalEventKinds: REPO_LIFECYCLE_EVENT_KINDS,
     });
     this.#callerParticipant = new CallerParticipantRead({
       bridge: options.bridge,
@@ -200,6 +207,30 @@ export class ProposalGateReader {
   /** How many reads have actually run — the coalescing assertion, not an inference. */
   public get performCount(): number {
     return this.#scheduler.performCount;
+  }
+
+  /**
+   * Whether this reader is over, terminally.
+   *
+   * READ BY THE BINDING: `dispose` is terminal and strict mode runs a cleanup and then
+   * the same effect's setup again, so `start()` on a disposed gate returns early and
+   * the row would sit unread with nothing on screen to say why.
+   */
+  public get isDisposed(): boolean {
+    return this.#disposed;
+  }
+
+  /**
+   * Whether this gate's reads are taken against `sessionStore`.
+   *
+   * The seam holds one resource per `(subject, key)` and this reader has two
+   * collaborators the key cannot both carry — the bridge it calls through and the store
+   * whose repair edge and frames are two of its three refresh reasons. The bridge is
+   * the subject and the gate's own five-part identity is the key, so this is the axis
+   * left over.
+   */
+  public isReadingFor(sessionStore: SessionStore): boolean {
+    return this.#sessionStore === sessionStore;
   }
 
   public subscribe(sink: (reading: ProposalGateReading) => void): Unsubscribe {

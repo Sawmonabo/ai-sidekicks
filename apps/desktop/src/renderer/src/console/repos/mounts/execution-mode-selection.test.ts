@@ -162,7 +162,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     await reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
 
     expect(port.selectCallCount()).toBe(1);
-    const refusal = reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID];
+    const refusal = reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID];
     expect(refusal?.code).toBe("selection-in-flight");
     // The sentence names the switch already on the wire — not the one just pressed and
     // not the mode the row is bound as.
@@ -217,7 +217,7 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     await drain();
 
     expect(port.selectCallCount()).toBe(2);
-    expect(reader.snapshot.refusalByWorkspaceId[PLAIN_WORKSPACE_ID]).toBeUndefined();
+    expect(reader.snapshot.workspaceRefusals.bySelection[PLAIN_WORKSPACE_ID]).toBeUndefined();
     expect(reader.snapshot.pendingModeByWorkspaceId).toStrictEqual({
       [GIT_WORKSPACE_ID]: WORKTREE_MODE,
       [PLAIN_WORKSPACE_ID]: BRANCH_MODE,
@@ -236,7 +236,9 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     port.release();
     await drain();
 
-    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+      "workspace.busy",
+    );
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
     expect(reader.performCount).toBe(readsBefore);
   });
@@ -256,14 +258,14 @@ describe("ExecutionModeSelections — one switch per workspace at a time", () =>
     await drain();
 
     expect(reader.snapshot).toBe(readingBefore);
-    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]).toBeUndefined();
   });
 });
 
 describe("ExecutionModeSelections — a retry clears the refusal it is retrying", () => {
   it("shows no stale refusal while the retried switch is on the wire", async () => {
     // The defect: `#hold` published the pending mode and left the old entry in
-    // `refusalByWorkspaceId`, so the picker showed the failure the participant had
+    // `workspaceRefusals.bySelection`, so the picker showed the failure the participant had
     // just retried away from beside "Switching to …" for the whole flight — and, on an
     // accepted switch, until the follow-up read finished.
     const { reader, port } = await openWithHeldSelect(["rejected", "served"]);
@@ -271,15 +273,17 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     await drain();
     port.release();
     await drain();
-    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+      "workspace.busy",
+    );
 
     void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
     await drain();
 
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBe(WORKTREE_MODE);
     // Absent, never a held key with no value — the picker asks whether there IS one.
-    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
-    expect(Object.keys(reader.snapshot.refusalByWorkspaceId)).toStrictEqual([]);
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]).toBeUndefined();
+    expect(Object.keys(reader.snapshot.workspaceRefusals.bySelection)).toStrictEqual([]);
   });
 
   it("records the retry's own refusal when the retry is refused too", async () => {
@@ -293,12 +297,14 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
 
     void reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
     await drain();
-    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]).toBeUndefined();
     port.release();
     await drain();
 
     expect(port.selectCallCount()).toBe(2);
-    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+      "workspace.busy",
+    );
     expect(reader.snapshot.pendingModeByWorkspaceId[GIT_WORKSPACE_ID]).toBeUndefined();
   });
 
@@ -311,12 +317,69 @@ describe("ExecutionModeSelections — a retry clears the refusal it is retrying"
     await drain();
     port.release();
     await drain();
-    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+      "workspace.busy",
+    );
 
     void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
     await drain();
 
-    expect(reader.snapshot.refusalByWorkspaceId[GIT_WORKSPACE_ID]?.code).toBe("workspace.busy");
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+      "workspace.busy",
+    );
     expect(reader.snapshot.pendingModeByWorkspaceId[PLAIN_WORKSPACE_ID]).toBe(BRANCH_MODE);
+  });
+});
+
+describe("ExecutionModeSelections — the register empties on every arm", () => {
+  it("holds one key while a switch is on the wire and none once it settles", async () => {
+    const { reader, port } = await openWithHeldSelect();
+    expect(reader.inFlightSelectionCount).toBe(0);
+
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    expect(reader.inFlightSelectionCount).toBe(1);
+
+    port.release();
+    await drain();
+
+    // A give-back that misses on one arm leaks a key, and the row it belongs to then
+    // refuses every later press for the life of the section while every case above
+    // goes on passing. That is the property a hand-rolled register loses first.
+    expect(reader.inFlightSelectionCount).toBe(0);
+  });
+
+  it("gives the key back on the refused arm too, and after a refused second press", async () => {
+    const { reader, port } = await openWithHeldSelect("rejected");
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    // The refused second press takes no key, so it has none to leak either.
+    void reader.requestModeSelection(GIT_WORKSPACE, BRANCH_MODE);
+    await drain();
+    expect(reader.inFlightSelectionCount).toBe(1);
+
+    port.release();
+    await drain();
+
+    expect(reader.inFlightSelectionCount).toBe(0);
+    expect(reader.snapshot.workspaceRefusals.bySelection[GIT_WORKSPACE_ID]?.code).toBe(
+      "workspace.busy",
+    );
+  });
+
+  it("negative control: two workspaces in flight hold two keys, and each is its own", async () => {
+    // Without this a register that held one key for the whole section would satisfy
+    // both cases above while refusing a press on a row that cannot collide.
+    const { reader, port } = await openWithHeldSelect();
+    void reader.requestModeSelection(GIT_WORKSPACE, WORKTREE_MODE);
+    await drain();
+    void reader.requestModeSelection(PLAIN_WORKSPACE, BRANCH_MODE);
+    await drain();
+
+    expect(reader.inFlightSelectionCount).toBe(2);
+
+    port.release();
+    await drain();
+    expect(reader.inFlightSelectionCount).toBe(0);
   });
 });

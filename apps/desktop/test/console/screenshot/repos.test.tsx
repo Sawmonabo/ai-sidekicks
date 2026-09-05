@@ -24,7 +24,10 @@
 //     with a remedy in it, and pinning it is how a tier notices it turning into a
 //     bare error box;
 //   • the PROPOSAL GATE on its prepared arm, where the branch context, the proposal,
-//     its changed paths, and the three offers are all on screen at once;
+//     its changed paths, all three offers, and the refusal beside the remote one are
+//     on screen at once. All three, because the fixture's proposal is `ready`: the
+//     remote act is withheld on any other state, and a refusal is looked up only for
+//     an act that is offered, so a `draft` fixture would pin two rows and no refusal;
 //   • the SECTION AGAIN with a root's gate DISCLOSED, which is the only subject that
 //     holds the mount: the gate composing inside a row it does not own, under the
 //     execution root it was asked about, on whatever arm the fixture actually served.
@@ -46,7 +49,7 @@ import {
   mountRepoSection,
   mountRepoSectionWithOpenGate,
   type MountedFamilySurface,
-} from "../repos-surfaces.js";
+} from "../surfaces/repos.js";
 import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";

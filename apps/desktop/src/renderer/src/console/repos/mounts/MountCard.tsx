@@ -67,6 +67,7 @@ import {
 import { ProposalGateDisclosure } from "../proposals/ProposalGateDisclosure.js";
 import { branchRootGateSubject } from "../proposals/proposal-gate-model.js";
 import type { RepoWorkspaceRow } from "./repo-mounts-reader.js";
+import { workspaceRefusalFor, type WorkspaceRefusals } from "./repo-mounts-model.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { WorktreeGateRow } from "../proposals/WorktreeGateRow.js";
 import {
@@ -94,7 +95,8 @@ export interface MountCardProps {
   readonly capabilitiesByWorkspaceId: Readonly<
     Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
   >;
-  readonly refusalByWorkspaceId: Readonly<Record<string, ConsoleRefusal>>;
+  /** Per workspace: what the read could not answer, and what a press could not do. */
+  readonly workspaceRefusals: WorkspaceRefusals;
   /** Per workspace: the mode a switch is on the wire for, where one is. */
   readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
   /** Every execution root this session holds. Filtered to this mount's here, not by the caller. */
@@ -224,7 +226,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
               <WorkspaceCard
                 workspace={workspace}
                 capabilities={props.capabilitiesByWorkspaceId[workspace.id]}
-                refusal={props.refusalByWorkspaceId[workspace.id]}
+                refusal={workspaceRefusalFor(props.workspaceRefusals, workspace.id)}
                 pendingMode={props.pendingModeByWorkspaceId[workspace.id]}
                 modeControlsOffered={posture.offered}
                 onSelectExecutionMode={(executionMode) => {

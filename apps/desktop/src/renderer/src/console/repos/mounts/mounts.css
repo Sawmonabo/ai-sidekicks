@@ -1,0 +1,419 @@
+/*
+ * The mount half of the repos section: the cards, their roots, and the mode picker.
+ *
+ * SPLIT OUT OF `repos.css` BY DIRECTORY, on `apps/desktop/AGENTS.md`'s size rule: the
+ * family sheet had grown past the point where a reader could find the rules for one
+ * surface in it. Every selector here moved verbatim and in order — this was a move and
+ * not a restyle, and no pinned image may shift because of it.
+ *
+ * IMPORTED FROM `repos/index.ts` AND NOWHERE ELSE, like every sheet this family ships.
+ * A sheet imported from the directory it styles would arrive only on the paths that
+ * reach that directory's barrel, which is the exact defect the stylesheet-edges gate
+ * was written to catch.
+ *
+ * NO LITERAL VALUES, on the family sheet's rule: every length is on the space scale,
+ * every size on the type scale, and every colour is read out of a custom property.
+ */
+
+/* --------------------------------------------------------- sidebar section */
+
+.meridian-repo-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * A collapsed section's one line. It carries the same absence the open section
+ * carries, in the badge shape, because a collapsed section has one line of room and
+ * the alternative — saying nothing — reads as a section with nothing in it.
+ */
+.meridian-repo-section__summary {
+  margin: 0;
+  padding: 0 var(--meridian-space-3);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * Where the mount cards land, one per mount. A column at one gap rather than a
+ * bordered box: the cards carry their own edges, and a container edge around them
+ * would draw a second boundary around every single-mount session.
+ */
+.meridian-repo-section__mounts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: 0 var(--meridian-space-3) var(--meridian-space-2);
+}
+
+/*
+ * The session's ephemeral clones, in the same column as the mount cards. Its own
+ * group because it is a second list rather than a third card: the heading names the
+ * execution mode the roots belong to, and the rows below it are root cards, which
+ * carry their own edges exactly as the worktree rows under a mount do.
+ */
+.meridian-repo-section__clones {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-repo-section__clones-heading {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  font-weight: 600;
+  color: var(--meridian-text-muted);
+}
+
+/* -------------------------------------------------------------- mount card */
+
+/*
+ * One mount, on two axes. The card carries its own edge because the section's
+ * container deliberately does not (see `__mounts` above), and a withheld card is
+ * marked by its edge rather than by dimming its content: the facts on a card whose
+ * bind controls are withheld are exactly the facts a reader needs most.
+ */
+.meridian-mount-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface-raised);
+}
+
+.meridian-mount-card--withheld {
+  border-color: var(--meridian-red-mark);
+}
+
+.meridian-mount-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+/*
+ * The resolved root. Truncated at the MEASURE and never in the string — the element
+ * keeps the whole value in its title and the copy control carries it out, so two
+ * roots that differ only in their tail are always distinguishable.
+ */
+.meridian-mount-card__head > .meridian-figure--wire {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-mount-card__copy {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: var(--meridian-space-1);
+  border: 1px solid transparent;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-mount-card__copy:hover {
+  color: var(--meridian-text);
+  border-color: var(--meridian-edge);
+}
+
+.meridian-mount-card__copy:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-mount-card__axes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-mount-card__checked-at {
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mount-card__sentence {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-mount-card__withheld {
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-red-text);
+}
+
+/* Provenance is collapsed by default; the two status axes and the root are not. */
+.meridian-mount-card__provenance-summary {
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+  cursor: pointer;
+}
+
+.meridian-mount-card__provenance-summary:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-mount-card__provenance-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: var(--meridian-space-2) 0 0;
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-mount-card__provenance-list > dt {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mount-card__provenance-list > dd {
+  margin: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  color: var(--meridian-text-muted);
+}
+
+.meridian-mount-card__disclosure {
+  color: var(--meridian-text-muted);
+}
+
+/* ------------------------------------------- execution roots and their gates */
+
+.meridian-mount-card__roots {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+.meridian-mount-card__workspaces {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+  One workspace and, where it executes in the mount's own checkout, the change
+  proposal standing behind it. Tighter than the gap between workspaces, on the root
+  row's own reasoning: the card and its gate are one subject, so they must not read
+  as two entries in the list above them.
+*/
+.meridian-mount-card__workspace {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+}
+
+/* ---------------------------------------------------------- workspace card */
+
+.meridian-workspace-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-2);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-surface-sunken);
+}
+
+.meridian-workspace-card__head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  min-inline-size: 0;
+}
+
+.meridian-workspace-card__root {
+  margin: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The daemon's captured failure detail, quoted rather than paraphrased. It reads at
+ * a wider measure than the chrome around it because it is the one thing on the row
+ * a person has to read whole.
+ */
+.meridian-workspace-card__last-error {
+  margin: 0;
+  padding: var(--meridian-space-2);
+  border-inline-start: 2px solid var(--meridian-red-mark);
+  border-radius: var(--meridian-radius-sm);
+  background: var(--meridian-red-ground);
+  color: var(--meridian-red-text);
+  font-family: var(--meridian-font-mono);
+  font-size: var(--meridian-text-xs);
+  overflow-wrap: anywhere;
+}
+
+/* ----------------------------------------------------------- mode picker */
+
+.meridian-mode-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * All rows at once, each with its reason — the reason is the point, and a menu would
+ * hide exactly the reasons a restricted mount exists to show.
+ */
+.meridian-mode-picker__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.meridian-mode-picker__legend {
+  padding: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--meridian-space-1) var(--meridian-space-2);
+}
+
+.meridian-mode-picker__row--restricted {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__input:focus-visible {
+  outline: 2px solid var(--meridian-focus-ring);
+  outline-offset: 1px;
+}
+
+.meridian-mode-picker__label {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--meridian-space-2);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-mode-picker__tag {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-mode-picker__reason {
+  grid-column: 2;
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/* The switch this picker is held for. Reads as progress rather than as a failure,
+   which is why it takes the muted text colour and not the refusal card's. */
+.meridian-mode-picker__pending {
+  margin: var(--meridian-space-1) 0 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+.meridian-repo-section__count {
+  font-family: var(--meridian-font-mono);
+  color: var(--meridian-text-muted);
+}
+
+/* ------------------------------------------------- execution-root cards */
+
+/*
+ * One card per worktree or clone row. Both record kinds share this shape
+ * and differ only in which columns they fill, which is `RepoSection.tsx`'s two lists
+ * with different columns read as one rhythm rather than two visual languages: an
+ * operator scanning for what is safe to reclaim reads the same three lines in the
+ * same three places in either list.
+ */
+.meridian-root-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--meridian-space-2);
+  padding: var(--meridian-space-3);
+  border: 1px solid var(--meridian-edge);
+  border-radius: var(--meridian-radius-md);
+  background: var(--meridian-surface);
+}
+
+.meridian-root-card__head {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+}
+
+/*
+ * The branch name is the card's title and a wire string, so it is mono and it
+ * truncates at the measure rather than in the string — the full value stays
+ * reachable, and two branches differing only in their tail never render alike.
+ */
+.meridian-root-card__title {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--meridian-text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-root-card__meaning,
+.meridian-root-card__disposition {
+  display: flex;
+  align-items: center;
+  gap: var(--meridian-space-2);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+  color: var(--meridian-text-muted);
+}
+
+/*
+ * The sub-state line reads louder than the state's own sentence, because it is the
+ * one that answers "is this disk free" — the question `worktree-model.ts` says the
+ * surface exists to answer and the one a plain `retired` chip gets wrong.
+ */
+.meridian-root-card__disposition {
+  color: var(--meridian-amber-text);
+}
+
+.meridian-root-card__summary,
+.meridian-root-card__detail-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--meridian-space-1) var(--meridian-space-3);
+  margin: 0;
+  font-size: var(--meridian-text-xs);
+}
+
+/* A filesystem root is long and its TAIL is the part that identifies it. */
+.meridian-root-card__path {
+  direction: rtl;
+  overflow: hidden;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meridian-root-card__detail-list {
+  padding-block-start: var(--meridian-space-2);
+}

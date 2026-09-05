@@ -15,7 +15,7 @@ import type { ConsoleBridge } from "../../bridge/index.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ManualClock } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
-import { WIRE_UNREGISTERED } from "./proposal-gate-scripted-port.js";
+import { WIRE_UNREGISTERED } from "./proposal-gate-scripted-port.test-support.js";
 import { WorktreeGateRow } from "./WorktreeGateRow.js";
 import type { ProposalGateSubject } from "./proposal-gate-model.js";
 import type { WorktreeStatusRecord } from "../mounts/worktree-model.js";

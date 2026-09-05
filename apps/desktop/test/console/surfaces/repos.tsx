@@ -5,7 +5,8 @@
 // per-tier copy of the mount would be two chances to compose them differently and
 // then read the results as if they were comparable. That is `console-harness.tsx`'s
 // own reason for existing, one level down: the harness owns HOW the console is
-// mounted, and this module owns WHAT of this family is mounted into it.
+// mounted, this module owns which of this family's surfaces is mounted and what
+// settled means for each, and `repos-fixtures.ts` owns what they are drawn against.
 //
 // THE BODIES COME OUT OF THE REGISTRIES WHERE THE REGISTRIES HOLD THEM. The family
 // claims into two — the sidebar's section ids and the deck's pane kinds — and both
@@ -19,21 +20,18 @@
 //     (`gitflow.diffArtifactCreate` is a `Plan-023 §Console growth slate` row), so
 //     the deck's own body renders the `not-checked` absence — which is the emptiest
 //     frame the surface has and would pin a baseline of a box. The pane is mounted
-//     with the parsed fixture instead, which is the composition `DiffPane.tsx` draws:
-//     the attribution badge, the compared states, the file list, and the rows. The
-//     absence arm is not unpinned by that — `DiffPane.test.tsx` owns it, where a
-//     DOM assertion can say WHICH absence it is and an image cannot. The shape is
-//     `EXTENDED_HEADER_DIFF_SHAPE` rather than the small one, so the change set
-//     includes a file whose whole change is in the patch's headers: a rename with no
-//     hunks, which the two surfaces drew as `+0 −0` under a bare path until the
-//     parser carried what the headers said. What that note looks like beside a path
-//     and inside a file-header row is a claim an image holds and a DOM assertion
-//     does not.
+//     with `extendedHeaderChangeSet()` instead, which is the composition
+//     `DiffPane.tsx` draws: the attribution badge, the compared states, the file
+//     list, and the rows. The absence arm is not unpinned by that —
+//     `DiffPane.test.tsx` owns it, where a DOM assertion can say WHICH absence it is
+//     and an image cannot.
 //   • The PROPOSAL GATE is a presentational body, and it is mounted TWICE for two
-//     different claims. Directly, on the `prepared` arm with a proposal supplied, it
-//     draws every part of the surface at once — the branch context, the proposal, its
-//     changed paths, and the three offers — which is a composition no read produces
-//     today, since no registered reply carries a title, a body, or a file list. And
+//     different claims. Directly, on the `prepared` arm with a READY proposal — the
+//     one state that offers the remote act — it draws every part of the surface at
+//     once: the branch context, the proposal, its changed paths, all three offers, and
+//     the refusal standing beside the one that was pressed and did not take. That is a
+//     composition no read produces today, since no registered reply carries a title, a
+//     body, or a file list. And
 //     through the SECTION, where the gate reaches the screen the way a person meets
 //     it: collapsed under its own execution root, its line a reading, its arm
 //     whatever the fixture actually served. The two are different subjects and both
@@ -48,40 +46,37 @@
 
 import { fireEvent, waitFor, within } from "@testing-library/react";
 
-import { renderSettled } from "./console-harness.js";
+import { renderSettled } from "../console-harness.js";
+
+import {
+  DEFERRED_PAYLOAD_READ,
+  INLINE_PAYLOAD_READ,
+  PREPARED_GATE_STATE,
+  PUSH_REFUSAL,
+  extendedHeaderChangeSet,
+  paneBinding,
+  paneBodyComponent,
+  scenarioCollaborators,
+  scriptedArtifactPort,
+} from "./repos-fixtures.js";
 
 import {
   REPOS_GIT_WORKSPACE_ID,
   REPOS_PINNED_ARTIFACT_ID,
   REPOS_SCENARIO,
-} from "../../src/renderer/src/console/bridge/scenarios/repos.js";
+} from "../../../src/renderer/src/console/bridge/scenarios/repos.js";
+import type { ConsoleBridge } from "../../../src/renderer/src/console/bridge/index.js";
+import { DiffPane } from "../../../src/renderer/src/console/panes/diff/index.js";
+import { ManualClock } from "../../../src/renderer/src/console/core/index.js";
+import { LiveAnnouncerProvider } from "../../../src/renderer/src/console/primitives/index.js";
+import { ProposalGate } from "../../../src/renderer/src/console/repos/proposals/ProposalGate.js";
+import { registerRepos } from "../../../src/renderer/src/console/repos/index.js";
+import { advanceScenarioUntil } from "../../../src/renderer/src/console/repos/scenario-clock.test-support.js";
+import { SessionStore } from "../../../src/renderer/src/console/store/index.js";
 import {
-  createFixtureBridge,
-  type ConsoleBridge,
-} from "../../src/renderer/src/console/bridge/index.js";
-import { buildDiffFixture } from "../../src/renderer/src/console/panes/diff/diff-fixture.js";
-import { EXTENDED_HEADER_DIFF_SHAPE } from "../../src/renderer/src/console/panes/diff/diff-fixture-shapes.js";
-import { DiffPane } from "../../src/renderer/src/console/panes/diff/index.js";
-import {
-  ManualClock,
-  refuse,
-  type ConsoleRefusal,
-} from "../../src/renderer/src/console/core/index.js";
-import { DraftStore, UiStateStore } from "../../src/renderer/src/console/persistence/index.js";
-import { LiveAnnouncerProvider } from "../../src/renderer/src/console/primitives/index.js";
-import { ProposalGate } from "../../src/renderer/src/console/repos/proposals/ProposalGate.js";
-import { registerRepos, registerReposPanes } from "../../src/renderer/src/console/repos/index.js";
-import type { BranchContextReading } from "../../src/renderer/src/console/repos/mounts/branch-context-model.js";
-import type { ProposalAction } from "../../src/renderer/src/console/repos/proposals/proposal-actions.js";
-import type { ProposalGateState } from "../../src/renderer/src/console/repos/proposals/proposal-gate-state.js";
-import { FrameStore, SessionStore } from "../../src/renderer/src/console/store/index.js";
-import {
-  ConsolePaneRegistry,
   sidebarSectionRegistry,
-  type ConsolePaneContext,
-  type PaneKind,
   type SidebarSectionContext,
-} from "../../src/renderer/src/console/seats/index.js";
+} from "../../../src/renderer/src/console/seats/index.js";
 
 /** The element a tier reads, and the bridge it was mounted against. */
 export interface MountedFamilySurface {
@@ -91,71 +86,6 @@ export interface MountedFamilySurface {
 
 /** How long a surface's first read may take to settle before a tier gives up. */
 const FAMILY_READ_TIMEOUT_MS = 5_000;
-
-/**
- * A registry carrying exactly this family's two pane claims.
- *
- * Built per call rather than shared: the registry is owner-scoped state, and two
- * tiers holding one instance would make the second tier's mount depend on whether
- * the first had run.
- */
-function familyPaneRegistry(): ConsolePaneRegistry {
-  const registry = new ConsolePaneRegistry();
-  registerReposPanes(registry);
-  return registry;
-}
-
-/**
- * The pane body the deck holds for a kind, as a component, or a throw.
- *
- * A throw rather than an optional return, so a family that stopped registering its
- * kind fails here — where the message names the kind — instead of rendering nothing
- * and letting a tier compare an empty box against a baseline.
- */
-function paneBodyComponent(kind: PaneKind): (context: ConsolePaneContext) => React.ReactNode {
-  const descriptor = familyPaneRegistry().descriptorFor(kind);
-  if (descriptor === undefined) {
-    throw new Error(`no console pane is registered for the \`${kind}\` kind`);
-  }
-  return descriptor.render;
-}
-
-/**
- * Everything a pane is bound to, beside the address it is opened at.
- *
- * READ OFF THE ARM THAT CARRIES NOTHING ELSE. `ConsolePaneContext` is the address
- * union intersected with the binding, and `runs` is a session-scoped kind — so
- * dropping its `kind` leaves exactly the binding half, derived rather than
- * transcribed. Each mount states its own address, because an address now carries the
- * entity its pane is a view of and no two panes are views of the same thing.
- */
-type ConsolePaneBinding = Omit<Extract<ConsolePaneContext, { readonly kind: "runs" }>, "kind">;
-
-/** The deck bindings a pane is mounted with, minus the address each caller states. */
-function paneBinding(reached: {
-  readonly paneId: string;
-  readonly bridge: ConsoleBridge;
-  readonly sessionStore: SessionStore;
-}): ConsolePaneBinding {
-  return {
-    paneId: reached.paneId,
-    bridge: reached.bridge,
-    sessionStore: reached.sessionStore,
-    frameStore: new FrameStore(),
-    uiStateStore: UiStateStore.opening(),
-    draftStore: new DraftStore(),
-    linkedSourcePaneId: undefined,
-    focusHue: undefined,
-  };
-}
-
-/** A bridge and a store both drawn from the repos scenario, which is the family's own. */
-function scenarioCollaborators(): { bridge: ConsoleBridge; sessionStore: SessionStore } {
-  return {
-    bridge: createFixtureBridge({ scenario: REPOS_SCENARIO }),
-    sessionStore: new SessionStore({ sessionId: REPOS_SCENARIO.sessionId }),
-  };
-}
 
 /**
  * Find the one region a surface renders itself as, by the name it announces.
@@ -201,6 +131,28 @@ async function waitForWithin(region: HTMLElement, selector: string): Promise<voi
 }
 
 /**
+ * The same wait, for a surface whose reads are scheduled on the SCENARIO's clock.
+ *
+ * THE SECTION AND ITS GATES SCHEDULE ON THE BRIDGE'S CLOCK, which under the fixture is
+ * the scenario's frozen one — the point of taking it from `consoleClockFor`, and what
+ * makes these baselines pin one instant rather than the day they were minted on. Real
+ * time therefore moves none of it, so this wait drives the clock instead of polling the
+ * machine. The pane mounts above keep `waitForWithin`: their reads run on a port this
+ * file scripts directly, with no scenario engine behind them.
+ */
+async function driveUntilWithin(
+  bridge: ConsoleBridge,
+  region: HTMLElement,
+  selector: string,
+): Promise<void> {
+  await advanceScenarioUntil(bridge, () => {
+    if (region.querySelector(selector) === null) {
+      throw new Error(`the surface has not rendered \`${selector}\` yet`);
+    }
+  });
+}
+
+/**
  * The repos sidebar section, open, with its two mounts read.
  *
  * Waited on rather than read straight after the mount: the section holds the
@@ -233,8 +185,8 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
     </LiveAnnouncerProvider>,
   );
   const region = requireElement(container, ".meridian-repo-section");
-  await waitForWithin(region, ".meridian-mount-card");
-  await waitForGatesSettled(region);
+  await driveUntilWithin(bridge, region, ".meridian-mount-card");
+  await waitForGatesSettled(bridge, region);
   return { element: region, bridge };
 }
 
@@ -253,18 +205,15 @@ export async function mountRepoSection(): Promise<MountedFamilySurface> {
  * timeout is a fixture that stopped serving it — which is a failure worth having
  * rather than a frame worth pinning.
  */
-async function waitForGatesSettled(region: HTMLElement): Promise<void> {
-  await waitFor(
-    () => {
-      const unsettled = [...region.querySelectorAll(".meridian-root-gate__line")].filter(
-        (line) => line.textContent === "reading" || line.textContent === "not checked",
-      );
-      if (unsettled.length > 0) {
-        throw new Error(`${unsettled.length} change-proposal gate(s) have not settled yet`);
-      }
-    },
-    { timeout: FAMILY_READ_TIMEOUT_MS },
-  );
+async function waitForGatesSettled(bridge: ConsoleBridge, region: HTMLElement): Promise<void> {
+  await advanceScenarioUntil(bridge, () => {
+    const unsettled = [...region.querySelectorAll(".meridian-root-gate__line")].filter(
+      (line) => line.textContent === "reading" || line.textContent === "not checked",
+    );
+    if (unsettled.length > 0) {
+      throw new Error(`${unsettled.length} change-proposal gate(s) have not settled yet`);
+    }
+  });
 }
 
 /**
@@ -278,13 +227,13 @@ async function waitForGatesSettled(region: HTMLElement): Promise<void> {
  */
 export async function mountRepoSectionWithOpenGate(): Promise<MountedFamilySurface> {
   const mounted = await mountRepoSection();
-  await waitForWithin(mounted.element, ".meridian-root-gate");
+  await driveUntilWithin(mounted.bridge, mounted.element, ".meridian-root-gate");
   const disclosure = mounted.element.querySelector("details.meridian-root-gate");
   if (!(disclosure instanceof HTMLDetailsElement)) {
     throw new Error("the section mounted no change-proposal gate under its roots");
   }
   disclosure.open = true;
-  await waitForWithin(mounted.element, ".meridian-proposal-gate__body");
+  await driveUntilWithin(mounted.bridge, mounted.element, ".meridian-proposal-gate__body");
   return mounted;
 }
 
@@ -302,7 +251,7 @@ export async function mountDiffPane(): Promise<MountedFamilySurface> {
         entity: { kind: "workspace", id: REPOS_GIT_WORKSPACE_ID },
         ...paneBinding({ paneId: "pane-diff-surface", bridge, sessionStore }),
       }}
-      diff={buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE)}
+      diff={extendedHeaderChangeSet()}
     />,
   );
   return { element: requireLabelledRegion(container, "Diff"), bridge };
@@ -353,12 +302,9 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
  * rule: the refusal composition above and the two served ones are different surfaces,
  * and the first would go on passing if the payload section never rendered at all.
  *
- * DRIVEN THROUGH A HAND-SCRIPTED BRIDGE, and that is what a comment has to say out
- * loud: the fixture growth port serves no `artifact*` operation, so the scenario
- * cannot produce a served payload and a subject that waited for one would wait
- * forever. The reply shapes below are `GrowthArtifactRead`'s own two arms — a handle,
- * or bytes beside the encoding to read them by — so what is pinned is the composition
- * the registered shape produces, not one this file invented.
+ * DRIVEN THROUGH `scriptedArtifactPort`, because the fixture's growth port serves no
+ * `artifact*` operation at all, so a subject waiting on the scenario for a served
+ * payload would wait forever. Why that port answers as it does is stated where it is.
  *
  * THE SCHEDULED READ IS WAITED FOR BEFORE THE ACT IS PRESSED, AND THAT ORDER IS THE
  * WHOLE FIX. This mount used to wait for the payload section alone — the act's own
@@ -385,16 +331,7 @@ async function mountArtifactPanePayload(
   readAnswer: Record<string, unknown>,
 ): Promise<MountedFamilySurface> {
   const sessionStore = new SessionStore({ sessionId: REPOS_SCENARIO.sessionId });
-  const bridge = {
-    growth: {
-      artifactList: async () => ({ status: "served", value: [] }),
-      artifactAllowlistRead: async () =>
-        refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
-      artifactRead: async () => readAnswer,
-      artifactDelete: async () =>
-        refuse("growth-port", "wire-unregistered", ARTIFACT_READ_UNREGISTERED),
-    },
-  } as unknown as ConsoleBridge;
+  const bridge = scriptedArtifactPort(readAnswer);
   const ArtifactPaneBody = paneBodyComponent("artifact");
   const { container } = await renderSettled(
     <LiveAnnouncerProvider clock={new ManualClock()}>
@@ -412,94 +349,15 @@ async function mountArtifactPanePayload(
   return { element: region, bridge };
 }
 
-/** The sentence a growth-port refusal carries, spelled once for the two mounts above. */
-const ARTIFACT_READ_UNREGISTERED =
-  "Not checked — the artifact CRUD method strings are not registered yet.";
-
 /** The pane on the DEFERRED arm: a content-addressed handle and no bytes. */
 export async function mountArtifactPaneDeferredPayload(): Promise<MountedFamilySurface> {
-  return mountArtifactPanePayload({
-    status: "served",
-    value: {
-      manifest: SERVED_ARTIFACT_MANIFEST,
-      payloadHandle: "sha256:2b4cf0e1a9d84c0b6f2e5a71c3d8b4e90",
-    },
-  });
+  return mountArtifactPanePayload(DEFERRED_PAYLOAD_READ);
 }
 
 /** The pane on the INLINE arm: the bytes, and the encoding a reader switches on. */
 export async function mountArtifactPaneInlinePayload(): Promise<MountedFamilySurface> {
-  return mountArtifactPanePayload({
-    status: "served",
-    value: {
-      manifest: SERVED_ARTIFACT_MANIFEST,
-      // "--- a/one\n+++ b/one\n@@ -1 +1 @@ read\n-was\n+is\n" in RFC 4648 base64.
-      payload: "LS0tIGEvb25lCisrKyBiL29uZQpAQCAtMSArMSBAQCByZWFkCi13YXMKK2lzCg==",
-      payloadEncoding: "base64",
-    },
-  });
+  return mountArtifactPanePayload(INLINE_PAYLOAD_READ);
 }
-
-/** One manifest the payload mounts are read against, as the port serves one. */
-const SERVED_ARTIFACT_MANIFEST = {
-  artifactId: REPOS_PINNED_ARTIFACT_ID,
-  sessionId: REPOS_SCENARIO.sessionId,
-  artifactType: "diff",
-  digest: "sha256:2b4cf0e1a9d84c0b6f2e5a71c3d8b4e90",
-  size: 48,
-  annotations: { "org.opencontainers.image.title": "rate-limit-wiring.patch" },
-  visibility: "shared",
-  state: "published",
-  metadata: { mediaType: "text/x-patch" },
-  createdAt: "2026-01-01T09:05:00.000Z",
-};
-
-/** The branch context the gate is drawn against, on its richest arm. */
-const PREPARED_BRANCH_CONTEXT: BranchContextReading = {
-  branchContextId: "019b7b30-0280-7c11-8420-b1a5c0de2301",
-  baseBranch: "develop",
-  headBranch: "sidekicks/abc123/rate-limit-wiring",
-  upstreamRef: "origin/sidekicks/abc123/rate-limit-wiring",
-  executionMode: "worktree",
-  worktreeId: "019b7b30-0280-7c11-8420-b1a5c0de2020",
-};
-
-/** The gate's `prepared` arm, which is the one that draws every part of the surface. */
-const PREPARED_GATE_STATE: ProposalGateState = {
-  kind: "prepared",
-  context: PREPARED_BRANCH_CONTEXT,
-  detectedHost: "github",
-  proposal: {
-    title: "Wire the rate limiter",
-    body: "Adds the concurrency cap to the subscribe path.",
-    baseBranch: "develop",
-    headBranch: "sidekicks/abc123/rate-limit-wiring",
-    state: "draft",
-    trailers: ["Co-Authored-By: a sidekick"],
-    changedPaths: [
-      "packages/control-plane/src/rate-limit.ts",
-      "packages/control-plane/src/rate-limit.test.ts",
-    ],
-  },
-};
-
-/**
- * The refusal the gate draws beside a control that was pressed and did not take.
- *
- * On the REMOTE act, which is the one whose failure matters most to see: a push that
- * the daemon refused leaves the proposal intact and the offer standing, and the
- * sentence beside the control is the only thing that says the send did not happen.
- */
-const PUSH_REFUSAL: ReadonlyMap<ProposalAction, ConsoleRefusal> = new Map([
-  [
-    "push" satisfies ProposalAction,
-    refuse(
-      "gitflow.gitActionExecute",
-      "wire-unregistered",
-      "Not checked — the git action is not registered yet.",
-    ),
-  ],
-]);
 
 /**
  * The proposal gate on a prepared proposal, with the three offers standing.

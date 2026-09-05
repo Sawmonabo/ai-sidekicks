@@ -1,19 +1,24 @@
-// The frames the repos section re-reads on, named where a repository is understood.
+// The frames this family re-reads on, named where a repository is understood.
 //
-// The mechanism — window focus, the store's repair edge, and a named frame, each
-// routed to a `RefreshScheduler` — is `store/refresh-triggers.ts`'s and is shared with
+// The mechanism — window focus, the store's repair edge, and a named frame, each routed
+// to a `RefreshScheduler` — is `store/refresh-triggers.ts`'s, and it is shared with
 // every other surface that performs its own reads. What is THIS family's is which
 // frames count as "the terminal events the owning spec names" for a repository, and
-// that is the whole of this module: the repos section re-reads on every registered
-// lifecycle frame that names a repo, a workspace, or a worktree, and the artifact pane
-// re-reads on artifact kinds it names for itself.
+// that is the whole of this module.
 //
-// A CLASS RATHER THAN A CALL SITE ARGUMENT, so the two readers in this family cannot
-// answer that question differently. `repo-mounts-reader.ts` and
-// `proposal-gate-reader.ts` both construct one, and until the kinds lived in one place
-// a second reader could have watched a different frame while reading the same rows.
+// A SET RATHER THAN A CLASS, because a class was all this ever needed to be. The
+// wrapper that used to live here held a `SessionRefreshTriggers`, forwarded `start` and
+// `dispose` to it, and added its own `terminalEventKinds` — three lines of forwarding
+// around one value, in a family whose two readers construct the shared triggers
+// perfectly well themselves. The shared answer that mattered was never the class: it
+// was the KIND SET, so a second reader cannot watch a different frame while reading the
+// same rows.
 //
-// ONE FRAME WAS NOT ENOUGH, AND THE MISSING ONES WERE THE TERMINAL HALF. This trigger
+// AT THE FAMILY ROOT BESIDE `repo-reads.ts`, because both directories read it —
+// `mounts/` and `proposals/` — and a set one of them owned would make the other reach
+// sideways into a sibling directory for the family's own answer.
+//
+// ONE FRAME WAS NOT ENOUGH, AND THE MISSING ONES WERE THE TERMINAL HALF. This family
 // watched `workspace.stale` alone — the frame that says a workspace BROKE — so every
 // frame that says one was repaired, attached, detached, or provisioned reached nobody.
 // The mode picker made that visible: an explicit switch answers `provisioning` with no
@@ -23,11 +28,15 @@
 // `repo.attached` / `repo.detached`, which change the mount list this section is drawn
 // from, and the five `worktree.*` transitions, which change the execution roots and the
 // gates bound to them.
+//
+// ONE READ PER BURST, WHICH IS WHY A WIDER SET COSTS NOTHING. `SessionRefreshTriggers`
+// asks the scheduler for a read when a transition carries ANY watched kind — once per
+// transition, not once per frame — and the scheduler coalesces the request into the
+// window it is already holding. So a workspace that reprovisions through
+// `provisioning` and `ready`, and the five worktree transitions behind it, are one
+// re-read rather than seven.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
-
-import { SessionRefreshTriggers, type SessionStore } from "../../store/index.js";
-import type { RefreshScheduler } from "../../store/index.js";
 
 /**
  * The wire namespaces whose frames can change what this family has read.
@@ -65,40 +74,3 @@ export const REPO_LIFECYCLE_EVENT_KINDS: readonly SessionEventType[] = [
 ].filter((eventType) =>
   REPO_EVENT_NAMESPACE_PREFIXES.some((prefix) => eventType.startsWith(prefix)),
 );
-
-export interface RepoRefreshTriggerOptions {
-  /** The family's one scheduler. Requested, never armed: this class owns no timer. */
-  readonly scheduler: RefreshScheduler;
-  /** The session whose frames and whose repair edge are two of the three reasons. */
-  readonly sessionStore: SessionStore;
-}
-
-/**
- * The shared triggers, pinned to the frames a repository's lifecycle sends.
- *
- * ONE READ PER BURST, WHICH IS WHY A WIDER SET COSTS NOTHING. `SessionRefreshTriggers`
- * asks the scheduler for a read when a transition carries ANY watched kind — once per
- * transition, not once per frame — and the scheduler coalesces the request into the
- * window it is already holding. So a workspace that reprovisions through
- * `provisioning` and `ready`, and the five worktree transitions behind it, are one
- * re-read rather than seven.
- */
-export class RepoRefreshTriggers {
-  readonly #triggers: SessionRefreshTriggers;
-
-  public constructor(options: RepoRefreshTriggerOptions) {
-    this.#triggers = new SessionRefreshTriggers({
-      ...options,
-      terminalEventKinds: REPO_LIFECYCLE_EVENT_KINDS,
-    });
-  }
-
-  public start(): void {
-    this.#triggers.start();
-  }
-
-  /** Terminal. No later frame and no later focus can re-arm a read behind an unmount. */
-  public dispose(): void {
-    this.#triggers.dispose();
-  }
-}
