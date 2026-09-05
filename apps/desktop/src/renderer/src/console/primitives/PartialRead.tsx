@@ -1,7 +1,8 @@
 // The notices a surface renders when what it is showing is not the whole answer.
 //
-// The model beside it (`partial-read.ts`) owns the vocabulary and the sentence set;
-// this owns the box they are carried in, which is four decisions and no copy:
+// The model beside it (`partial-read.ts`) owns the vocabulary and the sentence set,
+// and `ReadingNotice.tsx` owns the shape one notice is rendered in; this owns the box
+// they are carried in, which is four decisions and no copy:
 //
 //   • **Above the rows, never instead of them.** The rows on screen are still the best
 //     reading there is; what a notice withdraws is the claim that they are all of
@@ -19,21 +20,19 @@
 //     nothing else — the model does the formatting, so a caller cannot reach a second
 //     `toLocaleString` on the way here.
 //
-// THIS COMPONENT CREATES NO LIVE REGION. `LiveAnnouncerProvider` states the console's
-// standing absolute — one announcer per window, and no other component making a
-// region — and the two regions a notice can touch are already spoken for: the
-// `reading` arm delegates to `Nothing`, which carries its own, and a prose arm nests
-// `InlineRefusal`, which carries rule 9's. A wrapper of its own would have been a
-// second region announcing the same sentence, nested inside the refusal's, and
-// mounting with its content already in it — the shape screen readers do not reliably
-// announce at all. Where the SENTENCE itself has to be spoken, the surface calls
-// `useReadingAnnouncement`, which routes it through the announcer's persistent,
+// NEITHER THIS COMPONENT NOR THE NOTICE CREATES A LIVE REGION. `LiveAnnouncerProvider`
+// states the console's standing absolute — one announcer per window, and no other
+// component making a region — and the two regions a notice can touch are already
+// spoken for: the `reading` arm delegates to `Nothing`, which carries its own, and a
+// prose arm nests `InlineRefusal`, which carries rule 9's. A wrapper of its own would
+// have been a second region announcing the same sentence, nested inside the refusal's,
+// and mounting with its content already in it — the shape screen readers do not
+// reliably announce at all. Where the SENTENCE itself has to be spoken, the surface
+// calls `useReadingAnnouncement`, which routes it through the announcer's persistent,
 // `aria-atomic` pair rather than through a region invented at the moment it spoke.
 
-import { Nothing } from "./Nothing.js";
-import { DerivedFigure } from "./Figure.js";
-import { InlineRefusal } from "./Refusal.js";
-import { partialReadNotices, type PartialReadNotice, type ReadingState } from "./partial-read.js";
+import { ReadingNotice } from "./ReadingNotice.js";
+import { partialReadNotices, type ReadingState } from "./partial-read.js";
 
 export interface PartialReadProps {
   /**
@@ -71,34 +70,5 @@ export function PartialRead(props: PartialReadProps): React.JSX.Element | null {
         <ReadingNotice key={`${notice.shape}-${String(noticeOrdinal)}`} notice={notice} />
       ))}
     </>
-  );
-}
-
-/** One notice, in the shape its instruction names. */
-function ReadingNotice(props: { readonly notice: PartialReadNotice }): React.JSX.Element | null {
-  const { notice } = props;
-  if (notice.shape === "none") {
-    return null;
-  }
-  if (notice.shape === "reading") {
-    // Inline rather than a surface-shaped block: the read is in flight beside rows
-    // that are already on screen, and a block would stand in for a surface that is
-    // there.
-    return <Nothing kind="not-loaded" placement="inline" title={notice.title} />;
-  }
-  return (
-    <div className="meridian-partial-read">
-      <p className="meridian-partial-read__copy">
-        {notice.shape === "counted-sentence" ? (
-          <>
-            <DerivedFigure text={notice.figure} />{" "}
-          </>
-        ) : null}
-        {notice.copy}
-      </p>
-      {notice.refusal === undefined ? null : (
-        <InlineRefusal code={notice.refusal.code} detail={notice.refusal.detail} />
-      )}
-    </div>
   );
 }

@@ -130,7 +130,15 @@ export {
   WindowAbsences,
 } from "./WindowAbsences.js";
 
-export { InlineRefusal, RefusalBanner, RefusalCard } from "./Refusal.js";
+// `InlineRefusal` carries no marker: the runs, approvals, and pane-chrome surfaces
+// render their refusals through it, so a surviving tag would be the half of the
+// marker an importing change owed and did not pay.
+export { InlineRefusal } from "./InlineRefusal.js";
+export { RefusalBanner } from "./RefusalBanner.js";
+export {
+  /** @consumedBy T-023p-1C-2, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
+  RefusalCard,
+} from "./RefusalCard.js";
 
 // THE `@consumedBy` TAGS in this file are the dead-code gate's one exemption, on the
 // terms `apps/desktop/AGENTS.md` sets: the view families (T-023p-1C-2 … 1C-7) reach
@@ -156,6 +164,8 @@ export {
 export type {
   /** @consumedBy T-023p-1C-5 */
   WindowedListRowProps,
+  /** @consumedBy T-023p-1C-5 */
+  WindowedRowTargetProps,
 } from "./WindowedListRow.js";
 export {
   /** @consumedBy T-023p-1C-5 */
@@ -172,6 +182,10 @@ export type {
 export {
   /** @consumedBy T-023p-1C-5 */
   WINDOWED_ROW_INDEX_ATTRIBUTE,
+  /** @consumedBy T-023p-1C-5 */
+  WINDOWED_ROW_TARGET_ATTRIBUTE,
+} from "./windowed-row-markers.js";
+export {
   /** @consumedBy T-023p-1C-5 */
   WINDOWED_ROW_MOVE_BY_KEY,
   /** @consumedBy T-023p-1C-5 */
@@ -191,9 +205,11 @@ export { LedgerRow } from "./LedgerRow.js";
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   DerivedFigureProps,
+} from "./DerivedFigure.js";
+export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */
   WireFigureProps,
-} from "./Figure.js";
+} from "./WireFigure.js";
 // Rule 4's mono provenance signature. Through the door because the frame renders
 // session ids with it, and a surface that reached for its own mono span would be
 // the second rendering of the one claim this primitive exists to make.
@@ -202,7 +218,8 @@ export type {
 // the runs, approvals, and inspector panes, so a surviving tag would be the half of
 // the marker an importing change owed and did not pay — which
 // `--treat-tag-hints-as-errors` reports.
-export { DerivedFigure, WireFigure } from "./Figure.js";
+export { DerivedFigure } from "./DerivedFigure.js";
+export { WireFigure } from "./WireFigure.js";
 
 export type {
   /** @consumedBy T-023p-1C-2, T-023p-1C-3, T-023p-1C-4, T-023p-1C-5, T-023p-1C-6, T-023p-1C-7 */

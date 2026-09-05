@@ -203,3 +203,19 @@ export type { GrowthOutcome, GrowthUnavailable } from "./growth-outcome.js";
 // only caller is the provider beside it, and its only reader is a driver in
 // another process that imports the module directly.
 export { ScenarioSelection } from "./scenario-selection.js";
+
+// The decode boundary for a delivered session-event envelope. Through the door
+// because the frame's binder is the reader and the parse is this family's job: the
+// wire's own shapes are read here and nowhere above.
+export { readConsoleSessionEvent } from "./session-event-payload.js";
+
+// `membershipRoleOf` is the injected lookup `useCallerMembershipRole` takes: the
+// store's roster holds the role and deliberately names no wire member, so the read
+// that narrows one lives here and travels through the door to the surfaces that
+// gate a control on the caller's role (the approvals goal editor first). Its
+// sibling `stampedExecutionPostureOf` is NOT published: the stamped posture waits on
+// the projector that carries the member into a run body, and a door line whose only
+// importer is a test is the class `test/console/architecture/barrel-census.test.ts`
+// fails — its suite reads the declaring module, which is the disposition that census
+// names for exactly this state.
+export { membershipRoleOf } from "./entity-body-reads.js";

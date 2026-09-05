@@ -19,7 +19,7 @@
 import { useCallback, useMemo } from "react";
 import type { MembershipRole } from "@ai-sidekicks/contracts";
 
-import { type ConsoleBridge } from "../../../bridge/index.js";
+import { type ConsoleBridge, membershipRoleOf } from "../../../bridge/index.js";
 import { type ConsoleRefusal } from "../../../core/index.js";
 import {
   useCallerMembershipRole,
@@ -80,7 +80,9 @@ export function useGoalMutationAuthorization(
     // adaptation instead of becoming a bare absence.
     return outcome.status === "served" ? outcome.value.participantId : outcome;
   }, [bridge, sessionId]);
-  const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore);
+  // The role is read off the store's own roster entry through the bridge's one
+  // narrowing read — the store names no wire member, so the reader is injected.
+  const callerRole = useCallerMembershipRole(readCallerParticipant, sessionStore, membershipRoleOf);
   return useMemo(() => authorizationFor(callerRole), [callerRole]);
 }
 
