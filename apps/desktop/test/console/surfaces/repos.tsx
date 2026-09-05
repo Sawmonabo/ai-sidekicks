@@ -346,10 +346,17 @@ export async function mountArtifactPane(): Promise<MountedFamilySurface> {
  * withholds it on `not-checked`, on `loading`, and on a refusal, because an offered
  * filter is a promise that pressing it narrows something — so its presence IS the
  * settled `listed` arm and nothing else. Both of the reader's legs publish as one
- * snapshot, so the allow-list hint is settled in the same frame. A clock is not driven
- * here instead: the pane builds its own `RealClock` behind the binding and this file
- * has no seam to hand it one, and the wait a surface already answers is the better
- * signal anyway — it says the state is on screen rather than that time has passed.
+ * snapshot, so the allow-list hint is settled in the same frame.
+ *
+ * AND THE CLOCK IS DRIVEN FIRST, which `mountArtifactPane` above already does and this
+ * mount used to be unable to. The port is a real fixture bridge now rather than a
+ * hand-built object, so it carries the scenario engine and `consoleClockFor` hands the
+ * pane that engine's frozen clock — which means the reader's trailing-edge scheduler
+ * waits on time nothing was moving, and the filter group the wait below is keyed to
+ * never arrived. The advance is the same beat the refusal subject takes, for the same
+ * reason: a deadline no scripted beat is scheduled at is reached by moving time past
+ * it. The DOM wait stays, because it says the state is on screen rather than that time
+ * has passed.
  */
 async function mountArtifactPanePayload(
   readAnswer: Record<string, unknown>,
@@ -367,6 +374,10 @@ async function mountArtifactPanePayload(
     </LiveAnnouncerProvider>,
   );
   const region = requireLabelledRegion(container, "Artifact");
+  await act(async () => {
+    bridge.scenarioEngine?.advance(SCENARIO_SETTLE_ADVANCE_MS);
+    await Promise.resolve();
+  });
   await waitForWithin(region, ".meridian-artifacts__filter");
   fireEvent.click(within(region).getByRole("button", { name: "Fetch payload" }));
   await waitForWithin(region, ".meridian-artifact-payload");
