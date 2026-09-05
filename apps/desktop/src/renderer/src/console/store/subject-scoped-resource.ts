@@ -238,8 +238,9 @@ class SubjectScopedResourceLifetime<TResource> {
  * RUNS, so a resource that disposes itself while nothing moves stays disposed.
  *
  * A resource a caller PUBLISHES is disposed on the same terms, by the effect, when the
- * value it replaced retires — which is the one shape either caller uses: publishing is
- * how a window replaces a resource that has already closed itself. A caller that
+ * value it replaced retires. Publishing is the arm for a replacement reason the hook
+ * cannot read for itself; the one reason the frame's two callers had — a value that
+ * had closed itself — is now `isClosed`'s, so neither publishes today. A caller that
  * publishes TWICE before the effect runs is the exception the effect cannot serve: the
  * first replacement is installed and gone again with no commit in between, so the
  * holder hands it to the disposal instead and it is closed on the same terms as a
