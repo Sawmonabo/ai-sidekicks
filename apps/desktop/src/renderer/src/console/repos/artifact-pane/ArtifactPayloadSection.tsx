@@ -10,7 +10,7 @@
 // Nothing in this module can interpret a payload: there is no `dangerously` anything, no
 // `src`, no `href`, and no element that a media type could turn into a document.
 
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "../../core/index.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
 import { Nothing, RefusalCard, WireFigure } from "../../primitives/index.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 

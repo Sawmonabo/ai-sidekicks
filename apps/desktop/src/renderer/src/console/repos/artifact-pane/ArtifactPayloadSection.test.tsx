@@ -14,7 +14,8 @@ import { fireEvent, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP, ManualClock } from "../../core/index.js";
+import { ManualClock } from "../../core/index.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
 import { LiveAnnouncerProvider } from "../../primitives/index.js";
 import { ArtifactPane } from "./ArtifactPane.js";
 import {

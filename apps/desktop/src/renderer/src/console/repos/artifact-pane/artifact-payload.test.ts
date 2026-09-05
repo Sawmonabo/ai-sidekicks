@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { GrowthArtifactRead } from "../../bridge/index.js";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "../../core/index.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
 import { artifactPayloadReadingFrom } from "./artifact-payload.js";
 
 describe("artifact payload reading — the served union has two arms and each splits", () => {

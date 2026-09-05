@@ -13,7 +13,8 @@
 // with the arm the pane draws.
 
 import type { GrowthArtifactPayloadEncoding, GrowthArtifactRead } from "../../bridge/index.js";
-import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP, type ConsoleRefusal } from "../../core/index.js";
+import type { ConsoleRefusal } from "../../core/index.js";
+import { ARTIFACT_PAYLOAD_PREVIEW_CHARACTER_CAP } from "./artifact-bounds.js";
 
 /**
  * What one artifact's payload fetch has established.
