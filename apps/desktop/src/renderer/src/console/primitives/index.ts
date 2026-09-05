@@ -121,30 +121,33 @@ export {
 // module header for why the two vocabularies sit beside each other rather than one
 // inside the other.
 export type {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsence,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsenceKind,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsenceNotice,
 } from "./window-absence.js";
 export {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WINDOW_ABSENCE_KINDS,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   windowAbsenceNotice,
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   windowAbsenceNotices,
 } from "./window-absence.js";
 export type {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsencesProps,
 } from "./WindowAbsences.js";
 export {
-  /** @consumedBy T-023p-1C-3 */
+  /** @consumedBy T-023p-1C-2, T-023p-1C-3 */
   WindowAbsences,
 } from "./WindowAbsences.js";
 
+// No marker: `InlineRefusal` has its consumer — `seats/ConsolePaneChrome.tsx`, whose
+// kind-narrowing adapter renders it where a pane body was mounted at another kind's
+// address — so a surviving tag would fail the run under `--treat-tag-hints-as-errors`.
 export { InlineRefusal } from "./InlineRefusal.js";
 export { RefusalBanner } from "./RefusalBanner.js";
 export {

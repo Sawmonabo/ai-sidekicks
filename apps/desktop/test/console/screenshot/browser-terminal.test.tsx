@@ -1,9 +1,9 @@
 // The screenshot tier: the browser-terminal family's three surfaces, per scheme.
 //
 // `frame.test.tsx`'s header owns the mechanism this file rides — the three
-// snapshot-update modes, why the references are pinned to `darwin`, and which
-// machine may mint one. `baseline-platform.ts` holds the values that reasoning
-// produces, so nothing about it is restated here.
+// snapshot-update modes and what an opted-in local run shows you — and
+// `baseline-platform.ts` owns which host may compare at all and says why on both
+// channels, so nothing about either is restated here.
 //
 // WHAT IS PINNED, AND WHY THESE THREE. The family ships two pane bodies and the card
 // the browser's captures land as, and each is a different composition rather than a
@@ -25,8 +25,8 @@
 //
 // Three surfaces and two schemes is six references, and every one of them is minted
 // on the `macos-15` runner through `.github/workflows/console-screenshot-baselines.yml`.
-// A local run on any other host skips; a local run on a developer Mac is advisory in
-// the small, measured way `frame.test.tsx` records.
+// A run on any host that did not declare that runner skips unless it opts in, and an
+// opted-in run is advisory in the small, measured way `frame.test.tsx` records.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -37,7 +37,7 @@ import {
   mountTerminalPane,
   type MountedFamilySurface,
 } from "../browser-terminal-surfaces.js";
-import { skipOffPinnedPlatform, warnOnceIfOffPinnedPlatform } from "./baseline-platform.js";
+import { skipOffBaselineHost, warnOnceOffBaselineHost } from "./baseline-host.js";
 
 import { installMeridianTokens } from "../../../src/renderer/src/console/frame/index.js";
 import { CONSOLE_SCHEMES } from "../../../src/renderer/src/console/tokens/tokens.js";
@@ -70,12 +70,12 @@ afterEach(async () => {
 });
 
 describe("screenshot — the browser and terminal surfaces", () => {
-  warnOnceIfOffPinnedPlatform();
+  warnOnceOffBaselineHost();
 
   for (const surface of PINNED_SURFACES) {
     for (const scheme of CONSOLE_SCHEMES) {
       it(`renders ${surface.referenceName} in the ${scheme} scheme`, async (context) => {
-        skipOffPinnedPlatform(context);
+        skipOffBaselineHost(context);
         // Through the system preference rather than a stamped attribute: the token
         // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
         // what a default install actually resolves.

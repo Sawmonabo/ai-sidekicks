@@ -15,12 +15,13 @@
 
 import { useLayoutEffect } from "react";
 
-import { screen, waitFor } from "@testing-library/react";
+import { waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
 import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/pane-view-host-script.js";
 import {
+  browserPaneRegion,
   DEFAULT_TEST_PANE_ID,
   fixtureBrowserBridge,
   liveBrowserBridge,
@@ -49,7 +50,11 @@ const HOST_TOOK_IT_SENTENCE = "is not registered on this build yet";
 function viewportCommitProbe(commits: string[]): React.ComponentType {
   return function ViewportCommitProbe(): null {
     useLayoutEffect(() => {
-      commits.push(document.querySelector('[aria-label="Browser"]')?.textContent ?? "");
+      // The VIEWPORT and not the whole pane: the sentences these cases read are the
+      // ones under the empty viewport, and the frame around it is the chrome's — so a
+      // query on the pane's region would make this probe fail the day the chrome
+      // changed how it names a pane, over a claim about neither.
+      commits.push(document.querySelector(".meridian-browser-pane__viewport")?.textContent ?? "");
     });
     return null;
   };
@@ -92,9 +97,7 @@ describe("browser pane rebound to another bridge", () => {
       viewportCommitProbe(commits),
     );
     await waitFor(() => {
-      expect(screen.getByRole("region", { name: "Browser" }).textContent).toContain(
-        HOST_TOOK_IT_SENTENCE,
-      );
+      expect(browserPaneRegion().textContent).toContain(HOST_TOOK_IT_SENTENCE);
     });
 
     // The swap. A live window has no view host, so every commit from here on owes
@@ -164,8 +167,6 @@ describe("browser pane rebound to another bridge", () => {
     // A re-mint would publish the pane's rectangle again on attach; the same binding
     // publishes nothing, because nothing invalidated.
     expect(publishes.length).toBe(publishesBeforeRerender);
-    expect(screen.getByRole("region", { name: "Browser" }).textContent).toContain(
-      HOST_TOOK_IT_SENTENCE,
-    );
+    expect(browserPaneRegion().textContent).toContain(HOST_TOOK_IT_SENTENCE);
   });
 });

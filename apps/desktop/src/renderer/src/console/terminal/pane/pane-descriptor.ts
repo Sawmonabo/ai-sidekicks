@@ -4,7 +4,7 @@
 // the registration terms are assertable without rendering anything, and a module
 // rather than a sub-module door for that file's reason too.
 
-import type { ConsolePaneDescriptor } from "../../seats/index.js";
+import { paneBodyForKind, type ConsolePaneDescriptor } from "../../seats/index.js";
 import { TerminalPane } from "./TerminalPane.js";
 
 /**
@@ -18,9 +18,14 @@ import { TerminalPane } from "./TerminalPane.js";
  * how many surfaces are showing it. `seats/pane-kinds.ts` answers that for the kind
  * through `isDetachablePaneKind`, so the reason is recorded here and the answer is
  * given once there.
+ *
+ * `render` goes through `paneBodyForKind` for `browser/pane/pane-descriptor.ts`'s
+ * reason, and it bites harder here: this body opens a subscription on the session's
+ * one shared shell, so a mount at another kind's address would put a second surface on
+ * that shell rather than merely drawing the wrong head.
  */
 export const TERMINAL_PANE_DESCRIPTOR: ConsolePaneDescriptor = {
   kind: "terminal",
   owner: "terminal",
-  render: TerminalPane,
+  render: paneBodyForKind("terminal", TerminalPane),
 };

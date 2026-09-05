@@ -21,7 +21,7 @@ import { ManualClock } from "../../core/index.js";
 import { SCRIPTED_PANE_VIEW_HOST_TRANSPORT } from "../../bridge/pane-view-host-script.js";
 import { DraftStore, UiStateStore } from "../../persistence/index.js";
 import { FrameStore } from "../../store/index.js";
-import type { ConsolePaneContext } from "../../seats/index.js";
+import type { PaneContextOf } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";
 
 /**
@@ -87,11 +87,20 @@ export function paneViewHostRefusing(detail: string): ConsoleBridge {
   };
 }
 
-function paneContext(
+/**
+ * The context the deck hands this pane, built once for every suite that mounts it.
+ *
+ * Exported because a second suite mounts the pane itself rather than through the
+ * mounts below — the geometry binding's double-mount case needs the tree inside
+ * `StrictMode`, which is a wrapper no shared mount can impose on the suites that do
+ * not want it — and a per-suite copy of the address would be a second answer to which
+ * members the `browser` arm carries.
+ */
+export function paneContext(
   bridge: ConsoleBridge = fixtureBrowserBridge(),
-  paneId = DEFAULT_TEST_PANE_ID,
+  paneId: string = DEFAULT_TEST_PANE_ID,
 ): {
-  readonly context: ConsolePaneContext;
+  readonly context: PaneContextOf<"browser">;
   readonly bridge: ConsoleBridge;
 } {
   return {
@@ -135,7 +144,7 @@ export async function mountBrowserPaneForSubject(
   // skips re-rendering a child whose element is referentially identical, so a probe
   // passed as a node would mount once and then observe none of the commits it exists
   // to observe. Instantiated here, each render hands it a fresh element.
-  const tree = (subject: { readonly context: ConsolePaneContext }): React.JSX.Element => (
+  const tree = (subject: { readonly context: PaneContextOf<"browser"> }): React.JSX.Element => (
     <>
       <BrowserPane {...subject.context} />
       {ProbeComponent === undefined ? null : <ProbeComponent />}
@@ -176,6 +185,28 @@ export interface BrowserPaneSubjectMount {
 }
 
 /**
+ * What the pane's region is CALLED once `seats/ConsolePaneChrome` names it.
+ *
+ * The chrome names a pane by its whole address trail rather than by its kind — "the
+ * session, then Browser" — and every mount in this family's suites is unbound, so the
+ * trail opens on the chrome's own no-address crumb. Spelled once here because it is a
+ * property of the frame rather than of any one suite: a suite that hard-coded it would
+ * be asserting the chrome's naming rule by accident, in as many places as it queried.
+ */
+const UNBOUND_BROWSER_PANE_NAME = "No session Browser";
+
+/**
+ * The mounted pane's region, read by role and name.
+ *
+ * By ROLE rather than by class, because that pair is what a person using assistive
+ * technology navigates by: a pane that lost its accessible name would still match a
+ * class selector and every suite here would go on passing.
+ */
+export function browserPaneRegion(): HTMLElement {
+  return screen.getByRole("region", { name: UNBOUND_BROWSER_PANE_NAME });
+}
+
+/**
  * Mount the pane and let its navigation subscription settle.
  *
  * The `await act` is not ceremony: the subscription resolves in a microtask after the
@@ -190,7 +221,7 @@ export async function renderBrowserPane(bridge?: ConsoleBridge): Promise<{
   await act(async () => {
     render(<BrowserPane {...built.context} />);
   });
-  return { region: screen.getByRole("region", { name: "Browser" }), bridge: built.bridge };
+  return { region: browserPaneRegion(), bridge: built.bridge };
 }
 
 /**

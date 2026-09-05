@@ -1,9 +1,16 @@
-// The browser pane's chrome — the same command over the page that the agent has.
+// The browser pane's controls — the same command over the page that the agent has.
 //
 // `Spec-023 §Console Design (Meridian)` 12.2. Every control dispatches into the SAME
 // page registry the tool set drives, reached through a differently authorized surface,
-// and the chrome derives nothing: back and forward are enabled from the view's own
+// and the strip derives nothing: back and forward are enabled from the view's own
 // REPORTED history state, never from a count the renderer kept.
+//
+// THE PANE'S FRAME IS NOT THIS MODULE'S. `seats/ConsolePaneChrome` draws the section,
+// the kind glyph, the breadcrumb, the control strip, and the body box for every pane
+// kind in the console; what this file returns is the BODY that goes inside it. The
+// section, its tab stop, its accessible name, and the actor's hue all arrive from
+// there, which is why none of them is set here and why the pane is named by its whole
+// address trail rather than by the word "Browser".
 //
 // WHAT IS BUILT AND WHAT RENDERS ITS ABSENCE. The console's growth port carries five
 // pane-keyed navigation verbs and one navigation subscription, and nothing else —
@@ -45,15 +52,11 @@ import {
   type NavigationReading,
 } from "./navigation-state.js";
 import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "../../primitives/index.js";
-import { tokenReference } from "../../tokens/index.js";
 import { useBrowserPaneActs } from "./act-sequence.js";
 import { useGeometryPublisher } from "./geometry-binding.js";
 import { usePaneAddressField } from "./pane-address-field.js";
 import { ChromeControl } from "./ChromeControl.js";
-import type { ConsolePaneContext } from "../../seats/index.js";
-
-/** The pane region's accessible name. The tab strip's own labels arrive with it. */
-const BROWSER_PANE_LABEL = "Browser";
+import { ConsolePaneChrome, type PaneContextOf } from "../../seats/index.js";
 
 /** What a navigation act that never answered says, where the rejection carries no code. */
 const NAVIGATION_CALL_FALLBACK = {
@@ -68,13 +71,8 @@ const OPEN_EXTERNAL_FALLBACK = {
   detail: "The system browser could not be reached from this window.",
 } as const;
 
-/** Carries this pane's attribution hue into the shell's inline-start edge. */
-interface PaneAttributionStyle extends React.CSSProperties {
-  readonly "--meridian-browser-pane-hue": string;
-}
-
-export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
-  const { bridge, paneId, focusHue } = context;
+export function BrowserPane(context: PaneContextOf<"browser">): React.JSX.Element {
+  const { bridge, paneId, focusHue, sessionStore } = context;
   const navigation = useReportedNavigation(bridge, paneId);
   const geometry = useGeometryPublisher(bridge, paneId);
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
@@ -162,121 +160,124 @@ export function BrowserPane(context: ConsolePaneContext): React.JSX.Element {
 
   const isLoading = reported?.isLoading ?? false;
 
-  // Rule 2: the hue answers "who", and it is a different colour on every pane — so
-  // it rides a custom property on the element, the shape `LedgerRow` established.
-  // An unattributed pane takes the neutral control boundary rather than borrowing
-  // somebody else's colour, which is the fail-closed direction.
-  const attributionStyle: PaneAttributionStyle = {
-    "--meridian-browser-pane-hue": focusHue ?? tokenReference("edge-strong"),
-  };
-
   return (
-    <section
-      aria-label={BROWSER_PANE_LABEL}
-      className="meridian-browser-pane"
-      style={attributionStyle}
-      tabIndex={-1}
-      onKeyDownCapture={onCloseTabChord}
-    >
-      <form onSubmit={submitDestination} className="meridian-browser-chrome">
-        <ChromeControl
-          label="Back"
-          disabled={reported?.canGoBack !== true}
-          onActivate={() => {
-            dispatch(() => bridge.growth.browserGoBack({ paneId }));
-          }}
-        />
-        <ChromeControl
-          label="Forward"
-          disabled={reported?.canGoForward !== true}
-          onActivate={() => {
-            dispatch(() => bridge.growth.browserGoForward({ paneId }));
-          }}
-        />
-        {/* One slot, two acts: 12.2 puts reload and stop in the same place and swaps
+    // THE CHORD CLAIM SITS OUTSIDE THE CHROME, and the wrapper draws no box to do it.
+    // What the claim protects is the WINDOW, so it has to cover every element the
+    // chord can be pressed on while this pane has focus — which includes the head the
+    // chrome draws above the body, and the head is not a descendant of the body. The
+    // chrome publishes no key seam and a family may not widen it, so the smallest
+    // honest adapter is an element ABOVE it that carries the handler and generates no
+    // box at all: `display: contents` leaves the deck laying the chrome's own section
+    // out exactly as it would have, while events still travel this element on their
+    // way down.
+    <div className="meridian-browser-pane-claim" onKeyDownCapture={onCloseTabChord}>
+      <ConsolePaneChrome kind="browser" sessionId={sessionStore?.sessionId} focusHue={focusHue}>
+        <div className="meridian-browser-pane">
+          <form onSubmit={submitDestination} className="meridian-browser-chrome">
+            <ChromeControl
+              label="Back"
+              disabled={reported?.canGoBack !== true}
+              onActivate={() => {
+                dispatch(() => bridge.growth.browserGoBack({ paneId }));
+              }}
+            />
+            <ChromeControl
+              label="Forward"
+              disabled={reported?.canGoForward !== true}
+              onActivate={() => {
+                dispatch(() => bridge.growth.browserGoForward({ paneId }));
+              }}
+            />
+            {/* One slot, two acts: 12.2 puts reload and stop in the same place and swaps
             them on the view's reported load state, so the control is where a person's
             hand already is at the moment they want the other one. */}
-        <ChromeControl
-          label={isLoading ? "Stop" : "Reload"}
-          glyph={isLoading ? "stop" : undefined}
-          disabled={reported === undefined}
-          onActivate={() => {
-            dispatch(() =>
-              isLoading
-                ? bridge.growth.browserStopLoading({ paneId })
-                : bridge.growth.browserReload({ paneId }),
-            );
-          }}
-        />
-        <label htmlFor={addressFieldId} className="meridian-visually-hidden">
-          Destination
-        </label>
-        <input
-          id={addressFieldId}
-          type="text"
-          inputMode="url"
-          value={addressFieldValue(addressField, reportedUrl)}
-          placeholder="Type a destination"
-          onChange={(event) => {
-            setAddressField(editingAddressField(event.target.value));
-          }}
-          onKeyDown={onAddressKeyDown}
-          className="meridian-browser-chrome__address"
-        />
-        {/* Present on every page regardless of anything else in this chapter: it is
+            <ChromeControl
+              label={isLoading ? "Stop" : "Reload"}
+              glyph={isLoading ? "stop" : undefined}
+              disabled={reported === undefined}
+              onActivate={() => {
+                dispatch(() =>
+                  isLoading
+                    ? bridge.growth.browserStopLoading({ paneId })
+                    : bridge.growth.browserReload({ paneId }),
+                );
+              }}
+            />
+            <label htmlFor={addressFieldId} className="meridian-visually-hidden">
+              Destination
+            </label>
+            <input
+              id={addressFieldId}
+              type="text"
+              inputMode="url"
+              value={addressFieldValue(addressField, reportedUrl)}
+              placeholder="Type a destination"
+              onChange={(event) => {
+                setAddressField(editingAddressField(event.target.value));
+              }}
+              onKeyDown={onAddressKeyDown}
+              className="meridian-browser-chrome__address"
+            />
+            {/* Present on every page regardless of anything else in this chapter: it is
             the fallback the whole feature degrades to. */}
-        <ChromeControl label="Open externally" glyph="external" onActivate={openInSystemBrowser} />
-      </form>
+            <ChromeControl
+              label="Open externally"
+              glyph="external"
+              onActivate={openInSystemBrowser}
+            />
+          </form>
 
-      {/* The subscription's own end, said once and where the controls are. It is a
+          {/* The subscription's own end, said once and where the controls are. It is a
           receipt rather than a refusal — the producer finished cleanly — so it takes
           the quiet reading line and the polite live region, not the banner. */}
-      {navigation.kind === "ended" ? (
-        <p className="meridian-browser-pane__reading" role="status">
-          This pane is no longer being told where the page is. The chrome acts on nothing until the
-          pane is opened again.
-        </p>
-      ) : null}
+          {navigation.kind === "ended" ? (
+            <p className="meridian-browser-pane__reading" role="status">
+              This pane is no longer being told where the page is. The chrome acts on nothing until
+              the pane is opened again.
+            </p>
+          ) : null}
 
-      <div className="meridian-browser-pane__strip">
-        <Nothing
-          kind="not-checked"
-          placement="inline"
-          title="Pages not read"
-          detail="The tab strip, the page picker, capture, pick element, and developer tools all need the browser namespace, which is not registered yet. Nothing here says this session owns no pages — only that no question was put."
-        />
-      </div>
+          <div className="meridian-browser-pane__strip">
+            <Nothing
+              kind="not-checked"
+              placement="inline"
+              title="Pages not read"
+              detail="The tab strip, the page picker, capture, pick element, and developer tools all need the browser namespace, which is not registered yet. Nothing here says this session owns no pages — only that no question was put."
+            />
+          </div>
 
-      {actRefusal === undefined ? null : (
-        <RefusalBanner {...actRefusal} onDismiss={dismissActRefusal} />
-      )}
+          {actRefusal === undefined ? null : (
+            <RefusalBanner {...actRefusal} onDismiss={dismissActRefusal} />
+          )}
 
-      <div
-        ref={geometry.hostRef}
-        data-pane-viewport={paneId}
-        className="meridian-browser-pane__viewport"
-      >
-        <Nothing
-          kind="not-checked"
-          placement="surface"
-          title="No page is shown here."
-          detail={viewportDetail(geometry.outcome, navigation)}
-        />
-      </div>
+          <div
+            ref={geometry.hostRef}
+            data-pane-viewport={paneId}
+            className="meridian-browser-pane__viewport"
+          >
+            <Nothing
+              kind="not-checked"
+              placement="surface"
+              title="No page is shown here."
+              detail={viewportDetail(geometry.outcome, navigation)}
+            />
+          </div>
 
-      {/* No `readings` at all, and that is the honest prop rather than an omission.
+          {/* No `readings` at all, and that is the honest prop rather than an omission.
           Nothing in this window meters a browser bound — the namespace that would
           count live views is not registered — so every row takes the not-checked arm.
           A literal `VIEWS_MAX: 0` here would render through the same live-figure span
           a genuinely metered ceiling renders through, and tell a reviewer this window
           holds zero browser views while the pane he is reading it in is one. */}
-      <details className="meridian-browser-disclosure meridian-browser-pane__ceiling">
-        <summary>Resource ceiling</summary>
-        <div className="meridian-browser-pane__ceiling-body">
-          <BudgetMeter />
+          <details className="meridian-browser-disclosure meridian-browser-pane__ceiling">
+            <summary>Resource ceiling</summary>
+            <div className="meridian-browser-pane__ceiling-body">
+              <BudgetMeter />
+            </div>
+          </details>
         </div>
-      </details>
-    </section>
+      </ConsolePaneChrome>
+    </div>
   );
 }
 

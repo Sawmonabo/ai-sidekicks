@@ -11,8 +11,17 @@ import { describe, expect, it } from "vitest";
 import { renderPane } from "./TerminalPane.test-support.js";
 
 describe("terminal pane — a pane opened without a session", () => {
-  it("names itself, so the pane is reachable by name", () => {
-    expect(renderPane(undefined).getAttribute("aria-label")).toBe("Terminal");
+  it("is named by the trail it sits on rather than by its kind alone", () => {
+    // Through `aria-labelledby` and never `aria-label`: `seats/ConsolePaneChrome` names
+    // every pane by its whole address — the session whose shell it holds, then what the
+    // pane is — so two terminals in one deck are told apart. This mount addresses no
+    // session, so the trail opens on the chrome's own no-address crumb, and the pane is
+    // still reachable by a name rather than by a class.
+    const region = renderPane(undefined);
+    const crumbs = document.getElementById(region.getAttribute("aria-labelledby") ?? "");
+
+    expect(region.getAttribute("aria-label")).toBeNull();
+    expect(crumbs?.textContent).toBe("No sessionTerminal");
   });
 
   it("says it is unbound rather than showing a terminal that belongs to nobody", () => {

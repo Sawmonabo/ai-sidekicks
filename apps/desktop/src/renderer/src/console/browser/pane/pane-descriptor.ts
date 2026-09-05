@@ -12,7 +12,7 @@
 // `apps/desktop/AGENTS.md` §Module shape rules out for a directory reached from
 // outside itself. The family door imports this module by name instead.
 
-import type { ConsolePaneDescriptor } from "../../seats/index.js";
+import { paneBodyForKind, type ConsolePaneDescriptor } from "../../seats/index.js";
 import { BrowserPane } from "./BrowserPane.js";
 
 /**
@@ -27,13 +27,22 @@ import { BrowserPane } from "./BrowserPane.js";
  * the pane, and following a detach would mean moving that host view between two
  * windows, which `Spec-023 §Console Design (Meridian)` ships no mechanism for.
  *
- * `render` is the component itself rather than a closure over the pane context. The
- * body takes the context whole — it needs the pane id the browser wire is keyed by,
- * the bridge it dispatches through, and the focus hue rule 2 attributes the pane with
- * — so a wrapper here would only be a second place for that argument to go wrong.
+ * `render` goes through `paneBodyForKind` rather than naming the component directly.
+ * The registry holds one `render` per kind over the whole address union, and this body
+ * is a view of the `browser` arm alone: the two untyped boundaries — a restored layout
+ * row and a typed route — are where an address of another kind arrives without the
+ * compiler, and mounting a browser body at one would draw a pane headed "Browser" over
+ * something else entirely. The adapter narrows once and renders the kind-mismatch
+ * refusal for the arm it cannot serve, which is the console's answer everywhere else:
+ * one bad row loses that row rather than the deck.
+ *
+ * The body still takes the context whole beneath it — it needs the pane id the browser
+ * wire is keyed by, the bridge it dispatches through, the session whose shell frames
+ * the trail, and the focus hue rule 2 attributes the pane with — so no argument is
+ * rebuilt here.
  */
 export const BROWSER_PANE_DESCRIPTOR: ConsolePaneDescriptor = {
   kind: "browser",
   owner: "browser",
-  render: BrowserPane,
+  render: paneBodyForKind("browser", BrowserPane),
 };

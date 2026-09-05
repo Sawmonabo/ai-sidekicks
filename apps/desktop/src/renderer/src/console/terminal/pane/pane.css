@@ -14,20 +14,26 @@
  */
 
 /*
+ * The pane's BODY, inside the body slot `seats/pane-chrome.css` leaves. The frame,
+ * its surface, and its boundary are that sheet's; what is left here is the padding
+ * this family wants inside it and the column the lease line and the host sit in.
+ *
  * `box-sizing` is stated here for the reason `primitives.css` states it on every
  * primitive that pairs a fixed size with a boundary: the generated base sheet sets no
- * global `border-box` reset, so `block-size: 100%` sized the CONTENT box and the
- * padding was added outside it. In a fixed-height deck slot the pane was therefore
- * taller than its slot by twice `--meridian-space-3`, which pushes the emulator's
- * bottom rows out of view or introduces a scrollbar nothing asked for.
+ * global `border-box` reset, so a padded box that also has to fill its slot sizes its
+ * CONTENT to the slot and adds the padding outside it. In a fixed-height deck slot the
+ * pane was therefore taller than its slot by twice `--meridian-space-3`, which pushes
+ * the emulator's bottom rows out of view or introduces a scrollbar nothing asked for.
+ * The fill is now `flex: 1 1 auto` against the chrome's own column rather than
+ * `block-size: 100%` against a parent that no longer has a stated height, and the
+ * hazard is the same one: the padding has to be inside whatever the box grows to.
  */
 .meridian-terminal-pane {
   box-sizing: border-box;
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--meridian-space-2);
-  block-size: 100%;
   min-block-size: 0;
   padding: var(--meridian-space-3);
-  background: var(--meridian-surface);
 }

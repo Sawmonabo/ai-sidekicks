@@ -10,13 +10,28 @@
 // it a different bridge or the deck hands it a different pane, so every rule here is
 // about the pass where the state still holds the PREVIOUS binding.
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
 import { PaneGeometryPublisher, type PaneGeometryOutcome } from "../geometry/geometry-publisher.js";
 import { consoleOcclusionRegistryFor } from "../geometry/occlusion-registry.js";
-import { isCurrentPaneSubject, type PaneSubject } from "./pane-subject.js";
 import { resolvePaneViewHost, type PaneViewHost } from "../geometry/view-host.js";
+import { useSubjectScopedResource } from "../../store/index.js";
 import { consoleClockFor, type ConsoleBridge } from "../../bridge/index.js";
+
+/**
+ * The pair a pane-scoped resource belongs to.
+ *
+ * Both members, because both decide where an act goes: every pane-keyed call is made
+ * on ONE bridge with ONE `paneId`, so a publisher produced under either of the other
+ * combinations is not a publisher for this one. It is the argument
+ * {@link createGeometryBinding} takes rather than a stamp anything compares — the
+ * console's subject-scoped holder addresses a resource by its subject during the
+ * render that first sees a new one, so there is nothing left here to compare.
+ */
+export interface PaneSubject {
+  readonly bridge: ConsoleBridge;
+  readonly paneId: string;
+}
 
 /**
  * One publisher over the host this window actually has, for the pane it is for, and
@@ -73,6 +88,16 @@ function restingGeometryOutcome(host: PaneViewHost): PaneGeometryOutcome | undef
   return host.state === "unavailable" ? { status: "suppressed", refusal: host.refusal } : undefined;
 }
 
+/** Ends a binding. Terminal: `dispose` is what the publisher documents it as. */
+function closeGeometryBinding(bound: BoundGeometryPublisher): void {
+  bound.publisher.dispose();
+}
+
+/** Whether a binding's own disposal has already run, however it was reached. */
+function isGeometryBindingClosed(bound: BoundGeometryPublisher): boolean {
+  return bound.publisher.isDisposed;
+}
+
 /**
  * Publish this pane's rectangle for the life of the mount, and RENDER what the host
  * said back.
@@ -86,14 +111,28 @@ function restingGeometryOutcome(host: PaneViewHost): PaneGeometryOutcome | undef
  * recorded between this component's render and its subscription is missed by the
  * effect shape, and a missed refusal is silent by construction.
  *
- * The publisher is minted in a `useState` initializer and RE-MINTED when the state
- * holds a disposed one, which is `frame/ui-state-lifecycle.ts`'s shape for the same
- * hazard: React's double-mount runs the cleanup and then mounts the same component
- * instance again, so the second mount would otherwise be handed the corpse the first
- * one's teardown just disposed. Asking the publisher rather than remembering is what
- * makes that arm correct without a second flag beside it — and the effect's only
- * dependency is the publisher, so a self-disposal after a rejection does NOT re-mint:
- * that arm is terminal on purpose.
+ * THE BINDING IS HELD BY THE CONSOLE'S SUBJECT-SCOPED RESOURCE HOLDER, which is what
+ * this hook used to hand-roll. A binding outlives its subject — React keeps the
+ * instance while the window hands it a different bridge or the deck hands it a
+ * different pane — and the three arms that follow from it are all the holder's:
+ *
+ *   • A CHANGED SUBJECT opens its own binding DURING THE RENDER that first sees it, so
+ *     there is no pass on which this hook holds the previous window's publisher and
+ *     nothing to compare on the way out. The stamp-and-suppress this replaced was
+ *     correct and one concept wider than it had to be.
+ *   • A DOUBLE MOUNT is answered by `isGeometryBindingClosed`. React runs the cleanup
+ *     and mounts the same instance again, so the second mount would otherwise be
+ *     handed the corpse the first one's teardown just disposed; the holder re-mints
+ *     rather than committing a resource that will never work again.
+ *   • A SELF-DISPOSAL after a `pane-gone` rejection STAYS DISPOSED, because the holder
+ *     reads that reading only where its lifetime effect runs. That arm is terminal on
+ *     purpose: the host has said this pane is gone, and re-minting would ask it again
+ *     every frame.
+ *
+ * The attachment below is the one thing the holder does not own, because it is about
+ * an ELEMENT rather than a subject: the publisher's own detacher is its disposal, so
+ * the effect returns it directly and the holder's `close` is the same act reached the
+ * other way — both idempotent, and both terminal by the publisher's own contract.
  */
 export function useGeometryPublisher(
   bridge: ConsoleBridge,
@@ -103,8 +142,17 @@ export function useGeometryPublisher(
   readonly outcome: PaneGeometryOutcome | undefined;
 } {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const subject: PaneSubject = { bridge, paneId };
-  const [bound, setBound] = useState<BoundGeometryPublisher>(() => createGeometryBinding(subject));
+  const openBinding = useCallback(
+    () => createGeometryBinding({ bridge, paneId }),
+    [bridge, paneId],
+  );
+  const { value: bound } = useSubjectScopedResource(
+    bridge,
+    paneId,
+    openBinding,
+    closeGeometryBinding,
+    isGeometryBindingClosed,
+  );
   const publisher = bound.publisher;
   const subscribe = useCallback(
     (onOutcome: () => void) => publisher.subscribeToOutcomes(onOutcome),
@@ -112,41 +160,15 @@ export function useGeometryPublisher(
   );
   const readOutcome = useCallback(() => publisher.lastOutcome(), [publisher]);
   const publishedOutcome = useSyncExternalStore(subscribe, readOutcome, readOutcome);
-  // THE COMPARISON, DURING RENDER, and it is the whole of this correction. A binding
-  // outlives its subject: React keeps this instance while the window hands it a
-  // different bridge or the deck hands it a different pane, and until the passive
-  // effect below has run the state still holds the PREVIOUS binding. Reading its
-  // outcome on that pass put the retired host's published view under the new
-  // subject's viewport — a rectangle a different window accepted, presented as this
-  // one's. Suppressed here rather than cleared in an effect, because an effect runs
-  // one pass after the pass a person reads.
-  const isCurrentBinding = isCurrentPaneSubject(bound, subject);
-  const outcome = isCurrentBinding
-    ? (publishedOutcome ?? restingGeometryOutcome(bound.host))
-    : restingGeometryOutcome(resolvePaneViewHost(subject));
+  const outcome = publishedOutcome ?? restingGeometryOutcome(bound.host);
 
   useEffect(() => {
-    // The subject a publisher was minted FOR is carried beside it, because the host
-    // is addressed per bridge and per pane: a deck that swaps either would otherwise
-    // leave the publisher writing this element's rectangle to the previous window's
-    // host under the previous pane's address. The re-mint is here and not in the
-    // render body because it is paired with the disposal below — React may throw a
-    // render away, and a publisher disposed on a pass that never committed is a
-    // pane with no publisher at all.
-    if (publisher.isDisposed || !isCurrentPaneSubject(bound, { bridge, paneId })) {
-      setBound(createGeometryBinding({ bridge, paneId }));
-      return undefined;
-    }
     const hostElement = hostRef.current;
     if (hostElement === null) {
       return undefined;
     }
-    const detach = publisher.observe(hostElement);
-    return () => {
-      detach();
-      publisher.dispose();
-    };
-  }, [bound, bridge, paneId, publisher]);
+    return publisher.observe(hostElement);
+  }, [publisher]);
 
   return { hostRef, outcome };
 }
