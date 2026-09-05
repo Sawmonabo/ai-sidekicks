@@ -21,6 +21,8 @@
 
 import ts from "typescript";
 
+import { parseSourceText } from "../typescript-source.js";
+
 /** One module the census reads, keyed by its path from the package root. */
 export interface CensusModule {
   readonly path: string;
@@ -77,13 +79,10 @@ export function readModuleSyntax(modules: readonly CensusModule[]): readonly Mod
 }
 
 function readOneModule(module: CensusModule): ModuleSyntax {
-  const sourceFile = ts.createSourceFile(
-    module.path,
-    module.source,
-    ts.ScriptTarget.ES2023,
-    false,
-    module.path.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
-  );
+  // Through the tier's one parse home, which takes the grammar from the path it
+  // is handed — most of this corpus is `.tsx`. A second `createSourceFile` here
+  // would be a second set of parse options for the same question.
+  const sourceFile = parseSourceText(module.path, module.source);
   const doorSpecifiers: DoorSpecifier[] = [];
   const reaches: ModuleReach[] = [];
   let forwardsUnnamedSet = false;
