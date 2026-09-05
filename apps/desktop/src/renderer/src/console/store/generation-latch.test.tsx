@@ -4,6 +4,9 @@
 // value of hoisting it is that the PREDICATE is written once — a test that reproduced
 // the predicate would agree with a drifted copy as readily as with a correct one.
 //
+// What a JOINER may do with a round it did not start is a subject of its own and
+// lives in `generation-latch.joined-round.test.ts`, which needs no renderer.
+//
 // The bound is asserted, not argued. A latch that never removed a settled key would
 // pass every correctness case here and grow one entry per dispatch for the life of a
 // bridge, which on a long session is the leak the endurance tier exists to catch.
@@ -189,67 +192,6 @@ describe("GenerationLatch — supersedeAndClaim, for the write whose newest inte
     const latch = new GenerationLatch();
     for (let write = 0; write < 1000; write += 1) {
       latch.supersedeAndClaim(SUBJECT_ONE, "goal");
-    }
-    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
-  });
-});
-
-describe("GenerationLatch — currentClaim, for the reader that joins the round", () => {
-  it("joins the live round rather than superseding it", () => {
-    // Both handles name one round: the claim that took the key is still current, and
-    // the joined handle settles through it.
-    const latch = new GenerationLatch();
-    const started = latch.claim(SUBJECT_ONE, "preferences");
-    const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
-    expect(started?.isCurrent).toBe(true);
-    expect(joined.isCurrent).toBe(true);
-    expect(joined.settle(() => undefined)).toBe(true);
-    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
-  });
-
-  it("goes stale with the round it joined, and not on its own", () => {
-    const latch = new GenerationLatch();
-    const started = latch.claim(SUBJECT_ONE, "preferences");
-    const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
-    latch.supersede(SUBJECT_ONE, "preferences");
-    expect(started?.isCurrent).toBe(false);
-    expect(joined.isCurrent).toBe(false);
-    expect(joined.settle(() => undefined)).toBe(false);
-  });
-
-  it("negative control: superseding one key leaves a round joined on another alone", () => {
-    // Without this, "goes stale" above would be satisfied by a handle that reported
-    // itself stale from the moment it was minted.
-    const latch = new GenerationLatch();
-    latch.claim(SUBJECT_ONE, "preferences");
-    const elsewhere = latch.currentClaim(SUBJECT_ONE, "appearance");
-    latch.supersede(SUBJECT_ONE, "preferences");
-    expect(elsewhere.isCurrent).toBe(true);
-    expect(elsewhere.settle(() => undefined)).toBe(true);
-  });
-
-  it("mints a round where the key is free, so the caller never handles a refusal", () => {
-    const latch = new GenerationLatch();
-    const minted = latch.currentClaim(SUBJECT_ONE, "preferences");
-    expect(minted.isCurrent).toBe(true);
-    expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
-    expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
-  });
-
-  it("answers the round a supersede-and-claim installed, not the one it displaced", () => {
-    const latch = new GenerationLatch();
-    const displaced = latch.claim(SUBJECT_ONE, "goal");
-    latch.supersedeAndClaim(SUBJECT_ONE, "goal");
-    const joined = latch.currentClaim(SUBJECT_ONE, "goal");
-    expect(displaced?.isCurrent).toBe(false);
-    expect(joined.isCurrent).toBe(true);
-  });
-
-  it("holds one entry however many readers join one round", () => {
-    const latch = new GenerationLatch();
-    latch.claim(SUBJECT_ONE, "preferences");
-    for (let read = 0; read < 1000; read += 1) {
-      latch.currentClaim(SUBJECT_ONE, "preferences");
     }
     expect(latch.heldKeyCount(SUBJECT_ONE)).toBe(1);
   });
