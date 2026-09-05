@@ -29,20 +29,15 @@
 // page keeps no state, the control is keyboard-reachable and announced as
 // expandable, and there is nothing to restore after a re-render.
 
-import {
-  BrowserPolicySettings,
-  type BrowserPolicySettingsProps,
-  type BrowserPolicySwitchId,
-} from "./PolicySettings.js";
+import { BrowserPolicySettings, type BrowserPolicySettingsProps } from "./PolicySettings.js";
 import { PartitionTable } from "./PartitionTable.js";
+import type { BrowserPolicySwitchWriter } from "./policy-switches.js";
 import type { BrowserPartitionListing } from "./site-partitions.js";
 import type { SiteDataAct } from "./site-data-clear.js";
 
 export interface BrowserSettingsPageProps {
   readonly switchReadings: BrowserPolicySettingsProps["readings"];
-  readonly onToggleSwitch?:
-    | ((switchId: BrowserPolicySwitchId, nextEnabled: boolean) => void)
-    | undefined;
+  readonly onToggleSwitch?: BrowserPolicySwitchWriter | undefined;
   readonly partitions: BrowserPartitionListing;
   /**
    * Clear one session's site data. Absent while no writer is registered, in which

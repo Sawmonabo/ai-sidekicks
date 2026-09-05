@@ -35,38 +35,19 @@
 // toggle leaves as a callback. That is what keeps it a projection of daemon state
 // rather than a second place the node's policy is decided.
 
-import type { ConsoleRefusal } from "../core/index.js";
 import { PolicyRow } from "./PolicyRow.js";
-
-/**
- * The two switches, as console-local ids. Closed at two by 13.16 — "Hold the two
- * node-wide switches the browser pane's policy reads, and nothing else about the
- * browser" — with the union derived from the tuple so a third cannot be added to one
- * without the other.
- */
-export const BROWSER_POLICY_SWITCHES = ["file-boundary", "page-tools"] as const;
-
-export type BrowserPolicySwitchId = (typeof BROWSER_POLICY_SWITCHES)[number];
-
-/**
- * What the node reported about one switch, or why it did not.
- *
- * Two arms rather than `boolean | undefined`: an absent reading has a REASON, and a
- * row that could not render the reason would be back to showing a bare off position
- * for a question nobody put.
- */
-export type BrowserPolicySwitchReading =
-  | { readonly status: "read"; readonly enabled: boolean }
-  | { readonly status: "unread"; readonly refusal: ConsoleRefusal };
+import {
+  BROWSER_POLICY_SWITCHES,
+  type BrowserPolicySwitchId,
+  type BrowserPolicySwitchReading,
+  type BrowserPolicySwitchWriter,
+} from "./policy-switches.js";
 
 export interface BrowserPolicySettingsProps {
   /** Total over the switch set — a row with no reading is not representable. */
   readonly readings: Readonly<Record<BrowserPolicySwitchId, BrowserPolicySwitchReading>>;
-  /**
-   * Absent while no writer is registered. The rows then render read-only and say
-   * so, rather than offering a control whose press goes nowhere.
-   */
-  readonly onToggle?: ((switchId: BrowserPolicySwitchId, nextEnabled: boolean) => void) | undefined;
+  /** Absent while no writer is registered — the rows then render read-only. */
+  readonly onToggle?: BrowserPolicySwitchWriter | undefined;
 }
 
 export function BrowserPolicySettings(props: BrowserPolicySettingsProps): React.JSX.Element {

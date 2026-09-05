@@ -10,11 +10,8 @@ import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { refuse } from "../core/index.js";
-import {
-  BROWSER_POLICY_SWITCHES,
-  BrowserPolicySettings,
-  type BrowserPolicySettingsProps,
-} from "./PolicySettings.js";
+import { BrowserPolicySettings, type BrowserPolicySettingsProps } from "./PolicySettings.js";
+import { BROWSER_POLICY_SWITCHES } from "./policy-switches.js";
 
 const UNREAD_REFUSAL = refuse(
   "growth-port",

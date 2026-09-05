@@ -15,10 +15,10 @@ import { Switch } from "@base-ui/react/switch";
 
 import { InlineRefusal, Nothing } from "../primitives/index.js";
 import type {
-  BrowserPolicySettingsProps,
   BrowserPolicySwitchId,
   BrowserPolicySwitchReading,
-} from "./PolicySettings.js";
+  BrowserPolicySwitchWriter,
+} from "./policy-switches.js";
 
 /** What one switch says about itself. Nothing here is about its current state. */
 interface BrowserPolicySwitchTraits {
@@ -62,7 +62,7 @@ const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
 interface PolicyRowProps {
   readonly switchId: BrowserPolicySwitchId;
   readonly reading: BrowserPolicySwitchReading;
-  readonly onToggle: BrowserPolicySettingsProps["onToggle"];
+  readonly onToggle?: BrowserPolicySwitchWriter | undefined;
 }
 
 /**
