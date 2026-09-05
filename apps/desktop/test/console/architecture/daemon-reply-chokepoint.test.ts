@@ -149,7 +149,7 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
   it("no module outside the bridge family reaches the daemon call door", () => {
     const offenders = modules
       .filter((module) => !isBridgeFamilyModule(module))
-      .map((module) => ({ module, reaches: daemonCallReaches(readGovernedSource(module)) }))
+      .map((module) => ({ module, reaches: daemonCallReaches(readGovernedSource(module), module) }))
       .filter((entry) => entry.reaches.length > 0)
       .map((entry) => `${entry.module}: ${entry.reaches.join(", ")}`);
 
@@ -169,7 +169,7 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
           !module.includes(".test.") &&
           !module.includes(".test-support."),
       )
-      .map((module) => ({ module, reaches: daemonCallReaches(readGovernedSource(module)) }))
+      .map((module) => ({ module, reaches: daemonCallReaches(readGovernedSource(module), module) }))
       .filter((entry) => entry.reaches.length > 0)
       .map((entry) => `${entry.module}: ${entry.reaches.join(", ")}`);
 
@@ -179,7 +179,7 @@ describe("daemon-reply chokepoint — one module reaches the call door", () => {
   it("counts what consumes the call door, against a pinned number", () => {
     const consumers = modules
       .filter((module) => !isBridgeFamilyModule(module))
-      .filter((module) => importsCallDoor(readGovernedSource(module), module.displayPath));
+      .filter((module) => importsCallDoor(readGovernedSource(module), module));
 
     expect(
       consumers.length,
