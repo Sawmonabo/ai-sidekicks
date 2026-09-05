@@ -8,20 +8,19 @@
 //
 // The bridges are real fixture bridges rather than shaped objects: the door's whole
 // subject is bridge IDENTITY, and two casts of `{}` would prove the door compares
-// references without proving it compares the reference a caller actually holds.
+// references without proving it compares the reference a caller actually holds. They
+// come from `bridge/`'s own test-support module rather than from a builder written
+// here — a suite that wraps `createFixtureBridge` itself is a second answer to what
+// "the fixture bridge" is, and the two drift the day the scenario default moves.
 
 import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { createFixtureBridge, type ConsoleBridge } from "../bridge/index.js";
-import { consoleScenario } from "../bridge/scenario-manifest.js";
+import { createFixture } from "../bridge/fixture-bridge.test-support.js";
+import type { ConsoleBridge } from "../bridge/index.js";
 import { SessionStore } from "../store/index.js";
 import { isCurrentSessionSubject, useSessionScopedState } from "./session-subject.js";
-
-function aFixtureBridge(): ConsoleBridge {
-  return createFixtureBridge({ scenario: consoleScenario("flagship") });
-}
 
 interface DoorProbeProps {
   readonly bridge: ConsoleBridge;
@@ -41,7 +40,7 @@ function DoorProbe(props: DoorProbeProps): ReactElement {
 
 describe("useSessionScopedState — the session-named door forwards, and holds nothing", () => {
   it("keeps a value across a re-render and discards it when the session moves", () => {
-    const bridge = aFixtureBridge();
+    const bridge = createFixture().bridge;
     let latest = "";
     let publishInto: (next: string) => void = () => {};
     const view = render(
@@ -83,7 +82,7 @@ describe("useSessionScopedState — the session-named door forwards, and holds n
       publishInto = publish;
     };
     const view = render(
-      <DoorProbe bridge={aFixtureBridge()} sessionId="session-one" onRender={record} />,
+      <DoorProbe bridge={createFixture().bridge} sessionId="session-one" onRender={record} />,
     );
     act(() => {
       publishInto("answered through the retired transport");
@@ -91,14 +90,14 @@ describe("useSessionScopedState — the session-named door forwards, and holds n
     expect(latest).toBe("answered through the retired transport");
 
     view.rerender(
-      <DoorProbe bridge={aFixtureBridge()} sessionId="session-one" onRender={record} />,
+      <DoorProbe bridge={createFixture().bridge} sessionId="session-one" onRender={record} />,
     );
     expect(latest).toBe("seed");
   });
 });
 
 describe("isCurrentSessionSubject — both live objects, neither reduced to a name", () => {
-  const bridge = aFixtureBridge();
+  const bridge = createFixture().bridge;
   const sessionStore = new SessionStore({ sessionId: "session-one" });
 
   it("answers true only for the exact pair it was held for", () => {
@@ -111,9 +110,9 @@ describe("isCurrentSessionSubject — both live objects, neither reduced to a na
   });
 
   it("answers false when the transport was replaced", () => {
-    expect(isCurrentSessionSubject({ bridge, sessionStore }, aFixtureBridge(), sessionStore)).toBe(
-      false,
-    );
+    expect(
+      isCurrentSessionSubject({ bridge, sessionStore }, createFixture().bridge, sessionStore),
+    ).toBe(false);
   });
 
   it("answers false where nothing is held, or where either side is unresolved", () => {
