@@ -41,7 +41,7 @@ import {
   artifactProducerLabel,
   artifactReplicationPresentation,
   type ArtifactManifestRow,
-} from "../../repos/artifacts/index.js";
+} from "../../repos/artifacts/artifact-model.js";
 import { registerInlineCardBody, type ArtifactInlineCardProps } from "../../seats/index.js";
 
 /** Who owns this body, for the seat registry's owner-scoped duplicate policy. */

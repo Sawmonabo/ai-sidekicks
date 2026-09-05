@@ -24,7 +24,7 @@ import type {
   ArtifactDeleteReceipt,
   ArtifactManifestRow,
   ArtifactsPanelState,
-} from "../../repos/artifacts/index.js";
+} from "../../repos/artifacts/artifact-model.js";
 import type { ArtifactPayloadReading } from "./artifact-payload.js";
 
 /**
