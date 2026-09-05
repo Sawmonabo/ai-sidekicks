@@ -23,12 +23,12 @@ import {
 
 /** The refusal an arm carries, or nothing — so a case reads one field, not a switch. */
 function refusalOf(reading: NavigationReading): ConsoleRefusal | undefined {
-  return reading.status === "refused" ? reading.refusal : undefined;
+  return reading.kind === "refused" ? reading.refusal : undefined;
 }
 
 /** The reported state, and deliberately nothing from any other arm. */
 function reportedStateOf(reading: NavigationReading): NavigationEvent | undefined {
-  return reading.status === "reported" ? reading.state : undefined;
+  return reading.kind === "served" ? reading.state : undefined;
 }
 
 /**
@@ -125,7 +125,7 @@ describe("useReportedNavigation", () => {
   it("starts with neither, so nothing renders a reading before one arrives", () => {
     const bridge = createFixtureBridge({ scenario: BROWSER_SCENARIO });
     const { result } = renderHook(() => useReportedNavigation(bridge, "pane-browser-1"));
-    expect(result.current).toStrictEqual({ status: "unread" });
+    expect(result.current).toStrictEqual({ kind: "reading" });
   });
 });
 
@@ -282,7 +282,7 @@ describe("useReportedNavigation — a subscription that ends", () => {
     subscription.finish();
 
     await waitFor(() => {
-      expect(result.current.status).toBe("ended");
+      expect(result.current.kind).toBe("ended");
     });
     expect(subscription.close).toHaveBeenCalledTimes(1);
     // The half the chrome reads: an ended subscription hands it no state, so nothing
@@ -300,7 +300,7 @@ describe("useReportedNavigation — a subscription that ends", () => {
     subscription.serve();
 
     await waitFor(() => {
-      expect(result.current.status).toBe("ended");
+      expect(result.current.kind).toBe("ended");
     });
     expect(subscription.close).toHaveBeenCalledTimes(1);
   });
@@ -315,7 +315,7 @@ describe("useReportedNavigation — a subscription that ends", () => {
     );
     subscription.serve();
     await waitFor(() => {
-      expect(result.current.status).toBe("reported");
+      expect(result.current.kind).toBe("served");
     });
 
     unmount();
@@ -325,7 +325,7 @@ describe("useReportedNavigation — a subscription that ends", () => {
     });
 
     expect(subscription.close).toHaveBeenCalledTimes(1);
-    expect(result.current.status).toBe("reported");
+    expect(result.current.kind).toBe("served");
   });
 });
 
@@ -507,7 +507,7 @@ describe("useReportedNavigation — a subject that changes under the hook", () =
 
     // The finding. Without the stamp this is still the first pane's frame, so the
     // address field shows its URL and Back is enabled — against the second pane.
-    expect(result.current).toStrictEqual({ status: "unread" });
+    expect(result.current).toStrictEqual({ kind: "reading" });
 
     subscriptions.forPane("pane-browser-2").emit(SECOND_PANE_PAGE);
     await waitFor(() => {
@@ -538,7 +538,7 @@ describe("useReportedNavigation — a subject that changes under the hook", () =
 
     // A late frame carries the stamp of the subject it was read under, so it reaches
     // no render for a different one.
-    expect(result.current).toStrictEqual({ status: "unread" });
+    expect(result.current).toStrictEqual({ kind: "reading" });
     expect(reportedStateOf(result.current)).toBeUndefined();
   });
 
@@ -560,7 +560,7 @@ describe("useReportedNavigation — a subject that changes under the hook", () =
 
     rerender({ bridge: second.bridge });
 
-    expect(result.current).toStrictEqual({ status: "unread" });
+    expect(result.current).toStrictEqual({ kind: "reading" });
   });
 
   it("negative control: a render under the SAME subject keeps the reading it had", async () => {

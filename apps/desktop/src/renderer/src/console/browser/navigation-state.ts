@@ -16,7 +16,8 @@
 import { useEffect } from "react";
 
 import type { ConsoleBridge } from "../bridge/index.js";
-import { normalizeWireRejection, type ConsoleRefusal } from "../core/index.js";
+import { normalizeWireRejection } from "../core/index.js";
+import type { ReadingState } from "../primitives/index.js";
 import { useSubjectScopedState } from "../store/index.js";
 
 /** The subsystem name every refusal this module raises itself carries. */
@@ -83,16 +84,24 @@ export type NavigationReading =
    *
    * Also what a pane reads the moment its SUBJECT changes. A hook instance handed a
    * different pane or a different bridge has asked a new question and has no answer
-   * to it, which is this arm exactly.
+   * to it, which is this arm exactly. `ReadingState`'s own in-flight arm, because that
+   * is precisely what it names.
    */
-  | { readonly status: "unread" }
-  | { readonly status: "reported"; readonly state: NavigationState }
-  | { readonly status: "refused"; readonly refusal: ConsoleRefusal }
-  /** The producer finished. The pane was being told, and is not being told now. */
-  | { readonly status: "ended" };
+  | Extract<ReadingState, { readonly kind: "reading" }>
+  | (Extract<ReadingState, { readonly kind: "served" }> & { readonly state: NavigationState })
+  | Extract<ReadingState, { readonly kind: "refused" }>
+  /**
+   * The producer finished. The pane was being told, and is not being told now.
+   *
+   * THE ONE ARM THAT IS THIS FAMILY'S OWN, and it is genuinely new: `ReadingState`
+   * closes over how completely a reading answered, and an ended subscription answered
+   * completely and then stopped. No upstream arm says that, and borrowing `stale`
+   * would claim the pane is behind a producer that is no longer producing.
+   */
+  | { readonly kind: "ended" };
 
 /** The reading before any subject has been answered, and after one has changed. */
-const UNREAD_NAVIGATION: NavigationReading = { status: "unread" };
+const UNREAD_NAVIGATION: NavigationReading = { kind: "reading" };
 
 /**
  * A reading and the `(bridge, paneId)` it was read under.
@@ -171,7 +180,7 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
           return;
         }
         if (outcome.status === "unavailable") {
-          setReading({ status: "refused", refusal: outcome });
+          setReading({ kind: "refused", scope: "whole-answer", refusal: outcome });
           return;
         }
         stream = outcome.value;
@@ -179,14 +188,14 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
           if (cancelled) {
             return;
           }
-          setReading({ status: "reported", state });
+          setReading({ kind: "served", state });
         }
         // The producer finished. The stream goes for the same reason it goes on the
         // failing path — a handle nobody will read again is a handle to close — and
         // the reading stops claiming the frame it stopped on.
         closeStream();
         if (!cancelled) {
-          setReading({ status: "ended" });
+          setReading({ kind: "ended" });
         }
       } catch (failure) {
         // The stream goes first and unconditionally: a producer that threw part-way
@@ -195,7 +204,8 @@ export function useReportedNavigation(bridge: ConsoleBridge, paneId: string): Na
         closeStream();
         if (!cancelled) {
           setReading({
-            status: "refused",
+            kind: "refused",
+            scope: "whole-answer",
             refusal: normalizeWireRejection(
               NAVIGATION_REFUSAL_ORIGIN,
               failure,

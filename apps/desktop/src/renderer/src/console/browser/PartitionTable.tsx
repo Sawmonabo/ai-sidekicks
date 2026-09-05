@@ -37,7 +37,7 @@ export interface PartitionTableProps {
 }
 
 export function PartitionTable(props: PartitionTableProps): React.JSX.Element {
-  if (props.listing.status === "not-read") {
+  if (props.listing.kind === "refused") {
     return (
       <Nothing
         kind="error"
@@ -48,7 +48,7 @@ export function PartitionTable(props: PartitionTableProps): React.JSX.Element {
     );
   }
 
-  if (props.listing.status === "reading") {
+  if (props.listing.kind === "reading") {
     return <Nothing kind="not-loaded" placement="surface" title="Reading stored site data" />;
   }
 

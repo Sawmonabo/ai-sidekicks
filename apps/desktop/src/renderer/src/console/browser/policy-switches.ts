@@ -9,7 +9,7 @@
 // the union is DERIVED from the tuple, so a third cannot be added to one without the
 // other.
 
-import type { ConsoleRefusal } from "../core/index.js";
+import type { ReadingState } from "../primitives/index.js";
 
 /** The two switches, as console-local ids. */
 export const BROWSER_POLICY_SWITCHES = ["file-boundary", "page-tools"] as const;
@@ -22,10 +22,14 @@ export type BrowserPolicySwitchId = (typeof BROWSER_POLICY_SWITCHES)[number];
  * Two arms rather than `boolean | undefined`: an absent reading has a REASON, and a
  * row that could not render the reason would be back to showing a bare off position
  * for a question nobody put.
+ *
+ * Both arms are `ReadingState`'s, with this family's payload on the served one, so the
+ * words for "answered" and "refused" are the console's rather than a third spelling of
+ * them beside `site-partitions.ts`'s and `navigation-state.ts`'s.
  */
 export type BrowserPolicySwitchReading =
-  | { readonly status: "read"; readonly enabled: boolean }
-  | { readonly status: "unread"; readonly refusal: ConsoleRefusal };
+  | (Extract<ReadingState, { readonly kind: "served" }> & { readonly enabled: boolean })
+  | Extract<ReadingState, { readonly kind: "refused" }>;
 
 /**
  * Flip one switch. Absent while no writer is registered, in which case the rows

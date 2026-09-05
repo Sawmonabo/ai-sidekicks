@@ -10,13 +10,25 @@
 // size the node could not measure arrives as the refusal that says so, because a zero
 // standing in for an unmeasured partition would read as "nothing stored here" and that
 // is the one claim a clear control must not make falsely.
+//
+// AND THE WORDS FOR THOSE TWO ARE THE CONSOLE'S, NOT THIS FAMILY'S. Both shapes below
+// are `ReadingState` arms with this family's payload attached, rather than a local
+// union spelling `served` as `measured` or `read` and `refused` as `unmeasured` or
+// `not-read`. `apps/desktop/AGENTS.md` §State and views says a closed set is declared
+// once and every consumer derives from it, and the cost of not doing so is not
+// aesthetic: a surface holding one of these can be handed straight to
+// `readingNoticeFor`, so the sentence a person reads about an incomplete listing is
+// the same sentence every other console surface says, and a seventh reading state
+// added upstream reaches this family by failing to compile rather than by nobody
+// noticing.
 
 import type { ConsoleRefusal } from "../core/index.js";
+import type { ReadingState } from "../primitives/index.js";
 
 /** A stored size, or why it could not be measured. Never a zero standing in for either. */
 export type BrowserPartitionSize =
-  | { readonly status: "measured"; readonly byteLength: number }
-  | { readonly status: "unmeasured"; readonly refusal: ConsoleRefusal };
+  | (Extract<ReadingState, { readonly kind: "served" }> & { readonly byteLength: number })
+  | Extract<ReadingState, { readonly kind: "refused" }>;
 
 export interface BrowserSitePartition {
   /** The owning session, wire-verbatim. */
@@ -36,6 +48,8 @@ export interface BrowserSitePartition {
 
 /** What the node said about its partitions, or why it said nothing. */
 export type BrowserPartitionListing =
-  | { readonly status: "not-read"; readonly refusal: ConsoleRefusal }
-  | { readonly status: "reading" }
-  | { readonly status: "read"; readonly partitions: readonly BrowserSitePartition[] };
+  | (Extract<ReadingState, { readonly kind: "served" }> & {
+      readonly partitions: readonly BrowserSitePartition[];
+    })
+  | Extract<ReadingState, { readonly kind: "reading" }>
+  | Extract<ReadingState, { readonly kind: "refused" }>;

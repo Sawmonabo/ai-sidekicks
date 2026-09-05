@@ -75,7 +75,7 @@ interface PolicyRowProps {
  */
 export function PolicyRow(props: PolicyRowProps): React.JSX.Element {
   const traits = BROWSER_POLICY_SWITCH_TRAITS[props.switchId];
-  const isRead = props.reading.status === "read";
+  const isRead = props.reading.kind === "served";
   const position = isRead ? props.reading.enabled : traits.failClosedPosition;
   const labelId = `meridian-browser-policy-${props.switchId}`;
   const canWrite = isRead && props.onToggle !== undefined;
@@ -102,7 +102,7 @@ export function PolicyRow(props: PolicyRowProps): React.JSX.Element {
         <span className="meridian-browser-policy__default">{traits.defaultLabel}</span>
       </div>
       <div className="meridian-browser-policy__state">
-        {props.reading.status === "unread" ? (
+        {props.reading.kind === "refused" ? (
           <>
             <Nothing
               kind="not-checked"

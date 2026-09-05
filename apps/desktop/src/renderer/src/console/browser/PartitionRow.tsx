@@ -37,7 +37,7 @@ export function PartitionRow(props: PartitionRowProps): React.JSX.Element {
         <WireFigure value={partition.sessionId} />
       </div>
       <div className="meridian-browser-partitions__size">
-        {partition.size.status === "measured" ? (
+        {partition.size.kind === "served" ? (
           <WireFigure
             value={formatByteQuantity(partition.size.byteLength).text}
             title={String(partition.size.byteLength)}

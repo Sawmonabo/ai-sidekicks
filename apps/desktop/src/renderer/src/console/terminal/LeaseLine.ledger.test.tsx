@@ -53,6 +53,41 @@ describe("the transition ledger — one click away, every reason its own line", 
     expect(container.textContent).toContain("not the same as the shell never having moved");
   });
 
+  it("says which transitions are missing when the fold dropped the oldest", async () => {
+    // The disclosure's own label says forty-one; the feed holds five. Without the
+    // notice a person answering "who had it, and why did it move" reads a list that
+    // looks exhaustive, and the figure it does not match is one click away.
+    const { container } = renderLease(
+      leaseState({
+        holding: "unheld",
+        holderVouching: "vouched",
+        transitions,
+        transitionCount: 41,
+      }),
+    );
+    fireEvent.click(disclosureControl(container));
+    const notice = container.querySelector(".meridian-partial-read");
+    expect(notice?.textContent).toContain("5");
+    expect(notice?.textContent).toContain("read before this transition history was cut");
+    expect(notice?.textContent).toContain("what is not shown here may still exist");
+    // And the rows are still there: a notice withdraws the completeness claim, it
+    // does not replace the best reading the surface has.
+    expect(container.querySelectorAll(".meridian-lease-line__sentence")).toHaveLength(5);
+  });
+
+  it("negative control: an untruncated ledger claims completeness and says nothing", () => {
+    // The other half, and the one that makes the case above mean something: a notice
+    // rendered on every ledger would be a warning nobody reads. The fold kept every
+    // transition it counted, so the reading is `served` and `PartialRead` renders
+    // nothing at all.
+    const { container } = renderLease(
+      leaseState({ holding: "unheld", holderVouching: "vouched", transitions, transitionCount: 5 }),
+    );
+    fireEvent.click(disclosureControl(container));
+    expect(container.querySelector(".meridian-partial-read")).toBeNull();
+    expect(container.querySelectorAll(".meridian-lease-line__sentence")).toHaveLength(5);
+  });
+
   it("negative control: a ledger that named one reason five times would collapse them", () => {
     const collapsed = transitions.map((transition) => ({ ...transition, reason: "released" }));
     expect(new Set(collapsed.map((transition) => transition.reason)).size).toBe(1);

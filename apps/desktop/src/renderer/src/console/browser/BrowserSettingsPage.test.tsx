@@ -22,15 +22,15 @@ function servingAct(callLog: string[], name: string): SiteDataAct {
 }
 
 const READ_SWITCHES: BrowserSettingsPageProps["switchReadings"] = {
-  "file-boundary": { status: "read", enabled: false },
-  "page-tools": { status: "read", enabled: true },
+  "file-boundary": { kind: "served", enabled: false },
+  "page-tools": { kind: "served", enabled: true },
 };
 
 function partition(index: number, overrides?: Partial<BrowserSitePartition>): BrowserSitePartition {
   return {
     sessionId: `session-${String(index).padStart(2, "0")}`,
     sessionTitle: `Session ${String(index)}`,
-    size: { status: "measured", byteLength: 1048576 },
+    size: { kind: "served", byteLength: 1048576 },
     hasOpenPane: false,
     ...overrides,
   };
@@ -40,7 +40,7 @@ function renderPage(props: Partial<BrowserSettingsPageProps>): HTMLElement {
   const { container } = render(
     <BrowserSettingsPage
       switchReadings={READ_SWITCHES}
-      partitions={{ status: "read", partitions: [] }}
+      partitions={{ kind: "served", partitions: [] }}
       {...props}
     />,
   );
@@ -68,7 +68,7 @@ describe("browser settings page — scope", () => {
 
 describe("browser settings page — the empty partition table", () => {
   it("says no site data is stored and still shows the reset control", () => {
-    const page = renderPage({ partitions: { status: "read", partitions: [] } });
+    const page = renderPage({ partitions: { kind: "served", partitions: [] } });
     expect(page.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(page.textContent).toContain("No site data stored yet");
     const control = [...page.querySelectorAll("button")].find(
@@ -83,7 +83,7 @@ describe("browser settings page — the empty partition table", () => {
     // Scoped to the site-data section: the policy rows carry their own
     // `not-checked` badge when no writer is registered, and a page-wide query
     // would fail on a row that is doing exactly its job.
-    const section = renderPage({ partitions: { status: "read", partitions: [] } }).querySelector(
+    const section = renderPage({ partitions: { kind: "served", partitions: [] } }).querySelector(
       '[aria-label="Stored site data"]',
     );
     expect(section?.querySelector(".meridian-nothing--error")).toBeNull();
@@ -95,7 +95,8 @@ describe("browser settings page — the other listing states", () => {
   it("renders the daemon's refusal when the listing was not read", () => {
     const page = renderPage({
       partitions: {
-        status: "not-read",
+        kind: "refused",
+        scope: "whole-answer",
         refusal: refuse(
           "growth-port",
           "wire-unregistered",
@@ -109,18 +110,19 @@ describe("browser settings page — the other listing states", () => {
   });
 
   it("renders a skeleton while the sizes are being read", () => {
-    const page = renderPage({ partitions: { status: "reading" } });
+    const page = renderPage({ partitions: { kind: "reading" } });
     expect(page.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
   });
 
   it("renders the list without a figure when one size could not be measured", () => {
     const page = renderPage({
       partitions: {
-        status: "read",
+        kind: "served",
         partitions: [
           partition(1, {
             size: {
-              status: "unmeasured",
+              kind: "refused",
+              scope: "whole-answer",
               refusal: refuse(
                 "browser",
                 "browser.partition_unreadable",
@@ -141,11 +143,12 @@ describe("browser settings page — the other listing states", () => {
     // filled in with 0 B, which claims a partition holds nothing.
     const page = renderPage({
       partitions: {
-        status: "read",
+        kind: "served",
         partitions: [
           partition(1, {
             size: {
-              status: "unmeasured",
+              kind: "refused",
+              scope: "whole-answer",
               refusal: refuse("browser", "browser.partition_unreadable", "Unreadable."),
             },
           }),
@@ -159,7 +162,7 @@ describe("browser settings page — the other listing states", () => {
 describe("browser settings page — the fold", () => {
   it("shows ten rows and folds the rest", () => {
     const partitions = Array.from({ length: 13 }, (_unused, index) => partition(index + 1));
-    const page = renderPage({ partitions: { status: "read", partitions } });
+    const page = renderPage({ partitions: { kind: "served", partitions } });
     const fold = page.querySelector("details.meridian-browser-disclosure");
     expect(fold).not.toBeNull();
     expect(fold?.querySelector("summary")?.textContent).toBe("3 more");
@@ -170,7 +173,7 @@ describe("browser settings page — the fold", () => {
 
   it("does not fold a table that fits", () => {
     const partitions = Array.from({ length: 10 }, (_unused, index) => partition(index + 1));
-    const page = renderPage({ partitions: { status: "read", partitions } });
+    const page = renderPage({ partitions: { kind: "served", partitions } });
     expect(page.querySelector("details.meridian-browser-disclosure")).toBeNull();
     expect(page.querySelectorAll(".meridian-browser-partitions__row")).toHaveLength(10);
   });
@@ -179,7 +182,7 @@ describe("browser settings page — the fold", () => {
     // A slice that discarded the tail would pass "shows ten rows" and lose three
     // partitions an operator came here to clear.
     const partitions = Array.from({ length: 13 }, (_unused, index) => partition(index + 1));
-    const page = renderPage({ partitions: { status: "read", partitions } });
+    const page = renderPage({ partitions: { kind: "served", partitions } });
     expect(page.textContent).toContain("Session 13");
   });
 });
@@ -187,7 +190,7 @@ describe("browser settings page — the fold", () => {
 describe("browser settings page — arming a clear", () => {
   it("names what it clears before it will clear it", () => {
     const page = renderPage({
-      partitions: { status: "read", partitions: [partition(1)] },
+      partitions: { kind: "served", partitions: [partition(1)] },
       onClearSiteData: servingAct([], "clear"),
     });
     const arm = page.querySelector("details.meridian-browser-arm");
@@ -201,7 +204,7 @@ describe("browser settings page — arming a clear", () => {
     // Without this, the case above would pass over a row that printed its whole
     // consequence beside the control and armed nothing.
     const page = renderPage({
-      partitions: { status: "read", partitions: [partition(1)] },
+      partitions: { kind: "served", partitions: [partition(1)] },
       onClearSiteData: servingAct([], "clear"),
     });
     page.querySelector("details.meridian-browser-arm")?.remove();
@@ -211,7 +214,7 @@ describe("browser settings page — arming a clear", () => {
   it("confirms against the session the row names", async () => {
     const callLog: string[] = [];
     const page = renderPage({
-      partitions: { status: "read", partitions: [partition(7)] },
+      partitions: { kind: "served", partitions: [partition(7)] },
       onClearSiteData: servingAct(callLog, "clear"),
     });
     const confirm = [...page.querySelectorAll("button")].find((button) =>
@@ -224,7 +227,7 @@ describe("browser settings page — arming a clear", () => {
   });
 
   it("offers no confirm where no writer is registered, and says why", () => {
-    const page = renderPage({ partitions: { status: "read", partitions: [partition(1)] } });
+    const page = renderPage({ partitions: { kind: "served", partitions: [partition(1)] } });
     expect(page.querySelectorAll("button")).toHaveLength(0);
     expect(page.textContent).toContain("No writer registered");
   });
@@ -234,7 +237,7 @@ describe("browser settings page — arming a clear", () => {
     // open pane is the case the control exists for. A page that showed only the chip
     // here would state a condition and offer no way out of it.
     const page = renderPage({
-      partitions: { status: "read", partitions: [partition(1, { hasOpenPane: true })] },
+      partitions: { kind: "served", partitions: [partition(1, { hasOpenPane: true })] },
       onClosePane: servingAct([], "close"),
       onClearSiteData: servingAct([], "clear"),
     });
@@ -247,7 +250,7 @@ describe("browser settings page — arming a clear", () => {
     // Without this the case above would pass over a page that printed the close-first
     // sentence on partitions that have no pane open at all.
     const page = renderPage({
-      partitions: { status: "read", partitions: [partition(1)] },
+      partitions: { kind: "served", partitions: [partition(1)] },
       onClosePane: servingAct([], "close"),
       onClearSiteData: servingAct([], "clear"),
     });
@@ -258,7 +261,7 @@ describe("browser settings page — arming a clear", () => {
   it("renders a clear that failed on its own row", () => {
     const page = renderPage({
       partitions: {
-        status: "read",
+        kind: "served",
         partitions: [
           partition(1, {
             lastClearRefusal: refuse(
