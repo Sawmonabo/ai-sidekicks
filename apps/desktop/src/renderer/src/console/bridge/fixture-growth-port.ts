@@ -311,7 +311,7 @@ export function createFixtureGrowthPort(engine: ScenarioEngine): GrowthPort {
       // callback-tool registry next door: an invite ledger with no rows is an ordinary
       // session, whereas a withheld tool registry and an empty one are different
       // answers to different questions.
-      answerFromScriptedReply(engine, "invite.list", "invitesList", request, () => []),
+      answerFromScriptedReply(engine, "invites.list", "invitesList", request, () => []),
     // agent plane
     //
     // Each unscripted arm answers the EMPTY state of its own read rather than a

@@ -49,7 +49,7 @@ describe("the collaboration scenario", () => {
   });
 
   it("serves one pending invitation with an expiry", () => {
-    const invites = resolvingReplyFor("invite.list").result as readonly {
+    const invites = resolvingReplyFor("invites.list").result as readonly {
       state: string;
       expiresAt: string;
     }[];

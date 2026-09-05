@@ -366,7 +366,7 @@ export const COLLABORATION_SCENARIO: ConsoleScenario = {
       // The pending row expires forty seconds after the scenario starts, so a
       // console driven past that tick sees an invitation age out rather than one
       // frozen permanently on the brink.
-      call: "invite.list",
+      call: "invites.list",
       result: [
         { inviteId: INVITE_EXPIRING, state: "pending", expiresAt: "2026-01-01T10:05:40.000Z" },
         { inviteId: INVITE_ACCEPTED, state: "accepted", expiresAt: "2026-01-01T10:04:00.000Z" },
