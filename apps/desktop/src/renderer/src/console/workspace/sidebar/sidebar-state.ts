@@ -24,8 +24,7 @@ import { useSubjectScopedResource, useSubjectScopedState } from "../../store/ind
 import { RestoreProgress, refuseWorkspace } from "../layout/layout-persistence.js";
 import {
   CoalescingLayoutWriter,
-  flushAndCloseWriter,
-  isWriterRetired,
+  WRITER_RETIREMENT,
   type PersistedLayoutRecord,
 } from "../layout/layout-writer.js";
 import {
@@ -168,13 +167,10 @@ export function useSidebarLayout(options: SidebarPersistenceOptions): {
           );
         },
       }),
-    flushAndCloseWriter,
-    // `flushAndClose` is ONE-WAY: a retired writer drops every later request
-    // silently, so a holder that re-committed one after a double-mount would
-    // leave the person rearranging all session with nothing kept and no refusal
-    // raised. This reading is how the holder tells a retired writer from a live
-    // one and mints a fresh one instead.
-    isWriterRetired,
+    // The terminal arm: `flushAndClose` is ONE-WAY, and the reading beside it is how
+    // the holder tells a retired writer from a live one after React's double-mount
+    // rather than re-committing a writer that drops every later request in silence.
+    WRITER_RETIREMENT,
   );
 
   // Once per `(sidebar, session)`, for the reason `layout-persistence.ts` states: the

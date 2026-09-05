@@ -18,18 +18,8 @@ import {
   worstDegradedCause,
   type SessionDegradedCause,
 } from "./degradation.js";
-import type { ConsoleSessionEvent } from "./entities.js";
+import { eventOfKind } from "./session-event.test-support.js";
 import { SessionStore } from "./session-store.js";
-
-function eventAt(sequence: number): ConsoleSessionEvent {
-  return {
-    id: `event-${String(sequence)}`,
-    sessionId: "session-1",
-    sequence,
-    kind: "run.starting",
-    occurredAt: "2026-01-01T00:00:00.000Z",
-  };
-}
 
 /** An initialised store with nothing wrong with it. */
 function healthyStore(): SessionStore {
@@ -41,14 +31,14 @@ function healthyStore(): SessionStore {
 /** A store that could not follow the stream at all: the worst cause there is. */
 function divergedStore(): SessionStore {
   const store = healthyStore();
-  store.applyBatch([eventAt(MAX_REPAIRABLE_SEQUENCE_GAP + 2)]);
+  store.applyBatch([eventOfKind("session-1", "run.starting", MAX_REPAIRABLE_SEQUENCE_GAP + 2)]);
   return store;
 }
 
 /** A store missing one named row: a real cause, milder than divergence. */
 function gappedStore(): SessionStore {
   const store = healthyStore();
-  store.apply(eventAt(2));
+  store.apply(eventOfKind("session-1", "run.starting", 2));
   return store;
 }
 
@@ -148,7 +138,10 @@ describe("an external degradation reaching an already-degraded store", () => {
       cursor: 2,
       entities: [],
       participantJoinLog: [],
-      timeline: [eventAt(1), eventAt(2)],
+      timeline: [
+        eventOfKind("session-1", "run.starting", 1),
+        eventOfKind("session-1", "run.starting", 2),
+      ],
     });
 
     expect(store.snapshot().degradedCause).toBeUndefined();

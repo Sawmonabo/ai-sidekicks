@@ -18,27 +18,29 @@ import {
   type ReplaySpeed,
   type ReplayState,
 } from "../../structure/index.js";
-import { useSubjectScopedResource } from "../../../store/index.js";
+import { useSubjectScopedResource, type SubjectScopedDisposal } from "../../../store/index.js";
 import { isReplayEngaged } from "./ledger-replay-reveal.js";
 import { type LedgerWindowModel } from "../window/index.js";
 
 /**
- * The two disposal readings the resource holder is handed, at module scope.
+ * How a replay engine ends, and how an ended one is recognised. At module scope.
  *
- * MODULE SCOPE BECAUSE THE HOLDER HOLDS THEM ON A DEPENDENCY. `useSubjectScopedResource`
- * keeps its caller's `close` and `isClosed` in a layout effect keyed on their identity,
- * so a pair minted per render would restart that lifetime every pass. Two constants have
- * one identity for the module's life and nothing to close over.
+ * MODULE SCOPE BECAUSE THE HOLDER HOLDS IT ON A DEPENDENCY. `useSubjectScopedResource`
+ * keeps its caller's `dispose` and `isClosed` in a layout effect keyed on their
+ * identity, so an object minted per render would restart that lifetime every pass. One
+ * constant has one identity for the module's life and nothing to close over.
  *
- * AND THE READING COMES OFF THE ENGINE. Disposal is terminal there, so the engine can
- * answer it; this mount used to remember on the side which engines it had closed, which
- * was a second record of a fact the object already had.
+ * THE TERMINAL ARM, AND THE READING COMES OFF THE ENGINE. Disposal is one-way there,
+ * so the engine can answer whether it is past it; this mount used to remember on the
+ * side which engines it had closed, which was a second record of a fact the object
+ * already had.
  */
-const disposeReplayEngine = (engine: ReplayEngine): void => {
-  engine.dispose();
+const REPLAY_ENGINE_DISPOSAL: SubjectScopedDisposal<ReplayEngine> = {
+  dispose: (engine) => {
+    engine.dispose();
+  },
+  isClosed: (engine) => engine.isDisposed,
 };
-
-const isReplayEngineDisposed = (engine: ReplayEngine): boolean => engine.isDisposed;
 
 /** The replay dock's engine, its reveal, and the position it renders. */
 export interface LedgerReplayState {
@@ -237,13 +239,7 @@ export function useLedgerReplay(inputs: LedgerReplayInputs): LedgerReplayState {
     }
     return mintedEngine;
   }, [clock, walk]);
-  const engine = useSubjectScopedResource(
-    clock,
-    walkKey,
-    openEngine,
-    disposeReplayEngine,
-    isReplayEngineDisposed,
-  ).value;
+  const engine = useSubjectScopedResource(clock, walkKey, openEngine, REPLAY_ENGINE_DISPOSAL).value;
 
   useEffect(() => {
     setPosition(engine.position());

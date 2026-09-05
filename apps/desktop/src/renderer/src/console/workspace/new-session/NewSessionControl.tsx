@@ -50,7 +50,11 @@ import { useCallback, useEffect, useSyncExternalStore } from "react";
 
 import { SIDEKICK_POSTURE_MODES, type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, useAnnounce } from "../../primitives/index.js";
-import { useSubjectScopedResource, useSubjectScopedState } from "../../store/index.js";
+import {
+  useSubjectScopedResource,
+  useSubjectScopedState,
+  type SubjectScopedDisposal,
+} from "../../store/index.js";
 import {
   NewSessionDraft,
   type DraftPostureMode,
@@ -175,10 +179,17 @@ function noDraftUntilOpened(): NewSessionDraft | undefined {
  * The discard is the draft's own — "a draft that is closed empty reverts to nothing
  * and leaves no row" is a claim about what `discard()` does, so dropping the object
  * without it would make closing mean something else.
+ *
+ * THE RELEASING ARM: `discard()` clears the selections and leaves a working draft, so
+ * there is no closed state for the holder to recognise and a reading beside it would
+ * claim a lifetime that does not end. Declared at module scope because the hook holds
+ * the disposal on a dependency of its own.
  */
-function discardDraft(draft: NewSessionDraft | undefined): void {
-  draft?.discard();
-}
+const DRAFT_DISPOSAL: SubjectScopedDisposal<NewSessionDraft | undefined> = {
+  release: (draft) => {
+    draft?.discard();
+  },
+};
 
 /**
  * Hold the draft, and keep the rendered state in step with it.
@@ -192,7 +203,7 @@ function useNewSessionComposition(bridge: ConsoleBridge): NewSessionComposition 
     bridge,
     undefined,
     noDraftUntilOpened,
-    discardDraft,
+    DRAFT_DISPOSAL,
   );
   const openDraft = heldDraft.value;
   const publishDraft = heldDraft.publish;

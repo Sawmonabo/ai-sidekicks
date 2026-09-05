@@ -20,8 +20,7 @@ import { useSubjectScopedResource, useSubjectScopedState } from "../../store/ind
 import { type DeckLayout } from "../deck/deck-layout.js";
 import {
   CoalescingLayoutWriter,
-  flushAndCloseWriter,
-  isWriterRetired,
+  WRITER_RETIREMENT,
   type PersistedLayoutRecord,
 } from "./layout-writer.js";
 /** The durable record the deck's arrangement is saved under, per session. */
@@ -166,13 +165,10 @@ export function useDeckPersistence(options: DeckPersistenceOptions): readonly Co
           );
         },
       }),
-    flushAndCloseWriter,
-    // `flushAndClose` is ONE-WAY: a retired writer drops every later request
-    // silently, so a holder that re-committed one after a double-mount would
-    // leave the person rearranging all session with nothing kept and no refusal
-    // raised. This reading is how the holder tells a retired writer from a live
-    // one and mints a fresh one instead.
-    isWriterRetired,
+    // The terminal arm: `flushAndClose` is ONE-WAY, and the reading beside it is how
+    // the holder tells a retired writer from a live one after React's double-mount
+    // rather than re-committing a writer that drops every later request in silence.
+    WRITER_RETIREMENT,
   );
 
   // Closed until the read has landed, and re-armed for the session arriving rather than

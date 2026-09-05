@@ -1,0 +1,242 @@
+// The module trees this tier plants, and nothing that runs over them.
+//
+// Every constant here is a SUBJECT rather than a claim: a handful of console modules
+// written out at the relative paths the layering rules are anchored on, one tree per
+// shape a rule has to report or leave alone. The cruise harness is
+// `console-layering-cruise.ts` and the cases are `console-layering-rules.test.ts`,
+// both beside this file — the seam the tier already takes for `barrel-census.ts` and
+// `stylesheet-edge-graph.ts`: the corpus in a module of its own, the suite that
+// judges it next door.
+//
+// The split is what keeps any of the three readable. Five rules need seven trees
+// between them, each carrying the paragraph that says which rule it is the control
+// for and why it offends the set it does — and a file holding those beside the
+// harness, the budgets and the cases was doing three jobs at ~650 lines.
+//
+// WHY THESE ARE OBJECTS AND NOT FILES ON DISK. A tree is planted into a fresh
+// temporary directory by the harness and removed when the case that read it ends, so
+// nothing here is ever written into the repository; `apps/desktop/AGENTS.md`'s
+// temporary-directory rule is the harness's to keep, and these are its input.
+
+/** One planted tree: every module's path under `src/renderer/src/console/`, and its text. */
+export type PlantedTree = Readonly<Record<string, string>>;
+
+/**
+ * The shape the console has AFTER this change, reduced to the modules the five rules
+ * can see.
+ *
+ * Every member is here because a rule could misfire on it: the sub-module door that
+ * must stay legal, the family door that must reach past it to the declaring module,
+ * the composition site that imports a family door for a type in its signature, and
+ * two view families that mind their own business.
+ *
+ * THE PANE BOARD IS ONE FILE AND IT IMPORTS A DOOR. It held a pane BODY under a
+ * kind directory here until the bodies moved into the families that own them, and
+ * the tree it planted was clean only because the deep-import rule subtracted the
+ * board at its SOURCE end — the subtraction the two cases at the foot of this file
+ * now plant against.
+ */
+export const CLEAN_TREE: PlantedTree = {
+  "core/refusal.ts": `export interface ConsoleRefusal {\n  readonly code: string;\n}\n`,
+  "core/index.ts": `export type { ConsoleRefusal } from "./refusal.js";\n`,
+  "bridge/growth-values/sessions.ts": `export interface GrowthSessionSummary {\n  readonly sessionId: string;\n}\n`,
+  "bridge/growth-values/index.ts": `export type { GrowthSessionSummary } from "./sessions.js";\n`,
+  "bridge/growth-signatures.ts": `import type { GrowthSessionSummary } from "./growth-values/index.js";\n\nexport type SessionDirectoryReply = readonly GrowthSessionSummary[];\n`,
+  "bridge/index.ts": `export type { GrowthSessionSummary } from "./growth-values/sessions.js";\nexport type { SessionDirectoryReply } from "./growth-signatures.js";\n`,
+  "seats/pane-address.ts": `export interface ConsolePaneRegistry {\n  readonly size: number;\n}\n`,
+  "seats/index.ts": `export type { ConsolePaneRegistry } from "./pane-address.js";\n`,
+  "frame/surface-registry.ts": `export interface ConsoleSurfaceContext {\n  readonly slot: string;\n}\n`,
+  "frame/session-lifecycle.ts": `export interface ActiveSession {\n  readonly sessionId: string;\n}\n`,
+  "frame/index.ts": `export type { ActiveSession } from "./session-lifecycle.js";\n`,
+  "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  return registry.size;\n}\n`,
+  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../frame/surface-registry.js";\n\nexport type InviteRefusal = ConsoleRefusal & { readonly context: ConsoleSurfaceContext };\n`,
+  "repos/RepoList.ts": `import type { ConsoleRefusal } from "../core/index.js";\n\nexport type RepoRefusal = ConsoleRefusal;\n`,
+  "repos/index.ts": `export type { RepoRefusal } from "./RepoList.js";\n`,
+};
+
+/** The forward this change removed: a family door reaching another door instead of a module. */
+export const BARREL_CHAIN_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "bridge/index.ts": `export type { GrowthSessionSummary } from "./growth-values/index.js";\nexport type { SessionDirectoryReply } from "./growth-signatures.js";\n`,
+};
+
+/**
+ * The sibling edge the r9 rule set left green: one view family reaching another.
+ *
+ * Written through the target family's DOOR on purpose, so this tree offends exactly
+ * one rule. A deep specifier would offend the door rule as well, and a control that
+ * trips two rules cannot say which of them was the one that bit.
+ */
+export const VIEW_FAMILY_EDGE_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "collaboration/SentInvites.ts": `import type { RepoRefusal } from "../repos/index.js";\n\nexport type InviteRefusal = RepoRefusal;\n`,
+};
+
+/**
+ * The shape the door rule was added for: a view family reaching a layer family's
+ * MODULE, beside the one deep specifier the rule exempts by name.
+ *
+ * Both edges leave the same file, which is what makes this one tree two controls: the
+ * `frame/session-lifecycle.js` specifier must be reported, and the exempted
+ * `frame/surface-registry.js` specifier — carried over from the clean tree — must not.
+ * An exemption written against the family rather than the module would report neither.
+ */
+export const DEEP_IMPORT_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "collaboration/SentInvites.ts": `import type { ConsoleRefusal } from "../core/index.js";\nimport type { ConsoleSurfaceContext } from "../frame/surface-registry.js";\nimport type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type InviteRefusal = ConsoleRefusal & {\n  readonly context: ConsoleSurfaceContext;\n  readonly session: ActiveSession;\n};\n`,
+};
+
+/**
+ * A sub-module door reached from OUTSIDE its family, which `apps/desktop/AGENTS.md`
+ * says is not a sub-module door at all.
+ *
+ * The exemption in the rule matches a family door's single path segment, so this
+ * nested `index.ts` is not admitted by it — the claim this tree checks, since a
+ * regular expression written one segment looser would let any family publish a second
+ * door to the rest of the console.
+ */
+export const SUB_MODULE_DOOR_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "repos/RepoList.ts": `import type { GrowthSessionSummary } from "../bridge/growth-values/index.js";\n\nexport type RepoRefusal = GrowthSessionSummary;\n`,
+};
+
+/**
+ * A pane BODY parked under the composition site, planted from BOTH endpoints.
+ *
+ * The body has its own outgoing edge and the board imports it, because these rules
+ * match EDGES rather than directories: a body that imported nothing at all — a table,
+ * a closed set — would be reported by neither its own outgoing edges nor the orphan
+ * rule, since the board importing it gives it a dependent.
+ *
+ * The body reaches for another VIEW family rather than for a layer, and that is the
+ * second claim: under the board's old directory-wide exemption this edge was
+ * subtracted from the sibling-isolation rule on both endpoints and passed in silence.
+ * It reaches a MODULE rather than that family's door, which is the third: a body under
+ * the board is an ordinary view family in every respect, so the door rule holds it to
+ * the same specifier discipline as `repos/` or `collaboration/`.
+ */
+export const PANE_BOARD_SUBDIRECTORY_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "panes/runs/RunsPaneBody.ts": `import type { RepoRefusal } from "../../repos/RepoList.js";\n\nexport type RunsPaneRefusal = RepoRefusal;\n`,
+  "panes/index.ts": `import type { ConsolePaneRegistry } from "../seats/index.js";\nimport type { RunsPaneRefusal } from "./runs/RunsPaneBody.js";\n\nexport function registerConsolePanes(registry: ConsolePaneRegistry): number {\n  const refusal: RunsPaneRefusal | undefined = undefined;\n  return refusal === undefined ? registry.size : 0;\n}\n`,
+};
+
+/**
+ * The edge the deep-import rule's own source-end subtraction used to hide.
+ *
+ * FLAT, so the rule above does not fire and this tree offends exactly one rule. The
+ * console carried eleven specifiers of this shape while the subtraction stood, every
+ * one of them reaching a view family's projection or refusal helpers past its door,
+ * and the rule that was added to catch them reported none of them.
+ */
+export const PANE_BOARD_DEEP_IMPORT_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "panes/pane-chrome.ts": `import type { InviteRefusal } from "../collaboration/SentInvites.js";\n\nexport type PaneRefusal = InviteRefusal;\n`,
+};
+
+/**
+ * The clean shape again under a FRESH identity, for the cleanup proof below.
+ *
+ * A distinct object rather than one of the three above, because the memo answers a
+ * tree a case has already named without planting anything — so a proof about planting
+ * has to be the case that plants. Clean, so it asserts the same nothing the first case
+ * does and adds no second claim about the rules.
+ */
+export const PROOF_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "core/clock.ts": `export const NOW = 0;\n`,
+};
+
+/**
+ * A view family's SUB-DIRECTORY reaching a layer family's module, past that door.
+ *
+ * The shape found in production and cruised clean before this rule existed: a pane body
+ * two directories deep inside its family reaching `bridge/node-state-read.js` rather
+ * than `bridge/index.js`. Planted beside the family-root case because the source's DEPTH
+ * is the thing that could be got wrong — the rule captures the owning family from the
+ * first path segment, so a source one directory deeper has to resolve to the same owner
+ * and be held to the same target set.
+ */
+export const DEEP_SOURCE_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "repos/pane/node-presence-model.ts": `import type { GrowthSessionSummary } from "../../bridge/growth-signatures.js";\n\nexport type PresentNode = GrowthSessionSummary;\n`,
+};
+
+/**
+ * The door rule's ONE subtraction, planted so that widening it goes red.
+ *
+ * `.test-support.*` is subtracted from the door rule alone — a harness reaches for the
+ * symbols a door deliberately does not publish, and the barrel census fails a door line
+ * whose only reader is a test, so without the subtraction the module class has no legal
+ * form. The subtraction was the one arm of this rule set with no failing control, which
+ * means a pattern widened by one character would exempt every module in the console and
+ * nothing would go red.
+ *
+ * TWO MODULES WRITE THE SAME EDGE, and that is what makes this discriminating rather
+ * than a restatement: the harness is exempt and the ordinary module beside it is not, so
+ * a subtraction that stopped being narrow takes the ordinary module's violation with it
+ * and this control fails. One module alone would prove only that the exemption exists.
+ */
+export const TEST_SUPPORT_SUBTRACTION_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "repos/fixtures.test-support.ts": `import type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type SeededSession = ActiveSession;\n`,
+  "repos/RepoList.ts": `import type { ActiveSession } from "../frame/session-lifecycle.js";\n\nexport type RepoRefusal = ActiveSession;\n`,
+};
+
+/**
+ * A renderer subtree BESIDE the console reaching past a family door.
+ *
+ * Every other rule here is `from`-scoped to `console/`, so an importer that lives
+ * outside it matches none of them — which is how a Tier-1 subtree came to hold a
+ * `console/store/subject-scoped-state.js` specifier while three gates reported clean.
+ * The door import beside it is the other half of the control: an outside subtree
+ * reaching the DOOR is the shape the console offers and must stay legal.
+ */
+export const OUTSIDE_RENDERER_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "../session-bootstrap/SessionBootstrap.ts": `import type { ActiveSession } from "../console/frame/session-lifecycle.js";\n\nexport type BootstrapSession = ActiveSession;\n`,
+  "../session-members/SessionMembers.ts": `import type { RepoRefusal } from "../console/repos/index.js";\n\nexport type MemberRefusal = RepoRefusal;\n`,
+};
+
+/**
+ * A console ROOT module that is not one of the enumerated composition sites.
+ *
+ * The root is where a composition lives, and a composition is the one thing that may
+ * name more than one view family — so a file that lands there and is not on the list is
+ * a family importing a sibling with the isolation rule stepped around. That rule cannot
+ * see it: its `from` captures the owning DIRECTORY so it can subtract that family from
+ * its own targets, and a root file has no directory to capture.
+ *
+ * `families.ts` is planted beside it doing the same thing, which is the half that makes
+ * the enumeration a claim rather than a ban on root files.
+ */
+export const CONSOLE_ROOT_TREE: PlantedTree = {
+  ...CLEAN_TREE,
+  "families.ts": `import type { RepoRefusal } from "./repos/index.js";\n\nexport type FamilyRefusal = RepoRefusal;\n`,
+  "rogue-composition.ts": `import type { RepoRefusal } from "./repos/index.js";\n\nexport type RogueRefusal = RepoRefusal;\n`,
+};
+
+/**
+ * Every tree that carries a rule control — the clean shape and the ten that offend.
+ *
+ * The aggregate case below reads this rather than naming three of them, so a control
+ * added for a fifth rule joins that case's quantifier by construction. `PROOF_TREE` is
+ * deliberately not here: the cleanup case that plants it is the one case whose claim
+ * is that no earlier case named it.
+ */
+export const RULE_CONTROL_TREES: readonly PlantedTree[] = [
+  CLEAN_TREE,
+  BARREL_CHAIN_TREE,
+  VIEW_FAMILY_EDGE_TREE,
+  DEEP_IMPORT_TREE,
+  SUB_MODULE_DOOR_TREE,
+  PANE_BOARD_SUBDIRECTORY_TREE,
+  PANE_BOARD_DEEP_IMPORT_TREE,
+  DEEP_SOURCE_TREE,
+  TEST_SUPPORT_SUBTRACTION_TREE,
+  OUTSIDE_RENDERER_TREE,
+  CONSOLE_ROOT_TREE,
+];
+
+/** Every tree this file plants. The memo control bounds the cruise count on it. */
+export const EVERY_PLANTED_TREE: readonly PlantedTree[] = [...RULE_CONTROL_TREES, PROOF_TREE];

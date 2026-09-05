@@ -51,6 +51,8 @@
 // retirement is dropped rather than filed: the surface on screen holds the writer
 // bound to the live store, and that is where its arrangement belongs.
 
+import { type SubjectScopedDisposal } from "../../store/index.js";
+
 /**
  * The shape the persistence chokepoint's `layout` value class admits: an object of
  * objects whose members are numbers, booleans, and identifier-shaped strings.
@@ -167,26 +169,33 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   }
 }
 
-/**
- * How a retired writer ends, declared once and shared by both records.
- *
- * A module-level function rather than an arrow at each call site: the holder keeps
- * the disposal on a dependency of its own, and a fresh closure per render would
- * restart that lifetime effect on every pass for no change in what is open.
- */
-export function flushAndCloseWriter(writer: CoalescingLayoutWriter<PersistedLayoutRecord>): void {
+function flushAndCloseWriter(writer: CoalescingLayoutWriter<PersistedLayoutRecord>): void {
   writer.flushAndClose();
 }
 
-/**
- * Whether a writer is past its terminal — the reading
- * `store/subject-scoped-resource.ts` asks before it re-commits one.
- *
- * A module-level function beside the disposal it belongs with, for the reason that
- * one is: both are held on the lifetime rather than read from a render's closure, so
- * a fresh arrow per render would restart the lifetime effect on every pass. Its
- * siblings are `isReplayEngineDisposed` and the frame's two.
- */
-export function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>): boolean {
+function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>): boolean {
   return writer.isRetired;
 }
+
+/**
+ * How a retired writer ends, and how a retired one is recognised. Both records take it.
+ *
+ * THE TERMINAL ARM, BECAUSE `flushAndClose` IS ONE-WAY. A writer past it drops every
+ * later request in silence — no refusal raised, nothing on screen — so a holder that
+ * re-committed one after React's double-mount would leave a person rearranging all
+ * session with nothing kept. `store/subject-scoped-resource.ts` reads `isClosed`
+ * before it commits and mints a fresh writer instead, and the arm's shape is what
+ * makes the reading impossible to omit: `{ dispose }` alone matches neither arm.
+ *
+ * ONE MODULE-LEVEL OBJECT RATHER THAN A LITERAL AT EACH CALL SITE. The hook holds
+ * `dispose` and `isClosed` on a dependency of their own, so a fresh literal per render
+ * would restart that lifetime effect on every pass for no change in what is open —
+ * and the deck and the sidebar retire the same class of writer for the same reason,
+ * which is why this lives beside the class rather than twice above it.
+ */
+export const WRITER_RETIREMENT: SubjectScopedDisposal<
+  CoalescingLayoutWriter<PersistedLayoutRecord>
+> = {
+  dispose: flushAndCloseWriter,
+  isClosed: isWriterRetired,
+};
