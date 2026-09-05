@@ -19,7 +19,7 @@ import {
   unscriptedScenario,
 } from "../../bridge/fixture-bridge-overrides.test-support.js";
 import { withDaemonCall } from "../../bridge/fixture-bridge.test-support.js";
-import type { ConsoleBridge, ServedInvite } from "../../bridge/index.js";
+import type { ConsoleBridge, InvitesListOutcome, ServedInvite } from "../../bridge/index.js";
 import type { ConsoleScenario } from "../../bridge/scenario.js";
 import { formatClockTime, formatDateTime } from "../../primitives/index.js";
 import { SentInvites } from "./SentInvites.js";
@@ -515,6 +515,67 @@ describe("sent invites — the session a row and a control belong to", () => {
 
     await settle();
     expect(view.container.textContent ?? "").toContain(INVITE_FROM_B);
+  });
+
+  it("drops a read that answers after the surface has been back to the session it left", async () => {
+    // The A → B → A round-trip. `(bridge, sessionId)` compares EQUAL on the first and
+    // third visits, so a pair comparison — which is what this surface used to hold
+    // instead of the family's holder — reads a settlement from the first visit as
+    // current on the third and installs a ledger nobody asked for on this visit.
+    // The holder's addressing tells the two visits apart, so the stale answer is
+    // dropped and the third visit's own read is what lands.
+    let releaseFirstVisit: ((outcome: InvitesListOutcome) => void) | undefined;
+    let listCallCount = 0;
+    const bridge = fixtureBridgeWithGrowth(EMPTY_SCENARIO, {
+      invitesList: async () => {
+        listCallCount += 1;
+        if (listCallCount === 1) {
+          return await new Promise<InvitesListOutcome>((resolve) => {
+            releaseFirstVisit = resolve;
+          });
+        }
+        return await Promise.resolve({
+          status: "served",
+          value: [invite({ inviteId: INVITE_FROM_B })],
+        });
+      },
+    });
+
+    const view = render(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    await settle();
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} />);
+    await settle();
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    await settle();
+
+    // The first visit's read answers now, naming a row only that visit asked for.
+    await act(async () => {
+      releaseFirstVisit?.({
+        status: "served",
+        value: [invite({ inviteId: INVITE_FROM_A })],
+      });
+      await Promise.resolve();
+    });
+    await settle();
+
+    expect(view.container.textContent ?? "").not.toContain(INVITE_FROM_A);
+  });
+
+  it("negative control: the third visit's own read is what the ledger shows", async () => {
+    // Without this, the case above would pass over a ledger that showed no row at
+    // all after a round-trip — the stale answer dropped and the fresh one with it.
+    const bridge = bridgeServingPerSession({
+      [SESSION_A]: [invite({ inviteId: INVITE_FROM_A })],
+      [SESSION_B]: [invite({ inviteId: INVITE_FROM_B })],
+    });
+    const view = render(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    await settle();
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_B} />);
+    await settle();
+    view.rerender(<SentInvites bridge={bridge} sessionId={SESSION_A} />);
+    await settle();
+
+    expect(view.container.textContent ?? "").toContain(INVITE_FROM_A);
   });
 
   it("negative control: the frame before the move DOES carry the row it read", async () => {
