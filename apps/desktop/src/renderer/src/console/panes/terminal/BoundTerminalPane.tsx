@@ -41,8 +41,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import { membershipRoleOf } from "../../bridge/entity-body-reads.js";
-import type { ConsoleBridge } from "../../bridge/index.js";
+import { membershipRoleOf, type ConsoleBridge } from "../../bridge/index.js";
 import { InlineRefusal, Nothing } from "../../primitives/index.js";
 import {
   useCallerMembershipRole,

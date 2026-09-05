@@ -131,15 +131,10 @@ export type {
   SubjectScopedPublish,
 } from "./subject-scoped-holder.js";
 export type { SubjectScopedState } from "./subject-scoped-state.js";
-export {
-  /** @consumedBy T-023p-1C-8 */
-  GenerationLatch,
-  useGenerationLatch,
-} from "./generation-latch.js";
+export { GenerationLatch, useGenerationLatch } from "./generation-latch.js";
 export type {
   /** @consumedBy T-023p-1C-8 */
   CurrentGenerationClaim,
-  /** @consumedBy T-023p-1C-8 */
   GenerationClaim,
 } from "./generation-latch.js";
 // The caller's own membership role, forwarded with the two types a caller has to name
