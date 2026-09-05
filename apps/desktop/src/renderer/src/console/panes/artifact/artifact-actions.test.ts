@@ -17,100 +17,23 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleBridge } from "../../bridge/index.js";
-import { ConsoleRefusalError, ManualClock, REFRESH_DEBOUNCE_MS, refuse } from "../../core/index.js";
+import { ConsoleRefusalError, ManualClock, refuse } from "../../core/index.js";
 import { SessionStore } from "../../store/index.js";
 import { ArtifactPaneReader } from "./artifact-reader.js";
-
-/** The one session every case here reads, named once so a store and a row agree. */
-const SESSION_ID = "session-1";
-
-/** One manifest row as the growth port serves it, with every member populated. */
-const SERVED_SUMMARY = {
-  artifactId: "019b7b30-0280-7c11-8420-b1a5c0de2201",
-  sessionId: SESSION_ID,
-  runId: "019b7b30-0280-7c11-8420-b1a5c0de2202",
-  createdBy: "019b7b30-0280-7c11-8420-b1a5c0de2203",
-  artifactType: "diff",
-  digest: "sha256:2b4c",
-  size: 4096,
-  annotations: { "org.opencontainers.image.title": "rate-limit-wiring.patch" },
-  visibility: "shared",
-  state: "published",
-  replicationStatus: "pinned",
-  metadata: { mediaType: "text/x-patch", turnOrdinal: 12 },
-  createdAt: "2026-09-02T07:00:00.000Z",
-};
-
-/** A second artifact, so a case can press for bytes the pane is not already fetching. */
-const OTHER_ARTIFACT_ID = "019b7b30-0280-7c11-8420-b1a5c0de2299";
-
-/** The receipt a served delete answers with. Every member required, so all are here. */
-const DELETE_RECEIPT = {
-  artifactId: SERVED_SUMMARY.artifactId,
-  payloadDisposition: "reclaimed",
-  rePublishForeclosed: false,
-  deletedAt: "2026-09-02T07:05:00.000Z",
-} as const;
-
-const SERVED_DELETE = { status: "served", value: DELETE_RECEIPT };
-
-const REFUSAL = {
-  status: "unavailable",
-  code: "wire-unregistered",
-  detail: "Not checked — the artifact CRUD method strings are not registered yet.",
-  origin: "growth-port",
-};
-
-async function settle(): Promise<void> {
-  await new Promise((resolve) => setTimeout(resolve, 0));
-}
-
-/** Let the scheduler's coalescing window elapse, then let the read's awaits run. */
-async function readThrough(clock: ManualClock): Promise<void> {
-  clock.advance(REFRESH_DEBOUNCE_MS);
-  await settle();
-}
-
-/**
- * A delete whose answer lands under a refresh the participant started after
- * confirming it. The list read that refresh issues can have observed the artifact
- * BEFORE the daemon destroyed it, so it republishes a row the daemon no longer
- * holds — and the delete is the only party that knows better.
- */
-function readerRacingADelete(clock: ManualClock): {
-  readonly reader: ArtifactPaneReader;
-  readonly releaseDelete: (answer: unknown) => void;
-  readonly stopListingTheArtifact: () => void;
-} {
-  let listedSummaries: readonly unknown[] = [SERVED_SUMMARY];
-  let releaseDelete: (answer: unknown) => void = () => undefined;
-  const reader = new ArtifactPaneReader({
-    bridge: {
-      growth: {
-        artifactList: async () => ({ status: "served", value: listedSummaries }),
-        artifactAllowlistRead: async () => REFUSAL,
-        artifactDelete: () =>
-          new Promise((resolve) => {
-            releaseDelete = resolve;
-          }),
-      },
-    } as unknown as ConsoleBridge,
-    sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-    clock,
-  });
-  return {
-    reader,
-    releaseDelete: (answer) => releaseDelete(answer),
-    stopListingTheArtifact: () => {
-      listedSummaries = [];
-    },
-  };
-}
-
-function listedRowIds(reader: ArtifactPaneReader): readonly string[] {
-  const state = reader.snapshot.artifacts;
-  return state.kind === "listed" ? state.rows.map((row) => row.id) : [];
-}
+import {
+  DELETE_RECEIPT,
+  OTHER_ARTIFACT_ID,
+  REFUSAL,
+  SERVED_DELETE,
+  SERVED_SUMMARY,
+  SESSION_ID,
+  listedRowIds,
+  readThrough,
+  readerRacingADelete,
+  readerWithHeldPayloadFetch,
+  servedPayload,
+  settle,
+} from "./artifact-actions.test-support.js";
 
 describe("artifact pane actions — a served delete reconciles, superseded or not", () => {
   it("removes the row and reads again when nothing raced the delete", async () => {
@@ -178,169 +101,6 @@ describe("artifact pane actions — a served delete reconciles, superseded or no
     expect(listedRowIds(reader)).toStrictEqual([SERVED_SUMMARY.artifactId]);
     await readThrough(clock);
     expect(reader.performCount).toBe(1);
-  });
-});
-
-/**
- * A reader whose payload fetch is held open until a case releases it.
- *
- * The list serves one row throughout, so a refresh landing under a fetch is a real
- * refresh with a real answer rather than a refusal that changes nothing.
- */
-function readerWithHeldPayloadFetch(clock: ManualClock): {
-  readonly reader: ArtifactPaneReader;
-  readonly artifactRead: ReturnType<typeof vi.fn>;
-  readonly releaseRead: (answer: unknown) => void;
-} {
-  let releaseRead: (answer: unknown) => void = () => undefined;
-  const artifactRead = vi.fn(
-    () =>
-      new Promise((resolve) => {
-        releaseRead = resolve;
-      }),
-  );
-  const reader = new ArtifactPaneReader({
-    bridge: {
-      growth: {
-        artifactList: async () => ({ status: "served", value: [SERVED_SUMMARY] }),
-        artifactAllowlistRead: async () => REFUSAL,
-        artifactRead,
-        // Served for whichever row was asked about, so a case can delete the
-        // artifact whose bytes are on the wire AND a case can delete a different
-        // one. The receipt is the daemon's, so its `artifactId` follows the request.
-        artifactDelete: async ({ artifactId }: { artifactId: string }) => ({
-          status: "served",
-          value: { ...DELETE_RECEIPT, artifactId },
-        }),
-      },
-    } as unknown as ConsoleBridge,
-    sessionStore: new SessionStore({ sessionId: SESSION_ID }),
-    clock,
-  });
-  return { reader, artifactRead, releaseRead: (answer) => releaseRead(answer) };
-}
-
-/** One served inline payload, as the reply's own union carries it. */
-function servedPayload(artifactId: string, text: string): unknown {
-  return {
-    status: "served",
-    value: {
-      manifest: { ...SERVED_SUMMARY, artifactId },
-      payloadHandle: "sha256:2b4c",
-      payloadEncoding: "utf8",
-      payload: text,
-    },
-  };
-}
-
-describe("artifact pane actions — one payload fetch in flight, each with its own identity", () => {
-  it("sends one fetch when the control is pressed twice, and refuses the second in words", async () => {
-    // The bug, exercised: both presses used to capture the same refresh stamp, both
-    // reached the port, and both replies passed the supersession check — so the older
-    // answer could overwrite the newer bytes AND the newer manifest beside them.
-    const clock = new ManualClock();
-    const { reader, artifactRead, releaseRead } = readerWithHeldPayloadFetch(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const firstPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    const secondPress = await reader.fetchPayload(OTHER_ARTIFACT_ID);
-
-    expect(artifactRead).toHaveBeenCalledTimes(1);
-    expect(secondPress.status).toBe("refused");
-    expect(secondPress.status === "refused" ? secondPress.refusal.code : undefined).toBe(
-      "payload-fetch-in-flight",
-    );
-    // The sentence names the artifact the pane is WAITING on, not the one pressed.
-    expect(secondPress.status === "refused" ? secondPress.refusal.detail : "").toContain(
-      SERVED_SUMMARY.artifactId,
-    );
-    // The refusal stands beside the row it was pressed on; the payload arm still
-    // belongs to the fetch that is genuinely outstanding.
-    expect(reader.snapshot.refusalByArtifactId.get(OTHER_ARTIFACT_ID)?.code).toBe(
-      "payload-fetch-in-flight",
-    );
-    expect(reader.snapshot.payload).toStrictEqual({
-      status: "fetching",
-      artifactId: SERVED_SUMMARY.artifactId,
-    });
-
-    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "the first press"));
-    expect((await firstPress).status).toBe("settled");
-    expect(reader.snapshot.payload.status === "text" ? reader.snapshot.payload.text : "").toBe(
-      "the first press",
-    );
-  });
-
-  it("drops a settlement whose request the register has given up", async () => {
-    // The identity check, exercised. A disposal takes the register out from under a
-    // continuation, and an answer that writes anyway would publish onto a pane that
-    // unmounted — and, on a reader that had taken a successor, over its bytes.
-    const clock = new ManualClock();
-    const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    reader.dispose();
-    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "an answer nobody is waiting for"));
-
-    expect(await press).toStrictEqual({ status: "superseded" });
-    expect(reader.snapshot.payload).toStrictEqual({
-      status: "fetching",
-      artifactId: SERVED_SUMMARY.artifactId,
-    });
-  });
-
-  it("negative control: a list refresh under a fetch neither cancels it nor loses its answer", async () => {
-    // Without this the register above could have been the refresh stamp again, which
-    // is what it used to be: a refresh landing under a fetch returned `superseded` and
-    // published nothing, leaving the reading on the in-flight absence with no answer
-    // ever coming — and, with the control held on that arm, held forever.
-    const clock = new ManualClock();
-    const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    reader.refresh();
-    await readThrough(clock);
-    expect(reader.performCount).toBe(2);
-
-    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "the bytes the press asked for"));
-
-    expect((await press).status).toBe("settled");
-    expect(reader.snapshot.payload.status === "text" ? reader.snapshot.payload.text : "").toBe(
-      "the bytes the press asked for",
-    );
-  });
-
-  it("negative control: the register is given back, so a later press is sent rather than refused", async () => {
-    // Without this a register that was taken and never released would pass every case
-    // above and refuse the second fetch a participant ever asks for, for the life of
-    // the pane.
-    const clock = new ManualClock();
-    const { reader, artifactRead, releaseRead } = readerWithHeldPayloadFetch(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const firstPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "first"));
-    await firstPress;
-
-    const secondPress = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "second"));
-
-    expect((await secondPress).status).toBe("settled");
-    expect(artifactRead).toHaveBeenCalledTimes(2);
-    expect(reader.snapshot.payload.status === "text" ? reader.snapshot.payload.text : "").toBe(
-      "second",
-    );
   });
 });
 
@@ -488,79 +248,6 @@ describe("artifact pane actions — a rejected call is an answer, not a stuck pa
       "wire-unregistered",
     );
     expect(refused.status === "refused" ? refused.refusal.origin : undefined).toBe("growth-port");
-  });
-});
-
-describe("artifact pane actions — a delete supersedes the fetch for the row it destroyed", () => {
-  it("drops a payload settlement the delete overtook", async () => {
-    // The bug, exercised: press Fetch, confirm Delete before the bytes arrive, and
-    // let the read the daemon completed BEFORE the delete be delivered after it. The
-    // publish cleared the visible payload and left the register alone, so the
-    // continuation passed the identity check and put the destroyed manifest's bytes
-    // back — and the reconciling list read carries a payload arm forward rather than
-    // clearing it, so the stale preview stayed until somebody refreshed by hand.
-    const clock = new ManualClock();
-    const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    expect(reader.snapshot.payload.status).toBe("fetching");
-
-    const deletion = await reader.deleteArtifact(SERVED_SUMMARY.artifactId);
-    expect(deletion.status).toBe("settled");
-    expect(reader.snapshot.payload).toStrictEqual({ status: "not-checked" });
-
-    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "bytes of a manifest that is gone"));
-
-    expect(await press).toStrictEqual({ status: "superseded" });
-    expect(reader.snapshot.payload).toStrictEqual({ status: "not-checked" });
-    // And the row stays off the list: the late answer also carries a manifest, which
-    // a republished payload would have brought back with it.
-    expect(listedRowIds(reader)).toStrictEqual([]);
-  });
-
-  it("gives the control back, so the next artifact can be fetched at once", async () => {
-    // The second symptom of the same untouched register. The reading said nothing
-    // was being fetched while the register said one was, so the next press was
-    // refused in words by a pane that was offering the control.
-    const clock = new ManualClock();
-    const { reader, artifactRead, releaseRead } = readerWithHeldPayloadFetch(clock);
-    reader.start();
-    await readThrough(clock);
-
-    void reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    await reader.deleteArtifact(SERVED_SUMMARY.artifactId);
-
-    const nextPress = reader.fetchPayload(OTHER_ARTIFACT_ID);
-    await settle();
-    expect(artifactRead).toHaveBeenCalledTimes(2);
-    releaseRead(servedPayload(OTHER_ARTIFACT_ID, "the next artifact's bytes"));
-    expect((await nextPress).status).toBe("settled");
-  });
-
-  it("negative control: a delete of another row leaves the fetch standing", async () => {
-    // Without this, clearing the register on every served delete would throw away
-    // the answer to a fetch the delete says nothing about — a participant deleting
-    // one artifact would silently lose the preview they had just asked for of
-    // another, and the pane would report `superseded` for work it did do.
-    const clock = new ManualClock();
-    const { reader, releaseRead } = readerWithHeldPayloadFetch(clock);
-    reader.start();
-    await readThrough(clock);
-
-    const press = reader.fetchPayload(SERVED_SUMMARY.artifactId);
-    await settle();
-    await reader.deleteArtifact(OTHER_ARTIFACT_ID);
-
-    releaseRead(servedPayload(SERVED_SUMMARY.artifactId, "the bytes the press asked for"));
-
-    expect((await press).status).toBe("settled");
-    expect(reader.snapshot.payload.status === "text" ? reader.snapshot.payload.text : "").toBe(
-      "the bytes the press asked for",
-    );
   });
 });
 
