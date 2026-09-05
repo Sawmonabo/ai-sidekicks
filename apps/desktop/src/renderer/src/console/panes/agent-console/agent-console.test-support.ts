@@ -83,6 +83,10 @@ export function snapshotEnabling(enabled: boolean): SessionSnapshot {
  */
 export function bridgeReadingProjection(
   sessionRead: ConsoleBridge["growth"]["sessionRead"],
+  alsoServing: Partial<ConsoleBridge["growth"]> = {},
 ): ConsoleBridge {
-  return fixtureBridgeWithGrowth(unscriptedScenario("agent-console-projection"), { sessionRead });
+  return fixtureBridgeWithGrowth(unscriptedScenario("agent-console-projection"), {
+    sessionRead,
+    ...alsoServing,
+  });
 }

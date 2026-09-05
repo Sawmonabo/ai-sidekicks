@@ -1,213 +1,35 @@
-// Which controls exist, and what the two apply actions actually submit.
+// What a move CLEARS, and what an inherited axis holds back.
 //
-// The load-bearing case is the one where a capability is NOT declared: the control
-// is absent, never disabled, because a disabled control asserts that the operation
-// exists and is momentarily unavailable — and the daemon would refuse it outright.
+// The axes are a chain: a model belongs to one driver, an effort vocabulary is
+// published per model, and a provider account belongs to one provider. So a driver
+// move retires values the other fields were chosen from — and the load-bearing rule
+// is that the whole RESOLVED binding is tested and not only the draft, because an
+// axis the agent already runs under is just as retired by a move as one being edited.
+//
+// The other direction — the binding moving underneath a draft the caller is still
+// editing, where the draft has to be rebased rather than dropped — is
+// `ProviderSwitch.draft.test.tsx`. Which controls exist and what a press submits is
+// `ProviderSwitch.controls.test.tsx`.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { refuse } from "../../core/index.js";
+import type { AgentRosterEntry } from "../../bridge/index.js";
+import type { PushDrivenReadState } from "../../seats/index.js";
+import { OVERLAPPING_DRIVER_CATALOG_FIXTURE } from "../driver-catalog.test-support.js";
+import type { DriverCatalogReading } from "../driver-catalog.js";
 import { ProviderSwitch } from "./ProviderSwitch.js";
 import {
-  DRIVER_CATALOG_FIXTURE,
-  OVERLAPPING_DRIVER_CATALOG_FIXTURE,
-} from "../driver-catalog.test-support.js";
-import type { AgentRosterEntry } from "../../bridge/index.js";
-import type { DriverCatalogReading } from "../driver-catalog.js";
-import type { PushDrivenReadState } from "../../seats/index.js";
-
-const LOADED: PushDrivenReadState<DriverCatalogReading> = {
-  kind: "loaded",
-  value: DRIVER_CATALOG_FIXTURE,
-};
-
-const ON_CLAUDE: AgentRosterEntry = {
-  agentId: "agent-scout",
-  name: "Scout",
-  state: "ready",
-  driverName: "claude",
-  modelId: "claude-sonnet",
-};
-
-const ON_CODEX: AgentRosterEntry = { ...ON_CLAUDE, driverName: "codex", modelId: "gpt-5.6" };
-
-function fieldLabels(container: HTMLElement): string[] {
-  return [...container.querySelectorAll(".meridian-axis-field__label")].map(
-    (element) => element.textContent ?? "",
-  );
-}
-
-/** What the account field currently shows, which is the draft's answer for that axis. */
-function providerAccountValue(container: HTMLElement): string {
-  const input = container.querySelector(".meridian-axis-field__text") as HTMLInputElement | null;
-  return input?.value ?? "";
-}
-
-/** Edits one axis through the plain text input, which needs no popup to open. */
-function editProviderAccount(container: HTMLElement, value: string): void {
-  const input = container.querySelector(".meridian-axis-field__text");
-  fireEvent.change(input as HTMLInputElement, { target: { value } });
-}
-
-/** The combobox field carrying one label, found by the label a person reads. */
-function axisField(container: HTMLElement, label: string): HTMLElement | undefined {
-  return [...container.querySelectorAll(".meridian-axis-field")].find(
-    (field) => field.querySelector(".meridian-axis-field__label")?.textContent === label,
-  ) as HTMLElement | undefined;
-}
-
-/** Opens one axis's popup and chooses a published option, the way a person does. */
-function chooseAxisValue(container: HTMLElement, label: string, value: string): void {
-  const field = axisField(container, label);
-  expect(field).not.toBeUndefined();
-  fireEvent.click(field?.querySelector(".meridian-axis-field__trigger") as HTMLElement);
-  const option = [...document.querySelectorAll(".meridian-axis-field__option")].find(
-    (candidate) => candidate.textContent === value,
-  );
-  expect(option).not.toBeUndefined();
-  fireEvent.click(option as HTMLElement);
-}
-
-/** What one combobox currently shows, which is the draft's own answer for that axis. */
-function axisValueOf(container: HTMLElement, label: string): string {
-  return (
-    axisField(container, label)?.querySelector(".meridian-axis-field__trigger")?.textContent ?? ""
-  );
-}
-
-function applyActions(container: HTMLElement): HTMLButtonElement[] {
-  return [...container.querySelectorAll(".meridian-switch__apply")] as HTMLButtonElement[];
-}
-
-describe("provider switch — before the vocabularies are known", () => {
-  it("names the read that is in flight and offers no axis to set", () => {
-    const { container } = render(
-      <ProviderSwitch agent={ON_CLAUDE} catalog={{ kind: "not-loaded" }} onApply={() => {}} />,
-    );
-    expect(container.textContent ?? "").toContain("Reading what this agent may be moved to");
-    expect(container.querySelector(".meridian-axis-field")).toBeNull();
-  });
-
-  it("renders the refusal rather than an empty form", () => {
-    const { container } = render(
-      <ProviderSwitch
-        agent={ON_CLAUDE}
-        catalog={{ kind: "failed", refusal: refuse("driver-catalog", "read-failed", "no route") }}
-        onApply={() => {}}
-      />,
-    );
-    expect(container.textContent ?? "").toContain("no route");
-    expect(container.querySelector(".meridian-axis-field")).toBeNull();
-  });
-});
-
-describe("provider switch — an undeclared capability has no control at all", () => {
-  it("omits the output-speed control for a driver that declares no speed axis", () => {
-    const { container } = render(
-      <ProviderSwitch agent={ON_CODEX} catalog={LOADED} onApply={() => {}} />,
-    );
-    expect(fieldLabels(container)).not.toContain("Output speed");
-    // Absent, not disabled — the whole point of the rule.
-    expect(container.querySelector("[disabled]")).toBeNull();
-  });
-
-  it("negative control: the declaring driver does get that control", () => {
-    // Without this, the case above would pass over a form that never drew the axis
-    // for anyone, which would hide a real regression rather than prove the rule.
-    const { container } = render(
-      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
-    );
-    expect(fieldLabels(container)).toContain("Output speed");
-  });
-
-  it("always offers the driver axis, which is gated by no flag", () => {
-    for (const agent of [ON_CLAUDE, ON_CODEX]) {
-      const { container } = render(
-        <ProviderSwitch agent={agent} catalog={LOADED} onApply={() => {}} />,
-      );
-      expect(fieldLabels(container)).toContain("Driver");
-    }
-  });
-});
-
-describe("provider switch — the consequences are stated before the action is offered", () => {
-  it("offers no apply action until an axis has actually been edited", () => {
-    const { container } = render(
-      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
-    );
-    expect(container.querySelectorAll(".meridian-switch__apply").length).toBe(0);
-    expect(container.textContent ?? "").not.toContain("prompt cache");
-  });
-
-  it("states the cache loss and names the pending switch it would displace", () => {
-    const { container } = render(
-      <ProviderSwitch
-        agent={{
-          ...ON_CLAUDE,
-          pendingSwitch: {
-            switchId: "switch-7",
-            appliesAt: "run_boundary",
-            interruptRequested: false,
-            pendingAxes: [{ axis: "effort", value: "low" }],
-          },
-        }}
-        catalog={LOADED}
-        onApply={() => {}}
-      />,
-    );
-    editProviderAccount(container, "account-2");
-    const text = container.textContent ?? "";
-    expect(text).toContain("prompt cache");
-    expect(text).toContain("switch-7");
-    expect(container.querySelectorAll(".meridian-switch__apply").length).toBe(2);
-  });
-
-  it("negative control: with nothing pending it claims to displace nothing", () => {
-    const { container } = render(
-      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
-    );
-    editProviderAccount(container, "account-2");
-    expect(container.textContent ?? "").toContain("prompt cache");
-    expect(container.textContent ?? "").not.toContain("supersedes the switch already pending");
-  });
-});
-
-describe("provider switch — what each apply action submits", () => {
-  it("submits the edited axes and no interrupt on the deferred action", () => {
-    const onApply = vi.fn();
-    const { container } = render(
-      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={onApply} />,
-    );
-    editProviderAccount(container, "account-2");
-    const [deferred] = [...container.querySelectorAll(".meridian-switch__apply")];
-    fireEvent.click(deferred as HTMLButtonElement);
-    expect(onApply).toHaveBeenCalledWith({ providerAccountId: "account-2" }, false);
-  });
-
-  it("negative control: the second action carries the interrupt flag instead", () => {
-    // Two actions that submitted the same flag would make one of them a lie about
-    // when the switch lands.
-    const onApply = vi.fn();
-    const { container } = render(
-      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={onApply} />,
-    );
-    editProviderAccount(container, "account-2");
-    const actions = [...container.querySelectorAll(".meridian-switch__apply")];
-    fireEvent.click(actions[1] as HTMLButtonElement);
-    expect(onApply).toHaveBeenCalledWith({ providerAccountId: "account-2" }, true);
-  });
-
-  it("drops an axis cleared back to empty rather than submitting a blank value", () => {
-    const onApply = vi.fn();
-    const { container } = render(
-      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={onApply} />,
-    );
-    editProviderAccount(container, "account-2");
-    editProviderAccount(container, "");
-    expect(container.querySelectorAll(".meridian-switch__apply").length).toBe(0);
-  });
-});
+  LOADED,
+  ON_CLAUDE,
+  applyActions,
+  axisField,
+  axisValueOf,
+  chooseAxisValue,
+  editProviderAccount,
+  fieldLabels,
+  providerAccountValue,
+} from "./provider-switch.test-support.js";
 
 describe("provider switch — a driver move clears the axes that driver governs", () => {
   it("clears the model and effort the previous driver published", () => {
@@ -398,31 +220,6 @@ describe("provider switch — a driver move clears the axes that driver governs"
   });
 });
 
-describe("provider switch — the settlement rides the reply", () => {
-  it("renders the settlement it was handed", () => {
-    const { container } = render(
-      <ProviderSwitch
-        agent={ON_CLAUDE}
-        catalog={LOADED}
-        onApply={() => {}}
-        settlement={{
-          status: "applied",
-          continuity: "memo",
-          declaredLosses: ["context_truncated"],
-        }}
-      />,
-    );
-    expect(container.textContent ?? "").toContain("switched");
-  });
-
-  it("negative control: no settlement renders no settlement line", () => {
-    const { container } = render(
-      <ProviderSwitch agent={ON_CLAUDE} catalog={LOADED} onApply={() => {}} />,
-    );
-    expect(container.querySelector(".meridian-settlement")).toBeNull();
-  });
-});
-
 describe("provider switch — an inherited axis is held to the chain it lands in", () => {
   /** The overlapping reading, where two models of one driver disagree about effort. */
   const OVERLAPPING: PushDrivenReadState<DriverCatalogReading> = {
@@ -533,75 +330,5 @@ describe("provider switch — an inherited axis is held to the chain it lands in
     expect(axisValueOf(container, "Effort")).toBe("high");
     chooseAxisValue(container, "Model", "claude-only");
     expect(axisValueOf(container, "Effort")).toBe("high");
-  });
-});
-
-describe("provider switch — the draft follows the binding it is a difference from", () => {
-  /** The same mount, re-rendered with the agent as the roster now reports it. */
-  function withAgent(agent: AgentRosterEntry): React.JSX.Element {
-    return <ProviderSwitch agent={agent} catalog={LOADED} onApply={() => {}} />;
-  }
-
-  const ON_ACCOUNT_ONE: AgentRosterEntry = {
-    ...ON_CLAUDE,
-    config: { providerAccountId: "account-1" },
-  };
-
-  it("clears a draft the binding has caught up with, and takes the actions away", () => {
-    // The defect: the component stays mounted — its key is the agent — so a terminal
-    // event applying the switch left the old draft in front of the new authoritative
-    // values, with both actions live and a second, now redundant, switch to submit.
-    const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
-    editProviderAccount(container, "account-2");
-    expect(applyActions(container).length).toBe(2);
-
-    rerender(withAgent({ ...ON_ACCOUNT_ONE, config: { providerAccountId: "account-2" } }));
-
-    expect(applyActions(container).length).toBe(0);
-    expect(providerAccountValue(container)).toBe("account-2");
-  });
-
-  it("keeps an axis still being edited and rebases it onto the new values", () => {
-    const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
-    chooseAxisValue(container, "Output speed", "fast");
-    editProviderAccount(container, "account-2");
-
-    // The speed landed; the account edit is still the participant's.
-    rerender(
-      withAgent({
-        ...ON_ACCOUNT_ONE,
-        config: { providerAccountId: "account-1", outputSpeed: "fast" },
-      }),
-    );
-
-    expect(applyActions(container).length).toBe(2);
-    expect(providerAccountValue(container)).toBe("account-2");
-    expect(axisValueOf(container, "Output speed")).toBe("fast");
-  });
-
-  it("negative control: a re-read that changed nothing leaves the draft alone", () => {
-    // The roster answers with a fresh object every read, so a draft cleared by
-    // identity rather than by value would lose the participant's work on a refresh
-    // that moved nothing at all.
-    const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
-    editProviderAccount(container, "account-2");
-
-    rerender(withAgent({ ...ON_ACCOUNT_ONE, config: { providerAccountId: "account-1" } }));
-
-    expect(applyActions(container).length).toBe(2);
-    expect(providerAccountValue(container)).toBe("account-2");
-  });
-
-  it("does not bring a settled draft back when the binding moves on again", () => {
-    // The stamp advances rather than only being compared: measured against the
-    // binding the draft was born under, `account-2` would read as an edit again the
-    // moment someone else moved the account somewhere else.
-    const { container, rerender } = render(withAgent(ON_ACCOUNT_ONE));
-    editProviderAccount(container, "account-2");
-    rerender(withAgent({ ...ON_ACCOUNT_ONE, config: { providerAccountId: "account-2" } }));
-    rerender(withAgent({ ...ON_ACCOUNT_ONE, config: { providerAccountId: "account-3" } }));
-
-    expect(applyActions(container).length).toBe(0);
-    expect(providerAccountValue(container)).toBe("account-3");
   });
 });
